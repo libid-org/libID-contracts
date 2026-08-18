@@ -48,6 +48,9 @@ mod names_inner {
             function resolvePair(bytes32 platformId, string calldata handle, string calldata userId) external view returns (address);
             function reverseOf(address wallet, bytes32 platformId) external view returns (string memory);
             function primaryOf(address wallet, bytes32 platformId) external view returns (string memory);
+            /// The platform's rules as configured now. Reverts for a platform
+            /// that is not usable, like the resolvers.
+            function rulesOf(bytes32 platformId) external view returns (Rules memory);
 
             /// Carries the ceremony version that proved the binding -- logged,
             /// never stored, because nothing on chain acts on it and an

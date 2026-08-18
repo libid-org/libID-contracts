@@ -737,6 +737,231 @@ async fn deploys_and_initializes_every_platform_verifier() {
     );
 }
 
+/// (e2) The handle escrow against a real chain: deploy it over the identity
+/// stack, pay a handle nobody has claimed, and watch two spellings land in one
+/// slot.
+///
+/// The platform is made usable the way a deployment makes it: a keyspace, and
+/// a real Platform Verifier registered with the Proof Verifier. Nothing here
+/// calls that verifier — the escrow only reads `rulesOf` and `resolveHandle`,
+/// which answer once the Proof Verifier `verifiesPlatform`.
+///
+/// The payout path is covered by the Solidity suite, which stages claims
+/// through a stub Platform Verifier. That stub deliberately does NOT ship in
+/// this crate's artifacts: it reports whatever a caller stages, so a copy
+/// reachable from a deploy tool is a way to mint any identity on a live chain.
+/// What is left for Rust is what Rust owns — the artifact deploys, the binding
+/// shapes, and the slot derivation agreeing with the contract.
+#[tokio::test]
+async fn escrows_value_against_an_unclaimed_handle() {
+    use alloy::{
+        hex,
+        sol_types::{
+            SolError,
+            SolValue,
+        },
+    };
+    use libid_contracts::{
+        bindings::escrow::HandleEscrow,
+        circuits::{
+            deploy_honk_verifiers,
+            Circuit,
+        },
+        platform_verifier::{
+            deploy_platform_verifier,
+            Initializer,
+            PlatformVerifier,
+            TlsNotaryRoots,
+        },
+    };
+
+    let provider = test_provider();
+    let artifacts = Artifacts::embedded();
+    let deployer = default_signer(&provider).await;
+    let stranger = provider.get_accounts().await.unwrap()[1];
+
+    let notary_proxy = deploy_behind_proxy(
+        &provider,
+        &artifacts,
+        "NotaryService",
+        &NotaryService::initializeCall {
+            owner_: deployer,
+            notary_: Address::repeat_byte(0x11),
+            fee_: U256::from(1_000),
+        },
+        None,
+    )
+    .await
+    .unwrap();
+    let proof_verifier_proxy = deploy_behind_proxy(
+        &provider,
+        &artifacts,
+        "CeremonyProofVerifier",
+        &CeremonyProofVerifier::initializeCall { owner_: deployer },
+        None,
+    )
+    .await
+    .unwrap();
+    let names_proxy = deploy_behind_proxy(
+        &provider,
+        &artifacts,
+        "IdentityNames",
+        &IdentityNames::initializeCall { owner_: deployer },
+        None,
+    )
+    .await
+    .unwrap();
+
+    let platform_id = keccak256(b"github");
+    assert_eq!(
+        platform_id,
+        PlatformVerifier::GitHub.platform_id(),
+        "the test and the crate name GitHub differently"
+    );
+    let names = IdentityNames::new(names_proxy, &provider);
+    names
+        .setProofVerifier(proof_verifier_proxy)
+        .send()
+        .await
+        .unwrap()
+        .get_receipt()
+        .await
+        .unwrap();
+    names
+        .setPlatform(
+            platform_id,
+            IdentityNames::Rules {
+                maxLength: 39,
+                stripLeadingAt: true,
+                isEmail: false,
+                allowUnderscore: false,
+                allowHyphen: true,
+            },
+        )
+        .send()
+        .await
+        .unwrap()
+        .get_receipt()
+        .await
+        .unwrap();
+
+    // A keyspace alone is not a usable platform: nothing could claim what
+    // the escrow would hold for it.
+    assert!(
+        names.rulesOf(platform_id).call().await.is_err(),
+        "a platform nothing verifies answered rulesOf"
+    );
+
+    // The real GitHub Platform Verifier, on the real Honk verifier for its
+    // circuit, registered as version 1.
+    let honk = deploy_honk_verifiers(&provider, &artifacts, &[Circuit::BearerLink], None)
+        .await
+        .unwrap()
+        .verifiers[&Circuit::BearerLink];
+    let github = Initializer::GitHub(TlsNotaryRoots {
+        owner: deployer,
+        notary_service: notary_proxy,
+        honk_verifier: honk,
+        proof_lifetime: libid_profiles::PROOF_LIFETIME_SECONDS_X,
+        max_future_attestation_skew: libid_profiles::MAX_FUTURE_ATTESTATION_SKEW_SECONDS,
+        future_observation_allowance: 300,
+    });
+    let github_proxy = deploy_platform_verifier(&provider, &artifacts, &github, None)
+        .await
+        .unwrap();
+    CeremonyProofVerifier::new(proof_verifier_proxy, &provider)
+        .setVerifier(platform_id, 1, github_proxy)
+        .send()
+        .await
+        .unwrap()
+        .get_receipt()
+        .await
+        .unwrap();
+    assert!(
+        names.rulesOf(platform_id).call().await.unwrap().allowHyphen,
+        "the registered platform does not report its rules"
+    );
+
+    let escrow_proxy = deploy_behind_proxy(
+        &provider,
+        &artifacts,
+        "HandleEscrow",
+        &HandleEscrow::initializeCall {
+            owner_: deployer,
+            names_: names_proxy,
+        },
+        None,
+    )
+    .await
+    .unwrap();
+    let escrow = HandleEscrow::new(escrow_proxy, &provider);
+    assert_eq!(escrow.names().call().await.unwrap(), names_proxy);
+
+    // The slot a client computes off chain has to be the slot the contract
+    // keys on, or an indexer watches the wrong one.
+    let slot_v1 = keccak256(b"libid.escrow.handle-slot.v1");
+    let computed =
+        keccak256((slot_v1, platform_id, keccak256(b"alice-1")).abi_encode_params());
+    assert_eq!(
+        escrow
+            .slotOf(platform_id, " Alice-1 ".into())
+            .call()
+            .await
+            .unwrap(),
+        computed,
+        "Rust and the contract derive different slots"
+    );
+
+    // Two spellings of one handle, paid before anybody holds it.
+    let amount = U256::from(1_000_000_000_000_000_000u64);
+    for spelling in [" Alice-1 ", "alice-1"] {
+        escrow
+            .deposit(platform_id, spelling.into(), Address::ZERO, amount)
+            .value(amount)
+            .send()
+            .await
+            .unwrap()
+            .get_receipt()
+            .await
+            .unwrap();
+    }
+    assert_eq!(
+        escrow
+            .escrowed(platform_id, "ALICE-1".into(), Address::ZERO)
+            .call()
+            .await
+            .unwrap(),
+        amount * U256::from(2),
+        "the two spellings did not accumulate in one slot"
+    );
+    assert_eq!(
+        escrow
+            .escrowedAt(computed, Address::ZERO)
+            .call()
+            .await
+            .unwrap(),
+        amount * U256::from(2),
+        "the balance is not at the slot Rust computed"
+    );
+
+    // Nobody holds the handle, so nobody can take it. The AUTHORIZATION
+    // refusal specifically: a bare `is_err`
+    // would also pass on a mistyped platform, an unwired one or an RPC
+    // hiccup, so it would stay green with the holder check removed.
+    let err = escrow
+        .claim(platform_id, "alice-1".into(), Address::ZERO, stranger)
+        .from(stranger)
+        .call()
+        .await
+        .err()
+        .expect("an unheld handle was claimable")
+        .to_string();
+    assert!(
+        err.contains(&hex::encode(HandleEscrow::NotTheHolder::SELECTOR)),
+        "refused for the wrong reason: {err}"
+    );
+}
+
 /// (f) The two Honk verifiers through `deploy_honk_verifiers`: each library
 /// is deployed once and both verifiers link against it — four transactions
 /// for the set, not six — and each lands under EIP-170 and answers for its

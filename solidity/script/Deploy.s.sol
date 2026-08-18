@@ -10,14 +10,17 @@ import {CeremonyProofVerifier} from "../contracts/ceremony/CeremonyProofVerifier
 import {IProofVerifier} from "../contracts/ceremony/IProofVerifier.sol";
 import {HandleVectors} from "../contracts/identity/HandleVectors.sol";
 import {GoogleJwtRoots} from "../contracts/ceremony/GoogleJwtRoots.sol";
+import {HandleEscrow} from "../contracts/escrow/HandleEscrow.sol";
+import {IIdentityNames} from "../contracts/escrow/IIdentityNames.sol";
 
 /// @notice Deploy the identity stack to any EVM chain.
 ///
-/// Four UUPS proxies, in dependency order: the Notary Service every notarized
+/// Five UUPS proxies, in dependency order: the Notary Service every notarized
 /// session is verified through, the Proof Verifier the naming system
 /// dispatches claims through, the naming system itself with a keyspace per
-/// platform, and the Google JWT root list that pays the Notary Service for
-/// each rotation. No Platform Verifier is registered here -- that needs the
+/// platform, the Google JWT root list that pays the Notary Service for each
+/// rotation, and the handle escrow that holds value sent to a name nobody has
+/// claimed yet. No Platform Verifier is registered here -- that needs the
 /// ceremony circuit artifacts, which arrive with their own release.
 ///
 /// Usage:
@@ -96,6 +99,19 @@ contract Deploy is Script {
             )
         );
 
+        // 5. The handle escrow: value sent to a name before anybody claims it.
+        //
+        //    Wired to the naming proxy and never repointed -- moving it would
+        //    redirect every entitlement it holds, so there is no setter and
+        //    changing it is an upgrade.
+        HandleEscrow escrowImpl = new HandleEscrow();
+        address handleEscrowAddr = address(
+            new ERC1967Proxy(
+                address(escrowImpl),
+                abi.encodeCall(HandleEscrow.initialize, (deployer, IIdentityNames(identityNamesAddr)))
+            )
+        );
+
         vm.stopBroadcast();
 
         console.log("=== Deployment complete ===");
@@ -104,6 +120,7 @@ contract Deploy is Script {
         console.log("CEREMONY_PROOF_VERIFIER_ADDRESS= ", proofVerifierAddr);
         console.log("IDENTITY_NAMES_ADDRESS= ", identityNamesAddr);
         console.log("GOOGLE_JWT_ROOTS_ADDRESS= ", jwtRootsAddr);
+        console.log("HANDLE_ESCROW_ADDRESS= ", handleEscrowAddr);
         console.log("NOTE: no Platform Verifier is registered yet. Add one with");
         console.log("      CeremonyProofVerifier.setVerifier once the ceremony");
         console.log("      circuit artifacts are released. Until then a platform");

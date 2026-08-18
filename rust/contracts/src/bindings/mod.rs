@@ -4,6 +4,7 @@
 pub mod ceremony;
 pub mod circuits;
 pub mod ens;
+pub mod escrow;
 pub mod factory;
 pub mod identity;
 pub mod proxy;
