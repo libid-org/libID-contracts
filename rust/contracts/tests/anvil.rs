@@ -877,3 +877,149 @@ async fn deploys_the_linked_honk_verifiers_over_their_own_circuits() {
             .unwrap()
     );
 }
+
+/// (g) The other half of the sharing rule, on a case the vendored verifiers
+/// cannot provide while their libraries are identical: `LinkFixture.sol`
+/// links libraries NAMED `RelationsLib` and `ZKTranscriptLib` whose bytecode
+/// is its own, read from the forge `out/` the crate's artifacts were vendored
+/// from. Deployed in one set with the two circuits, its libraries are two
+/// more deployments, not two more links against the verifiers' — the key is
+/// the bytecode, never the name — and every contract still runs on what it
+/// was compiled against.
+#[tokio::test]
+async fn a_library_with_other_bytecode_under_the_same_name_is_not_shared() {
+    use alloy::sol;
+    use libid_contracts::{
+        circuits::{
+            Circuit,
+            LIBRARIES,
+        },
+        deploy::{
+            library_address,
+            Libraries,
+        },
+    };
+
+    sol! {
+        #[sol(rpc)]
+        interface ILinkFixture {
+            function relate(uint256 value) external pure returns (uint256);
+            function transcribe(uint256 value) external pure returns (uint256);
+        }
+    }
+
+    // The raw forge output: the fixture is a test source, not a covered
+    // contract, so it is not among the embedded artifacts.
+    let out = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../solidity/out");
+    assert!(
+        out.join("LinkFixture.sol/LinkFixture.json").is_file(),
+        "no LinkFixture artifact under {}: run `forge build` in solidity/",
+        out.display()
+    );
+    let artifacts = Artifacts::from_dir(&out);
+    let provider = test_provider();
+    let deployer = default_signer(&provider).await;
+    const FIXTURE: &str = "LinkFixture";
+
+    // The fixture's libraries really differ from bb's, name for name.
+    for library in LIBRARIES {
+        assert_ne!(
+            artifacts.bytecode_named(FIXTURE, library).unwrap(),
+            artifacts
+                .bytecode_named(Circuit::BearerLink.contract(), library)
+                .unwrap(),
+            "{library}: the fixture compiled to bb's bytecode"
+        );
+    }
+
+    let before = provider.get_transaction_count(deployer).await.unwrap();
+    let libraries = Libraries::deploy(
+        &provider,
+        &artifacts,
+        &[
+            (
+                Circuit::BearerLink.contract(),
+                Circuit::BearerLink.contract(),
+            ),
+            (
+                Circuit::OidcGoogle.contract(),
+                Circuit::OidcGoogle.contract(),
+            ),
+            (FIXTURE, FIXTURE),
+        ],
+        None,
+    )
+    .await
+    .unwrap();
+    // Two names, three files, four deployments: the circuits' pair once,
+    // the fixture's pair on their own.
+    assert_eq!(libraries.distinct().count(), 2 * LIBRARIES.len());
+    assert_eq!(
+        provider.get_transaction_count(deployer).await.unwrap() - before,
+        (2 * LIBRARIES.len()) as u64
+    );
+    for library in LIBRARIES {
+        let bb = libraries
+            .address(Circuit::BearerLink.contract(), library)
+            .unwrap();
+        assert_eq!(
+            libraries.address(Circuit::OidcGoogle.contract(), library),
+            Some(bb)
+        );
+        let own = libraries.address(FIXTURE, library).unwrap();
+        assert_ne!(
+            own, bb,
+            "{library}: shared by name across different bytecode"
+        );
+        assert_eq!(
+            own,
+            library_address(&artifacts.bytecode_named(FIXTURE, library).unwrap())
+        );
+    }
+
+    // The fixture links its own copies and runs on them.
+    let fixture = deploy_contract(
+        &provider,
+        libraries.link(&artifacts, FIXTURE, FIXTURE).unwrap(),
+        FIXTURE,
+    )
+    .await
+    .unwrap();
+    let code = provider.get_code_at(fixture).await.unwrap();
+    for library in LIBRARIES {
+        let own = libraries.address(FIXTURE, library).unwrap();
+        let bb = libraries
+            .address(Circuit::BearerLink.contract(), library)
+            .unwrap();
+        assert!(code.windows(20).any(|window| window == own.as_slice()));
+        assert!(!code.windows(20).any(|window| window == bb.as_slice()));
+    }
+    let fixture = ILinkFixture::new(fixture, &provider);
+    assert_eq!(
+        fixture.relate(U256::from(41)).call().await.unwrap(),
+        U256::from(42)
+    );
+    assert_eq!(
+        fixture.transcribe(U256::from(21)).call().await.unwrap(),
+        U256::from(42)
+    );
+
+    // A contract whose library is not in the set cannot be linked against
+    // what happens to share a name with it.
+    let only_bb = Libraries::deploy(
+        &provider,
+        &artifacts,
+        &[(
+            Circuit::BearerLink.contract(),
+            Circuit::BearerLink.contract(),
+        )],
+        None,
+    )
+    .await
+    .unwrap();
+    let err = only_bb.link(&artifacts, FIXTURE, FIXTURE).unwrap_err();
+    assert!(
+        err.to_string().contains("not among the deployed libraries"),
+        "{err}"
+    );
+}
