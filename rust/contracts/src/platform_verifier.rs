@@ -13,10 +13,13 @@
 //! [`deploy_platform_verifier`] puts the implementation behind a fresh
 //! ERC1967 proxy with it.
 //!
-//! The Honk verifier itself is not this crate's to deploy: it is
-//! bb-generated from a `libid-circuits` release verification key, and a
-//! Platform Verifier pins whichever one governance selected, by address AND
-//! by code hash.
+//! The Honk verifier a Platform Verifier pins is vendored here too
+//! ([`circuits`](crate::circuits)): bb-generated in `libid-circuits` from
+//! the circuit's verification key, deployed with its libraries linked by
+//! [`deploy_honk_verifier`](crate::circuits::deploy_honk_verifier). Which
+//! circuit a platform proves under is [`PlatformVerifier::circuit`]; the
+//! contract pins whichever address governance names, by address AND by
+//! code hash.
 
 use alloy::{
     primitives::{
@@ -34,6 +37,7 @@ use crate::{
         GooglePlatformVerifier,
         TlsNotaryPlatformVerifier,
     },
+    circuits::Circuit,
     deploy::deploy_behind_proxy,
     error::{
         Error,
@@ -90,6 +94,15 @@ impl PlatformVerifier {
     /// of the bare name.
     pub fn platform_id(self) -> B256 {
         keccak256(self.platform().as_bytes())
+    }
+
+    /// The ceremony circuit this platform's proofs are made under, and so
+    /// which vendored Honk verifier its `honk_verifier` should be.
+    pub const fn circuit(self) -> Circuit {
+        match self {
+            Self::X | Self::GitHub => Circuit::BearerLink,
+            Self::Google => Circuit::OidcGoogle,
+        }
     }
 
     /// Whether the profile notarizes any session, and so whether its
@@ -392,6 +405,18 @@ mod tests {
             assert_eq!(verifier.platform_id(), keccak256(profile.platform));
         }
         assert_eq!(PlatformVerifier::ALL.len(), libid_profiles::LAUNCH.len());
+    }
+
+    /// Every circuit has a platform proving under it: a vendored verifier
+    /// no platform pins would be dead weight in every consumer's binary.
+    #[test]
+    fn every_circuit_serves_a_platform() {
+        for circuit in Circuit::ALL {
+            assert!(
+                PlatformVerifier::ALL.iter().any(|v| v.circuit() == circuit),
+                "{circuit:?} serves no platform"
+            );
+        }
     }
 
     /// Every verifier's contract is one the crate vendors.

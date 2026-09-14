@@ -39,11 +39,18 @@ pub const COVERED: &[(&str, &str)] = &[
     ("CeremonyProofVerifier", "CeremonyProofVerifier"),
     ("ERC1967Proxy", "ERC1967Proxy"),
     ("GoogleJwtRoots", "GoogleJwtRoots"),
-    // ceremony: the launch Platform Verifiers (one per profile; the UltraHonk
-    // verifier each pins comes from the circuits release, not from here)
+    // ceremony: the launch Platform Verifiers (one per profile)
     ("XPlatformVerifier", "XPlatformVerifier"),
     ("GitHubPlatformVerifier", "GitHubPlatformVerifier"),
     ("GooglePlatformVerifier", "GooglePlatformVerifier"),
+    // circuits: the UltraHonk verifiers the Platform Verifiers pin, vendored
+    // from the libid-circuits release, each with the two libraries it links
+    ("BearerLinkHonkVerifier", "BearerLinkHonkVerifier"),
+    ("BearerLinkHonkVerifier", "RelationsLib"),
+    ("BearerLinkHonkVerifier", "ZKTranscriptLib"),
+    ("OidcGoogleHonkVerifier", "OidcGoogleHonkVerifier"),
+    ("OidcGoogleHonkVerifier", "RelationsLib"),
+    ("OidcGoogleHonkVerifier", "ZKTranscriptLib"),
     // identity
     ("IdentityNames", "IdentityNames"),
     // ens (deployed once per network, not CREATE3-canonical)
@@ -82,17 +89,22 @@ impl Artifacts {
 
     /// The raw artifact JSON for `out/<file>.sol/<contract>.json`.
     pub fn raw(&self, file: &str, contract: &str) -> Result<serde_json::Value> {
-        let rel = format!("{file}.sol/{contract}.json");
+        self.read_json(&format!("{file}.sol/{contract}.json"))
+    }
+
+    /// Any JSON file at `rel` inside the source: an artifact, or the
+    /// `circuits.json` pin the vendor script copies in beside them.
+    pub(crate) fn read_json(&self, rel: &str) -> Result<serde_json::Value> {
         let contents = match &self.source {
             Source::Embedded => EMBEDDED
-                .get_file(&rel)
+                .get_file(rel)
                 .and_then(|f| f.contents_utf8())
                 .map(str::to_owned)
                 .ok_or_else(|| Error::Artifact {
                     detail: format!("no embedded artifact {rel}"),
                 })?,
             Source::Dir(dir) => {
-                let path = dir.join(&rel);
+                let path = dir.join(rel);
                 std::fs::read_to_string(&path).map_err(|e| Error::Artifact {
                     detail: format!("failed to read artifact {}: {e}", path.display()),
                 })?
@@ -130,11 +142,12 @@ impl Artifacts {
 
     /// Creation bytecode with every external library it references deployed
     /// (recursively) through `provider` and linked in. Mirrors what forge does
-    /// automatically. Nothing covered today links a library; the UltraHonk
-    /// verifiers the ceremony circuits bring link `ZKTranscriptLib`, and this
-    /// is the path they will deploy through. For artifacts with no link
-    /// references this behaves like [`Self::bytecode_named`] (no transaction
-    /// is sent).
+    /// automatically. The two UltraHonk verifiers are what links a library
+    /// today — `RelationsLib` and `ZKTranscriptLib`, vendored beside each —
+    /// and [`deploy_honk_verifier`](crate::circuits::deploy_honk_verifier)
+    /// is the one call that takes them through here and deploys the result.
+    /// For artifacts with no link references this behaves like
+    /// [`Self::bytecode_named`] (no transaction is sent).
     ///
     /// `sender` opts into explicit nonce management (see
     /// [`deploy_contract_from`](crate::deploy::deploy_contract_from)).
@@ -207,8 +220,8 @@ mod tests {
     use super::*;
 
     /// Every covered contract's creation bytecode is present and non-empty.
-    /// Only the hex is checked here so a future artifact with link
-    /// placeholders still passes; linking is the anvil tests' business.
+    /// Only the hex is checked here so the artifacts with link placeholders
+    /// (the Honk verifiers) pass too; linking is the anvil tests' business.
     #[test]
     fn every_covered_contract_has_bytecode() {
         let artifacts = Artifacts::embedded();
@@ -223,23 +236,50 @@ mod tests {
         }
     }
 
-    /// Contracts without link references decode straight to bytes — which is
-    /// every covered contract today, so this doubles as the check that none of
-    /// them silently grew a library dependency the vendor script must follow.
+    /// Contracts without link references decode straight to bytes, and the
+    /// ones with them are exactly the two Honk verifiers — so this doubles
+    /// as the check that nothing else silently grew a library dependency,
+    /// and that every library a linked contract names is covered under its
+    /// own file, where the vendor script and the linker look for it.
     #[test]
-    fn unlinked_contracts_decode() {
+    fn unlinked_contracts_decode_and_linked_ones_are_the_honk_verifiers() {
         let artifacts = Artifacts::embedded();
+        let mut linked = Vec::new();
         for &(file, contract) in COVERED {
-            if artifacts
-                .link_references(file, contract)
-                .unwrap()
-                .is_empty()
-            {
+            let refs = artifacts.link_references(file, contract).unwrap();
+            if refs.is_empty() {
                 let bytecode = artifacts
                     .bytecode_named(file, contract)
                     .unwrap_or_else(|e| panic!("{file}.sol:{contract}: {e}"));
                 assert!(!bytecode.is_empty());
+                continue;
+            }
+            linked.push((file, contract));
+            let err = artifacts.bytecode_named(file, contract).unwrap_err();
+            assert!(
+                err.to_string().contains("unresolved link references"),
+                "{file}.sol:{contract}: {err}"
+            );
+            for (path, libs) in &refs {
+                let stem = std::path::Path::new(path)
+                    .file_stem()
+                    .and_then(|s| s.to_str())
+                    .unwrap();
+                for library in libs.as_object().unwrap().keys() {
+                    assert!(
+                        COVERED.contains(&(stem, library.as_str())),
+                        "{file}.sol:{contract} links {stem}.sol:{library}, which is not covered"
+                    );
+                }
             }
         }
+        linked.sort_unstable();
+        assert_eq!(
+            linked,
+            [
+                ("BearerLinkHonkVerifier", "BearerLinkHonkVerifier"),
+                ("OidcGoogleHonkVerifier", "OidcGoogleHonkVerifier"),
+            ]
+        );
     }
 }

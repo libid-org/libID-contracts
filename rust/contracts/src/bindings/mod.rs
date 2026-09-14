@@ -2,6 +2,7 @@
 //! sources in `solidity/contracts`. One module per contract directory.
 
 pub mod ceremony;
+pub mod circuits;
 pub mod ens;
 pub mod factory;
 pub mod identity;

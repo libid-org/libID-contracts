@@ -230,9 +230,10 @@ pub async fn upgrade_uups<P: Provider>(
 /// artifacts with no `linkReferences` this behaves like
 /// [`Artifacts::bytecode_named`] and sends nothing.
 ///
-/// Kept although nothing covered today links a library: the bb-generated
-/// UltraHonk verifiers link `ZKTranscriptLib`, and the ones the ceremony
-/// circuits release will deploy through this path when they land.
+/// The bb-generated UltraHonk verifiers are what goes through here: each
+/// links `RelationsLib` and `ZKTranscriptLib`, and
+/// [`deploy_honk_verifier`](crate::circuits::deploy_honk_verifier) is the
+/// call that links and deploys one.
 pub async fn load_linked_bytecode<P: Provider>(
     provider: &P,
     artifacts: &Artifacts,

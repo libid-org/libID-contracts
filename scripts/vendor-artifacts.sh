@@ -6,8 +6,10 @@
 # rust/contracts/artifacts/<File>.sol/<Name>.json, pruned to the fields the
 # crate reads: bytecode.object, bytecode.linkReferences, methodIdentifiers.
 # Libraries referenced through linkReferences are followed transitively and
-# vendored too (none of the covered contracts links one today; the Honk
-# verifiers the ceremony circuits will bring do).
+# vendored too: the two Honk verifiers link RelationsLib and ZKTranscriptLib,
+# and both are listed below as well so the list and the crate's COVERED agree
+# line for line. The circuits pin rides along as circuits.json, so the crate
+# can say which libid-circuits release its verifiers came from.
 #
 # The result is NOT committed: rust/contracts/artifacts is gitignored and
 # regenerated on demand. Run this before any cargo command in rust/ — the
@@ -24,6 +26,7 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 OUT="$REPO_ROOT/solidity/out"
 DEST="$REPO_ROOT/rust/contracts/artifacts"
+CIRCUITS_PIN="$REPO_ROOT/solidity/contracts/circuits/circuits.json"
 
 # "<File>:<Contract>" — the artifact lives at out/<File>.sol/<Contract>.json.
 # Keep in sync with the covered-contract list in rust/contracts/src/artifacts.rs.
@@ -33,11 +36,20 @@ ARTIFACTS=(
     "CeremonyProofVerifier:CeremonyProofVerifier"
     "ERC1967Proxy:ERC1967Proxy"
     "GoogleJwtRoots:GoogleJwtRoots"
-    # ceremony: the launch Platform Verifiers (one per profile; the UltraHonk
-    # verifier each pins comes from the circuits release, not from here)
+    # ceremony: the launch Platform Verifiers (one per profile)
     "XPlatformVerifier:XPlatformVerifier"
     "GitHubPlatformVerifier:GitHubPlatformVerifier"
     "GooglePlatformVerifier:GooglePlatformVerifier"
+    # circuits: the UltraHonk verifiers the Platform Verifiers pin, vendored
+    # from the libid-circuits release by scripts/vendor-circuit-verifiers.sh,
+    # each with the two libraries it links (bb emits them as external
+    # libraries, so they are deployed contracts the verifier is linked to)
+    "BearerLinkHonkVerifier:BearerLinkHonkVerifier"
+    "BearerLinkHonkVerifier:RelationsLib"
+    "BearerLinkHonkVerifier:ZKTranscriptLib"
+    "OidcGoogleHonkVerifier:OidcGoogleHonkVerifier"
+    "OidcGoogleHonkVerifier:RelationsLib"
+    "OidcGoogleHonkVerifier:ZKTranscriptLib"
     # identity
     "IdentityNames:IdentityNames"
     # ens (deployed once per network, not CREATE3-canonical; embedded so a
@@ -105,6 +117,8 @@ while [[ ${#queue[@]} -gt 0 ]]; do
                     | .value | keys[]
                     | "\($p):\(.)"' "$src")
 done
+
+cp "$CIRCUITS_PIN" "$STAGE/circuits.json"
 
 rm -rf "$DEST"
 mkdir -p "$(dirname "$DEST")"
