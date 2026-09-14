@@ -13,10 +13,18 @@
 //!
 //! bb emits `RelationsLib` and `ZKTranscriptLib` as external libraries, so a
 //! verifier's creation code carries a placeholder per call site until each
-//! library is deployed and its address linked in. [`deploy_honk_verifier`]
-//! does all of that and returns the verifier's address, which is what a
+//! library is deployed and its address linked in. bb writes a copy of both
+//! into every verifier it generates, and forge links a verifier only
+//! against the copies of its own file; the copies compile to the same
+//! bytecode, and [`Libraries`] deploys each distinct bytecode once, at an
+//! address derived from it, so every verifier links against the one
+//! deployment. [`deploy_honk_verifiers`] does that for a set of circuits
+//! and [`deploy_honk_verifier`] for one; either returns the address a
 //! [`platform_verifier::Initializer`](crate::platform_verifier::Initializer)
-//! pins — by address and by the code hash it reads off the chain.
+//! pins — by address and by the code hash it reads off the chain, which
+//! covers the library addresses linked into the verifier's code.
+
+use std::collections::BTreeMap;
 
 use alloy::{
     primitives::Address,
@@ -25,7 +33,10 @@ use alloy::{
 
 use crate::{
     artifacts::Artifacts,
-    deploy::deploy_contract_from,
+    deploy::{
+        deploy_contract_from,
+        Libraries,
+    },
     error::{
         Error,
         Result,
@@ -37,7 +48,7 @@ use crate::{
 /// Two, not three: `oidc-google` proves the Google ID Token, and
 /// `bearer-link` ties a token exchange to an identity for X and GitHub
 /// alike, because their statements are the same.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Circuit {
     /// The token-exchange circuit, shared by the `x/v1` and `github/v1`
     /// profiles.
@@ -72,7 +83,9 @@ impl Circuit {
 }
 
 /// The external libraries every bb verifier links, vendored beside it under
-/// its own `.sol` file (the shape `linkReferences` names them in).
+/// its own `.sol` file (the shape `linkReferences` names them in). Which
+/// verifiers share a deployment of one is decided by its bytecode at deploy
+/// time, not here.
 pub const LIBRARIES: [&str; 2] = ["RelationsLib", "ZKTranscriptLib"];
 
 /// The `libid-circuits` release the vendored verifiers came from, read from
@@ -95,19 +108,78 @@ pub fn version(artifacts: &Artifacts) -> Result<String> {
         })
 }
 
-/// Deploy `circuit`'s Honk verifier with its libraries linked, and return
-/// its address.
+/// What [`deploy_honk_verifiers`] put on the chain.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct HonkVerifiers {
+    /// Each circuit's verifier, its libraries linked.
+    pub verifiers: BTreeMap<Circuit, Address>,
+    /// The libraries they link: one deployment per distinct bytecode, and
+    /// which address each verifier's file links against.
+    pub libraries: Libraries,
+}
+
+/// Deploy the Honk verifiers of `circuits`, sharing every library whose
+/// bytecode they have in common, and return their addresses.
 ///
-/// Each library is deployed first and its address substituted into the
-/// verifier's creation code, then the verifier itself; deploying the
-/// placeholder would produce a contract that reverts on every proof. Three
-/// transactions per circuit. The libraries are not shared between the two
-/// circuits: each verifier's file carries its own copy, and forge links a
-/// verifier only against the libraries of its own file.
+/// The libraries first, through [`Libraries::deploy`]: one deployment per
+/// distinct creation code, however many circuits carry a copy, and none for
+/// a bytecode already at its address. Then each verifier, its placeholders
+/// substituted with the addresses its own file resolves to; deploying the
+/// placeholder would produce a contract that reverts on every proof. For
+/// the two launch circuits that is two libraries and two verifiers — four
+/// transactions on a bare chain, not six.
 ///
-/// The address is what a Platform Verifier initializer takes as
+/// A library is shared by bytecode alone. Circuits whose libraries differ
+/// get separate deployments, and no circuit is ever linked against bytes
+/// it was not compiled against.
+///
+/// Each address is what a Platform Verifier initializer takes as
 /// `honk_verifier`; the code hash it pins beside it is read off the chain by
-/// [`Initializer::call`](crate::platform_verifier::Initializer::call).
+/// [`Initializer::call`](crate::platform_verifier::Initializer::call), and
+/// carries the library addresses linked in.
+///
+/// `sender` opts into explicit nonce management (see
+/// [`deploy_contract_from`]).
+pub async fn deploy_honk_verifiers<P: Provider>(
+    provider: &P,
+    artifacts: &Artifacts,
+    circuits: &[Circuit],
+    sender: Option<Address>,
+) -> Result<HonkVerifiers> {
+    let contracts: Vec<(&str, &str)> = circuits
+        .iter()
+        .map(|circuit| (circuit.contract(), circuit.contract()))
+        .collect();
+    let libraries = Libraries::deploy(provider, artifacts, &contracts, sender).await?;
+    let mut verifiers = BTreeMap::new();
+    for circuit in circuits {
+        if verifiers.contains_key(circuit) {
+            continue;
+        }
+        let contract = circuit.contract();
+        let bytecode = libraries.link(artifacts, contract, contract)?;
+        let address = deploy_contract_from(
+            provider,
+            bytecode,
+            &format!("{contract} ({} circuit)", circuit.name()),
+            sender,
+        )
+        .await?;
+        verifiers.insert(*circuit, address);
+    }
+    Ok(HonkVerifiers {
+        verifiers,
+        libraries,
+    })
+}
+
+/// Deploy `circuit`'s Honk verifier with its libraries linked, and return
+/// its address: [`deploy_honk_verifiers`] over the one circuit.
+///
+/// Called alone it still shares: a library's address is a function of its
+/// bytecode, so a copy another circuit's deploy already put on the chain is
+/// found there and linked, not deployed again. Three transactions on a bare
+/// chain, one when both libraries are in place.
 ///
 /// `sender` opts into explicit nonce management (see
 /// [`deploy_contract_from`]).
@@ -117,17 +189,13 @@ pub async fn deploy_honk_verifier<P: Provider>(
     circuit: Circuit,
     sender: Option<Address>,
 ) -> Result<Address> {
-    let contract = circuit.contract();
-    let bytecode = artifacts
-        .linked_bytecode(provider, contract, contract, sender)
-        .await?;
-    deploy_contract_from(
-        provider,
-        bytecode,
-        &format!("{contract} ({} circuit)", circuit.name()),
-        sender,
-    )
-    .await
+    let honk = deploy_honk_verifiers(provider, artifacts, &[circuit], sender).await?;
+    honk.verifiers
+        .get(&circuit)
+        .copied()
+        .ok_or_else(|| Error::Rpc {
+            detail: format!("{} verifier deploy recorded no address", circuit.name()),
+        })
 }
 
 #[cfg(test)]

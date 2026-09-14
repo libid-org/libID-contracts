@@ -141,13 +141,15 @@ impl Artifacts {
     }
 
     /// Creation bytecode with every external library it references deployed
-    /// (recursively) through `provider` and linked in. Mirrors what forge does
-    /// automatically. The two UltraHonk verifiers are what links a library
+    /// (recursively) through `provider` and linked in: a
+    /// [`Libraries`](crate::deploy::Libraries) over this one contract. A
+    /// library already at its bytecode-derived address is linked, not
+    /// deployed again. The two UltraHonk verifiers are what links a library
     /// today — `RelationsLib` and `ZKTranscriptLib`, vendored beside each —
-    /// and [`deploy_honk_verifier`](crate::circuits::deploy_honk_verifier)
-    /// is the one call that takes them through here and deploys the result.
-    /// For artifacts with no link references this behaves like
-    /// [`Self::bytecode_named`] (no transaction is sent).
+    /// and [`deploy_honk_verifiers`](crate::circuits::deploy_honk_verifiers)
+    /// deploys them as a set so the copies are shared. For artifacts with no
+    /// link references this behaves like [`Self::bytecode_named`] (no
+    /// transaction is sent).
     ///
     /// `sender` opts into explicit nonce management (see
     /// [`deploy_contract_from`](crate::deploy::deploy_contract_from)).

@@ -30,7 +30,7 @@
 //! - [`circuits`] — the ceremony circuits' UltraHonk verifiers, vendored
 //!   from the pinned `libid-circuits` release: which circuit a platform
 //!   proves under, and a deploy that links the libraries a bb verifier
-//!   needs.
+//!   needs, one deployment per distinct bytecode across the set.
 //!
 //! Signing is the consumer's concern: every helper takes a provider you have
 //! already wired with a wallet.
