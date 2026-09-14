@@ -49,10 +49,10 @@ fs_permissions = [
 # instead, so the lint stays on for the next one.
 [lint]
 # The vendored Honk verifiers are bb's output, not ours: the notes they draw
-# (naming, unchecked casts) would be fixed in Aztec's generator, and a fix
-# made here is undone by the next `scripts/vendor-circuit-verifiers.sh`
-# run, whose `--check` in CI would refuse the edit first. They still compile
-# under `-D` like everything else; only the linter skips them.
+# (naming, unchecked casts) would be fixed in Aztec's generator, and the
+# files are not committed: `scripts/vendor-circuit-verifiers.sh` writes them
+# before every build, so a fix made here does not outlive the next run. They
+# still compile under `-D` like everything else; only the linter skips them.
 ignore = ["contracts/circuits/*HonkVerifier.sol"]
 # Foundry's default stops at `low`, which leaves the style lints off: naming,
 # named struct fields, unused and unaliased imports. They are on. `gas` and

@@ -67,6 +67,13 @@ fi
 
 command -v jq >/dev/null || { echo "jq is required" >&2; exit 1; }
 
+# The Honk verifiers are vendored, not committed, and a build without them
+# fails in the test that imports them; name the missing step instead.
+while read -r contract; do
+    [[ -f "$REPO_ROOT/solidity/contracts/circuits/$contract.sol" ]] ||
+        { echo "no $contract.sol under solidity/contracts/circuits; run scripts/vendor-circuit-verifiers.sh first" >&2; exit 1; }
+done < <(jq -r '.circuits[].contract' "$CIRCUITS_PIN")
+
 echo "==> forge build"
 (cd "$REPO_ROOT/solidity" && forge build)
 

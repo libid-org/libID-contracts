@@ -23,24 +23,23 @@
 # (`assembly ("memory-safe")` on every assembly block, for via_ir, and the
 # rename off bb's fixed `HonkVerifier`); `forge fmt` is deliberately left to
 # the consumer, because libid-circuits carries no Foundry toolchain. So the
-# committed file is fmt(shipped) plus the banner below, and `--check`
-# regenerates it and fails on any difference — which is what makes the
-# committed bytes checkable rather than trusted.
+# written file is fmt(shipped) plus the banner below.
 #
-# The sources ARE committed, like HandleVectors.sol: forge, the crate and the
-# npm package build from the tree with no network, and CI's generated-tables
-# job runs `--check` so a hand edit or a stale vendor cannot outlive a PR.
-# The compiled artifacts are not; scripts/vendor-artifacts.sh regenerates
-# them from `forge build` like every other contract's.
+# The sources are NOT committed: they are gitignored like the forge
+# artifacts and the npm ABIs, because they are another repository's release
+# asset and the pin already says which bytes they must be. CI's forge-build
+# action runs this script before every `forge build` — tests, dry-runs and
+# publishes included — and a clone runs it once before its first build. So
+# every build starts from a download the pin has just checked, and there is
+# no committed copy for a hand edit or a stale vendor to live in.
 #
 # Moving the pin: download the new release's tarballs, read their sha256
 # with `shasum -a 256` (compare against the release page, not against a
 # manifest fetched by a script), write the version and the digests into
-# circuits.json, run this script, commit both.
+# circuits.json, run this script, commit circuits.json.
 #
 # Usage:
-#   scripts/vendor-circuit-verifiers.sh          # regenerate from the pin
-#   scripts/vendor-circuit-verifiers.sh --check  # fail if a committed source drifts
+#   scripts/vendor-circuit-verifiers.sh   # write the verifiers from the pin
 #
 # Requires curl, jq, tar, forge and shasum or sha256sum.
 set -euo pipefail
@@ -52,13 +51,10 @@ DEST="$SOLIDITY/$DEST_REL"
 PIN="$DEST/circuits.json"
 RELEASES="https://github.com/libid-org/libid-circuits/releases/download"
 
-MODE="write"
-while [[ $# -gt 0 ]]; do
-    case "$1" in
-        --check) MODE="check"; shift ;;
-        *) echo "unknown argument: $1" >&2; exit 2 ;;
-    esac
-done
+if [[ $# -gt 0 ]]; then
+    echo "unknown argument: $1" >&2
+    exit 2
+fi
 
 for tool in curl jq tar forge; do
     command -v "$tool" >/dev/null || { echo "$tool is required" >&2; exit 1; }
@@ -137,17 +133,4 @@ while IFS=$'\t' read -r circuit contract want; do
     echo "==> $circuit -> $DEST_REL/$contract.sol"
 done < <(jq -r '.circuits | to_entries[] | "\(.key)\t\(.value.contract)\t\(.value.sha256)"' "$PIN")
 
-if [[ "$MODE" == "check" ]]; then
-    drifted=0
-    for staged in "$STAGE"/*.sol; do
-        name="$(basename "$staged")"
-        if ! cmp -s "$staged" "$DEST/$name"; then
-            echo "$DEST_REL/$name is not what the pin vendors; run scripts/vendor-circuit-verifiers.sh" >&2
-            drifted=1
-        fi
-    done
-    [[ "$drifted" == 0 ]] || exit 1
-    echo "==> the committed verifiers match the pin"
-else
-    cp "$STAGE"/*.sol "$DEST/"
-fi
+cp "$STAGE"/*.sol "$DEST/"

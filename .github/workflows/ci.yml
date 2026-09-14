@@ -7,9 +7,11 @@ name: CI
 # cache key, and whichever run warms the cache first makes the build a fast
 # no-op everywhere else.
 #
-# Neither generated tree is committed (rust/contracts/artifacts and
-# ts/packages/contracts/src/abis are gitignored), so every job that compiles
-# the crate or the package regenerates it first — publishing included.
+# Nothing generated is committed: the vendored Honk verifiers,
+# rust/contracts/artifacts and ts/packages/contracts/src/abis are all
+# gitignored. The forge-build composite vendors the verifiers before it
+# builds, and every job that compiles the crate or the package regenerates
+# its tree first — publishing included.
 #
 # Job ids are stable on purpose (solidity, generated-tables, rust, ts, dco):
 # the release/publish jobs at the bottom of this file hang their `needs:` off
@@ -93,9 +95,9 @@ jobs:
   # Generated files match their source. handles.json generates the platform
   # constants and the handle vector table for every language; a drift between
   # the source and a committed output leaves every per-language test green
-  # while the languages disagree with each other. The vendored Honk verifiers
-  # are the same shape: circuits.json pins a libid-circuits release by digest,
-  # and the committed Solidity must be exactly what that release ships.
+  # while the languages disagree with each other. The Honk verifiers are not
+  # checked here: nothing of theirs is committed but the pin, and the
+  # forge-build composite holds every download to it.
   # ---------------------------------------------------------------------------
   generated-tables:
     name: Generated tables
@@ -119,13 +121,6 @@ jobs:
 
       - name: Generated ceremony profiles are current
         run: python3 scripts/regen-ceremony-profiles.py --check
-
-      # Downloads the pinned release and checks it against the committed
-      # digests before comparing, so this fails on a hand edit, a stale
-      # vendor after a pin move, and a release asset that changed under its
-      # tag alike.
-      - name: Vendored Honk verifiers match the circuits pin
-        run: scripts/vendor-circuit-verifiers.sh --check
 
   # ---------------------------------------------------------------------------
   # Rust: vendored artifacts, formatting, clippy, tests. Needs forge twice

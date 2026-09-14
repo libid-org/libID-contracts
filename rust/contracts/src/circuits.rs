@@ -5,10 +5,11 @@
 //! circuit's verification key, `libid-circuits` runs bb and ships the
 //! Solidity in its release tarballs, and `scripts/vendor-circuit-verifiers.sh`
 //! downloads the pinned release — checked against digests committed in
-//! `solidity/contracts/circuits/circuits.json` — formats it and commits it
-//! under `solidity/contracts/circuits`. From there it is a contract like any
-//! other: `forge build` compiles it and `scripts/vendor-artifacts.sh` embeds
-//! it, so a consumer deploys it from [`Artifacts::embedded`] with no `bb`.
+//! `solidity/contracts/circuits/circuits.json` — formats it and writes it
+//! under `solidity/contracts/circuits`, gitignored and vendored again before
+//! every build. From there it is a contract like any other: `forge build`
+//! compiles it and `scripts/vendor-artifacts.sh` embeds it, so a consumer
+//! deploys it from [`Artifacts::embedded`] with no `bb`.
 //!
 //! bb emits `RelationsLib` and `ZKTranscriptLib` as external libraries, so a
 //! verifier's creation code carries a placeholder per call site until each

@@ -14,8 +14,9 @@ solidity/            # Foundry project root
   contracts/
     ceremony/        # NotaryService, CeremonyProofVerifier, Platform Verifiers,
                      # GoogleJwtRoots
-    circuits/        # the UltraHonk verifiers the Platform Verifiers pin,
-                     # vendored from the pinned libid-circuits release
+    circuits/        # the UltraHonk verifiers the Platform Verifiers pin:
+                     # circuits.json pins a libid-circuits release, the
+                     # Solidity is vendored from it and not committed
     identity/        # IdentityNames, handle normalization
     factory/         # LibidFactory: deterministic CREATE3 deployment
     WTIA9.sol        # wrapped TIA
@@ -33,14 +34,18 @@ scripts/
 
 ```sh
 git submodule update --init --recursive
+scripts/vendor-circuit-verifiers.sh   # -> solidity/contracts/circuits/*HonkVerifier.sol
 cd solidity
 forge build
 forge test
 ```
 
-`forge build` is the input to the two generated trees, neither of which is
-committed. Generate them once after cloning, and again after any change to a
-contract they cover:
+Nothing generated is committed. The Honk verifiers are downloaded from the
+pinned [libid-circuits](https://github.com/libid-org/libid-circuits) release
+(see [Circuit verifiers](#circuit-verifiers)), so a fresh clone vendors them
+before its first `forge build`, which needs curl, jq, tar and forge. `forge
+build` is in turn the input to the two generated trees. Generate them once
+after cloning, and again after any change to a contract they cover:
 
 ```sh
 scripts/vendor-artifacts.sh   # -> rust/contracts/artifacts (the crate embeds
@@ -50,9 +55,10 @@ pnpm -C ts codegen            # -> ts/packages/contracts/src/abis (tsc reads
                               #    these, so `pnpm -C ts build` needs them)
 ```
 
-CI runs both in every job that compiles the crate or the package, and again in
-the publish jobs — the published crate and npm package carry the generated
-output even though git does not.
+CI runs all three before every build, test, dry-run and publish: the
+forge-build action vendors the verifiers before it builds, and every job that
+compiles the crate or the package regenerates its tree — the published crate
+and npm package carry the generated output even though git does not.
 
 ## Handle vectors
 
@@ -74,9 +80,11 @@ fails when any of them drifts from `handles.json`.
 The ceremony circuits' UltraHonk verifiers are not written here. `bb` derives
 each from its circuit's verification key, and
 [libid-circuits](https://github.com/libid-org/libid-circuits) runs `bb` and
-ships the Solidity in its release tarballs. `solidity/contracts/circuits/`
-holds that Solidity, formatted, as a source like any other: `forge build`
-compiles it and the crate embeds it, so no consumer runs `bb`.
+ships the Solidity in its release tarballs. `scripts/vendor-circuit-verifiers.sh`
+downloads it into `solidity/contracts/circuits/`, formatted, where `forge
+build` compiles it and the crate embeds it, so no consumer runs `bb`. The
+files are gitignored: they are another repository's release asset, and the
+pin says which bytes they must be.
 
 `solidity/contracts/circuits/circuits.json` is the pin — the release version
 and each tarball's sha256, committed here and checked against every download.
@@ -84,12 +92,13 @@ To move it, download the new release's tarballs, take their digests with
 `shasum -a 256`, write the version and the digests into `circuits.json`, then:
 
 ```sh
-scripts/vendor-circuit-verifiers.sh          # rewrite the verifiers from the pin
-scripts/vendor-circuit-verifiers.sh --check  # verify the committed files match it
+scripts/vendor-circuit-verifiers.sh   # rewrite the verifiers from the pin
 ```
 
-CI's generated-tables job runs the check; a release cannot ship a verifier
-that is not what the pinned circuits release shipped.
+CI's forge-build action runs the same script before every build, test,
+dry-run and publish, refusing any tarball whose digest is not the pin's; a
+release cannot ship a verifier that is not what the pinned circuits release
+shipped.
 
 ## Releasing
 
