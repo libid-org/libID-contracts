@@ -14,6 +14,8 @@ solidity/            # Foundry project root
   contracts/
     ceremony/        # NotaryService, CeremonyProofVerifier, Platform Verifiers,
                      # GoogleJwtRoots
+    circuits/        # the UltraHonk verifiers the Platform Verifiers pin,
+                     # vendored from the pinned libid-circuits release
     identity/        # IdentityNames, handle normalization
     factory/         # LibidFactory: deterministic CREATE3 deployment
     WTIA9.sol        # wrapped TIA
@@ -23,6 +25,7 @@ rust/contracts/      # libid-contracts crate: alloy bindings + embedded artifact
 ts/packages/contracts/  # @libid/contracts: viem ABIs, call builders, identity helpers
 scripts/
   vendor-artifacts.sh
+  vendor-circuit-verifiers.sh
   regen-identity-handles.py
 ```
 
@@ -65,6 +68,28 @@ This generates `solidity/contracts/identity/HandleVectors.sol`,
 `rust/identity/src/handle_vectors.rs` and
 `ts/packages/contracts/src/identity/handleVectors.ts`; CI's handle-tables job
 fails when any of them drifts from `handles.json`.
+
+## Circuit verifiers
+
+The ceremony circuits' UltraHonk verifiers are not written here. `bb` derives
+each from its circuit's verification key, and
+[libid-circuits](https://github.com/libid-org/libid-circuits) runs `bb` and
+ships the Solidity in its release tarballs. `solidity/contracts/circuits/`
+holds that Solidity, formatted, as a source like any other: `forge build`
+compiles it and the crate embeds it, so no consumer runs `bb`.
+
+`solidity/contracts/circuits/circuits.json` is the pin — the release version
+and each tarball's sha256, committed here and checked against every download.
+To move it, download the new release's tarballs, take their digests with
+`shasum -a 256`, write the version and the digests into `circuits.json`, then:
+
+```sh
+scripts/vendor-circuit-verifiers.sh          # rewrite the verifiers from the pin
+scripts/vendor-circuit-verifiers.sh --check  # verify the committed files match it
+```
+
+CI's generated-tables job runs the check; a release cannot ship a verifier
+that is not what the pinned circuits release shipped.
 
 ## Releasing
 
