@@ -460,7 +460,7 @@ async fn deploys_and_initializes_every_platform_verifier() {
             TlsNotaryPlatformVerifier,
         },
         circuits::{
-            deploy_honk_verifier,
+            deploy_honk_verifiers,
             Circuit,
         },
         platform_verifier::{
@@ -516,21 +516,17 @@ async fn deploys_and_initializes_every_platform_verifier() {
     )
     .await
     .unwrap();
-    // The real verifiers, one per circuit, libraries linked. The hash a
-    // Platform Verifier pins is read off the chain, never computed from the
-    // vendored bytes: it is what the chain holds for the artifact.
-    let bearer_link =
-        deploy_honk_verifier(&provider, &artifacts, Circuit::BearerLink, None)
+    // The real verifiers, one per circuit, linked against one deployment
+    // of each library. The hash a Platform Verifier pins is read off the
+    // chain, never computed from the vendored bytes: it is what the chain
+    // holds for the artifact, shared library addresses included.
+    let honk_verifiers =
+        deploy_honk_verifiers(&provider, &artifacts, &Circuit::ALL, None)
             .await
             .unwrap();
-    let oidc_google =
-        deploy_honk_verifier(&provider, &artifacts, Circuit::OidcGoogle, None)
-            .await
-            .unwrap();
-    let honk_at = |circuit: Circuit| match circuit {
-        Circuit::BearerLink => bearer_link,
-        Circuit::OidcGoogle => oidc_google,
-    };
+    let honk_at = |circuit: Circuit| honk_verifiers.verifiers[&circuit];
+    let bearer_link = honk_at(Circuit::BearerLink);
+    let oidc_google = honk_at(Circuit::OidcGoogle);
     let honk = bearer_link;
     let honk_codehash = codehash_at(&provider, honk).await.unwrap();
     assert_ne!(honk_codehash, keccak256([]));
@@ -741,14 +737,16 @@ async fn deploys_and_initializes_every_platform_verifier() {
     );
 }
 
-/// (f) The two Honk verifiers through `deploy_honk_verifier`: each lands
-/// with its libraries linked, under EIP-170, and answers for its OWN
-/// circuit. A bb verifier has no getter for its verification key; the one
-/// thing it says about itself is the `logN` a wrong-length proof comes back
-/// with. That separates a real verifier from a contract that merely has
-/// code, and the two circuits from each other — the check that would catch
-/// a release whose tarballs were swapped, or a vendor run that wrote one
-/// circuit's verifier under the other's name.
+/// (f) The two Honk verifiers through `deploy_honk_verifiers`: each library
+/// is deployed once and both verifiers link against it — four transactions
+/// for the set, not six — and each lands under EIP-170 and answers for its
+/// OWN circuit. A bb verifier has no getter for its verification key; the
+/// one thing it says about itself is the `logN` a wrong-length proof comes
+/// back with. That separates a real verifier from a contract that merely
+/// has code, and the two circuits from each other — the check that would
+/// catch a release whose tarballs were swapped, or a vendor run that wrote
+/// one circuit's verifier under the other's name. Then the per-circuit call
+/// alone: it finds the libraries where the set deploy put them.
 #[tokio::test]
 async fn deploys_the_linked_honk_verifiers_over_their_own_circuits() {
     use alloy::{
@@ -759,21 +757,61 @@ async fn deploys_the_linked_honk_verifiers_over_their_own_circuits() {
         bindings::circuits::HonkVerifier,
         circuits::{
             deploy_honk_verifier,
+            deploy_honk_verifiers,
             version,
             Circuit,
+            LIBRARIES,
         },
+        deploy::library_address,
         platform_verifier::codehash_at,
     };
 
     let provider = test_provider();
     let artifacts = Artifacts::embedded();
+    let deployer = default_signer(&provider).await;
     assert!(!version(&artifacts).unwrap().is_empty());
+
+    let before = provider.get_transaction_count(deployer).await.unwrap();
+    let honk = deploy_honk_verifiers(&provider, &artifacts, &Circuit::ALL, None)
+        .await
+        .unwrap();
+    let sent = provider.get_transaction_count(deployer).await.unwrap() - before;
+
+    // One transaction per distinct library and one per verifier. Two
+    // circuits, two libraries between them: four, where a copy per circuit
+    // was six. Should a circuits release ever ship the two circuits with
+    // different library bytecode, this is where it shows.
+    assert_eq!(honk.verifiers.len(), Circuit::ALL.len());
+    assert_eq!(
+        honk.libraries.distinct().count(),
+        LIBRARIES.len(),
+        "the circuits' libraries are no longer one deployment each"
+    );
+    assert_eq!(honk.libraries.deployed().count(), LIBRARIES.len());
+    assert_eq!(sent, (Circuit::ALL.len() + LIBRARIES.len()) as u64);
+    for library in LIBRARIES {
+        // Both files resolve to one address, and it is the address the
+        // bytecode derives: the same on every chain.
+        let shared = honk
+            .libraries
+            .address(Circuit::BearerLink.contract(), library)
+            .unwrap();
+        assert_eq!(
+            honk.libraries
+                .address(Circuit::OidcGoogle.contract(), library),
+            Some(shared),
+            "{library} is not shared"
+        );
+        let code = artifacts
+            .bytecode_named(Circuit::BearerLink.contract(), library)
+            .unwrap();
+        assert_eq!(shared, library_address(&code));
+        assert!(!provider.get_code_at(shared).await.unwrap().is_empty());
+    }
 
     let mut log_n = Vec::new();
     for circuit in Circuit::ALL {
-        let address = deploy_honk_verifier(&provider, &artifacts, circuit, None)
-            .await
-            .unwrap_or_else(|e| panic!("{circuit:?}: {e}"));
+        let address = honk.verifiers[&circuit];
         let code = provider.get_code_at(address).await.unwrap();
         assert!(!code.is_empty(), "{circuit:?} has no code at {address:#x}");
         // anvil runs the default limit, so deploying at all is the EIP-170
@@ -788,6 +826,15 @@ async fn deploys_the_linked_honk_verifiers_over_their_own_circuits() {
             codehash_at(&provider, address).await.unwrap(),
             keccak256(&code)
         );
+        // The verifier's runtime code carries the shared addresses: it is
+        // linked against the one deployment, not a copy of its own.
+        for library in LIBRARIES {
+            let shared = honk.libraries.address(circuit.contract(), library).unwrap();
+            assert!(
+                code.windows(20).any(|window| window == shared.as_slice()),
+                "{circuit:?} does not link {library} at {shared:#x}"
+            );
+        }
 
         let err = HonkVerifier::new(address, &provider)
             .verify(Bytes::new(), Vec::new())
@@ -808,5 +855,25 @@ async fn deploys_the_linked_honk_verifiers_over_their_own_circuits() {
     assert_ne!(
         log_n[0], log_n[1],
         "both platforms would verify under one circuit"
+    );
+
+    // The published per-circuit call, alone: the libraries are at the
+    // addresses their bytecode derives, so it links them and sends one
+    // transaction, its verifier's — with the same code hash as the set's,
+    // because the linked addresses are the same.
+    let before = provider.get_transaction_count(deployer).await.unwrap();
+    let again = deploy_honk_verifier(&provider, &artifacts, Circuit::BearerLink, None)
+        .await
+        .unwrap();
+    assert_eq!(
+        provider.get_transaction_count(deployer).await.unwrap() - before,
+        1
+    );
+    assert_ne!(again, honk.verifiers[&Circuit::BearerLink]);
+    assert_eq!(
+        codehash_at(&provider, again).await.unwrap(),
+        codehash_at(&provider, honk.verifiers[&Circuit::BearerLink])
+            .await
+            .unwrap()
     );
 }

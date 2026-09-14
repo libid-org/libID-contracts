@@ -39,6 +39,7 @@ use alloy::{
 use crate::{
     artifacts::Artifacts,
     bindings::factory::LibidFactory,
+    deploy::deploy_via_create2,
     error::{
         Error,
         Result,
@@ -215,43 +216,6 @@ pub async fn ensure_create2_deployer<P: Provider>(provider: &P) -> Result<()> {
     Ok(())
 }
 
-/// Deploy `salt ++ init_code` through the CREATE2 deployer and verify code
-/// landed at `predicted`.
-async fn deploy_via_create2<P: Provider>(
-    provider: &P,
-    salt: B256,
-    init_code: &[u8],
-    predicted: Address,
-    label: &str,
-) -> Result<()> {
-    let mut input = salt.to_vec();
-    input.extend_from_slice(init_code);
-    let tx = TransactionRequest::default()
-        .with_to(CREATE2_DEPLOYER)
-        .with_input(Bytes::from(input));
-    let pending = provider
-        .send_transaction(tx)
-        .await
-        .map_err(|e| Error::Rpc {
-            detail: format!("{label}: CREATE2 deploy send failed: {e}"),
-        })?;
-    pending.get_receipt().await.map_err(|e| Error::Rpc {
-        detail: format!("{label}: CREATE2 deploy confirmation failed: {e}"),
-    })?;
-    let code = provider
-        .get_code_at(predicted)
-        .await
-        .map_err(|e| Error::Rpc {
-            detail: format!("{label}: failed to read code at {predicted}: {e}"),
-        })?;
-    if code.is_empty() {
-        return Err(Error::Rpc {
-            detail: format!("{label}: no code at the predicted address {predicted}"),
-        });
-    }
-    Ok(())
-}
-
 /// Make sure the canonical factory exists at [`predict_factory_address`],
 /// bootstrapping whatever is missing: the CREATE2 deployer (via the keyless
 /// presigned transaction), the factory implementation, and the factory
@@ -288,6 +252,7 @@ pub async fn ensure_factory<P: Provider>(
             &factory_impl_init_code(artifacts)?,
             impl_addr,
             "LibidFactory (impl)",
+            None,
         )
         .await?;
     }
@@ -298,6 +263,7 @@ pub async fn ensure_factory<P: Provider>(
         &factory_proxy_init_code(artifacts)?,
         factory,
         "LibidFactory (proxy)",
+        None,
     )
     .await?;
     Ok(factory)
