@@ -13,6 +13,13 @@ pub enum Error {
         /// What went wrong.
         detail: String,
     },
+    /// A Platform Verifier initializer the contract would refuse, caught
+    /// before any transaction is sent.
+    #[error("initializer error: {detail}")]
+    Initializer {
+        /// Which rule, and which contract.
+        detail: String,
+    },
 }
 
 /// Crate result alias.

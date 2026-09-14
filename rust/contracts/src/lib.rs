@@ -5,10 +5,11 @@
 //!
 //! - [`bindings`] — hand-written `alloy::sol!` interfaces for every contract a
 //!   consumer talks to: the ceremony verification path (`NotaryService`,
-//!   `CeremonyProofVerifier`, and `GoogleJwtRoots`, the Google signing keys
-//!   the `google/v1` verifier trusts), the naming system (`IdentityNames`),
-//!   and the deterministic factory. Kept in lockstep with the Solidity
-//!   sources in `solidity/contracts`.
+//!   `CeremonyProofVerifier`, the three launch Platform Verifiers it routes
+//!   to, and `GoogleJwtRoots`, the Google signing keys the `google/v1`
+//!   verifier trusts), the naming system (`IdentityNames`), and the
+//!   deterministic factory. Kept in lockstep with the Solidity sources in
+//!   `solidity/contracts`.
 //! - [`artifacts`] — the compiled creation bytecode, link references, and
 //!   method identifiers of every deployable contract, embedded at compile time
 //!   ([`Artifacts::embedded`]) so deployment needs no filesystem at runtime. A
@@ -21,6 +22,10 @@
 //!   cross-network factory address, install it (and the keyless CREATE2
 //!   deployer it hangs off) where missing, and deploy protocol proxies
 //!   through it at name-derived CREATE3 addresses.
+//! - [`platform_verifier`] — the Platform Verifier initializer: which
+//!   contract serves which platform, and an `initialize` call built with the
+//!   Honk verifier's code hash read off chain and the rules
+//!   `PlatformVerifierBase` enforces checked first.
 //!
 //! Signing is the consumer's concern: every helper takes a provider you have
 //! already wired with a wallet.
@@ -30,6 +35,7 @@ pub mod bindings;
 pub mod deploy;
 mod error;
 pub mod factory;
+pub mod platform_verifier;
 
 pub use artifacts::Artifacts;
 pub use error::{

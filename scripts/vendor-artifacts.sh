@@ -33,6 +33,11 @@ ARTIFACTS=(
     "CeremonyProofVerifier:CeremonyProofVerifier"
     "ERC1967Proxy:ERC1967Proxy"
     "GoogleJwtRoots:GoogleJwtRoots"
+    # ceremony: the launch Platform Verifiers (one per profile; the UltraHonk
+    # verifier each pins comes from the circuits release, not from here)
+    "XPlatformVerifier:XPlatformVerifier"
+    "GitHubPlatformVerifier:GitHubPlatformVerifier"
+    "GooglePlatformVerifier:GooglePlatformVerifier"
     # identity
     "IdentityNames:IdentityNames"
     # ens (deployed once per network, not CREATE3-canonical; embedded so a

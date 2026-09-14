@@ -5,7 +5,7 @@ edition = "2021"
 rust-version = "1.94.1"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/libid-org/libid-contracts"
-description = "Typed alloy bindings, embedded forge artifacts, and deploy/upgrade helpers for the libid identity stack (Notary Service, ceremony proof verifier, Google JWT roots, identity names, deterministic factory)."
+description = "Typed alloy bindings, embedded forge artifacts, and deploy/upgrade helpers for the libid identity stack (Notary Service, ceremony proof verifier, Platform Verifiers, Google JWT roots, identity names, deterministic factory)."
 keywords = ["ethereum", "alloy", "contracts", "deployment"]
 categories = ["cryptography::cryptocurrencies"]
 # The vendored artifacts are part of the crate: consumers deploy from the
@@ -30,4 +30,8 @@ tokio = { version = "1", features = ["time"] }
 
 [dev-dependencies]
 alloy = { version = "1", features = ["node-bindings", "signer-local"] }
+# Tests only, path only: the crate restates which profiles notarize so it
+# publishes without a dependency on the sibling crate, and this is what pins
+# the restatement to the generated table.
+libid-profiles = { path = "../profiles" }
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }

@@ -2562,6 +2562,7 @@ version = "0.10.0"
 dependencies = [
  "alloy",
  "include_dir",
+ "libid-profiles",
  "serde",
  "serde_json",
  "thiserror",
