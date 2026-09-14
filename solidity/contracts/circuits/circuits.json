@@ -1,0 +1,13 @@
+{
+  "version": "0.4.0",
+  "circuits": {
+    "bearer-link": {
+      "contract": "BearerLinkHonkVerifier",
+      "sha256": "1fe9789337c2b1ce5250fbde11f3ff3f9969972fe60dce12ba2b40f455a894c2"
+    },
+    "oidc-google": {
+      "contract": "OidcGoogleHonkVerifier",
+      "sha256": "633b48d340c23933e0d6fcfa0267902466d87db656a8bda62d1b5ee3213c9a42"
+    }
+  }
+}

@@ -7,11 +7,13 @@ name: CI
 # cache key, and whichever run warms the cache first makes the build a fast
 # no-op everywhere else.
 #
-# Neither generated tree is committed (rust/contracts/artifacts and
-# ts/packages/contracts/src/abis are gitignored), so every job that compiles
-# the crate or the package regenerates it first — publishing included.
+# Nothing generated is committed: the vendored Honk verifiers,
+# rust/contracts/artifacts and ts/packages/contracts/src/abis are all
+# gitignored. The forge-build composite vendors the verifiers before it
+# builds, and every job that compiles the crate or the package regenerates
+# its tree first — publishing included.
 #
-# Job ids are stable on purpose (solidity, handles-drift, rust, ts, dco):
+# Job ids are stable on purpose (solidity, generated-tables, rust, ts, dco):
 # the release/publish jobs at the bottom of this file hang their `needs:` off
 # these names.
 #
@@ -93,7 +95,9 @@ jobs:
   # Generated files match their source. handles.json generates the platform
   # constants and the handle vector table for every language; a drift between
   # the source and a committed output leaves every per-language test green
-  # while the languages disagree with each other.
+  # while the languages disagree with each other. The Honk verifiers are not
+  # checked here: nothing of theirs is committed but the pin, and the
+  # forge-build composite holds every download to it.
   # ---------------------------------------------------------------------------
   generated-tables:
     name: Generated tables

@@ -3,17 +3,19 @@
 Typed [alloy](https://github.com/alloy-rs/alloy) bindings, embedded forge
 artifacts, and deploy/upgrade helpers for the libid identity stack: the
 ceremony verification path (`NotaryService`, `CeremonyProofVerifier`, the
-three launch Platform Verifiers it routes to, and `GoogleJwtRoots`, the
-signing keys the `google/v1` verifier trusts), the naming system
-(`IdentityNames`), and the deterministic deployment factory (`LibidFactory`).
+three launch Platform Verifiers it routes to, the two UltraHonk verifiers
+they pin, and `GoogleJwtRoots`, the signing keys the `google/v1` verifier
+trusts), the naming system (`IdentityNames`), and the deterministic
+deployment factory (`LibidFactory`).
 
 The compiled artifacts are vendored into the crate, so a consumer can deploy
 or upgrade the whole stack against a live network with **zero filesystem
 dependencies at runtime**. They are generated, not committed:
 `scripts/vendor-artifacts.sh` produces `artifacts/` from `solidity/` and CI
-runs it before every build, test and publish. Working in this repo, run it
-once after cloning — the crate embeds the directory with `include_dir!`, so
-until it exists `cargo build` fails at macro expansion. Signing stays on the
+runs it before every build, test and publish. Working in this repo, run
+`scripts/vendor-circuit-verifiers.sh` and then it once after cloning — the
+Honk verifiers are vendored too, and the crate embeds the directory with
+`include_dir!`, so until it exists `cargo build` fails at macro expansion. Signing stays on the
 consumer's side: every helper is generic over an alloy `Provider` you have
 already wired with a wallet.
 
@@ -74,20 +76,25 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-## Example: deploy a Platform Verifier
+## Example: deploy a Platform Verifier on its circuit's Honk verifier
 
 A Platform Verifier pins the bb-generated UltraHonk verifier for its circuit
 by address and by code hash, holds a Notary Service only if its profile
 notarizes anything, and caps its parameters. `platform_verifier::Initializer`
 knows those rules: it reads the code hash off the chain, refuses what the
-contract would refuse, and builds the exact `initialize` call. The Honk
-verifier comes from a `libid-circuits` release and is deployed beforehand.
+contract would refuse, and builds the exact `initialize` call.
+
+The Honk verifier is vendored here too, from the pinned `libid-circuits`
+release. `circuits::deploy_honk_verifier` deploys the two libraries it links
+(`RelationsLib`, `ZKTranscriptLib`), links them in and deploys the verifier —
+three transactions — and returns the address the initializer pins.
 
 ```rust,no_run
 use alloy::{primitives::Address, providers::ProviderBuilder};
 use libid_contracts::{
     bindings::ceremony::{CeremonyProofVerifier, XPlatformVerifier},
-    platform_verifier::{deploy_platform_verifier, Initializer, TlsNotaryRoots},
+    circuits::deploy_honk_verifier,
+    platform_verifier::{deploy_platform_verifier, Initializer, PlatformVerifier, TlsNotaryRoots},
     Artifacts,
 };
 
@@ -97,8 +104,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .wallet(/* your signer */ todo!())
         .connect_http("https://rpc.example.org".parse()?);
     let artifacts = Artifacts::embedded();
-    let (owner, notary, honk_verifier, proof_verifier): (Address, Address, Address, Address) =
-        todo!();
+    let (owner, notary, proof_verifier): (Address, Address, Address) = todo!();
+
+    // The circuit `x/v1` proves under is `bearer-link`; `PlatformVerifier::circuit`
+    // says so, and this deploys its verifier with the libraries linked.
+    let honk_verifier =
+        deploy_honk_verifier(&provider, &artifacts, PlatformVerifier::X.circuit(), None).await?;
 
     // `x/v1`: two notarized sessions, so a Notary Service is required.
     // `Initializer::Google` takes `GoogleRoots` instead — no Notary Service
@@ -141,9 +152,10 @@ Other entry points:
   canonical cross-network factory where missing and deploy protocol proxies
   through it at name-derived CREATE3 addresses.
 - `deploy::load_linked_bytecode` (or `Artifacts::linked_bytecode`) — deploys
-  and links external libraries before returning the creation bytecode. Nothing
-  covered today links one; the UltraHonk verifiers the ceremony circuits bring
-  will.
+  and links external libraries before returning the creation bytecode; what
+  `circuits::deploy_honk_verifier` goes through.
+- `circuits::version` — the `libid-circuits` release the vendored verifiers
+  came from, for a consumer that names a deployment after its artifact.
 - `platform_verifier::codehash_at` — the code hash `setTrustRoots` wants
   when a Platform Verifier is rotated onto a new circuit release.
 - `Artifacts::method_identifiers` — selector extraction from the vendored

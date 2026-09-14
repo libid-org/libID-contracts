@@ -7,8 +7,9 @@
 //!   consumer talks to: the ceremony verification path (`NotaryService`,
 //!   `CeremonyProofVerifier`, the three launch Platform Verifiers it routes
 //!   to, and `GoogleJwtRoots`, the Google signing keys the `google/v1`
-//!   verifier trusts), the naming system (`IdentityNames`), and the
-//!   deterministic factory. Kept in lockstep with the Solidity sources in
+//!   verifier trusts), the naming system (`IdentityNames`), the
+//!   deterministic factory, and the UltraHonk verifiers the Platform
+//!   Verifiers pin. Kept in lockstep with the Solidity sources in
 //!   `solidity/contracts`.
 //! - [`artifacts`] — the compiled creation bytecode, link references, and
 //!   method identifiers of every deployable contract, embedded at compile time
@@ -26,12 +27,17 @@
 //!   contract serves which platform, and an `initialize` call built with the
 //!   Honk verifier's code hash read off chain and the rules
 //!   `PlatformVerifierBase` enforces checked first.
+//! - [`circuits`] — the ceremony circuits' UltraHonk verifiers, vendored
+//!   from the pinned `libid-circuits` release: which circuit a platform
+//!   proves under, and a deploy that links the libraries a bb verifier
+//!   needs.
 //!
 //! Signing is the consumer's concern: every helper takes a provider you have
 //! already wired with a wallet.
 
 pub mod artifacts;
 pub mod bindings;
+pub mod circuits;
 pub mod deploy;
 mod error;
 pub mod factory;

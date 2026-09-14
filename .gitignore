@@ -15,5 +15,13 @@ rust/contracts/artifacts/
 ts/packages/contracts/src/abis/
 ts/packages/contracts/src/calls/
 
+# Vendored from the pinned libid-circuits release, never committed: the Honk
+# verifiers are that repository's release asset, and circuits.json beside them
+# (the version and each tarball's sha256, which IS committed) is the pin every
+# download is checked against. CI's forge-build action vendors them before
+# every build, test, dry-run and publish. Locally, before `forge build`:
+#   scripts/vendor-circuit-verifiers.sh  # -> solidity/contracts/circuits/*HonkVerifier.sol
+solidity/contracts/circuits/*HonkVerifier.sol
+
 # Python bytecode from the generator scripts.
 __pycache__/
