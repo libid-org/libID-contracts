@@ -2,10 +2,10 @@
 
 Typed [alloy](https://github.com/alloy-rs/alloy) bindings, embedded forge
 artifacts, and deploy/upgrade helpers for the libid identity stack: the
-ceremony verification path (`NotaryService`, `CeremonyProofVerifier`, and
-`GoogleJwtRoots`, the signing keys the `google/v1` verifier trusts), the
-naming system (`IdentityNames`), and the deterministic deployment factory
-(`LibidFactory`).
+ceremony verification path (`NotaryService`, `CeremonyProofVerifier`, the
+three launch Platform Verifiers it routes to, and `GoogleJwtRoots`, the
+signing keys the `google/v1` verifier trusts), the naming system
+(`IdentityNames`), and the deterministic deployment factory (`LibidFactory`).
 
 The compiled artifacts are vendored into the crate, so a consumer can deploy
 or upgrade the whole stack against a live network with **zero filesystem
@@ -74,6 +74,65 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
+## Example: deploy a Platform Verifier
+
+A Platform Verifier pins the bb-generated UltraHonk verifier for its circuit
+by address and by code hash, holds a Notary Service only if its profile
+notarizes anything, and caps its parameters. `platform_verifier::Initializer`
+knows those rules: it reads the code hash off the chain, refuses what the
+contract would refuse, and builds the exact `initialize` call. The Honk
+verifier comes from a `libid-circuits` release and is deployed beforehand.
+
+```rust,no_run
+use alloy::{primitives::Address, providers::ProviderBuilder};
+use libid_contracts::{
+    bindings::ceremony::{CeremonyProofVerifier, XPlatformVerifier},
+    platform_verifier::{deploy_platform_verifier, Initializer, TlsNotaryRoots},
+    Artifacts,
+};
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let provider = ProviderBuilder::new()
+        .wallet(/* your signer */ todo!())
+        .connect_http("https://rpc.example.org".parse()?);
+    let artifacts = Artifacts::embedded();
+    let (owner, notary, honk_verifier, proof_verifier): (Address, Address, Address, Address) =
+        todo!();
+
+    // `x/v1`: two notarized sessions, so a Notary Service is required.
+    // `Initializer::Google` takes `GoogleRoots` instead — no Notary Service
+    // (the profile notarizes nothing) and the JWT root list in its place.
+    let verifier = deploy_platform_verifier(
+        &provider,
+        &artifacts,
+        &Initializer::X(TlsNotaryRoots {
+            owner,
+            notary_service: notary,
+            honk_verifier,
+            proof_lifetime: 3600,
+            max_future_attestation_skew: 300,
+            future_observation_allowance: 300,
+        }),
+        None,
+    )
+    .await?;
+
+    // Register it for the platform's launch slot.
+    let platform_id = XPlatformVerifier::new(verifier, &provider).platformId().call().await?;
+    CeremonyProofVerifier::new(proof_verifier, &provider)
+        .setVerifier(platform_id, 1, verifier)
+        .send()
+        .await?
+        .get_receipt()
+        .await?;
+    Ok(())
+}
+```
+
+For a factory (CREATE3) deploy, `Initializer::call` returns the typed
+`initialize` call; `abi_encode` it into the proxy's init data.
+
 Other entry points:
 
 - `deploy::upgrade_uups` — deploy a fresh implementation and
@@ -85,6 +144,8 @@ Other entry points:
   and links external libraries before returning the creation bytecode. Nothing
   covered today links one; the UltraHonk verifiers the ceremony circuits bring
   will.
+- `platform_verifier::codehash_at` — the code hash `setTrustRoots` wants
+  when a Platform Verifier is rotated onto a new circuit release.
 - `Artifacts::method_identifiers` — selector extraction from the vendored
   `methodIdentifiers`.
 

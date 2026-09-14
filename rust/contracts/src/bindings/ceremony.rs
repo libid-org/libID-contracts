@@ -8,7 +8,9 @@
 //! is on neither `NotaryService` nor `CeremonyProofVerifier`: a contract on
 //! the route calls it with the fee attached, and the decoded claim comes back
 //! to that contract. What an operator does from here is initialize, rotate
-//! the trust roots and move the governance parameters.
+//! the trust roots and move the governance parameters — see
+//! [`platform_verifier`](crate::platform_verifier) for the initializer that
+//! checks the rules first.
 
 /// Bindings for `ceremony/NotaryService.sol` (which implements
 /// `INotaryService`).
@@ -201,6 +203,9 @@ mod tls_notary_platform_verifier_inner {
     sol! {
         #[sol(rpc)]
         interface TlsNotaryPlatformVerifier {
+            /// Derives so the built call can be compared and printed by the
+            /// initializer that assembles it.
+            #[derive(Debug, PartialEq, Eq)]
             function initialize(
                 address owner_,
                 address notary_,
@@ -292,6 +297,7 @@ mod google_platform_verifier_inner {
     sol! {
         #[sol(rpc)]
         interface GooglePlatformVerifier {
+            #[derive(Debug, PartialEq, Eq)]
             function initialize(
                 address owner_,
                 address notary_,
