@@ -436,3 +436,273 @@ async fn deploys_the_ens_resolver_with_its_constructor_arguments() {
         .unwrap();
     assert!(resolver.signers(next).call().await.unwrap());
 }
+
+/// (e) The three Platform Verifiers through `deploy_platform_verifier`, on
+/// the collaborators they pin: the Notary Service (the two TLSNotary ones),
+/// the JWT root list (Google), and a Honk verifier — stood in for by any
+/// contract with code, because `initialize` pins a code hash and never
+/// calls `verify`. Each comes back initialized as the views say, registers
+/// with the Proof Verifier, and the ceilings the crate restates are the
+/// contract's. Then the rules: an initializer the wrapper refuses is one
+/// the contract refuses too, and a Honk verifier with no code is caught
+/// before any transaction.
+#[tokio::test]
+async fn deploys_and_initializes_every_platform_verifier() {
+    use alloy::{
+        hex,
+        primitives::keccak256,
+        sol_types::SolError,
+    };
+    use libid_contracts::{
+        bindings::ceremony::{
+            GooglePlatformVerifier,
+            TlsNotaryPlatformVerifier,
+        },
+        platform_verifier::{
+            codehash_at,
+            deploy_platform_verifier,
+            GoogleRoots,
+            Initializer,
+            PlatformVerifier,
+            TlsNotaryRoots,
+            MAX_FUTURE_ATTESTATION_SKEW,
+            MAX_FUTURE_OBSERVATION_ALLOWANCE,
+            MAX_PROOF_LIFETIME,
+        },
+        Error,
+    };
+
+    let provider = test_provider();
+    let artifacts = Artifacts::embedded();
+    let deployer = default_signer(&provider).await;
+    let fee = U256::from(1_000);
+
+    let notary_proxy = deploy_behind_proxy(
+        &provider,
+        &artifacts,
+        "NotaryService",
+        &NotaryService::initializeCall {
+            owner_: deployer,
+            notary_: Address::repeat_byte(0x11),
+            fee_: fee,
+        },
+        None,
+    )
+    .await
+    .unwrap();
+    let proof_verifier_proxy = deploy_behind_proxy(
+        &provider,
+        &artifacts,
+        "CeremonyProofVerifier",
+        &CeremonyProofVerifier::initializeCall { owner_: deployer },
+        None,
+    )
+    .await
+    .unwrap();
+    let roots_proxy = deploy_behind_proxy(
+        &provider,
+        &artifacts,
+        "GoogleJwtRoots",
+        &GoogleJwtRoots::initializeCall {
+            owner_: deployer,
+            notary_: notary_proxy,
+        },
+        None,
+    )
+    .await
+    .unwrap();
+    let honk = deploy_contract(
+        &provider,
+        artifacts.bytecode("WTIA9").unwrap(),
+        "stand-in Honk verifier",
+    )
+    .await
+    .unwrap();
+    let honk_codehash = codehash_at(&provider, honk).await.unwrap();
+    assert_ne!(honk_codehash, keccak256([]));
+
+    let tls = TlsNotaryRoots {
+        owner: deployer,
+        notary_service: notary_proxy,
+        honk_verifier: honk,
+        proof_lifetime: libid_profiles::PROOF_LIFETIME_SECONDS_X,
+        max_future_attestation_skew: libid_profiles::MAX_FUTURE_ATTESTATION_SKEW_SECONDS,
+        future_observation_allowance: 300,
+    };
+    let google = GoogleRoots {
+        owner: deployer,
+        honk_verifier: honk,
+        future_observation_allowance: 7200,
+        jwt_roots: roots_proxy,
+    };
+    let proof_verifier = CeremonyProofVerifier::new(proof_verifier_proxy, &provider);
+
+    for init in [
+        Initializer::X(tls),
+        Initializer::GitHub(tls),
+        Initializer::Google(google),
+    ] {
+        let verifier = init.verifier();
+        let proxy = deploy_platform_verifier(&provider, &artifacts, &init, None)
+            .await
+            .unwrap_or_else(|e| panic!("{verifier:?}: {e}"));
+        assert!(!provider.get_code_at(proxy).await.unwrap().is_empty());
+
+        // The quote is what the Proof Verifier forwards whole: one Notary
+        // Fee per attestation the profile requires.
+        let quote = match verifier {
+            PlatformVerifier::X | PlatformVerifier::GitHub => {
+                let v = TlsNotaryPlatformVerifier::new(proxy, &provider);
+                assert_eq!(v.owner().call().await.unwrap(), deployer);
+                assert_eq!(v.notaryService().call().await.unwrap(), notary_proxy);
+                assert_eq!(v.honkVerifier().call().await.unwrap(), honk);
+                assert_eq!(
+                    v.honkVerifierCodehash().call().await.unwrap(),
+                    honk_codehash
+                );
+                let params = v.protocolParameters().call().await.unwrap();
+                assert_eq!(params.proofLifetime, tls.proof_lifetime);
+                assert_eq!(
+                    params.maxFutureAttestationSkew,
+                    tls.max_future_attestation_skew
+                );
+                assert_eq!(
+                    params.futureObservationAllowance,
+                    tls.future_observation_allowance
+                );
+                assert_eq!(
+                    v.MAX_PROOF_LIFETIME().call().await.unwrap(),
+                    MAX_PROOF_LIFETIME
+                );
+                assert_eq!(
+                    v.MAX_FUTURE_ATTESTATION_SKEW().call().await.unwrap(),
+                    MAX_FUTURE_ATTESTATION_SKEW
+                );
+                assert_eq!(
+                    v.MAX_FUTURE_OBSERVATION_ALLOWANCE().call().await.unwrap(),
+                    MAX_FUTURE_OBSERVATION_ALLOWANCE
+                );
+                let quote = v.quote().call().await.unwrap();
+                assert_eq!(quote, fee * U256::from(2));
+                quote
+            }
+            PlatformVerifier::Google => {
+                let v = GooglePlatformVerifier::new(proxy, &provider);
+                assert_eq!(v.owner().call().await.unwrap(), deployer);
+                assert_eq!(v.notaryService().call().await.unwrap(), Address::ZERO);
+                assert_eq!(v.honkVerifier().call().await.unwrap(), honk);
+                assert_eq!(
+                    v.honkVerifierCodehash().call().await.unwrap(),
+                    honk_codehash
+                );
+                assert_eq!(v.jwtRoots().call().await.unwrap(), roots_proxy);
+                let params = v.protocolParameters().call().await.unwrap();
+                assert_eq!(params.proofLifetime, 0);
+                assert_eq!(params.maxFutureAttestationSkew, 0);
+                assert_eq!(
+                    params.futureObservationAllowance,
+                    google.future_observation_allowance
+                );
+                let quote = v.quote().call().await.unwrap();
+                assert_eq!(quote, U256::ZERO);
+                quote
+            }
+        };
+
+        // The contract answers for the platform the crate says it serves,
+        // and the Proof Verifier registers it under that platform.
+        let platform_id = TlsNotaryPlatformVerifier::new(proxy, &provider)
+            .platformId()
+            .call()
+            .await
+            .unwrap();
+        assert_eq!(platform_id, verifier.platform_id());
+        proof_verifier
+            .setVerifier(platform_id, 1, proxy)
+            .send()
+            .await
+            .unwrap()
+            .get_receipt()
+            .await
+            .unwrap();
+        assert_eq!(
+            proof_verifier
+                .verifierOf(platform_id, 1)
+                .call()
+                .await
+                .unwrap(),
+            proxy
+        );
+        assert_eq!(
+            proof_verifier.quote(platform_id, 1).call().await.unwrap(),
+            quote
+        );
+    }
+
+    // A Honk verifier that is not deployed is caught before any transaction:
+    // the hash of nothing is exactly what the contract refuses to pin.
+    let err = Initializer::X(TlsNotaryRoots {
+        honk_verifier: Address::repeat_byte(0x99),
+        ..tls
+    })
+    .call(&provider)
+    .await
+    .unwrap_err();
+    assert!(matches!(err, Error::Initializer { .. }), "{err}");
+    assert!(err.to_string().contains("no code at"), "{err}");
+
+    // The rules the wrapper enforces are the contract's, not its own: a
+    // hand-built Google initializer carrying a Notary Service, and an X one
+    // naming the wrong artifact, both revert at the proxy constructor with
+    // the error the wrapper's refusal names. Explicit nonces from here:
+    // a send that fails at gas estimation leaves alloy's cached nonce
+    // manager one ahead of the chain, and every later transaction would
+    // wait on a gap that never fills.
+    let google_with_notary = GooglePlatformVerifier::initializeCall {
+        owner_: deployer,
+        notary_: notary_proxy,
+        honkVerifier_: honk,
+        honkVerifierCodehash_: honk_codehash,
+        futureObservationAllowance_: 7200,
+        jwtRoots_: roots_proxy,
+    };
+    let err = deploy_behind_proxy(
+        &provider,
+        &artifacts,
+        "GooglePlatformVerifier",
+        &google_with_notary,
+        Some(deployer),
+    )
+    .await
+    .unwrap_err();
+    assert!(
+        err.to_string().contains(&hex::encode(
+            GooglePlatformVerifier::WrongNotaryForProfile::SELECTOR
+        )),
+        "{err}"
+    );
+    let x_wrong_artifact = TlsNotaryPlatformVerifier::initializeCall {
+        owner_: deployer,
+        notary_: notary_proxy,
+        honkVerifier_: honk,
+        honkVerifierCodehash_: keccak256("some other artifact"),
+        proofLifetime_: 3600,
+        maxFutureAttestationSkew_: 300,
+        futureObservationAllowance_: 300,
+    };
+    let err = deploy_behind_proxy(
+        &provider,
+        &artifacts,
+        "XPlatformVerifier",
+        &x_wrong_artifact,
+        Some(deployer),
+    )
+    .await
+    .unwrap_err();
+    assert!(
+        err.to_string().contains(&hex::encode(
+            TlsNotaryPlatformVerifier::WrongVerifierArtifact::SELECTOR
+        )),
+        "{err}"
+    );
+}
