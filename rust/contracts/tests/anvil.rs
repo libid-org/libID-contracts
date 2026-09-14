@@ -439,13 +439,14 @@ async fn deploys_the_ens_resolver_with_its_constructor_arguments() {
 
 /// (e) The three Platform Verifiers through `deploy_platform_verifier`, on
 /// the collaborators they pin: the Notary Service (the two TLSNotary ones),
-/// the JWT root list (Google), and a Honk verifier — stood in for by any
-/// contract with code, because `initialize` pins a code hash and never
-/// calls `verify`. Each comes back initialized as the views say, registers
-/// with the Proof Verifier, and the ceilings the crate restates are the
-/// contract's. Then the rules: an initializer the wrapper refuses is one
-/// the contract refuses too, and a Honk verifier with no code is caught
-/// before any transaction.
+/// the JWT root list (Google), and the real Honk verifier for each one's
+/// circuit, deployed with its libraries linked. The code hash the
+/// initializer computes is the one the chain reports for that verifier,
+/// and the one the contract records. Each comes back initialized as the
+/// views say, registers with the Proof Verifier, and the ceilings the crate
+/// restates are the contract's. Then the rules: an initializer the wrapper
+/// refuses is one the contract refuses too, and a Honk verifier with no
+/// code is caught before any transaction.
 #[tokio::test]
 async fn deploys_and_initializes_every_platform_verifier() {
     use alloy::{
@@ -457,6 +458,10 @@ async fn deploys_and_initializes_every_platform_verifier() {
         bindings::ceremony::{
             GooglePlatformVerifier,
             TlsNotaryPlatformVerifier,
+        },
+        circuits::{
+            deploy_honk_verifier,
+            Circuit,
         },
         platform_verifier::{
             codehash_at,
@@ -511,27 +516,41 @@ async fn deploys_and_initializes_every_platform_verifier() {
     )
     .await
     .unwrap();
-    let honk = deploy_contract(
-        &provider,
-        artifacts.bytecode("WTIA9").unwrap(),
-        "stand-in Honk verifier",
-    )
-    .await
-    .unwrap();
+    // The real verifiers, one per circuit, libraries linked. The hash a
+    // Platform Verifier pins is read off the chain, never computed from the
+    // vendored bytes: it is what the chain holds for the artifact.
+    let bearer_link =
+        deploy_honk_verifier(&provider, &artifacts, Circuit::BearerLink, None)
+            .await
+            .unwrap();
+    let oidc_google =
+        deploy_honk_verifier(&provider, &artifacts, Circuit::OidcGoogle, None)
+            .await
+            .unwrap();
+    let honk_at = |circuit: Circuit| match circuit {
+        Circuit::BearerLink => bearer_link,
+        Circuit::OidcGoogle => oidc_google,
+    };
+    let honk = bearer_link;
     let honk_codehash = codehash_at(&provider, honk).await.unwrap();
     assert_ne!(honk_codehash, keccak256([]));
+    assert_ne!(
+        honk_codehash,
+        codehash_at(&provider, oidc_google).await.unwrap(),
+        "one artifact for two circuits"
+    );
 
     let tls = TlsNotaryRoots {
         owner: deployer,
         notary_service: notary_proxy,
-        honk_verifier: honk,
+        honk_verifier: bearer_link,
         proof_lifetime: libid_profiles::PROOF_LIFETIME_SECONDS_X,
         max_future_attestation_skew: libid_profiles::MAX_FUTURE_ATTESTATION_SKEW_SECONDS,
         future_observation_allowance: 300,
     };
     let google = GoogleRoots {
         owner: deployer,
-        honk_verifier: honk,
+        honk_verifier: oidc_google,
         future_observation_allowance: 7200,
         jwt_roots: roots_proxy,
     };
@@ -543,6 +562,21 @@ async fn deploys_and_initializes_every_platform_verifier() {
         Initializer::Google(google),
     ] {
         let verifier = init.verifier();
+        // The initializer pins its circuit's verifier, and computes the hash
+        // the chain reports for it — `EXTCODEHASH`, `keccak256` of the
+        // runtime code — which is what `initialize` then checks.
+        let honk = honk_at(verifier.circuit());
+        assert_eq!(
+            init.honk_verifier(),
+            honk,
+            "{verifier:?} pins the wrong circuit"
+        );
+        let honk_codehash = keccak256(provider.get_code_at(honk).await.unwrap());
+        assert_eq!(
+            init.call(&provider).await.unwrap().honk_verifier_codehash(),
+            honk_codehash,
+            "{verifier:?}: the initializer computed a hash the chain does not hold"
+        );
         let proxy = deploy_platform_verifier(&provider, &artifacts, &init, None)
             .await
             .unwrap_or_else(|e| panic!("{verifier:?}: {e}"));
@@ -704,5 +738,75 @@ async fn deploys_and_initializes_every_platform_verifier() {
             TlsNotaryPlatformVerifier::WrongVerifierArtifact::SELECTOR
         )),
         "{err}"
+    );
+}
+
+/// (f) The two Honk verifiers through `deploy_honk_verifier`: each lands
+/// with its libraries linked, under EIP-170, and answers for its OWN
+/// circuit. A bb verifier has no getter for its verification key; the one
+/// thing it says about itself is the `logN` a wrong-length proof comes back
+/// with. That separates a real verifier from a contract that merely has
+/// code, and the two circuits from each other — the check that would catch
+/// a release whose tarballs were swapped, or a vendor run that wrote one
+/// circuit's verifier under the other's name.
+#[tokio::test]
+async fn deploys_the_linked_honk_verifiers_over_their_own_circuits() {
+    use alloy::{
+        primitives::Bytes,
+        sol_types::SolError,
+    };
+    use libid_contracts::{
+        bindings::circuits::HonkVerifier,
+        circuits::{
+            deploy_honk_verifier,
+            version,
+            Circuit,
+        },
+        platform_verifier::codehash_at,
+    };
+
+    let provider = test_provider();
+    let artifacts = Artifacts::embedded();
+    assert!(!version(&artifacts).unwrap().is_empty());
+
+    let mut log_n = Vec::new();
+    for circuit in Circuit::ALL {
+        let address = deploy_honk_verifier(&provider, &artifacts, circuit, None)
+            .await
+            .unwrap_or_else(|e| panic!("{circuit:?}: {e}"));
+        let code = provider.get_code_at(address).await.unwrap();
+        assert!(!code.is_empty(), "{circuit:?} has no code at {address:#x}");
+        // anvil runs the default limit, so deploying at all is the EIP-170
+        // proof; the number is asserted so a release that grows past it
+        // says so here rather than in a failed deploy.
+        assert!(
+            code.len() <= 24_576,
+            "{circuit:?} is {} bytes, over EIP-170",
+            code.len()
+        );
+        assert_eq!(
+            codehash_at(&provider, address).await.unwrap(),
+            keccak256(&code)
+        );
+
+        let err = HonkVerifier::new(address, &provider)
+            .verify(Bytes::new(), Vec::new())
+            .call()
+            .await
+            .expect_err("an empty proof is the wrong length");
+        let data = err
+            .as_revert_data()
+            .expect("the verifier reverted with data");
+        let decoded = HonkVerifier::ProofLengthWrongWithLogN::abi_decode(&data)
+            .expect("only a Honk verifier raises ProofLengthWrongWithLogN");
+        assert!(
+            decoded.logN > U256::ZERO,
+            "{circuit:?} reports no circuit size"
+        );
+        log_n.push(decoded.logN);
+    }
+    assert_ne!(
+        log_n[0], log_n[1],
+        "both platforms would verify under one circuit"
     );
 }
