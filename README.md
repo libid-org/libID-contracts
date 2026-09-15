@@ -1,4 +1,4 @@
-# libID contracts
+# libID-contracts
 
 Smart contracts for libID, laid out per chain. `solidity/` is a self-contained
 Foundry project holding the EVM contracts: the ceremony verification path
@@ -41,7 +41,7 @@ forge test
 ```
 
 Nothing generated is committed. The Honk verifiers are downloaded from the
-pinned [libid-circuits](https://github.com/libid-org/libid-circuits) release
+pinned [libID-circuits](https://github.com/libid-org/libID-circuits) release
 (see [Circuit verifiers](#circuit-verifiers)), so a fresh clone vendors them
 before its first `forge build`, which needs curl, jq, tar and forge. `forge
 build` is in turn the input to the two generated trees. Generate them once
@@ -79,7 +79,7 @@ fails when any of them drifts from `handles.json`.
 
 The ceremony circuits' UltraHonk verifiers are not written here. `bb` derives
 each from its circuit's verification key, and
-[libid-circuits](https://github.com/libid-org/libid-circuits) runs `bb` and
+[libID-circuits](https://github.com/libid-org/libID-circuits) runs `bb` and
 ships the Solidity in its release tarballs. `scripts/vendor-circuit-verifiers.sh`
 downloads it into `solidity/contracts/circuits/`, formatted, where `forge
 build` compiles it and the crate embeds it, so no consumer runs `bb`. The

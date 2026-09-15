@@ -5,7 +5,7 @@
   "license": "(MIT OR Apache-2.0)",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/libid-org/libid-contracts.git",
+    "url": "git+https://github.com/libid-org/libID-contracts.git",
     "directory": "ts/packages/contracts"
   },
   "type": "module",

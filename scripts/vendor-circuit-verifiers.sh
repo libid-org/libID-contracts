@@ -49,7 +49,7 @@ SOLIDITY="$REPO_ROOT/solidity"
 DEST_REL="contracts/circuits"
 DEST="$SOLIDITY/$DEST_REL"
 PIN="$DEST/circuits.json"
-RELEASES="https://github.com/libid-org/libid-circuits/releases/download"
+RELEASES="https://github.com/libid-org/libID-circuits/releases/download"
 
 if [[ $# -gt 0 ]]; then
     echo "unknown argument: $1" >&2

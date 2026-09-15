@@ -21,8 +21,8 @@ name: Deploy the ENS resolver
 #
 #   The trusted values live in grndd-systems/deployment,
 #   terraform/envs/testnet/main.tf → extra_deployer_subs. Currently trusted:
-#     repo:libid-org/libid-contracts:environment:testnet
-#     repo:libid-org/libid-contracts:environment:mainnet
+#     repo:libid-org/libID-contracts:environment:testnet
+#     repo:libid-org/libID-contracts:environment:mainnet
 #
 # ONE DEPLOYER KEY SERVES BOTH NETWORKS, BY DESIGN. That means the key does not
 # separate testnet from mainnet — the GitHub Environment does. The `mainnet`
