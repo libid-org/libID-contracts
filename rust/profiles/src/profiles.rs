@@ -139,10 +139,10 @@ pub const X: Profile = Profile {
     }),
 };
 
-/// A confidential client. The exchange runs in the deployment because the
-/// secret cannot reach the browser, and the two sessions are served by
-/// DIFFERENT hosts -- which is why one pinned authority per profile would
-/// be wrong.
+/// The credential GitHub calls `client_secret` is sent and revealed, so
+/// an attestation publishes it and nothing here is confidential. The two
+/// sessions are served by DIFFERENT hosts -- which is why one pinned
+/// authority per profile would be wrong.
 pub const GITHUB: Profile = Profile {
     platform: "github",
     ceremony_version: 1,
@@ -153,7 +153,7 @@ pub const GITHUB: Profile = Profile {
             path: "/login/oauth/access_token",
             request_line: "POST /login/oauth/access_token ",
         },
-        secret_field: Some("client_secret"),
+        secret_field: None,
         required_headers: &[
             "host: github.com",
             "content-type: application/x-www-form-urlencoded",

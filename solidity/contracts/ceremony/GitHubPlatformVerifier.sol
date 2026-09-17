@@ -8,13 +8,10 @@ import {TlsNotaryVerifierBase} from "./TlsNotaryVerifierBase.sol";
 
 /// @title GitHubPlatformVerifier — the `github/v1` profile.
 ///
-/// @notice The same relation X states, from a confidential client.
+/// @notice The same relation X states, for a second platform.
 ///
-/// @dev GitHub uses a confidential client, so the exchange cannot run in the
-///      browser and the deployment's Token-Exchange Service is the notarized
-///      party for that session. On chain that changes nothing: this verifier
-///      sees two attestations and one proof, exactly as X does. It differs in
-///      four constants and two reads.
+/// @dev This verifier sees two attestations and one proof, exactly as X does.
+///      It differs in four constants and two reads.
 ///
 ///      TWO AUTHORITIES, NOT ONE. `github.com` serves the exchange and
 ///      `api.github.com` serves the identity read, so an authority is per
@@ -27,36 +24,31 @@ import {TlsNotaryVerifierBase} from "./TlsNotaryVerifierBase.sol";
 ///
 ///      THE REVEALED LAYOUT IS A PROFILE DECISION, as it is for X:
 ///
-///        token exchange — ONE revealed sent range, from offset 0 through the
-///                         body PREFIX; `_tokenBody` refuses any other count.
-///                         `client_secret` is ordered last per REQ-COMMON-22
-///                         and committed, so the prefix ends where it begins
-///                         and every field a verifier reads sits inside it.
+///        token exchange — ONE revealed sent range covering the request whole,
+///                         and NO commitment; `_tokenBody` refuses any other
+///                         count. The credential GitHub calls `client_secret`
+///                         is sent in the body and revealed with everything
+///                         around it, so every field a verifier reads lies in
+///                         the open and the request has no hidden suffix.
 ///
-///                         Nothing frames that commitment, unlike the bearer's:
-///                         its `&client_secret=` opener is on the hidden side,
-///                         so there is no revealed anchor to compare. A prover
-///                         starting it earlier hides a body suffix, and
-///                         `formField` cannot see a duplicate in there. What
-///                         closes that is ASM-PROV-07 -- the platform rejects a
-///                         body carrying a profile field twice -- backed by the
-///                         recurring probes REQ-COMMON-32 requires. Framing it
-///                         here would mean revealing `&client_secret=`, which
-///                         the profile's reveal table marks `no`, so it is a
-///                         specification question rather than a contract one.
+///                         What the revealed bytes do not settle is the
+///                         decoded form. `formField` refuses a name it finds
+///                         at two `&`-anchored positions, but a value carrying
+///                         a raw `&` or `=` would decode as fields nobody
+///                         counted. That is ASM-PROV-07 -- the platform
+///                         rejects a body carrying a profile field twice --
+///                         backed by the recurring probes REQ-COMMON-32
+///                         requires, exactly as it is for X.
 ///        token response — the `"access_token":"` delimiter and closing quote
 ///                         revealed; the bearer and everything else committed.
 ///        identity request — the bearer committed, every other byte revealed
 ///                         and tiled exactly.
 ///        identity response — `id` and `login` with their full delimiters.
 ///
-///      The three identity-session checks do NOT reach the exchange's body
-///      credential: REQ-COMMON-43 forbids demanding a CRLF-framed
-///      `authorization: Bearer ` around a form-body range, which would reject
-///      every valid exchange. The secret is protected instead by being ordered
-///      last with a delimiter-free charset, which REQ-PLAT-35 makes a
-///      deployment obligation — GitHub secrets are hex, so it holds by
-///      inspection.
+///      An attestation of this exchange carries the application credential in
+///      plaintext: to the notary that observed the session, and to every
+///      reader of the chain that verifies it. That follows from the layout
+///      above rather than from any choice a prover makes.
 contract GitHubPlatformVerifier is TlsNotaryVerifierBase {
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
@@ -103,8 +95,8 @@ contract GitHubPlatformVerifier is TlsNotaryVerifierBase {
         return CeremonyProfile.AUTHORITY_GITHUB_API;
     }
 
-    /// @dev GitHub commits its `client_secret`, ordered last under
-    ///      REQ-COMMON-22, so exactly one committed range reaches the end.
+    /// @dev GitHub's exchange hides no body field, so its request is revealed
+    ///      whole and this direction carries no commitment at all.
     function _tokenSentCommitments() internal pure override returns (uint256) {
         return CeremonyProfile.GITHUB_TOKEN_SENT_COMMITMENTS;
     }
@@ -113,10 +105,9 @@ contract GitHubPlatformVerifier is TlsNotaryVerifierBase {
         return CeremonyProfile.GITHUB_TOKEN_REQUEST_LINE;
     }
 
-    /// @dev REQ-COMMON-21B: `host` and section 6.2's media type. The
-    ///      Token-Exchange Service composes this request rather than a browser,
-    ///      so these bytes are agreed here before that service is written; what
-    ///      else it sends is not compared.
+    /// @dev REQ-COMMON-21B: `host` and section 6.2's media type. What else
+    ///      the sender puts in the head is not compared: it changes what
+    ///      GitHub answers, never how GitHub parses the body.
     function _tokenRequiredHeaders() internal pure override returns (bytes memory) {
         return CeremonyProfile.GITHUB_TOKEN_REQUIRED_HEADERS;
     }

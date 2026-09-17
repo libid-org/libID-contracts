@@ -126,7 +126,7 @@ async fn the_x_token_request_head_is_one_the_profile_admits() {
 #[tokio::test]
 async fn the_github_exchange_head_is_one_the_profile_admits() {
     let session = GITHUB.token.expect("github notarizes a token session");
-    // GitHub's body carries the secret last, per REQ-COMMON-22.
+    // GitHub's body carries the credential as its last field.
     let body = b"client_id=Iv1.abc&code=xyz&redirect_uri=https%3A%2F%2Fexample.test%2Fcb&code_verifier=5teBDl6cz4U77aFweV5PbMhBJ_lEFv6LLNKzqnDI5lo&client_secret=deadbeef";
     let wire = head_hyper_writes(&session, body).await;
     assert_head_admits(&session, &wire, body.len());
