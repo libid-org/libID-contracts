@@ -87,13 +87,6 @@ library CeremonyProfile {
     bytes internal constant FORBIDDEN_REQUEST_HEADERS =
         "authorization\r\ncontent-encoding\r\ncookie\r\ntransfer-encoding\r\nx-http-method\r\nx-http-method-override\r\nx-method-override";
 
-    /// @dev How many committed ranges the token request carries. A confidential
-    ///      client commits its secret and a public client hides nothing, so this
-    ///      is one or zero and never a preference.
-
-    uint256 internal constant X_TOKEN_SENT_COMMITMENTS = 0;
-    uint256 internal constant GITHUB_TOKEN_SENT_COMMITMENTS = 0;
-
     /// @dev The two identity members a Platform Verifier reads out of the
     ///      revealed response bytes (REQ-PLAT-51).
 

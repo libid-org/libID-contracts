@@ -56,10 +56,6 @@ pub struct Session {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct TokenSession {
     pub session: Session,
-    /// The body field committed rather than revealed, ordered last so the
-    /// committed run is a suffix (REQ-COMMON-22). `None` for a public client,
-    /// whose request hides nothing and is revealed whole.
-    pub secret_field: Option<&'static str>,
     /// The header lines a Platform Verifier requires, each exactly once with
     /// its value: `host` and `content-type`, lowercased as the wire spells
     /// them. Every other header is the runtime's own, save the names
@@ -120,7 +116,6 @@ pub const X: Profile = Profile {
             path: "/2/oauth2/token",
             request_line: "POST /2/oauth2/token ",
         },
-        secret_field: None,
         required_headers: &[
             "host: api.x.com",
             "content-type: application/x-www-form-urlencoded",
@@ -153,7 +148,6 @@ pub const GITHUB: Profile = Profile {
             path: "/login/oauth/access_token",
             request_line: "POST /login/oauth/access_token ",
         },
-        secret_field: None,
         required_headers: &[
             "host: github.com",
             "content-type: application/x-www-form-urlencoded",
