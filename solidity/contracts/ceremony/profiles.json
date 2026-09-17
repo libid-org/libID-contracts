@@ -126,34 +126,37 @@
       "ceremonyVersion": 1,
       "proofLifetimeSeconds": 3600,
       "note": [
-        "A confidential client. The exchange runs in the deployment because the",
-        "secret cannot reach the browser, and the two sessions are served by",
-        "DIFFERENT hosts -- which is why one pinned authority per profile would",
-        "be wrong."
+        "The credential GitHub calls `client_secret` is sent and revealed, so",
+        "an attestation publishes it and nothing here is confidential. The two",
+        "sessions are served by DIFFERENT hosts -- which is why one pinned",
+        "authority per profile would be wrong."
       ],
       "sessions": {
         "token": {
           "authority": "github.com",
           "method": "POST",
           "path": "/login/oauth/access_token",
-          "secretField": "client_secret",
+          "secretField": null,
           "requiredHeaders": [
             "host: github.com",
             "content-type: application/x-www-form-urlencoded"
           ],
           "note": [
-            "The client secret is committed rather than revealed, ordered last",
-            "in the body under REQ-COMMON-22 so the committed run is a suffix",
-            "and not a hole.",
+            "The request is revealed whole, as X's is. The credential sits in",
+            "the body and is revealed with the rest of it, so the verifier",
+            "accepts exactly zero committed ranges in this direction.",
+            "",
+            "Which is why the media type is required. Revealed is not checked:",
+            "it was public and unconstrained until the verifier compared it,",
+            "and it decides how GitHub parses the very bytes `formField`",
+            "reads.",
             "",
             "The media type is section 6.2's and `host` names the authority",
-            "the notary authenticated. The Token-Exchange Service also sends",
+            "the notary authenticated. Whoever sends this request also sends",
             "`accept: application/json`, without which GitHub answers",
             "form-encoded and the verifier finds no `\"access_token\":\"`, and",
             "`connection: close`, which ends every notarized session here;",
-            "neither is compared. The service is the party that sends this",
-            "request, so unlike X's it is agreed here BEFORE it is written",
-            "rather than read off a browser that already sends it."
+            "neither is compared."
           ]
         },
         "identity": {

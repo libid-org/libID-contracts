@@ -110,30 +110,32 @@ contract GitHubPlatformVerifierTest is Test {
         );
     }
 
-    /// The exchange: request line, then the revealed body PREFIX. The secret is
-    /// ordered last and committed, so the prefix stops where it begins.
-    /// The exchange request as the profile fixes it: one revealed run up to
-    /// the secret, which is ordered last and committed. The head boundary sits
-    /// inside the revealed run, so the body is located by the framing rather
-    /// than by a range position.
-    function _exchangeSent() private view returns (AttestationBuilder.Direction memory) {
-        bytes memory prefix = abi.encodePacked(
+    /// The exchange body: the five fields the profile lists, the credential
+    /// among them and revealed like the rest.
+    function _exchangeBody() private view returns (bytes memory) {
+        return abi.encodePacked(
             "client_id=Iv1.8a61f9b3a7aba766&code=abc&redirect_uri=https%3A%2F%2Fa.example&code_verifier=",
-            CeremonyAuthorization.codeVerifier(digest, AUTH_NONCE)
+            CeremonyAuthorization.codeVerifier(digest, AUTH_NONCE),
+            "&client_secret=0123456789abcdef0123456789abcdef"
         );
-        // The declared length covers the committed `client_secret` too: it is
-        // the body GitHub parsed, not the part of it this side can read.
-        bytes memory whole = abi.encodePacked(_exchangeHead(prefix.length + 40), prefix);
-        uint32 wholeEnd = uint32(whole.length);
-        uint32 secretEnd = wholeEnd + 40; // `&client_secret=<hex>`, committed
+    }
 
+    /// One revealed run covering a request whole, with no commitment: the
+    /// shape `github/v1` fixes for its exchange.
+    function _wholeSent(bytes memory whole) private pure returns (AttestationBuilder.Direction memory) {
         return AttestationBuilder.Direction({
             revealed: AttestationBuilder.one(AttestationBuilder.Range({start: 0, value: whole})),
-            commitments: AttestationBuilder.one(
-                AttestationBuilder.Commitment({start: wholeEnd, end: secretEnd, value: bytes32(uint256(0x5EC1E7))})
-            ),
-            length: secretEnd
+            commitments: AttestationBuilder.none(),
+            length: uint32(whole.length)
         });
+    }
+
+    /// The exchange request as the profile fixes it: one revealed run over the
+    /// request whole. The head boundary sits inside that run, so the body is
+    /// located by the framing rather than by a range position.
+    function _exchangeSent() private view returns (AttestationBuilder.Direction memory) {
+        bytes memory body = _exchangeBody();
+        return _wholeSent(abi.encodePacked(_exchangeHead(body.length), body));
     }
 
     /// The exchange response: the bearer committed and framed by the revealed
@@ -514,9 +516,9 @@ contract GitHubPlatformVerifierTest is Test {
             proof: vm.parseJsonBytes(json, ".identity.notary_signature")
         });
         ICeremony.VerifiedClaim memory f = this.run{value: quote}(s);
-        assertEq(f.userId, "18346821");
-        assertEq(f.handle, "xgreenx");
-        assertEq(string(f.clientIdentifier), "Ov23liIOfT7uQ9707Fpz");
+        assertEq(f.userId, "293919812");
+        assertEq(f.handle, "testyakly");
+        assertEq(string(f.clientIdentifier), "Iv23lioEM9NAR9vO8CmT");
         assertEq(f.sessionId, digest);
     }
 
@@ -561,8 +563,9 @@ contract GitHubPlatformVerifierTest is Test {
         return ICeremony.Attestation({attestedData: attested, proof: _sign(attested)});
     }
 
-    /// Commitment FIRST, then one revealed run: tiles, one commitment as the profile demands,
-    /// head boundary inside the run. Only TlsNotaryVerifierBase.sol:294 stands between this and acceptance.
+    /// A commitment over the request line, then one revealed run: the two
+    /// tile, so coverage passes and the origin rule is what refuses this --
+    /// before the commitment count is ever looked at.
     function test_rejectsAnExchangeWhoseRequestLineIsHidden() public {
         bytes memory prefix = abi.encodePacked(
             "client_id=Iv1.8a61f9b3a7aba766&code=abc&redirect_uri=https%3A%2F%2Fa.example&code_verifier=",
@@ -583,6 +586,28 @@ contract GitHubPlatformVerifierTest is Test {
         this.run{value: quote}(s);
     }
 
+    /// @dev The exchange layout itself, asserted against the verifier rather
+    ///      than against the generated constant: a request that hides a body
+    ///      suffix behind a commitment is refused, however well formed the
+    ///      rest of it is.
+    function test_rejectsAnExchangeThatCommitsABodySuffix() public {
+        bytes memory body = _exchangeBody();
+        bytes memory whole = abi.encodePacked(_exchangeHead(body.length + 8), body);
+        uint32 wholeEnd = uint32(whole.length);
+        AttestationBuilder.Direction memory sent = AttestationBuilder.Direction({
+            revealed: AttestationBuilder.one(AttestationBuilder.Range({start: 0, value: whole})),
+            commitments: AttestationBuilder.one(
+                AttestationBuilder.Commitment({start: wholeEnd, end: wholeEnd + 8, value: bytes32(uint256(0x5EC1E7))})
+            ),
+            length: wholeEnd + 8
+        });
+        bytes memory a = AttestationBuilder.encode(CeremonyProfile.AUTHORITY_GITHUB, T0, sent, _exchangeResponse());
+        TlsNotaryVerifierBase.TlsNotaryProof memory s = _payload();
+        s.tokenSession = ICeremony.Attestation({attestedData: a, proof: _sign(a)});
+        vm.expectRevert(abi.encodeWithSelector(TlsNotaryVerifierBase.WrongTokenRequestLayout.selector, 1, 1));
+        this.run{value: quote}(s);
+    }
+
     /// @dev REQ-COMMON-21B, on the profile whose exchange this repository does
     ///      not compose: `github/v1` pins its OWN head, so a service sending a
     ///      request X's constant would have accepted is still refused here.
@@ -590,24 +615,12 @@ contract GitHubPlatformVerifierTest is Test {
     ///      what decides whether GitHub reads the bytes `formField` reads as a
     ///      form at all.
     function test_rejectsAnotherMediaTypeOnTheExchange() public {
-        bytes memory prefix = abi.encodePacked(
-            "client_id=Iv1.8a61f9b3a7aba766&code=abc&redirect_uri=https%3A%2F%2Fa.example&code_verifier=",
-            CeremonyAuthorization.codeVerifier(digest, AUTH_NONCE)
-        );
+        bytes memory body = _exchangeBody();
         bytes memory head = _exchangeHead(
             "host: github.com\r\ncontent-type: application/json\r\naccept: application/json\r\nconnection: close\r\n",
-            prefix.length + 40
+            body.length
         );
-        bytes memory whole = abi.encodePacked(head, prefix);
-        AttestationBuilder.Direction memory sent = AttestationBuilder.Direction({
-            revealed: AttestationBuilder.one(AttestationBuilder.Range({start: 0, value: whole})),
-            commitments: AttestationBuilder.one(
-                AttestationBuilder.Commitment({
-                    start: uint32(whole.length), end: uint32(whole.length) + 40, value: bytes32(uint256(0x5EC1E7))
-                })
-            ),
-            length: uint32(whole.length) + 40
-        });
+        AttestationBuilder.Direction memory sent = _wholeSent(abi.encodePacked(head, body));
         bytes memory a = AttestationBuilder.encode(CeremonyProfile.AUTHORITY_GITHUB, T0, sent, _exchangeResponse());
         TlsNotaryVerifierBase.TlsNotaryProof memory s = _payload();
         s.tokenSession = ICeremony.Attestation({attestedData: a, proof: _sign(a)});
@@ -619,25 +632,13 @@ contract GitHubPlatformVerifierTest is Test {
     ///      Service's own business -- a `user-agent`, say -- as long as it is
     ///      not one of the forbidden names. The exchange still verifies.
     function test_acceptsAnUnlistedHeaderOnTheExchange() public {
-        bytes memory prefix = abi.encodePacked(
-            "client_id=Iv1.8a61f9b3a7aba766&code=abc&redirect_uri=https%3A%2F%2Fa.example&code_verifier=",
-            CeremonyAuthorization.codeVerifier(digest, AUTH_NONCE)
-        );
+        bytes memory body = _exchangeBody();
         bytes memory head = _exchangeHead(
             "host: github.com\r\nuser-agent: libid-bridge/0.3.0\r\ncontent-type: application/x-www-form-urlencoded\r\n"
             "accept: application/json\r\nconnection: close\r\n",
-            prefix.length + 40
+            body.length
         );
-        bytes memory whole = abi.encodePacked(head, prefix);
-        AttestationBuilder.Direction memory sent = AttestationBuilder.Direction({
-            revealed: AttestationBuilder.one(AttestationBuilder.Range({start: 0, value: whole})),
-            commitments: AttestationBuilder.one(
-                AttestationBuilder.Commitment({
-                    start: uint32(whole.length), end: uint32(whole.length) + 40, value: bytes32(uint256(0x5EC1E7))
-                })
-            ),
-            length: uint32(whole.length) + 40
-        });
+        AttestationBuilder.Direction memory sent = _wholeSent(abi.encodePacked(head, body));
         bytes memory a = AttestationBuilder.encode(CeremonyProfile.AUTHORITY_GITHUB, T0, sent, _exchangeResponse());
         TlsNotaryVerifierBase.TlsNotaryProof memory s = _payload();
         s.tokenSession = ICeremony.Attestation({attestedData: a, proof: _sign(a)});

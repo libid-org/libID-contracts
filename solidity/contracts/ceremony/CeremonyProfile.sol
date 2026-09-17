@@ -92,7 +92,7 @@ library CeremonyProfile {
     ///      is one or zero and never a preference.
 
     uint256 internal constant X_TOKEN_SENT_COMMITMENTS = 0;
-    uint256 internal constant GITHUB_TOKEN_SENT_COMMITMENTS = 1;
+    uint256 internal constant GITHUB_TOKEN_SENT_COMMITMENTS = 0;
 
     /// @dev The two identity members a Platform Verifier reads out of the
     ///      revealed response bytes (REQ-PLAT-51).
