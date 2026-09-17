@@ -75,12 +75,6 @@ contract XPlatformVerifier is TlsNotaryVerifierBase {
         return CeremonyProfile.AUTHORITY_X_API;
     }
 
-    /// @dev X uses a public client and hides no body field, so its token
-    ///      request is revealed whole.
-    function _tokenSentCommitments() internal pure override returns (uint256) {
-        return CeremonyProfile.X_TOKEN_SENT_COMMITMENTS;
-    }
-
     function _tokenRequestLine() internal pure override returns (bytes memory) {
         return CeremonyProfile.X_TOKEN_REQUEST_LINE;
     }

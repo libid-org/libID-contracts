@@ -39,8 +39,6 @@ export interface Session {
 
 export interface TokenSession {
   readonly session: Session
-  /** The body field committed rather than revealed, or null. */
-  readonly secretField: string | null
   /** The header lines a Platform Verifier requires, each exactly once with
    * its value: `host` and `content-type`. Every other header is the
    * runtime's own, save the names `FORBIDDEN_REQUEST_HEADERS` lists.
@@ -89,7 +87,6 @@ export const X: Profile = {
       path: '/2/oauth2/token',
       requestLine: 'POST /2/oauth2/token ',
     },
-    secretField: null,
     requiredHeaders: ['host: api.x.com', 'content-type: application/x-www-form-urlencoded'],
   },
   identity: {
@@ -121,7 +118,6 @@ export const GITHUB: Profile = {
       path: '/login/oauth/access_token',
       requestLine: 'POST /login/oauth/access_token ',
     },
-    secretField: null,
     requiredHeaders: ['host: github.com', 'content-type: application/x-www-form-urlencoded'],
   },
   identity: {
