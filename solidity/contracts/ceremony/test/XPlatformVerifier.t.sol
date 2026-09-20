@@ -464,16 +464,6 @@ contract XPlatformVerifierTest is Test {
         this.run{value: quote}(s);
     }
 
-    /// @dev `code` decodes to UTF-8 on every profile. A byte no UTF-8 uses
-    ///      passes the form grammar -- it is a canonical escape -- and fails
-    ///      the field.
-    function test_rejectsATokenBodyWithInvalidUtf8InTheCode() public {
-        TlsNotaryVerifierBase.TlsNotaryProof memory s =
-            _payloadWithBody(_honestTokenBody("ab%FF", "https%3A%2F%2Fapp.example%2Fcb"));
-        vm.expectRevert(abi.encodeWithSelector(CeremonyFields.FormValueNotUtf8.selector, "code"));
-        this.run{value: quote}(s);
-    }
-
     // ─── The client identifier ──────────────────────────────────────
 
     function test_rejectsAPercentEncodedClientIdentifier() public {

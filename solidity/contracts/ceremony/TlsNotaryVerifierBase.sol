@@ -22,7 +22,7 @@ import {PlatformVerifierBase} from "./PlatformVerifierBase.sol";
 ///        the two request lines;
 ///        the token body's field list, which the base holds the whole body to;
 ///        any value check on the token body beyond the base's — X compares
-///        `grant_type`, GitHub holds `client_secret` to printable ASCII;
+///        `grant_type`, GitHub adds none;
 ///        how the identity fields are read — X's `id` is a JSON string, GitHub's
 ///        a bare integer.
 ///
@@ -147,9 +147,8 @@ abstract contract TlsNotaryVerifierBase is IPlatformVerifier, PlatformVerifierBa
 
     /// @dev Any VALUE constraint the profile places on a token-body field
     ///      beyond the base's own. Default: nothing. Runs after the form is
-    ///      known exact and `code` and `redirect_uri` are known UTF-8, and
-    ///      before `code_verifier` and `client_id` are read. X compares
-    ///      `grant_type`; GitHub holds `client_secret` to printable ASCII.
+    ///      known exact and before `code_verifier` and `client_id` are read.
+    ///      X compares `grant_type`; GitHub adds none.
     function _checkTokenBody(bytes memory body) internal pure virtual {}
 
     /// @dev Which shape a platform's immutable identifier takes in its identity
@@ -345,14 +344,12 @@ abstract contract TlsNotaryVerifierBase is IPlatformVerifier, PlatformVerifierBa
         // that some byte of its request differs.
         bytes memory body = _tokenBody(data.sent);
 
-        // The shape first, then each field's own constraint: a read below
+        // The shape first, then the values a verifier compares: a read below
         // answers what a field IS, and only an exact body says nothing else
-        // is there. `code` and `redirect_uri` decode to UTF-8 on every
-        // profile (REQ-PLAT-61 states it for GitHub; X's are the same kind
-        // of value).
+        // is there. A value nobody reads is held to the alphabet and to
+        // nothing more -- in that alphabet it cannot become another field,
+        // and no contract acts on what it decodes to.
         CeremonyFields.requireExactForm(body, _tokenFields());
-        CeremonyFields.requireUtf8(CeremonyFields.formField(body, "code"), "code");
-        CeremonyFields.requireUtf8(CeremonyFields.formField(body, "redirect_uri"), "redirect_uri");
         _checkTokenBody(body);
 
         // REQ-COMMON-15A. This is the whole binding between the evidence and

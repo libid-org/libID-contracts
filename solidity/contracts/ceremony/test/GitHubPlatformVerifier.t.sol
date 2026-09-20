@@ -468,68 +468,35 @@ contract GitHubPlatformVerifierTest is Test {
         this.run{value: quote}(s);
     }
 
-    /// @dev REQ-PLAT-61, TEST-PLAT-12: `code` and `redirect_uri` decode to
-    ///      UTF-8. A byte no UTF-8 uses, a truncated sequence and a surrogate
-    ///      pass the form grammar -- each is a canonical escape -- and fail
-    ///      the field.
-    function test_rejectsAnExchangeWithInvalidUtf8InTheCode() public {
-        TlsNotaryVerifierBase.TlsNotaryProof memory s =
-            _withExchangeBody(_exchangeBody("ab%FF", "https%3A%2F%2Fa.example", "0123456789abcdef0123456789abcdef"));
-        vm.expectRevert(abi.encodeWithSelector(CeremonyFields.FormValueNotUtf8.selector, "code"));
-        this.run{value: quote}(s);
-
-        s = _withExchangeBody(_exchangeBody("%ED%A0%80", "https%3A%2F%2Fa.example", "0123456789abcdef0123456789abcdef"));
-        vm.expectRevert(abi.encodeWithSelector(CeremonyFields.FormValueNotUtf8.selector, "code"));
-        this.run{value: quote}(s);
-    }
-
-    function test_rejectsAnExchangeWithInvalidUtf8InTheRedirect() public {
-        TlsNotaryVerifierBase.TlsNotaryProof memory s = _withExchangeBody(
-            _exchangeBody("abc", "https%3A%2F%2Fa.example%2F%C3", "0123456789abcdef0123456789abcdef")
-        );
-        vm.expectRevert(abi.encodeWithSelector(CeremonyFields.FormValueNotUtf8.selector, "redirect_uri"));
-        this.run{value: quote}(s);
-    }
-
-    /// @dev TEST-PLAT-12: canonical form escaping of a UTF-8 string in those
-    ///      two fields passes the form check. What the code and redirect
-    ///      should EQUAL is the Prover's comparison, not this verifier's.
-    function test_acceptsAnExchangeWithUtf8InTheCodeAndRedirect() public {
+    /// @dev TEST-PLAT-12: canonical escapes of bytes above ASCII in those
+    ///      two fields pass the form check. What the code and redirect
+    ///      should EQUAL is the Prover's comparison, not this verifier's,
+    ///      and what they decode to is read by nothing here.
+    function test_acceptsAnExchangeWithEscapedBytesInTheCodeAndRedirect() public {
         TlsNotaryVerifierBase.TlsNotaryProof memory s = _withExchangeBody(
             _exchangeBody("caf%C3%A9", "https%3A%2F%2Fa.example%2F%E2%82%AC", "0123456789abcdef0123456789abcdef")
         );
         assertEq(this.run{value: quote}(s).handle, "octocat");
     }
 
-    /// @dev REQ-PLAT-61, TEST-PLAT-12: `client_secret` is printable ASCII
-    ///      without whitespace. A `+` and an escaped tab pass the form grammar
-    ///      and fail the field; `%20` never reaches it, being the space the
-    ///      serializer spells `+` and refused as an escape above.
-    function test_rejectsACredentialCarryingWhitespace() public {
-        string[2] memory secrets = ["0123456789abcdef+0123456789abcdef", "%090123456789abcdef"];
+    /// @dev TEST-PLAT-12: a `+`, an escaped tab and an escaped byte above
+    ///      ASCII in the credential are each one token of the alphabet, so
+    ///      the form accepts them. The verifier reads no value of this field:
+    ///      what a credential decodes to is GitHub's concern, and a value in
+    ///      the alphabet cannot become another field.
+    function test_acceptsACredentialTheVerifierNeverReads() public {
+        string[3] memory secrets =
+            ["0123456789abcdef+0123456789abcdef", "%090123456789abcdef", "0123456789abcdef%C3%A9"];
         for (uint256 i = 0; i < secrets.length; ++i) {
             TlsNotaryVerifierBase.TlsNotaryProof memory s =
                 _withExchangeBody(_exchangeBody("abc", "https%3A%2F%2Fa.example", secrets[i]));
-            vm.expectRevert(abi.encodeWithSelector(CeremonyFields.FormValueNotPrintable.selector, "client_secret"));
-            this.run{value: quote}(s);
+            assertEq(this.run{value: quote}(s).handle, "octocat");
         }
     }
 
-    /// @dev REQ-PLAT-61, TEST-PLAT-12: nor a control byte, at either end of
-    ///      the range, nor a byte above ASCII.
-    function test_rejectsACredentialCarryingAControlByte() public {
-        string[3] memory secrets = ["%000123456789abcdef", "0123456789abcdef%7F", "0123456789abcdef%C3%A9"];
-        for (uint256 i = 0; i < secrets.length; ++i) {
-            TlsNotaryVerifierBase.TlsNotaryProof memory s =
-                _withExchangeBody(_exchangeBody("abc", "https%3A%2F%2Fa.example", secrets[i]));
-            vm.expectRevert(abi.encodeWithSelector(CeremonyFields.FormValueNotPrintable.selector, "client_secret"));
-            this.run{value: quote}(s);
-        }
-    }
-
-    /// @dev TEST-PLAT-12: a credential of every printable ASCII byte the
-    ///      serializer escapes, including the delimiters, is one value.
-    function test_acceptsACredentialOfEscapedPrintableAscii() public {
+    /// @dev TEST-PLAT-12: a credential of every ASCII byte the serializer
+    ///      escapes, including the delimiters, is one value.
+    function test_acceptsACredentialOfEscapedDelimiters() public {
         TlsNotaryVerifierBase.TlsNotaryProof memory s = _withExchangeBody(
             _exchangeBody("abc", "https%3A%2F%2Fa.example", "%21%22%23%24%25%26%27%28%29%2B%2C%2F%3A%3B%3D%7E")
         );

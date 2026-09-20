@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-import {CeremonyFields} from "./CeremonyFields.sol";
 import {CeremonyProfile} from "./CeremonyProfile.sol";
 import {INotaryService} from "./INotaryService.sol";
 import {IHonkVerifier} from "./PlatformVerifierBase.sol";
@@ -12,7 +11,9 @@ import {TlsNotaryVerifierBase} from "./TlsNotaryVerifierBase.sol";
 /// @notice The same relation X states, for a second platform.
 ///
 /// @dev This verifier sees two attestations and one proof, exactly as X does.
-///      It differs in four constants, two reads and one check.
+///      It differs in its constants and two reads, and adds no value check
+///      of its own: the base holds the token body to `GITHUB_TOKEN_FIELDS`
+///      and reads `code_verifier` and `client_id` out of it, nothing else.
 ///
 ///      TWO AUTHORITIES, NOT ONE. `github.com` serves the exchange and
 ///      `api.github.com` serves the identity read, so an authority is per
@@ -120,19 +121,13 @@ contract GitHubPlatformVerifier is TlsNotaryVerifierBase {
 
     /// @dev REQ-PLAT-61's field list: the body is the serialization of exactly
     ///      these five, in this order, each once with a nonempty value in the
-    ///      serializer's one spelling, and nothing after the last.
+    ///      serializer's one spelling, and nothing after the last. Of the
+    ///      values, the base reads two: `code_verifier`, recomputed and
+    ///      compared, which holds it to section 7's canonical encoding, and
+    ///      `client_id`, held to REQ-COMMON-16B. `code`, `redirect_uri` and
+    ///      `client_secret` are held to the alphabet and read by nothing.
     function _tokenFields() internal pure override returns (bytes memory) {
         return CeremonyProfile.GITHUB_TOKEN_FIELDS;
-    }
-
-    /// @dev REQ-PLAT-61's constraint on the one field only this profile
-    ///      carries: `client_secret` decodes to printable ASCII without
-    ///      whitespace. The other four are the base's: the exact form, `code`
-    ///      and `redirect_uri` as UTF-8, `code_verifier` recomputed and
-    ///      compared, which holds it to section 7's canonical encoding, and
-    ///      `client_id` to REQ-COMMON-16B.
-    function _checkTokenBody(bytes memory body) internal pure override {
-        CeremonyFields.requirePrintableAscii(CeremonyFields.formField(body, "client_secret"), "client_secret");
     }
 
     /// @dev REQ-PLAT-51. GitHub's `id` is a BARE integer, so it is read by the

@@ -122,8 +122,10 @@
             "ASM-PROV-07 -- the platform rejects a body carrying a profile",
             "field twice -- backed by the recurring probes REQ-COMMON-32",
             "requires; the contract is stricter than the specification here.",
-            "`code` and `redirect_uri` are held to well-formed UTF-8 and",
-            "`grant_type` compared to `authorization_code` (REQ-PLAT-56)."
+            "Of the values, the verifier reads three: `code_verifier`, the",
+            "one value the digest recomputes; `client_id`, held to",
+            "REQ-COMMON-16B's charset; `grant_type`, compared to",
+            "`authorization_code` (REQ-PLAT-56). No other value is read."
           ]
         },
         "identity": {
@@ -190,11 +192,9 @@
             "value, an encoded spelling of a name, a `grant_type` -- is refused",
             "here, so nothing about this profile rests on ASM-PROV-07:",
             "acceptance does not depend on GitHub rejecting a malformed or",
-            "duplicate form. Each field's own constraint is held on chain too:",
-            "`client_id` to REQ-COMMON-16B's charset, `code_verifier` to the",
-            "one value the digest recomputes, `code` and `redirect_uri` to",
-            "well-formed UTF-8, `client_secret` to printable ASCII without",
-            "whitespace."
+            "duplicate form. The verifier holds the body's shape and alphabet,",
+            "reads `code_verifier` (the one value the digest recomputes) and",
+            "`client_id` (REQ-COMMON-16B's charset), and reads no other value."
           ]
         },
         "identity": {
