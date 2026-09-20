@@ -222,10 +222,10 @@ FORM_DELIMITERS = "&=%+"
 def token_fields(session: dict[str, Any]) -> list[str]:
     """The form fields a token request's body carries, in serialization order.
 
-    Every prover composes the body from this list, and a Platform Verifier
-    that holds the whole body to it (GitHub, REQ-PLAT-61) compares each name
-    literally at the cursor: a name is refused here if it is empty, repeated,
-    or carries a byte the form reads as a delimiter.
+    Every prover composes the body from this list, and every Platform
+    Verifier holds the whole body to it, comparing each name literally at
+    the cursor: a name is refused here if it is empty, repeated, or carries
+    a byte the form reads as a delimiter.
     """
     names = session["tokenFields"]
     if not isinstance(names, list) or not names:
@@ -377,12 +377,12 @@ def gen_sol(spec: dict[str, Any]) -> str:
     lines += [
         "",
         "    /// @dev The form fields each token request's body carries, in the order",
-        "    ///      the prover serializes them, joined by `&`. A verifier that holds",
-        "    ///      the whole body to its list (`requireExactForm`) requires exactly",
-        "    ///      these names in this order, each once with a nonempty value and",
-        "    ///      nothing after the last. GitHub's does (REQ-PLAT-61); X's reads",
-        "    ///      its fields by name and leaves the rest of the decoded form to",
-        "    ///      ASM-PROV-07, as the specification does.",
+        "    ///      the prover serializes them, joined by `&`. Every verifier holds",
+        "    ///      the whole body to its list (`requireExactForm`): exactly these",
+        "    ///      names in this order, each once with a nonempty value and nothing",
+        "    ///      after the last. GitHub's list is REQ-PLAT-61's; X's specification",
+        "    ///      keeps its decoded form on ASM-PROV-07, so the contract is stricter",
+        "    ///      than the specification there.",
         "",
     ]
     for profile in profiles:
@@ -576,11 +576,11 @@ def gen_rust(spec: dict[str, Any]) -> str:
         "    /// it and the verifier reads it rather than compares it.",
         "    pub required_headers: &'static [&'static str],",
         "    /// The form fields the body carries, in the order the prover",
-        "    /// serializes them. GitHub's verifier holds the whole body to this",
-        "    /// list: exactly these names in this order, each once with a nonempty",
-        "    /// value, nothing after the last (REQ-PLAT-61). X's reads its fields",
-        "    /// by name and leaves the rest of the decoded form to ASM-PROV-07,",
-        "    /// as the specification does.",
+        "    /// serializes them. Every verifier holds the whole body to this list:",
+        "    /// exactly these names in this order, each once with a nonempty",
+        "    /// value, nothing after the last. GitHub's list is REQ-PLAT-61's;",
+        "    /// X's specification keeps its decoded form on ASM-PROV-07, so the",
+        "    /// contract is stricter than the specification there.",
         "    pub token_fields: &'static [&'static str],",
         "}",
         "",
@@ -758,11 +758,11 @@ def gen_ts(spec: dict[str, Any]) -> str:
         "   * `content-length` is absent: the HTTP client appends it. */",
         "  readonly requiredHeaders: readonly string[]",
         "  /** The form fields the body carries, in the order the prover serializes",
-        "   * them. GitHub's verifier holds the whole body to this list: exactly",
-        "   * these names in this order, each once with a nonempty value, nothing",
-        "   * after the last (REQ-PLAT-61). X's reads its fields by name and leaves",
-        "   * the rest of the decoded form to ASM-PROV-07, as the specification",
-        "   * does. */",
+        "   * them. Every verifier holds the whole body to this list: exactly these",
+        "   * names in this order, each once with a nonempty value, nothing after",
+        "   * the last. GitHub's list is REQ-PLAT-61's; X's specification keeps its",
+        "   * decoded form on ASM-PROV-07, so the contract is stricter than the",
+        "   * specification there. */",
         "  readonly tokenFields: readonly string[]",
         "}",
         "",

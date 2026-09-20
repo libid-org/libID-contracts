@@ -16,7 +16,11 @@ import {TlsNotaryVerifierBase} from "./TlsNotaryVerifierBase.sol";
 ///        token request  — ONE revealed sent range, from offset 0 through the
 ///                         whole form body. X uses a public client and hides no
 ///                         body field, so the request is revealed entire and
-///                         `_tokenBody` refuses any other count.
+///                         `_tokenBody` refuses any other count. The body is
+///                         held to exactly `X_TOKEN_FIELDS` in order, as every
+///                         profile's is; the specification keeps X's decoded
+///                         form on ASM-PROV-07, so this contract is stricter
+///                         than the specification there.
 ///        token response — the `"access_token":"` delimiter and its closing
 ///                         quote revealed; the bearer and every other byte
 ///                         committed.
@@ -92,7 +96,11 @@ contract XPlatformVerifier is TlsNotaryVerifierBase {
         return CeremonyProfile.X_IDENTITY_REQUEST_LINE;
     }
 
-    /// @dev REQ-PLAT-56, and X's only extra token-body check. The runtime's own
+    function _tokenFields() internal pure override returns (bytes memory) {
+        return CeremonyProfile.X_TOKEN_FIELDS;
+    }
+
+    /// @dev REQ-PLAT-56, and X's only value check of its own. The runtime's own
     ///      comparison runs in software the prover chooses whether to run, and
     ///      `grant_type` is the one revealed field that changes what X did with
     ///      the request: a body sending `refresh_token` while still carrying a
@@ -101,12 +109,9 @@ contract XPlatformVerifier is TlsNotaryVerifierBase {
     ///      an application holding a user's refresh token could mint identity
     ///      proofs at arbitrary addresses indefinitely from one consent.
     ///
-    ///      One field compared, not the whole body held to
-    ///      `CeremonyProfile.X_TOKEN_FIELDS`: the specification keeps X's
-    ///      decoded form on ASM-PROV-07 -- the platform rejects a body
-    ///      carrying a profile field twice -- backed by the recurring probes
-    ///      REQ-COMMON-32 requires. GitHub's verifier holds its body to the
-    ///      exact form instead (REQ-PLAT-61).
+    ///      The form admits the value -- `refresh_token` is in the serializer's
+    ///      alphabet -- so it is this comparison, not the base's exact-form
+    ///      check, that refuses it.
     function _checkTokenBody(bytes memory body) internal pure override {
         bytes memory grantType = CeremonyFields.formField(body, "grant_type");
         if (keccak256(grantType) != keccak256(GRANT_TYPE)) revert WrongGrantType(grantType);

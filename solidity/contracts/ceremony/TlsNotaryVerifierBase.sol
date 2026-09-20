@@ -20,8 +20,9 @@ import {PlatformVerifierBase} from "./PlatformVerifierBase.sol";
 ///        by one host and its identity read by another, so an authority is per
 ///        SESSION rather than per profile;
 ///        the two request lines;
-///        any extra check on the token body — X compares `grant_type`, GitHub
-///        holds the whole body to its profile's field list;
+///        the token body's field list, which the base holds the whole body to;
+///        any value check on the token body beyond the base's — X compares
+///        `grant_type`, GitHub holds `client_secret` to printable ASCII;
 ///        how the identity fields are read — X's `id` is a JSON string, GitHub's
 ///        a bare integer.
 ///
@@ -132,15 +133,23 @@ abstract contract TlsNotaryVerifierBase is IPlatformVerifier, PlatformVerifierBa
     ///      `authorization`, and the framing around the committed value.
     function _tokenRequiredHeaders() internal pure virtual returns (bytes memory);
 
-    /// @dev Anything the profile checks in the token body beyond the fields
-    ///      every profile reads. Default: nothing. Runs before those reads.
-    ///
-    ///      The reads below answer what `code_verifier` and `client_id` are,
-    ///      not what else the body carries: that is what this hook decides.
-    ///      GitHub holds the body to exactly its profile's fields
-    ///      (REQ-PLAT-61); X compares one more field and leaves the rest of
-    ///      the decoded form to the platform (ASM-PROV-07), as the
-    ///      specification does.
+    /// @dev The form fields the token request's body carries, `&`-joined in
+    ///      the order the prover serializes them. `_tokenSession` holds the
+    ///      WHOLE body to this list (`requireExactForm`): exactly these names
+    ///      in this order, each once with a nonempty value in the serializer's
+    ///      one spelling, and nothing after the last. Every profile is held
+    ///      this way, so the reads below see a body already known to carry
+    ///      each name once, and acceptance never rests on the platform
+    ///      refusing a form it did not count. GitHub's list is REQ-PLAT-61's;
+    ///      X's specification keeps its decoded form on ASM-PROV-07, so the
+    ///      contract is stricter than the specification there.
+    function _tokenFields() internal pure virtual returns (bytes memory);
+
+    /// @dev Any VALUE constraint the profile places on a token-body field
+    ///      beyond the base's own. Default: nothing. Runs after the form is
+    ///      known exact and `code` and `redirect_uri` are known UTF-8, and
+    ///      before `code_verifier` and `client_id` are read. X compares
+    ///      `grant_type`; GitHub holds `client_secret` to printable ASCII.
     function _checkTokenBody(bytes memory body) internal pure virtual {}
 
     /// @dev Which shape a platform's immutable identifier takes in its identity
@@ -335,6 +344,15 @@ abstract contract TlsNotaryVerifierBase is IPlatformVerifier, PlatformVerifierBa
         // deployment pointed at the wrong endpoint should hear that rather than
         // that some byte of its request differs.
         bytes memory body = _tokenBody(data.sent);
+
+        // The shape first, then each field's own constraint: a read below
+        // answers what a field IS, and only an exact body says nothing else
+        // is there. `code` and `redirect_uri` decode to UTF-8 on every
+        // profile (REQ-PLAT-61 states it for GitHub; X's are the same kind
+        // of value).
+        CeremonyFields.requireExactForm(body, _tokenFields());
+        CeremonyFields.requireUtf8(CeremonyFields.formField(body, "code"), "code");
+        CeremonyFields.requireUtf8(CeremonyFields.formField(body, "redirect_uri"), "redirect_uri");
         _checkTokenBody(body);
 
         // REQ-COMMON-15A. This is the whole binding between the evidence and

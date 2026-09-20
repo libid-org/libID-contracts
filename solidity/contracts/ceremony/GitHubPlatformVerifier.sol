@@ -42,12 +42,11 @@ import {TlsNotaryVerifierBase} from "./TlsNotaryVerifierBase.sol";
 ///                         raw `;` or `=`, or a name in an encoded spelling,
 ///                         would decode as fields nobody counted, and only
 ///                         GitHub's own refusal (ASM-PROV-07) would stand
-///                         between that and a verified claim. `_checkTokenBody`
-///                         holds the whole body to the profile's field list
-///                         (REQ-PLAT-61), so acceptance here does not depend
-///                         on GitHub rejecting a malformed or duplicate form.
-///                         X's verifier keeps the assumption, because its
-///                         specification does.
+///                         between that and a verified claim. The base holds
+///                         the whole body to `GITHUB_TOKEN_FIELDS`
+///                         (REQ-PLAT-61), as it holds X's to its list, so
+///                         acceptance here does not depend on GitHub
+///                         rejecting a malformed or duplicate form.
 ///        token response — the `"access_token":"` delimiter and closing quote
 ///                         revealed; the bearer and everything else committed.
 ///        identity request — the bearer committed, every other byte revealed
@@ -119,20 +118,20 @@ contract GitHubPlatformVerifier is TlsNotaryVerifierBase {
         return CeremonyProfile.GITHUB_IDENTITY_REQUEST_LINE;
     }
 
-    /// @dev REQ-PLAT-61. The body is the serialization of exactly the five
-    ///      fields the profile lists, in its order, each once with a nonempty
-    ///      value in the serializer's one spelling, and nothing after the
-    ///      last. Then each field's own constraint: `code` and `redirect_uri`
-    ///      decode to UTF-8, `client_secret` to printable ASCII without
-    ///      whitespace. The other two are the base's: it recomputes
-    ///      `code_verifier` and compares, which holds it to section 7's
-    ///      canonical encoding, and holds `client_id` to REQ-COMMON-16B.
-    ///      Runs before those reads, so they see a body already known to
-    ///      carry each name once.
+    /// @dev REQ-PLAT-61's field list: the body is the serialization of exactly
+    ///      these five, in this order, each once with a nonempty value in the
+    ///      serializer's one spelling, and nothing after the last.
+    function _tokenFields() internal pure override returns (bytes memory) {
+        return CeremonyProfile.GITHUB_TOKEN_FIELDS;
+    }
+
+    /// @dev REQ-PLAT-61's constraint on the one field only this profile
+    ///      carries: `client_secret` decodes to printable ASCII without
+    ///      whitespace. The other four are the base's: the exact form, `code`
+    ///      and `redirect_uri` as UTF-8, `code_verifier` recomputed and
+    ///      compared, which holds it to section 7's canonical encoding, and
+    ///      `client_id` to REQ-COMMON-16B.
     function _checkTokenBody(bytes memory body) internal pure override {
-        CeremonyFields.requireExactForm(body, CeremonyProfile.GITHUB_TOKEN_FIELDS);
-        CeremonyFields.requireUtf8(CeremonyFields.formField(body, "code"), "code");
-        CeremonyFields.requireUtf8(CeremonyFields.formField(body, "redirect_uri"), "redirect_uri");
         CeremonyFields.requirePrintableAscii(CeremonyFields.formField(body, "client_secret"), "client_secret");
     }
 

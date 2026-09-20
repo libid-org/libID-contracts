@@ -112,11 +112,18 @@
             "and the verifier checks it against the length the notary signed.",
             "",
             "tokenFields is the order the specification's X table gives the",
-            "body, carried for provers that compose it. The verifier does not",
-            "hold the body to it: it reads its three fields by name, and the",
-            "specification keeps X's decoded form on ASM-PROV-07 -- the",
-            "platform rejects a body carrying a profile field twice -- backed",
-            "by the recurring probes REQ-COMMON-32 requires."
+            "body, and what the verifier holds the WHOLE body to: exactly",
+            "these five, in this order, each once with a nonempty value in the",
+            "serializer's one spelling, and not a byte more. A form X might",
+            "read as a sixth field -- a raw `;` inside a value, an encoded",
+            "spelling of a name, a second `grant_type` -- is refused here, so",
+            "acceptance does not depend on X rejecting a malformed or",
+            "duplicate form. The specification keeps X's decoded form on",
+            "ASM-PROV-07 -- the platform rejects a body carrying a profile",
+            "field twice -- backed by the recurring probes REQ-COMMON-32",
+            "requires; the contract is stricter than the specification here.",
+            "`code` and `redirect_uri` are held to well-formed UTF-8 and",
+            "`grant_type` compared to `authorization_code` (REQ-PLAT-56)."
           ]
         },
         "identity": {
