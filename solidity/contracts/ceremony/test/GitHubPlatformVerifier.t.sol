@@ -24,8 +24,8 @@ contract Honk is IHonkVerifier {
 
 /// @notice The `github/v1` path. The shared flow is covered by the X suite, so
 ///         this exercises what actually differs: two authorities, a bare-integer
-///         id, the `login` field, a committed body credential, and the absence
-///         of a `grant_type` to compare.
+///         id, the `login` field, a revealed body credential, and the exact
+///         five-field form the body is held to.
 contract GitHubPlatformVerifierTest is Test {
     GitHubPlatformVerifier verifier;
     NotaryService notary;
@@ -113,9 +113,34 @@ contract GitHubPlatformVerifierTest is Test {
     /// The exchange body: the five fields the profile lists, the credential
     /// among them and revealed like the rest.
     function _exchangeBody() private view returns (bytes memory) {
+        return _exchangeBody("abc", "https%3A%2F%2Fa.example", "0123456789abcdef0123456789abcdef");
+    }
+
+    /// The same, with the three values a test changes given: the digest-bound
+    /// verifier and the client identifier stay what the suite asserts on.
+    function _exchangeBody(string memory code, string memory redirectUri, string memory clientSecret)
+        private
+        view
+        returns (bytes memory)
+    {
+        return abi.encodePacked(
+            "client_id=Iv1.8a61f9b3a7aba766&code=",
+            code,
+            "&redirect_uri=",
+            redirectUri,
+            "&code_verifier=",
+            CeremonyAuthorization.codeVerifier(digest, AUTH_NONCE),
+            "&client_secret=",
+            clientSecret
+        );
+    }
+
+    /// The same, with the verifier given: for the spellings of it the base
+    /// must refuse.
+    function _exchangeBodyWithVerifier(bytes memory codeVerifier) private pure returns (bytes memory) {
         return abi.encodePacked(
             "client_id=Iv1.8a61f9b3a7aba766&code=abc&redirect_uri=https%3A%2F%2Fa.example&code_verifier=",
-            CeremonyAuthorization.codeVerifier(digest, AUTH_NONCE),
+            codeVerifier,
             "&client_secret=0123456789abcdef0123456789abcdef"
         );
     }
@@ -246,6 +271,310 @@ contract GitHubPlatformVerifierTest is Test {
     function test_acceptsAGitHubStyleClientIdentifier() public {
         ICeremony.VerifiedClaim memory f = this.run{value: quote}(_payload());
         assertTrue(CeremonyFields.isSerializerSafe(f.clientIdentifier));
+    }
+
+    // ─── The exact form (REQ-PLAT-61) ───────────────────────────────
+
+    /// The payload with its exchange composed over `body`: the head declares
+    /// the body's length and the response is the honest one, so the form
+    /// check is what a test of it exercises.
+    function _withExchangeBody(bytes memory body) private view returns (TlsNotaryVerifierBase.TlsNotaryProof memory) {
+        return _withExchange(_exchangeHead(body.length), body);
+    }
+
+    /// The payload with its exchange composed over `head` and `body` as given,
+    /// so a test can misdeclare the length or add a header and watch the
+    /// verifier refuse it.
+    function _withExchange(bytes memory head, bytes memory body)
+        private
+        view
+        returns (TlsNotaryVerifierBase.TlsNotaryProof memory s)
+    {
+        s = _payload();
+        AttestationBuilder.Direction memory sent = _wholeSent(abi.encodePacked(head, body));
+        bytes memory a = AttestationBuilder.encode(CeremonyProfile.AUTHORITY_GITHUB, T0, sent, _exchangeResponse());
+        s.tokenSession = ICeremony.Attestation({attestedData: a, proof: _sign(a)});
+    }
+
+    /// @dev REQ-PLAT-61, TEST-PLAT-12: the five fields in another order are
+    ///      not the canonical serialization, whatever GitHub makes of them.
+    ///      The first pair is not `client_id=`, so the body fails at byte 0.
+    function test_rejectsAnExchangeWithItsFieldsReordered() public {
+        bytes memory body = abi.encodePacked(
+            "code=abc&client_id=Iv1.8a61f9b3a7aba766&redirect_uri=https%3A%2F%2Fa.example&code_verifier=",
+            CeremonyAuthorization.codeVerifier(digest, AUTH_NONCE),
+            "&client_secret=0123456789abcdef0123456789abcdef"
+        );
+        TlsNotaryVerifierBase.TlsNotaryProof memory s = _withExchangeBody(body);
+        vm.expectRevert(abi.encodeWithSelector(CeremonyFields.MalformedForm.selector, 0));
+        this.run{value: quote}(s);
+    }
+
+    /// @dev REQ-PLAT-61, TEST-PLAT-12: no `grant_type` is admitted. Under
+    ///      `formField` alone it was merely uncompared; held to the exact form
+    ///      it is a sixth pair, refused at the `&` that begins it.
+    function test_rejectsAnExchangeCarryingAGrantType() public {
+        bytes memory honest = _exchangeBody();
+        TlsNotaryVerifierBase.TlsNotaryProof memory s =
+            _withExchangeBody(abi.encodePacked(honest, "&grant_type=authorization_code"));
+        vm.expectRevert(abi.encodeWithSelector(CeremonyFields.MalformedForm.selector, honest.length));
+        this.run{value: quote}(s);
+    }
+
+    /// @dev REQ-PLAT-61, TEST-PLAT-12: nor a refresh grant's field. The pinned
+    ///      endpoint receives only the authorization-code request.
+    function test_rejectsAnExchangeCarryingARefreshToken() public {
+        bytes memory honest = _exchangeBody();
+        TlsNotaryVerifierBase.TlsNotaryProof memory s =
+            _withExchangeBody(abi.encodePacked(honest, "&refresh_token=ghr_16C7e42F292c6912E7710c838347Ae178B4a"));
+        vm.expectRevert(abi.encodeWithSelector(CeremonyFields.MalformedForm.selector, honest.length));
+        this.run{value: quote}(s);
+    }
+
+    /// @dev REQ-PLAT-61, TEST-PLAT-12: nor a device grant's. Refused where
+    ///      the sixth pair begins, whatever its name.
+    function test_rejectsAnExchangeCarryingADeviceCode() public {
+        bytes memory honest = _exchangeBody();
+        TlsNotaryVerifierBase.TlsNotaryProof memory s =
+            _withExchangeBody(abi.encodePacked(honest, "&device_code=3584d83530557fdd1f46af8289938c8ef79f9dc5"));
+        vm.expectRevert(abi.encodeWithSelector(CeremonyFields.MalformedForm.selector, honest.length));
+        this.run{value: quote}(s);
+    }
+
+    /// @dev REQ-PLAT-61, TEST-PLAT-12: the right verifier in another spelling
+    ///      -- padded, base64 rather than section 7's unpadded base64url -- is
+    ///      a form the check admits and a value the base refuses: it recomputes
+    ///      the verifier and compares byte for byte.
+    function test_rejectsAnExchangeWithAPaddedVerifier() public {
+        bytes memory padded = abi.encodePacked(CeremonyAuthorization.codeVerifier(digest, AUTH_NONCE), "%3D%3D");
+        TlsNotaryVerifierBase.TlsNotaryProof memory s = _withExchangeBody(_exchangeBodyWithVerifier(padded));
+        vm.expectRevert(TlsNotaryVerifierBase.CodeVerifierMismatch.selector);
+        this.run{value: quote}(s);
+    }
+
+    /// @dev REQ-PLAT-61, TEST-PLAT-12: and one byte short of it.
+    function test_rejectsAnExchangeWithATruncatedVerifier() public {
+        bytes memory codeVerifier = CeremonyAuthorization.codeVerifier(digest, AUTH_NONCE);
+        bytes memory short = new bytes(codeVerifier.length - 1);
+        for (uint256 i = 0; i < short.length; ++i) {
+            short[i] = codeVerifier[i];
+        }
+        TlsNotaryVerifierBase.TlsNotaryProof memory s = _withExchangeBody(_exchangeBodyWithVerifier(short));
+        vm.expectRevert(TlsNotaryVerifierBase.CodeVerifierMismatch.selector);
+        this.run{value: quote}(s);
+    }
+
+    /// @dev REQ-PLAT-61, TEST-PLAT-12: a duplicate in the literal spelling.
+    ///      `formField` would have refused this one too; the exact form
+    ///      refuses it where the second `client_id=` stands in place of `code=`.
+    function test_rejectsAnExchangeWithADuplicateField() public {
+        bytes memory first = "client_id=Iv1.8a61f9b3a7aba766&";
+        TlsNotaryVerifierBase.TlsNotaryProof memory s = _withExchangeBody(abi.encodePacked(first, _exchangeBody()));
+        vm.expectRevert(abi.encodeWithSelector(CeremonyFields.MalformedForm.selector, first.length));
+        this.run{value: quote}(s);
+    }
+
+    /// @dev REQ-PLAT-61, TEST-PLAT-12: a duplicate in an ENCODED spelling.
+    ///      `code%5Fverifier` is `code_verifier` to a form parser and no
+    ///      match to `formField`, which is the case ASM-PROV-07 used to
+    ///      cover. It is a sixth pair here, refused like any other.
+    function test_rejectsAnExchangeWithAnEncodedDuplicateName() public {
+        bytes memory honest = _exchangeBody();
+        TlsNotaryVerifierBase.TlsNotaryProof memory s =
+            _withExchangeBody(abi.encodePacked(honest, "&code%5Fverifier=EVILEVILEVILEVILEVILEVILEVILEVILEVILEVIL0"));
+        vm.expectRevert(abi.encodeWithSelector(CeremonyFields.MalformedForm.selector, honest.length));
+        this.run{value: quote}(s);
+    }
+
+    /// @dev REQ-PLAT-61, TEST-PLAT-12: each field once with a NONEMPTY value.
+    function test_rejectsAnExchangeWithAnEmptyValue() public {
+        TlsNotaryVerifierBase.TlsNotaryProof memory s =
+            _withExchangeBody(_exchangeBody("", "https%3A%2F%2Fa.example", "0123456789abcdef0123456789abcdef"));
+        vm.expectRevert(abi.encodeWithSelector(CeremonyFields.EmptyFormValue.selector, "code"));
+        this.run{value: quote}(s);
+    }
+
+    /// @dev REQ-PLAT-61, TEST-PLAT-12, TEST-PLAT-14: four pairs are not five. The body ends
+    ///      where the `&` before `client_secret=` should stand.
+    function test_rejectsAnExchangeMissingAField() public {
+        bytes memory body = abi.encodePacked(
+            "client_id=Iv1.8a61f9b3a7aba766&code=abc&redirect_uri=https%3A%2F%2Fa.example&code_verifier=",
+            CeremonyAuthorization.codeVerifier(digest, AUTH_NONCE)
+        );
+        TlsNotaryVerifierBase.TlsNotaryProof memory s = _withExchangeBody(body);
+        vm.expectRevert(abi.encodeWithSelector(CeremonyFields.MalformedForm.selector, body.length));
+        this.run{value: quote}(s);
+    }
+
+    /// @dev REQ-PLAT-61, TEST-PLAT-12, TEST-PLAT-14: nothing after the last value, not even
+    ///      the delimiter that would begin a sixth pair.
+    function test_rejectsAnExchangeWithATrailingAmpersand() public {
+        bytes memory honest = _exchangeBody();
+        TlsNotaryVerifierBase.TlsNotaryProof memory s = _withExchangeBody(abi.encodePacked(honest, "&"));
+        vm.expectRevert(abi.encodeWithSelector(CeremonyFields.MalformedForm.selector, honest.length));
+        this.run{value: quote}(s);
+    }
+
+    /// @dev REQ-PLAT-61, TEST-PLAT-12: a raw `;` inside the credential. Some
+    ///      form parsers split pairs on it, so to them this body carries a
+    ///      second `code_verifier`; `formField` would have read the credential
+    ///      to the next `&` and counted one. The serializer never emits a raw
+    ///      `;`, so the byte itself is refused.
+    function test_rejectsAnExchangeWithARawSemicolonInAValue() public {
+        bytes memory body = _exchangeBody(
+            "abc", "https%3A%2F%2Fa.example", "0123456789abcdef;code_verifier=EVILEVILEVILEVILEVILEVILEVILEVILEVILEVIL0"
+        );
+        TlsNotaryVerifierBase.TlsNotaryProof memory s = _withExchangeBody(body);
+        vm.expectRevert(abi.encodeWithSelector(CeremonyFields.MalformedForm.selector, _indexOf(body, ";")));
+        this.run{value: quote}(s);
+    }
+
+    /// @dev REQ-PLAT-61, TEST-PLAT-12: a raw `=` inside a value, likewise.
+    function test_rejectsAnExchangeWithARawEqualsInAValue() public {
+        bytes memory body = _exchangeBody("abc=def", "https%3A%2F%2Fa.example", "0123456789abcdef0123456789abcdef");
+        TlsNotaryVerifierBase.TlsNotaryProof memory s = _withExchangeBody(body);
+        vm.expectRevert(abi.encodeWithSelector(CeremonyFields.MalformedForm.selector, _indexOf(body, "=def")));
+        this.run{value: quote}(s);
+    }
+
+    /// @dev REQ-PLAT-61, TEST-PLAT-12: `%3a` decodes as `%3A` does and is not
+    ///      what the serializer writes, so it is a second spelling of the same
+    ///      redirect and refused as noncanonical.
+    function test_rejectsAnExchangeWithALowercaseEscape() public {
+        bytes memory body = _exchangeBody("abc", "https%3a%2F%2Fa.example", "0123456789abcdef0123456789abcdef");
+        TlsNotaryVerifierBase.TlsNotaryProof memory s = _withExchangeBody(body);
+        vm.expectRevert(abi.encodeWithSelector(CeremonyFields.MalformedForm.selector, _indexOf(body, "%3a")));
+        this.run{value: quote}(s);
+    }
+
+    /// @dev REQ-PLAT-61, TEST-PLAT-12: `%61` decodes to the `a` the serializer
+    ///      writes bare, so `%61bc` is a second spelling of `abc`; `%20` is
+    ///      the space it writes `+`. Each is refused at its `%`, and the
+    ///      credential is held to the same alphabet.
+    function test_rejectsAnExchangeWithAnEscapeTheSerializerWritesBare() public {
+        bytes memory body = _exchangeBody("%61bc", "https%3A%2F%2Fa.example", "0123456789abcdef0123456789abcdef");
+        TlsNotaryVerifierBase.TlsNotaryProof memory s = _withExchangeBody(body);
+        vm.expectRevert(abi.encodeWithSelector(CeremonyFields.MalformedForm.selector, _indexOf(body, "%61")));
+        this.run{value: quote}(s);
+
+        body = _exchangeBody("a%20b", "https%3A%2F%2Fa.example", "0123456789abcdef0123456789abcdef");
+        s = _withExchangeBody(body);
+        vm.expectRevert(abi.encodeWithSelector(CeremonyFields.MalformedForm.selector, _indexOf(body, "%20")));
+        this.run{value: quote}(s);
+
+        body = _exchangeBody("abc", "https%3A%2F%2Fa.example", "0123456789abcdef%2A0123456789abcdef");
+        s = _withExchangeBody(body);
+        vm.expectRevert(abi.encodeWithSelector(CeremonyFields.MalformedForm.selector, _indexOf(body, "%2A")));
+        this.run{value: quote}(s);
+    }
+
+    /// @dev TEST-PLAT-12: canonical escapes of bytes above ASCII in those
+    ///      two fields pass the form check. What the code and redirect
+    ///      should EQUAL is the Prover's comparison, not this verifier's,
+    ///      and what they decode to is read by nothing here.
+    function test_acceptsAnExchangeWithEscapedBytesInTheCodeAndRedirect() public {
+        TlsNotaryVerifierBase.TlsNotaryProof memory s = _withExchangeBody(
+            _exchangeBody("caf%C3%A9", "https%3A%2F%2Fa.example%2F%E2%82%AC", "0123456789abcdef0123456789abcdef")
+        );
+        assertEq(this.run{value: quote}(s).handle, "octocat");
+    }
+
+    /// @dev TEST-PLAT-12: a `+`, an escaped tab and an escaped byte above
+    ///      ASCII in the credential are each one token of the alphabet, so
+    ///      the form accepts them. The verifier reads no value of this field:
+    ///      what a credential decodes to is GitHub's concern, and a value in
+    ///      the alphabet cannot become another field.
+    function test_acceptsACredentialTheVerifierNeverReads() public {
+        string[3] memory secrets =
+            ["0123456789abcdef+0123456789abcdef", "%090123456789abcdef", "0123456789abcdef%C3%A9"];
+        for (uint256 i = 0; i < secrets.length; ++i) {
+            TlsNotaryVerifierBase.TlsNotaryProof memory s =
+                _withExchangeBody(_exchangeBody("abc", "https%3A%2F%2Fa.example", secrets[i]));
+            assertEq(this.run{value: quote}(s).handle, "octocat");
+        }
+    }
+
+    /// @dev TEST-PLAT-12: a credential of every ASCII byte the serializer
+    ///      escapes, including the delimiters, is one value.
+    function test_acceptsACredentialOfEscapedDelimiters() public {
+        TlsNotaryVerifierBase.TlsNotaryProof memory s = _withExchangeBody(
+            _exchangeBody("abc", "https%3A%2F%2Fa.example", "%21%22%23%24%25%26%27%28%29%2B%2C%2F%3A%3B%3D%7E")
+        );
+        assertEq(this.run{value: quote}(s).handle, "octocat");
+    }
+
+    /// @dev REQ-COMMON-16B, TEST-PLAT-12: `my%2Bapp` is the serialization of
+    ///      `my+app`, not an identifier. It passes the form grammar -- `%2B`
+    ///      is the canonical escape of `+` -- and fails the charset the base
+    ///      holds `client_id` to.
+    function test_rejectsAPercentEncodedClientIdentifier() public {
+        bytes memory body = abi.encodePacked(
+            "client_id=my%2Bapp&code=abc&redirect_uri=https%3A%2F%2Fa.example&code_verifier=",
+            CeremonyAuthorization.codeVerifier(digest, AUTH_NONCE),
+            "&client_secret=0123456789abcdef0123456789abcdef"
+        );
+        TlsNotaryVerifierBase.TlsNotaryProof memory s = _withExchangeBody(body);
+        vm.expectRevert(
+            abi.encodeWithSelector(TlsNotaryVerifierBase.ClientIdentifierNotSerializerSafe.selector, bytes("my%2Bapp"))
+        );
+        this.run{value: quote}(s);
+    }
+
+    /// @dev REQ-COMMON-16B, TEST-PLAT-12: an empty identifier is refused by
+    ///      the form itself, before the charset is asked.
+    function test_rejectsAnEmptyClientIdentifier() public {
+        bytes memory body = abi.encodePacked(
+            "client_id=&code=abc&redirect_uri=https%3A%2F%2Fa.example&code_verifier=",
+            CeremonyAuthorization.codeVerifier(digest, AUTH_NONCE),
+            "&client_secret=0123456789abcdef0123456789abcdef"
+        );
+        TlsNotaryVerifierBase.TlsNotaryProof memory s = _withExchangeBody(body);
+        vm.expectRevert(abi.encodeWithSelector(CeremonyFields.EmptyFormValue.selector, "client_id"));
+        this.run{value: quote}(s);
+    }
+
+    /// @dev TEST-PLAT-14: `content-length` declares the complete revealed
+    ///      body. A head declaring ten bytes fewer describes a form GitHub
+    ///      did not parse.
+    function test_rejectsAnExchangeUnderdeclaringItsBody() public {
+        bytes memory body = _exchangeBody();
+        TlsNotaryVerifierBase.TlsNotaryProof memory s = _withExchange(_exchangeHead(body.length - 10), body);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                TlsNotaryVerifierBase.WrongDeclaredBodyLength.selector, body.length - 10, body.length
+            )
+        );
+        this.run{value: quote}(s);
+    }
+
+    /// @dev REQ-PLAT-56A, TEST-PLAT-14: an `authorization` header on the
+    ///      exchange is refused. The credential travels in the body here and
+    ///      nowhere else.
+    function test_rejectsAForbiddenHeaderOnTheExchange() public {
+        bytes memory body = _exchangeBody();
+        bytes memory headers = abi.encodePacked(EXCHANGE_HEADERS, "authorization: Basic bXlDbGllbnQtMTpzM2NyZXQ=\r\n");
+        TlsNotaryVerifierBase.TlsNotaryProof memory s = _withExchange(_exchangeHead(headers, body.length), body);
+        vm.expectRevert(
+            abi.encodeWithSelector(TlsNotaryVerifierBase.ForbiddenRequestHeader.selector, bytes("authorization"))
+        );
+        this.run{value: quote}(s);
+    }
+
+    /// @dev TEST-PLAT-12: `+` is the serializer's spelling of a space, and a
+    ///      code carrying one is still one value.
+    function test_acceptsAnExchangeWithAPlusInAValue() public {
+        TlsNotaryVerifierBase.TlsNotaryProof memory s =
+            _withExchangeBody(_exchangeBody("abc+def", "https%3A%2F%2Fa.example", "0123456789abcdef0123456789abcdef"));
+        assertEq(this.run{value: quote}(s).handle, "octocat");
+    }
+
+    /// @dev TEST-PLAT-12: a credential with ENCODED delimiters remains one
+    ///      value. `%26` and `%3D` are bytes of the credential to every form
+    ///      parser, and the exact form never decodes them into a pair.
+    function test_acceptsAnExchangeWithEncodedDelimitersInAValue() public {
+        TlsNotaryVerifierBase.TlsNotaryProof memory s =
+            _withExchangeBody(_exchangeBody("abc", "https%3A%2F%2Fa.example", "0123%26code_verifier%3DEVIL"));
+        assertEq(this.run{value: quote}(s).handle, "octocat");
     }
 
     // ─── Two authorities, not one ───────────────────────────────────
@@ -447,15 +776,20 @@ contract GitHubPlatformVerifierTest is Test {
     }
 
     function _contains(bytes memory haystack, bytes memory needle) private pure returns (bool) {
-        if (needle.length > haystack.length) return false;
+        return _indexOf(haystack, needle) != type(uint256).max;
+    }
+
+    /// The offset of the first `needle` in `haystack`, or `max`.
+    function _indexOf(bytes memory haystack, bytes memory needle) private pure returns (uint256) {
+        if (needle.length > haystack.length) return type(uint256).max;
         for (uint256 i = 0; i + needle.length <= haystack.length; ++i) {
             bool same = true;
             for (uint256 j = 0; j < needle.length && same; ++j) {
                 same = haystack[i + j] == needle[j];
             }
-            if (same) return true;
+            if (same) return i;
         }
-        return false;
+        return type(uint256).max;
     }
 
     /// @dev GitHub pretty-prints `/user` for the media type the profile pins:

@@ -62,6 +62,13 @@ pub struct TokenSession {
     /// because its value is the body's own count: the HTTP client appends
     /// it and the verifier reads it rather than compares it.
     pub required_headers: &'static [&'static str],
+    /// The form fields the body carries, in the order the prover
+    /// serializes them. Every verifier holds the whole body to this list:
+    /// exactly these names in this order, each once with a nonempty
+    /// value, nothing after the last. GitHub's list is REQ-PLAT-61's;
+    /// X's specification keeps its decoded form on ASM-PROV-07, so the
+    /// contract is stricter than the specification there.
+    pub token_fields: &'static [&'static str],
 }
 
 /// The identity session: the authenticated read that names the account.
@@ -119,6 +126,13 @@ pub const X: Profile = Profile {
             "host: api.x.com",
             "content-type: application/x-www-form-urlencoded",
         ],
+        token_fields: &[
+            "grant_type",
+            "client_id",
+            "code",
+            "redirect_uri",
+            "code_verifier",
+        ],
     }),
     identity: Some(IdentitySession {
         session: Session {
@@ -150,6 +164,13 @@ pub const GITHUB: Profile = Profile {
         required_headers: &[
             "host: github.com",
             "content-type: application/x-www-form-urlencoded",
+        ],
+        token_fields: &[
+            "client_id",
+            "code",
+            "redirect_uri",
+            "code_verifier",
+            "client_secret",
         ],
     }),
     identity: Some(IdentitySession {

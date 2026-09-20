@@ -11,16 +11,22 @@ import {TlsNotaryVerifierBase} from "./TlsNotaryVerifierBase.sol";
 /// @notice The same relation X states, for a second platform.
 ///
 /// @dev This verifier sees two attestations and one proof, exactly as X does.
-///      It differs in four constants and two reads.
+///      It differs in its constants and two reads, and adds no value check
+///      of its own: the base holds the token body to `GITHUB_TOKEN_FIELDS`
+///      and reads `code_verifier` and `client_id` out of it, nothing else.
 ///
 ///      TWO AUTHORITIES, NOT ONE. `github.com` serves the exchange and
 ///      `api.github.com` serves the identity read, so an authority is per
 ///      SESSION here. A profile pinning one authority would accept an identity
 ///      attestation from the exchange host, or the reverse.
 ///
-///      NO `grant_type` TO COMPARE. Section 6.2 lists five fields and that is
-///      not among them, so REQ-PLAT-56 has no GitHub counterpart and this
-///      profile adds no extra token-body check.
+///      NO `grant_type` TO COMPARE, AND NONE ADMITTED. Section 6.2 lists five
+///      fields and that is not among them, so REQ-PLAT-56 has no GitHub
+///      counterpart. Its token-body check is REQ-PLAT-61 instead: the body is
+///      exactly the five fields the profile lists, so a `grant_type`, a
+///      `refresh_token` or a device-flow field is refused as a sixth pair
+///      rather than left uncompared. The pinned endpoint receives only this
+///      authorization-code request.
 ///
 ///      THE REVEALED LAYOUT IS A PROFILE DECISION, as it is for X:
 ///
@@ -31,14 +37,17 @@ import {TlsNotaryVerifierBase} from "./TlsNotaryVerifierBase.sol";
 ///                         around it, so every field a verifier reads lies in
 ///                         the open and the request has no hidden suffix.
 ///
-///                         What the revealed bytes do not settle is the
-///                         decoded form. `formField` refuses a name it finds
-///                         at two `&`-anchored positions, but a value carrying
-///                         a raw `&` or `=` would decode as fields nobody
-///                         counted. That is ASM-PROV-07 -- the platform
-///                         rejects a body carrying a profile field twice --
-///                         backed by the recurring probes REQ-COMMON-32
-///                         requires, exactly as it is for X.
+///                         And the decoded form is settled on chain. Revealed
+///                         bytes alone are not: `formField` refuses a name at
+///                         two `&`-anchored positions, but a value carrying a
+///                         raw `;` or `=`, or a name in an encoded spelling,
+///                         would decode as fields nobody counted, and only
+///                         GitHub's own refusal (ASM-PROV-07) would stand
+///                         between that and a verified claim. The base holds
+///                         the whole body to `GITHUB_TOKEN_FIELDS`
+///                         (REQ-PLAT-61), as it holds X's to its list, so
+///                         acceptance here does not depend on GitHub
+///                         rejecting a malformed or duplicate form.
 ///        token response — the `"access_token":"` delimiter and closing quote
 ///                         revealed; the bearer and everything else committed.
 ///        identity request — the bearer committed, every other byte revealed
@@ -108,6 +117,17 @@ contract GitHubPlatformVerifier is TlsNotaryVerifierBase {
 
     function _identityRequestLine() internal pure override returns (bytes memory) {
         return CeremonyProfile.GITHUB_IDENTITY_REQUEST_LINE;
+    }
+
+    /// @dev REQ-PLAT-61's field list: the body is the serialization of exactly
+    ///      these five, in this order, each once with a nonempty value in the
+    ///      serializer's one spelling, and nothing after the last. Of the
+    ///      values, the base reads two: `code_verifier`, recomputed and
+    ///      compared, which holds it to section 7's canonical encoding, and
+    ///      `client_id`, held to REQ-COMMON-16B. `code`, `redirect_uri` and
+    ///      `client_secret` are held to the alphabet and read by nothing.
+    function _tokenFields() internal pure override returns (bytes memory) {
+        return CeremonyProfile.GITHUB_TOKEN_FIELDS;
     }
 
     /// @dev REQ-PLAT-51. GitHub's `id` is a BARE integer, so it is read by the

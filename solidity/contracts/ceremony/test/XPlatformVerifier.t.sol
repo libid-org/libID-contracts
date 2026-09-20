@@ -7,6 +7,7 @@ import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.s
 import {AttestationBuilder} from "./AttestationBuilder.sol";
 import {CeremonyAttestation} from "../CeremonyAttestation.sol";
 import {CeremonyAuthorization} from "../CeremonyAuthorization.sol";
+import {CeremonyFields} from "../CeremonyFields.sol";
 import {CeremonyProfile} from "../CeremonyProfile.sol";
 import {ICeremony} from "../ICeremony.sol";
 import {INotaryService} from "../INotaryService.sol";
@@ -143,7 +144,12 @@ contract XPlatformVerifierTest is Test {
         // hides no body field, so the head boundary is visible and the body is
         // located by the framing the server itself parsed.
         bytes memory body = abi.encodePacked(
-            "grant_type=", grantType, "&client_id=", clientId, "&code=abc&code_verifier=", verifierValue
+            "grant_type=",
+            grantType,
+            "&client_id=",
+            clientId,
+            "&code=abc&redirect_uri=https%3A%2F%2Fapp.example%2Fcb&code_verifier=",
+            verifierValue
         );
         bytes memory whole = abi.encodePacked(_tokenHead(TOKEN_HEADERS, body.length), body);
         uint32 wholeEnd = uint32(whole.length);
@@ -369,6 +375,92 @@ contract XPlatformVerifierTest is Test {
         string memory v = string(CeremonyAuthorization.codeVerifier(digest, AUTH_NONCE));
         s.tokenSession = _tokenAttestation("refresh_token", "myClient-1", v);
         vm.expectPartialRevert(XPlatformVerifier.WrongGrantType.selector);
+        this.run{value: quote}(s);
+    }
+
+    // ─── The token body's form ──────────────────────────────────────
+
+    /// @dev The five fields in another order -- `client_id` last, as the
+    ///      legacy claim worker serializes them -- are not the profile's
+    ///      serialization, whatever X makes of them. The first pair is the
+    ///      right one, so the body fails where the second begins.
+    function test_rejectsATokenBodyWithItsFieldsReordered() public {
+        bytes memory first = "grant_type=authorization_code&";
+        bytes memory body = abi.encodePacked(
+            first,
+            "code=abc&redirect_uri=https%3A%2F%2Fapp.example%2Fcb&code_verifier=",
+            CeremonyAuthorization.codeVerifier(digest, AUTH_NONCE),
+            "&client_id=myClient-1"
+        );
+        TlsNotaryVerifierBase.TlsNotaryProof memory s = _payloadWithBody(body);
+        vm.expectRevert(abi.encodeWithSelector(CeremonyFields.MalformedForm.selector, first.length));
+        this.run{value: quote}(s);
+    }
+
+    /// @dev A sixth pair is refused at the `&` that begins it. X is a public
+    ///      client and its profile lists no `client_secret`; under `formField`
+    ///      alone one was merely uncompared.
+    function test_rejectsATokenBodyCarryingAClientSecret() public {
+        bytes memory honest = _honestTokenBody();
+        TlsNotaryVerifierBase.TlsNotaryProof memory s =
+            _payloadWithBody(abi.encodePacked(honest, "&client_secret=0123456789abcdef0123456789abcdef"));
+        vm.expectRevert(abi.encodeWithSelector(CeremonyFields.MalformedForm.selector, honest.length));
+        this.run{value: quote}(s);
+    }
+
+    /// @dev A duplicate in an ENCODED spelling. `code%5Fverifier` is
+    ///      `code_verifier` to a form parser and no match to `formField`,
+    ///      which is the case ASM-PROV-07 covers for the specification. It is
+    ///      a sixth pair here, refused like any other.
+    function test_rejectsATokenBodyWithAnEncodedDuplicateName() public {
+        bytes memory honest = _honestTokenBody();
+        TlsNotaryVerifierBase.TlsNotaryProof memory s =
+            _payloadWithBody(abi.encodePacked(honest, "&code%5Fverifier=EVILEVILEVILEVILEVILEVILEVILEVILEVILEVIL0"));
+        vm.expectRevert(abi.encodeWithSelector(CeremonyFields.MalformedForm.selector, honest.length));
+        this.run{value: quote}(s);
+    }
+
+    /// @dev Four pairs are not five. The fourth is `code_verifier=` where
+    ///      `redirect_uri=` should stand, so the body fails where it begins.
+    function test_rejectsATokenBodyMissingTheRedirect() public {
+        bytes memory first = "grant_type=authorization_code&client_id=myClient-1&code=abc&";
+        bytes memory body =
+            abi.encodePacked(first, "code_verifier=", CeremonyAuthorization.codeVerifier(digest, AUTH_NONCE));
+        TlsNotaryVerifierBase.TlsNotaryProof memory s = _payloadWithBody(body);
+        vm.expectRevert(abi.encodeWithSelector(CeremonyFields.MalformedForm.selector, first.length));
+        this.run{value: quote}(s);
+    }
+
+    /// @dev A raw `;` inside the redirect. Some form parsers split pairs on
+    ///      it, so to them this body carries a second `code_verifier`;
+    ///      `formField` would have read the redirect to the next `&` and
+    ///      counted one. The serializer never emits a raw `;`, so the byte
+    ///      itself is refused.
+    function test_rejectsATokenBodyWithARawSemicolonInTheRedirect() public {
+        bytes memory body = _honestTokenBody(
+            "abc", "https%3A%2F%2Fapp.example%2Fcb;code_verifier=EVILEVILEVILEVILEVILEVILEVILEVILEVILEVIL0"
+        );
+        TlsNotaryVerifierBase.TlsNotaryProof memory s = _payloadWithBody(body);
+        vm.expectRevert(abi.encodeWithSelector(CeremonyFields.MalformedForm.selector, _indexOf(body, ";")));
+        this.run{value: quote}(s);
+    }
+
+    /// @dev `%3a` decodes as `%3A` does and is not what the serializer
+    ///      writes, so it is a second spelling of the same redirect and
+    ///      refused as noncanonical.
+    function test_rejectsATokenBodyWithALowercaseEscape() public {
+        bytes memory body = _honestTokenBody("abc", "https%3a%2F%2Fapp.example%2Fcb");
+        TlsNotaryVerifierBase.TlsNotaryProof memory s = _payloadWithBody(body);
+        vm.expectRevert(abi.encodeWithSelector(CeremonyFields.MalformedForm.selector, _indexOf(body, "%3a")));
+        this.run{value: quote}(s);
+    }
+
+    /// @dev Nothing after the last value, not even the delimiter that would
+    ///      begin a sixth pair.
+    function test_rejectsATokenBodyWithATrailingAmpersand() public {
+        bytes memory honest = _honestTokenBody();
+        TlsNotaryVerifierBase.TlsNotaryProof memory s = _payloadWithBody(abi.encodePacked(honest, "&"));
+        vm.expectRevert(abi.encodeWithSelector(CeremonyFields.MalformedForm.selector, honest.length));
         this.run{value: quote}(s);
     }
 
@@ -1134,11 +1226,13 @@ contract XPlatformVerifierTest is Test {
         this.run{value: quote + 1}(s);
     }
 
+    /// @dev REQ-COMMON-16B: an empty identifier is refused by the form
+    ///      itself, before the charset is asked.
     function test_rejectsAnEmptyClientIdentifier() public {
         TlsNotaryVerifierBase.TlsNotaryProof memory s = _payload();
         string memory v = string(CeremonyAuthorization.codeVerifier(digest, AUTH_NONCE));
         s.tokenSession = _tokenAttestation("authorization_code", "", v);
-        vm.expectPartialRevert(TlsNotaryVerifierBase.ClientIdentifierNotSerializerSafe.selector);
+        vm.expectRevert(abi.encodeWithSelector(CeremonyFields.EmptyFormValue.selector, "client_id"));
         this.run{value: quote}(s);
     }
 
@@ -1200,8 +1294,18 @@ contract XPlatformVerifierTest is Test {
 
     /// The body of that request, for a test that varies only the head.
     function _honestTokenBody() private view returns (bytes memory) {
+        return _honestTokenBody("abc", "https%3A%2F%2Fapp.example%2Fcb");
+    }
+
+    /// The same with `code` and `redirect_uri` given, for the spellings of
+    /// them the form refuses.
+    function _honestTokenBody(string memory code, string memory redirectUri) private view returns (bytes memory) {
         return abi.encodePacked(
-            "grant_type=authorization_code&client_id=myClient-1&code=abc&code_verifier=",
+            "grant_type=authorization_code&client_id=myClient-1&code=",
+            code,
+            "&redirect_uri=",
+            redirectUri,
+            "&code_verifier=",
             CeremonyAuthorization.codeVerifier(digest, AUTH_NONCE)
         );
     }
@@ -1212,7 +1316,23 @@ contract XPlatformVerifierTest is Test {
     /// layout, the digest binding, the response anchors and the coverage all
     /// check out, so the head is the only thing left to decide it.
     function _tokenSessionWithHead(bytes memory head) private view returns (ICeremony.Attestation memory) {
-        bytes memory whole = abi.encodePacked(head, _honestTokenBody());
+        return _tokenSessionWith(head, _honestTokenBody());
+    }
+
+    /// A token session honest in every respect but the body it is handed,
+    /// under a head declaring that body's length: the form is the only thing
+    /// left to decide it.
+    function _payloadWithBody(bytes memory body) private view returns (TlsNotaryVerifierBase.TlsNotaryProof memory s) {
+        s = _payload();
+        s.tokenSession = _tokenSessionWith(_tokenHead(TOKEN_HEADERS, body.length), body);
+    }
+
+    function _tokenSessionWith(bytes memory head, bytes memory body)
+        private
+        pure
+        returns (ICeremony.Attestation memory)
+    {
+        bytes memory whole = abi.encodePacked(head, body);
         AttestationBuilder.Direction memory sent = AttestationBuilder.Direction({
             revealed: AttestationBuilder.one(AttestationBuilder.Range({start: 0, value: whole})),
             commitments: AttestationBuilder.none(),
@@ -1248,6 +1368,18 @@ contract XPlatformVerifierTest is Test {
         assertTrue(
             _contains(_tokenHead(TOKEN_HEADERS, 0), abi.encodePacked(CeremonyProfile.X_TOKEN_REQUIRED_HEADERS, "\r\n"))
         );
+    }
+
+    function _indexOf(bytes memory haystack, bytes memory needle) private pure returns (uint256) {
+        if (needle.length > haystack.length) return type(uint256).max;
+        for (uint256 i = 0; i + needle.length <= haystack.length; ++i) {
+            bool same = true;
+            for (uint256 j = 0; j < needle.length && same; ++j) {
+                same = haystack[i + j] == needle[j];
+            }
+            if (same) return i;
+        }
+        return type(uint256).max;
     }
 
     function _contains(bytes memory haystack, bytes memory needle) private pure returns (bool) {

@@ -43,6 +43,13 @@ export interface TokenSession {
    * runtime's own, save the names `FORBIDDEN_REQUEST_HEADERS` lists.
    * `content-length` is absent: the HTTP client appends it. */
   readonly requiredHeaders: readonly string[]
+  /** The form fields the body carries, in the order the prover serializes
+   * them. Every verifier holds the whole body to this list: exactly these
+   * names in this order, each once with a nonempty value, nothing after
+   * the last. GitHub's list is REQ-PLAT-61's; X's specification keeps its
+   * decoded form on ASM-PROV-07, so the contract is stricter than the
+   * specification there. */
+  readonly tokenFields: readonly string[]
 }
 
 export interface IdentitySession {
@@ -87,6 +94,7 @@ export const X: Profile = {
       requestLine: 'POST /2/oauth2/token ',
     },
     requiredHeaders: ['host: api.x.com', 'content-type: application/x-www-form-urlencoded'],
+    tokenFields: ['grant_type', 'client_id', 'code', 'redirect_uri', 'code_verifier'],
   },
   identity: {
     session: {
@@ -118,6 +126,7 @@ export const GITHUB: Profile = {
       requestLine: 'POST /login/oauth/access_token ',
     },
     requiredHeaders: ['host: github.com', 'content-type: application/x-www-form-urlencoded'],
+    tokenFields: ['client_id', 'code', 'redirect_uri', 'code_verifier', 'client_secret'],
   },
   identity: {
     session: {
