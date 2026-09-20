@@ -17,9 +17,10 @@
 //! The lowercase claim needs an input the profile cannot supply, which is the
 //! last case.
 //!
-//! The GitHub exchange is the reason this exists. It runs in the deployment's
-//! backend, which is the prover for that session and reaches the wire through
-//! `libid-tlsn::prover_generic` -- the same hyper.
+//! The Rust provers are the reason this exists: `capture_ceremony` and
+//! `ceremony_fixtures` in libid-rs reach the wire through
+//! `libid-tlsn::prover_generic` -- the same hyper -- and what they record is
+//! what the verifiers are tested against.
 
 use hyper_util::rt::TokioIo;
 use libid_profiles::{
@@ -39,9 +40,9 @@ async fn head_hyper_writes(session: &TokenSession, body: &'static [u8]) -> Vec<u
         .method(session.session.method)
         .uri(session.session.path);
 
-    // The profile's required pair, then what the browser and the backend add
-    // of their own and the verifier does not compare. Order decides nothing
-    // and is not asserted below.
+    // The profile's required pair, then what a runtime adds of its own and
+    // the verifier does not compare. Order decides nothing and is not
+    // asserted below.
     let own = ["accept: application/json", "connection: close"];
     for header in session.required_headers.iter().chain(own.iter()) {
         let (name, value) = header.split_once(": ").expect("`name: value`");

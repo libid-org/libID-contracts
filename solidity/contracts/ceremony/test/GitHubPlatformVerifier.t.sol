@@ -88,7 +88,7 @@ contract GitHubPlatformVerifierTest is Test {
         return abi.encodePacked(r, s, v);
     }
 
-    /// The head the Token-Exchange Service sends: the two headers the profile
+    /// The head the browser sends on the exchange: the two headers the profile
     /// requires, and two it does not compare.
     bytes constant EXCHANGE_HEADERS =
         "host: github.com\r\ncontent-type: application/x-www-form-urlencoded\r\naccept: application/json\r\nconnection: close\r\n";
@@ -360,10 +360,10 @@ contract GitHubPlatformVerifierTest is Test {
     ///      on libid `feat/ceremony-rebuild-plan`): `host`, `authorization`,
     ///      `accept`, the browser's own `user-agent`, which GitHub demands,
     ///      `x-github-api-version`, `connection`, in that order and lowercased
-    ///      by hyper. The exchange the Token-Exchange Service sends is the
-    ///      happy path above already: `host`, `content-type`, `accept`,
-    ///      `connection`, hyper's `content-length` last, which Heorhii ran
-    ///      against GitHub for real.
+    ///      by hyper. The exchange `capture_ceremony` sends is the happy path
+    ///      above already: `host`, `content-type`, `accept`, `connection`,
+    ///      hyper's `content-length` last, run against GitHub for real in
+    ///      `github-ceremony-real.json`.
     function test_verifiesTheIdentityRequestTheBrowserSends() public {
         TlsNotaryVerifierBase.TlsNotaryProof memory s = _payload();
         s.identitySession = _identityWithHead(
@@ -407,8 +407,8 @@ contract GitHubPlatformVerifierTest is Test {
 
     string constant RUST_SESSION = "contracts/ceremony/test/fixtures/github-ceremony-session.json";
 
-    /// @dev The exchange as the Token-Exchange Service composes it and the
-    ///      identity read as the browser composes it, both encoded by hyper,
+    /// @dev The exchange and the identity read as `ceremony_fixtures` composes
+    ///      them, both encoded by hyper,
     ///      laid out by `libid_transcript::ceremony`, committed with tlsn's
     ///      SHA-256 plaintext hashes, recorded by `AttestedData::from_observed`
     ///      and signed by the key this suite trusts -- the Rust pipeline minus
@@ -485,16 +485,16 @@ contract GitHubPlatformVerifierTest is Test {
     string constant REAL_SESSION = "contracts/ceremony/test/fixtures/github-ceremony-real.json";
 
     /// @dev A ceremony that actually ran: two MPC-TLS sessions against
-    ///      github.com and api.github.com on 2026-09-11, the exchange with a
+    ///      github.com and api.github.com on 2026-09-17, the exchange with a
     ///      real authorization code under the PKCE challenge derived from this
     ///      suite's digest, the identity read with the bearer GitHub issued,
     ///      the verifier in the prover's process signing as the key this
     ///      suite trusts (libid-rs `examples/capture_ceremony.rs`). Nothing in
     ///      the file was written by hand: the head is what hyper put on the
     ///      wire, the body is what GitHub answered, pretty-printed as GitHub
-    ///      prints it, and the bearer and the secret are committed, not
-    ///      present. Verified with the signatures unedited, at a clock a minute
-    ///      past the identity read.
+    ///      prints it, the credential is in the clear and the bearer is
+    ///      committed, not present. Verified with the signatures unedited, at a
+    ///      clock a minute past the identity read.
     function test_verifiesTheRecordsACeremonyProduced() public {
         string memory json = vm.readFile(REAL_SESSION);
         assertEq(vm.parseJsonBytes32(json, ".authorization_digest"), digest, "bound to this suite's digest");
@@ -609,7 +609,7 @@ contract GitHubPlatformVerifierTest is Test {
     }
 
     /// @dev REQ-COMMON-21B, on the profile whose exchange this repository does
-    ///      not compose: `github/v1` pins its OWN head, so a service sending a
+    ///      not compose: `github/v1` pins its OWN head, so a prover sending a
     ///      request X's constant would have accepted is still refused here.
     ///      The media type is the header the requirement names, because it is
     ///      what decides whether GitHub reads the bytes `formField` reads as a
@@ -628,9 +628,9 @@ contract GitHubPlatformVerifierTest is Test {
         this.run{value: quote}(s);
     }
 
-    /// @dev A header the profile never mentions is the Token-Exchange
-    ///      Service's own business -- a `user-agent`, say -- as long as it is
-    ///      not one of the forbidden names. The exchange still verifies.
+    /// @dev A header the profile never mentions is the sender's own business
+    ///      -- a `user-agent`, say -- as long as it is not one of the
+    ///      forbidden names. The exchange still verifies.
     function test_acceptsAnUnlistedHeaderOnTheExchange() public {
         bytes memory body = _exchangeBody();
         bytes memory head = _exchangeHead(

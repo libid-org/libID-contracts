@@ -120,11 +120,11 @@ contract CeremonyAttestationTest is Test {
     }
 
     /// @dev Moving the commitment one byte forward leaves sent byte 20 covered
-    ///      by nothing. `decode` accepts that on purpose -- coverage is
-    ///      conditional under REQ-COMMON-43 -- and the identity-session
-    ///      verifier is what must refuse it. A gap is where a prover hides
-    ///      bytes, so this is the check that keeps the committed range the only
-    ///      region nobody can read.
+    ///      by nothing. `decode` accepts that on purpose -- which directions
+    ///      tile is each profile's rule, and the library answers for the
+    ///      encoding alone -- and the Platform Verifier is what must refuse
+    ///      it. A gap is where a prover hides bytes, so this is the check that
+    ///      keeps the committed range the only region nobody can read.
     function test_coverageRejectsAGap() public {
         bytes memory tampered = FIXTURE;
         tampered[131] = bytes1(uint8(21)); // sent commitment start 20 -> 21
