@@ -137,10 +137,10 @@ contract GitHubPlatformVerifierTest is Test {
 
     /// The same, with the verifier given: for the spellings of it the base
     /// must refuse.
-    function _exchangeBodyWithVerifier(bytes memory verifier) private pure returns (bytes memory) {
+    function _exchangeBodyWithVerifier(bytes memory codeVerifier) private pure returns (bytes memory) {
         return abi.encodePacked(
             "client_id=Iv1.8a61f9b3a7aba766&code=abc&redirect_uri=https%3A%2F%2Fa.example&code_verifier=",
-            verifier,
+            codeVerifier,
             "&client_secret=0123456789abcdef0123456789abcdef"
         );
     }
@@ -354,10 +354,10 @@ contract GitHubPlatformVerifierTest is Test {
 
     /// @dev REQ-PLAT-61, TEST-PLAT-12: and one byte short of it.
     function test_rejectsAnExchangeWithATruncatedVerifier() public {
-        bytes memory verifier = CeremonyAuthorization.codeVerifier(digest, AUTH_NONCE);
-        bytes memory short = new bytes(verifier.length - 1);
+        bytes memory codeVerifier = CeremonyAuthorization.codeVerifier(digest, AUTH_NONCE);
+        bytes memory short = new bytes(codeVerifier.length - 1);
         for (uint256 i = 0; i < short.length; ++i) {
-            short[i] = verifier[i];
+            short[i] = codeVerifier[i];
         }
         TlsNotaryVerifierBase.TlsNotaryProof memory s = _withExchangeBody(_exchangeBodyWithVerifier(short));
         vm.expectRevert(TlsNotaryVerifierBase.CodeVerifierMismatch.selector);
