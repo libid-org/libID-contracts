@@ -268,9 +268,20 @@ contract GitHubPlatformVerifierTest is Test {
     /// The payload with its exchange composed over `body`: the head declares
     /// the body's length and the response is the honest one, so the form
     /// check is what a test of it exercises.
-    function _withExchangeBody(bytes memory body) private view returns (TlsNotaryVerifierBase.TlsNotaryProof memory s) {
+    function _withExchangeBody(bytes memory body) private view returns (TlsNotaryVerifierBase.TlsNotaryProof memory) {
+        return _withExchange(_exchangeHead(body.length), body);
+    }
+
+    /// The payload with its exchange composed over `head` and `body` as given,
+    /// so a test can misdeclare the length or add a header and watch the
+    /// verifier refuse it.
+    function _withExchange(bytes memory head, bytes memory body)
+        private
+        view
+        returns (TlsNotaryVerifierBase.TlsNotaryProof memory s)
+    {
         s = _payload();
-        AttestationBuilder.Direction memory sent = _wholeSent(abi.encodePacked(_exchangeHead(body.length), body));
+        AttestationBuilder.Direction memory sent = _wholeSent(abi.encodePacked(head, body));
         bytes memory a = AttestationBuilder.encode(CeremonyProfile.AUTHORITY_GITHUB, T0, sent, _exchangeResponse());
         s.tokenSession = ICeremony.Attestation({attestedData: a, proof: _sign(a)});
     }
@@ -390,6 +401,152 @@ contract GitHubPlatformVerifierTest is Test {
         bytes memory body = _exchangeBody("abc", "https%3a%2F%2Fa.example", "0123456789abcdef0123456789abcdef");
         TlsNotaryVerifierBase.TlsNotaryProof memory s = _withExchangeBody(body);
         vm.expectRevert(abi.encodeWithSelector(CeremonyFields.MalformedForm.selector, _indexOf(body, "%3a")));
+        this.run{value: quote}(s);
+    }
+
+    /// @dev REQ-PLAT-61, TEST-PLAT-12: `%61` decodes to the `a` the serializer
+    ///      writes bare, so `%61bc` is a second spelling of `abc`; `%20` is
+    ///      the space it writes `+`. Each is refused at its `%`, and the
+    ///      credential is held to the same alphabet.
+    function test_rejectsAnExchangeWithAnEscapeTheSerializerWritesBare() public {
+        bytes memory body = _exchangeBody("%61bc", "https%3A%2F%2Fa.example", "0123456789abcdef0123456789abcdef");
+        TlsNotaryVerifierBase.TlsNotaryProof memory s = _withExchangeBody(body);
+        vm.expectRevert(abi.encodeWithSelector(CeremonyFields.MalformedForm.selector, _indexOf(body, "%61")));
+        this.run{value: quote}(s);
+
+        body = _exchangeBody("a%20b", "https%3A%2F%2Fa.example", "0123456789abcdef0123456789abcdef");
+        s = _withExchangeBody(body);
+        vm.expectRevert(abi.encodeWithSelector(CeremonyFields.MalformedForm.selector, _indexOf(body, "%20")));
+        this.run{value: quote}(s);
+
+        body = _exchangeBody("abc", "https%3A%2F%2Fa.example", "0123456789abcdef%2A0123456789abcdef");
+        s = _withExchangeBody(body);
+        vm.expectRevert(abi.encodeWithSelector(CeremonyFields.MalformedForm.selector, _indexOf(body, "%2A")));
+        this.run{value: quote}(s);
+    }
+
+    /// @dev REQ-PLAT-61, TEST-PLAT-12: `code` and `redirect_uri` decode to
+    ///      UTF-8. A byte no UTF-8 uses, a truncated sequence and a surrogate
+    ///      pass the form grammar -- each is a canonical escape -- and fail
+    ///      the field.
+    function test_rejectsAnExchangeWithInvalidUtf8InTheCode() public {
+        TlsNotaryVerifierBase.TlsNotaryProof memory s =
+            _withExchangeBody(_exchangeBody("ab%FF", "https%3A%2F%2Fa.example", "0123456789abcdef0123456789abcdef"));
+        vm.expectRevert(abi.encodeWithSelector(CeremonyFields.FormValueNotUtf8.selector, "code"));
+        this.run{value: quote}(s);
+
+        s = _withExchangeBody(_exchangeBody("%ED%A0%80", "https%3A%2F%2Fa.example", "0123456789abcdef0123456789abcdef"));
+        vm.expectRevert(abi.encodeWithSelector(CeremonyFields.FormValueNotUtf8.selector, "code"));
+        this.run{value: quote}(s);
+    }
+
+    function test_rejectsAnExchangeWithInvalidUtf8InTheRedirect() public {
+        TlsNotaryVerifierBase.TlsNotaryProof memory s = _withExchangeBody(
+            _exchangeBody("abc", "https%3A%2F%2Fa.example%2F%C3", "0123456789abcdef0123456789abcdef")
+        );
+        vm.expectRevert(abi.encodeWithSelector(CeremonyFields.FormValueNotUtf8.selector, "redirect_uri"));
+        this.run{value: quote}(s);
+    }
+
+    /// @dev TEST-PLAT-12: canonical form escaping of a UTF-8 string in those
+    ///      two fields passes the form check. What the code and redirect
+    ///      should EQUAL is the Prover's comparison, not this verifier's.
+    function test_acceptsAnExchangeWithUtf8InTheCodeAndRedirect() public {
+        TlsNotaryVerifierBase.TlsNotaryProof memory s = _withExchangeBody(
+            _exchangeBody("caf%C3%A9", "https%3A%2F%2Fa.example%2F%E2%82%AC", "0123456789abcdef0123456789abcdef")
+        );
+        assertEq(this.run{value: quote}(s).handle, "octocat");
+    }
+
+    /// @dev REQ-PLAT-61, TEST-PLAT-12: `client_secret` is printable ASCII
+    ///      without whitespace. A `+` and an escaped tab pass the form grammar
+    ///      and fail the field; `%20` never reaches it, being the space the
+    ///      serializer spells `+` and refused as an escape above.
+    function test_rejectsACredentialCarryingWhitespace() public {
+        string[2] memory secrets = ["0123456789abcdef+0123456789abcdef", "%090123456789abcdef"];
+        for (uint256 i = 0; i < secrets.length; ++i) {
+            TlsNotaryVerifierBase.TlsNotaryProof memory s =
+                _withExchangeBody(_exchangeBody("abc", "https%3A%2F%2Fa.example", secrets[i]));
+            vm.expectRevert(abi.encodeWithSelector(CeremonyFields.FormValueNotPrintable.selector, "client_secret"));
+            this.run{value: quote}(s);
+        }
+    }
+
+    /// @dev REQ-PLAT-61, TEST-PLAT-12: nor a control byte, at either end of
+    ///      the range, nor a byte above ASCII.
+    function test_rejectsACredentialCarryingAControlByte() public {
+        string[3] memory secrets = ["%000123456789abcdef", "0123456789abcdef%7F", "0123456789abcdef%C3%A9"];
+        for (uint256 i = 0; i < secrets.length; ++i) {
+            TlsNotaryVerifierBase.TlsNotaryProof memory s =
+                _withExchangeBody(_exchangeBody("abc", "https%3A%2F%2Fa.example", secrets[i]));
+            vm.expectRevert(abi.encodeWithSelector(CeremonyFields.FormValueNotPrintable.selector, "client_secret"));
+            this.run{value: quote}(s);
+        }
+    }
+
+    /// @dev TEST-PLAT-12: a credential of every printable ASCII byte the
+    ///      serializer escapes, including the delimiters, is one value.
+    function test_acceptsACredentialOfEscapedPrintableAscii() public {
+        TlsNotaryVerifierBase.TlsNotaryProof memory s = _withExchangeBody(
+            _exchangeBody("abc", "https%3A%2F%2Fa.example", "%21%22%23%24%25%26%27%28%29%2B%2C%2F%3A%3B%3D%7E")
+        );
+        assertEq(this.run{value: quote}(s).handle, "octocat");
+    }
+
+    /// @dev REQ-COMMON-16B, TEST-PLAT-12: `my%2Bapp` is the serialization of
+    ///      `my+app`, not an identifier. It passes the form grammar -- `%2B`
+    ///      is the canonical escape of `+` -- and fails the charset the base
+    ///      holds `client_id` to.
+    function test_rejectsAPercentEncodedClientIdentifier() public {
+        bytes memory body = abi.encodePacked(
+            "client_id=my%2Bapp&code=abc&redirect_uri=https%3A%2F%2Fa.example&code_verifier=",
+            CeremonyAuthorization.codeVerifier(digest, AUTH_NONCE),
+            "&client_secret=0123456789abcdef0123456789abcdef"
+        );
+        TlsNotaryVerifierBase.TlsNotaryProof memory s = _withExchangeBody(body);
+        vm.expectRevert(
+            abi.encodeWithSelector(TlsNotaryVerifierBase.ClientIdentifierNotSerializerSafe.selector, bytes("my%2Bapp"))
+        );
+        this.run{value: quote}(s);
+    }
+
+    /// @dev REQ-COMMON-16B, TEST-PLAT-12: an empty identifier is refused by
+    ///      the form itself, before the charset is asked.
+    function test_rejectsAnEmptyClientIdentifier() public {
+        bytes memory body = abi.encodePacked(
+            "client_id=&code=abc&redirect_uri=https%3A%2F%2Fa.example&code_verifier=",
+            CeremonyAuthorization.codeVerifier(digest, AUTH_NONCE),
+            "&client_secret=0123456789abcdef0123456789abcdef"
+        );
+        TlsNotaryVerifierBase.TlsNotaryProof memory s = _withExchangeBody(body);
+        vm.expectRevert(abi.encodeWithSelector(CeremonyFields.EmptyFormValue.selector, "client_id"));
+        this.run{value: quote}(s);
+    }
+
+    /// @dev TEST-PLAT-14: `content-length` declares the complete revealed
+    ///      body. A head declaring ten bytes fewer describes a form GitHub
+    ///      did not parse.
+    function test_rejectsAnExchangeUnderdeclaringItsBody() public {
+        bytes memory body = _exchangeBody();
+        TlsNotaryVerifierBase.TlsNotaryProof memory s = _withExchange(_exchangeHead(body.length - 10), body);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                TlsNotaryVerifierBase.WrongDeclaredBodyLength.selector, body.length - 10, body.length
+            )
+        );
+        this.run{value: quote}(s);
+    }
+
+    /// @dev REQ-PLAT-56A, TEST-PLAT-14: an `authorization` header on the
+    ///      exchange is refused. The credential travels in the body here and
+    ///      nowhere else.
+    function test_rejectsAForbiddenHeaderOnTheExchange() public {
+        bytes memory body = _exchangeBody();
+        bytes memory headers = abi.encodePacked(EXCHANGE_HEADERS, "authorization: Basic bXlDbGllbnQtMTpzM2NyZXQ=\r\n");
+        TlsNotaryVerifierBase.TlsNotaryProof memory s = _withExchange(_exchangeHead(headers, body.length), body);
+        vm.expectRevert(
+            abi.encodeWithSelector(TlsNotaryVerifierBase.ForbiddenRequestHeader.selector, bytes("authorization"))
+        );
         this.run{value: quote}(s);
     }
 

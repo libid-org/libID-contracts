@@ -121,11 +121,19 @@ contract GitHubPlatformVerifier is TlsNotaryVerifierBase {
 
     /// @dev REQ-PLAT-61. The body is the serialization of exactly the five
     ///      fields the profile lists, in its order, each once with a nonempty
-    ///      value, and nothing after the last. Runs before the base reads
-    ///      `code_verifier` and `client_id` by name, so those reads see a body
-    ///      already known to carry each name once.
+    ///      value in the serializer's one spelling, and nothing after the
+    ///      last. Then each field's own constraint: `code` and `redirect_uri`
+    ///      decode to UTF-8, `client_secret` to printable ASCII without
+    ///      whitespace. The other two are the base's: it recomputes
+    ///      `code_verifier` and compares, which holds it to section 7's
+    ///      canonical encoding, and holds `client_id` to REQ-COMMON-16B.
+    ///      Runs before those reads, so they see a body already known to
+    ///      carry each name once.
     function _checkTokenBody(bytes memory body) internal pure override {
         CeremonyFields.requireExactForm(body, CeremonyProfile.GITHUB_TOKEN_FIELDS);
+        CeremonyFields.requireUtf8(CeremonyFields.formField(body, "code"), "code");
+        CeremonyFields.requireUtf8(CeremonyFields.formField(body, "redirect_uri"), "redirect_uri");
+        CeremonyFields.requirePrintableAscii(CeremonyFields.formField(body, "client_secret"), "client_secret");
     }
 
     /// @dev REQ-PLAT-51. GitHub's `id` is a BARE integer, so it is read by the

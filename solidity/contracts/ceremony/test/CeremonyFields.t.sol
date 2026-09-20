@@ -34,6 +34,14 @@ contract CeremonyFieldsTest is Test {
         CeremonyFields.requireExactForm(body, names);
     }
 
+    function requireUtf8(bytes calldata value, string calldata name) external pure {
+        CeremonyFields.requireUtf8(value, name);
+    }
+
+    function requirePrintableAscii(bytes calldata value, string calldata name) external pure {
+        CeremonyFields.requirePrintableAscii(value, name);
+    }
+
     // ─── JSON strings ───────────────────────────────────────────────
 
     function test_readsAnXIdentityResponse() public view {
@@ -247,6 +255,73 @@ contract CeremonyFieldsTest is Test {
         this.requireExactForm("a=1%", "a");
         vm.expectRevert(abi.encodeWithSelector(CeremonyFields.MalformedForm.selector, 3));
         this.requireExactForm("a=1%2", "a");
+    }
+
+    /// @dev An escape of a byte the serializer never escapes is a second
+    ///      spelling too: `%61` decodes to the `a` the serializer writes bare,
+    ///      `%20` to the space it writes `+`. One vector per pass-through
+    ///      class -- a letter, a digit, each of `*._-` -- and the space.
+    function test_refusesAnEscapeOfAByteTheSerializerWritesBare() public {
+        bytes[7] memory escapes = [bytes("%61"), "%30", "%2A", "%2E", "%5F", "%2D", "%20"];
+        for (uint256 i = 0; i < escapes.length; ++i) {
+            vm.expectRevert(abi.encodeWithSelector(CeremonyFields.MalformedForm.selector, 3));
+            this.requireExactForm(abi.encodePacked("a=1", escapes[i], "&b=2&c=3"), ABC);
+        }
+    }
+
+    // ─── What a value decodes to (REQ-PLAT-61) ──────────────────────
+
+    /// @dev Well-formed UTF-8 in every width, a NUL, and the `+` that is a
+    ///      space: all strings, none refused.
+    function test_acceptsAValueThatDecodesToUtf8() public view {
+        this.requireUtf8("abc", "code");
+        this.requireUtf8("caf%C3%A9", "code");
+        this.requireUtf8("%E2%82%AC", "code");
+        this.requireUtf8("%F0%9F%98%80", "code");
+        this.requireUtf8("a+b%00", "code");
+        this.requireUtf8("https%3A%2F%2Fa.example%2F%C3%A9", "redirect_uri");
+    }
+
+    /// @dev Each way a byte sequence fails Unicode Table 3-7: a byte no
+    ///      UTF-8 uses, an overlong two-, three- and four-byte form, a
+    ///      surrogate, a scalar past U+10FFFF, a lead with too few
+    ///      continuations, a continuation with no lead.
+    function test_refusesAValueThatDoesNotDecodeToUtf8() public {
+        bytes[9] memory bad = [
+            bytes("%FF"), "%C0%80", "%C1%BF", "%E0%80%80", "%F0%80%80%80", "%ED%A0%80", "%F4%90%80%80", "ab%C3", "%80"
+        ];
+        for (uint256 i = 0; i < bad.length; ++i) {
+            vm.expectRevert(abi.encodeWithSelector(CeremonyFields.FormValueNotUtf8.selector, "code"));
+            this.requireUtf8(bad[i], "code");
+        }
+    }
+
+    function test_refusesAnEmptyValueWhereUtf8IsRequired() public {
+        vm.expectRevert(abi.encodeWithSelector(CeremonyFields.EmptyFormValue.selector, "code"));
+        this.requireUtf8("", "code");
+    }
+
+    /// @dev Every printable ASCII byte, bare or escaped, is a credential
+    ///      byte; the two ends of the range are the ones worth naming.
+    function test_acceptsAValueThatDecodesToPrintableAscii() public view {
+        this.requirePrintableAscii("0123456789abcdef", "client_secret");
+        this.requirePrintableAscii("%21%7E%22%25%26%3D%3B", "client_secret");
+        this.requirePrintableAscii("a-b_c.d*e", "client_secret");
+    }
+
+    /// @dev A space in either spelling, a tab, a NUL, a DEL, a byte above
+    ///      ASCII: none is printable ASCII without whitespace.
+    function test_refusesAValueThatDoesNotDecodeToPrintableAscii() public {
+        bytes[6] memory bad = [bytes("ab+cd"), "ab%20cd", "ab%09", "%00ab", "ab%7F", "caf%C3%A9"];
+        for (uint256 i = 0; i < bad.length; ++i) {
+            vm.expectRevert(abi.encodeWithSelector(CeremonyFields.FormValueNotPrintable.selector, "client_secret"));
+            this.requirePrintableAscii(bad[i], "client_secret");
+        }
+    }
+
+    function test_refusesAnEmptyValueWherePrintableAsciiIsRequired() public {
+        vm.expectRevert(abi.encodeWithSelector(CeremonyFields.EmptyFormValue.selector, "client_secret"));
+        this.requirePrintableAscii("", "client_secret");
     }
 
     // ─── The client-identifier charset ──────────────────────────────

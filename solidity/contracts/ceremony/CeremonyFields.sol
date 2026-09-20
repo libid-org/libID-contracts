@@ -31,12 +31,20 @@ library CeremonyFields {
     error NoncanonicalInteger(string name);
     /// @dev The body stops being the exact form at byte `at`: the pair that
     ///      begins there is not the name expected next, a value byte is outside
-    ///      the serializer's alphabet or an escape is not two uppercase hex
-    ///      digits, a `&` stands where the body should end or the body ends
-    ///      where a `&` should stand (REQ-PLAT-61).
+    ///      the serializer's alphabet, an escape is not two uppercase hex
+    ///      digits or spells a byte the serializer writes bare or as `+`, a
+    ///      `&` stands where the body should end or the body ends where a `&`
+    ///      should stand (REQ-PLAT-61).
     error MalformedForm(uint256 at);
     /// @dev A field the form must carry once carries nothing.
     error EmptyFormValue(string name);
+    /// @dev A field the profile requires to decode to a UTF-8 string decodes
+    ///      to something else (REQ-PLAT-61).
+    error FormValueNotUtf8(string name);
+    /// @dev A field the profile requires to decode to printable ASCII without
+    ///      whitespace decodes to a space, a control byte or a byte above
+    ///      0x7E (REQ-PLAT-61).
+    error FormValueNotPrintable(string name);
 
     /// @notice What a field lookup found in one range.
     enum Found {
@@ -242,12 +250,20 @@ library CeremonyFields {
     ///
     ///      The alphabet is the serializer's OUTPUT, not the input's: the bytes
     ///      it passes through (`[A-Za-z0-9*._-]`), `+` for a space, and `%`
-    ///      followed by two UPPERCASE hex digits for everything else. An
-    ///      escape in lowercase decodes the same and serializes differently,
-    ///      so it is a second spelling and refused; a truncated one is not an
-    ///      escape at all. Values are validated, never decoded: the bytes GitHub
-    ///      parsed are the bytes judged, and an encoded delimiter stays one
-    ///      value's byte (`%26`) rather than becoming a pair.
+    ///      followed by two UPPERCASE hex digits for everything else. Every
+    ///      byte has exactly one spelling under that serializer, so any other
+    ///      spelling of the same byte is refused: an escape in lowercase, an
+    ///      escape of a byte the serializer passes through (`%61` for `a`),
+    ///      an escape of the space it writes as `+` (`%20`). A truncated one
+    ///      is not an escape at all. This is the specification's "serialize
+    ///      the decoded tuple and compare byte for byte", done without the
+    ///      round trip: a body every token of which is canonical IS the
+    ///      serialization of what it decodes to. Values are validated, never
+    ///      decoded, so the bytes GitHub parsed are the bytes judged, and an
+    ///      encoded delimiter stays one value's byte (`%26`) rather than
+    ///      becoming a pair. What a value must decode TO is a per-field
+    ///      constraint, and `requireUtf8` and `requirePrintableAscii` hold a
+    ///      value read back out of an exact body to it.
     function requireExactForm(bytes memory body, bytes memory names) internal pure {
         uint256 at;
         uint256 from;
@@ -286,21 +302,126 @@ library CeremonyFields {
     }
 
     /// @dev One token of a form value at `at` -- a pass-through byte, a `+`,
-    ///      or a `%XX` escape in uppercase -- and the offset after it.
+    ///      or a `%XX` escape in uppercase of a byte the serializer escapes --
+    ///      and the offset after it.
     function _formValueToken(bytes memory body, uint256 at) private pure returns (uint256) {
         bytes1 c = body[at];
         if (c == "%") {
-            if (at + 2 >= body.length || !_isUpperHex(body[at + 1]) || !_isUpperHex(body[at + 2])) {
-                revert MalformedForm(at);
-            }
+            if (at + 2 >= body.length) revert MalformedForm(at);
+            (bool ok, bytes1 decoded) = _hexByte(body[at + 1], body[at + 2]);
+            if (!ok || decoded == 0x20 || _isSerializerSafe(decoded)) revert MalformedForm(at);
             return at + 3;
         }
         if (c == "+" || _isSerializerSafe(c)) return at + 1;
         revert MalformedForm(at);
     }
 
-    function _isUpperHex(bytes1 c) private pure returns (bool) {
-        return (c >= "0" && c <= "9") || (c >= "A" && c <= "F");
+    /// @notice `value`, a form value in the serializer's alphabet, decodes to
+    ///         well-formed UTF-8.
+    ///
+    /// @dev REQ-PLAT-61's constraint on `code` and `redirect_uri`: nonempty
+    ///      UTF-8, nothing more. Well-formed as Unicode Table 3-7 has it: no
+    ///      overlong sequence, no surrogate, nothing above U+10FFFF, no
+    ///      truncated sequence, no stray continuation byte. The value is
+    ///      decoded here, once, and only judged; nothing reads the decoding.
+    function requireUtf8(bytes memory value, string memory name) internal pure {
+        if (value.length == 0) revert EmptyFormValue(name);
+        if (!_isUtf8(_decodeFormValue(value))) revert FormValueNotUtf8(name);
+    }
+
+    /// @notice `value`, a form value in the serializer's alphabet, decodes to
+    ///         printable ASCII with no whitespace: every byte in 0x21..0x7E.
+    ///
+    /// @dev REQ-PLAT-61's constraint on `client_secret`. A `+` is a space and
+    ///      refused with the escaped one.
+    function requirePrintableAscii(bytes memory value, string memory name) internal pure {
+        if (value.length == 0) revert EmptyFormValue(name);
+        bytes memory decoded = _decodeFormValue(value);
+        for (uint256 i = 0; i < decoded.length; ++i) {
+            if (decoded[i] <= 0x20 || decoded[i] >= 0x7F) revert FormValueNotPrintable(name);
+        }
+    }
+
+    /// @dev The bytes `value` serializes: `+` to a space, `%XX` to its byte,
+    ///      anything else as it stands. A `%` not followed by two hex digits
+    ///      is refused, so a value that never passed `requireExactForm` still
+    ///      cannot decode to something the serializer would not have written.
+    function _decodeFormValue(bytes memory value) private pure returns (bytes memory out) {
+        out = new bytes(value.length);
+        uint256 n;
+        uint256 i;
+        while (i < value.length) {
+            bytes1 c = value[i];
+            if (c == "%") {
+                if (i + 2 >= value.length) revert MalformedForm(i);
+                (bool ok, bytes1 decoded) = _hexByte(value[i + 1], value[i + 2]);
+                if (!ok) revert MalformedForm(i);
+                out[n++] = decoded;
+                i += 3;
+                continue;
+            }
+            out[n++] = c == "+" ? bytes1(0x20) : c;
+            ++i;
+        }
+        assembly ("memory-safe") {
+            mstore(out, n)
+        }
+    }
+
+    /// @dev Whether `data` is well-formed UTF-8, by the byte ranges of Unicode
+    ///      Table 3-7. Each lead byte fixes the count and the range of its
+    ///      first continuation; the shortest encoding of a scalar is the only
+    ///      one, and the surrogate block and everything above U+10FFFF have
+    ///      none.
+    function _isUtf8(bytes memory data) private pure returns (bool) {
+        uint256 i;
+        while (i < data.length) {
+            uint8 lead = uint8(data[i]);
+            if (lead < 0x80) {
+                ++i;
+                continue;
+            }
+            uint256 need;
+            uint8 low = 0x80;
+            uint8 high = 0xBF;
+            if (lead >= 0xC2 && lead <= 0xDF) {
+                need = 1;
+            } else if (lead >= 0xE0 && lead <= 0xEF) {
+                need = 2;
+                if (lead == 0xE0) low = 0xA0;
+                if (lead == 0xED) high = 0x9F;
+            } else if (lead >= 0xF0 && lead <= 0xF4) {
+                need = 3;
+                if (lead == 0xF0) low = 0x90;
+                if (lead == 0xF4) high = 0x8F;
+            } else {
+                return false;
+            }
+            if (i + need >= data.length) return false;
+            uint8 first = uint8(data[i + 1]);
+            if (first < low || first > high) return false;
+            for (uint256 j = 2; j <= need; ++j) {
+                uint8 b = uint8(data[i + j]);
+                if (b < 0x80 || b > 0xBF) return false;
+            }
+            i += need + 1;
+        }
+        return true;
+    }
+
+    /// @dev The byte two UPPERCASE hex digits spell, and whether they are that.
+    function _hexByte(bytes1 hi, bytes1 lo) private pure returns (bool ok, bytes1 value) {
+        (bool hiOk, uint8 h) = _hexNibble(hi);
+        (bool loOk, uint8 l) = _hexNibble(lo);
+        if (!hiOk || !loOk) return (false, 0);
+        return (true, bytes1((h << 4) | l));
+    }
+
+    function _hexNibble(bytes1 c) private pure returns (bool, uint8) {
+        uint8 b = uint8(c);
+        if (c >= "0" && c <= "9") return (true, b - 0x30);
+        if (c >= "A" && c <= "F") return (true, b - 0x41 + 10);
+        return (false, 0);
     }
 
     function _slice(bytes memory data, uint256 from, uint256 to) private pure returns (bytes memory out) {
