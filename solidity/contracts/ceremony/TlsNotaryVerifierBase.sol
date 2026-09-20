@@ -95,7 +95,7 @@ abstract contract TlsNotaryVerifierBase is IPlatformVerifier, PlatformVerifierBa
     /// @dev The first revealed range does not begin the transcript, so nothing
     ///      says the bytes read as a request line ARE the request line.
     error RequestLineNotAtOrigin(uint32 start);
-    /// @dev The token request does not have the exact shape the profile fixes.
+    /// @dev The token request is not one revealed run with no commitment.
     error WrongTokenRequestLayout(uint256 revealedRanges, uint256 commitments);
     /// @dev The head/body separator is missing or ambiguous, so the body cannot
     ///      be located by the framing the server itself parsed.
@@ -131,11 +131,6 @@ abstract contract TlsNotaryVerifierBase is IPlatformVerifier, PlatformVerifierBa
     ///      `requireBearerHeaderRequest` instead: coverage, one line-anchored
     ///      `authorization`, and the framing around the committed value.
     function _tokenRequiredHeaders() internal pure virtual returns (bytes memory);
-
-    /// @dev How many committed ranges the token request carries. Both launch
-    ///      profiles hide no body field, so both answer zero and their
-    ///      requests are revealed whole.
-    function _tokenSentCommitments() internal pure virtual returns (uint256);
 
     /// @dev Anything the profile checks in the token body beyond the fields
     ///      every profile reads. Default: nothing.
@@ -332,7 +327,7 @@ abstract contract TlsNotaryVerifierBase is IPlatformVerifier, PlatformVerifierBa
         // Both stay: REQ-COMMON-21A is about the method and the path, and a
         // deployment pointed at the wrong endpoint should hear that rather than
         // that some byte of its request differs.
-        bytes memory body = _tokenBody(data.sent, data.sentTranscriptLength);
+        bytes memory body = _tokenBody(data.sent);
         _checkTokenBody(body);
 
         // REQ-COMMON-15A. This is the whole binding between the evidence and
@@ -467,10 +462,9 @@ abstract contract TlsNotaryVerifierBase is IPlatformVerifier, PlatformVerifierBa
     ///      real one, and every field below is then read from bytes the
     ///      platform never saw while the platform executed something else.
     ///
-    ///      So the profile fixes the shape exactly: ONE revealed run beginning
-    ///      at offset 0, and exactly the committed ranges the profile expects.
-    ///      Both launch profiles expect none: the run covers the request
-    ///      through to its signed length, so no body byte is hidden.
+    ///      So the shape is fixed exactly: ONE revealed run beginning at
+    ///      offset 0 and no commitment at all, so the run covers the request
+    ///      through to its signed length and no body byte is hidden.
     ///
     ///      AND THE HEAD ITSELF, byte for byte. Revealing the headers is not
     ///      checking them: they were public and unconstrained here, while
@@ -709,12 +703,8 @@ abstract contract TlsNotaryVerifierBase is IPlatformVerifier, PlatformVerifierBa
         return a.length == b.length && keccak256(a) == keccak256(b);
     }
 
-    function _tokenBody(CeremonyAttestation.DirectionBlock memory block_, uint32 signedLength)
-        internal
-        pure
-        returns (bytes memory body)
-    {
-        if (block_.revealed.length != 1 || block_.commitments.length != _tokenSentCommitments()) {
+    function _tokenBody(CeremonyAttestation.DirectionBlock memory block_) internal pure returns (bytes memory body) {
+        if (block_.revealed.length != 1 || block_.commitments.length != 0) {
             revert WrongTokenRequestLayout(block_.revealed.length, block_.commitments.length);
         }
         bytes memory whole = block_.revealed[0].value;
@@ -734,12 +724,9 @@ abstract contract TlsNotaryVerifierBase is IPlatformVerifier, PlatformVerifierBa
         uint256 declared = _checkTokenHead(_slice(whole, 0, at));
 
         at += 4;
-        // `signedLength` is the whole request and the head is revealed, so the
-        // remainder is the body. It comes from the signed length rather than
-        // from the revealed run so that a profile committing part of its body
-        // is framed by what the notary signed; where a profile commits nothing
-        // the two are the same number.
-        if (declared != signedLength - at) revert WrongDeclaredBodyLength(declared, signedLength - at);
+        // The run is the request whole and the head is revealed, so the
+        // remainder is the body the platform parsed.
+        if (declared != whole.length - at) revert WrongDeclaredBodyLength(declared, whole.length - at);
 
         body = new bytes(whole.length - at);
         for (uint256 i = 0; i < body.length; ++i) {

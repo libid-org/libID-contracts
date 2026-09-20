@@ -81,7 +81,6 @@
           "authority": "api.x.com",
           "method": "POST",
           "path": "/2/oauth2/token",
-          "secretField": null,
           "requiredHeaders": [
             "host: api.x.com",
             "content-type: application/x-www-form-urlencoded"
@@ -136,7 +135,6 @@
           "authority": "github.com",
           "method": "POST",
           "path": "/login/oauth/access_token",
-          "secretField": null,
           "requiredHeaders": [
             "host: github.com",
             "content-type: application/x-www-form-urlencoded"

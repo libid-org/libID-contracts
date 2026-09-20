@@ -231,8 +231,6 @@ def validate(spec: dict[str, Any]) -> None:
             safe(session["path"], "path")
             if name == "token":
                 required_headers(session)
-                if session["secretField"] is not None:
-                    safe(session["secretField"], "secretField")
             if name == "identity":
                 safe(session["idField"], "idField")
                 safe(session["handleField"], "handleField")
@@ -352,22 +350,6 @@ def gen_sol(spec: dict[str, Any]) -> str:
     lines.append(
         f'    bytes internal constant FORBIDDEN_REQUEST_HEADERS = "{escaped(crlf(forbidden_headers(spec)))}";'
     )
-
-    lines += [
-        "",
-        "    /// @dev How many committed ranges the token request carries. A confidential",
-        "    ///      client commits its secret and a public client hides nothing, so this",
-        "    ///      is one or zero and never a preference.",
-        "",
-    ]
-    for profile in profiles:
-        token = profile["sessions"].get("token")
-        if token is None:
-            continue
-        count = 0 if token["secretField"] is None else 1
-        lines.append(
-            f"    uint256 internal constant {upper(profile['platform'])}_TOKEN_SENT_COMMITMENTS = {count};"
-        )
 
     lines += [
         "",
@@ -539,10 +521,6 @@ def gen_rust(spec: dict[str, Any]) -> str:
         "#[derive(Clone, Copy, Debug, PartialEq, Eq)]",
         "pub struct TokenSession {",
         "    pub session: Session,",
-        "    /// The body field committed rather than revealed, ordered last so the",
-        "    /// committed run is a suffix (REQ-COMMON-22). `None` for a public client,",
-        "    /// whose request hides nothing and is revealed whole.",
-        "    pub secret_field: Option<&'static str>,",
         "    /// The header lines a Platform Verifier requires, each exactly once with",
         "    /// its value: `host` and `content-type`, lowercased as the wire spells",
         "    /// them. Every other header is the runtime's own, save the names",
@@ -596,7 +574,6 @@ def gen_rust(spec: dict[str, Any]) -> str:
         else:
             lines.append("    token: Some(TokenSession {")
             lines += rust_session(token, 8)
-            lines.append(f"        secret_field: {rust_str(token['secretField'])},")
             lines += rust_array("required_headers: ", required_headers(token), "        ", ",")
             lines.append("    }),")
 
@@ -720,8 +697,6 @@ def gen_ts(spec: dict[str, Any]) -> str:
         "",
         "export interface TokenSession {",
         "  readonly session: Session",
-        "  /** The body field committed rather than revealed, or null. */",
-        "  readonly secretField: string | null",
         "  /** The header lines a Platform Verifier requires, each exactly once with",
         "   * its value: `host` and `content-type`. Every other header is the",
         "   * runtime's own, save the names `FORBIDDEN_REQUEST_HEADERS` lists.",
@@ -759,7 +734,6 @@ def gen_ts(spec: dict[str, Any]) -> str:
         else:
             lines.append("  token: {")
             lines += ts_session(token, 4)
-            lines.append(f"    secretField: {ts_str(token['secretField'])},")
             lines += ts_array("requiredHeaders: ", required_headers(token), "    ", ",")
             lines.append("  },")
 

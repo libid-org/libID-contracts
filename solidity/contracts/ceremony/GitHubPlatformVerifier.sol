@@ -95,12 +95,6 @@ contract GitHubPlatformVerifier is TlsNotaryVerifierBase {
         return CeremonyProfile.AUTHORITY_GITHUB_API;
     }
 
-    /// @dev GitHub's exchange hides no body field, so its request is revealed
-    ///      whole and this direction carries no commitment at all.
-    function _tokenSentCommitments() internal pure override returns (uint256) {
-        return CeremonyProfile.GITHUB_TOKEN_SENT_COMMITMENTS;
-    }
-
     function _tokenRequestLine() internal pure override returns (bytes memory) {
         return CeremonyProfile.GITHUB_TOKEN_REQUEST_LINE;
     }
