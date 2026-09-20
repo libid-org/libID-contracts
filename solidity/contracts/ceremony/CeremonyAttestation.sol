@@ -25,12 +25,10 @@ import {CeremonyFields} from "./CeremonyFields.sol";
 ///      must contain belong to the Platform Verifier.
 ///
 ///      IT DOES NOT CHECK COVERAGE. `decode` accepts a transcript byte covered
-///      by neither a revealed range nor a commitment, because REQ-COMMON-35 is
-///      conditional: it governs an identity-session request that commits a
-///      credential in an `Authorization` header, and REQ-COMMON-43 explicitly
-///      withholds it from a credential committed in a request body, which is
-///      GitHub's `client_secret`. A library that tiled unconditionally would
-///      reject every valid GitHub token exchange.
+///      by neither a revealed range nor a commitment: which directions a
+///      profile tiles is that profile's rule, and this library answers for the
+///      encoding alone. Each Platform Verifier calls `requireExactCoverage`
+///      for the directions its own profile accounts for.
 ///
 ///      A gap is where a prover hides bytes, so the Platform Verifier of an
 ///      identity session MUST call `requireExactCoverage` and MUST run the
@@ -234,10 +232,9 @@ library CeremonyAttestation {
     ///         `Authorization` header.
     ///
     /// @dev At launch that is X's `/2/users/me` request and GitHub's `/user`
-    ///      request, and nothing else. REQ-COMMON-43 forbids applying these to
-    ///      a credential committed in a request body -- GitHub's token
-    ///      exchange commits `client_secret` in a form body, so demanding a
-    ///      CRLF-framed header around it would reject every valid exchange.
+    ///      request, and nothing else. A token request carries its credential
+    ///      as a form field, where there is no header line to count and none
+    ///      to frame, so none of the three reaches one.
     ///
     ///      The three are one call because they are one property, and two of
     ///      them are worthless alone. The uniqueness scan counts the needle

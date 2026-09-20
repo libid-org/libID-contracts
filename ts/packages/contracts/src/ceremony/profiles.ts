@@ -106,10 +106,10 @@ export const X: Profile = {
 }
 
 /**
- * A confidential client. The exchange runs in the deployment because the
- * secret cannot reach the browser, and the two sessions are served by
- * DIFFERENT hosts -- which is why one pinned authority per profile would
- * be wrong.
+ * The credential GitHub calls `client_secret` is sent and revealed, so
+ * an attestation publishes it and nothing here is confidential. The two
+ * sessions are served by DIFFERENT hosts -- which is why one pinned
+ * authority per profile would be wrong.
  */
 export const GITHUB: Profile = {
   platform: 'github',
@@ -121,7 +121,7 @@ export const GITHUB: Profile = {
       path: '/login/oauth/access_token',
       requestLine: 'POST /login/oauth/access_token ',
     },
-    secretField: 'client_secret',
+    secretField: null,
     requiredHeaders: ['host: github.com', 'content-type: application/x-www-form-urlencoded'],
   },
   identity: {

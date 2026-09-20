@@ -132,9 +132,9 @@ abstract contract TlsNotaryVerifierBase is IPlatformVerifier, PlatformVerifierBa
     ///      `authorization`, and the framing around the committed value.
     function _tokenRequiredHeaders() internal pure virtual returns (bytes memory);
 
-    /// @dev How many committed ranges the token request carries. X hides no
-    ///      body field and uses a public client, so zero; GitHub commits its
-    ///      `client_secret`, ordered last, so one.
+    /// @dev How many committed ranges the token request carries. Both launch
+    ///      profiles hide no body field, so both answer zero and their
+    ///      requests are revealed whole.
     function _tokenSentCommitments() internal pure virtual returns (uint256);
 
     /// @dev Anything the profile checks in the token body beyond the fields
@@ -469,9 +469,8 @@ abstract contract TlsNotaryVerifierBase is IPlatformVerifier, PlatformVerifierBa
     ///
     ///      So the profile fixes the shape exactly: ONE revealed run beginning
     ///      at offset 0, and exactly the committed ranges the profile expects.
-    ///      X carries none, because it hides no body field and authenticates
-    ///      with a public client; GitHub carries one, its `client_secret`,
-    ///      ordered last under REQ-COMMON-22 and reaching the transcript end.
+    ///      Both launch profiles expect none: the run covers the request
+    ///      through to its signed length, so no body byte is hidden.
     ///
     ///      AND THE HEAD ITSELF, byte for byte. Revealing the headers is not
     ///      checking them: they were public and unconstrained here, while
@@ -735,9 +734,11 @@ abstract contract TlsNotaryVerifierBase is IPlatformVerifier, PlatformVerifierBa
         uint256 declared = _checkTokenHead(_slice(whole, 0, at));
 
         at += 4;
-        // `signedLength` is the whole request, and the head is revealed, so the
-        // remainder is the body -- GitHub's committed `client_secret` included,
-        // which the revealed run stops short of.
+        // `signedLength` is the whole request and the head is revealed, so the
+        // remainder is the body. It comes from the signed length rather than
+        // from the revealed run so that a profile committing part of its body
+        // is framed by what the notary signed; where a profile commits nothing
+        // the two are the same number.
         if (declared != signedLength - at) revert WrongDeclaredBodyLength(declared, signedLength - at);
 
         body = new bytes(whole.length - at);
