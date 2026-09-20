@@ -182,6 +182,52 @@ fn the_required_headers_are_host_and_the_media_type() {
 }
 
 #[test]
+fn the_token_fields_are_the_form_the_verifiers_read() {
+    // Every token body carries the two fields the base verifier reads by
+    // name, each name once, and every name is a literal the body would carry
+    // unescaped: a byte the form reads as structure would be two names to a
+    // verifier that holds the whole body to the list. GitHub's list IS the
+    // whole body, in the specification's table order (REQ-PLAT-61).
+    for profile in LAUNCH {
+        let Some(token) = profile.token else {
+            continue;
+        };
+        for read in ["client_id", "code_verifier"] {
+            assert!(
+                token.token_fields.contains(&read),
+                "{} lacks {read}",
+                profile.platform
+            );
+        }
+        let mut names = token.token_fields.to_vec();
+        names.sort_unstable();
+        names.dedup();
+        assert_eq!(
+            names.len(),
+            token.token_fields.len(),
+            "{} lists a field twice",
+            profile.platform
+        );
+        for name in token.token_fields {
+            assert!(
+                name.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_'),
+                "{name} is not a literal form name"
+            );
+        }
+    }
+    assert_eq!(
+        GITHUB.token.unwrap().token_fields,
+        [
+            "client_id",
+            "code",
+            "redirect_uri",
+            "code_verifier",
+            "client_secret"
+        ]
+    );
+}
+
+#[test]
 fn the_forbidden_names_are_lowercase_and_never_required() {
     // The verifier lowercases what it reads and compares against this list
     // as it is, so a name here in any other case would forbid nothing. And a

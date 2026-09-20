@@ -70,6 +70,17 @@ library CeremonyProfile {
     bytes internal constant GITHUB_TOKEN_REQUIRED_HEADERS =
         "host: github.com\r\ncontent-type: application/x-www-form-urlencoded";
 
+    /// @dev The form fields each token request's body carries, in the order
+    ///      the prover serializes them, joined by `&`. A verifier that holds
+    ///      the whole body to its list (`requireExactForm`) requires exactly
+    ///      these names in this order, each once with a nonempty value and
+    ///      nothing after the last. GitHub's does (REQ-PLAT-61); X's reads
+    ///      its fields by name and leaves the rest of the decoded form to
+    ///      ASM-PROV-07, as the specification does.
+
+    bytes internal constant X_TOKEN_FIELDS = "grant_type&client_id&code&redirect_uri&code_verifier";
+    bytes internal constant GITHUB_TOKEN_FIELDS = "client_id&code&redirect_uri&code_verifier&client_secret";
+
     /// @dev Header names no notarized request may carry, compared by every
     ///      Platform Verifier with the name lowercased, its whitespace removed and
     ///      `_` read as `-`. Each changes what the platform does with the request

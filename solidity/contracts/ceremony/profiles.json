@@ -84,6 +84,13 @@
             "host: api.x.com",
             "content-type: application/x-www-form-urlencoded"
           ],
+          "tokenFields": [
+            "grant_type",
+            "client_id",
+            "code",
+            "redirect_uri",
+            "code_verifier"
+          ],
           "note": [
             "A public client hides no body field, so the request is revealed",
             "whole and the verifier accepts exactly zero committed ranges in",
@@ -102,7 +109,14 @@
             "uncompared, as is any header a client adds, save the names in",
             "requests.forbiddenHeaders. `content-length` is not among them:",
             "the HTTP client appends it, its value is the body's own length,",
-            "and the verifier checks it against the length the notary signed."
+            "and the verifier checks it against the length the notary signed.",
+            "",
+            "tokenFields is the order the specification's X table gives the",
+            "body, carried for provers that compose it. The verifier does not",
+            "hold the body to it: it reads its three fields by name, and the",
+            "specification keeps X's decoded form on ASM-PROV-07 -- the",
+            "platform rejects a body carrying a profile field twice -- backed",
+            "by the recurring probes REQ-COMMON-32 requires."
           ]
         },
         "identity": {
@@ -138,6 +152,13 @@
             "host: github.com",
             "content-type: application/x-www-form-urlencoded"
           ],
+          "tokenFields": [
+            "client_id",
+            "code",
+            "redirect_uri",
+            "code_verifier",
+            "client_secret"
+          ],
           "note": [
             "The request is revealed whole, as X's is. The credential sits in",
             "the body and is revealed with the rest of it, so the verifier",
@@ -153,7 +174,15 @@
             "`accept: application/json`, without which GitHub answers",
             "form-encoded and the verifier finds no `\"access_token\":\"`, and",
             "`connection: close`, which ends every notarized session here;",
-            "neither is compared."
+            "neither is compared.",
+            "",
+            "tokenFields is what the verifier holds the WHOLE body to: exactly",
+            "these five, in this order, each once with a nonempty value in the",
+            "serializer's alphabet, and not a byte more (REQ-PLAT-61). A form",
+            "GitHub might read as a sixth field -- a raw `;` inside a value, an",
+            "encoded spelling of a name, a `grant_type` -- is refused here, so",
+            "nothing about this profile rests on ASM-PROV-07: acceptance does",
+            "not depend on GitHub rejecting a malformed or duplicate form."
           ]
         },
         "identity": {

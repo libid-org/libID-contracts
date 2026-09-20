@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
+import {CeremonyFields} from "./CeremonyFields.sol";
 import {CeremonyProfile} from "./CeremonyProfile.sol";
 import {INotaryService} from "./INotaryService.sol";
 import {IHonkVerifier} from "./PlatformVerifierBase.sol";
@@ -11,16 +12,20 @@ import {TlsNotaryVerifierBase} from "./TlsNotaryVerifierBase.sol";
 /// @notice The same relation X states, for a second platform.
 ///
 /// @dev This verifier sees two attestations and one proof, exactly as X does.
-///      It differs in four constants and two reads.
+///      It differs in four constants, two reads and one check.
 ///
 ///      TWO AUTHORITIES, NOT ONE. `github.com` serves the exchange and
 ///      `api.github.com` serves the identity read, so an authority is per
 ///      SESSION here. A profile pinning one authority would accept an identity
 ///      attestation from the exchange host, or the reverse.
 ///
-///      NO `grant_type` TO COMPARE. Section 6.2 lists five fields and that is
-///      not among them, so REQ-PLAT-56 has no GitHub counterpart and this
-///      profile adds no extra token-body check.
+///      NO `grant_type` TO COMPARE, AND NONE ADMITTED. Section 6.2 lists five
+///      fields and that is not among them, so REQ-PLAT-56 has no GitHub
+///      counterpart. Its token-body check is REQ-PLAT-61 instead: the body is
+///      exactly the five fields the profile lists, so a `grant_type`, a
+///      `refresh_token` or a device-flow field is refused as a sixth pair
+///      rather than left uncompared. The pinned endpoint receives only this
+///      authorization-code request.
 ///
 ///      THE REVEALED LAYOUT IS A PROFILE DECISION, as it is for X:
 ///
@@ -31,14 +36,18 @@ import {TlsNotaryVerifierBase} from "./TlsNotaryVerifierBase.sol";
 ///                         around it, so every field a verifier reads lies in
 ///                         the open and the request has no hidden suffix.
 ///
-///                         What the revealed bytes do not settle is the
-///                         decoded form. `formField` refuses a name it finds
-///                         at two `&`-anchored positions, but a value carrying
-///                         a raw `&` or `=` would decode as fields nobody
-///                         counted. That is ASM-PROV-07 -- the platform
-///                         rejects a body carrying a profile field twice --
-///                         backed by the recurring probes REQ-COMMON-32
-///                         requires, exactly as it is for X.
+///                         And the decoded form is settled on chain. Revealed
+///                         bytes alone are not: `formField` refuses a name at
+///                         two `&`-anchored positions, but a value carrying a
+///                         raw `;` or `=`, or a name in an encoded spelling,
+///                         would decode as fields nobody counted, and only
+///                         GitHub's own refusal (ASM-PROV-07) would stand
+///                         between that and a verified claim. `_checkTokenBody`
+///                         holds the whole body to the profile's field list
+///                         (REQ-PLAT-61), so acceptance here does not depend
+///                         on GitHub rejecting a malformed or duplicate form.
+///                         X's verifier keeps the assumption, because its
+///                         specification does.
 ///        token response — the `"access_token":"` delimiter and closing quote
 ///                         revealed; the bearer and everything else committed.
 ///        identity request — the bearer committed, every other byte revealed
@@ -108,6 +117,15 @@ contract GitHubPlatformVerifier is TlsNotaryVerifierBase {
 
     function _identityRequestLine() internal pure override returns (bytes memory) {
         return CeremonyProfile.GITHUB_IDENTITY_REQUEST_LINE;
+    }
+
+    /// @dev REQ-PLAT-61. The body is the serialization of exactly the five
+    ///      fields the profile lists, in its order, each once with a nonempty
+    ///      value, and nothing after the last. Runs before the base reads
+    ///      `code_verifier` and `client_id` by name, so those reads see a body
+    ///      already known to carry each name once.
+    function _checkTokenBody(bytes memory body) internal pure override {
+        CeremonyFields.requireExactForm(body, CeremonyProfile.GITHUB_TOKEN_FIELDS);
     }
 
     /// @dev REQ-PLAT-51. GitHub's `id` is a BARE integer, so it is read by the

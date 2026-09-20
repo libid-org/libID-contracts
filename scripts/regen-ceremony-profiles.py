@@ -213,6 +213,34 @@ def required_headers(session: dict[str, Any]) -> list[str]:
     return headers
 
 
+# The bytes a form body reads as structure. A field name is matched literally
+# between them, and the Solidity constant joins the names by the first, so a
+# name carrying any of them would be two names to the verifier.
+FORM_DELIMITERS = "&=%+"
+
+
+def token_fields(session: dict[str, Any]) -> list[str]:
+    """The form fields a token request's body carries, in serialization order.
+
+    Every prover composes the body from this list, and a Platform Verifier
+    that holds the whole body to it (GitHub, REQ-PLAT-61) compares each name
+    literally at the cursor: a name is refused here if it is empty, repeated,
+    or carries a byte the form reads as a delimiter.
+    """
+    names = session["tokenFields"]
+    if not isinstance(names, list) or not names:
+        raise SystemExit("ERROR: a token session must list its tokenFields")
+    for name in names:
+        if not isinstance(name, str):
+            raise SystemExit(f"ERROR: token field {name!r} is not a string")
+        safe(name, "token field")
+        if any(byte in name for byte in FORM_DELIMITERS):
+            raise SystemExit(f"ERROR: token field {name!r} carries a form delimiter")
+    if len(set(names)) != len(names):
+        raise SystemExit("ERROR: tokenFields names one field twice")
+    return names
+
+
 def validate(spec: dict[str, Any]) -> None:
     """Refuse a spec that would generate constants nothing can rely on."""
     forbidden_headers(spec)
@@ -231,6 +259,7 @@ def validate(spec: dict[str, Any]) -> None:
             safe(session["path"], "path")
             if name == "token":
                 required_headers(session)
+                token_fields(session)
             if name == "identity":
                 safe(session["idField"], "idField")
                 safe(session["handleField"], "handleField")
@@ -344,6 +373,24 @@ def gen_sol(spec: dict[str, Any]) -> str:
         lines.append(
             f'    bytes internal constant {const} = "{escaped(crlf(required_headers(token)))}";'
         )
+
+    lines += [
+        "",
+        "    /// @dev The form fields each token request's body carries, in the order",
+        "    ///      the prover serializes them, joined by `&`. A verifier that holds",
+        "    ///      the whole body to its list (`requireExactForm`) requires exactly",
+        "    ///      these names in this order, each once with a nonempty value and",
+        "    ///      nothing after the last. GitHub's does (REQ-PLAT-61); X's reads",
+        "    ///      its fields by name and leaves the rest of the decoded form to",
+        "    ///      ASM-PROV-07, as the specification does.",
+        "",
+    ]
+    for profile in profiles:
+        token = profile["sessions"].get("token")
+        if token is None:
+            continue
+        const = f"{upper(profile['platform'])}_TOKEN_FIELDS"
+        lines.append(f'    bytes internal constant {const} = "{"&".join(token_fields(token))}";')
 
     lines += [""]
     lines += sol_doc(spec["requests"].get("note"))
@@ -528,6 +575,13 @@ def gen_rust(spec: dict[str, Any]) -> str:
         "    /// because its value is the body's own count: the HTTP client appends",
         "    /// it and the verifier reads it rather than compares it.",
         "    pub required_headers: &'static [&'static str],",
+        "    /// The form fields the body carries, in the order the prover",
+        "    /// serializes them. GitHub's verifier holds the whole body to this",
+        "    /// list: exactly these names in this order, each once with a nonempty",
+        "    /// value, nothing after the last (REQ-PLAT-61). X's reads its fields",
+        "    /// by name and leaves the rest of the decoded form to ASM-PROV-07,",
+        "    /// as the specification does.",
+        "    pub token_fields: &'static [&'static str],",
         "}",
         "",
         "/// The identity session: the authenticated read that names the account.",
@@ -575,6 +629,7 @@ def gen_rust(spec: dict[str, Any]) -> str:
             lines.append("    token: Some(TokenSession {")
             lines += rust_session(token, 8)
             lines += rust_array("required_headers: ", required_headers(token), "        ", ",")
+            lines += rust_array("token_fields: ", token_fields(token), "        ", ",")
             lines.append("    }),")
 
         identity = profile["sessions"].get("identity")
@@ -702,6 +757,13 @@ def gen_ts(spec: dict[str, Any]) -> str:
         "   * runtime's own, save the names `FORBIDDEN_REQUEST_HEADERS` lists.",
         "   * `content-length` is absent: the HTTP client appends it. */",
         "  readonly requiredHeaders: readonly string[]",
+        "  /** The form fields the body carries, in the order the prover serializes",
+        "   * them. GitHub's verifier holds the whole body to this list: exactly",
+        "   * these names in this order, each once with a nonempty value, nothing",
+        "   * after the last (REQ-PLAT-61). X's reads its fields by name and leaves",
+        "   * the rest of the decoded form to ASM-PROV-07, as the specification",
+        "   * does. */",
+        "  readonly tokenFields: readonly string[]",
         "}",
         "",
         "export interface IdentitySession {",
@@ -735,6 +797,7 @@ def gen_ts(spec: dict[str, Any]) -> str:
             lines.append("  token: {")
             lines += ts_session(token, 4)
             lines += ts_array("requiredHeaders: ", required_headers(token), "    ", ",")
+            lines += ts_array("tokenFields: ", token_fields(token), "    ", ",")
             lines.append("  },")
 
         identity = profile["sessions"].get("identity")

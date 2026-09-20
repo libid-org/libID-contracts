@@ -21,7 +21,7 @@ import {PlatformVerifierBase} from "./PlatformVerifierBase.sol";
 ///        SESSION rather than per profile;
 ///        the two request lines;
 ///        any extra check on the token body — X compares `grant_type`, GitHub
-///        has none to compare;
+///        holds the whole body to its profile's field list;
 ///        how the identity fields are read — X's `id` is a JSON string, GitHub's
 ///        a bare integer.
 ///
@@ -133,7 +133,14 @@ abstract contract TlsNotaryVerifierBase is IPlatformVerifier, PlatformVerifierBa
     function _tokenRequiredHeaders() internal pure virtual returns (bytes memory);
 
     /// @dev Anything the profile checks in the token body beyond the fields
-    ///      every profile reads. Default: nothing.
+    ///      every profile reads. Default: nothing. Runs before those reads.
+    ///
+    ///      The reads below answer what `code_verifier` and `client_id` are,
+    ///      not what else the body carries: that is what this hook decides.
+    ///      GitHub holds the body to exactly its profile's fields
+    ///      (REQ-PLAT-61); X compares one more field and leaves the rest of
+    ///      the decoded form to the platform (ASM-PROV-07), as the
+    ///      specification does.
     function _checkTokenBody(bytes memory body) internal pure virtual {}
 
     /// @dev Which shape a platform's immutable identifier takes in its identity

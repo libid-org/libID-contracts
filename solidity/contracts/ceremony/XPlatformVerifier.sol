@@ -100,6 +100,13 @@ contract XPlatformVerifier is TlsNotaryVerifierBase {
     ///      refresh, returns a fresh bearer, and passes every other check — so
     ///      an application holding a user's refresh token could mint identity
     ///      proofs at arbitrary addresses indefinitely from one consent.
+    ///
+    ///      One field compared, not the whole body held to
+    ///      `CeremonyProfile.X_TOKEN_FIELDS`: the specification keeps X's
+    ///      decoded form on ASM-PROV-07 -- the platform rejects a body
+    ///      carrying a profile field twice -- backed by the recurring probes
+    ///      REQ-COMMON-32 requires. GitHub's verifier holds its body to the
+    ///      exact form instead (REQ-PLAT-61).
     function _checkTokenBody(bytes memory body) internal pure override {
         bytes memory grantType = CeremonyFields.formField(body, "grant_type");
         if (keccak256(grantType) != keccak256(GRANT_TYPE)) revert WrongGrantType(grantType);
