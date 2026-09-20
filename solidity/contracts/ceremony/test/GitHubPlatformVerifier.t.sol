@@ -135,6 +135,16 @@ contract GitHubPlatformVerifierTest is Test {
         );
     }
 
+    /// The same, with the verifier given: for the spellings of it the base
+    /// must refuse.
+    function _exchangeBodyWithVerifier(bytes memory verifier) private pure returns (bytes memory) {
+        return abi.encodePacked(
+            "client_id=Iv1.8a61f9b3a7aba766&code=abc&redirect_uri=https%3A%2F%2Fa.example&code_verifier=",
+            verifier,
+            "&client_secret=0123456789abcdef0123456789abcdef"
+        );
+    }
+
     /// One revealed run covering a request whole, with no commitment: the
     /// shape `github/v1` fixes for its exchange.
     function _wholeSent(bytes memory whole) private pure returns (AttestationBuilder.Direction memory) {
@@ -318,6 +328,39 @@ contract GitHubPlatformVerifierTest is Test {
         TlsNotaryVerifierBase.TlsNotaryProof memory s =
             _withExchangeBody(abi.encodePacked(honest, "&refresh_token=ghr_16C7e42F292c6912E7710c838347Ae178B4a"));
         vm.expectRevert(abi.encodeWithSelector(CeremonyFields.MalformedForm.selector, honest.length));
+        this.run{value: quote}(s);
+    }
+
+    /// @dev REQ-PLAT-61, TEST-PLAT-12: nor a device grant's. Refused where
+    ///      the sixth pair begins, whatever its name.
+    function test_rejectsAnExchangeCarryingADeviceCode() public {
+        bytes memory honest = _exchangeBody();
+        TlsNotaryVerifierBase.TlsNotaryProof memory s =
+            _withExchangeBody(abi.encodePacked(honest, "&device_code=3584d83530557fdd1f46af8289938c8ef79f9dc5"));
+        vm.expectRevert(abi.encodeWithSelector(CeremonyFields.MalformedForm.selector, honest.length));
+        this.run{value: quote}(s);
+    }
+
+    /// @dev REQ-PLAT-61, TEST-PLAT-12: the right verifier in another spelling
+    ///      -- padded, base64 rather than section 7's unpadded base64url -- is
+    ///      a form the check admits and a value the base refuses: it recomputes
+    ///      the verifier and compares byte for byte.
+    function test_rejectsAnExchangeWithAPaddedVerifier() public {
+        bytes memory padded = abi.encodePacked(CeremonyAuthorization.codeVerifier(digest, AUTH_NONCE), "%3D%3D");
+        TlsNotaryVerifierBase.TlsNotaryProof memory s = _withExchangeBody(_exchangeBodyWithVerifier(padded));
+        vm.expectRevert(TlsNotaryVerifierBase.CodeVerifierMismatch.selector);
+        this.run{value: quote}(s);
+    }
+
+    /// @dev REQ-PLAT-61, TEST-PLAT-12: and one byte short of it.
+    function test_rejectsAnExchangeWithATruncatedVerifier() public {
+        bytes memory verifier = CeremonyAuthorization.codeVerifier(digest, AUTH_NONCE);
+        bytes memory short = new bytes(verifier.length - 1);
+        for (uint256 i = 0; i < short.length; ++i) {
+            short[i] = verifier[i];
+        }
+        TlsNotaryVerifierBase.TlsNotaryProof memory s = _withExchangeBody(_exchangeBodyWithVerifier(short));
+        vm.expectRevert(TlsNotaryVerifierBase.CodeVerifierMismatch.selector);
         this.run{value: quote}(s);
     }
 
