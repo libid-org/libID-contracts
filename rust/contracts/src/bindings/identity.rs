@@ -68,6 +68,9 @@ mod names_inner {
             event HandleRetired(bytes32 indexed platformId, bytes32 indexed handleNode, address indexed owner);
             event PlatformConfigured(bytes32 indexed platformId);
             event ProofVerifierConfigured(address verifier);
+            /// The service fee a claim's own Authorized Transaction Data named
+            /// was delivered. Emitted only when there is one.
+            event ClaimFeePaid(bytes32 indexed authorizationDigest, address indexed receiver, uint256 amount);
             event NameUnpublished(address indexed owner, bytes32 indexed platformId);
             /// The OAuth client a ceremony authenticated. Nothing stores it, so
             /// "which application produced these bindings" is answerable only
