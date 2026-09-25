@@ -38,8 +38,9 @@ import {IIdentityNames} from "./IIdentityNames.sol";
 ///      HANDS THE NEW HOLDER WHATEVER ACCUMULATED FOR THE PREVIOUS ONE. So does
 ///      a rename — the account that renames away stops being able to claim, and
 ///      whoever proves the freed handle next receives it. A depositor cannot
-///      take a deposit back, and neither can the owner. Send to a handle the
-///      way you send to an address: because you mean that name to have it.
+///      take a deposit back, and no function here returns one. Send to a
+///      handle the way you send to an address: because you mean that name to
+///      have it.
 ///
 ///      **The escrow is for the window before a handle is claimed, and only
 ///      that.** A deposit for a node somebody holds is paid straight to that
@@ -70,18 +71,40 @@ import {IIdentityNames} from "./IIdentityNames.sol";
 ///      behind an owner key, and the emergency lever is the upgrade, which is
 ///      already visible.
 ///
-///      **The naming system's owners are part of this contract's trust base,
-///      and that is not a pause substitute — it is larger.** Authorization
-///      here is `byHandle` and nothing else, so whoever can decide what that
-///      answers can take what is held. Two keys can: the naming owner, through
-///      `setProofVerifier`, and the Proof Verifier's owner, through
-///      `setVerifier` — either installs a verifier it controls, an identity
-///      `claim` through it makes it the holder of any handle, and `claim` here
-///      then pays it. Ordinary transactions, no upgrade and no proxy event.
-///      Read every guarantee here as "under honest naming and Proof Verifier
-///      owners"; they are the keys that already decide which proofs bind
-///      names at all, so this adds no new party — only a new thing those keys
-///      can reach.
+///      **Rebasing tokens are not supported.** The books record what arrived
+///      when it arrived. A token whose balances later shrink on their own — a
+///      negative rebase — leaves this contract holding less than the books
+///      promise, and the last claimant's claim for that token reverts for want
+///      of balance. There is no function that reconciles the books against a
+///      balance. A positive rebase leaves surplus no slot points at.
+///
+///      **Trust base.** Authorization here is `byHandle` and nothing else, so
+///      every key that can decide what `byHandle` answers, or replace the code
+///      that asks it, can take what is held. Read every guarantee in this
+///      contract as holding under honest holders of these keys:
+///
+///      * the `IdentityNames` owner — `setProofVerifier` to a verifier it
+///        controls, or `upgradeToAndCall`;
+///      * the `CeremonyProofVerifier` owner — `setVerifier` to register a
+///        Platform Verifier it controls, or `upgradeToAndCall`;
+///      * the `NotaryService` owner — `setNotary` to trust a notary key it
+///        holds, whose attestations the X and GitHub Platform Verifiers and
+///        `GoogleJwtRoots` rotations accept, or `upgradeToAndCall`;
+///      * each Platform Verifier's owner (`XPlatformVerifier`,
+///        `GitHubPlatformVerifier`, `GooglePlatformVerifier`) —
+///        `setTrustRoots` to a Notary Service or Honk verifier it controls, or
+///        `upgradeToAndCall`; for Google also `setJwtRoots`;
+///      * the `GoogleJwtRoots` owner — `setNotaryService` to a Notary Service
+///        it controls, whose attested key rotations the Google verifier then
+///        trusts, or `upgradeToAndCall`;
+///      * this contract's own owner — `upgradeToAndCall` to code that moves
+///        any balance.
+///
+///      Each of the naming-side keys makes a wallet it controls the holder of
+///      any handle through an ordinary identity `claim`, and `claim` here then
+///      pays it. They are the keys that already decide which proofs bind
+///      names at all; the escrow adds a new thing they can reach, not a new
+///      party.
 contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, ReentrancyGuardTransientUpgradeable {
     using SafeERC20 for IERC20;
 
@@ -254,9 +277,9 @@ contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable
     ///      Both branches measure what arrived rather than trusting the amount
     ///      asked for: an escrow credits the balance this contract gained, and
     ///      `Forwarded` reports the balance the holder gained. A token that
-    ///      takes a fee on transfer therefore cannot make the books promise
-    ///      more than the contract holds, nor the log report more than was
-    ///      delivered.
+    ///      takes a fee on transfer therefore books and reports what it
+    ///      delivered, not what was asked for. A rebasing token is not
+    ///      supported; see the contract comment.
     ///
     /// @param platformId Which platform the node was derived for.
     /// @param handleNode `IdentityNodes.handleNode(platformId, normalized)`.
@@ -341,8 +364,8 @@ contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable
     ///      address accepts a native transfer without reverting, so an unset
     ///      recipient would burn the slot and log a success; this contract's
     ///      own address would empty the books while the value stayed put as
-    ///      surplus nothing points at. Neither is recoverable — there is no
-    ///      refund and no owner lever — so both are refused here.
+    ///      surplus nothing points at. No function here recovers either, so both
+    ///      are refused.
     ///
     /// @param recipient Where the value goes. The claimer's choice, so a wallet
     ///                  that holds the name can pay out somewhere else.

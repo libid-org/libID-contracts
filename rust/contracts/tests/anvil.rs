@@ -750,7 +750,7 @@ async fn deploys_and_initializes_every_platform_verifier() {
 /// The payout path is covered by the Solidity suite, which stages claims
 /// through a stub Platform Verifier. That stub deliberately does NOT ship in
 /// this crate's artifacts: it reports whatever a caller stages, so a copy
-/// reachable from a deploy tool is a way to mint any identity on a live chain.
+/// reachable from a deploy tool is a way to bind any identity on a live chain.
 /// What is left for Rust is what Rust owns — the artifact deploys, the binding
 /// shapes, and the slot derivation agreeing with the contract.
 #[tokio::test]

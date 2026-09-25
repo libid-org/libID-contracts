@@ -476,7 +476,7 @@ contract HandleEscrowTest is Test {
         assertEq(token.balanceOf(address(escrow)), 10 ether);
     }
 
-    /// The books must never promise more than the contract holds.
+    /// A fee-on-transfer token books what arrived, not what was asked for.
     function test_aFeeOnTransferTokenCreditsWhatArrived() public {
         FeeToken fee = new FeeToken();
         fee.mint(sender, 100 ether);
@@ -870,8 +870,7 @@ contract HandleEscrowTest is Test {
     }
 
     /// A payout to this contract would zero the books and leave the value here
-    /// as surplus no slot points at — unreachable, with no refund and no owner
-    /// lever.
+    /// as surplus no slot points at, and no function here recovers it.
     function test_aClaimBackIntoTheEscrowIsRefused() public {
         vm.prank(sender);
         escrow.depositToHandle(X, "alice", address(token), 10 ether);
@@ -1037,9 +1036,10 @@ contract HandleEscrowTest is Test {
         assertEq(escrow.escrowed(aliceNode, NATIVE), 1 ether);
     }
 
-    /// The owner is not a way in either: there is no owner function that moves
-    /// a balance, and being the owner does not make it the holder.
-    function test_theOwnerCannotTakeADeposit() public {
+    /// Being the escrow's owner does not make it the holder, and no owner
+    /// function moves a balance. The owner can still UPGRADE to code that
+    /// does; that key is in the trust base the contract comment lists.
+    function test_theOwnerHasNoFunctionThatMovesADeposit() public {
         _depositNative("alice", 1 ether);
 
         vm.prank(owner);

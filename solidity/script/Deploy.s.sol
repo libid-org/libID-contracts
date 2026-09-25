@@ -104,6 +104,9 @@ contract Deploy is Script {
         //    Wired to the naming proxy and never repointed -- moving it would
         //    redirect every entitlement it holds, so there is no setter and
         //    changing it is an upgrade.
+        //
+        //    This script is the only stack deployment in this repository that
+        //    includes the escrow.
         HandleEscrow escrowImpl = new HandleEscrow();
         address handleEscrowAddr = address(
             new ERC1967Proxy(
