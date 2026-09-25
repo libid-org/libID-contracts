@@ -1586,8 +1586,9 @@ contract HandleEscrowTest is Test {
 
     function test_ownershipCannotBeRenounced() public {
         vm.prank(owner);
-        vm.expectRevert("renounce disabled");
+        vm.expectRevert(HandleEscrow.RenounceDisabled.selector);
         escrow.renounceOwnership();
+        assertEq(escrow.owner(), owner, "ownership moved");
     }
 
     function test_onlyTheOwnerMayUpgrade() public {

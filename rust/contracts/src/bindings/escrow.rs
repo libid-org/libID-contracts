@@ -122,6 +122,7 @@ mod escrow_inner {
             error PlatformAcceptsNoClaims(bytes32 platformId);
             error NativeTransferFailed(address recipient, uint256 amount);
             error NoNames();
+            error RenounceDisabled();
         }
     }
 }

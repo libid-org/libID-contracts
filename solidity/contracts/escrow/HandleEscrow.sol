@@ -222,6 +222,8 @@ contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable
     error NativeTransferFailed(address recipient, uint256 amount);
     /// The escrow needs a naming system to resolve through.
     error NoNames();
+    /// Ownership cannot be renounced; see `renounceOwnership`.
+    error RenounceDisabled();
 
     // ─── Setup ──────────────────────────────────────────────────────
 
@@ -553,6 +555,6 @@ contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable
     /// @dev Renouncing would leave no way to repair a broken deployment, and
     ///      the upgrade is the only lever there is.
     function renounceOwnership() public pure override {
-        revert("renounce disabled");
+        revert RenounceDisabled();
     }
 }
