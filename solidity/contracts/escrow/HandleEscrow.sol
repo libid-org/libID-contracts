@@ -139,7 +139,9 @@ contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable
 
     // ─── Errors ─────────────────────────────────────────────────────
 
-    /// A deposit of nothing writes nothing.
+    /// A deposit of nothing writes nothing. Also what a token deposit that
+    /// DELIVERED nothing reverts with: a token that moved no balance, or a
+    /// holder paying itself, whose balance cannot grow by paying itself.
     error ZeroAmount();
     /// Native value must equal the amount, and a token deposit carries none.
     error ValueMismatch(uint256 expected, uint256 provided);
@@ -288,9 +290,16 @@ contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable
                 // takes a fee on transfer delivers less, and an event carrying
                 // the requested figure would be the only record of a payment
                 // that never happened at that size.
+                //
+                // The balance can also FALL: a holder paying itself a token
+                // that takes a fee ends with less than it started with. That
+                // delivered nothing, and it is refused like any other deposit
+                // of nothing rather than underflowing.
                 uint256 before = IERC20(token).balanceOf(holder);
                 IERC20(token).safeTransferFrom(msg.sender, holder, amount);
-                delivered = IERC20(token).balanceOf(holder) - before;
+                uint256 afterwards = IERC20(token).balanceOf(holder);
+                delivered = afterwards > before ? afterwards - before : 0;
+                if (delivered == 0) revert ZeroAmount();
             }
             emit Forwarded(node, token, msg.sender, holder, platformId, delivered);
             return;

@@ -45,6 +45,15 @@ contract FeeToken is TestERC20 {
     }
 }
 
+/// @notice Reports success and moves nothing.
+contract InertToken is TestERC20 {
+    constructor() TestERC20("Inert", "NIL") {}
+
+    function transferFrom(address, address, uint256) public pure override returns (bool) {
+        return true;
+    }
+}
+
 /// @notice A second version that APPENDS to the namespaced root, which is the
 ///         only change the storage rule allows.
 ///
@@ -927,6 +936,54 @@ contract HandleEscrowTest is Test {
         vm.stopPrank();
 
         assertEq(fee.balanceOf(alice), 99 ether, "the holder received something else");
+    }
+
+    /// A holder paying itself a fee-on-transfer token ends with LESS than it
+    /// started with: the fee left, and what arrived was its own. Measuring
+    /// that as `after - before` underflows. Nothing was delivered, so the
+    /// deposit is refused as one of nothing.
+    function test_aHolderPayingItselfAFeeTokenIsRefused() public {
+        _bind(alice, "1", "alice", 100);
+        FeeToken fee = new FeeToken();
+        fee.mint(alice, 100 ether);
+
+        vm.startPrank(alice);
+        fee.approve(address(escrow), type(uint256).max);
+        vm.expectRevert(HandleEscrow.ZeroAmount.selector);
+        escrow.depositToHandle(X, "alice", address(fee), 100 ether);
+        vm.stopPrank();
+
+        assertEq(fee.balanceOf(alice), 100 ether, "the refused deposit still cost the fee");
+    }
+
+    /// A plain token paid by its holder to itself moves nothing, and a
+    /// `Forwarded` of zero would record a payment that never happened.
+    function test_aHolderPayingItselfIsRefused() public {
+        _bind(alice, "1", "alice", 100);
+        token.mint(alice, 10 ether);
+
+        vm.startPrank(alice);
+        token.approve(address(escrow), type(uint256).max);
+        vm.expectRevert(HandleEscrow.ZeroAmount.selector);
+        escrow.depositToHandle(X, "alice", address(token), 10 ether);
+        vm.stopPrank();
+    }
+
+    /// A token that reports success and moves nothing credits nothing when it
+    /// escrows, and delivers nothing when it pays through. Both are refused.
+    function test_aTokenThatDeliversNothingIsRefused() public {
+        InertToken inert = new InertToken();
+
+        vm.startPrank(sender);
+        vm.expectRevert(HandleEscrow.ZeroAmount.selector);
+        escrow.depositToHandle(X, "alice", address(inert), 10 ether);
+        vm.stopPrank();
+        assertEq(escrow.escrowed(aliceNode, address(inert)), 0);
+
+        _bind(alice, "1", "alice", 100);
+        vm.prank(sender);
+        vm.expectRevert(HandleEscrow.ZeroAmount.selector);
+        escrow.depositToNode(X, aliceNode, address(inert), 10 ether);
     }
 
     // ─── Consequences accepted on purpose ───────────────────────────
