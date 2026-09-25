@@ -43,10 +43,14 @@ import {IIdentityNames} from "./IIdentityNames.sol";
 ///      everything held for the node in that token, so what it took is
 ///      nobody's to refund afterwards.
 ///
-///      A refund and the payee's identity claim can land in the same block.
-///      Whichever lands first wins: the refund returns the contribution and
-///      the payee's escrow no longer holds it, or the identity claim names a
-///      holder and the refund is refused. Both are outcomes of an escrow.
+///      **There is no refund delay, and the race with the payee is
+///      accepted.** A depositor can take a deposit back in the block after
+///      making it, so a `Deposited` promises the payee nothing until the
+///      payee holds the handle. A refund and the payee's identity claim can
+///      land in the same block. Whichever lands first wins: the refund
+///      returns the contribution and the payee's escrow no longer holds it,
+///      or the identity claim names a holder and the refund is refused. Both
+///      are outcomes of an escrow.
 ///
 ///      **The handle is the whole key.** Whoever holds the node takes what
 ///      was not refunded. A PLATFORM THAT RECYCLES A HANDLE HANDS THE NEW
@@ -55,6 +59,17 @@ import {IIdentityNames} from "./IIdentityNames.sol";
 ///      renamed away can no longer claim, and every contribution nobody
 ///      claimed becomes refundable to its depositor again, until somebody
 ///      proves the freed handle and holds it.
+///
+///      **A stale binding is paid, and that is accepted.** `byHandle` names
+///      whoever last proved the handle, however long ago. A rename is
+///      invisible to the chain until the renamed account proves its new
+///      handle: an account that proved `alice`, renamed to `alice2` on the
+///      platform and never proved again is still `alice`'s holder here. A
+///      deposit to `alice` pays straight through to it, and it can claim
+///      anything held for `alice`, until somebody proves `alice` with a
+///      newer observation — even if the platform has long since given the
+///      handle to someone else. A wallet should show the binding's age,
+///      `byHandle(node).observedAt`, before it sends.
 ///
 ///      **The escrow is for the window before a handle is claimed, and only
 ///      that.** A deposit for a node somebody holds is paid straight to that
@@ -81,16 +96,41 @@ import {IIdentityNames} from "./IIdentityNames.sol";
 ///      would redirect every entitlement held, so changing it is an upgrade,
 ///      which leaves a record.
 ///
-///      **There is no pause.** A pause on `claim` freezes other people's money
-///      behind an owner key, and the emergency lever is the upgrade, which is
-///      already visible.
+///      **There is no pause function; there are freeze levers.** A pause on
+///      `claim` would freeze other people's money behind an owner key, so
+///      there is none, and the emergency lever here is the upgrade, which is
+///      visible. The naming side can still freeze value without touching this
+///      contract. The `IdentityNames` owner's `setPlatform` can narrow a
+///      platform's rules so that the handle a node was derived from now
+///      normalizes to another node or is refused; retiring every version of
+///      a platform's verifiers in `CeremonyProofVerifier` stops new claims on
+///      it. Either leaves value held for a node nobody holds with no possible
+///      claimer. A node that already has a holder is unaffected, since `claim`
+///      goes by node and not by text. The depositor's `refund` is the way
+///      out: it depends on neither the rules nor `acceptsClaims`.
 ///
 ///      **Rebasing tokens are not supported.** The books record what arrived
 ///      when it arrived. A token whose balances later shrink on their own — a
 ///      negative rebase — leaves this contract holding less than the books
 ///      promise, and the last claim or refund for that token reverts for want
 ///      of balance. There is no function that reconciles the books against a
-///      balance. A positive rebase leaves surplus no slot points at.
+///      balance.
+///
+///      **Surplus stays, and nothing sweeps it.** Value that reaches this
+///      contract other than through a deposit sits on no slot, and no
+///      function moves it; only an upgrade could. That is a token transferred
+///      here directly, native value forced in without a call (there is no
+///      `receive`, so only a self-destruct or a block reward can), and a
+///      positive rebase. A fee-on-transfer token leaves no remainder: a
+///      deposit is booked at what arrived.
+///
+///      **A token's blocklist reaches the escrow.** A recipient a token
+///      refuses fails only its own payout: the `claim` or `refund` reverts,
+///      the books stay as they were, and the caller can name another
+///      recipient. A holder the token refuses fails a pay-through deposit.
+///      But a token that blocklists this contract's address — USDC and USDT
+///      can — freezes every slot in that token, deposits, claims and refunds
+///      alike, until the token lifts it or an upgrade adds a way out.
 ///
 ///      **Trust base.** Authorization here is `byHandle` and nothing else, so
 ///      every key that can decide what `byHandle` answers, or replace the code
@@ -112,13 +152,27 @@ import {IIdentityNames} from "./IIdentityNames.sol";
 ///        it controls, whose attested key rotations the Google verifier then
 ///        trusts, or `upgradeToAndCall`;
 ///      * this contract's own owner — `upgradeToAndCall` to code that moves
-///        any balance.
+///        any balance;
+///      * every notary signing key the `NotaryService` trusts — it can sign
+///        an attestation of an X or GitHub session that never happened, and a
+///        `GoogleJwtRoots` rotation that installs a signing key of its choice
+///        for Google tokens;
+///      * the platforms themselves — Google as the OIDC issuer whose signing
+///        keys sign the ID tokens the Google verifier accepts, and X and
+///        GitHub as the TLS-authenticated APIs whose answers the notary
+///        attests. Each decides which account a handle belongs to.
 ///
-///      Each of the naming-side keys makes a wallet it controls the holder of
-///      any handle through an ordinary identity `claim`, and `claim` here then
-///      pays it. They are the keys that already decide which proofs bind
-///      names at all; the escrow adds a new thing they can reach, not a new
-///      party.
+///      Anyone who can make themselves the holder of a funded handle can take
+///      what is held for it. Each of the keys above does that through an
+///      ordinary identity `claim`, which `claim` here then pays, except this
+///      contract's owner, who replaces the code instead. They are the keys
+///      that already decide which proofs bind names at all; the escrow adds a
+///      new thing they can reach, not a new party.
+///
+///      Not on the list: the `HandleResolver` owner and its gateway signers
+///      decide what an ENS lookup of a name answers, which this contract never
+///      reads; the `LibidFactory` owner deploys contracts and has no call into
+///      them afterwards. Neither can move a balance here.
 contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, ReentrancyGuardUpgradeable {
     using SafeERC20 for IERC20;
 
