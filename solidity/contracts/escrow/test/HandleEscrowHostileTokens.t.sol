@@ -9,7 +9,14 @@ import {ReentrancyGuardUpgradeable} from "@openzeppelin/contracts-upgradeable/ut
 import {HandleEscrow} from "../HandleEscrow.sol";
 import {IIdentityNames} from "../../identity/IIdentityNames.sol";
 import {SettableNames} from "./HandleEscrowAccounting.t.sol";
-import {BlocklistToken, FalseToken, HookToken, ITransferHooks, NoReturnToken} from "./HostileTokens.sol";
+import {
+    BlocklistToken,
+    FalseToken,
+    HookToken,
+    ITransferHooks,
+    NoReturnToken,
+    ShrinkingToken
+} from "./HostileTokens.sol";
 
 /// @notice A depositor, holder and recipient in one, registered for the hook
 ///         token's callbacks. From inside a hook it makes one more escrow
@@ -240,6 +247,29 @@ contract HandleEscrowHostileTokensTest is Test {
         escrow.depositToNode(PLATFORM, NODE, address(token), 5 ether, depositor);
         assertEq(token.balanceOf(holder), 15 ether, "the pay-through did not pay");
         assertEq(token.balanceOf(address(escrow)), 0);
+    }
+
+    // ─── A token that shrinks the recipient ─────────────────────────
+
+    /// A transfer into the escrow that leaves it holding LESS than before
+    /// delivered nothing: the deposit is refused `ZeroAmount`, as a
+    /// pay-through that delivers nothing is, not with an arithmetic panic,
+    /// and the books are as they were.
+    function test_aDepositThatLowersTheEscrowsBalanceDeliveredNothing() public {
+        ShrinkingToken token = new ShrinkingToken();
+        token.mint(depositor, 20 ether);
+        vm.startPrank(depositor);
+        token.approve(address(escrow), type(uint256).max);
+        escrow.depositToNode(PLATFORM, NODE, address(token), 10 ether, depositor);
+        vm.stopPrank();
+        token.setShrinking(true);
+
+        vm.prank(depositor);
+        vm.expectRevert(HandleEscrow.ZeroAmount.selector);
+        escrow.depositToNode(PLATFORM, NODE, address(token), 1 ether, depositor);
+
+        assertEq(escrow.escrowed(NODE, address(token)), 10 ether, "the refused deposit moved the books");
+        assertEq(escrow.refundable(NODE, address(token), depositor), 10 ether);
     }
 
     // ─── A token with a blocklist ───────────────────────────────────

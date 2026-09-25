@@ -492,9 +492,14 @@ contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable
         if (token == NATIVE) {
             credited = amount;
         } else {
+            // What this contract GAINED, measured as the pay-through branch
+            // measures the holder: a transfer that left the balance no
+            // higher than before delivered nothing, and is refused like any
+            // deposit of nothing rather than underflowing.
             uint256 before = IERC20(token).balanceOf(address(this));
             IERC20(token).safeTransferFrom(msg.sender, address(this), amount);
-            credited = IERC20(token).balanceOf(address(this)) - before;
+            uint256 afterwards = IERC20(token).balanceOf(address(this));
+            credited = afterwards > before ? afterwards - before : 0;
             if (credited == 0) revert ZeroAmount();
         }
 

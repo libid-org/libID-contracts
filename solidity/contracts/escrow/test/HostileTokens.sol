@@ -128,3 +128,26 @@ contract BlocklistToken is ERC20 {
         super._update(from, to, value);
     }
 }
+
+/// @notice A token whose `transferFrom`, while `shrinking` is set, burns
+///         twice the amount from the recipient after crediting it: the
+///         recipient ends with less than it had before the transfer.
+contract ShrinkingToken is ERC20 {
+    bool public shrinking;
+
+    constructor() ERC20("Shrink", "SHRINK") {}
+
+    function mint(address to, uint256 amount) external {
+        _mint(to, amount);
+    }
+
+    function setShrinking(bool shrinking_) external {
+        shrinking = shrinking_;
+    }
+
+    function transferFrom(address from, address to, uint256 amount) public override returns (bool) {
+        bool ok = super.transferFrom(from, to, amount);
+        if (shrinking) _burn(to, 2 * amount);
+        return ok;
+    }
+}
