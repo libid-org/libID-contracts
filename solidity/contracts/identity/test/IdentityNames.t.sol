@@ -666,6 +666,66 @@ contract IdentityNamesTest is Test {
         _claim(fresh, false);
     }
 
+    // ─── Whether a new claim can bind a holder ──────────────────────
+
+    /// A keyspace and a verifier the Proof Verifier answers for: a claim can
+    /// bind a holder here now.
+    function test_acceptsClaimsOnAWiredPlatform() public view {
+        assertTrue(names.acceptsClaims(X));
+        assertTrue(names.acceptsClaims(GITHUB));
+    }
+
+    /// No keyspace, so `claim` stops at `UnknownPlatform` whatever the Proof
+    /// Verifier says. A verifier registered for it does not change that.
+    function test_acceptsNoClaimsWithoutAKeyspace() public {
+        bytes32 fresh = keccak256("fresh");
+        assertFalse(names.acceptsClaims(fresh), "a platform nobody configured");
+
+        StubPlatformVerifier freshVerifier = new StubPlatformVerifier(fresh, 0);
+        vm.prank(owner);
+        proofVerifier.setVerifier(fresh, V1, IPlatformVerifier(address(freshVerifier)));
+        assertTrue(proofVerifier.verifiesPlatform(fresh), "the staging is wrong");
+
+        assertFalse(names.acceptsClaims(fresh), "a verifier alone made it accept claims");
+    }
+
+    /// A keyspace nothing verifies yet: the claim would reach the Proof
+    /// Verifier and find no version to dispatch to.
+    function test_acceptsNoClaimsWithoutAVerifier() public {
+        bytes32 fresh = keccak256("fresh");
+        vm.prank(owner);
+        names.setPlatform(fresh, HandleVectors.rulesFor(X));
+
+        assertFalse(names.acceptsClaims(fresh));
+    }
+
+    /// An unset Proof Verifier answers false rather than reverting on a call
+    /// to the zero address.
+    function test_acceptsNoClaimsWithNoProofVerifier() public {
+        IdentityNames bare = IdentityNames(
+            address(new ERC1967Proxy(address(new IdentityNames()), abi.encodeCall(IdentityNames.initialize, (owner))))
+        );
+        vm.prank(owner);
+        bare.setPlatform(X, HandleVectors.rulesFor(X));
+
+        assertEq(address(bare.proofVerifier()), address(0), "the staging is wrong");
+        assertFalse(bare.acceptsClaims(X));
+    }
+
+    /// Retiring a platform's last version keeps its names resolving, so
+    /// `rulesOf` still answers — but nothing new can bind, and this is the
+    /// question that tells the two apart.
+    function test_retiringTheLastVersionStopsAcceptingClaimsButKeepsResolving() public {
+        _bind(alice, "123", "alice", 100);
+
+        vm.prank(owner);
+        proofVerifier.setVerifier(X, V1, IPlatformVerifier(address(0)));
+
+        assertFalse(names.acceptsClaims(X), "a platform with no version accepts claims");
+        assertEq(names.resolveHandle(X, "alice"), alice, "the bound name stopped resolving");
+        assertEq(names.rulesOf(X).maxLength, HandleVectors.rulesFor(X).maxLength, "rulesOf stopped answering");
+    }
+
     /// `setPlatform` writes field-wise now, so a rules change must leave the
     /// platform exactly as wired as it was. Reintroducing the whole-struct
     /// assignment would unconfigure every platform it touched.

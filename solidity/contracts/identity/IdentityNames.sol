@@ -737,11 +737,31 @@ contract IdentityNames is Initializable, UUPSUpgradeable, Ownable2StepUpgradeabl
     ///      Reverts for a platform that is not usable, like the resolvers do.
     ///
     ///      What is read here is today's configuration, and the owner may
-    ///      change it. A reader that stores anything derived from these rules
-    ///      inherits the re-keying the contract comment describes, so store the
-    ///      rules-independent form and read this only to validate.
+    ///      change it. Text normalized under these rules reaches the node this
+    ///      contract would key it on today; a later `setPlatform` can send the
+    ///      same text to a different node, exactly as it does for
+    ///      `resolveHandle`.
     function rulesOf(bytes32 platformId) external view returns (HandleNormalizer.Rules memory) {
         return _requireUsable(platformId).rules;
+    }
+
+    /// @notice Whether a new identity claim can bind a holder on this platform
+    ///         now.
+    ///
+    /// @dev True when the platform has a keyspace and the configured Proof
+    ///      Verifier `verifiesPlatform` it: the two things `claim` needs before
+    ///      it can write a binding. False, not a revert, for a platform with no
+    ///      keyspace, for an unset Proof Verifier and for a platform whose
+    ///      every version has been retired.
+    ///
+    ///      Narrower than "usable". A platform on which a name was ever bound
+    ///      keeps resolving after its last version is retired, but nothing new
+    ///      can bind on it, and a contract holding value for a handle nobody
+    ///      holds yet needs the second answer, not the first.
+    function acceptsClaims(bytes32 platformId) external view returns (bool) {
+        if (!_s().platforms[platformId].configured) return false;
+        IProofVerifier pv = _s().proofVerifier;
+        return address(pv) != address(0) && pv.verifiesPlatform(platformId);
     }
 
     /// @notice The wallet that proved this account id, or the zero address.

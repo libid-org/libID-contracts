@@ -738,13 +738,14 @@ async fn deploys_and_initializes_every_platform_verifier() {
 }
 
 /// (e2) The handle escrow against a real chain: deploy it over the identity
-/// stack, pay a handle nobody has claimed, and watch two spellings land in one
-/// slot.
+/// stack, pay a handle nobody has claimed by text and by node, and watch both
+/// land in one slot — the naming system's handle node, computed here from the
+/// normalized handle.
 ///
 /// The platform is made usable the way a deployment makes it: a keyspace, and
 /// a real Platform Verifier registered with the Proof Verifier. Nothing here
-/// calls that verifier — the escrow only reads `rulesOf` and `resolveHandle`,
-/// which answer once the Proof Verifier `verifiesPlatform`.
+/// calls that verifier — the escrow only reads `rulesOf`, `acceptsClaims` and
+/// `byHandle`, which answer once the Proof Verifier `verifiesPlatform`.
 ///
 /// The payout path is covered by the Solidity suite, which stages claims
 /// through a stub Platform Verifier. That stub deliberately does NOT ship in
@@ -756,6 +757,7 @@ async fn deploys_and_initializes_every_platform_verifier() {
 async fn escrows_value_against_an_unclaimed_handle() {
     use alloy::{
         hex,
+        primitives::b256,
         sol_types::{
             SolError,
             SolValue,
@@ -846,10 +848,21 @@ async fn escrows_value_against_an_unclaimed_handle() {
         .unwrap();
 
     // A keyspace alone is not a usable platform: nothing could claim what
-    // the escrow would hold for it.
+    // the escrow would hold for it. The refusal specifically — a bare
+    // `is_err` would also pass on an RPC failure or a missing function.
+    let err = names
+        .rulesOf(platform_id)
+        .call()
+        .await
+        .expect_err("a platform nothing verifies answered rulesOf")
+        .to_string();
     assert!(
-        names.rulesOf(platform_id).call().await.is_err(),
-        "a platform nothing verifies answered rulesOf"
+        err.contains(&hex::encode(IdentityNames::UnknownPlatform::SELECTOR)),
+        "refused for the wrong reason: {err}"
+    );
+    assert!(
+        !names.acceptsClaims(platform_id).call().await.unwrap(),
+        "a platform nothing verifies accepts claims"
     );
 
     // The real GitHub Platform Verifier, on the real Honk verifier for its
@@ -881,6 +894,10 @@ async fn escrows_value_against_an_unclaimed_handle() {
         names.rulesOf(platform_id).call().await.unwrap().allowHyphen,
         "the registered platform does not report its rules"
     );
+    assert!(
+        names.acceptsClaims(platform_id).call().await.unwrap(),
+        "the registered platform does not accept claims"
+    );
 
     let escrow_proxy = deploy_behind_proxy(
         &provider,
@@ -897,59 +914,64 @@ async fn escrows_value_against_an_unclaimed_handle() {
     let escrow = HandleEscrow::new(escrow_proxy, &provider);
     assert_eq!(escrow.names().call().await.unwrap(), names_proxy);
 
-    // The slot a client computes off chain has to be the slot the contract
-    // keys on, or an indexer watches the wrong one.
-    let slot_v1 = keccak256(b"libid.escrow.handle-slot.v1");
-    let computed =
-        keccak256((slot_v1, platform_id, keccak256(b"alice-1")).abi_encode_params());
+    // The node a client computes off chain from the normalized handle has to
+    // be the node the contract keys on, or an indexer watches the wrong one.
+    // `alice-1` is ` Alice-1 ` normalized under GitHub's rules; the literal
+    // is the same derivation computed with `cast`.
+    let handle_node_v1 = keccak256(b"libid.identity.handle-node.v1");
+    let computed = keccak256(
+        (handle_node_v1, platform_id, keccak256(b"alice-1")).abi_encode_params(),
+    );
+    assert_eq!(
+        computed,
+        b256!("2e2bee956f308d03271ce24b26e5aa20103b41841ddee3c96a94d2449902f710"),
+        "the off-chain derivation drifted from the pinned node"
+    );
     assert_eq!(
         escrow
-            .slotOf(platform_id, " Alice-1 ".into())
+            .nodeOf(platform_id, " Alice-1 ".into())
             .call()
             .await
             .unwrap(),
         computed,
-        "Rust and the contract derive different slots"
+        "Rust and the contract derive different nodes"
     );
 
-    // Two spellings of one handle, paid before anybody holds it.
+    // Paid before anybody holds it: once by text, once by the node alone.
     let amount = U256::from(1_000_000_000_000_000_000u64);
-    for spelling in [" Alice-1 ", "alice-1"] {
-        escrow
-            .deposit(platform_id, spelling.into(), Address::ZERO, amount)
-            .value(amount)
-            .send()
-            .await
-            .unwrap()
-            .get_receipt()
-            .await
-            .unwrap();
-    }
+    escrow
+        .depositToHandle(platform_id, " Alice-1 ".into(), Address::ZERO, amount)
+        .value(amount)
+        .send()
+        .await
+        .unwrap()
+        .get_receipt()
+        .await
+        .unwrap();
+    escrow
+        .depositToNode(platform_id, computed, Address::ZERO, amount)
+        .value(amount)
+        .send()
+        .await
+        .unwrap()
+        .get_receipt()
+        .await
+        .unwrap();
     assert_eq!(
         escrow
-            .escrowed(platform_id, "ALICE-1".into(), Address::ZERO)
+            .escrowed(computed, Address::ZERO)
             .call()
             .await
             .unwrap(),
         amount * U256::from(2),
-        "the two spellings did not accumulate in one slot"
-    );
-    assert_eq!(
-        escrow
-            .escrowedAt(computed, Address::ZERO)
-            .call()
-            .await
-            .unwrap(),
-        amount * U256::from(2),
-        "the balance is not at the slot Rust computed"
+        "the text and the node did not land in one slot"
     );
 
-    // Nobody holds the handle, so nobody can take it. The AUTHORIZATION
-    // refusal specifically: a bare `is_err`
-    // would also pass on a mistyped platform, an unwired one or an RPC
+    // Nobody holds the node, so nobody can take it. The AUTHORIZATION
+    // refusal specifically: a bare `is_err` would also pass on an RPC
     // hiccup, so it would stay green with the holder check removed.
     let err = escrow
-        .claim(platform_id, "alice-1".into(), Address::ZERO, stranger)
+        .claim(computed, Address::ZERO, stranger)
         .from(stranger)
         .call()
         .await

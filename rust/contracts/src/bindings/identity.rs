@@ -51,6 +51,9 @@ mod names_inner {
             /// The platform's rules as configured now. Reverts for a platform
             /// that is not usable, like the resolvers.
             function rulesOf(bytes32 platformId) external view returns (Rules memory);
+            /// Whether a new identity claim can bind a holder on this platform
+            /// now: a keyspace, and a Proof Verifier that verifies it.
+            function acceptsClaims(bytes32 platformId) external view returns (bool);
 
             /// Carries the ceremony version that proved the binding -- logged,
             /// never stored, because nothing on chain acts on it and an
@@ -68,6 +71,10 @@ mod names_inner {
                 bool published,
                 uint16 ceremonyVersion
             );
+            /// A platform with no keyspace, or one nothing verifies and on
+            /// which nothing was ever bound.
+            error UnknownPlatform(bytes32 platformId);
+
             event HandleRetired(bytes32 indexed platformId, bytes32 indexed handleNode, address indexed owner);
             event PlatformConfigured(bytes32 indexed platformId);
             event ProofVerifierConfigured(address verifier);
