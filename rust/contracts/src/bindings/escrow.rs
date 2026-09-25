@@ -69,6 +69,13 @@ mod escrow_inner {
             function names() external view returns (address);
             function NATIVE() external view returns (address);
 
+            function owner() external view returns (address);
+            function pendingOwner() external view returns (address);
+            function transferOwnership(address newOwner) external;
+            function acceptOwnership() external;
+            /// Always reverts `RenounceDisabled`.
+            function renounceOwnership() external;
+
             event Deposited(
                 bytes32 indexed handleNode,
                 address indexed token,
@@ -94,6 +101,8 @@ mod escrow_inner {
                 address recipient,
                 uint256 amount
             );
+            event OwnershipTransferStarted(address indexed previousOwner, address indexed newOwner);
+            event OwnershipTransferred(address indexed previousOwner, address indexed newOwner);
             event Refunded(
                 bytes32 indexed handleNode,
                 address indexed token,
@@ -121,8 +130,107 @@ mod escrow_inner {
             error NativeTransferFailed(address recipient, uint256 amount);
             error NoNames();
             error RenounceDisabled();
+            error OwnableUnauthorizedAccount(address account);
+            error OwnableInvalidOwner(address owner);
+            /// A deposit, claim or refund was entered again from inside one.
+            error ReentrancyGuardReentrantCall();
+            /// The token answered `false` to a transfer.
+            error SafeERC20FailedOperation(address token);
         }
     }
 }
 
 pub use escrow_inner::HandleEscrow;
+
+#[cfg(test)]
+mod tests {
+    use std::collections::{
+        BTreeMap,
+        BTreeSet,
+    };
+
+    use alloy::json_abi::JsonAbi;
+
+    use super::escrow_inner::HandleEscrow::{
+        HandleEscrowCalls,
+        HandleEscrowErrors,
+        HandleEscrowEvents,
+    };
+    use crate::Artifacts;
+
+    /// What the compiled contract has and the binding leaves out on purpose:
+    /// the upgrade and initializer machinery it inherits. A caller upgrades
+    /// through `proxy::IUUPSUpgradeable`, not through this binding.
+    const OMITTED: &[&str] = &[
+        "error AddressEmptyCode(address)",
+        "error ERC1967InvalidImplementation(address)",
+        "error ERC1967NonPayable()",
+        "error FailedCall()",
+        "error InvalidInitialization()",
+        "error NotInitializing()",
+        "error UUPSUnauthorizedCallContext()",
+        "error UUPSUnsupportedProxiableUUID(bytes32)",
+        "event Initialized(uint64)",
+        "event Upgraded(address)",
+        "function UPGRADE_INTERFACE_VERSION()",
+        "function proxiableUUID()",
+        "function upgradeToAndCall(address,bytes)",
+    ];
+
+    /// The hand-written binding against the ABI of the contract it binds, as
+    /// vendored: every function, event and error the artifact has is bound
+    /// with the same selector or topic, or is listed in `OMITTED`; the binding
+    /// has nothing the artifact lacks; and `OMITTED` lists nothing that is
+    /// bound or gone. A selector is the whole signature, so a changed
+    /// parameter type shows up as one item missing and one extra.
+    #[test]
+    fn the_binding_matches_the_artifact_abi() {
+        let json = Artifacts::embedded()
+            .raw("HandleEscrow", "HandleEscrow")
+            .unwrap();
+        let abi: JsonAbi = serde_json::from_value(json["abi"].clone())
+            .expect("the vendored artifact has no ABI; run scripts/vendor-artifacts.sh");
+
+        let mut compiled: BTreeMap<Vec<u8>, String> = BTreeMap::new();
+        for f in abi.functions() {
+            compiled.insert(f.selector().to_vec(), format!("function {}", f.signature()));
+        }
+        for e in abi.events() {
+            compiled.insert(e.selector().to_vec(), format!("event {}", e.signature()));
+        }
+        for e in abi.errors() {
+            compiled.insert(e.selector().to_vec(), format!("error {}", e.signature()));
+        }
+
+        let bound: BTreeSet<Vec<u8>> = HandleEscrowCalls::SELECTORS
+            .iter()
+            .map(|s| s.to_vec())
+            .chain(HandleEscrowEvents::SELECTORS.iter().map(|s| s.to_vec()))
+            .chain(HandleEscrowErrors::SELECTORS.iter().map(|s| s.to_vec()))
+            .collect();
+
+        let unbound: Vec<&str> = compiled
+            .iter()
+            .filter(|(selector, _)| !bound.contains(*selector))
+            .map(|(_, name)| name.as_str())
+            .collect::<BTreeSet<_>>()
+            .into_iter()
+            .collect();
+        let mut omitted = OMITTED.to_vec();
+        omitted.sort_unstable();
+        assert_eq!(
+            unbound, omitted,
+            "the artifact has items the binding does not bind, or OMITTED is stale"
+        );
+
+        let extra: Vec<String> = bound
+            .iter()
+            .filter(|selector| !compiled.contains_key(*selector))
+            .map(alloy::hex::encode)
+            .collect();
+        assert!(
+            extra.is_empty(),
+            "the binding has selectors the contract does not: {extra:?}"
+        );
+    }
+}
