@@ -213,6 +213,21 @@ contract RejectEther {
     // No receive, no fallback.
 }
 
+/// @notice A naming contract as it was before the escrow: it answers
+///         `byHandle` and nothing the escrow added.
+contract NamesBeforeTheEscrow {
+    function byHandle(bytes32) external pure returns (address owner, uint64 observedAt) {
+        return (address(0), 0);
+    }
+}
+
+/// @notice One that also answers `acceptsClaims`, but not `nodeOf`.
+contract NamesWithoutNodeOf is NamesBeforeTheEscrow {
+    function acceptsClaims(bytes32) external pure returns (bool) {
+        return true;
+    }
+}
+
 /// @notice Makes any call for anybody, value included, the way Multicall3's
 ///         `aggregate3Value` or a payment router does: the target sees this
 ///         contract as `msg.sender`, whoever asked.
@@ -1677,6 +1692,25 @@ contract HandleEscrowTest is Test {
         HandleEscrow impl = new HandleEscrow();
         vm.expectRevert(HandleEscrow.NoNames.selector);
         new ERC1967Proxy(address(impl), abi.encodeCall(HandleEscrow.initialize, (owner, IIdentityNames(address(0)))));
+    }
+
+    /// An escrow wired to a naming contract that lacks what it calls is
+    /// refused at `initialize`, naming the first function missing, rather
+    /// than deploying and failing on its first deposit.
+    function test_initializeRefusesANamingContractThatLacksWhatTheEscrowCalls() public {
+        address old = address(new NamesBeforeTheEscrow());
+        address halfway = address(new NamesWithoutNodeOf());
+        address noCode = makeAddr("no code");
+
+        _assertInitializeRefused(old, IIdentityNames.acceptsClaims.selector);
+        _assertInitializeRefused(halfway, IIdentityNames.nodeOf.selector);
+        _assertInitializeRefused(noCode, IIdentityNames.byHandle.selector);
+    }
+
+    function _assertInitializeRefused(address names_, bytes4 missing) internal {
+        HandleEscrow impl = new HandleEscrow();
+        vm.expectRevert(abi.encodeWithSelector(HandleEscrow.NamesLacks.selector, names_, missing));
+        new ERC1967Proxy(address(impl), abi.encodeCall(HandleEscrow.initialize, (owner, IIdentityNames(names_))));
     }
 
     function test_ownershipCannotBeRenounced() public {

@@ -114,7 +114,9 @@ import {IIdentityNames} from "../identity/IIdentityNames.sol";
 ///
 ///      **The naming contract is set once and never moved.** Repointing it
 ///      would redirect every entitlement held, so changing it is an upgrade,
-///      which leaves a record.
+///      which leaves a record. `initialize` probes it for every function the
+///      escrow calls, so an escrow wired to an `IdentityNames` that predates
+///      them fails there, not on its first deposit.
 ///
 ///      **There is no pause function; there are freeze levers.** A pause on
 ///      `claim` would freeze other people's money behind an owner key, so
@@ -302,6 +304,9 @@ contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable
     error NativeTransferFailed(address recipient, uint256 amount);
     /// The escrow needs a naming system to resolve through.
     error NoNames();
+    /// The naming contract does not answer this function the escrow calls:
+    /// no code there, or code that predates it.
+    error NamesLacks(address names, bytes4 selector);
     /// Ownership cannot be renounced; see `renounceOwnership`.
     error RenounceDisabled();
 
@@ -312,8 +317,11 @@ contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable
         _disableInitializers();
     }
 
+    /// @dev Probes `names_` for the three functions the escrow calls and
+    ///      reverts `NamesLacks` naming the first one it does not answer.
     function initialize(address owner_, IIdentityNames names_) external initializer {
         if (address(names_) == address(0)) revert NoNames();
+        _requireAnswers(names_);
         __Ownable_init(owner_);
         __Ownable2Step_init();
         __UUPSUpgradeable_init();
@@ -630,6 +638,29 @@ contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable
     function _sendNative(address to, uint256 amount) private {
         (bool ok,) = to.call{value: amount}("");
         if (!ok) revert NativeTransferFailed(to, amount);
+    }
+
+    /// @dev Each probe asks about the zero node or platform, which exists on
+    ///      no deployment. `byHandle` and `acceptsClaims` answer it with a
+    ///      zero binding and `false`, so they must return exactly their ABI
+    ///      width. `nodeOf` refuses it — the zero platform has no keyspace —
+    ///      so it passes by returning a node or by reverting with an error.
+    ///      A function that is not there reverts with no data at all (the
+    ///      naming contracts have no fallback), and an address with no code
+    ///      returns nothing.
+    function _requireAnswers(IIdentityNames names_) private view {
+        bytes memory result;
+        bool ok;
+        (ok, result) = address(names_).staticcall(abi.encodeCall(IIdentityNames.byHandle, (bytes32(0))));
+        if (!ok || result.length != 64) revert NamesLacks(address(names_), IIdentityNames.byHandle.selector);
+        (ok, result) = address(names_).staticcall(abi.encodeCall(IIdentityNames.acceptsClaims, (bytes32(0))));
+        if (!ok || result.length != 32 || abi.decode(result, (uint256)) > 1) {
+            revert NamesLacks(address(names_), IIdentityNames.acceptsClaims.selector);
+        }
+        (ok, result) = address(names_).staticcall(abi.encodeCall(IIdentityNames.nodeOf, (bytes32(0), "")));
+        if (ok ? result.length != 32 : result.length < 4) {
+            revert NamesLacks(address(names_), IIdentityNames.nodeOf.selector);
+        }
     }
 
     // ─── Upgrade ────────────────────────────────────────────────────

@@ -142,6 +142,9 @@ mod escrow_inner {
             error PlatformAcceptsNoClaims(bytes32 platformId);
             error NativeTransferFailed(address recipient, uint256 amount);
             error NoNames();
+            /// `initialize`: the naming contract does not answer `selector`,
+            /// one of the functions the escrow calls.
+            error NamesLacks(address names, bytes4 selector);
             error RenounceDisabled();
             error OwnableUnauthorizedAccount(address account);
             error OwnableInvalidOwner(address owner);
