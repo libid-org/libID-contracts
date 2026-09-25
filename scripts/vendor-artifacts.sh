@@ -4,7 +4,9 @@
 # Runs `forge build` in solidity/ (submodules must be initialized), then copies
 # the artifact JSONs the crate needs from solidity/out into
 # rust/contracts/artifacts/<File>.sol/<Name>.json, pruned to the fields the
-# crate reads: bytecode.object, bytecode.linkReferences, methodIdentifiers.
+# crate reads: abi, bytecode.object, bytecode.linkReferences, methodIdentifiers.
+# The abi is what the binding drift tests compare the hand-written `sol!`
+# interfaces against: events and errors have no methodIdentifiers.
 # Libraries referenced through linkReferences are followed transitively and
 # vendored too: the two Honk verifiers link RelationsLib and ZKTranscriptLib,
 # and both are listed below as well so the list and the crate's COVERED agree
@@ -87,6 +89,7 @@ prune() {
     local src="$1" file="$2" contract="$3"
     mkdir -p "$STAGE/$file.sol"
     jq -S '{
+        abi: .abi,
         bytecode: {
             object: .bytecode.object,
             linkReferences: .bytecode.linkReferences
