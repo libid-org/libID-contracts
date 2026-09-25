@@ -290,10 +290,9 @@ contract IdentityNamesTest is Test {
         names.rulesOf(unwired);
     }
 
-    /// `rulesOf` reports the configuration as it stands, so another contract
-    /// can ask whether text could be a handle here at all — the question
-    /// `resolveHandle` cannot answer, because it returns the zero address both
-    /// for a handle nobody holds and for text nobody could hold.
+    /// `rulesOf` reports the configuration as it stands, so a client that
+    /// must not send a handle's text anywhere can normalize it locally under
+    /// the rules the chain has now.
     function test_rulesOfReportsThePlatformsCurrentRules() public {
         HandleNormalizer.Rules memory rules = names.rulesOf(X);
         HandleNormalizer.Rules memory expected = HandleVectors.rulesFor(X);
@@ -310,6 +309,60 @@ contract IdentityNamesTest is Test {
         names.setPlatform(X, HandleVectors.rulesFor(GITHUB));
 
         assertEq(names.rulesOf(X).allowHyphen, true, "rulesOf did not follow setPlatform");
+    }
+
+    // ─── The node of a handle ───────────────────────────────────────
+
+    /// `nodeOf` normalizes under the platform's rules and keys the result:
+    /// the node a proof of that handle is bound under.
+    function test_nodeOfIsTheNodeAProofOfTheHandleIsBoundUnder() public {
+        bytes32 node = names.nodeOf(X, "  @Alice ");
+        assertEq(node, IdentityNodes.handleNode(X, "alice"), "not the node of the normalized handle");
+
+        _bind(alice, "123", "alice", 100);
+        (address holder,) = names.byHandle(node);
+        assertEq(holder, alice, "the proof was bound under another node");
+    }
+
+    /// Text the rules refuse has no node, and the refusal carries the
+    /// normalizer's reason — where `resolveHandle` answers nobody.
+    function test_nodeOfRefusesTextTheRulesRefuseWithTheReason() public {
+        vm.expectRevert(abi.encodeWithSelector(IdentityNames.UnusableHandle.selector, HandleNormalizer.Problem.Empty));
+        names.nodeOf(X, " @ ");
+        vm.expectRevert(abi.encodeWithSelector(IdentityNames.UnusableHandle.selector, HandleNormalizer.Problem.TooLong));
+        names.nodeOf(X, "a123456789012345");
+        vm.expectRevert(abi.encodeWithSelector(IdentityNames.UnusableHandle.selector, HandleNormalizer.Problem.BadChar));
+        names.nodeOf(X, "ali-ce");
+        vm.expectRevert(abi.encodeWithSelector(IdentityNames.UnusableHandle.selector, HandleNormalizer.Problem.Shape));
+        names.nodeOf(GITHUB, "-alice");
+
+        assertEq(names.resolveHandle(X, "ali-ce"), address(0), "the resolver stopped answering nobody");
+    }
+
+    /// Which node text keys to needs a keyspace and nothing more. A platform
+    /// with none is refused; one with rules and no verifier yet has nodes,
+    /// though nothing can bind there (`acceptsClaims` answers that part).
+    function test_nodeOfNeedsAKeyspaceAndNothingMore() public {
+        bytes32 fresh = keccak256("fresh");
+        vm.expectRevert(abi.encodeWithSelector(IdentityNames.UnknownPlatform.selector, fresh));
+        names.nodeOf(fresh, "alice");
+
+        vm.prank(owner);
+        names.setPlatform(fresh, HandleVectors.rulesFor(X));
+        assertFalse(names.acceptsClaims(fresh), "the staging is wrong");
+        assertEq(names.nodeOf(fresh, "Alice"), IdentityNodes.handleNode(fresh, "alice"));
+    }
+
+    /// It follows a reconfiguration: the rules of the moment decide.
+    function test_nodeOfFollowsSetPlatform() public {
+        assertEq(names.nodeOf(X, "alice_1"), IdentityNodes.handleNode(X, "alice_1"));
+
+        vm.prank(owner);
+        names.setPlatform(X, HandleVectors.rulesFor(GITHUB));
+
+        vm.expectRevert(abi.encodeWithSelector(IdentityNames.UnusableHandle.selector, HandleNormalizer.Problem.BadChar));
+        names.nodeOf(X, "alice_1");
+        assertEq(names.nodeOf(X, "ali-ce"), IdentityNodes.handleNode(X, "ali-ce"));
     }
 
     function test_resolvePairAgreesWhileOneAccountHoldsBoth() public {

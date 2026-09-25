@@ -745,8 +745,9 @@ async fn deploys_and_initializes_every_platform_verifier() {
 ///
 /// The platform is made usable the way a deployment makes it: a keyspace, and
 /// a real Platform Verifier registered with the Proof Verifier. Nothing here
-/// calls that verifier — the escrow only reads `rulesOf`, `acceptsClaims` and
-/// `byHandle`, which answer once the Proof Verifier `verifiesPlatform`.
+/// calls that verifier — the escrow only reads `nodeOf`, `acceptsClaims` and
+/// `byHandle`, and `acceptsClaims` answers once the Proof Verifier
+/// `verifiesPlatform`.
 ///
 /// The payout path is covered by the Solidity suite, which stages claims
 /// through a stub Platform Verifier. That stub deliberately does NOT ship in

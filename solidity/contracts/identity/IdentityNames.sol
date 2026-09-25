@@ -330,6 +330,9 @@ contract IdentityNames is
 
     /// This platform has no keyspace configured.
     error UnknownPlatform(bytes32 platformId);
+    /// Text this platform's rules refuse as a handle, and the normalizer's
+    /// reason. What `nodeOf` reverts with.
+    error UnusableHandle(HandleNormalizer.Problem problem);
     /// @notice The one operation this Consumer owns.
     ///
     /// @dev A new operation, or a change to what its transaction data means,
@@ -732,14 +735,11 @@ contract IdentityNames is
 
     /// @notice How this platform's handles normalize, as configured right now.
     ///
-    /// @dev The one part of `Platform` another contract has to be able to read.
-    ///      A contract that keys on handles needs to ask whether some text
-    ///      could be a handle here AT ALL, and `resolveHandle` cannot answer
-    ///      that: it returns the zero address both for a handle nobody holds
-    ///      and for text nobody could ever hold. Without this, such a contract
-    ///      either accepts text that can never resolve, or keeps its own copy
-    ///      of the rules and disagrees with this one the first time `setPlatform`
-    ///      runs.
+    /// @dev For a client that derives a node itself: one paying a private,
+    ///      digest-profile binding must not send the handle's text to anybody,
+    ///      an RPC provider included, so it cannot ask `nodeOf`. It reads the
+    ///      rules here instead, normalizes locally and hashes with
+    ///      `IdentityNodes.handleNode`, which reaches the node `nodeOf` would.
     ///
     ///      Reverts for a platform that is not usable, like the resolvers do.
     ///
@@ -750,6 +750,33 @@ contract IdentityNames is
     ///      `resolveHandle`.
     function rulesOf(bytes32 platformId) external view returns (HandleNormalizer.Rules memory) {
         return _requireUsable(platformId).rules;
+    }
+
+    /// @notice The node a handle keys to under the platform's current rules:
+    ///         the node a proof of that handle would be bound under today.
+    ///
+    /// @dev The one derivation, so a contract that keys on handles — the
+    ///      escrow — asks here instead of carrying its own copy of the rules
+    ///      and the hash, which would disagree with this contract the first
+    ///      time `setPlatform` ran.
+    ///
+    ///      Reverts `UnusableHandle` with the normalizer's reason for text the
+    ///      rules refuse, where `resolveHandle` answers the zero address: a
+    ///      caller about to key something on the text has to learn that no
+    ///      proof could ever bind it, and a zero-address answer would not say.
+    ///
+    ///      Needs only a keyspace, and reverts `UnknownPlatform` without one.
+    ///      Which node text keys to is a question about the rules; whether a
+    ///      claim could bind a holder there now is `acceptsClaims`, and a
+    ///      caller that needs both asks both — so the Proof Verifier is not
+    ///      consulted here, and a caller asking both consults it once.
+    ///
+    ///      Today's configuration, as with `rulesOf`: a later `setPlatform` can
+    ///      send the same text to a different node.
+    function nodeOf(bytes32 platformId, string calldata handle) external view returns (bytes32 handleNode) {
+        HandleNormalizer.Problem problem;
+        (problem, handleNode) = _handleKey(platformId, handle, _requireConfigured(platformId).rules);
+        if (problem != HandleNormalizer.Problem.None) revert UnusableHandle(problem);
     }
 
     /// @notice Whether a new identity claim can bind a holder on this platform
@@ -795,20 +822,20 @@ contract IdentityNames is
     ///      because that question was never asked.
     function resolveHandle(bytes32 platformId, string calldata handle) external view returns (address) {
         Platform memory platform = _requireUsable(platformId);
-        (bool ok, bytes32 handleKey) = _handleKey(platformId, handle, platform.rules);
-        return ok ? _s().byHandle[handleKey].owner : address(0);
+        (HandleNormalizer.Problem problem, bytes32 handleKey) = _handleKey(platformId, handle, platform.rules);
+        return problem == HandleNormalizer.Problem.None ? _s().byHandle[handleKey].owner : address(0);
     }
 
-    /// @dev The node a handle keys to under the platform's current rules, or
-    ///      `ok == false` when the text does not normalize under them.
+    /// @dev The node a handle keys to under the given rules, or the problem
+    ///      that stops the text normalizing under them (and a zero node).
     function _handleKey(bytes32 platformId, string memory handle, HandleNormalizer.Rules memory rules)
         private
         pure
-        returns (bool ok, bytes32 handleKey)
+        returns (HandleNormalizer.Problem problem, bytes32 handleKey)
     {
-        (HandleNormalizer.Problem problem, string memory normalized) = HandleNormalizer.tryNormalize(handle, rules);
-        if (problem != HandleNormalizer.Problem.None) return (false, bytes32(0));
-        return (true, IdentityNodes.handleNode(platformId, normalized));
+        string memory normalized;
+        (problem, normalized) = HandleNormalizer.tryNormalize(handle, rules);
+        if (problem == HandleNormalizer.Problem.None) handleKey = IdentityNodes.handleNode(platformId, normalized);
     }
 
     /// @notice The handle a wallet published, exactly as stored.
@@ -834,8 +861,9 @@ contract IdentityNames is
     function primaryOf(address wallet, bytes32 platformId) external view returns (string memory) {
         string memory published = _s().published[wallet][platformId];
         if (bytes(published).length == 0) return "";
-        (bool ok, bytes32 handleKey) = _handleKey(platformId, published, _s().platforms[platformId].rules);
-        if (!ok) return "";
+        (HandleNormalizer.Problem problem, bytes32 handleKey) =
+            _handleKey(platformId, published, _s().platforms[platformId].rules);
+        if (problem != HandleNormalizer.Problem.None) return "";
         if (_s().byHandle[handleKey].owner != wallet) return "";
         return published;
     }
@@ -860,8 +888,8 @@ contract IdentityNames is
     {
         Platform memory platform = _requireUsable(platformId);
 
-        (bool ok, bytes32 handleKey) = _handleKey(platformId, handle, platform.rules);
-        wallet = ok ? _s().byHandle[handleKey].owner : address(0);
+        (HandleNormalizer.Problem problem, bytes32 handleKey) = _handleKey(platformId, handle, platform.rules);
+        wallet = problem == HandleNormalizer.Problem.None ? _s().byHandle[handleKey].owner : address(0);
 
         address idOwner = _s().byId[IdentityNodes.idNode(platformId, userId)].owner;
         // An unknown id does not agree either. A caller holding an id the chain

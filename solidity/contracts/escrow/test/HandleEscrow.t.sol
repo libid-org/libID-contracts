@@ -356,7 +356,7 @@ contract HandleEscrowTest is Test {
         // Both platforms usable the way a deployment makes them: a keyspace,
         // and a registered verifier the Proof Verifier answers for. GitHub is
         // never claimed on below, so `verifiesPlatform` is what lets it
-        // answer `rulesOf` and accept claims.
+        // accept claims.
         vm.startPrank(owner);
         names.setProofVerifier(IProofVerifier(address(proofVerifier)));
         names.setPlatform(X, HandleVectors.rulesFor(X));
@@ -454,7 +454,7 @@ contract HandleEscrowTest is Test {
                 // takes zero.
                 vm.expectRevert(
                     abi.encodeWithSelector(
-                        HandleEscrow.UnusableHandle.selector, HandleNormalizer.Problem(v.errorKind + 1)
+                        IdentityNames.UnusableHandle.selector, HandleNormalizer.Problem(v.errorKind + 1)
                     )
                 );
                 escrow.nodeOf(platformId, v.input);
@@ -504,12 +504,12 @@ contract HandleEscrowTest is Test {
 
     /// Text with nothing left after trimming and the at-sign has no node.
     function test_aBareAtSignHasNoNode() public {
-        vm.expectRevert(abi.encodeWithSelector(HandleEscrow.UnusableHandle.selector, HandleNormalizer.Problem.Empty));
+        vm.expectRevert(abi.encodeWithSelector(IdentityNames.UnusableHandle.selector, HandleNormalizer.Problem.Empty));
         escrow.nodeOf(X, " @ ");
     }
 
     function test_textWithNothingInItHasNoNode() public {
-        vm.expectRevert(abi.encodeWithSelector(HandleEscrow.UnusableHandle.selector, HandleNormalizer.Problem.Empty));
+        vm.expectRevert(abi.encodeWithSelector(IdentityNames.UnusableHandle.selector, HandleNormalizer.Problem.Empty));
         escrow.nodeOf(X, "   ");
     }
 
@@ -724,13 +724,16 @@ contract HandleEscrowTest is Test {
 
     /// A platform with a keyspace and no way to verify is not wired yet: no
     /// proof could claim what it would hold, so it takes nobody's money
-    /// either, by text or by node.
+    /// either, and it is refused the same way by text and by node. The text
+    /// has a node — the keyspace is enough for that — but nothing can bind a
+    /// holder there.
     function test_aPlatformThatCannotVerifyYetIsRefused() public {
         vm.prank(owner);
         names.setPlatform(GOOGLE, HandleVectors.rulesFor(GOOGLE));
 
+        assertEq(escrow.nodeOf(GOOGLE, "alice@example.com"), IdentityNodes.handleNode(GOOGLE, "alice@example.com"));
         vm.startPrank(sender);
-        vm.expectRevert(abi.encodeWithSelector(IdentityNames.UnknownPlatform.selector, GOOGLE));
+        vm.expectRevert(abi.encodeWithSelector(HandleEscrow.PlatformAcceptsNoClaims.selector, GOOGLE));
         escrow.depositToHandle{value: 1 ether}(GOOGLE, "alice@example.com", NATIVE, 1 ether);
         bytes32 node = IdentityNodes.handleNode(GOOGLE, "alice@example.com");
         vm.expectRevert(abi.encodeWithSelector(HandleEscrow.PlatformAcceptsNoClaims.selector, GOOGLE));
@@ -773,22 +776,23 @@ contract HandleEscrowTest is Test {
         assertEq(escrow.escrowed(aliceNode, NATIVE), 0);
     }
 
-    /// The reason `rulesOf` exists. Text this platform could never accept would
+    /// Why the text goes through the naming system's `nodeOf`, which refuses
+    /// what `resolveHandle` would answer with nobody. Text this platform could never accept would
     /// otherwise fund a slot no proof can ever claim, and the value would sit
     /// there until its depositor noticed and refunded it.
     function test_aHandleThePlatformCouldNeverAcceptIsRefused() public {
         vm.startPrank(sender);
 
         // A space inside is not a handle on X.
-        vm.expectRevert(abi.encodeWithSelector(HandleEscrow.UnusableHandle.selector, HandleNormalizer.Problem.BadChar));
+        vm.expectRevert(abi.encodeWithSelector(IdentityNames.UnusableHandle.selector, HandleNormalizer.Problem.BadChar));
         escrow.depositToHandle{value: 1 ether}(X, "ali ce", NATIVE, 1 ether);
 
         // A hyphen is GitHub's, not X's.
-        vm.expectRevert(abi.encodeWithSelector(HandleEscrow.UnusableHandle.selector, HandleNormalizer.Problem.BadChar));
+        vm.expectRevert(abi.encodeWithSelector(IdentityNames.UnusableHandle.selector, HandleNormalizer.Problem.BadChar));
         escrow.depositToHandle{value: 1 ether}(X, "ali-ce", NATIVE, 1 ether);
 
         // Past X's length.
-        vm.expectRevert(abi.encodeWithSelector(HandleEscrow.UnusableHandle.selector, HandleNormalizer.Problem.TooLong));
+        vm.expectRevert(abi.encodeWithSelector(IdentityNames.UnusableHandle.selector, HandleNormalizer.Problem.TooLong));
         escrow.depositToHandle{value: 1 ether}(X, "a123456789012345", NATIVE, 1 ether);
 
         vm.stopPrank();
@@ -1541,10 +1545,10 @@ contract HandleEscrowTest is Test {
 
         // The text is refused everywhere text is read.
         assertEq(names.resolveHandle(X, "alice_9"), address(0));
-        vm.expectRevert(abi.encodeWithSelector(HandleEscrow.UnusableHandle.selector, HandleNormalizer.Problem.BadChar));
+        vm.expectRevert(abi.encodeWithSelector(IdentityNames.UnusableHandle.selector, HandleNormalizer.Problem.BadChar));
         escrow.nodeOf(X, "alice_9");
         vm.prank(sender);
-        vm.expectRevert(abi.encodeWithSelector(HandleEscrow.UnusableHandle.selector, HandleNormalizer.Problem.BadChar));
+        vm.expectRevert(abi.encodeWithSelector(IdentityNames.UnusableHandle.selector, HandleNormalizer.Problem.BadChar));
         escrow.depositToHandle{value: 1 ether}(X, "alice_9", NATIVE, 1 ether);
 
         // The node is untouched: still held, still funded.

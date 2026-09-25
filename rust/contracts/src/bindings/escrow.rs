@@ -9,7 +9,7 @@
 //! `keccak256(abi.encode(keccak256("libid.identity.handle-node.v1"), platformId,
 //! keccak256(normalized)))`, the node `IdentityNames` binds and emits as
 //! `IdentityBound.handleNode`. `nodeOf` derives it from text under the
-//! platform's current rules; a client that must keep a handle out of calldata
+//! platform's current rules, by asking `IdentityNames.nodeOf`; a client that must keep a handle out of calldata
 //! derives it itself from the normalized handle and pays with `depositToNode`.
 
 /// Bindings for `escrow/HandleEscrow.sol`.
@@ -64,7 +64,10 @@ mod escrow_inner {
             /// What `refund` would pay `depositor` now: its contribution since
             /// the last claim of the slot.
             function refundable(bytes32 handleNode, address token, address depositor) external view returns (uint256);
-            /// The node a handle keys to under the platform's current rules.
+            /// The node a handle keys to under the platform's current rules:
+            /// `IdentityNames.nodeOf`, asked through the escrow. Reverts with
+            /// the naming system's `UnknownPlatform` or `UnusableHandle`,
+            /// which `depositToHandle` bubbles up too.
             function nodeOf(bytes32 platformId, string calldata handle) external view returns (bytes32);
             function names() external view returns (address);
             function NATIVE() external view returns (address);
@@ -122,8 +125,6 @@ mod escrow_inner {
             /// The depositor has nothing refundable for this node and token.
             error NothingToRefund(bytes32 handleNode, address token, address depositor);
             error BadRecipient(address recipient);
-            /// `problem` is a `HandleNormalizer.Problem`.
-            error UnusableHandle(uint8 problem);
             /// Nobody holds the node and no new claim can bind a holder on
             /// this platform.
             error PlatformAcceptsNoClaims(bytes32 platformId);

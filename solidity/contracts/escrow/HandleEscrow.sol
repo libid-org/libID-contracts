@@ -8,8 +8,6 @@ import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/U
 import {Ownable2StepUpgradeable} from "@openzeppelin/contracts-upgradeable/access/Ownable2StepUpgradeable.sol";
 import {ReentrancyGuardUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardUpgradeable.sol";
 
-import {HandleNormalizer} from "../identity/HandleNormalizer.sol";
-import {IdentityNodes} from "../identity/IdentityNodes.sol";
 import {IIdentityNames} from "../identity/IIdentityNames.sol";
 
 /// @title HandleEscrow - send to a platform handle before anybody claims it.
@@ -86,15 +84,17 @@ import {IIdentityNames} from "../identity/IIdentityNames.sol";
 ///      platform where a new claim can bind a holder (`acceptsClaims`):
 ///      anywhere else nothing could ever take what it would hold.
 ///
-///      **Two ways in.** `depositToHandle` takes the handle as text,
-///      normalizes it under the platform's current rules and refuses text no
-///      rules accept. `depositToNode` takes the node itself and can validate
+///      **Two ways in.** `depositToHandle` takes the handle as text, has
+///      the naming system turn it into its node under the platform's current
+///      rules, and is refused for text those rules do not accept.
+///      `depositToNode` takes the node itself and can validate
 ///      nothing; it exists so a payee whose handle must not appear in
 ///      calldata — a private, digest-profile binding — can still be paid.
 ///
 ///      **The platform's rules decide where text goes, not who holds a
 ///      node.** Normalization runs once, on the way in, under the rules of
-///      the moment, exactly as the naming system's own resolvers run it. A
+///      the moment, in the naming system itself (`IdentityNames.nodeOf`), so
+///      the two contracts cannot derive different nodes from one text. A
 ///      later `setPlatform` changes which node the same text reaches for both
 ///      contracts alike; value already held stays on its node and remains
 ///      claimable by whoever `byHandle` names there.
@@ -270,8 +270,6 @@ contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable
     error NothingToRefund(bytes32 handleNode, address token, address depositor);
     /// A payout to the zero address burns it; one to this contract strands it.
     error BadRecipient(address recipient);
-    /// Text this platform could never accept as a handle.
-    error UnusableHandle(HandleNormalizer.Problem problem);
     /// Nobody holds the node and no new claim can bind a holder on this
     /// platform, so nothing could ever take what the escrow would hold.
     error PlatformAcceptsNoClaims(bytes32 platformId);
@@ -307,12 +305,14 @@ contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable
 
     /// @notice Put `amount` of `token` against a handle, given as text.
     ///
-    /// @dev The text is normalized under the platform's current rules, once,
-    ///      and the result is the node. A typo — a space, a character the
-    ///      platform forbids, a handle past its length — is refused here
-    ///      rather than accepted into a slot no proof could ever claim. A
-    ///      platform that is not usable reverts `UnknownPlatform` from the
-    ///      naming system before anything moves.
+    /// @dev The naming system turns the text into the node,
+    ///      `IdentityNames.nodeOf`, normalizing it once under the platform's
+    ///      current rules. A typo — a space, a character the platform forbids,
+    ///      a handle past its length — reverts `UnusableHandle` there rather
+    ///      than funding a slot no proof could ever claim. A platform with no
+    ///      keyspace reverts `UnknownPlatform` there. One with a keyspace and
+    ///      no way yet to bind a holder is refused `PlatformAcceptsNoClaims`
+    ///      here, as it is by node. All of it happens before anything moves.
     ///
     ///      The text is in this call's calldata for anybody to read. A payee
     ///      whose handle must stay out of it is paid with `depositToNode`.
@@ -332,7 +332,7 @@ contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable
         payable
         nonReentrant
     {
-        _deposit(platformId, _nodeOf(platformId, handle), token, amount);
+        _deposit(platformId, _s().names.nodeOf(platformId, handle), token, amount);
     }
 
     /// @notice Put `amount` of `token` against a handle node.
@@ -566,13 +566,14 @@ contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable
 
     /// @notice The node a handle keys to under the platform's current rules.
     ///
-    /// @dev The same node `depositToHandle` would fund and `IdentityNames`
-    ///      would bind, so a client can read a balance or check two spellings
-    ///      land together before it sends anything. Reverts `UnusableHandle`
-    ///      for text the platform's rules refuse, and `UnknownPlatform` for a
-    ///      platform that is not usable.
+    /// @dev `IdentityNames.nodeOf`, asked through this contract: the node
+    ///      `depositToHandle` would fund and a proof of the handle would be
+    ///      bound under, so a client can read a balance or check two spellings
+    ///      land together before it sends anything. Reverts as the naming
+    ///      system does: `UnusableHandle` for text the platform's rules refuse,
+    ///      `UnknownPlatform` for a platform with no keyspace.
     function nodeOf(bytes32 platformId, string calldata handle) external view returns (bytes32) {
-        return _nodeOf(platformId, handle);
+        return _s().names.nodeOf(platformId, handle);
     }
 
     function _pay(address token, address to, uint256 amount) private {
@@ -586,18 +587,6 @@ contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable
     function _sendNative(address to, uint256 amount) private {
         (bool ok,) = to.call{value: amount}("");
         if (!ok) revert NativeTransferFailed(to, amount);
-    }
-
-    /// @dev Normalize once under the platform's current rules and key the
-    ///      result. `rulesOf` reverts for a platform that is not usable, which
-    ///      catches a mistyped `platformId` before it takes anybody's money.
-    ///      `tryNormalize` then decides whether this text could ever be a
-    ///      handle there, and its output is the string the node is built from.
-    function _nodeOf(bytes32 platformId, string calldata handle) private view returns (bytes32) {
-        HandleNormalizer.Rules memory rules = _s().names.rulesOf(platformId);
-        (HandleNormalizer.Problem problem, string memory normalized) = HandleNormalizer.tryNormalize(handle, rules);
-        if (problem != HandleNormalizer.Problem.None) revert UnusableHandle(problem);
-        return IdentityNodes.handleNode(platformId, normalized);
     }
 
     // ─── Upgrade ────────────────────────────────────────────────────

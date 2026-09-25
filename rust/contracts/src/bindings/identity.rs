@@ -48,12 +48,17 @@ mod names_inner {
             function resolvePair(bytes32 platformId, string calldata handle, string calldata userId) external view returns (address);
             function reverseOf(address wallet, bytes32 platformId) external view returns (string memory);
             function primaryOf(address wallet, bytes32 platformId) external view returns (string memory);
-            /// The platform's rules as configured now. Reverts for a platform
-            /// that is not usable, like the resolvers.
+            /// The platform's rules as configured now, for a client that
+            /// normalizes locally rather than send a handle's text to `nodeOf`.
+            /// Reverts for a platform that is not usable, like the resolvers.
             function rulesOf(bytes32 platformId) external view returns (Rules memory);
             /// Whether a new identity claim can bind a holder on this platform
             /// now: a keyspace, and a Proof Verifier that verifies it.
             function acceptsClaims(bytes32 platformId) external view returns (bool);
+            /// The node a handle keys to under the platform's current rules.
+            /// Needs only a keyspace; reverts `UnusableHandle` for text the
+            /// rules refuse.
+            function nodeOf(bytes32 platformId, string calldata handle) external view returns (bytes32 handleNode);
 
             /// Carries the ceremony version that proved the binding -- logged,
             /// never stored, because nothing on chain acts on it and an
@@ -74,6 +79,9 @@ mod names_inner {
             /// A platform with no keyspace, or one nothing verifies and on
             /// which nothing was ever bound.
             error UnknownPlatform(bytes32 platformId);
+            /// Text the platform's rules refuse; `problem` is a
+            /// `HandleNormalizer.Problem`.
+            error UnusableHandle(uint8 problem);
 
             event HandleRetired(bytes32 indexed platformId, bytes32 indexed handleNode, address indexed owner);
             event PlatformConfigured(bytes32 indexed platformId);

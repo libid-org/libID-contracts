@@ -8,7 +8,7 @@ import {StdUtils} from "forge-std/StdUtils.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
-import {HandleNormalizer} from "../../identity/HandleNormalizer.sol";
+import {IdentityNodes} from "../../identity/IdentityNodes.sol";
 import {HandleEscrow} from "../HandleEscrow.sol";
 import {IIdentityNames} from "../../identity/IIdentityNames.sol";
 import {FeeToken, TestERC20} from "./HandleEscrow.t.sol";
@@ -16,7 +16,7 @@ import {BlocklistToken, NoReturnToken} from "./HostileTokens.sol";
 
 /// @notice A naming system whose holders are set directly.
 ///
-/// @dev The escrow reads `byHandle`, `acceptsClaims` and `rulesOf` and nothing
+/// @dev The escrow reads `byHandle`, `acceptsClaims` and `nodeOf` and nothing
 ///      else. The accounting under test depends only on whether `byHandle`
 ///      names a holder, so the handler flips that directly instead of
 ///      staging identity claims; `HandleEscrow.t.sol` runs the real naming
@@ -32,8 +32,10 @@ contract SettableNames is IIdentityNames {
         return (holderOf[handleNode], 0);
     }
 
-    function rulesOf(bytes32) external pure returns (HandleNormalizer.Rules memory rules) {
-        return rules;
+    /// The text keyed as given: nothing here normalizes, and the suites that
+    /// use this deposit by node.
+    function nodeOf(bytes32 platformId, string calldata handle) external pure returns (bytes32) {
+        return IdentityNodes.handleNode(platformId, handle);
     }
 
     function acceptsClaims(bytes32) external pure returns (bool) {
