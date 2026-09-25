@@ -96,6 +96,27 @@ contract HookedParty is ITransferHooks {
     }
 }
 
+/// @notice A holder that moves every hook token it receives on to a vault
+///         from inside the transfer, and takes native value as it comes.
+contract SweepingHolder is ITransferHooks {
+    HookToken private immutable TOKEN;
+    address private immutable VAULT;
+
+    constructor(HookToken token_, address vault_) {
+        TOKEN = token_;
+        VAULT = vault_;
+        token_.register();
+    }
+
+    function tokensToSend(address, address, uint256) external {}
+
+    function tokensReceived(address, address, uint256 amount) external {
+        require(TOKEN.transfer(VAULT, amount), "the sweep failed");
+    }
+
+    receive() external payable {}
+}
+
 /// @notice Tokens that do what ERC-20 permits and a naive escrow does not
 ///         expect: call back in, answer `false`, answer nothing, or refuse an
 ///         address.
@@ -176,6 +197,31 @@ contract HandleEscrowHostileTokensTest is Test {
         assertEq(token.balanceOf(address(party)), 10 ether, "the depositor was refunded other than once");
         assertEq(escrow.escrowed(NODE, address(token)), 5 ether, "somebody else's contribution moved");
         assertEq(token.balanceOf(address(escrow)), 5 ether);
+    }
+
+    /// KNOWN LIMITATION, pinned. A pay-through measures what the holder
+    /// gained, and a holder that sweeps the token onward from inside the
+    /// transfer gains nothing measurable: the deposit reverts `ZeroAmount`
+    /// and the depositor keeps its tokens. The same holder is paid native
+    /// value normally.
+    function test_ACCEPTED_aHolderThatSweepsATokenCannotBePaidThroughInIt() public {
+        HookToken token = new HookToken();
+        SweepingHolder sweeper = new SweepingHolder(token, elsewhere);
+        names.setHolder(NODE, address(sweeper));
+        token.mint(depositor, 10 ether);
+
+        vm.startPrank(depositor);
+        token.approve(address(escrow), type(uint256).max);
+        vm.expectRevert(HandleEscrow.ZeroAmount.selector);
+        escrow.depositToNode(PLATFORM, NODE, address(token), 10 ether, depositor);
+        vm.stopPrank();
+        assertEq(token.balanceOf(depositor), 10 ether, "the refused deposit moved tokens");
+        assertEq(token.balanceOf(elsewhere), 0);
+
+        vm.deal(depositor, 1 ether);
+        vm.prank(depositor);
+        escrow.depositToNode{value: 1 ether}(PLATFORM, NODE, address(0), 1 ether, depositor);
+        assertEq(address(sweeper).balance, 1 ether, "native value did not reach the holder");
     }
 
     // ─── A token that answers false ─────────────────────────────────

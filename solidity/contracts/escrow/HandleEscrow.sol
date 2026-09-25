@@ -417,6 +417,14 @@ contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable
     ///      outcome — the sender learns instead of the value waiting in a slot
     ///      only that same wallet could ever claim.
     ///
+    ///      **A holder that sweeps a token onward cannot be paid through in
+    ///      that token.** A pay-through measures what the holder's balance
+    ///      gained. A holder whose receive hook moves the tokens on inside the
+    ///      transfer — a smart account forwarding to a vault, say — gains
+    ///      nothing measurable, and the deposit reverts `ZeroAmount`. Such a
+    ///      holder is paid native value normally; in that token, it has to be
+    ///      paid some other way.
+    ///
     ///      **The race is accepted.** One calldata has two outcomes depending on
     ///      whether it lands before or after an identity claim in the same
     ///      block: it pays through, or it escrows and waits for a claim. Both
