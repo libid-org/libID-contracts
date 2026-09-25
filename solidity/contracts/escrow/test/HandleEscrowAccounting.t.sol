@@ -148,13 +148,10 @@ contract EscrowHandler is CommonBase, StdCheats, StdUtils {
         address depositor = depositors[depositorSeed % 3];
         address token = tokens[tokenSeed % TOKENS];
         bytes32 node = nodes[nodeSeed % 2];
-        address holder = NAMES.holderOf(node);
         uint256 expected = modelContribution[node][token][depositor];
         uint256 before = _balanceOf(token, depositor);
 
-        if (holder != address(0)) {
-            vm.expectRevert(abi.encodeWithSelector(HandleEscrow.PayeeHasJoined.selector, node, holder));
-        } else if (expected == 0) {
+        if (expected == 0) {
             vm.expectRevert(abi.encodeWithSelector(HandleEscrow.NothingToRefund.selector, node, token, depositor));
         } else if (_expectBlocked(token, address(ESCROW), depositor)) {
             expected = 0;
@@ -162,7 +159,7 @@ contract EscrowHandler is CommonBase, StdCheats, StdUtils {
         vm.prank(depositor);
         ESCROW.refund(node, token, depositor);
 
-        if (holder == address(0) && expected != 0) {
+        if (expected != 0) {
             require(_balanceOf(token, depositor) - before == expected, "the refund paid other than the contribution");
             modelContribution[node][token][depositor] = 0;
         }
@@ -230,9 +227,8 @@ contract EscrowHandler is CommonBase, StdCheats, StdUtils {
 ///         random interleavings of every entry point that moves them.
 ///
 /// @dev Contributions are read straight out of storage with `vm.load`, at
-///      slots computed here from the ERC-7201 root, not through the contract:
-///      `refundable` answers zero while a node has a holder, and the books
-///      still have to add up then.
+///      slots computed here from the ERC-7201 root, and through `refundable`
+///      too, so the view and the storage are each checked against the model.
 contract HandleEscrowAccountingTest is Test {
     bytes32 internal constant ROOT = 0xfcca8d7d2c66f78c2760f3fcd99e0bf938b0aeb0d0b471f481dd50b8aff6b400;
     uint256 internal constant ROUND_FIELD = 2;
@@ -280,8 +276,6 @@ contract HandleEscrowAccountingTest is Test {
                 bytes32 node = handler.nodes(n);
                 uint256 held = escrow.escrowed(node, token);
                 heldTotal += held;
-                bool hasHolder = names.holderOf(node) != address(0);
-
                 uint256 round = uint256(vm.load(address(escrow), _roundSlot(node, token)));
                 uint256 stored;
                 uint256 modelled;
@@ -291,7 +285,7 @@ contract HandleEscrowAccountingTest is Test {
                         uint256(vm.load(address(escrow), _contributionSlot(node, token, round, depositor)));
                     uint256 model = handler.modelContribution(node, token, depositor);
                     assertEq(contribution, model, "a stored contribution departs from the model");
-                    assertEq(escrow.refundable(node, token, depositor), hasHolder ? 0 : model, "refundable is wrong");
+                    assertEq(escrow.refundable(node, token, depositor), model, "refundable is wrong");
                     stored += contribution;
                     modelled += model;
                 }
@@ -397,7 +391,6 @@ contract HandleEscrowAmountsTest is Test {
         assertEq(_balance(asset, holder), a + b, "the claim paid other than the sum");
         assertEq(escrow.escrowed(NODE, asset), 0);
         assertEq(_balance(asset, address(escrow)), 0);
-        names.setHolder(NODE, address(0));
         assertEq(escrow.refundable(NODE, asset, alice), 0, "what the claim took is refundable");
         assertEq(escrow.refundable(NODE, asset, bob), 0, "what the claim took is refundable");
     }

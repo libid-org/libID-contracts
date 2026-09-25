@@ -16,7 +16,7 @@ import {IIdentityNames} from "./IIdentityNames.sol";
 ///
 /// @notice Holds tokens against a platform handle. Whoever the naming system
 ///         names as that handle's holder takes what is held for it; until
-///         somebody holds it, each depositor can take its own deposit back.
+///         the holder takes it, each depositor can take its own deposit back.
 ///
 /// @dev The point is a sender who knows `@alice` and nothing else. The Bank's
 ///      escrow is keyed by an account's immutable id, which such a sender does
@@ -35,30 +35,35 @@ import {IIdentityNames} from "./IIdentityNames.sol";
 ///      and an escrow can be refunded.** A deposit for a node somebody holds
 ///      goes straight to that holder and nothing here can bring it back. A
 ///      deposit for a node nobody holds is booked to its depositor, and the
-///      depositor may take its own unclaimed contribution back with `refund`
-///      for as long as the node has no holder. There is no deadline: the
-///      refund is open from the deposit onwards, and it closes the moment the
-///      naming system names a holder — before that holder claims, too. From
-///      then on only `claim` by that holder moves the value, and a claim takes
-///      everything held for the node in that token, so what it took is
-///      nobody's to refund afterwards.
+///      depositor may take its own contribution back with `refund` until the
+///      holder collects it: refundable until collected. Whether the node has
+///      a holder yet plays no part. There is no deadline: the refund is open
+///      from the deposit onwards, and it closes only when the node's holder
+///      `claim`s. A claim takes everything held for the node in that token,
+///      so what it took is nobody's to refund afterwards.
+///
+///      The refund is the sender's protection against a holder it did not
+///      mean: a recycled handle, or a stale binding (below), can make the
+///      holder somebody else, and the sender can take the value back until
+///      that holder claims it.
 ///
 ///      **There is no refund delay, and the race with the payee is
-///      accepted.** A depositor can take a deposit back in the block after
-///      making it, so a `Deposited` promises the payee nothing until the
-///      payee holds the handle. A refund and the payee's identity claim can
-///      land in the same block. Whichever lands first wins: the refund
-///      returns the contribution and the payee's escrow no longer holds it,
-///      or the identity claim names a holder and the refund is refused. Both
-///      are outcomes of an escrow.
+///      accepted.** A depositor can take a deposit back at any time after
+///      making it, the same block included, and after the payee holds the
+///      handle, so held value promises the payee nothing until the payee
+///      claims it. A refund and
+///      the payee's `claim` here can land in the same block. Whichever lands
+///      first wins: the refund returns the contribution and the claim takes
+///      the rest, or the claim takes everything and the refund is refused
+///      with `NothingToRefund`. Both are outcomes of an escrow.
 ///
 ///      **The handle is the whole key.** Whoever holds the node takes what
 ///      was not refunded. A PLATFORM THAT RECYCLES A HANDLE HANDS THE NEW
-///      HOLDER WHATEVER ITS DEPOSITORS LEFT HELD FOR THE PREVIOUS ONE. A rename
-///      retires the handle: its node has no holder again, the account that
-///      renamed away can no longer claim, and every contribution nobody
-///      claimed becomes refundable to its depositor again, until somebody
-///      proves the freed handle and holds it.
+///      HOLDER WHATEVER ITS DEPOSITORS LEFT HELD FOR THE PREVIOUS ONE AND
+///      HAVE NOT TAKEN BACK. A rename retires the handle: its node has no
+///      holder again, the account that renamed away can no longer claim, and
+///      what nobody claimed waits for whoever proves the freed handle next,
+///      or goes back to its depositors on `refund`.
 ///
 ///      **A stale binding is paid, and that is accepted.** `byHandle` names
 ///      whoever last proved the handle, however long ago. A rename is
@@ -68,8 +73,10 @@ import {IIdentityNames} from "./IIdentityNames.sol";
 ///      deposit to `alice` pays straight through to it, and it can claim
 ///      anything held for `alice`, until somebody proves `alice` with a
 ///      newer observation — even if the platform has long since given the
-///      handle to someone else. A wallet should show the binding's age,
-///      `byHandle(node).observedAt`, before it sends.
+///      handle to someone else. Value held for the node stays refundable to
+///      its depositors until that holder claims it; a pay-through is not.
+///      A wallet should show the binding's age, `byHandle(node).observedAt`,
+///      before it sends.
 ///
 ///      **The escrow is for the window before a handle is claimed, and only
 ///      that.** A deposit for a node somebody holds is paid straight to that
@@ -239,8 +246,8 @@ contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable
         bytes32 indexed handleNode, address indexed token, address indexed claimer, address recipient, uint256 amount
     );
 
-    /// @notice A depositor took its own contribution back from a handle node
-    ///         nobody holds.
+    /// @notice A depositor took its own contribution back before the node's
+    ///         holder claimed it.
     event Refunded(
         bytes32 indexed handleNode, address indexed token, address indexed depositor, address recipient, uint256 amount
     );
@@ -263,8 +270,6 @@ contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable
     /// this token: it never deposited there, took it back already, or a claim
     /// took it.
     error NothingToRefund(bytes32 handleNode, address token, address depositor);
-    /// The handle node has a holder, so what is held is that holder's to claim.
-    error PayeeHasJoined(bytes32 handleNode, address holder);
     /// A payout to the zero address burns it; one to this contract strands it.
     error BadRecipient(address recipient);
     /// Text this platform could never accept as a handle.
@@ -372,9 +377,9 @@ contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable
     ///      whether it lands before or after an identity claim in the same
     ///      block: it pays through, or it escrows and waits for a claim. Both
     ///      deliver to the holder of the handle, so the difference is one
-    ///      transaction, not one of destination. The escrowed outcome is
-    ///      refundable only until that identity claim lands, which in this
-    ///      race it already has.
+    ///      transaction, not one of destination. The escrowed outcome stays
+    ///      refundable until that holder claims it; the paid-through one is
+    ///      not refundable at all.
     ///
     ///      An escrowed deposit is booked to `msg.sender` as its depositor:
     ///      that address, and no other, can `refund` it.
@@ -465,9 +470,9 @@ contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable
     ///
     ///      A retired handle — one whose account renamed away — has no owner,
     ///      so nobody can claim its slot until somebody proves that handle
-    ///      again, and meanwhile its depositors can `refund` what they put in.
-    ///      Whoever proves it next may be a different account, and then what is
-    ///      left is theirs. See the contract comment.
+    ///      again. Whoever proves it next may be a different account, and then
+    ///      what is left is theirs. Until a claim, whoever holds the node,
+    ///      depositors can `refund` what they put in. See the contract comment.
     ///
     ///      A claim takes everything held for the node in this token and
     ///      closes the round: every contribution it took stops being
@@ -500,19 +505,21 @@ contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable
 
     // ─── Refunding ──────────────────────────────────────────────────
 
-    /// @notice Take back what the caller deposited for a handle node nobody
-    ///         holds, in one token.
+    /// @notice Take back what the caller deposited for a handle node and the
+    ///         node's holder has not claimed, in one token.
     ///
-    /// @dev Open while `names.byHandle(handleNode).owner` is zero, and only
-    ///      then. That covers a handle nobody has proved yet, a node no handle
-    ///      reaches, and a handle whose holder renamed away: a retired handle
-    ///      has no holder again, so every contribution no claim took becomes
-    ///      refundable again. Once a holder exists the refund is refused, even
-    ///      before that holder claims, and what is held is the holder's.
+    /// @dev Refundable until collected. The naming system is not asked: a
+    ///      node nobody has proved, a node no handle reaches, a retired
+    ///      handle and a handle somebody holds all refund alike, up to the
+    ///      moment the holder `claim`s. That is the sender's way back from a
+    ///      holder it did not mean — a recycled handle or a stale binding —
+    ///      and the reason held value promises the payee nothing until it is
+    ///      claimed. A refund and a claim racing in one block: whichever lands
+    ///      first wins.
     ///
-    ///      The platform plays no part: a platform that no longer accepts
-    ///      claims still refunds, because nothing there could ever take the
-    ///      value otherwise.
+    ///      The platform plays no part either: a platform that no longer
+    ///      accepts claims still refunds, because nothing there could ever
+    ///      take the value otherwise.
     ///
     ///      The caller gets its own contribution in the current round and
     ///      nothing more — what it deposited since the last claim of this
@@ -530,9 +537,6 @@ contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable
         if (recipient == address(0) || recipient == address(this)) revert BadRecipient(recipient);
 
         HandleEscrowStorage storage $ = _s();
-        (address holder,) = $.names.byHandle(handleNode);
-        if (holder != address(0)) revert PayeeHasJoined(handleNode, holder);
-
         mapping(address => uint256) storage current = $.contributions[handleNode][token][$.round[handleNode][token]];
         uint256 amount = current[msg.sender];
         if (amount == 0) revert NothingToRefund(handleNode, token, msg.sender);
@@ -557,12 +561,11 @@ contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable
     /// @notice What `refund` would pay `depositor` for a handle node in one
     ///         token now.
     ///
-    /// @dev Zero whenever the node has a holder, since `refund` is refused
-    ///      then; otherwise the depositor's contribution in the current round.
+    /// @dev The depositor's contribution in the current round: what it
+    ///      deposited since the last claim of this slot, less what it took
+    ///      back. Whether the node has a holder does not change it.
     function refundable(bytes32 handleNode, address token, address depositor) external view returns (uint256) {
         HandleEscrowStorage storage $ = _s();
-        (address holder,) = $.names.byHandle(handleNode);
-        if (holder != address(0)) return 0;
         return $.contributions[handleNode][token][$.round[handleNode][token]][depositor];
     }
 

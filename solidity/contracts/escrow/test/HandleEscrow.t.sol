@@ -1240,21 +1240,48 @@ contract HandleEscrowTest is Test {
         assertEq(address(escrow).balance, 0);
     }
 
-    /// Once the naming system names a holder the escrow is the holder's, even
-    /// before the holder claims: the refund is refused and `refundable` reads
-    /// zero.
-    function test_aRefundIsRefusedOnceThePayeeHasJoined() public {
+    /// Refundable until collected: the payee having joined does not close the
+    /// refund, only its claim does. The claim then takes what is left.
+    function test_aRefundWorksAfterThePayeeJoinsUntilItClaims() public {
         _depositNative("alice", 1 ether);
+        vm.deal(bob, 2 ether);
+        vm.prank(bob);
+        escrow.depositToHandle{value: 2 ether}(X, "alice", NATIVE, 2 ether);
         _bind(alice, "1", "alice", 100);
 
-        assertEq(escrow.refundable(aliceNode, NATIVE, sender), 0, "a held node reads as refundable");
+        assertEq(escrow.refundable(aliceNode, NATIVE, sender), 1 ether, "a held node reads as not refundable");
+        uint256 before = sender.balance;
         vm.prank(sender);
-        vm.expectRevert(abi.encodeWithSelector(HandleEscrow.PayeeHasJoined.selector, aliceNode, alice));
         escrow.refund(aliceNode, NATIVE, sender);
+        assertEq(sender.balance, before + 1 ether, "the depositor was not paid back");
 
         vm.prank(alice);
         escrow.claim(aliceNode, NATIVE, alice);
-        assertEq(alice.balance, 1 ether, "the holder did not get what the refused refund left");
+        assertEq(alice.balance, 2 ether, "the holder did not get what the refund left");
+        assertEq(escrow.refundable(aliceNode, NATIVE, bob), 0, "what the claim took reads as refundable");
+    }
+
+    /// A refund and the payee's claim racing: whichever lands first wins.
+    /// Refund first returns the contribution and the claim takes the rest;
+    /// claim first takes everything and the refund finds nothing.
+    function test_ACCEPTED_aRefundAndAClaimRaceAndTheFirstWins() public {
+        _depositNative("alice", 1 ether);
+        _bind(alice, "1", "alice", 100);
+        uint256 staged = vm.snapshotState();
+
+        vm.prank(sender);
+        escrow.refund(aliceNode, NATIVE, sender);
+        vm.prank(alice);
+        vm.expectRevert(abi.encodeWithSelector(HandleEscrow.NothingHeld.selector, aliceNode, NATIVE));
+        escrow.claim(aliceNode, NATIVE, alice);
+
+        vm.revertToState(staged);
+        vm.prank(alice);
+        escrow.claim(aliceNode, NATIVE, alice);
+        vm.prank(sender);
+        vm.expectRevert(abi.encodeWithSelector(HandleEscrow.NothingToRefund.selector, aliceNode, NATIVE, sender));
+        escrow.refund(aliceNode, NATIVE, sender);
+        assertEq(alice.balance, 1 ether);
     }
 
     /// A claim closes the round. What it took is not refundable afterwards,
@@ -1281,14 +1308,10 @@ contract HandleEscrowTest is Test {
     }
 
     /// A holder who never claimed and renamed away leaves a node with no
-    /// holder, and every contribution it left becomes refundable again.
-    function test_aRetiredHandlesUnclaimedContributionsAreRefundableAgain() public {
+    /// holder, and every contribution it left is still refundable.
+    function test_aRetiredHandlesUnclaimedContributionsStayRefundable() public {
         _depositNative("alice", 1 ether);
         _bind(alice, "1", "alice", 100);
-        vm.prank(sender);
-        vm.expectRevert(abi.encodeWithSelector(HandleEscrow.PayeeHasJoined.selector, aliceNode, alice));
-        escrow.refund(aliceNode, NATIVE, sender);
-
         _bind(alice, "1", "alice2", 200);
 
         assertEq(escrow.refundable(aliceNode, NATIVE, sender), 1 ether);
@@ -1483,7 +1506,7 @@ contract HandleEscrowTest is Test {
     /// NOT a vulnerability. Between a rename and the next proof of the freed
     /// handle, the handle has no holder and nobody can claim the slot —
     /// including the account that just renamed away from it. Its depositors
-    /// can refund meanwhile; see the refund tests.
+    /// can refund until somebody claims; see the refund tests.
     function test_ACCEPTED_aRenamedAwayHandleIsClaimableByNobody() public {
         _depositNative("alice", 1 ether);
         _bind(alice, "1", "alice", 100);
