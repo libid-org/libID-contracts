@@ -39,6 +39,12 @@ export function handleNode(platformId: Hex, normalizedHandle: NormalizedHandle):
 /// Throws `HandleError` for text the rules refuse, and an `Error` for a platform
 /// the table does not have.
 ///
+/// Text the rules accept is not thereby a handle a proof will bind. Google signs
+/// the exact address an account has, so `a.lice@gmail.com` and
+/// `alice+tag@gmail.com` are valid text that key to nodes of their own, not to
+/// `alice@gmail.com`'s, and no proof binds them. Pass the address as the payee
+/// uses it; a deposit to such a node is only recoverable by its `refundTo`.
+///
 /// The table holds the rules the platforms launched with. `IdentityNames`
 /// normalizes under the rules its owner configured, which `setPlatform` can
 /// change; a client that must follow a change reads `rulesOf` and calls

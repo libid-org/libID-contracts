@@ -240,7 +240,7 @@ contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable
     ///      `refundTo` of `Refunded`. `depositor` is the caller that paid,
     ///      which may be a router acting for `refundTo`. `platformId` is the
     ///      one the caller named. On `depositToNode` nothing checks that the
-    ///      node belongs to it.
+    ///      node belongs to it; see there.
     event Deposited(
         bytes32 indexed handleNode,
         address indexed token,
@@ -348,10 +348,18 @@ contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable
     ///
     /// @dev The naming system turns the text into the node,
     ///      `IdentityNames.nodeOf`, normalizing it once under the platform's
-    ///      current rules. A typo — a space, a character the platform forbids,
-    ///      a handle past its length — reverts `UnusableHandle` there rather
-    ///      than funding a slot no proof could ever claim. A platform with no
-    ///      keyspace reverts `UnknownPlatform` there. One with a keyspace and
+    ///      current rules. Text those rules refuse — a space, a character the
+    ///      platform forbids, a handle past its length — reverts
+    ///      `UnusableHandle` there. That is all the check can do: text the
+    ///      rules accept is not thereby a handle any proof will bind. On
+    ///      Google a proof binds the exact address Google signs, so a spelling
+    ///      the rules accept but no Google account has — a Gmail address with
+    ///      dots added to its local part, or a `+tag` — normalizes to a node
+    ///      of its own that no proof ever binds, and so does a typo that
+    ///      happens to be valid text on any platform. Such a deposit waits on
+    ///      a node nobody will hold, and its `refundTo` takes it back with
+    ///      `refund`. A platform with no keyspace reverts `UnknownPlatform`
+    ///      there. One with a keyspace and
     ///      no way yet to bind a holder is refused `PlatformAcceptsNoClaims`
     ///      here, as it is by node. All of it happens before anything moves.
     ///
@@ -397,9 +405,17 @@ contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable
     ///      private binding under a digest profile, whose handle the chain only
     ///      ever sees as its node — can still be paid.
     ///
-    ///      `platformId` is taken on trust: it decides whether a new claim can
-    ///      bind a holder (for the escrow branch) and is logged, but it does
-    ///      not enter the key.
+    ///      **`platformId` is the caller's claim, and it is not checked.** A
+    ///      node cannot be decoded to the platform it was derived for, so
+    ///      nothing here can tell whether `handleNode` belongs to
+    ///      `platformId`. The value decides the escrow branch's
+    ///      `acceptsClaims` gate and is logged as `Deposited.platformId` and
+    ///      `Forwarded.platformId`; both are only what the caller said. It
+    ///      does not enter the key and plays no part in who may claim, which
+    ///      is `byHandle(handleNode)` alone. A deposit whose `platformId` does
+    ///      not match its node — held because another platform accepts
+    ///      claims, or logged under the wrong platform — is recoverable like
+    ///      any other held deposit: its `refundTo` refunds it.
     ///
     ///      **A node somebody holds is paid straight through.** The escrow
     ///      exists for the window before a handle is claimed. Once it is
@@ -427,11 +443,13 @@ contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable
     ///
     ///      **The race is accepted.** One calldata has two outcomes depending on
     ///      whether it lands before or after an identity claim in the same
-    ///      block: it pays through, or it escrows and waits for a claim. Both
-    ///      deliver to the holder of the handle, so the difference is one
-    ///      transaction, not one of destination. The escrowed outcome stays
-    ///      refundable until that holder claims it; the paid-through one is
-    ///      not refundable at all.
+    ///      block: it pays through, or it escrows and waits for a claim. The
+    ///      two can end in different places. The paid-through value is the
+    ///      holder's at once and cannot be refunded. The escrowed value goes
+    ///      to whoever holds the node when a claim lands: the holder of the
+    ///      moment if it claims, but its `refundTo` can take it back first,
+    ///      and if the holder renames away before claiming, whoever proves
+    ///      the handle next claims it instead.
     ///
     ///      **An escrowed deposit is booked to `refundTo`**, and only that
     ///      address, calling `refund` itself, can take it back. A caller
