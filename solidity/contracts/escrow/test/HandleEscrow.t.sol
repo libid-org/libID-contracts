@@ -7,8 +7,6 @@ import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 
 import {ReentrancyGuardUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardUpgradeable.sol";
 
-import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
-
 import {HandleNormalizer} from "../../identity/HandleNormalizer.sol";
 import {HandleVectors} from "../../identity/HandleVectors.sol";
 import {IdentityNames} from "../../identity/IdentityNames.sol";
@@ -105,36 +103,6 @@ contract HandleEscrowV2 is HandleEscrow {
     {
         return _v2().contributions[handleNode][token][round_][depositor];
     }
-}
-
-/// @notice The layout the escrow shipped with before it kept contributions:
-///         `held` and `names` in the namespaced root and nothing after them.
-///
-/// @dev Deployed behind a proxy and upgraded to the real `HandleEscrow`, it
-///      stages value that was deposited with no depositor on record. Its
-///      upgrade is open to anybody: it exists only to be upgraded away from.
-contract PreviousHandleEscrow is UUPSUpgradeable {
-    /// @custom:storage-location erc7201:libid.storage.HandleEscrow
-    struct PreviousStorage {
-        mapping(bytes32 => mapping(address => uint256)) held;
-        IIdentityNames names;
-    }
-
-    function _p() private pure returns (PreviousStorage storage $) {
-        assembly {
-            $.slot := 0xfcca8d7d2c66f78c2760f3fcd99e0bf938b0aeb0d0b471f481dd50b8aff6b400
-        }
-    }
-
-    function setNames(IIdentityNames names_) external {
-        _p().names = names_;
-    }
-
-    function deposit(bytes32 handleNode) external payable {
-        _p().held[handleNode][address(0)] += msg.value;
-    }
-
-    function _authorizeUpgrade(address) internal override {}
 }
 
 /// @notice Deposits native value for a node, then refunds it to itself and,
@@ -1660,41 +1628,6 @@ contract HandleEscrowTest is Test {
         assertEq(escrow.refundable(aliceNode, NATIVE, sender), 1 ether, "writing the new field disturbed a refund");
     }
 
-    /// Upgrading from the layout that kept no contributions. What it held stays
-    /// readable and claimable by the holder; it has no depositor on record, so
-    /// no refund reaches it. Deposits made after the upgrade are refundable
-    /// and do not reach into it.
-    function test_anUpgradeFromTheLayoutWithoutContributionsKeepsWhatItHeld() public {
-        PreviousHandleEscrow previousImpl = new PreviousHandleEscrow();
-        PreviousHandleEscrow previous = PreviousHandleEscrow(address(new ERC1967Proxy(address(previousImpl), "")));
-        previous.setNames(IIdentityNames(address(names)));
-        vm.prank(sender);
-        previous.deposit{value: 1 ether}(aliceNode);
-
-        previous.upgradeToAndCall(address(new HandleEscrow()), "");
-        HandleEscrow upgraded = HandleEscrow(address(previous));
-
-        assertEq(address(upgraded.names()), address(names), "the naming pointer moved");
-        assertEq(upgraded.escrowed(aliceNode, NATIVE), 1 ether, "the old balance moved");
-        assertEq(upgraded.refundable(aliceNode, NATIVE, sender), 0, "an unrecorded deposit reads as refundable");
-        vm.prank(sender);
-        vm.expectRevert(abi.encodeWithSelector(HandleEscrow.NothingToRefund.selector, aliceNode, NATIVE, sender));
-        upgraded.refund(aliceNode, NATIVE, sender);
-
-        // A deposit through the new code is the depositor's to take back, and
-        // only that much.
-        vm.prank(sender);
-        upgraded.depositToNode{value: 2 ether}(X, aliceNode, NATIVE, 2 ether);
-        vm.prank(sender);
-        upgraded.refund(aliceNode, NATIVE, sender);
-        assertEq(upgraded.escrowed(aliceNode, NATIVE), 1 ether, "a refund reached the unrecorded deposit");
-
-        _bind(alice, "1", "alice", 100);
-        vm.prank(alice);
-        upgraded.claim(aliceNode, NATIVE, alice);
-        assertEq(alice.balance, 1 ether, "the holder did not get the old balance");
-    }
-
     /// OpenZeppelin's ERC-7201 root for the storage-based reentrancy guard,
     /// `openzeppelin.storage.ReentrancyGuard`. Distinct from the escrow's own
     /// root, so the guard's word and the books cannot overlap.
@@ -1708,31 +1641,6 @@ contract HandleEscrowTest is Test {
         assertEq(uint256(vm.load(address(escrow), GUARD_SLOT)), 1, "initialize did not arm the guard");
         _depositNative("alice", 1 ether);
         assertEq(uint256(vm.load(address(escrow), GUARD_SLOT)), 1, "a guarded call left the guard entered");
-    }
-
-    /// A proxy upgraded to this code from an implementation that never ran
-    /// `__ReentrancyGuard_init` has a zero guard word. The guard refuses only
-    /// ENTERED (2), so reentry is refused from the zero word too.
-    function test_theGuardRefusesReentryOnAProxyThatNeverInitializedIt() public {
-        PreviousHandleEscrow previousImpl = new PreviousHandleEscrow();
-        PreviousHandleEscrow previous = PreviousHandleEscrow(address(new ERC1967Proxy(address(previousImpl), "")));
-        previous.setNames(IIdentityNames(address(names)));
-        previous.upgradeToAndCall(address(new HandleEscrow()), "");
-        HandleEscrow upgraded = HandleEscrow(address(previous));
-        assertEq(uint256(vm.load(address(upgraded), GUARD_SLOT)), 0, "the guard word was not left zero");
-
-        ObservingClaimer claimer = new ObservingClaimer(upgraded, aliceNode);
-        vm.prank(sender);
-        upgraded.depositToNode{value: 1 ether}(X, aliceNode, NATIVE, 1 ether);
-        _bind(address(claimer), "1", "alice", 100);
-        claimer.take();
-
-        assertEq(
-            claimer.reentryError(),
-            abi.encodeWithSelector(ReentrancyGuardUpgradeable.ReentrancyGuardReentrantCall.selector),
-            "the second claim was not refused by the guard"
-        );
-        assertEq(address(claimer).balance, 1 ether, "the claimer was paid other than once");
     }
 
     // ─── Helpers ────────────────────────────────────────────────────

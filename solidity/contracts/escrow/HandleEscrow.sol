@@ -199,9 +199,7 @@ contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable
         mapping(bytes32 => mapping(address => uint256)) round;
         /// handle node -> token -> round -> depositor -> what that depositor
         /// put into the slot during that round and has not taken back. In the
-        /// current round these sum to `held`, except for value deposited
-        /// through an implementation that kept no contributions, which has no
-        /// depositor on record.
+        /// current round these sum to `held`.
         mapping(bytes32 => mapping(address => mapping(uint256 => mapping(address => uint256)))) contributions;
     }
 
@@ -524,10 +522,7 @@ contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable
     ///      The caller gets its own contribution in the current round and
     ///      nothing more — what it deposited since the last claim of this
     ///      slot, as the escrow received it, less what it took back already.
-    ///      Other depositors' contributions stay held. Refunds apply to
-    ///      deposits made by this implementation: value an earlier one took,
-    ///      which kept no contributions, has no depositor on record, so no
-    ///      refund reaches it and the holder claims it with the rest.
+    ///      Other depositors' contributions stay held.
     ///
     ///      The books are settled before the payout, and the destination is
     ///      checked as `claim` checks it.
