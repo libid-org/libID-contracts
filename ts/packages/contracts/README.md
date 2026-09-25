@@ -123,6 +123,24 @@ normalize(' @Alice_1 ', RULES_X) // 'alice_1'
 // Throws HandleError (with a kind matching the on-chain error) on refusal.
 ```
 
+## Deriving a handle node
+
+`HandleEscrow.depositToNode` and `IdentityNames.byHandle` take a handle node,
+not text. `handleNodeOf` normalizes what a user typed under the platform's rules
+and keys the result, so a Gmail address can be paid without putting it in
+calldata:
+
+```ts
+import { handleNodeOf } from '@libid/contracts/identity'
+
+handleNodeOf('google', 'Alice@Gmail.com') === handleNodeOf('google', 'alice@gmail.com') // true
+```
+
+`handleNode(platformId, normalized)` is the step underneath. It takes only a
+`NormalizedHandle`, which `normalize` returns, so a raw string does not
+type-check. `handleNodeOf` uses the rules in the generated table; a client
+following a later `setPlatform` reads `rulesOf` and normalizes with those.
+
 ## Development
 
 ```sh
