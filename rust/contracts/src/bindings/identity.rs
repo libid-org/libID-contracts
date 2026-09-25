@@ -45,7 +45,9 @@ mod names_inner {
             function unpublish(bytes32 platformId) external;
             function resolveId(bytes32 platformId, string calldata userId) external view returns (address);
             function resolveHandle(bytes32 platformId, string calldata handle) external view returns (address);
-            function resolvePair(bytes32 platformId, string calldata handle, string calldata userId) external view returns (address);
+            /// The handle's current owner, and whether `userId` resolves to
+            /// that same wallet.
+            function resolvePair(bytes32 platformId, string calldata handle, string calldata userId) external view returns (address wallet, bool idAgrees);
             function reverseOf(address wallet, bytes32 platformId) external view returns (string memory);
             function primaryOf(address wallet, bytes32 platformId) external view returns (string memory);
             /// The platform's rules as configured now, for a client that
