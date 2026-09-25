@@ -877,7 +877,7 @@ async fn escrows_value_against_an_unclaimed_handle() {
         owner: deployer,
         notary_service: notary_proxy,
         honk_verifier: honk,
-        proof_lifetime: libid_profiles::PROOF_LIFETIME_SECONDS_X,
+        proof_lifetime: libid_profiles::PROOF_LIFETIME_SECONDS_GITHUB,
         max_future_attestation_skew: libid_profiles::MAX_FUTURE_ATTESTATION_SKEW_SECONDS,
         future_observation_allowance: 300,
     });
