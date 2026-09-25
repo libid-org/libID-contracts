@@ -942,7 +942,13 @@ async fn escrows_value_against_an_unclaimed_handle() {
     // Paid before anybody holds it: once by text, once by the node alone.
     let amount = U256::from(1_000_000_000_000_000_000u64);
     escrow
-        .depositToHandle(platform_id, " Alice-1 ".into(), Address::ZERO, amount)
+        .depositToHandle(
+            platform_id,
+            " Alice-1 ".into(),
+            Address::ZERO,
+            amount,
+            deployer,
+        )
         .value(amount)
         .send()
         .await
@@ -951,7 +957,7 @@ async fn escrows_value_against_an_unclaimed_handle() {
         .await
         .unwrap();
     escrow
-        .depositToNode(platform_id, computed, Address::ZERO, amount)
+        .depositToNode(platform_id, computed, Address::ZERO, amount, deployer)
         .value(amount)
         .send()
         .await
@@ -1024,7 +1030,7 @@ async fn escrows_value_against_an_unclaimed_handle() {
         .decoded_log::<HandleEscrow::Refunded>()
         .expect("no Refunded event");
     assert_eq!(refunded.handleNode, computed);
-    assert_eq!(refunded.depositor, deployer);
+    assert_eq!(refunded.refundTo, deployer);
     assert_eq!(refunded.recipient, stranger);
     assert_eq!(refunded.amount, amount * U256::from(2));
     assert_eq!(

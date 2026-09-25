@@ -51,7 +51,7 @@ contract HookedParty is ITransferHooks {
     }
 
     function deposit(uint256 amount) external {
-        ESCROW.depositToNode(PLATFORM, NODE, address(TOKEN), amount);
+        ESCROW.depositToNode(PLATFORM, NODE, address(TOKEN), amount, address(this));
     }
 
     function claim() external {
@@ -76,7 +76,7 @@ contract HookedParty is ITransferHooks {
         ++attempts;
         bytes memory call;
         if (reentry == Reentry.Deposit) {
-            call = abi.encodeCall(HandleEscrow.depositToNode, (PLATFORM, NODE, address(TOKEN), 1));
+            call = abi.encodeCall(HandleEscrow.depositToNode, (PLATFORM, NODE, address(TOKEN), 1, address(this)));
         } else if (reentry == Reentry.Claim) {
             call = abi.encodeCall(HandleEscrow.claim, (NODE, address(TOKEN), address(this)));
         } else {
@@ -183,7 +183,7 @@ contract HandleEscrowHostileTokensTest is Test {
 
         vm.prank(depositor);
         vm.expectRevert(abi.encodeWithSelector(SafeERC20.SafeERC20FailedOperation.selector, address(token)));
-        escrow.depositToNode(PLATFORM, NODE, address(token), 10 ether);
+        escrow.depositToNode(PLATFORM, NODE, address(token), 10 ether, depositor);
         assertEq(escrow.escrowed(NODE, address(token)), 0);
     }
 
@@ -195,7 +195,7 @@ contract HandleEscrowHostileTokensTest is Test {
         token.mint(depositor, 10 ether);
         vm.startPrank(depositor);
         token.approve(address(escrow), type(uint256).max);
-        escrow.depositToNode(PLATFORM, NODE, address(token), 10 ether);
+        escrow.depositToNode(PLATFORM, NODE, address(token), 10 ether, depositor);
         vm.stopPrank();
         token.setFailing(true);
 
@@ -225,9 +225,9 @@ contract HandleEscrowHostileTokensTest is Test {
         token.mint(depositor, 30 ether);
         vm.startPrank(depositor);
         token.approve(address(escrow), type(uint256).max);
-        escrow.depositToNode(PLATFORM, NODE, address(token), 10 ether);
+        escrow.depositToNode(PLATFORM, NODE, address(token), 10 ether, depositor);
         escrow.refund(NODE, address(token), depositor);
-        escrow.depositToNode(PLATFORM, NODE, address(token), 10 ether);
+        escrow.depositToNode(PLATFORM, NODE, address(token), 10 ether, depositor);
         vm.stopPrank();
         assertEq(token.balanceOf(depositor), 20 ether, "the refund did not return the deposit");
 
@@ -237,7 +237,7 @@ contract HandleEscrowHostileTokensTest is Test {
         assertEq(token.balanceOf(holder), 10 ether, "the claim did not pay");
 
         vm.prank(depositor);
-        escrow.depositToNode(PLATFORM, NODE, address(token), 5 ether);
+        escrow.depositToNode(PLATFORM, NODE, address(token), 5 ether, depositor);
         assertEq(token.balanceOf(holder), 15 ether, "the pay-through did not pay");
         assertEq(token.balanceOf(address(escrow)), 0);
     }
@@ -290,7 +290,7 @@ contract HandleEscrowHostileTokensTest is Test {
 
         vm.prank(depositor);
         vm.expectRevert(abi.encodeWithSelector(BlocklistToken.Blocked.selector, holder));
-        escrow.depositToNode(PLATFORM, NODE, address(token), 10 ether);
+        escrow.depositToNode(PLATFORM, NODE, address(token), 10 ether, depositor);
         assertEq(token.balanceOf(depositor), 10 ether);
     }
 
@@ -304,7 +304,7 @@ contract HandleEscrowHostileTokensTest is Test {
 
         vm.startPrank(depositor);
         vm.expectRevert(abi.encodeWithSelector(BlocklistToken.Blocked.selector, address(escrow)));
-        escrow.depositToNode(PLATFORM, NODE, address(token), 1 ether);
+        escrow.depositToNode(PLATFORM, NODE, address(token), 1 ether, depositor);
         vm.expectRevert(abi.encodeWithSelector(BlocklistToken.Blocked.selector, address(escrow)));
         escrow.refund(NODE, address(token), depositor);
         vm.stopPrank();
@@ -333,7 +333,7 @@ contract HandleEscrowHostileTokensTest is Test {
         token.mint(depositor, amount);
         vm.startPrank(depositor);
         token.approve(address(escrow), amount);
-        escrow.depositToNode(PLATFORM, NODE, address(token), amount);
+        escrow.depositToNode(PLATFORM, NODE, address(token), amount, depositor);
         vm.stopPrank();
     }
 
@@ -342,7 +342,7 @@ contract HandleEscrowHostileTokensTest is Test {
         token.mint(depositor, amount);
         vm.startPrank(depositor);
         token.approve(address(escrow), type(uint256).max);
-        escrow.depositToNode(PLATFORM, NODE, address(token), amount);
+        escrow.depositToNode(PLATFORM, NODE, address(token), amount, depositor);
         vm.stopPrank();
     }
 

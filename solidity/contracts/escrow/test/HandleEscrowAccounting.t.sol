@@ -49,8 +49,10 @@ contract SettableNames is IIdentityNames {
 ///
 /// @dev The model is deliberately simpler than the contract: a deposit to a
 ///      node with no holder adds what the token delivers, computed from the
-///      token's own fee rule; a refund zeroes the caller's entry; a claim
-///      zeroes every entry for the slot. It knows nothing of rounds.
+///      token's own fee rule, to the entry of the `refundTo` it names — drawn
+///      independently of the depositor who pays, so a deposit made for
+///      somebody else is exercised; a refund zeroes the caller's entry; a
+///      claim zeroes every entry for the slot. It knows nothing of rounds.
 ///
 ///      Five tokens: native value, a plain ERC-20, one that takes a fee on
 ///      transfer, one that returns nothing (USDT's shape), and one with a
@@ -76,7 +78,7 @@ contract EscrowHandler is CommonBase, StdCheats, StdUtils {
     uint256 public blockedRefusals;
     uint256 public selfPayRefusals;
 
-    /// node -> token -> depositor -> the model's refundable contribution.
+    /// node -> token -> refundTo -> the model's refundable contribution.
     mapping(bytes32 => mapping(address => mapping(address => uint256))) public modelContribution;
 
     constructor(HandleEscrow escrow_, SettableNames names_) {
@@ -94,8 +96,11 @@ contract EscrowHandler is CommonBase, StdCheats, StdUtils {
         holders = [makeAddr("holder 1"), makeAddr("holder 2")];
     }
 
-    function deposit(uint256 depositorSeed, uint256 tokenSeed, uint256 nodeSeed, uint256 amount) external {
+    function deposit(uint256 depositorSeed, uint256 refundToSeed, uint256 tokenSeed, uint256 nodeSeed, uint256 amount)
+        external
+    {
         address depositor = depositors[depositorSeed % 3];
+        address refundTo = depositors[refundToSeed % 3];
         address token = tokens[tokenSeed % TOKENS];
         bytes32 node = nodes[nodeSeed % 2];
         amount = bound(amount, 1, 1e24);
@@ -105,17 +110,17 @@ contract EscrowHandler is CommonBase, StdCheats, StdUtils {
         if (token == address(0)) {
             vm.deal(depositor, amount);
             vm.prank(depositor);
-            ESCROW.depositToNode{value: amount}(PLATFORM, node, token, amount);
+            ESCROW.depositToNode{value: amount}(PLATFORM, node, token, amount, refundTo);
         } else {
             _fund(token, depositor, amount);
             if (token == tokens[2]) delivered = amount - (amount * FeeToken(token).FEE_BPS()) / 10_000;
             // The pull is from the depositor, to the holder or to the escrow.
             bool refused = _expectBlocked(token, depositor, holder == address(0) ? address(ESCROW) : holder);
             vm.prank(depositor);
-            ESCROW.depositToNode(PLATFORM, node, token, amount);
+            ESCROW.depositToNode(PLATFORM, node, token, amount, refundTo);
             if (refused) return;
         }
-        if (holder == address(0)) modelContribution[node][token][depositor] += delivered;
+        if (holder == address(0)) modelContribution[node][token][refundTo] += delivered;
     }
 
     /// A holder depositing to its own node, in any token, is refused. A node
@@ -135,7 +140,7 @@ contract EscrowHandler is CommonBase, StdCheats, StdUtils {
 
         vm.expectRevert(abi.encodeWithSelector(HandleEscrow.PayingYourself.selector, holder));
         vm.prank(holder);
-        ESCROW.depositToNode{value: value}(PLATFORM, node, token, amount);
+        ESCROW.depositToNode{value: value}(PLATFORM, node, token, amount, holder);
         ++selfPayRefusals;
     }
 
@@ -305,7 +310,7 @@ contract HandleEscrowAccountingTest is Test {
     function test_theSlotFormulaReadsTheBooks() public {
         address depositor = handler.depositors(0);
         bytes32 node = handler.nodes(0);
-        handler.deposit(0, 0, 0, 5 ether);
+        handler.deposit(0, 0, 0, 0, 5 ether);
 
         assertEq(uint256(vm.load(address(escrow), _roundSlot(node, address(0)))), 0);
         assertEq(uint256(vm.load(address(escrow), _contributionSlot(node, address(0), 0, depositor))), 5 ether);
@@ -421,7 +426,7 @@ contract HandleEscrowAmountsTest is Test {
         fee.mint(alice, amount);
         vm.startPrank(alice);
         fee.approve(address(escrow), amount);
-        escrow.depositToNode(PLATFORM, NODE, address(fee), amount);
+        escrow.depositToNode(PLATFORM, NODE, address(fee), amount, alice);
         vm.stopPrank();
 
         assertEq(escrow.escrowed(NODE, address(fee)), arrived);
@@ -445,13 +450,13 @@ contract HandleEscrowAmountsTest is Test {
         if (native) {
             vm.deal(who, amount);
             vm.prank(who);
-            escrow.depositToNode{value: amount}(PLATFORM, NODE, address(0), amount);
+            escrow.depositToNode{value: amount}(PLATFORM, NODE, address(0), amount, who);
             return address(0);
         }
         token.mint(who, amount);
         vm.startPrank(who);
         token.approve(address(escrow), amount);
-        escrow.depositToNode(PLATFORM, NODE, address(token), amount);
+        escrow.depositToNode(PLATFORM, NODE, address(token), amount, who);
         vm.stopPrank();
         return address(token);
     }
