@@ -194,9 +194,11 @@ contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable
     // ─── Errors ─────────────────────────────────────────────────────
 
     /// A deposit of nothing writes nothing. Also what a token deposit that
-    /// DELIVERED nothing reverts with: a token that moved no balance, or a
-    /// holder paying itself, whose balance cannot grow by paying itself.
+    /// DELIVERED nothing reverts with: a token that moved no balance.
     error ZeroAmount();
+    /// The handle node's holder is the caller: a deposit would pay the caller
+    /// back to itself.
+    error PayingYourself(address holder);
     /// Native value must equal the amount, and a token deposit carries none.
     error ValueMismatch(uint256 expected, uint256 provided);
     /// Nothing is held for this handle node in this token.
@@ -301,6 +303,10 @@ contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable
     ///      held node is a payment, and only an unheld node escrows — and only
     ///      on a platform where a new claim can bind a holder.
     ///
+    ///      A holder depositing to its own node is refused with
+    ///      `PayingYourself`: the pay-through would move value from the
+    ///      caller back to the caller.
+    ///
     ///      This is what makes a deposit depend on the recipient: a holder that
     ///      cannot receive value fails the whole call. That is the honest
     ///      outcome — the sender learns instead of the value waiting in a slot
@@ -348,6 +354,7 @@ contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable
 
         (address holder,) = _s().names.byHandle(node);
         if (holder != address(0)) {
+            if (holder == msg.sender) revert PayingYourself(holder);
             uint256 delivered = amount;
             if (token == NATIVE) {
                 _sendNative(holder, amount);
@@ -357,10 +364,10 @@ contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable
                 // the requested figure would be the only record of a payment
                 // that never happened at that size.
                 //
-                // The balance can also FALL: a holder paying itself a token
-                // that takes a fee ends with less than it started with. That
-                // delivered nothing, and it is refused like any other deposit
-                // of nothing rather than underflowing.
+                // A token that moved nothing, or whose transfer left the
+                // holder with no more than before, delivered nothing, and it
+                // is refused like any other deposit of nothing rather than
+                // underflowing.
                 uint256 before = IERC20(token).balanceOf(holder);
                 IERC20(token).safeTransferFrom(msg.sender, holder, amount);
                 uint256 afterwards = IERC20(token).balanceOf(holder);

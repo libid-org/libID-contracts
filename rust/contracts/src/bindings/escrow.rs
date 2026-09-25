@@ -103,6 +103,9 @@ mod escrow_inner {
             );
 
             error ZeroAmount();
+            /// The node's holder is the caller, so the deposit would pay the
+            /// caller back to itself.
+            error PayingYourself(address holder);
             error ValueMismatch(uint256 expected, uint256 provided);
             error NothingHeld(bytes32 handleNode, address token);
             /// The caller is not the node's holder.

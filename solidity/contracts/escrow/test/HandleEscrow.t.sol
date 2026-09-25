@@ -1091,10 +1091,28 @@ contract HandleEscrowTest is Test {
         assertEq(fee.balanceOf(alice), 99 ether, "the holder received something else");
     }
 
-    /// A holder paying itself a fee-on-transfer token ends with LESS than it
-    /// started with: the fee left, and what arrived was its own. Measuring
-    /// that as `after - before` underflows. Nothing was delivered, so the
-    /// deposit is refused as one of nothing.
+    /// A holder depositing to its own node would pay itself. It is refused
+    /// with its own error, the same for native value and tokens and through
+    /// either entry point, and nothing moves.
+    function test_aHolderPayingItselfNativeByHandleIsRefused() public {
+        _assertPayingYourselfRefused(NATIVE, false);
+    }
+
+    function test_aHolderPayingItselfNativeByNodeIsRefused() public {
+        _assertPayingYourselfRefused(NATIVE, true);
+    }
+
+    function test_aHolderPayingItselfTokensByHandleIsRefused() public {
+        _assertPayingYourselfRefused(address(token), false);
+    }
+
+    function test_aHolderPayingItselfTokensByNodeIsRefused() public {
+        _assertPayingYourselfRefused(address(token), true);
+    }
+
+    /// A fee-on-transfer token paid by its holder to itself would leave it
+    /// with LESS than it started with. The refusal comes first, so the fee is
+    /// never taken.
     function test_aHolderPayingItselfAFeeTokenIsRefused() public {
         _bind(alice, "1", "alice", 100);
         FeeToken fee = new FeeToken();
@@ -1102,24 +1120,34 @@ contract HandleEscrowTest is Test {
 
         vm.startPrank(alice);
         fee.approve(address(escrow), type(uint256).max);
-        vm.expectRevert(HandleEscrow.ZeroAmount.selector);
+        vm.expectRevert(abi.encodeWithSelector(HandleEscrow.PayingYourself.selector, alice));
         escrow.depositToHandle(X, "alice", address(fee), 100 ether);
         vm.stopPrank();
 
         assertEq(fee.balanceOf(alice), 100 ether, "the refused deposit still cost the fee");
     }
 
-    /// A plain token paid by its holder to itself moves nothing, and a
-    /// `Forwarded` of zero would record a payment that never happened.
-    function test_aHolderPayingItselfIsRefused() public {
+    function _assertPayingYourselfRefused(address asset, bool viaNode) internal {
         _bind(alice, "1", "alice", 100);
+        vm.deal(alice, 10 ether);
         token.mint(alice, 10 ether);
-
-        vm.startPrank(alice);
+        vm.prank(alice);
         token.approve(address(escrow), type(uint256).max);
-        vm.expectRevert(HandleEscrow.ZeroAmount.selector);
-        escrow.depositToHandle(X, "alice", address(token), 10 ether);
-        vm.stopPrank();
+        uint256 value = asset == NATIVE ? 10 ether : 0;
+
+        vm.recordLogs();
+        vm.prank(alice);
+        vm.expectRevert(abi.encodeWithSelector(HandleEscrow.PayingYourself.selector, alice));
+        if (viaNode) {
+            escrow.depositToNode{value: value}(X, aliceNode, asset, 10 ether);
+        } else {
+            escrow.depositToHandle{value: value}(X, "alice", asset, 10 ether);
+        }
+
+        assertEq(vm.getRecordedLogs().length, 0, "a refused deposit announced something");
+        assertEq(alice.balance, 10 ether, "native value moved");
+        assertEq(token.balanceOf(alice), 10 ether, "tokens moved");
+        assertEq(escrow.escrowed(aliceNode, asset), 0, "the refused deposit was booked");
     }
 
     /// A token that reports success and moves nothing credits nothing when it
