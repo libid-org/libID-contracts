@@ -10,17 +10,14 @@ import {CeremonyProofVerifier} from "../contracts/ceremony/CeremonyProofVerifier
 import {IProofVerifier} from "../contracts/ceremony/IProofVerifier.sol";
 import {HandleVectors} from "../contracts/identity/HandleVectors.sol";
 import {GoogleJwtRoots} from "../contracts/ceremony/GoogleJwtRoots.sol";
-import {HandleEscrow} from "../contracts/escrow/HandleEscrow.sol";
-import {IIdentityNames} from "../contracts/escrow/IIdentityNames.sol";
 
 /// @notice Deploy the identity stack to any EVM chain.
 ///
-/// Five UUPS proxies, in dependency order: the Notary Service every notarized
+/// Four UUPS proxies, in dependency order: the Notary Service every notarized
 /// session is verified through, the Proof Verifier the naming system
 /// dispatches claims through, the naming system itself with a keyspace per
-/// platform, the Google JWT root list that pays the Notary Service for each
-/// rotation, and the handle escrow that holds value sent to a name nobody has
-/// claimed yet. No Platform Verifier is registered here -- that needs the
+/// platform, and the Google JWT root list that pays the Notary Service for
+/// each rotation. No Platform Verifier is registered here -- that needs the
 /// ceremony circuit artifacts, which arrive with their own release.
 ///
 /// Usage:
@@ -33,10 +30,6 @@ import {IIdentityNames} from "../contracts/escrow/IIdentityNames.sol";
 ///   DEPLOYER_KEY / PRIVATE_KEY — deployer private key (one of the two).
 ///   NOTARY_ADDRESS   — the first trusted notary signing key (default: deployer).
 ///   NOTARY_FEE_WEI   — what one attestation verification costs (default: 0).
-///   ESCROW_OWNER     — who owns the handle escrow, and so can upgrade it
-///                      (default: deployer). Production passes a multisig or
-///                      a timelock: that key can replace the code that holds
-///                      every deposit.
 contract Deploy is Script {
     function run() external {
         string memory deployerKeyHex = vm.envOr("DEPLOYER_KEY", vm.envOr("PRIVATE_KEY", string("")));
@@ -49,7 +42,6 @@ contract Deploy is Script {
         address deployer = vm.addr(deployerKey);
         address notaryAddr = vm.envOr("NOTARY_ADDRESS", deployer);
         uint256 notaryFee = vm.envOr("NOTARY_FEE_WEI", uint256(0));
-        address escrowOwner = vm.envOr("ESCROW_OWNER", deployer);
 
         vm.startBroadcast(deployerKey);
 
@@ -104,26 +96,6 @@ contract Deploy is Script {
             )
         );
 
-        // 5. The handle escrow: value sent to a name before anybody claims it.
-        //
-        //    Wired to the naming proxy and never repointed -- moving it would
-        //    redirect every entitlement it holds, so there is no setter and
-        //    changing it is an upgrade.
-        //
-        //    This script is the only stack deployment in this repository that
-        //    includes the escrow.
-        //
-        //    Owned by ESCROW_OWNER from `initialize` on, not handed over later:
-        //    the owner can upgrade the code that holds every deposit, so there
-        //    is no window in which the deployer holds that power by accident.
-        HandleEscrow escrowImpl = new HandleEscrow();
-        address handleEscrowAddr = address(
-            new ERC1967Proxy(
-                address(escrowImpl),
-                abi.encodeCall(HandleEscrow.initialize, (escrowOwner, IIdentityNames(identityNamesAddr)))
-            )
-        );
-
         vm.stopBroadcast();
 
         console.log("=== Deployment complete ===");
@@ -132,8 +104,6 @@ contract Deploy is Script {
         console.log("CEREMONY_PROOF_VERIFIER_ADDRESS= ", proofVerifierAddr);
         console.log("IDENTITY_NAMES_ADDRESS= ", identityNamesAddr);
         console.log("GOOGLE_JWT_ROOTS_ADDRESS= ", jwtRootsAddr);
-        console.log("HANDLE_ESCROW_ADDRESS= ", handleEscrowAddr);
-        console.log("HANDLE_ESCROW_OWNER=   ", escrowOwner);
         console.log("NOTE: no Platform Verifier is registered yet. Add one with");
         console.log("      CeremonyProofVerifier.setVerifier once the ceremony");
         console.log("      circuit artifacts are released. Until then a platform");
@@ -143,11 +113,6 @@ contract Deploy is Script {
         // as a bad proof rather than an unseeded list.
         console.log("NOTE: point the keeper at GOOGLE_JWT_ROOTS_ADDRESS");
         console.log("      before Google names work. The trust list starts empty.");
-        if (escrowOwner == deployer) {
-            console.log("NOTE: THE HANDLE ESCROW IS OWNED BY THE DEPLOYER KEY. Its owner");
-            console.log("      can upgrade the escrow and take every deposit. Production");
-            console.log("      must set ESCROW_OWNER to a multisig or a timelock.");
-        }
     }
 
     /// @dev Give a platform its keyspace.
