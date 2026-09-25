@@ -228,6 +228,12 @@ contract NamesWithoutNodeOf is NamesBeforeTheEscrow {
     }
 }
 
+/// @notice One that answers `byHandle` and succeeds, returning nothing, on
+///         every other call: a fallback that swallows what it does not know.
+contract NamesWithASilentFallback is NamesBeforeTheEscrow {
+    fallback() external {}
+}
+
 /// @notice Makes any call for anybody, value included, the way Multicall3's
 ///         `aggregate3Value` or a payment router does: the target sees this
 ///         contract as `msg.sender`, whoever asked.
@@ -1700,10 +1706,13 @@ contract HandleEscrowTest is Test {
     function test_initializeRefusesANamingContractThatLacksWhatTheEscrowCalls() public {
         address old = address(new NamesBeforeTheEscrow());
         address halfway = address(new NamesWithoutNodeOf());
+        address silent = address(new NamesWithASilentFallback());
         address noCode = makeAddr("no code");
 
         _assertInitializeRefused(old, IIdentityNames.acceptsClaims.selector);
         _assertInitializeRefused(halfway, IIdentityNames.nodeOf.selector);
+        // A call that succeeds is not an answer: it must be one bool wide.
+        _assertInitializeRefused(silent, IIdentityNames.acceptsClaims.selector);
         _assertInitializeRefused(noCode, IIdentityNames.byHandle.selector);
     }
 
