@@ -9,6 +9,7 @@ import {ReentrancyGuardUpgradeable} from "@openzeppelin/contracts-upgradeable/ut
 import {ICeremony} from "../ceremony/ICeremony.sol";
 import {IProofVerifier} from "../ceremony/IProofVerifier.sol";
 import {HandleNormalizer} from "./HandleNormalizer.sol";
+import {IIdentityNames} from "./IIdentityNames.sol";
 import {IdentityNodes} from "./IdentityNodes.sol";
 
 /// @title IdentityNames - proof-derived names for any wallet.
@@ -84,7 +85,13 @@ import {IdentityNodes} from "./IdentityNodes.sol";
 ///      **There is no pause.** A pause is a lever over other people's names,
 ///      and nothing here needs one: no funds are held, and no address is
 ///      predicted ahead of its deployment.
-contract IdentityNames is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, ReentrancyGuardUpgradeable {
+contract IdentityNames is
+    IIdentityNames,
+    Initializable,
+    UUPSUpgradeable,
+    Ownable2StepUpgradeable,
+    ReentrancyGuardUpgradeable
+{
     /// @notice A binding, and the moment the platform stated it.
     ///
     /// @dev `observedAt` is a provider timestamp, never a chain timestamp. Two
@@ -323,6 +330,9 @@ contract IdentityNames is Initializable, UUPSUpgradeable, Ownable2StepUpgradeabl
 
     /// This platform has no keyspace configured.
     error UnknownPlatform(bytes32 platformId);
+    /// Text this platform's rules refuse as a handle, and the normalizer's
+    /// reason. What `nodeOf` reverts with.
+    error UnusableHandle(HandleNormalizer.Problem problem);
     /// @notice The one operation this Consumer owns.
     ///
     /// @dev A new operation, or a change to what its transaction data means,
@@ -723,6 +733,71 @@ contract IdentityNames is Initializable, UUPSUpgradeable, Ownable2StepUpgradeabl
 
     // ─── Reading ────────────────────────────────────────────────────
 
+    /// @notice How this platform's handles normalize, as configured right now.
+    ///
+    /// @dev For a client that derives a node itself: one paying a private,
+    ///      digest-profile binding must not send the handle's text to anybody,
+    ///      an RPC provider included, so it cannot ask `nodeOf`. It reads the
+    ///      rules here instead, normalizes locally and hashes with
+    ///      `IdentityNodes.handleNode`, which reaches the node `nodeOf` would.
+    ///
+    ///      Reverts for a platform that is not usable, like the resolvers do.
+    ///
+    ///      What is read here is today's configuration, and the owner may
+    ///      change it. Text normalized under these rules reaches the node this
+    ///      contract would key it on today; a later `setPlatform` can send the
+    ///      same text to a different node, exactly as it does for
+    ///      `resolveHandle`.
+    function rulesOf(bytes32 platformId) external view returns (HandleNormalizer.Rules memory) {
+        return _requireUsable(platformId).rules;
+    }
+
+    /// @notice The node a handle keys to under the platform's current rules:
+    ///         the node a proof of that handle would be bound under today.
+    ///
+    /// @dev The one derivation, so a contract that keys on handles — the
+    ///      escrow — asks here instead of carrying its own copy of the rules
+    ///      and the hash, which would disagree with this contract the first
+    ///      time `setPlatform` ran.
+    ///
+    ///      Reverts `UnusableHandle` with the normalizer's reason for text the
+    ///      rules refuse, where `resolveHandle` answers the zero address: a
+    ///      caller about to key something on the text has to learn that no
+    ///      proof could ever bind it, and a zero-address answer would not say.
+    ///
+    ///      Needs only a keyspace, and reverts `UnknownPlatform` without one.
+    ///      Which node text keys to is a question about the rules; whether a
+    ///      claim could bind a holder there now is `acceptsClaims`, and a
+    ///      caller that needs both asks both — so the Proof Verifier is not
+    ///      consulted here, and a caller asking both consults it once.
+    ///
+    ///      Today's configuration, as with `rulesOf`: a later `setPlatform` can
+    ///      send the same text to a different node.
+    function nodeOf(bytes32 platformId, string calldata handle) external view returns (bytes32 handleNode) {
+        HandleNormalizer.Problem problem;
+        (problem, handleNode) = _handleKey(platformId, handle, _requireConfigured(platformId).rules);
+        if (problem != HandleNormalizer.Problem.None) revert UnusableHandle(problem);
+    }
+
+    /// @notice Whether a new identity claim can bind a holder on this platform
+    ///         now.
+    ///
+    /// @dev True when the platform has a keyspace and the configured Proof
+    ///      Verifier `verifiesPlatform` it: the two things `claim` needs before
+    ///      it can write a binding. False, not a revert, for a platform with no
+    ///      keyspace, for an unset Proof Verifier and for a platform whose
+    ///      every version has been retired.
+    ///
+    ///      Narrower than "usable". A platform on which a name was ever bound
+    ///      keeps resolving after its last version is retired, but nothing new
+    ///      can bind on it, and a contract holding value for a handle nobody
+    ///      holds yet needs the second answer, not the first.
+    function acceptsClaims(bytes32 platformId) external view returns (bool) {
+        if (!_s().platforms[platformId].configured) return false;
+        IProofVerifier pv = _s().proofVerifier;
+        return address(pv) != address(0) && pv.verifiesPlatform(platformId);
+    }
+
     /// @notice The wallet that proved this account id, or the zero address.
     ///
     /// @dev Reverts for a platform with no verifier, like the other two
@@ -747,20 +822,20 @@ contract IdentityNames is Initializable, UUPSUpgradeable, Ownable2StepUpgradeabl
     ///      because that question was never asked.
     function resolveHandle(bytes32 platformId, string calldata handle) external view returns (address) {
         Platform memory platform = _requireUsable(platformId);
-        (bool ok, bytes32 handleKey) = _handleKey(platformId, handle, platform.rules);
-        return ok ? _s().byHandle[handleKey].owner : address(0);
+        (HandleNormalizer.Problem problem, bytes32 handleKey) = _handleKey(platformId, handle, platform.rules);
+        return problem == HandleNormalizer.Problem.None ? _s().byHandle[handleKey].owner : address(0);
     }
 
-    /// @dev The node a handle keys to under the platform's current rules, or
-    ///      `ok == false` when the text does not normalize under them.
+    /// @dev The node a handle keys to under the given rules, or the problem
+    ///      that stops the text normalizing under them (and a zero node).
     function _handleKey(bytes32 platformId, string memory handle, HandleNormalizer.Rules memory rules)
         private
         pure
-        returns (bool ok, bytes32 handleKey)
+        returns (HandleNormalizer.Problem problem, bytes32 handleKey)
     {
-        (HandleNormalizer.Problem problem, string memory normalized) = HandleNormalizer.tryNormalize(handle, rules);
-        if (problem != HandleNormalizer.Problem.None) return (false, bytes32(0));
-        return (true, IdentityNodes.handleNode(platformId, normalized));
+        string memory normalized;
+        (problem, normalized) = HandleNormalizer.tryNormalize(handle, rules);
+        if (problem == HandleNormalizer.Problem.None) handleKey = IdentityNodes.handleNode(platformId, normalized);
     }
 
     /// @notice The handle a wallet published, exactly as stored.
@@ -786,8 +861,9 @@ contract IdentityNames is Initializable, UUPSUpgradeable, Ownable2StepUpgradeabl
     function primaryOf(address wallet, bytes32 platformId) external view returns (string memory) {
         string memory published = _s().published[wallet][platformId];
         if (bytes(published).length == 0) return "";
-        (bool ok, bytes32 handleKey) = _handleKey(platformId, published, _s().platforms[platformId].rules);
-        if (!ok) return "";
+        (HandleNormalizer.Problem problem, bytes32 handleKey) =
+            _handleKey(platformId, published, _s().platforms[platformId].rules);
+        if (problem != HandleNormalizer.Problem.None) return "";
         if (_s().byHandle[handleKey].owner != wallet) return "";
         return published;
     }
@@ -812,8 +888,8 @@ contract IdentityNames is Initializable, UUPSUpgradeable, Ownable2StepUpgradeabl
     {
         Platform memory platform = _requireUsable(platformId);
 
-        (bool ok, bytes32 handleKey) = _handleKey(platformId, handle, platform.rules);
-        wallet = ok ? _s().byHandle[handleKey].owner : address(0);
+        (HandleNormalizer.Problem problem, bytes32 handleKey) = _handleKey(platformId, handle, platform.rules);
+        wallet = problem == HandleNormalizer.Problem.None ? _s().byHandle[handleKey].owner : address(0);
 
         address idOwner = _s().byId[IdentityNodes.idNode(platformId, userId)].owner;
         // An unknown id does not agree either. A caller holding an id the chain

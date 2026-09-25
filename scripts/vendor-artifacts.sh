@@ -4,7 +4,11 @@
 # Runs `forge build` in solidity/ (submodules must be initialized), then copies
 # the artifact JSONs the crate needs from solidity/out into
 # rust/contracts/artifacts/<File>.sol/<Name>.json, pruned to the fields the
-# crate reads: bytecode.object, bytecode.linkReferences, methodIdentifiers.
+# crate reads: bytecode.object, bytecode.linkReferences, methodIdentifiers, and
+# for the artifacts in ABI_VENDORED also the abi. The abi is what the binding
+# drift tests (rust/contracts/src/bindings/mod.rs) compare the hand-written
+# `sol!` interfaces against, and nothing else in the crate reads it, so it is
+# vendored only for the contracts those tests cover.
 # Libraries referenced through linkReferences are followed transitively and
 # vendored too: the two Honk verifiers link RelationsLib and ZKTranscriptLib,
 # and both are listed below as well so the list and the crate's COVERED agree
@@ -55,9 +59,18 @@ ARTIFACTS=(
     # ens (deployed once per network, not CREATE3-canonical; embedded so a
     # consumer can deploy it without a checkout of this repository)
     "HandleResolver:HandleResolver"
+    # escrow: value held against a handle nobody has claimed yet
+    "HandleEscrow:HandleEscrow"
     # factory
     "LibidFactory:LibidFactory"
     "WTIA9:WTIA9"
+)
+
+# "<File>:<Contract>" entries whose abi is vendored: the ones with a binding
+# drift test. Add an entry together with its test.
+ABI_VENDORED=(
+    "HandleEscrow:HandleEscrow"
+    "IdentityNames:IdentityNames"
 )
 
 if [[ $# -gt 0 ]]; then
@@ -80,17 +93,19 @@ echo "==> forge build"
 STAGE="$(mktemp -d)"
 trap 'rm -rf "$STAGE"' EXIT
 
-# prune <src> <file> <contract>: write the pruned artifact into the stage.
+# prune <src> <file> <contract>: write the pruned artifact into the stage,
+# with its abi only if it is listed in ABI_VENDORED.
 prune() {
-    local src="$1" file="$2" contract="$3"
+    local src="$1" file="$2" contract="$3" keep_abi=false
+    case " ${ABI_VENDORED[*]} " in *" $file:$contract "*) keep_abi=true ;; esac
     mkdir -p "$STAGE/$file.sol"
-    jq -S '{
+    jq -S --argjson keep_abi "$keep_abi" '{
         bytecode: {
             object: .bytecode.object,
             linkReferences: .bytecode.linkReferences
         },
         methodIdentifiers: .methodIdentifiers
-    }' "$src" > "$STAGE/$file.sol/$contract.json"
+    } + (if $keep_abi then {abi: .abi} else {} end)' "$src" > "$STAGE/$file.sol/$contract.json"
 }
 
 # Vendor the listed artifacts, then follow linkReferences transitively so every

@@ -1,0 +1,7 @@
+# HandleEscrow storage layout. Checked in CI by scripts/check-storage-layout.py.
+# Fields may only be APPENDED. Record an append with --update; see the script.
+root erc7201:libid.storage.HandleEscrow 0xfcca8d7d2c66f78c2760f3fcd99e0bf938b0aeb0d0b471f481dd50b8aff6b400
+field slot=0 offset=0 held: mapping(bytes32 => mapping(address => uint256))
+field slot=1 offset=0 names: contract IIdentityNames
+field slot=2 offset=0 round: mapping(bytes32 => mapping(address => uint256))
+field slot=3 offset=0 contributions: mapping(bytes32 => mapping(address => mapping(uint256 => mapping(address => uint256))))

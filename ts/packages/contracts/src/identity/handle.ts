@@ -48,6 +48,13 @@ const BAD_CHARACTER = () =>
 const BAD_SHAPE = () =>
   new HandleError(ERROR_BADSHAPE, 'the handle has an arrangement this platform does not allow')
 
+declare const normalized: unique symbol
+
+/// A handle after `normalize`: the only string a handle node may be built
+/// from. `normalize` is the only function that returns one, so a raw handle
+/// cannot reach `handleNode` without a cast that says so.
+export type NormalizedHandle = string & { readonly [normalized]: true }
+
 /// What one platform accepts. Held per platform, so a new platform is
 /// configuration rather than code.
 export interface Rules {
@@ -96,7 +103,7 @@ export function rulesFor(platform: string): Rules | null {
 }
 
 /// The normalized handle, or a `HandleError` naming what was wrong.
-export function normalize(raw: string, rules: Rules): string {
+export function normalize(raw: string, rules: Rules): NormalizedHandle {
   // Work on bytes, not code units. A character above 0x7f is several bytes and
   // must be refused as bytes, the way Solidity sees it.
   const input = new TextEncoder().encode(raw)
@@ -129,7 +136,7 @@ export function normalize(raw: string, rules: Rules): string {
   if (rules.isEmail) requireEmailShape(out)
   else if (rules.allowHyphen) requireHyphenShape(out)
 
-  return new TextDecoder().decode(out)
+  return new TextDecoder().decode(out) as NormalizedHandle
 }
 
 /// One byte, after folding. Anything outside the platform's set is refused,
