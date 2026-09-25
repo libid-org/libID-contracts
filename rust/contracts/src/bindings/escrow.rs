@@ -2,7 +2,8 @@
 //!
 //! Value held against a platform handle rather than against an account id, so
 //! a sender who knows only a name can pay it before anybody has claimed it.
-//! Whoever the naming system names as that handle's holder takes what is held.
+//! Whoever the naming system names as that handle's holder takes what is held;
+//! until somebody holds it, each depositor can refund its own deposit.
 //!
 //! The escrow keys on the naming system's handle node,
 //! `keccak256(abi.encode(keccak256("libid.identity.handle-node.v1"), platformId,
@@ -29,8 +30,9 @@ mod escrow_inner {
             /// A handle somebody holds is paid STRAIGHT THROUGH to its holder —
             /// the escrow is for the window before a handle is claimed. Only an
             /// unheld handle escrows, only on a platform that accepts claims,
-            /// and then there is no way to take it back. Watch `Deposited`
-            /// against `Forwarded` to tell the two apart.
+            /// and then the depositor can `refund` it until the handle has a
+            /// holder. Watch `Deposited` against `Forwarded` to tell the two
+            /// apart.
             function depositToHandle(
                 bytes32 platformId,
                 string calldata handle,
@@ -40,7 +42,7 @@ mod escrow_inner {
 
             /// The same, against a handle node the caller derived. Nothing
             /// about the node can be checked: a wrong node funds a slot nothing
-            /// can claim, and there is no refund.
+            /// can claim, and only its depositor's `refund` recovers it.
             function depositToNode(
                 bytes32 platformId,
                 bytes32 handleNode,
@@ -52,7 +54,16 @@ mod escrow_inner {
             /// has to be the node's holder in the naming system.
             function claim(bytes32 handleNode, address token, address recipient) external;
 
+            /// Take back the caller's own contribution to a handle node in one
+            /// token. Refused once the naming system names a holder for the
+            /// node; open again if that holder renames away. What a claim took
+            /// is never refundable.
+            function refund(bytes32 handleNode, address token, address recipient) external;
+
             function escrowed(bytes32 handleNode, address token) external view returns (uint256);
+            /// What `refund` would pay `depositor` now: zero while the node
+            /// has a holder.
+            function refundable(bytes32 handleNode, address token, address depositor) external view returns (uint256);
             /// The node a handle keys to under the platform's current rules.
             function nodeOf(bytes32 platformId, string calldata handle) external view returns (bytes32);
             function names() external view returns (address);
@@ -83,12 +94,23 @@ mod escrow_inner {
                 address recipient,
                 uint256 amount
             );
+            event Refunded(
+                bytes32 indexed handleNode,
+                address indexed token,
+                address indexed depositor,
+                address recipient,
+                uint256 amount
+            );
 
             error ZeroAmount();
             error ValueMismatch(uint256 expected, uint256 provided);
             error NothingHeld(bytes32 handleNode, address token);
             /// The caller is not the node's holder.
             error NotTheHolder(address holder, address caller);
+            /// The depositor has nothing refundable for this node and token.
+            error NothingToRefund(bytes32 handleNode, address token, address depositor);
+            /// The node has a holder, so what is held is the holder's to claim.
+            error PayeeHasJoined(bytes32 handleNode, address holder);
             error BadRecipient(address recipient);
             /// `problem` is a `HandleNormalizer.Problem`.
             error UnusableHandle(uint8 problem);

@@ -740,7 +740,8 @@ async fn deploys_and_initializes_every_platform_verifier() {
 /// (e2) The handle escrow against a real chain: deploy it over the identity
 /// stack, pay a handle nobody has claimed by text and by node, and watch both
 /// land in one slot — the naming system's handle node, computed here from the
-/// normalized handle.
+/// normalized handle. Then the depositor takes its value back, which nobody
+/// else can.
 ///
 /// The platform is made usable the way a deployment makes it: a keyspace, and
 /// a real Platform Verifier registered with the Proof Verifier. Nothing here
@@ -981,6 +982,63 @@ async fn escrows_value_against_an_unclaimed_handle() {
     assert!(
         err.contains(&hex::encode(HandleEscrow::NotTheHolder::SELECTOR)),
         "refused for the wrong reason: {err}"
+    );
+
+    // A stranger deposited nothing, so it has nothing to refund, though the
+    // slot holds value. The contribution refusal specifically.
+    let err = escrow
+        .refund(computed, Address::ZERO, stranger)
+        .from(stranger)
+        .call()
+        .await
+        .err()
+        .expect("a stranger refunded somebody else's deposit")
+        .to_string();
+    assert!(
+        err.contains(&hex::encode(HandleEscrow::NothingToRefund::SELECTOR)),
+        "refused for the wrong reason: {err}"
+    );
+
+    // The depositor takes back both deposits, to an address it names.
+    assert_eq!(
+        escrow
+            .refundable(computed, Address::ZERO, deployer)
+            .call()
+            .await
+            .unwrap(),
+        amount * U256::from(2),
+        "the depositor's contribution is not both deposits"
+    );
+    let before = provider.get_balance(stranger).await.unwrap();
+    let receipt = escrow
+        .refund(computed, Address::ZERO, stranger)
+        .send()
+        .await
+        .unwrap()
+        .get_receipt()
+        .await
+        .unwrap();
+    assert!(receipt.status(), "the refund reverted");
+    let refunded = receipt
+        .decoded_log::<HandleEscrow::Refunded>()
+        .expect("no Refunded event");
+    assert_eq!(refunded.handleNode, computed);
+    assert_eq!(refunded.depositor, deployer);
+    assert_eq!(refunded.recipient, stranger);
+    assert_eq!(refunded.amount, amount * U256::from(2));
+    assert_eq!(
+        provider.get_balance(stranger).await.unwrap() - before,
+        amount * U256::from(2),
+        "the recipient was not paid the refund"
+    );
+    assert_eq!(
+        escrow
+            .escrowed(computed, Address::ZERO)
+            .call()
+            .await
+            .unwrap(),
+        U256::ZERO,
+        "the refund left value in the slot"
     );
 }
 

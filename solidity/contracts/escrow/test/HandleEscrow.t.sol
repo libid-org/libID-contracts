@@ -9,6 +9,8 @@ import {
     ReentrancyGuardTransientUpgradeable
 } from "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardTransientUpgradeable.sol";
 
+import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
+
 import {HandleNormalizer} from "../../identity/HandleNormalizer.sol";
 import {HandleVectors} from "../../identity/HandleVectors.sol";
 import {IdentityNames} from "../../identity/IdentityNames.sol";
@@ -66,6 +68,8 @@ contract HandleEscrowV2 is HandleEscrow {
     struct V2Storage {
         mapping(bytes32 => mapping(address => uint256)) held;
         IIdentityNames names;
+        mapping(bytes32 => mapping(address => uint256)) round;
+        mapping(bytes32 => mapping(address => mapping(uint256 => mapping(address => uint256)))) contributions;
         uint256 appended;
     }
 
@@ -90,6 +94,151 @@ contract HandleEscrowV2 is HandleEscrow {
 
     function namesThroughV2() external view returns (address) {
         return address(_v2().names);
+    }
+
+    function roundThroughV2(bytes32 handleNode, address token) external view returns (uint256) {
+        return _v2().round[handleNode][token];
+    }
+
+    function contributionThroughV2(bytes32 handleNode, address token, uint256 round_, address depositor)
+        external
+        view
+        returns (uint256)
+    {
+        return _v2().contributions[handleNode][token][round_][depositor];
+    }
+}
+
+/// @notice The layout the escrow shipped with before it kept contributions:
+///         `held` and `names` in the namespaced root and nothing after them.
+///
+/// @dev Deployed behind a proxy and upgraded to the real `HandleEscrow`, it
+///      stages value that was deposited with no depositor on record. Its
+///      upgrade is open to anybody: it exists only to be upgraded away from.
+contract PreviousHandleEscrow is UUPSUpgradeable {
+    /// @custom:storage-location erc7201:libid.storage.HandleEscrow
+    struct PreviousStorage {
+        mapping(bytes32 => mapping(address => uint256)) held;
+        IIdentityNames names;
+    }
+
+    function _p() private pure returns (PreviousStorage storage $) {
+        assembly {
+            $.slot := 0xfcca8d7d2c66f78c2760f3fcd99e0bf938b0aeb0d0b471f481dd50b8aff6b400
+        }
+    }
+
+    function setNames(IIdentityNames names_) external {
+        _p().names = names_;
+    }
+
+    function deposit(bytes32 handleNode) external payable {
+        _p().held[handleNode][address(0)] += msg.value;
+    }
+
+    function _authorizeUpgrade(address) internal override {}
+}
+
+/// @notice Deposits native value for a node, then refunds it to itself and,
+///         from inside the payout, refunds again.
+contract ReenteringRefunder {
+    HandleEscrow private immutable ESCROW;
+    bytes32 private immutable NODE;
+    bytes32 private immutable PLATFORM;
+    bool private entered;
+
+    constructor(HandleEscrow escrow_, bytes32 platformId_, bytes32 node_) {
+        ESCROW = escrow_;
+        PLATFORM = platformId_;
+        NODE = node_;
+    }
+
+    function fund() external payable {
+        ESCROW.depositToNode{value: msg.value}(PLATFORM, NODE, address(0), msg.value);
+    }
+
+    function take() external {
+        ESCROW.refund(NODE, address(0), address(this));
+    }
+
+    receive() external payable {
+        if (entered) return;
+        entered = true;
+        ESCROW.refund(NODE, address(0), address(this));
+    }
+}
+
+/// @notice Refunds, and from inside the native payout reads the books and
+///         tries to refund again — catching the refusal, so each of the two
+///         defences can be seen on its own, as `ObservingClaimer` does for
+///         `claim`.
+contract ObservingRefunder {
+    HandleEscrow private immutable ESCROW;
+    bytes32 private immutable NODE;
+    bytes32 private immutable PLATFORM;
+    bool private entered;
+
+    /// What `refundable` answered for this contract while it was being paid.
+    uint256 public refundableDuringPayout = type(uint256).max;
+    /// What `escrowed` answered while this contract was being paid.
+    uint256 public heldDuringPayout = type(uint256).max;
+    /// Why the second refund was refused. Empty if it was not.
+    bytes public reentryError;
+
+    constructor(HandleEscrow escrow_, bytes32 platformId_, bytes32 node_) {
+        ESCROW = escrow_;
+        PLATFORM = platformId_;
+        NODE = node_;
+    }
+
+    function fund() external payable {
+        ESCROW.depositToNode{value: msg.value}(PLATFORM, NODE, address(0), msg.value);
+    }
+
+    function take() external {
+        ESCROW.refund(NODE, address(0), address(this));
+    }
+
+    receive() external payable {
+        if (entered) return;
+        entered = true;
+        refundableDuringPayout = ESCROW.refundable(NODE, address(0), address(this));
+        heldDuringPayout = ESCROW.escrowed(NODE, address(0));
+        try ESCROW.refund(NODE, address(0), address(this)) {}
+        catch (bytes memory reason) {
+            reentryError = reason;
+        }
+    }
+}
+
+/// @notice A token that deposits itself and, when the escrow pays it back,
+///         calls `refund` again from inside that transfer.
+contract RefundReenteringToken is TestERC20 {
+    HandleEscrow private escrow;
+    bytes32 private node;
+    bool private entered;
+
+    constructor() TestERC20("Back", "BACK") {}
+
+    function fund(HandleEscrow escrow_, bytes32 platformId, bytes32 node_, uint256 amount) external {
+        escrow = escrow_;
+        node = node_;
+        _mint(address(this), amount);
+        _approve(address(this), address(escrow_), amount);
+        escrow_.depositToNode(platformId, node_, address(this), amount);
+    }
+
+    function take() external {
+        escrow.refund(node, address(this), address(this));
+    }
+
+    function transfer(address to, uint256 amount) public override returns (bool) {
+        bool ok = super.transfer(to, amount);
+        if (!entered && msg.sender == address(escrow)) {
+            entered = true;
+            escrow.refund(node, address(this), address(this));
+        }
+        return ok;
     }
 }
 
@@ -659,7 +808,8 @@ contract HandleEscrowTest is Test {
     }
 
     /// The reason `rulesOf` exists. Text this platform could never accept would
-    /// otherwise fund a slot no proof can ever claim, and there is no refund.
+    /// otherwise fund a slot no proof can ever claim, and the value would sit
+    /// there until its depositor noticed and refunded it.
     function test_aHandleThePlatformCouldNeverAcceptIsRefused() public {
         vm.startPrank(sender);
 
@@ -681,7 +831,8 @@ contract HandleEscrowTest is Test {
     /// NOT a vulnerability. A node is a hash and cannot be checked: one that
     /// is not the node of any handle escrows, and nothing can ever claim it.
     /// That is the price of an entry point that never sees the handle, and it
-    /// is why the SDK derives the node rather than a user typing one.
+    /// is why the SDK derives the node rather than a user typing one. Nobody
+    /// ever holds such a node, so its depositor can always take it back.
     function test_ACCEPTED_aNodeNoHandleReachesEscrowsForNobody() public {
         bytes32 garbage = keccak256("not the node of any handle");
 
@@ -692,6 +843,13 @@ contract HandleEscrowTest is Test {
         vm.prank(sender);
         vm.expectRevert(abi.encodeWithSelector(HandleEscrow.NotTheHolder.selector, address(0), sender));
         escrow.claim(garbage, NATIVE, sender);
+
+        uint256 before = sender.balance;
+        vm.prank(sender);
+        escrow.refund(garbage, NATIVE, sender);
+        assertEq(sender.balance, before + 1 ether, "the depositor did not get it back");
+        assertEq(escrow.escrowed(garbage, NATIVE), 0);
+        assertEq(address(escrow).balance, 0);
     }
 
     // ─── Claiming ───────────────────────────────────────────────────
@@ -985,12 +1143,305 @@ contract HandleEscrowTest is Test {
         escrow.depositToNode(X, aliceNode, address(inert), 10 ether);
     }
 
+    // ─── Refunding ──────────────────────────────────────────────────
+
+    function test_aDepositorRefundsItsOwnDepositWhileNobodyHoldsTheHandle() public {
+        _depositNative("alice", 1 ether);
+        assertEq(escrow.refundable(aliceNode, NATIVE, sender), 1 ether);
+
+        uint256 before = sender.balance;
+        vm.prank(sender);
+        escrow.refund(aliceNode, NATIVE, sender);
+
+        assertEq(sender.balance, before + 1 ether, "the depositor was not paid back");
+        assertEq(escrow.escrowed(aliceNode, NATIVE), 0, "the books still hold the refunded value");
+        assertEq(escrow.refundable(aliceNode, NATIVE, sender), 0);
+        assertEq(address(escrow).balance, 0);
+    }
+
+    /// The ERC-20 payout branch of a refund, to a recipient the depositor
+    /// names.
+    function test_aTokenRefundPaysTheRecipientTheDepositorNames() public {
+        vm.prank(sender);
+        escrow.depositToHandle(X, "alice", address(token), 10 ether);
+
+        vm.prank(sender);
+        escrow.refund(aliceNode, address(token), bob);
+
+        assertEq(token.balanceOf(bob), 10 ether, "the recipient was not paid");
+        assertEq(token.balanceOf(address(escrow)), 0, "the escrow kept tokens");
+        assertEq(escrow.escrowed(aliceNode, address(token)), 0);
+    }
+
+    /// A refund reaches the caller's own contribution and nothing else.
+    function test_nobodyRefundsSomebodyElsesDeposit() public {
+        _depositNative("alice", 1 ether);
+
+        vm.prank(bob);
+        vm.expectRevert(abi.encodeWithSelector(HandleEscrow.NothingToRefund.selector, aliceNode, NATIVE, bob));
+        escrow.refund(aliceNode, NATIVE, bob);
+
+        assertEq(escrow.refundable(aliceNode, NATIVE, bob), 0);
+        assertEq(escrow.escrowed(aliceNode, NATIVE), 1 ether, "somebody else's deposit moved");
+    }
+
+    /// Two depositors share a slot and each takes back exactly its own, once.
+    function test_twoDepositorsEachRefundTheirOwn() public {
+        vm.deal(bob, 10 ether);
+        _depositNative("alice", 1 ether);
+        vm.prank(bob);
+        escrow.depositToNode{value: 2 ether}(X, aliceNode, NATIVE, 2 ether);
+        _depositNative(" Alice ", 3 ether); // the same depositor again
+
+        assertEq(escrow.escrowed(aliceNode, NATIVE), 6 ether);
+        assertEq(escrow.refundable(aliceNode, NATIVE, sender), 4 ether);
+        assertEq(escrow.refundable(aliceNode, NATIVE, bob), 2 ether);
+
+        uint256 senderBefore = sender.balance;
+        vm.prank(sender);
+        escrow.refund(aliceNode, NATIVE, sender);
+        assertEq(sender.balance, senderBefore + 4 ether);
+        assertEq(escrow.escrowed(aliceNode, NATIVE), 2 ether, "the other depositor's share moved");
+        assertEq(escrow.refundable(aliceNode, NATIVE, bob), 2 ether);
+
+        vm.prank(sender);
+        vm.expectRevert(abi.encodeWithSelector(HandleEscrow.NothingToRefund.selector, aliceNode, NATIVE, sender));
+        escrow.refund(aliceNode, NATIVE, sender);
+
+        uint256 bobBefore = bob.balance;
+        vm.prank(bob);
+        escrow.refund(aliceNode, NATIVE, bob);
+        assertEq(bob.balance, bobBefore + 2 ether);
+        assertEq(escrow.escrowed(aliceNode, NATIVE), 0);
+        assertEq(address(escrow).balance, 0);
+    }
+
+    /// Once the naming system names a holder the escrow is the holder's, even
+    /// before the holder claims: the refund is refused and `refundable` reads
+    /// zero.
+    function test_aRefundIsRefusedOnceThePayeeHasJoined() public {
+        _depositNative("alice", 1 ether);
+        _bind(alice, "1", "alice", 100);
+
+        assertEq(escrow.refundable(aliceNode, NATIVE, sender), 0, "a held node reads as refundable");
+        vm.prank(sender);
+        vm.expectRevert(abi.encodeWithSelector(HandleEscrow.PayeeHasJoined.selector, aliceNode, alice));
+        escrow.refund(aliceNode, NATIVE, sender);
+
+        vm.prank(alice);
+        escrow.claim(aliceNode, NATIVE, alice);
+        assertEq(alice.balance, 1 ether, "the holder did not get what the refused refund left");
+    }
+
+    /// A claim closes the round. What it took is not refundable afterwards,
+    /// even once the holder renames away and the node has no holder again;
+    /// what is deposited after that is.
+    function test_whatAClaimTookIsNeverRefundable() public {
+        _depositNative("alice", 1 ether);
+        _bind(alice, "1", "alice", 100);
+        vm.prank(alice);
+        escrow.claim(aliceNode, NATIVE, alice);
+
+        _bind(alice, "1", "alice2", 200); // alice renames away: no holder again
+        assertEq(escrow.refundable(aliceNode, NATIVE, sender), 0, "a claimed contribution reads as refundable");
+        vm.prank(sender);
+        vm.expectRevert(abi.encodeWithSelector(HandleEscrow.NothingToRefund.selector, aliceNode, NATIVE, sender));
+        escrow.refund(aliceNode, NATIVE, sender);
+
+        _depositNative("alice", 2 ether);
+        assertEq(escrow.refundable(aliceNode, NATIVE, sender), 2 ether, "only the new deposit is refundable");
+        vm.prank(sender);
+        escrow.refund(aliceNode, NATIVE, sender);
+        assertEq(escrow.escrowed(aliceNode, NATIVE), 0);
+        assertEq(address(escrow).balance, 0);
+    }
+
+    /// A holder who never claimed and renamed away leaves a node with no
+    /// holder, and every contribution it left becomes refundable again.
+    function test_aRetiredHandlesUnclaimedContributionsAreRefundableAgain() public {
+        _depositNative("alice", 1 ether);
+        _bind(alice, "1", "alice", 100);
+        vm.prank(sender);
+        vm.expectRevert(abi.encodeWithSelector(HandleEscrow.PayeeHasJoined.selector, aliceNode, alice));
+        escrow.refund(aliceNode, NATIVE, sender);
+
+        _bind(alice, "1", "alice2", 200);
+
+        assertEq(escrow.refundable(aliceNode, NATIVE, sender), 1 ether);
+        uint256 before = sender.balance;
+        vm.prank(sender);
+        escrow.refund(aliceNode, NATIVE, sender);
+        assertEq(sender.balance, before + 1 ether);
+
+        // Nothing is left for whoever proves the handle next.
+        _bind(bob, "2", "alice", 300);
+        vm.prank(bob);
+        vm.expectRevert(abi.encodeWithSelector(HandleEscrow.NothingHeld.selector, aliceNode, NATIVE));
+        escrow.claim(aliceNode, NATIVE, bob);
+    }
+
+    /// A contribution is what the escrow received, so the contributions in a
+    /// slot add up to what it holds, and a refund returns what arrived.
+    function test_aFeeOnTransferContributionIsWhatArrived() public {
+        FeeToken fee = new FeeToken();
+        fee.mint(sender, 100 ether);
+        fee.mint(bob, 50 ether);
+        vm.prank(sender);
+        fee.approve(address(escrow), type(uint256).max);
+        vm.prank(bob);
+        fee.approve(address(escrow), type(uint256).max);
+
+        vm.prank(sender);
+        escrow.depositToHandle(X, "alice", address(fee), 100 ether);
+        vm.prank(bob);
+        escrow.depositToNode(X, aliceNode, address(fee), 50 ether);
+
+        assertEq(escrow.refundable(aliceNode, address(fee), sender), 99 ether, "booked what was asked for");
+        assertEq(escrow.refundable(aliceNode, address(fee), bob), 49.5 ether, "booked what was asked for");
+        assertEq(
+            escrow.refundable(aliceNode, address(fee), sender) + escrow.refundable(aliceNode, address(fee), bob),
+            escrow.escrowed(aliceNode, address(fee)),
+            "the contributions do not add up to what is held"
+        );
+        assertEq(fee.balanceOf(address(escrow)), 148.5 ether);
+
+        vm.prank(sender);
+        escrow.refund(aliceNode, address(fee), sender);
+        assertEq(fee.balanceOf(sender), 99 ether);
+        vm.prank(bob);
+        escrow.refund(aliceNode, address(fee), bob);
+        assertEq(fee.balanceOf(bob), 49.5 ether);
+        assertEq(fee.balanceOf(address(escrow)), 0, "a refund left value behind");
+    }
+
+    /// The same deposit through the node path, the one no rules check: a
+    /// refund is what makes a mistaken node recoverable.
+    function test_aNodeDepositIsRefundable() public {
+        bytes32 bobNode = _nodeX("bob");
+        vm.prank(sender);
+        escrow.depositToNode(X, bobNode, address(token), 10 ether);
+
+        vm.prank(sender);
+        escrow.refund(bobNode, address(token), sender);
+        assertEq(token.balanceOf(sender), 1_000 ether, "the tokens did not come back");
+        assertEq(escrow.escrowed(bobNode, address(token)), 0);
+    }
+
+    /// A platform that stops accepting claims stops taking new escrow, and
+    /// nothing could ever claim what it holds for an unheld node, so that
+    /// value must still come back.
+    function test_aPlatformThatAcceptsNoClaimsStillRefunds() public {
+        _depositNative("alice", 1 ether);
+        vm.prank(owner);
+        proofVerifier.setVerifier(X, V1, IPlatformVerifier(address(0)));
+        assertFalse(names.acceptsClaims(X), "the staging is wrong");
+
+        vm.prank(sender);
+        escrow.refund(aliceNode, NATIVE, sender);
+        assertEq(escrow.escrowed(aliceNode, NATIVE), 0);
+    }
+
+    function test_aRefundToNobodyIsRefused() public {
+        _depositNative("alice", 1 ether);
+
+        vm.prank(sender);
+        vm.expectRevert(abi.encodeWithSelector(HandleEscrow.BadRecipient.selector, address(0)));
+        escrow.refund(aliceNode, NATIVE, address(0));
+
+        assertEq(escrow.escrowed(aliceNode, NATIVE), 1 ether, "the slot was emptied");
+        assertEq(escrow.refundable(aliceNode, NATIVE, sender), 1 ether);
+        assertEq(address(0).balance, 0, "value was burned");
+    }
+
+    function test_aRefundBackIntoTheEscrowIsRefused() public {
+        vm.prank(sender);
+        escrow.depositToHandle(X, "alice", address(token), 10 ether);
+
+        vm.prank(sender);
+        vm.expectRevert(abi.encodeWithSelector(HandleEscrow.BadRecipient.selector, address(escrow)));
+        escrow.refund(aliceNode, address(token), address(escrow));
+
+        assertEq(escrow.escrowed(aliceNode, address(token)), 10 ether);
+        assertEq(escrow.refundable(aliceNode, address(token), sender), 10 ether);
+        assertEq(token.balanceOf(address(escrow)), 10 ether);
+    }
+
+    /// The payout goes to an address the depositor chose. Somebody else's
+    /// contribution sits in the same slot, so a second payout would have value
+    /// to take.
+    function test_aReenteringRefunderCannotTakeTwice() public {
+        ReenteringRefunder refunder = new ReenteringRefunder(escrow, X, aliceNode);
+        refunder.fund{value: 1 ether}();
+        _depositNative("alice", 1 ether); // not the refunder's
+
+        vm.expectRevert(abi.encodeWithSelector(HandleEscrow.NativeTransferFailed.selector, address(refunder), 1 ether));
+        refunder.take();
+
+        assertEq(escrow.escrowed(aliceNode, NATIVE), 2 ether, "the slot moved");
+        assertEq(escrow.refundable(aliceNode, NATIVE, address(refunder)), 1 ether);
+        assertEq(escrow.refundable(aliceNode, NATIVE, sender), 1 ether, "somebody else's contribution moved");
+        assertEq(address(escrow).balance, 2 ether);
+        assertEq(address(refunder).balance, 0, "the refunder took anything at all");
+    }
+
+    /// The two defences of the refund payout, each observable alone: the
+    /// contribution and the slot read settled while the payout runs, and a
+    /// second refund from inside it is refused by the guard itself.
+    function test_aRefundSettlesTheBooksBeforePayingAndTheGuardRefusesReentry() public {
+        ObservingRefunder refunder = new ObservingRefunder(escrow, X, aliceNode);
+        refunder.fund{value: 1 ether}();
+        _depositNative("alice", 1 ether); // not the refunder's
+
+        refunder.take();
+
+        assertEq(refunder.refundableDuringPayout(), 0, "the contribution still read full while its payout ran");
+        assertEq(refunder.heldDuringPayout(), 1 ether, "the slot still counted the refund while its payout ran");
+        assertEq(
+            refunder.reentryError(),
+            abi.encodeWithSelector(ReentrancyGuardTransientUpgradeable.ReentrancyGuardReentrantCall.selector),
+            "the second refund was not refused by the guard"
+        );
+        assertEq(address(refunder).balance, 1 ether, "the refunder was paid other than once");
+        assertEq(escrow.refundable(aliceNode, NATIVE, sender), 1 ether, "somebody else's contribution moved");
+        assertEq(address(escrow).balance, 1 ether);
+    }
+
+    /// A token that calls `refund` again from inside the escrow's transfer is
+    /// refused by the guard.
+    function test_aTokenThatReentersRefundIsRefused() public {
+        RefundReenteringToken hook = new RefundReenteringToken();
+        hook.fund(escrow, X, aliceNode, 10 ether);
+        hook.mint(sender, 10 ether);
+        vm.startPrank(sender);
+        hook.approve(address(escrow), type(uint256).max);
+        escrow.depositToNode(X, aliceNode, address(hook), 10 ether); // not the token's
+        vm.stopPrank();
+
+        vm.expectRevert(
+            abi.encodeWithSelector(ReentrancyGuardTransientUpgradeable.ReentrancyGuardReentrantCall.selector)
+        );
+        hook.take();
+
+        assertEq(escrow.escrowed(aliceNode, address(hook)), 20 ether);
+        assertEq(escrow.refundable(aliceNode, address(hook), address(hook)), 10 ether);
+        assertEq(hook.balanceOf(address(escrow)), 20 ether);
+    }
+
+    function test_aRefundIsAnnouncedWithItsPayload() public {
+        _depositNative("alice", 1 ether);
+
+        vm.expectEmit(true, true, true, true, address(escrow));
+        emit HandleEscrow.Refunded(aliceNode, NATIVE, sender, bob, 1 ether);
+        vm.prank(sender);
+        escrow.refund(aliceNode, NATIVE, bob);
+    }
+
     // ─── Consequences accepted on purpose ───────────────────────────
 
     /// NOT a vulnerability. The escrow is keyed by the handle and nothing else,
     /// so a platform that frees a handle and gives it to somebody new hands the
-    /// new holder whatever accumulated for the old one. This is the decision,
-    /// and this test exists so changing it fails here.
+    /// new holder whatever the depositors left held for the old one. This is
+    /// the decision, and this test exists so changing it fails here.
     function test_ACCEPTED_aRecycledHandlePaysTheNewHolder() public {
         // Escrowed while nobody held it, and never claimed.
         _depositNative("alice", 1 ether);
@@ -1008,8 +1459,9 @@ contract HandleEscrowTest is Test {
     }
 
     /// NOT a vulnerability. Between a rename and the next proof of the freed
-    /// handle, the handle has no holder and the slot waits — including
-    /// against the account that just renamed away from it.
+    /// handle, the handle has no holder and nobody can claim the slot —
+    /// including the account that just renamed away from it. Its depositors
+    /// can refund meanwhile; see the refund tests.
     function test_ACCEPTED_aRenamedAwayHandleIsClaimableByNobody() public {
         _depositNative("alice", 1 ether);
         _bind(alice, "1", "alice", 100);
@@ -1024,16 +1476,19 @@ contract HandleEscrowTest is Test {
         assertEq(escrow.escrowed(aliceNode, NATIVE), 1 ether);
     }
 
-    /// NOT a vulnerability. A deposit is a gift to a name, so the sender has no
-    /// way back. There is no deadline and no refund by decision.
-    function test_ACCEPTED_theDepositorCannotTakeItBack() public {
+    /// A depositor is not the holder, so `claim` is not its way back; `refund`
+    /// is.
+    function test_theDepositorTakesItBackByRefundNotByClaim() public {
         _depositNative("alice", 1 ether);
 
         vm.prank(sender);
         vm.expectRevert(abi.encodeWithSelector(HandleEscrow.NotTheHolder.selector, address(0), sender));
         escrow.claim(aliceNode, NATIVE, sender);
-
         assertEq(escrow.escrowed(aliceNode, NATIVE), 1 ether);
+
+        vm.prank(sender);
+        escrow.refund(aliceNode, NATIVE, sender);
+        assertEq(escrow.escrowed(aliceNode, NATIVE), 0);
     }
 
     /// Being the escrow's owner does not make it the holder, and no owner
@@ -1045,6 +1500,10 @@ contract HandleEscrowTest is Test {
         vm.prank(owner);
         vm.expectRevert(abi.encodeWithSelector(HandleEscrow.NotTheHolder.selector, address(0), owner));
         escrow.claim(aliceNode, NATIVE, owner);
+
+        vm.prank(owner);
+        vm.expectRevert(abi.encodeWithSelector(HandleEscrow.NothingToRefund.selector, aliceNode, NATIVE, owner));
+        escrow.refund(aliceNode, NATIVE, owner);
     }
 
     /// A claim reads the holder of the node and nothing else, so the
@@ -1124,6 +1583,13 @@ contract HandleEscrowTest is Test {
     /// was refused to avoid.
     function test_balancesSurviveAnUpgrade() public {
         _depositNative("alice", 1 ether);
+        // A second round, so the round counter and a closed round's
+        // contribution are both non-zero to read back.
+        _bind(alice, "1", "alice", 100);
+        vm.prank(alice);
+        escrow.claim(aliceNode, NATIVE, alice);
+        _bind(alice, "1", "alice2", 200);
+        _depositNative("alice", 1 ether);
         // A version that APPENDS a field, not a copy of the same bytecode: a
         // byte-identical upgrade cannot detect a reordered or removed one,
         // which is the only mistake this test exists to catch.
@@ -1135,6 +1601,9 @@ contract HandleEscrowTest is Test {
         HandleEscrowV2 upgraded = HandleEscrowV2(payable(address(escrow)));
         assertEq(upgraded.heldThroughV2(aliceNode, NATIVE), 1 ether, "the balance moved under the new layout");
         assertEq(upgraded.namesThroughV2(), address(names), "the naming pointer moved");
+        assertEq(upgraded.roundThroughV2(aliceNode, NATIVE), 1, "the round moved under the new layout");
+        assertEq(upgraded.contributionThroughV2(aliceNode, NATIVE, 0, sender), 1 ether, "a closed round moved");
+        assertEq(upgraded.contributionThroughV2(aliceNode, NATIVE, 1, sender), 1 ether, "the open round moved");
         assertEq(upgraded.appended(), 0, "the appended field read somebody else's bytes");
 
         // The old surface still answers, and the new field is its own slot.
@@ -1142,6 +1611,42 @@ contract HandleEscrowTest is Test {
         upgraded.setAppended(7);
         assertEq(upgraded.appended(), 7);
         assertEq(escrow.escrowed(aliceNode, NATIVE), 1 ether, "writing the new field disturbed a balance");
+        assertEq(escrow.refundable(aliceNode, NATIVE, sender), 1 ether, "writing the new field disturbed a refund");
+    }
+
+    /// Upgrading from the layout that kept no contributions. What it held stays
+    /// readable and claimable by the holder; it has no depositor on record, so
+    /// no refund reaches it. Deposits made after the upgrade are refundable
+    /// and do not reach into it.
+    function test_anUpgradeFromTheLayoutWithoutContributionsKeepsWhatItHeld() public {
+        PreviousHandleEscrow previousImpl = new PreviousHandleEscrow();
+        PreviousHandleEscrow previous = PreviousHandleEscrow(address(new ERC1967Proxy(address(previousImpl), "")));
+        previous.setNames(IIdentityNames(address(names)));
+        vm.prank(sender);
+        previous.deposit{value: 1 ether}(aliceNode);
+
+        previous.upgradeToAndCall(address(new HandleEscrow()), "");
+        HandleEscrow upgraded = HandleEscrow(address(previous));
+
+        assertEq(address(upgraded.names()), address(names), "the naming pointer moved");
+        assertEq(upgraded.escrowed(aliceNode, NATIVE), 1 ether, "the old balance moved");
+        assertEq(upgraded.refundable(aliceNode, NATIVE, sender), 0, "an unrecorded deposit reads as refundable");
+        vm.prank(sender);
+        vm.expectRevert(abi.encodeWithSelector(HandleEscrow.NothingToRefund.selector, aliceNode, NATIVE, sender));
+        upgraded.refund(aliceNode, NATIVE, sender);
+
+        // A deposit through the new code is the depositor's to take back, and
+        // only that much.
+        vm.prank(sender);
+        upgraded.depositToNode{value: 2 ether}(X, aliceNode, NATIVE, 2 ether);
+        vm.prank(sender);
+        upgraded.refund(aliceNode, NATIVE, sender);
+        assertEq(upgraded.escrowed(aliceNode, NATIVE), 1 ether, "a refund reached the unrecorded deposit");
+
+        _bind(alice, "1", "alice", 100);
+        vm.prank(alice);
+        upgraded.claim(aliceNode, NATIVE, alice);
+        assertEq(alice.balance, 1 ether, "the holder did not get the old balance");
     }
 
     // ─── Helpers ────────────────────────────────────────────────────
