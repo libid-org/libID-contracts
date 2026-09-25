@@ -33,6 +33,10 @@ import {IIdentityNames} from "../contracts/escrow/IIdentityNames.sol";
 ///   DEPLOYER_KEY / PRIVATE_KEY — deployer private key (one of the two).
 ///   NOTARY_ADDRESS   — the first trusted notary signing key (default: deployer).
 ///   NOTARY_FEE_WEI   — what one attestation verification costs (default: 0).
+///   ESCROW_OWNER     — who owns the handle escrow, and so can upgrade it
+///                      (default: deployer). Production passes a multisig or
+///                      a timelock: that key can replace the code that holds
+///                      every deposit.
 contract Deploy is Script {
     function run() external {
         string memory deployerKeyHex = vm.envOr("DEPLOYER_KEY", vm.envOr("PRIVATE_KEY", string("")));
@@ -45,6 +49,7 @@ contract Deploy is Script {
         address deployer = vm.addr(deployerKey);
         address notaryAddr = vm.envOr("NOTARY_ADDRESS", deployer);
         uint256 notaryFee = vm.envOr("NOTARY_FEE_WEI", uint256(0));
+        address escrowOwner = vm.envOr("ESCROW_OWNER", deployer);
 
         vm.startBroadcast(deployerKey);
 
@@ -107,11 +112,15 @@ contract Deploy is Script {
         //
         //    This script is the only stack deployment in this repository that
         //    includes the escrow.
+        //
+        //    Owned by ESCROW_OWNER from `initialize` on, not handed over later:
+        //    the owner can upgrade the code that holds every deposit, so there
+        //    is no window in which the deployer holds that power by accident.
         HandleEscrow escrowImpl = new HandleEscrow();
         address handleEscrowAddr = address(
             new ERC1967Proxy(
                 address(escrowImpl),
-                abi.encodeCall(HandleEscrow.initialize, (deployer, IIdentityNames(identityNamesAddr)))
+                abi.encodeCall(HandleEscrow.initialize, (escrowOwner, IIdentityNames(identityNamesAddr)))
             )
         );
 
@@ -124,6 +133,7 @@ contract Deploy is Script {
         console.log("IDENTITY_NAMES_ADDRESS= ", identityNamesAddr);
         console.log("GOOGLE_JWT_ROOTS_ADDRESS= ", jwtRootsAddr);
         console.log("HANDLE_ESCROW_ADDRESS= ", handleEscrowAddr);
+        console.log("HANDLE_ESCROW_OWNER=   ", escrowOwner);
         console.log("NOTE: no Platform Verifier is registered yet. Add one with");
         console.log("      CeremonyProofVerifier.setVerifier once the ceremony");
         console.log("      circuit artifacts are released. Until then a platform");
@@ -133,6 +143,11 @@ contract Deploy is Script {
         // as a bad proof rather than an unseeded list.
         console.log("NOTE: point the keeper at GOOGLE_JWT_ROOTS_ADDRESS");
         console.log("      before Google names work. The trust list starts empty.");
+        if (escrowOwner == deployer) {
+            console.log("NOTE: THE HANDLE ESCROW IS OWNED BY THE DEPLOYER KEY. Its owner");
+            console.log("      can upgrade the escrow and take every deposit. Production");
+            console.log("      must set ESCROW_OWNER to a multisig or a timelock.");
+        }
     }
 
     /// @dev Give a platform its keyspace.
