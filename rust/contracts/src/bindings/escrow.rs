@@ -106,6 +106,8 @@ mod escrow_inner {
                 bytes32 platformId,
                 uint256 amount
             );
+            /// `amount` here and in `Refunded` is what `recipient` received —
+            /// its balance gain for a token — not what the books released.
             event Claimed(
                 bytes32 indexed handleNode,
                 address indexed token,

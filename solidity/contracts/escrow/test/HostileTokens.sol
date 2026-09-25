@@ -151,3 +151,23 @@ contract ShrinkingToken is ERC20 {
         return ok;
     }
 }
+
+/// @notice A token that takes 1% of every `transfer` — the call a payout
+///         makes — and none of a `transferFrom`, so a deposit arrives whole
+///         and a claim or refund delivers less than the books release.
+contract PayoutFeeToken is ERC20 {
+    uint256 public constant FEE_BPS = 100;
+
+    constructor() ERC20("PayoutFee", "PFEE") {}
+
+    function mint(address to, uint256 amount) external {
+        _mint(to, amount);
+    }
+
+    function transfer(address to, uint256 amount) public override returns (bool) {
+        uint256 fee = (amount * FEE_BPS) / 10_000;
+        _transfer(msg.sender, address(0xdead), fee);
+        _transfer(msg.sender, to, amount - fee);
+        return true;
+    }
+}

@@ -15,6 +15,7 @@ import {
     HookToken,
     ITransferHooks,
     NoReturnToken,
+    PayoutFeeToken,
     ShrinkingToken
 } from "./HostileTokens.sol";
 
@@ -272,6 +273,39 @@ contract HandleEscrowHostileTokensTest is Test {
         assertEq(escrow.refundable(NODE, address(token), depositor), 10 ether);
     }
 
+    // ─── A token that takes a fee on the payout ─────────────────────
+
+    /// `Claimed` reports what the recipient received, not what the books
+    /// released: the slot empties by the whole amount held.
+    function test_aClaimReportsWhatTheRecipientReceived() public {
+        PayoutFeeToken token = _escrowPayoutFeeToken(100 ether);
+        names.setHolder(NODE, holder);
+
+        vm.expectEmit(true, true, true, true, address(escrow));
+        emit HandleEscrow.Claimed(NODE, address(token), holder, elsewhere, 99 ether);
+        vm.prank(holder);
+        escrow.claim(NODE, address(token), elsewhere);
+
+        assertEq(token.balanceOf(elsewhere), 99 ether);
+        assertEq(escrow.escrowed(NODE, address(token)), 0, "the books kept the fee");
+        assertEq(token.balanceOf(address(escrow)), 0);
+    }
+
+    /// `Refunded` the same, and the contribution is spent whole.
+    function test_aRefundReportsWhatTheRecipientReceived() public {
+        PayoutFeeToken token = _escrowPayoutFeeToken(100 ether);
+
+        vm.expectEmit(true, true, true, true, address(escrow));
+        emit HandleEscrow.Refunded(NODE, address(token), depositor, elsewhere, 99 ether);
+        vm.prank(depositor);
+        escrow.refund(NODE, address(token), elsewhere);
+
+        assertEq(token.balanceOf(elsewhere), 99 ether);
+        assertEq(escrow.refundable(NODE, address(token), depositor), 0, "the fee stayed refundable");
+        assertEq(escrow.escrowed(NODE, address(token)), 0);
+        assertEq(token.balanceOf(address(escrow)), 0);
+    }
+
     // ─── A token with a blocklist ───────────────────────────────────
 
     /// A claim to a recipient the token refuses reverts whole, and the holder
@@ -365,6 +399,16 @@ contract HandleEscrowHostileTokensTest is Test {
         token.approve(address(escrow), amount);
         escrow.depositToNode(PLATFORM, NODE, address(token), amount, depositor);
         vm.stopPrank();
+    }
+
+    function _escrowPayoutFeeToken(uint256 amount) internal returns (PayoutFeeToken token) {
+        token = new PayoutFeeToken();
+        token.mint(depositor, amount);
+        vm.startPrank(depositor);
+        token.approve(address(escrow), type(uint256).max);
+        escrow.depositToNode(PLATFORM, NODE, address(token), amount, depositor);
+        vm.stopPrank();
+        assertEq(escrow.escrowed(NODE, address(token)), amount, "the deposit did not arrive whole");
     }
 
     function _escrowBlocklistToken(uint256 amount) internal returns (BlocklistToken token) {

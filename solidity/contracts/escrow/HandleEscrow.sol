@@ -265,12 +265,20 @@ contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable
     );
 
     /// @notice The holder of a handle node took what was held for it.
+    /// @dev `amount` is what `recipient` received: its balance gain for a
+    ///      token, the value sent for `NATIVE`. The books release everything
+    ///      held, which is more when the token takes a fee on the payout, and
+    ///      a recipient that moves tokens onward from inside the transfer
+    ///      reads as having received nothing. `Forwarded` measures the same
+    ///      way.
     event Claimed(
         bytes32 indexed handleNode, address indexed token, address indexed claimer, address recipient, uint256 amount
     );
 
     /// @notice The address a contribution was booked under took it back
     ///         before the node's holder claimed it.
+    /// @dev `amount` is what `recipient` received, measured as `Claimed`
+    ///      measures it; the books release the whole contribution.
     event Refunded(
         bytes32 indexed handleNode, address indexed token, address indexed refundTo, address recipient, uint256 amount
     );
@@ -551,8 +559,7 @@ contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable
         $.held[handleNode][token] = 0;
         ++$.round[handleNode][token];
 
-        _pay(token, recipient, amount);
-        emit Claimed(handleNode, token, msg.sender, recipient, amount);
+        emit Claimed(handleNode, token, msg.sender, recipient, _pay(token, recipient, amount));
     }
 
     // ─── Refunding ──────────────────────────────────────────────────
@@ -593,8 +600,7 @@ contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable
         current[msg.sender] = 0;
         $.held[handleNode][token] -= amount;
 
-        _pay(token, recipient, amount);
-        emit Refunded(handleNode, token, msg.sender, recipient, amount);
+        emit Refunded(handleNode, token, msg.sender, recipient, _pay(token, recipient, amount));
     }
 
     // ─── Reading ────────────────────────────────────────────────────
@@ -632,12 +638,20 @@ contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable
         return _s().names.nodeOf(platformId, handle);
     }
 
-    function _pay(address token, address to, uint256 amount) private {
+    /// @dev Pays `amount` and returns what `to` received: `amount` for
+    ///      native value, the balance `to` gained for a token, and zero when
+    ///      it gained nothing. Not refused on zero: the books are settled
+    ///      already, and a recipient that sweeps what it receives would then
+    ///      never be able to take its value in that token.
+    function _pay(address token, address to, uint256 amount) private returns (uint256 received) {
         if (token == NATIVE) {
             _sendNative(to, amount);
-        } else {
-            IERC20(token).safeTransfer(to, amount);
+            return amount;
         }
+        uint256 before = IERC20(token).balanceOf(to);
+        IERC20(token).safeTransfer(to, amount);
+        uint256 afterwards = IERC20(token).balanceOf(to);
+        return afterwards > before ? afterwards - before : 0;
     }
 
     function _sendNative(address to, uint256 amount) private {
