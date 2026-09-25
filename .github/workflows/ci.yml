@@ -74,6 +74,14 @@ jobs:
         with:
           foundry-version: ${{ env.FOUNDRY_VERSION }}
 
+      # A UUPS upgrade keeps the proxy's storage, so HandleEscrow's namespaced
+      # struct may only grow at the end. The script compares the layout built
+      # from source with the committed snapshot and fails on any difference,
+      # naming a pure append (record it with --update) apart from a reorder,
+      # removal or retype (undo it). See the script's header.
+      - name: Storage layout
+        run: python3 scripts/check-storage-layout.py
+
       - name: Test
         working-directory: solidity
         run: forge test -vvv
