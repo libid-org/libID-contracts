@@ -9,6 +9,7 @@ import {ReentrancyGuardUpgradeable} from "@openzeppelin/contracts-upgradeable/ut
 import {ICeremony} from "../ceremony/ICeremony.sol";
 import {IProofVerifier} from "../ceremony/IProofVerifier.sol";
 import {HandleNormalizer} from "./HandleNormalizer.sol";
+import {IIdentityNames} from "./IIdentityNames.sol";
 import {IdentityNodes} from "./IdentityNodes.sol";
 
 /// @title IdentityNames - proof-derived names for any wallet.
@@ -84,7 +85,13 @@ import {IdentityNodes} from "./IdentityNodes.sol";
 ///      **There is no pause.** A pause is a lever over other people's names,
 ///      and nothing here needs one: no funds are held, and no address is
 ///      predicted ahead of its deployment.
-contract IdentityNames is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, ReentrancyGuardUpgradeable {
+contract IdentityNames is
+    IIdentityNames,
+    Initializable,
+    UUPSUpgradeable,
+    Ownable2StepUpgradeable,
+    ReentrancyGuardUpgradeable
+{
     /// @notice A binding, and the moment the platform stated it.
     ///
     /// @dev `observedAt` is a provider timestamp, never a chain timestamp. Two

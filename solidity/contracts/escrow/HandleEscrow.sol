@@ -10,7 +10,7 @@ import {ReentrancyGuardUpgradeable} from "@openzeppelin/contracts-upgradeable/ut
 
 import {HandleNormalizer} from "../identity/HandleNormalizer.sol";
 import {IdentityNodes} from "../identity/IdentityNodes.sol";
-import {IIdentityNames} from "./IIdentityNames.sol";
+import {IIdentityNames} from "../identity/IIdentityNames.sol";
 
 /// @title HandleEscrow - send to a platform handle before anybody claims it.
 ///

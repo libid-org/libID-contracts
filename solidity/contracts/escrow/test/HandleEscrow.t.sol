@@ -16,7 +16,7 @@ import {CeremonyProofVerifier} from "../../ceremony/CeremonyProofVerifier.sol";
 import {IPlatformVerifier} from "../../ceremony/IPlatformVerifier.sol";
 import {IProofVerifier} from "../../ceremony/IProofVerifier.sol";
 import {HandleEscrow} from "../HandleEscrow.sol";
-import {IIdentityNames} from "../IIdentityNames.sol";
+import {IIdentityNames} from "../../identity/IIdentityNames.sol";
 
 /// @notice A plain ERC-20 anybody can mint. Test-only: it lives beside the
 ///         tests so no deploy tool can reach it.

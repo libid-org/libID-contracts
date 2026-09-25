@@ -7,7 +7,7 @@ import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol
 import {ReentrancyGuardUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardUpgradeable.sol";
 
 import {HandleEscrow} from "../HandleEscrow.sol";
-import {IIdentityNames} from "../IIdentityNames.sol";
+import {IIdentityNames} from "../../identity/IIdentityNames.sol";
 import {SettableNames} from "./HandleEscrowAccounting.t.sol";
 import {BlocklistToken, FalseToken, HookToken, ITransferHooks, NoReturnToken} from "./HostileTokens.sol";
 

@@ -10,7 +10,7 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 import {HandleNormalizer} from "../../identity/HandleNormalizer.sol";
 import {HandleEscrow} from "../HandleEscrow.sol";
-import {IIdentityNames} from "../IIdentityNames.sol";
+import {IIdentityNames} from "../../identity/IIdentityNames.sol";
 import {FeeToken, TestERC20} from "./HandleEscrow.t.sol";
 import {BlocklistToken, NoReturnToken} from "./HostileTokens.sol";
 
