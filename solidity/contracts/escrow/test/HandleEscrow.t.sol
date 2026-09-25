@@ -5,9 +5,7 @@ import {Test} from "forge-std/Test.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 
-import {
-    ReentrancyGuardTransientUpgradeable
-} from "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardTransientUpgradeable.sol";
+import {ReentrancyGuardUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardUpgradeable.sol";
 
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 
@@ -953,9 +951,7 @@ contract HandleEscrowTest is Test {
         hook.approve(address(escrow), type(uint256).max);
         // The guard specifically, not any revert: a mis-staged token or a
         // missing approval would also revert and would also look green.
-        vm.expectRevert(
-            abi.encodeWithSelector(ReentrancyGuardTransientUpgradeable.ReentrancyGuardReentrantCall.selector)
-        );
+        vm.expectRevert(abi.encodeWithSelector(ReentrancyGuardUpgradeable.ReentrancyGuardReentrantCall.selector));
         if (viaNode) {
             escrow.depositToNode(X, aliceNode, address(hook), 100 ether);
         } else {
@@ -1004,7 +1000,7 @@ contract HandleEscrowTest is Test {
         assertEq(claimer.seenDuringPayout(), 0, "the slot still read full while its payout ran");
         assertEq(
             claimer.reentryError(),
-            abi.encodeWithSelector(ReentrancyGuardTransientUpgradeable.ReentrancyGuardReentrantCall.selector),
+            abi.encodeWithSelector(ReentrancyGuardUpgradeable.ReentrancyGuardReentrantCall.selector),
             "the second claim was not refused by the guard"
         );
         assertEq(address(claimer).balance, 1 ether, "the claimer was paid other than once");
@@ -1398,7 +1394,7 @@ contract HandleEscrowTest is Test {
         assertEq(refunder.heldDuringPayout(), 1 ether, "the slot still counted the refund while its payout ran");
         assertEq(
             refunder.reentryError(),
-            abi.encodeWithSelector(ReentrancyGuardTransientUpgradeable.ReentrancyGuardReentrantCall.selector),
+            abi.encodeWithSelector(ReentrancyGuardUpgradeable.ReentrancyGuardReentrantCall.selector),
             "the second refund was not refused by the guard"
         );
         assertEq(address(refunder).balance, 1 ether, "the refunder was paid other than once");
@@ -1417,9 +1413,7 @@ contract HandleEscrowTest is Test {
         escrow.depositToNode(X, aliceNode, address(hook), 10 ether); // not the token's
         vm.stopPrank();
 
-        vm.expectRevert(
-            abi.encodeWithSelector(ReentrancyGuardTransientUpgradeable.ReentrancyGuardReentrantCall.selector)
-        );
+        vm.expectRevert(abi.encodeWithSelector(ReentrancyGuardUpgradeable.ReentrancyGuardReentrantCall.selector));
         hook.take();
 
         assertEq(escrow.escrowed(aliceNode, address(hook)), 20 ether);
@@ -1647,6 +1641,46 @@ contract HandleEscrowTest is Test {
         vm.prank(alice);
         upgraded.claim(aliceNode, NATIVE, alice);
         assertEq(alice.balance, 1 ether, "the holder did not get the old balance");
+    }
+
+    /// OpenZeppelin's ERC-7201 root for the storage-based reentrancy guard,
+    /// `openzeppelin.storage.ReentrancyGuard`. Distinct from the escrow's own
+    /// root, so the guard's word and the books cannot overlap.
+    bytes32 internal constant GUARD_SLOT = 0x9b779b17422d0df92223018b32b4d1fa46e071723d6817e2486d003becc55f00;
+    bytes32 internal constant ESCROW_ROOT = 0xfcca8d7d2c66f78c2760f3fcd99e0bf938b0aeb0d0b471f481dd50b8aff6b400;
+
+    /// `initialize` arms the guard: its word reads NOT_ENTERED (1), and reads
+    /// it again after a guarded call has run and returned.
+    function test_initializeArmsTheReentrancyGuard() public {
+        assertTrue(GUARD_SLOT != ESCROW_ROOT);
+        assertEq(uint256(vm.load(address(escrow), GUARD_SLOT)), 1, "initialize did not arm the guard");
+        _depositNative("alice", 1 ether);
+        assertEq(uint256(vm.load(address(escrow), GUARD_SLOT)), 1, "a guarded call left the guard entered");
+    }
+
+    /// A proxy upgraded to this code from an implementation that never ran
+    /// `__ReentrancyGuard_init` has a zero guard word. The guard refuses only
+    /// ENTERED (2), so reentry is refused from the zero word too.
+    function test_theGuardRefusesReentryOnAProxyThatNeverInitializedIt() public {
+        PreviousHandleEscrow previousImpl = new PreviousHandleEscrow();
+        PreviousHandleEscrow previous = PreviousHandleEscrow(address(new ERC1967Proxy(address(previousImpl), "")));
+        previous.setNames(IIdentityNames(address(names)));
+        previous.upgradeToAndCall(address(new HandleEscrow()), "");
+        HandleEscrow upgraded = HandleEscrow(address(previous));
+        assertEq(uint256(vm.load(address(upgraded), GUARD_SLOT)), 0, "the guard word was not left zero");
+
+        ObservingClaimer claimer = new ObservingClaimer(upgraded, aliceNode);
+        vm.prank(sender);
+        upgraded.depositToNode{value: 1 ether}(X, aliceNode, NATIVE, 1 ether);
+        _bind(address(claimer), "1", "alice", 100);
+        claimer.take();
+
+        assertEq(
+            claimer.reentryError(),
+            abi.encodeWithSelector(ReentrancyGuardUpgradeable.ReentrancyGuardReentrantCall.selector),
+            "the second claim was not refused by the guard"
+        );
+        assertEq(address(claimer).balance, 1 ether, "the claimer was paid other than once");
     }
 
     // ─── Helpers ────────────────────────────────────────────────────

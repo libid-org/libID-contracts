@@ -1,14 +1,12 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.20;
+pragma solidity ^0.8.24;
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import {Ownable2StepUpgradeable} from "@openzeppelin/contracts-upgradeable/access/Ownable2StepUpgradeable.sol";
-import {
-    ReentrancyGuardTransientUpgradeable
-} from "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardTransientUpgradeable.sol";
+import {ReentrancyGuardUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardUpgradeable.sol";
 
 import {HandleNormalizer} from "../identity/HandleNormalizer.sol";
 import {IdentityNodes} from "../identity/IdentityNodes.sol";
@@ -121,7 +119,7 @@ import {IIdentityNames} from "./IIdentityNames.sol";
 ///      pays it. They are the keys that already decide which proofs bind
 ///      names at all; the escrow adds a new thing they can reach, not a new
 ///      party.
-contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, ReentrancyGuardTransientUpgradeable {
+contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, ReentrancyGuardUpgradeable {
     using SafeERC20 for IERC20;
 
     /// @notice The native token of the chain, as a token address.
@@ -235,7 +233,7 @@ contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable
         __Ownable_init(owner_);
         __Ownable2Step_init();
         __UUPSUpgradeable_init();
-        __ReentrancyGuardTransient_init();
+        __ReentrancyGuard_init();
         _s().names = names_;
     }
 
