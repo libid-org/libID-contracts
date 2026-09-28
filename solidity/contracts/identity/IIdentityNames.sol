@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.20;
+pragma solidity ^0.8.24;
 
 /// @notice What another contract asks the naming system.
 ///
@@ -8,6 +8,11 @@ pragma solidity ^0.8.20;
 ///      leaving a caller, `HandleEscrow` among them, calling a selector that
 ///      no longer exists.
 interface IIdentityNames {
+    /// This platform has no keyspace configured. `HandleEscrow.initialize`
+    /// recognizes a naming contract by this exact revert from `nodeOf` on
+    /// the zero platform.
+    error UnknownPlatform(bytes32 platformId);
+
     /// @notice The wallet that last proved this handle node, and when.
     ///
     /// @dev A zero owner means nobody holds it: never proved, or retired
@@ -15,7 +20,7 @@ interface IIdentityNames {
     function byHandle(bytes32 handleNode) external view returns (address owner, uint64 observedAt);
 
     /// @notice The node a handle keys to under the platform's current rules.
-    /// @dev Reverts `IdentityNames.UnknownPlatform` for a platform with no
+    /// @dev Reverts `UnknownPlatform` for a platform with no
     ///      keyspace, and `IdentityNames.UnusableHandle` for text the rules
     ///      refuse.
     function nodeOf(bytes32 platformId, string calldata handle) external view returns (bytes32 handleNode);

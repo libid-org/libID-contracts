@@ -10,8 +10,10 @@
 //! `keccak256(abi.encode(keccak256("libid.identity.handle-node.v1"), platformId,
 //! keccak256(normalized)))`, the node `IdentityNames` binds and emits as
 //! `IdentityBound.handleNode`. `nodeOf` derives it from text under the
-//! platform's current rules, by asking `IdentityNames.nodeOf`; a client that must keep a handle out of calldata
-//! derives it itself from the normalized handle and pays with `depositToNode`.
+//! platform's current rules, by asking `IdentityNames.nodeOf`; a client that
+//! must keep a handle out of calldata hashes the normalized handle itself,
+//! `keccak256(normalized)`, and pays with `depositToHandleHash`, which keys
+//! that hash under the platform it names.
 
 /// Bindings for `escrow/HandleEscrow.sol`.
 #[allow(clippy::too_many_arguments, unused_attributes)]
@@ -44,12 +46,13 @@ mod escrow_inner {
                 address refundTo
             ) external payable;
 
-            /// The same, against a handle node the caller derived. Nothing
-            /// about the node can be checked: a wrong node funds a slot nothing
-            /// can claim, and only its `refundTo`'s `refund` recovers it.
-            function depositToNode(
+            /// The same, against `keccak256` of the normalized handle. The
+            /// escrow keys the hash under `platformId` itself. Nothing about
+            /// the hash can be checked: a wrong hash funds a slot nothing can
+            /// claim, and only its `refundTo`'s `refund` recovers it.
+            function depositToHandleHash(
                 bytes32 platformId,
-                bytes32 handleNode,
+                bytes32 handleHash,
                 address token,
                 uint256 amount,
                 address refundTo
@@ -98,23 +101,27 @@ mod escrow_inner {
             );
             /// A deposit for a handle node somebody already held, paid to that
             /// holder and never booked. Nothing is claimable afterwards, which
-            /// is what separates it from `Deposited`.
+            /// is what separates it from `Deposited`. `amount` is what the
+            /// deposit asked to move, `received` what the holder gained.
             event Forwarded(
                 bytes32 indexed handleNode,
                 address indexed token,
                 address indexed depositor,
                 address holder,
                 bytes32 platformId,
-                uint256 amount
+                uint256 amount,
+                uint256 received
             );
-            /// `amount` here and in `Refunded` is what `recipient` received —
-            /// its balance gain for a token — not what the books released.
+            /// `released` here and in `Refunded` is what the books released;
+            /// `received` is what `recipient` gained — its balance gain for a
+            /// token — which a fee on the payout makes less.
             event Claimed(
                 bytes32 indexed handleNode,
                 address indexed token,
                 address indexed claimer,
                 address recipient,
-                uint256 amount
+                uint256 released,
+                uint256 received
             );
             event OwnershipTransferStarted(address indexed previousOwner, address indexed newOwner);
             event OwnershipTransferred(address indexed previousOwner, address indexed newOwner);
@@ -123,7 +130,8 @@ mod escrow_inner {
                 address indexed token,
                 address indexed refundTo,
                 address recipient,
-                uint256 amount
+                uint256 released,
+                uint256 received
             );
 
             error ZeroAmount();

@@ -1,7 +1,8 @@
+import { keccak256, toHex } from 'viem'
 import { describe, expect, it } from 'vitest'
 
 import { HandleError, type NormalizedHandle, normalize, RULES_GITHUB, RULES_X } from './handle.js'
-import { handleNode, handleNodeOf } from './node.js'
+import { handleHash, handleHashOf, handleNode, handleNodeOf, handleNodeOfHash } from './node.js'
 import { platformId } from './resolve.js'
 
 /// `test_theNodeDerivationIsPinned` in HandleEscrow.t.sol pins this literal
@@ -12,7 +13,7 @@ const ALICE_1_ON_X = '0x1c43d5d3cf3d99e9d5b6e8c74c23d14bcbb6a743712cf7fa7c15750c
 /// Solidity suite pins the X literal against `HandleEscrow.nodeOf` and
 /// `IdentityNodes.handleNode`, and the Rust anvil test pins the GitHub one
 /// against a deployed escrow, so a TypeScript client that derived another node
-/// for `depositToNode` would fail here.
+/// would fail here.
 describe('handle node', () => {
   it('matches the node the contracts key on', () => {
     expect(handleNode(platformId('x'), normalize(' Alice_1 ', RULES_X))).toBe(ALICE_1_ON_X)
@@ -56,5 +57,19 @@ describe('handleNodeOf', () => {
 
   it('throws for a platform the table does not have', () => {
     expect(() => handleNodeOf('mastodon', 'alice')).toThrow(/no handle rules/)
+  })
+})
+
+describe('handle hash', () => {
+  /// `depositToHandleHash` keys the hash under the platform itself; the node
+  /// it reaches is the one `handleNode` gives for the same handle.
+  it('keys to the node of the same handle', () => {
+    expect(handleHash(normalize(' Alice_1 ', RULES_X))).toBe(keccak256(toHex('alice_1')))
+    expect(handleNodeOfHash(platformId('x'), handleHashOf('x', ' @Alice_1 '))).toBe(ALICE_1_ON_X)
+  })
+
+  it('throws as handleNodeOf does', () => {
+    expect(() => handleHashOf('google', 'alice')).toThrow(HandleError)
+    expect(() => handleHashOf('mastodon', 'alice')).toThrow(/no handle rules/)
   })
 })

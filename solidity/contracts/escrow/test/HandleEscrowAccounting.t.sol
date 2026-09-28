@@ -33,13 +33,15 @@ contract SettableNames is IIdentityNames {
     }
 
     /// The text keyed as given: nothing here normalizes, and the suites that
-    /// use this deposit by node.
+    /// use this deposit by hash. The zero platform is unknown, as it is to
+    /// the naming system, which is what `HandleEscrow.initialize` checks.
     function nodeOf(bytes32 platformId, string calldata handle) external pure returns (bytes32) {
+        if (platformId == bytes32(0)) revert UnknownPlatform(platformId);
         return IdentityNodes.handleNode(platformId, handle);
     }
 
-    function acceptsClaims(bytes32) external pure returns (bool) {
-        return true;
+    function acceptsClaims(bytes32 platformId) external pure returns (bool) {
+        return platformId != bytes32(0);
     }
 }
 
@@ -70,6 +72,7 @@ contract EscrowHandler is CommonBase, StdCheats, StdUtils {
 
     address[3] public depositors;
     address[TOKENS] public tokens;
+    bytes32[2] public hashes;
     bytes32[2] public nodes;
     address[2] public holders;
 
@@ -92,7 +95,9 @@ contract EscrowHandler is CommonBase, StdCheats, StdUtils {
             address(new NoReturnToken()),
             address(new BlocklistToken())
         ];
-        nodes = [keccak256("node a"), keccak256("node b")];
+        hashes = [keccak256("node a"), keccak256("node b")];
+        nodes =
+            [IdentityNodes.handleNodeOfHash(PLATFORM, hashes[0]), IdentityNodes.handleNodeOfHash(PLATFORM, hashes[1])];
         holders = [makeAddr("holder 1"), makeAddr("holder 2")];
     }
 
@@ -102,6 +107,7 @@ contract EscrowHandler is CommonBase, StdCheats, StdUtils {
         address depositor = depositors[depositorSeed % 3];
         address refundTo = depositors[refundToSeed % 3];
         address token = tokens[tokenSeed % TOKENS];
+        bytes32 handleHash = hashes[nodeSeed % 2];
         bytes32 node = nodes[nodeSeed % 2];
         amount = bound(amount, 1, 1e24);
         address holder = NAMES.holderOf(node);
@@ -110,14 +116,14 @@ contract EscrowHandler is CommonBase, StdCheats, StdUtils {
         if (token == address(0)) {
             vm.deal(depositor, amount);
             vm.prank(depositor);
-            ESCROW.depositToNode{value: amount}(PLATFORM, node, token, amount, refundTo);
+            ESCROW.depositToHandleHash{value: amount}(PLATFORM, handleHash, token, amount, refundTo);
         } else {
             _fund(token, depositor, amount);
             if (token == tokens[2]) delivered = amount - (amount * FeeToken(token).FEE_BPS()) / 10_000;
             // The pull is from the depositor, to the holder or to the escrow.
             bool refused = _expectBlocked(token, depositor, holder == address(0) ? address(ESCROW) : holder);
             vm.prank(depositor);
-            ESCROW.depositToNode(PLATFORM, node, token, amount, refundTo);
+            ESCROW.depositToHandleHash(PLATFORM, handleHash, token, amount, refundTo);
             if (refused) return;
         }
         if (holder == address(0)) modelContribution[node][token][refundTo] += delivered;
@@ -127,6 +133,7 @@ contract EscrowHandler is CommonBase, StdCheats, StdUtils {
     /// nobody holds is given a holder first, so every call tries one.
     function payYourself(uint256 tokenSeed, uint256 nodeSeed, uint256 holderSeed, uint256 amount) external {
         address token = tokens[tokenSeed % TOKENS];
+        bytes32 handleHash = hashes[nodeSeed % 2];
         bytes32 node = nodes[nodeSeed % 2];
         address holder = NAMES.holderOf(node);
         if (holder == address(0)) {
@@ -140,7 +147,7 @@ contract EscrowHandler is CommonBase, StdCheats, StdUtils {
 
         vm.expectRevert(abi.encodeWithSelector(HandleEscrow.PayingYourself.selector, holder));
         vm.prank(holder);
-        ESCROW.depositToNode{value: value}(PLATFORM, node, token, amount, holder);
+        ESCROW.depositToHandleHash{value: value}(PLATFORM, handleHash, token, amount, holder);
         ++selfPayRefusals;
     }
 
@@ -344,7 +351,8 @@ contract HandleEscrowAccountingTest is Test {
 ///         each checked against the balances it moved.
 contract HandleEscrowAmountsTest is Test {
     bytes32 internal constant PLATFORM = keccak256("x");
-    bytes32 internal constant NODE = keccak256("node");
+    bytes32 internal constant HASH = keccak256("node");
+    bytes32 internal immutable NODE = IdentityNodes.handleNodeOfHash(PLATFORM, HASH);
     uint256 internal constant MAX = 1e36;
 
     HandleEscrow internal escrow;
@@ -426,7 +434,7 @@ contract HandleEscrowAmountsTest is Test {
         fee.mint(alice, amount);
         vm.startPrank(alice);
         fee.approve(address(escrow), amount);
-        escrow.depositToNode(PLATFORM, NODE, address(fee), amount, alice);
+        escrow.depositToHandleHash(PLATFORM, HASH, address(fee), amount, alice);
         vm.stopPrank();
 
         assertEq(escrow.escrowed(NODE, address(fee)), arrived);
@@ -450,13 +458,13 @@ contract HandleEscrowAmountsTest is Test {
         if (native) {
             vm.deal(who, amount);
             vm.prank(who);
-            escrow.depositToNode{value: amount}(PLATFORM, NODE, address(0), amount, who);
+            escrow.depositToHandleHash{value: amount}(PLATFORM, HASH, address(0), amount, who);
             return address(0);
         }
         token.mint(who, amount);
         vm.startPrank(who);
         token.approve(address(escrow), amount);
-        escrow.depositToNode(PLATFORM, NODE, address(token), amount, who);
+        escrow.depositToHandleHash(PLATFORM, HASH, address(token), amount, who);
         vm.stopPrank();
         return address(token);
     }

@@ -1,11 +1,11 @@
 /// The key the identity system stores a handle under.
 ///
-/// This mirrors `IdentityNodes.handleNode` in
+/// This mirrors `IdentityNodes.handleNode` and `handleNodeOfHash` in
 /// `solidity/contracts/identity/IdentityNodes.sol`. `IdentityNames` binds a
 /// handle under this node and emits it as `IdentityBound.handleNode`, and
-/// `HandleEscrow` holds value against the same node, so a client that pays
-/// with `depositToNode` computes it here rather than putting the handle in
-/// calldata.
+/// `HandleEscrow` holds value against the same node. A client that pays with
+/// `depositToHandleHash` passes `handleHash` rather than putting the handle
+/// in calldata, and reads balances by `handleNode`.
 
 import { encodeAbiParameters, type Hex, keccak256, toHex } from 'viem'
 
@@ -22,11 +22,23 @@ export const HANDLE_NODE_V1: Hex = keccak256(toHex('libid.identity.handle-node.v
 /// a deposit to it can never be claimed. From what a user typed, use
 /// `handleNodeOf`, or `normalize` first with the rules the platform has on
 /// chain now (`IdentityNames.rulesOf`).
-export function handleNode(platformId: Hex, normalizedHandle: NormalizedHandle): Hex {
+export function handleNode(platform: Hex, normalizedHandle: NormalizedHandle): Hex {
+  return handleNodeOfHash(platform, handleHash(normalizedHandle))
+}
+
+/// `keccak256` of a normalized handle: what `HandleEscrow.depositToHandleHash`
+/// takes, and the inner hash of `handleNode`. Takes only a `NormalizedHandle`,
+/// for the reason `handleNode` does.
+export function handleHash(normalizedHandle: NormalizedHandle): Hex {
+  return keccak256(toHex(normalizedHandle))
+}
+
+/// The node of a handle given as `handleHash`, under a platform id.
+export function handleNodeOfHash(platform: Hex, hash: Hex): Hex {
   return keccak256(
     encodeAbiParameters(
       [{ type: 'bytes32' }, { type: 'bytes32' }, { type: 'bytes32' }],
-      [HANDLE_NODE_V1, platformId, keccak256(toHex(normalizedHandle))],
+      [HANDLE_NODE_V1, platform, hash],
     ),
   )
 }
@@ -50,7 +62,18 @@ export function handleNode(platformId: Hex, normalizedHandle: NormalizedHandle):
 /// change; a client that must follow a change reads `rulesOf` and calls
 /// `handleNode(platformId(domain), normalize(raw, rules))` itself.
 export function handleNodeOf(platform: string, rawHandle: string): Hex {
+  return handleNode(platformId(platform), normalizeFor(platform, rawHandle))
+}
+
+/// The `handleHash` of a handle as a user typed it, for
+/// `depositToHandleHash`, normalized under the platform's rules from the
+/// table as `handleNodeOf` does. Throws as `handleNodeOf` does.
+export function handleHashOf(platform: string, rawHandle: string): Hex {
+  return handleHash(normalizeFor(platform, rawHandle))
+}
+
+function normalizeFor(platform: string, rawHandle: string): NormalizedHandle {
   const rules = rulesFor(platform)
   if (rules === null) throw new Error(`no handle rules for platform ${JSON.stringify(platform)}`)
-  return handleNode(platformId(platform), normalize(rawHandle, rules))
+  return normalize(rawHandle, rules)
 }

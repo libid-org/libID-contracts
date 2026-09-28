@@ -6,6 +6,7 @@ import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.s
 
 import {HandleNormalizer} from "../HandleNormalizer.sol";
 import {HandleVectors} from "../HandleVectors.sol";
+import {IIdentityNames} from "../IIdentityNames.sol";
 import {IdentityNames} from "../IdentityNames.sol";
 import {IdentityNodes} from "../IdentityNodes.sol";
 import {CeremonyProofVerifier} from "../../ceremony/CeremonyProofVerifier.sol";
@@ -152,7 +153,7 @@ contract IdentityNamesTest is Test {
         _stage("123", "alice", alice, 100);
 
         vm.prank(alice);
-        vm.expectRevert(abi.encodeWithSelector(IdentityNames.UnknownPlatform.selector, unknown));
+        vm.expectRevert(abi.encodeWithSelector(IIdentityNames.UnknownPlatform.selector, unknown));
         _claim(unknown, false);
     }
 
@@ -277,16 +278,16 @@ contract IdentityNamesTest is Test {
     function test_everyResolverRefusesAnUnknownPlatform() public {
         bytes32 unwired = keccak256("nowhere");
 
-        vm.expectRevert(abi.encodeWithSelector(IdentityNames.UnknownPlatform.selector, unwired));
+        vm.expectRevert(abi.encodeWithSelector(IIdentityNames.UnknownPlatform.selector, unwired));
         names.resolveId(unwired, "123");
 
-        vm.expectRevert(abi.encodeWithSelector(IdentityNames.UnknownPlatform.selector, unwired));
+        vm.expectRevert(abi.encodeWithSelector(IIdentityNames.UnknownPlatform.selector, unwired));
         names.resolveHandle(unwired, "alice");
 
-        vm.expectRevert(abi.encodeWithSelector(IdentityNames.UnknownPlatform.selector, unwired));
+        vm.expectRevert(abi.encodeWithSelector(IIdentityNames.UnknownPlatform.selector, unwired));
         names.resolvePair(unwired, "alice", "123");
 
-        vm.expectRevert(abi.encodeWithSelector(IdentityNames.UnknownPlatform.selector, unwired));
+        vm.expectRevert(abi.encodeWithSelector(IIdentityNames.UnknownPlatform.selector, unwired));
         names.rulesOf(unwired);
     }
 
@@ -344,7 +345,7 @@ contract IdentityNamesTest is Test {
     /// though nothing can bind there (`acceptsClaims` answers that part).
     function test_nodeOfNeedsAKeyspaceAndNothingMore() public {
         bytes32 fresh = keccak256("fresh");
-        vm.expectRevert(abi.encodeWithSelector(IdentityNames.UnknownPlatform.selector, fresh));
+        vm.expectRevert(abi.encodeWithSelector(IIdentityNames.UnknownPlatform.selector, fresh));
         names.nodeOf(fresh, "alice");
 
         vm.prank(owner);
@@ -566,7 +567,7 @@ contract IdentityNamesTest is Test {
     /// apart from an address.
     function test_anUnwiredPlatformStillReverts() public {
         bytes32 unknown = keccak256("nowhere");
-        vm.expectRevert(abi.encodeWithSelector(IdentityNames.UnknownPlatform.selector, unknown));
+        vm.expectRevert(abi.encodeWithSelector(IIdentityNames.UnknownPlatform.selector, unknown));
         names.resolveHandle(unknown, "alice");
     }
 
@@ -689,18 +690,18 @@ contract IdentityNamesTest is Test {
         vm.prank(owner);
         names.setPlatform(fresh, HandleVectors.rulesFor(X));
 
-        vm.expectRevert(abi.encodeWithSelector(IdentityNames.UnknownPlatform.selector, fresh));
+        vm.expectRevert(abi.encodeWithSelector(IIdentityNames.UnknownPlatform.selector, fresh));
         names.resolveId(fresh, "123");
 
-        vm.expectRevert(abi.encodeWithSelector(IdentityNames.UnknownPlatform.selector, fresh));
+        vm.expectRevert(abi.encodeWithSelector(IIdentityNames.UnknownPlatform.selector, fresh));
         names.resolveHandle(fresh, "alice");
 
-        vm.expectRevert(abi.encodeWithSelector(IdentityNames.UnknownPlatform.selector, fresh));
+        vm.expectRevert(abi.encodeWithSelector(IIdentityNames.UnknownPlatform.selector, fresh));
         names.resolvePair(fresh, "alice", "123");
 
         // The rules exist, but a contract asking whether text could be a
         // handle here must hear "not wired", not a rule set nothing verifies.
-        vm.expectRevert(abi.encodeWithSelector(IdentityNames.UnknownPlatform.selector, fresh));
+        vm.expectRevert(abi.encodeWithSelector(IIdentityNames.UnknownPlatform.selector, fresh));
         names.rulesOf(fresh);
     }
 

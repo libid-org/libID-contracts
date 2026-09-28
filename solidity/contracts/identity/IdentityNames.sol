@@ -328,8 +328,8 @@ contract IdentityNames is
 
     // ─── Errors ─────────────────────────────────────────────────────
 
-    /// This platform has no keyspace configured.
-    error UnknownPlatform(bytes32 platformId);
+    // `UnknownPlatform`, for a platform with no keyspace configured, is
+    // declared in `IIdentityNames`.
     /// Text this platform's rules refuse as a handle, and the normalizer's
     /// reason. What `nodeOf` reverts with.
     error UnusableHandle(HandleNormalizer.Problem problem);

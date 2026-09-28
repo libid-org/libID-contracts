@@ -9,6 +9,7 @@ import {Ownable2StepUpgradeable} from "@openzeppelin/contracts-upgradeable/acces
 import {ReentrancyGuardUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardUpgradeable.sol";
 
 import {IIdentityNames} from "../identity/IIdentityNames.sol";
+import {IdentityNodes} from "../identity/IdentityNodes.sol";
 
 /// @title HandleEscrow - send to a platform handle before anybody claims it.
 ///
@@ -17,9 +18,9 @@ import {IIdentityNames} from "../identity/IIdentityNames.sol";
 ///         the holder takes it, the address each deposit named as its
 ///         `refundTo` can take that deposit back.
 ///
-/// @dev The point is a sender who knows `@alice` and nothing else. The Bank's
-///      escrow is keyed by an account's immutable id, which such a sender does
-///      not have, so this keys by the handle.
+/// @dev The point is a sender who knows `@alice` and nothing else: not the
+///      account's immutable id, and not whether the account has joined. So
+///      this keys by the handle.
 ///
 ///      **The key is the naming system's handle node.** A slot is
 ///      `IdentityNodes.handleNode(platformId, normalized)`, the node
@@ -100,9 +101,12 @@ import {IIdentityNames} from "../identity/IIdentityNames.sol";
 ///      **Two ways in.** `depositToHandle` takes the handle as text, has
 ///      the naming system turn it into its node under the platform's current
 ///      rules, and is refused for text those rules do not accept.
-///      `depositToNode` takes the node itself and can validate
-///      nothing; it exists so a payee whose handle must not appear in
-///      calldata — a private, digest-profile binding — can still be paid.
+///      `depositToHandleHash` takes `keccak256` of the normalized handle and
+///      keys it here with `IdentityNodes.handleNodeOfHash`, so the platform
+///      is part of the node by construction; the hash itself can be
+///      validated against nothing. It exists so a payee whose handle must
+///      not appear in calldata — a private, digest-profile binding — can
+///      still be paid.
 ///
 ///      **The platform's rules decide where text goes, not who holds a
 ///      node.** Normalization runs once, on the way in, under the rules of
@@ -235,12 +239,12 @@ contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable
     // ─── Events ─────────────────────────────────────────────────────
 
     /// @notice Value was placed against a handle node nobody holds yet.
-    /// @dev `refundTo` is the address the contribution is booked under: the
-    ///      one `refund` pays it back to and `refundable` answers for, and the
-    ///      `refundTo` of `Refunded`. `depositor` is the caller that paid,
-    ///      which may be a router acting for `refundTo`. `platformId` is the
-    ///      one the caller named. On `depositToNode` nothing checks that the
-    ///      node belongs to it; see there.
+    /// @dev `amount` is what the books credited: the balance this contract
+    ///      gained. `refundTo` is the address the contribution is booked
+    ///      under: the one `refund` pays it back to and `refundable` answers
+    ///      for, and the `refundTo` of `Refunded`. `depositor` is the caller
+    ///      that paid, which may be a router acting for `refundTo`.
+    ///      `platformId` is the platform the node belongs to.
     event Deposited(
         bytes32 indexed handleNode,
         address indexed token,
@@ -254,33 +258,48 @@ contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable
     ///         straight to that holder, and never entered the books.
     /// @dev Distinct from `Deposited` on purpose: an indexer must be able to tell
     ///      "this is waiting" from "this was delivered", and no balance changed
-    ///      here for it to read.
+    ///      here for it to read. `amount` is what the deposit asked to move
+    ///      from `depositor`; `received` is what `holder` gained, less when
+    ///      the token takes a fee on transfer.
     event Forwarded(
         bytes32 indexed handleNode,
         address indexed token,
         address indexed depositor,
         address holder,
         bytes32 platformId,
-        uint256 amount
+        uint256 amount,
+        uint256 received
     );
 
     /// @notice The holder of a handle node took what was held for it.
-    /// @dev `amount` is what `recipient` received: its balance gain for a
-    ///      token, the value sent for `NATIVE`. The books release everything
-    ///      held, which is more when the token takes a fee on the payout, and
-    ///      a recipient that moves tokens onward from inside the transfer
-    ///      reads as having received nothing. `Forwarded` measures the same
-    ///      way.
+    /// @dev `released` is what the books released: everything held for the
+    ///      node in the token, the sum of the `Deposited` amounts of the
+    ///      round less its `Refunded` releases. `received` is what
+    ///      `recipient` gained: the value sent for `NATIVE`, its balance gain
+    ///      for a token — less when the token takes a fee on the payout, and
+    ///      zero for a recipient that moves tokens onward from inside the
+    ///      transfer.
     event Claimed(
-        bytes32 indexed handleNode, address indexed token, address indexed claimer, address recipient, uint256 amount
+        bytes32 indexed handleNode,
+        address indexed token,
+        address indexed claimer,
+        address recipient,
+        uint256 released,
+        uint256 received
     );
 
     /// @notice The address a contribution was booked under took it back
     ///         before the node's holder claimed it.
-    /// @dev `amount` is what `recipient` received, measured as `Claimed`
-    ///      measures it; the books release the whole contribution.
+    /// @dev `released` is the whole contribution the books released;
+    ///      `received` is what `recipient` gained, measured as `Claimed`
+    ///      measures it.
     event Refunded(
-        bytes32 indexed handleNode, address indexed token, address indexed refundTo, address recipient, uint256 amount
+        bytes32 indexed handleNode,
+        address indexed token,
+        address indexed refundTo,
+        address recipient,
+        uint256 released,
+        uint256 received
     );
 
     // ─── Errors ─────────────────────────────────────────────────────
@@ -301,7 +320,7 @@ contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable
     /// in this token: no deposit named it as `refundTo`, it took the value
     /// back already, or a claim took it.
     error NothingToRefund(bytes32 handleNode, address token, address refundTo);
-    /// A deposit must name who may refund it; see `depositToNode`.
+    /// A deposit must name who may refund it; see `depositToHandleHash`.
     error NoRefundTo();
     /// A payout to the zero address burns it; one to this contract strands it.
     error BadRecipient(address recipient);
@@ -361,12 +380,12 @@ contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable
     ///      `refund`. A platform with no keyspace reverts `UnknownPlatform`
     ///      there. One with a keyspace and
     ///      no way yet to bind a holder is refused `PlatformAcceptsNoClaims`
-    ///      here, as it is by node. All of it happens before anything moves.
+    ///      here, as it is by hash. All of it happens before anything moves.
     ///
     ///      The text is in this call's calldata for anybody to read. A payee
-    ///      whose handle must stay out of it is paid with `depositToNode`.
+    ///      whose handle must stay out of it is paid with `depositToHandleHash`.
     ///
-    ///      Otherwise the same as `depositToNode`: see it for pay-through, the
+    ///      Otherwise the same as `depositToHandleHash`: see it for pay-through, the
     ///      accepted race, `refundTo`, and how a fee-on-transfer token is
     ///      booked.
     ///
@@ -378,7 +397,7 @@ contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable
     /// @param token      The ERC-20, or `NATIVE` for the chain's own token.
     /// @param amount     How much. For `NATIVE` it must equal `msg.value`.
     /// @param refundTo   Who may take the deposit back if it is held; see
-    ///                   `depositToNode`. Never zero.
+    ///                   `depositToHandleHash`. Never zero.
     function depositToHandle(
         bytes32 platformId,
         string calldata handle,
@@ -389,33 +408,25 @@ contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable
         _deposit(platformId, _s().names.nodeOf(platformId, handle), token, amount, refundTo);
     }
 
-    /// @notice Put `amount` of `token` against a handle node.
+    /// @notice Put `amount` of `token` against a handle, given as the hash
+    ///         of its normalized form.
     ///
-    /// @dev **Nothing about the node is checked, and nothing can be.** A node
-    ///      is a hash; this contract cannot tell the node of a real handle
-    ///      from 32 arbitrary bytes, nor tell which platform it was derived
-    ///      for. A wrong node funds a slot nothing can ever claim; since nobody
-    ///      ever holds it, the deposit's `refundTo` can take the value back
-    ///      with `refund`, and nobody else can. Derive it the way `nodeOf` does:
-    ///      `IdentityNodes.handleNode(platformId, normalized)`, where
-    ///      `normalized` is the handle after the platform's normalization, and
-    ///      never the raw text.
+    /// @dev The node is `IdentityNodes.handleNodeOfHash(platformId,
+    ///      handleHash)`, derived here, so the platform the deposit names is
+    ///      the platform its node belongs to: the `acceptsClaims` gate and
+    ///      the `platformId` the events log are the node's own.
+    ///
+    ///      **Nothing about the hash is checked, and nothing can be.** This
+    ///      contract cannot tell the hash of a real handle from 32 arbitrary
+    ///      bytes. A wrong hash funds a slot nothing can ever claim; since
+    ///      nobody ever holds it, the deposit's `refundTo` can take the value
+    ///      back with `refund`, and nobody else can. Hash the handle after the
+    ///      platform's normalization, never the raw text:
+    ///      `keccak256(bytes(normalized))`.
     ///
     ///      It exists so a payee whose handle must not reach calldata — a
     ///      private binding under a digest profile, whose handle the chain only
-    ///      ever sees as its node — can still be paid.
-    ///
-    ///      **`platformId` is the caller's claim, and it is not checked.** A
-    ///      node cannot be decoded to the platform it was derived for, so
-    ///      nothing here can tell whether `handleNode` belongs to
-    ///      `platformId`. The value decides the escrow branch's
-    ///      `acceptsClaims` gate and is logged as `Deposited.platformId` and
-    ///      `Forwarded.platformId`; both are only what the caller said. It
-    ///      does not enter the key and plays no part in who may claim, which
-    ///      is `byHandle(handleNode)` alone. A deposit whose `platformId` does
-    ///      not match its node — held because another platform accepts
-    ///      claims, or logged under the wrong platform — is recoverable like
-    ///      any other held deposit: its `refundTo` refunds it.
+    ///      ever sees hashed — can still be paid.
     ///
     ///      **A node somebody holds is paid straight through.** The escrow
     ///      exists for the window before a handle is claimed. Once it is
@@ -464,23 +475,26 @@ contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable
     ///
     ///      Both branches measure what arrived rather than trusting the amount
     ///      asked for: an escrow credits the balance this contract gained, and
-    ///      `Forwarded` reports the balance the holder gained. A token that
-    ///      takes a fee on transfer therefore books and reports what it
-    ///      delivered, not what was asked for. A rebasing token is not
+    ///      `Forwarded` reports the balance the holder gained beside the
+    ///      amount asked for. A token that takes a fee on transfer therefore
+    ///      books what it delivered, not what was asked for. A rebasing token is not
     ///      supported; see the contract comment.
     ///
-    /// @param platformId Which platform the node was derived for.
-    /// @param handleNode `IdentityNodes.handleNode(platformId, normalized)`.
+    /// @param platformId Which platform the handle belongs to.
+    /// @param handleHash `keccak256` of the handle after the platform's
+    ///                   normalization.
     /// @param token      The ERC-20, or `NATIVE` for the chain's own token.
     /// @param amount     How much. For `NATIVE` it must equal `msg.value`.
     /// @param refundTo   Who may take the deposit back while it is held: the
     ///                   address its contribution is booked under. Never zero.
-    function depositToNode(bytes32 platformId, bytes32 handleNode, address token, uint256 amount, address refundTo)
-        external
-        payable
-        nonReentrant
-    {
-        _deposit(platformId, handleNode, token, amount, refundTo);
+    function depositToHandleHash(
+        bytes32 platformId,
+        bytes32 handleHash,
+        address token,
+        uint256 amount,
+        address refundTo
+    ) external payable nonReentrant {
+        _deposit(platformId, IdentityNodes.handleNodeOfHash(platformId, handleHash), token, amount, refundTo);
     }
 
     function _deposit(bytes32 platformId, bytes32 node, address token, uint256 amount, address refundTo) private {
@@ -497,45 +511,21 @@ contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable
         (address holder,) = _s().names.byHandle(node);
         if (holder != address(0)) {
             if (holder == msg.sender) revert PayingYourself(holder);
-            uint256 delivered = amount;
-            if (token == NATIVE) {
-                _sendNative(holder, amount);
-            } else {
-                // What the holder GAINED, not what was asked for. A token that
-                // takes a fee on transfer delivers less, and an event carrying
-                // the requested figure would be the only record of a payment
-                // that never happened at that size.
-                //
-                // A token that moved nothing, or whose transfer left the
-                // holder with no more than before, delivered nothing, and it
-                // is refused like any other deposit of nothing rather than
-                // underflowing.
-                uint256 before = IERC20(token).balanceOf(holder);
-                IERC20(token).safeTransferFrom(msg.sender, holder, amount);
-                uint256 afterwards = IERC20(token).balanceOf(holder);
-                delivered = afterwards > before ? afterwards - before : 0;
-                if (delivered == 0) revert ZeroAmount();
-            }
-            emit Forwarded(node, token, msg.sender, holder, platformId, delivered);
+            // What the holder GAINED, not only what was asked for. A token
+            // that takes a fee on transfer delivers less. A token that moved
+            // nothing delivered nothing, and it is refused like any other
+            // deposit of nothing.
+            uint256 received = _move(token, msg.sender, holder, amount);
+            if (received == 0) revert ZeroAmount();
+            emit Forwarded(node, token, msg.sender, holder, platformId, amount, received);
             return;
         }
 
         if (!_s().names.acceptsClaims(platformId)) revert PlatformAcceptsNoClaims(platformId);
 
-        uint256 credited;
-        if (token == NATIVE) {
-            credited = amount;
-        } else {
-            // What this contract GAINED, measured as the pay-through branch
-            // measures the holder: a transfer that left the balance no
-            // higher than before delivered nothing, and is refused like any
-            // deposit of nothing rather than underflowing.
-            uint256 before = IERC20(token).balanceOf(address(this));
-            IERC20(token).safeTransferFrom(msg.sender, address(this), amount);
-            uint256 afterwards = IERC20(token).balanceOf(address(this));
-            credited = afterwards > before ? afterwards - before : 0;
-            if (credited == 0) revert ZeroAmount();
-        }
+        // What this contract GAINED is what the books credit.
+        uint256 credited = _move(token, msg.sender, address(this), amount);
+        if (credited == 0) revert ZeroAmount();
 
         HandleEscrowStorage storage $ = _s();
         $.held[node][token] += credited;
@@ -585,7 +575,7 @@ contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable
         $.held[handleNode][token] = 0;
         ++$.round[handleNode][token];
 
-        emit Claimed(handleNode, token, msg.sender, recipient, _pay(token, recipient, amount));
+        emit Claimed(handleNode, token, msg.sender, recipient, amount, _move(token, address(this), recipient, amount));
     }
 
     // ─── Refunding ──────────────────────────────────────────────────
@@ -626,7 +616,7 @@ contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable
         current[msg.sender] = 0;
         $.held[handleNode][token] -= amount;
 
-        emit Refunded(handleNode, token, msg.sender, recipient, _pay(token, recipient, amount));
+        emit Refunded(handleNode, token, msg.sender, recipient, amount, _move(token, address(this), recipient, amount));
     }
 
     // ─── Reading ────────────────────────────────────────────────────
@@ -664,18 +654,25 @@ contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable
         return _s().names.nodeOf(platformId, handle);
     }
 
-    /// @dev Pays `amount` and returns what `to` received: `amount` for
-    ///      native value, the balance `to` gained for a token, and zero when
-    ///      it gained nothing. Not refused on zero: the books are settled
-    ///      already, and a recipient that sweeps what it receives would then
-    ///      never be able to take its value in that token.
-    function _pay(address token, address to, uint256 amount) private returns (uint256 received) {
+    /// @dev Moves `amount` of `token` from `from` to `to` and returns what
+    ///      `to` gained. Native value is sent from this contract, whose
+    ///      `msg.value` already carries it in, and counts as `amount` in
+    ///      full; `to` is this contract only for a token, where its gain is
+    ///      measured like anybody's. A token's move is a `safeTransfer` out
+    ///      of this contract and a `safeTransferFrom` otherwise, and its gain
+    ///      is `to`'s balance after less before, zero when the balance did
+    ///      not rise. Zero is returned, not refused: a deposit refuses it, but
+    ///      a payout's books are settled already, and a recipient that sweeps
+    ///      what it receives would otherwise never take its value in that
+    ///      token.
+    function _move(address token, address from, address to, uint256 amount) private returns (uint256 gained) {
         if (token == NATIVE) {
-            _sendNative(to, amount);
+            if (to != address(this)) _sendNative(to, amount);
             return amount;
         }
         uint256 before = IERC20(token).balanceOf(to);
-        IERC20(token).safeTransfer(to, amount);
+        if (from == address(this)) IERC20(token).safeTransfer(to, amount);
+        else IERC20(token).safeTransferFrom(from, to, amount);
         uint256 afterwards = IERC20(token).balanceOf(to);
         return afterwards > before ? afterwards - before : 0;
     }
@@ -686,24 +683,26 @@ contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable
     }
 
     /// @dev Each probe asks about the zero node or platform, which exists on
-    ///      no deployment. `byHandle` and `acceptsClaims` answer it with a
-    ///      zero binding and `false`, so they must return exactly their ABI
-    ///      width. `nodeOf` refuses it — the zero platform has no keyspace —
-    ///      so it passes by returning a node or by reverting with an error.
-    ///      A function that is not there reverts with no data at all (the
-    ///      naming contracts have no fallback), and an address with no code
-    ///      returns nothing.
+    ///      no deployment, and requires the one answer the naming system
+    ///      gives there: `byHandle` a zero binding, exactly its ABI width;
+    ///      `acceptsClaims` `false`, exactly one word; and `nodeOf` the revert
+    ///      `UnknownPlatform(0)`, byte for byte — the zero platform has no
+    ///      keyspace. A function that is not there reverts with no data at
+    ///      all, an address with no code returns nothing, and a fallback
+    ///      that answers whatever it is asked does not produce that revert.
     function _requireAnswers(IIdentityNames names_) private view {
         bytes memory result;
         bool ok;
         (ok, result) = address(names_).staticcall(abi.encodeCall(IIdentityNames.byHandle, (bytes32(0))));
-        if (!ok || result.length != 64) revert NamesLacks(address(names_), IIdentityNames.byHandle.selector);
+        if (!ok || keccak256(result) != keccak256(abi.encode(address(0), uint64(0)))) {
+            revert NamesLacks(address(names_), IIdentityNames.byHandle.selector);
+        }
         (ok, result) = address(names_).staticcall(abi.encodeCall(IIdentityNames.acceptsClaims, (bytes32(0))));
-        if (!ok || result.length != 32 || abi.decode(result, (uint256)) > 1) {
+        if (!ok || keccak256(result) != keccak256(abi.encode(false))) {
             revert NamesLacks(address(names_), IIdentityNames.acceptsClaims.selector);
         }
         (ok, result) = address(names_).staticcall(abi.encodeCall(IIdentityNames.nodeOf, (bytes32(0), "")));
-        if (ok ? result.length != 32 : result.length < 4) {
+        if (ok || keccak256(result) != keccak256(abi.encodeWithSelector(IIdentityNames.UnknownPlatform.selector, 0))) {
             revert NamesLacks(address(names_), IIdentityNames.nodeOf.selector);
         }
     }

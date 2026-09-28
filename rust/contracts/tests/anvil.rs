@@ -921,9 +921,9 @@ async fn escrows_value_against_an_unclaimed_handle() {
     // `alice-1` is ` Alice-1 ` normalized under GitHub's rules; the literal
     // is the same derivation computed with `cast`.
     let handle_node_v1 = keccak256(b"libid.identity.handle-node.v1");
-    let computed = keccak256(
-        (handle_node_v1, platform_id, keccak256(b"alice-1")).abi_encode_params(),
-    );
+    let handle_hash = keccak256(b"alice-1");
+    let computed =
+        keccak256((handle_node_v1, platform_id, handle_hash).abi_encode_params());
     assert_eq!(
         computed,
         b256!("2e2bee956f308d03271ce24b26e5aa20103b41841ddee3c96a94d2449902f710"),
@@ -939,7 +939,8 @@ async fn escrows_value_against_an_unclaimed_handle() {
         "Rust and the contract derive different nodes"
     );
 
-    // Paid before anybody holds it: once by text, once by the node alone.
+    // Paid before anybody holds it: once by text, once by the handle's hash
+    // alone.
     let amount = U256::from(1_000_000_000_000_000_000u64);
     escrow
         .depositToHandle(
@@ -957,7 +958,7 @@ async fn escrows_value_against_an_unclaimed_handle() {
         .await
         .unwrap();
     escrow
-        .depositToNode(platform_id, computed, Address::ZERO, amount, deployer)
+        .depositToHandleHash(platform_id, handle_hash, Address::ZERO, amount, deployer)
         .value(amount)
         .send()
         .await
@@ -972,7 +973,7 @@ async fn escrows_value_against_an_unclaimed_handle() {
             .await
             .unwrap(),
         amount * U256::from(2),
-        "the text and the node did not land in one slot"
+        "the text and the hash did not land in one slot"
     );
 
     // Nobody holds the node, so nobody can take it. The AUTHORIZATION
@@ -1032,7 +1033,8 @@ async fn escrows_value_against_an_unclaimed_handle() {
     assert_eq!(refunded.handleNode, computed);
     assert_eq!(refunded.refundTo, deployer);
     assert_eq!(refunded.recipient, stranger);
-    assert_eq!(refunded.amount, amount * U256::from(2));
+    assert_eq!(refunded.released, amount * U256::from(2));
+    assert_eq!(refunded.received, amount * U256::from(2));
     assert_eq!(
         provider.get_balance(stranger).await.unwrap() - before,
         amount * U256::from(2),

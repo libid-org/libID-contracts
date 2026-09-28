@@ -125,20 +125,22 @@ normalize(' @Alice_1 ', RULES_X) // 'alice_1'
 
 ## Deriving a handle node
 
-`HandleEscrow.depositToNode` and `IdentityNames.byHandle` take a handle node,
-not text. `handleNodeOf` normalizes what a user typed under the platform's rules
-and keys the result, so a Gmail address can be paid without putting it in
-calldata:
+`IdentityNames.byHandle` and `HandleEscrow`'s reads take a handle node, not
+text; `HandleEscrow.depositToHandleHash` takes the hash of the normalized
+handle. `handleNodeOf` and `handleHashOf` normalize what a user typed under the
+platform's rules and key or hash the result, so a Gmail address can be paid
+without putting it in calldata:
 
 ```ts
-import { handleNodeOf } from '@libid/contracts/identity'
+import { handleHashOf, handleNodeOf } from '@libid/contracts/identity'
 
 handleNodeOf('google', 'Alice@Gmail.com') === handleNodeOf('google', 'alice@gmail.com') // true
+handleHashOf('google', 'Alice@Gmail.com') // the handleHash depositToHandleHash takes
 ```
 
-`handleNode(platformId, normalized)` is the step underneath. It takes only a
-`NormalizedHandle`, which `normalize` returns, so a raw string does not
-type-check. `handleNodeOf` uses the rules in the generated table; a client
+`handleNode(platformId, normalized)` and `handleHash(normalized)` are the steps
+underneath. They take only a `NormalizedHandle`, which `normalize` returns, so a
+raw string does not type-check. `handleNodeOf` uses the rules in the generated table; a client
 following a later `setPlatform` reads `rulesOf` and normalizes with those.
 
 ## Development
