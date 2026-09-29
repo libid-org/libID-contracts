@@ -22,6 +22,19 @@ mod names_inner {
                 bool allowHyphen;
             }
 
+            /// One account a wallet proved, as its list reports it. `handle`
+            /// is the one the account proved most recently, and
+            /// `handleCurrent` says whether the handle node still points back
+            /// at this account: it stops doing so when another account proves
+            /// the same handle, and the string stays as the last thing the
+            /// account was known as.
+            #[derive(Debug, serde::Serialize, serde::Deserialize)]
+            struct Account {
+                string userId;
+                string handle;
+                bool handleCurrent;
+            }
+
             function initialize(address owner_) external;
 
             /// The keyspace half: what a handle on this platform means. It
@@ -48,6 +61,21 @@ mod names_inner {
             function resolvePair(bytes32 platformId, string calldata handle, string calldata userId) external view returns (address);
             function reverseOf(address wallet, bytes32 platformId) external view returns (string memory);
             function primaryOf(address wallet, bytes32 platformId) external view returns (string memory);
+
+            /// How many accounts a wallet holds on a platform.
+            function accountCount(address wallet, bytes32 platformId) external view returns (uint256);
+            /// A page of the accounts a wallet holds on a platform: the
+            /// indices `[from, from + limit)`, counted from zero and clipped
+            /// to the list. Order
+            /// is arbitrary and changes when an account leaves the list, so
+            /// a reader that needs every account reads `accountCount` and
+            /// the pages in one block.
+            function accountsOf(address wallet, bytes32 platformId, uint256 from, uint256 limit) external view returns (Account[] memory);
+            /// List a binding made before the contract kept lists. Anyone
+            /// may call it, for any account: the two strings are checked
+            /// against the nodes the binding was written under, and the
+            /// binding itself is not touched.
+            function listAccount(bytes32 platformId, string calldata userId, string calldata handle) external;
 
             /// Carries the ceremony version that proved the binding -- logged,
             /// never stored, because nothing on chain acts on it and an

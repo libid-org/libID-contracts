@@ -9,6 +9,8 @@ import { describe, expect, it, vi } from 'vitest'
 
 import { PLATFORM_X_DOMAIN } from './handleVectors.js'
 import {
+  accountCount,
+  accountsOf,
   type NamesReader,
   platformId,
   primaryName,
@@ -134,6 +136,45 @@ describe('checking a handle against an account id', () => {
       wallet: null,
       idAgrees: false,
     })
+  })
+})
+
+describe('listing the accounts a wallet proved', () => {
+  it('reads how many accounts a wallet holds on a platform', async () => {
+    const readContract = vi.fn().mockResolvedValue(2n)
+    expect(await accountCount(reader(readContract), ALICE, X)).toBe(2n)
+
+    expect(readContract.mock.calls[0][0]).toMatchObject({
+      address: CONTRACT,
+      functionName: 'accountCount',
+      args: [ALICE, X],
+    })
+  })
+
+  it('reads a page by index and size', async () => {
+    const readContract = vi.fn().mockResolvedValue([])
+    expect(await accountsOf(reader(readContract), ALICE, X, 10n, 5n)).toEqual([])
+
+    expect(readContract.mock.calls[0][0]).toMatchObject({
+      address: CONTRACT,
+      functionName: 'accountsOf',
+      args: [ALICE, X, 10n, 5n],
+    })
+  })
+
+  /// The contract answers a struct array. Each entry arrives as an `Account`
+  /// with its three fields and nothing else, so a caller can compare and
+  /// serialize a page without knowing how the tuple was decoded.
+  it('maps the struct array into accounts', async () => {
+    const readContract = vi.fn().mockResolvedValue([
+      { userId: '42', handle: 'alice', handleCurrent: true },
+      { userId: '43', handle: 'alice_old', handleCurrent: false },
+    ])
+
+    expect(await accountsOf(reader(readContract), ALICE, X, 0n, 10n)).toStrictEqual([
+      { userId: '42', handle: 'alice', handleCurrent: true },
+      { userId: '43', handle: 'alice_old', handleCurrent: false },
+    ])
   })
 })
 
