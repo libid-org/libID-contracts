@@ -165,13 +165,13 @@ contract HandleEscrowHostileTokensTest is Test {
         _escrow(address(token), other, HASH2, 100 ether);
 
         vm.expectEmit(address(escrow));
-        emit HandleEscrow.Refunded(NODE, address(token), depositor, depositor, 100 ether, 99 ether);
+        emit HandleEscrow.Refunded(NODE, address(token), depositor, depositor, 0, 100 ether, 99 ether);
         vm.prank(depositor);
         escrow.refund(NODE, address(token), depositor);
 
         names.setHolder(NODE2, holder);
         vm.expectEmit(address(escrow));
-        emit HandleEscrow.Claimed(NODE2, address(token), holder, holder, 100 ether, 99 ether);
+        emit HandleEscrow.Claimed(NODE2, address(token), holder, holder, 0, 100 ether, 99 ether);
         vm.prank(holder);
         escrow.claim(NODE2, one(address(token)), holder);
         assertEq(token.balanceOf(address(escrow)), 0);

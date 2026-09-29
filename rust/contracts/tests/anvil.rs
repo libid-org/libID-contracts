@@ -936,6 +936,7 @@ async fn escrows_value_against_an_unclaimed_handle() {
             refunded.handleNode,
             refunded.refundTo,
             refunded.recipient,
+            refunded.round,
             refunded.released,
             refunded.received
         ),

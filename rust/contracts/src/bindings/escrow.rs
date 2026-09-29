@@ -48,13 +48,15 @@ mod escrow_inner {
             /// Always reverts `RenounceDisabled`.
             function renounceOwnership() external pure;
 
-            /// Value escrowed for a node nobody holds, booked under `refundTo`.
+            /// Value escrowed for a node nobody holds, booked under `refundTo`
+            /// in `round`, which the next `Claimed` closes.
             event Deposited(
                 bytes32 indexed handleNode,
                 address indexed token,
                 address indexed refundTo,
                 address depositor,
                 bytes32 platformId,
+                uint256 round,
                 uint256 amount
             );
             /// A deposit paid straight to the node's holder; `received` is
@@ -69,12 +71,13 @@ mod escrow_inner {
                 uint256 received
             );
             /// `released` (here and in `Refunded`) left the books; `received`
-            /// is what `recipient` gained.
+            /// is what `recipient` gained. `round` is the one this claim closed.
             event Claimed(
                 bytes32 indexed handleNode,
                 address indexed token,
                 address indexed claimer,
                 address recipient,
+                uint256 round,
                 uint256 released,
                 uint256 received
             );
@@ -85,6 +88,7 @@ mod escrow_inner {
                 address indexed token,
                 address indexed refundTo,
                 address recipient,
+                uint256 round,
                 uint256 released,
                 uint256 received
             );
