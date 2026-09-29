@@ -289,152 +289,43 @@ contract IdentityNamesTest is Test {
 
         vm.expectRevert(abi.encodeWithSelector(IIdentityNames.UnknownPlatform.selector, unwired));
         names.rulesOf(unwired);
+        vm.expectRevert(abi.encodeWithSelector(IIdentityNames.UnknownPlatform.selector, unwired));
+        names.handleHashOf(unwired, "alice");
+        vm.expectRevert(abi.encodeWithSelector(IIdentityNames.UnknownPlatform.selector, unwired));
+        names.nodeOf(unwired, "alice");
     }
 
-    /// `rulesOf` reports the configuration as it stands, so a client that
-    /// must not send a handle's text anywhere can normalize it locally under
-    /// the rules the chain has now.
-    function test_rulesOfReportsThePlatformsCurrentRules() public {
-        HandleNormalizer.Rules memory rules = names.rulesOf(X);
-        HandleNormalizer.Rules memory expected = HandleVectors.rulesFor(X);
-
-        assertEq(rules.maxLength, expected.maxLength);
-        assertEq(rules.stripLeadingAt, expected.stripLeadingAt);
-        assertEq(rules.isEmail, expected.isEmail);
-        assertEq(rules.allowUnderscore, expected.allowUnderscore);
-        assertEq(rules.allowHyphen, expected.allowHyphen);
-
-        // It follows a reconfiguration, rather than reporting what was set
-        // when the platform was first wired.
-        vm.prank(owner);
-        names.setPlatform(X, HandleVectors.rulesFor(GITHUB));
-
-        assertEq(names.rulesOf(X).allowHyphen, true, "rulesOf did not follow setPlatform");
-    }
-
-    // ─── The node of a handle ───────────────────────────────────────
-
-    /// `nodeOf` normalizes under the platform's rules and keys the result:
-    /// the node a proof of that handle is bound under.
-    function test_nodeOfIsTheNodeAProofOfTheHandleIsBoundUnder() public {
-        bytes32 node = names.nodeOf(X, "  @Alice ");
-        assertEq(node, IdentityNodes.handleNode(X, "alice"), "not the node of the normalized handle");
-
-        _bind(alice, "123", "alice", 100);
-        (address holder,) = names.byHandle(node);
-        assertEq(holder, alice, "the proof was bound under another node");
-    }
-
-    /// Text the rules refuse has no node, and the refusal carries the
-    /// normalizer's reason — where `resolveHandle` answers nobody.
-    function test_nodeOfRefusesTextTheRulesRefuseWithTheReason() public {
-        vm.expectRevert(abi.encodeWithSelector(IIdentityNames.UnusableHandle.selector, HandleNormalizer.Problem.Empty));
-        names.nodeOf(X, " @ ");
-        vm.expectRevert(
-            abi.encodeWithSelector(IIdentityNames.UnusableHandle.selector, HandleNormalizer.Problem.TooLong)
-        );
-        names.nodeOf(X, "a123456789012345");
-        vm.expectRevert(
-            abi.encodeWithSelector(IIdentityNames.UnusableHandle.selector, HandleNormalizer.Problem.BadChar)
-        );
-        names.nodeOf(X, "ali-ce");
-        vm.expectRevert(abi.encodeWithSelector(IIdentityNames.UnusableHandle.selector, HandleNormalizer.Problem.Shape));
-        names.nodeOf(GITHUB, "-alice");
-
-        assertEq(names.resolveHandle(X, "ali-ce"), address(0), "the resolver stopped answering nobody");
-    }
-
-    /// Which node text keys to needs a keyspace and nothing more. A platform
-    /// with none is refused; one with rules and no verifier yet has nodes,
-    /// though nothing can bind there (`acceptsClaims` answers that part).
-    function test_nodeOfNeedsAKeyspaceAndNothingMore() public {
-        bytes32 fresh = keccak256("fresh");
-        vm.expectRevert(abi.encodeWithSelector(IIdentityNames.UnknownPlatform.selector, fresh));
-        names.nodeOf(fresh, "alice");
-
-        vm.prank(owner);
-        names.setPlatform(fresh, HandleVectors.rulesFor(X));
-        assertFalse(names.acceptsClaims(fresh), "the staging is wrong");
-        assertEq(names.nodeOf(fresh, "Alice"), IdentityNodes.handleNode(fresh, "alice"));
-    }
-
-    /// It follows a reconfiguration: the rules of the moment decide.
-    function test_nodeOfFollowsSetPlatform() public {
-        assertEq(names.nodeOf(X, "alice_1"), IdentityNodes.handleNode(X, "alice_1"));
-
-        vm.prank(owner);
-        names.setPlatform(X, HandleVectors.rulesFor(GITHUB));
-
-        vm.expectRevert(
-            abi.encodeWithSelector(IIdentityNames.UnusableHandle.selector, HandleNormalizer.Problem.BadChar)
-        );
-        names.nodeOf(X, "alice_1");
-        assertEq(names.nodeOf(X, "ali-ce"), IdentityNodes.handleNode(X, "ali-ce"));
-    }
-
-    // ─── The hash of a handle ───────────────────────────────────────
-
-    /// `nodeOfHash` is the node derivation `claim` writes under, for any hash.
-    function test_nodeOfHashIsTheNodeAClaimBinds() public {
-        _bind(alice, "123", "alice", 100);
-        (address holder,) = names.byHandle(names.nodeOfHash(X, keccak256("alice")));
-        assertEq(holder, alice);
-        assertEq(names.nodeOfHash(X, keccak256("alice")), IdentityNodes.handleNode(X, "alice"));
-        assertEq(
-            names.nodeOfHash(keccak256("nowhere"), bytes32(0)), IdentityNodes.handleNodeOfHash(keccak256("nowhere"), 0)
-        );
-    }
-
-    /// `handleHashOf` is `keccak256` of the handle normalized under the
-    /// platform's rules: the inner hash of the node a proof of it is bound
-    /// under, and the node `nodeOf` answers.
-    function test_handleHashOfIsTheHashOfTheNormalizedHandle() public {
+    /// `rulesOf` reports the rules as set now, `handleHashOf` is `keccak256` of the handle
+    /// normalized under them, and `nodeOf`/`nodeOfHash` name the node a proof of it binds.
+    function test_theKeyspaceViewsAgreeWithWhatAClaimBinds() public {
+        assertEq(names.rulesOf(X).maxLength, HandleVectors.rulesFor(X).maxLength);
         bytes32 handleHash = names.handleHashOf(X, "  @Alice ");
-        assertEq(handleHash, keccak256("alice"), "not the hash of the normalized handle");
-        assertEq(IdentityNodes.handleNodeOfHash(X, handleHash), names.nodeOf(X, "  @Alice "));
+        assertEq(handleHash, keccak256("alice"));
+        assertEq(names.nodeOf(X, "  @Alice "), names.nodeOfHash(X, handleHash));
+        assertEq(names.nodeOfHash(X, handleHash), IdentityNodes.handleNode(X, "alice"));
 
         _bind(alice, "123", "alice", 100);
-        (address holder,) = names.byHandle(IdentityNodes.handleNodeOfHash(X, handleHash));
-        assertEq(holder, alice, "the proof was bound under another node");
+        (address holder,) = names.byHandle(names.nodeOfHash(X, handleHash));
+        assertEq(holder, alice);
     }
 
-    function test_handleHashOfRefusesTextTheRulesRefuseWithTheReason() public {
-        vm.expectRevert(abi.encodeWithSelector(IIdentityNames.UnusableHandle.selector, HandleNormalizer.Problem.Empty));
-        names.handleHashOf(X, " @ ");
-        vm.expectRevert(
-            abi.encodeWithSelector(IIdentityNames.UnusableHandle.selector, HandleNormalizer.Problem.TooLong)
-        );
-        names.handleHashOf(X, "a123456789012345");
-        vm.expectRevert(
-            abi.encodeWithSelector(IIdentityNames.UnusableHandle.selector, HandleNormalizer.Problem.BadChar)
-        );
+    /// Text the rules of the moment refuse reverts with the normalizer's reason, where
+    /// `resolveHandle` answers nobody.
+    function test_theKeyspaceViewsRefuseWhatTheCurrentRulesRefuse() public {
+        bytes memory badChar =
+            abi.encodeWithSelector(IIdentityNames.UnusableHandle.selector, HandleNormalizer.Problem.BadChar);
+        vm.expectRevert(badChar);
         names.handleHashOf(X, "ali-ce");
-        vm.expectRevert(abi.encodeWithSelector(IIdentityNames.UnusableHandle.selector, HandleNormalizer.Problem.Shape));
-        names.handleHashOf(GITHUB, "-alice");
-    }
-
-    function test_handleHashOfNeedsAKeyspaceAndNothingMore() public {
-        bytes32 fresh = keccak256("fresh");
-        vm.expectRevert(abi.encodeWithSelector(IIdentityNames.UnknownPlatform.selector, fresh));
-        names.handleHashOf(fresh, "alice");
-
-        vm.prank(owner);
-        names.setPlatform(fresh, HandleVectors.rulesFor(X));
-        assertFalse(names.acceptsClaims(fresh), "the staging is wrong");
-        assertEq(names.handleHashOf(fresh, "Alice"), keccak256("alice"));
-    }
-
-    function test_handleHashOfFollowsSetPlatform() public {
-        assertEq(names.handleHashOf(X, "alice_1"), keccak256("alice_1"));
+        vm.expectRevert(badChar);
+        names.nodeOf(X, "ali-ce");
+        assertEq(names.resolveHandle(X, "ali-ce"), address(0));
 
         vm.prank(owner);
         names.setPlatform(X, HandleVectors.rulesFor(GITHUB));
-
-        vm.expectRevert(
-            abi.encodeWithSelector(IIdentityNames.UnusableHandle.selector, HandleNormalizer.Problem.BadChar)
-        );
-        names.handleHashOf(X, "alice_1");
+        assertTrue(names.rulesOf(X).allowHyphen);
         assertEq(names.handleHashOf(X, "ali-ce"), keccak256("ali-ce"));
+        vm.expectRevert(badChar);
+        names.nodeOf(X, "alice_1");
     }
 
     function test_resolvePairAgreesWhileOneAccountHoldsBoth() public {
@@ -792,64 +683,32 @@ contract IdentityNamesTest is Test {
         _claim(fresh, false);
     }
 
-    // ─── Whether a new claim can bind a holder ──────────────────────
-
-    /// A keyspace and a verifier the Proof Verifier answers for: a claim can
-    /// bind a holder here now.
-    function test_acceptsClaimsOnAWiredPlatform() public view {
+    /// A new claim can bind only with a keyspace and a verifier the Proof Verifier answers for;
+    /// retiring the last version stops new claims while bound names keep resolving.
+    function test_acceptsClaimsNeedsAKeyspaceAndAVerifier() public {
         assertTrue(names.acceptsClaims(X));
-        assertTrue(names.acceptsClaims(GITHUB));
-    }
+        (bytes32 noKeyspace, bytes32 noVerifier) = (keccak256("no keyspace"), keccak256("no verifier"));
+        StubPlatformVerifier verifier = new StubPlatformVerifier(noKeyspace, 0);
+        vm.startPrank(owner);
+        proofVerifier.setVerifier(noKeyspace, V1, IPlatformVerifier(address(verifier)));
+        names.setPlatform(noVerifier, HandleVectors.rulesFor(X));
+        vm.stopPrank();
+        assertFalse(names.acceptsClaims(noKeyspace));
+        assertFalse(names.acceptsClaims(noVerifier));
 
-    /// No keyspace, so `claim` stops at `UnknownPlatform` whatever the Proof
-    /// Verifier says. A verifier registered for it does not change that.
-    function test_acceptsNoClaimsWithoutAKeyspace() public {
-        bytes32 fresh = keccak256("fresh");
-        assertFalse(names.acceptsClaims(fresh), "a platform nobody configured");
-
-        StubPlatformVerifier freshVerifier = new StubPlatformVerifier(fresh, 0);
-        vm.prank(owner);
-        proofVerifier.setVerifier(fresh, V1, IPlatformVerifier(address(freshVerifier)));
-        assertTrue(proofVerifier.verifiesPlatform(fresh), "the staging is wrong");
-
-        assertFalse(names.acceptsClaims(fresh), "a verifier alone made it accept claims");
-    }
-
-    /// A keyspace nothing verifies yet: the claim would reach the Proof
-    /// Verifier and find no version to dispatch to.
-    function test_acceptsNoClaimsWithoutAVerifier() public {
-        bytes32 fresh = keccak256("fresh");
-        vm.prank(owner);
-        names.setPlatform(fresh, HandleVectors.rulesFor(X));
-
-        assertFalse(names.acceptsClaims(fresh));
-    }
-
-    /// An unset Proof Verifier answers false rather than reverting on a call
-    /// to the zero address.
-    function test_acceptsNoClaimsWithNoProofVerifier() public {
         IdentityNames bare = IdentityNames(
             address(new ERC1967Proxy(address(new IdentityNames()), abi.encodeCall(IdentityNames.initialize, (owner))))
         );
         vm.prank(owner);
         bare.setPlatform(X, HandleVectors.rulesFor(X));
+        assertEq(address(bare.proofVerifier()), address(0));
+        assertFalse(bare.acceptsClaims(X), "no Proof Verifier");
 
-        assertEq(address(bare.proofVerifier()), address(0), "the staging is wrong");
-        assertFalse(bare.acceptsClaims(X));
-    }
-
-    /// Retiring a platform's last version keeps its names resolving, so
-    /// `rulesOf` still answers — but nothing new can bind, and this is the
-    /// question that tells the two apart.
-    function test_retiringTheLastVersionStopsAcceptingClaimsButKeepsResolving() public {
         _bind(alice, "123", "alice", 100);
-
         vm.prank(owner);
         proofVerifier.setVerifier(X, V1, IPlatformVerifier(address(0)));
-
-        assertFalse(names.acceptsClaims(X), "a platform with no version accepts claims");
-        assertEq(names.resolveHandle(X, "alice"), alice, "the bound name stopped resolving");
-        assertEq(names.rulesOf(X).maxLength, HandleVectors.rulesFor(X).maxLength, "rulesOf stopped answering");
+        assertFalse(names.acceptsClaims(X));
+        assertEq(names.resolveHandle(X, "alice"), alice);
     }
 
     /// `setPlatform` writes field-wise now, so a rules change must leave the

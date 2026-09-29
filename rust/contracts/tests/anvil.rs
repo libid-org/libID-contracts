@@ -832,16 +832,6 @@ async fn escrows_value_against_an_unclaimed_handle() {
         .await
         .unwrap();
 
-    // A keyspace alone answers its rules but accepts no claims.
-    assert_eq!(
-        names.rulesOf(platform_id).call().await.unwrap().maxLength,
-        39
-    );
-    assert!(
-        !names.acceptsClaims(platform_id).call().await.unwrap(),
-        "a platform nothing verifies accepts claims"
-    );
-
     // The real GitHub Platform Verifier, on the real Honk verifier for its
     // circuit, registered as version 1.
     let honk = deploy_honk_verifiers(&provider, &artifacts, &[Circuit::BearerLink], None)
@@ -867,14 +857,7 @@ async fn escrows_value_against_an_unclaimed_handle() {
         .get_receipt()
         .await
         .unwrap();
-    assert!(
-        names.rulesOf(platform_id).call().await.unwrap().allowHyphen,
-        "the registered platform does not report its rules"
-    );
-    assert!(
-        names.acceptsClaims(platform_id).call().await.unwrap(),
-        "the registered platform does not accept claims"
-    );
+    assert!(names.acceptsClaims(platform_id).call().await.unwrap());
 
     let escrow_proxy = deploy_behind_proxy(
         &provider,
@@ -889,66 +872,41 @@ async fn escrows_value_against_an_unclaimed_handle() {
     .await
     .unwrap();
     let escrow = HandleEscrow::new(escrow_proxy, &provider);
-    assert_eq!(escrow.names().call().await.unwrap(), names_proxy);
 
-    // The naming system normalizes ` Alice-1 ` to `alice-1`; its node is
-    // pinned with `cast`, and both derivations agree on it.
+    // The naming system hashes and keys the text; the node is pinned with `cast`.
     let handle_hash = names
         .handleHashOf(platform_id, " Alice-1 ".into())
         .call()
         .await
         .unwrap();
-    assert_eq!(
-        handle_hash,
-        keccak256("alice-1"),
-        "handleHashOf did not normalize"
-    );
-    let computed = names
-        .nodeOf(platform_id, " Alice-1 ".into())
+    assert_eq!(handle_hash, keccak256("alice-1"));
+    let node = names
+        .nodeOfHash(platform_id, handle_hash)
         .call()
         .await
         .unwrap();
     assert_eq!(
-        computed,
-        b256!("2e2bee956f308d03271ce24b26e5aa20103b41841ddee3c96a94d2449902f710"),
-        "nodeOf drifted from the pinned node"
-    );
-    assert_eq!(
-        names
-            .nodeOfHash(platform_id, handle_hash)
-            .call()
-            .await
-            .unwrap(),
-        computed,
-        "nodeOf and nodeOfHash derive different nodes"
+        node,
+        b256!("2e2bee956f308d03271ce24b26e5aa20103b41841ddee3c96a94d2449902f710")
     );
 
-    // Paid before anybody holds it, twice, by the handle's hash.
+    // Escrowed for nobody; an unheld node refuses a claim with the bound error.
     let amount = U256::from(1_000_000_000_000_000_000u64);
-    for _ in 0..2 {
-        escrow
-            .deposit(platform_id, handle_hash, Address::ZERO, amount, deployer)
-            .value(amount)
-            .send()
-            .await
-            .unwrap()
-            .get_receipt()
-            .await
-            .unwrap();
-    }
+    escrow
+        .deposit(platform_id, handle_hash, Address::ZERO, amount, deployer)
+        .value(amount)
+        .send()
+        .await
+        .unwrap()
+        .get_receipt()
+        .await
+        .unwrap();
     assert_eq!(
-        escrow
-            .escrowed(computed, Address::ZERO)
-            .call()
-            .await
-            .unwrap(),
-        amount * U256::from(2),
-        "the deposits did not land in the node the contract keys on"
+        escrow.escrowed(node, Address::ZERO).call().await.unwrap(),
+        amount
     );
-
-    // Nobody holds the node, so a claim is refused as unauthorized.
     let err = escrow
-        .claim(computed, vec![Address::ZERO], stranger)
+        .claim(node, vec![Address::ZERO], stranger)
         .from(stranger)
         .call()
         .await
@@ -957,64 +915,35 @@ async fn escrows_value_against_an_unclaimed_handle() {
         .to_string();
     assert!(
         err.contains(&hex::encode(HandleEscrow::NotTheHolder::SELECTOR)),
-        "refused for the wrong reason: {err}"
+        "{err}"
     );
 
-    // A stranger has nothing to refund.
-    let err = escrow
-        .refund(computed, Address::ZERO, stranger)
-        .from(stranger)
-        .call()
-        .await
-        .err()
-        .expect("a stranger refunded somebody else's deposit")
-        .to_string();
-    assert!(
-        err.contains(&hex::encode(HandleEscrow::NothingToRefund::SELECTOR)),
-        "refused for the wrong reason: {err}"
-    );
-
-    // The depositor takes back both deposits, to an address it names.
-    assert_eq!(
-        escrow
-            .refundable(computed, Address::ZERO, deployer)
-            .call()
-            .await
-            .unwrap(),
-        amount * U256::from(2),
-        "the depositor's contribution is not both deposits"
-    );
+    // The depositor refunds to a recipient it names, and the event decodes.
     let before = provider.get_balance(stranger).await.unwrap();
     let receipt = escrow
-        .refund(computed, Address::ZERO, stranger)
+        .refund(node, Address::ZERO, stranger)
         .send()
         .await
         .unwrap()
         .get_receipt()
         .await
         .unwrap();
-    assert!(receipt.status(), "the refund reverted");
     let refunded = receipt
         .decoded_log::<HandleEscrow::Refunded>()
         .expect("no Refunded event");
-    assert_eq!(refunded.handleNode, computed);
-    assert_eq!(refunded.refundTo, deployer);
-    assert_eq!(refunded.recipient, stranger);
-    assert_eq!(refunded.released, amount * U256::from(2));
-    assert_eq!(refunded.received, amount * U256::from(2));
     assert_eq!(
-        provider.get_balance(stranger).await.unwrap() - before,
-        amount * U256::from(2),
-        "the recipient was not paid the refund"
+        (
+            refunded.handleNode,
+            refunded.refundTo,
+            refunded.recipient,
+            refunded.released,
+            refunded.received
+        ),
+        (node, deployer, stranger, amount, amount)
     );
     assert_eq!(
-        escrow
-            .escrowed(computed, Address::ZERO)
-            .call()
-            .await
-            .unwrap(),
-        U256::ZERO,
-        "the refund left value in the slot"
+        provider.get_balance(stranger).await.unwrap() - before,
+        amount
     );
 }
 

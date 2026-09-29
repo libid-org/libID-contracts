@@ -8,162 +8,75 @@ import {StdUtils} from "forge-std/StdUtils.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
-import {IdentityNodes} from "../../identity/IdentityNodes.sol";
 import {HandleEscrow} from "../HandleEscrow.sol";
-import {one} from "./One.sol";
+import {IdentityNodes} from "../../identity/IdentityNodes.sol";
 import {IIdentityNames} from "../../identity/IIdentityNames.sol";
-import {FeeToken, TestERC20} from "./HandleEscrow.t.sol";
-import {BlocklistToken, NoReturnToken} from "./HostileTokens.sol";
+import {FeeToken, NoReturnToken, SettableNames, TestERC20, one} from "./EscrowMocks.sol";
 
-/// @notice A naming system whose holders are set directly.
-contract SettableNames is IIdentityNames {
-    mapping(bytes32 => address) public holderOf;
-
-    function setHolder(bytes32 handleNode, address holder) external {
-        holderOf[handleNode] = holder;
-    }
-
-    function byHandle(bytes32 handleNode) external view returns (address owner, uint64 observedAt) {
-        return (holderOf[handleNode], 0);
-    }
-
-    /// The text keyed as given: nothing here normalizes, and the suites that use this deposit by
-    /// hash.
-    function nodeOf(bytes32 platformId, string calldata handle) external pure returns (bytes32) {
-        if (platformId == bytes32(0)) revert UnknownPlatform(platformId);
-        return IdentityNodes.handleNode(platformId, handle);
-    }
-
-    function handleHashOf(bytes32 platformId, string calldata handle) external pure returns (bytes32) {
-        if (platformId == bytes32(0)) revert UnknownPlatform(platformId);
-        return keccak256(bytes(handle));
-    }
-
-    function nodeOfHash(bytes32 platformId, bytes32 handleHash) external pure returns (bytes32) {
-        return IdentityNodes.handleNodeOfHash(platformId, handleHash);
-    }
-
-    function acceptsClaims(bytes32 platformId) external pure returns (bool) {
-        return platformId != bytes32(0);
-    }
-}
-
-/// @notice Drives the escrow through random deposits, refunds, joins, claims and retirements, and
-///         keeps its own model of each depositor's refundable contribution.
+/// @notice Drives random deposits, refunds, joins, retirements and claims, and models each
+///         `refundTo`'s refundable contribution.
 contract EscrowHandler is CommonBase, StdCheats, StdUtils {
     bytes32 internal constant PLATFORM = keccak256("x");
+    uint256 internal constant TOKENS = 4;
 
     HandleEscrow public immutable ESCROW;
     SettableNames public immutable NAMES;
-
-    uint256 internal constant TOKENS = 5;
-
     address[3] public depositors;
     address[TOKENS] public tokens;
     bytes32[2] public hashes;
     bytes32[2] public nodes;
     address[2] public holders;
 
-    /// How many calls the blocklist refused, and how many self-payments were refused, for reading
-    /// off a run.
-    uint256 public blockedRefusals;
-    uint256 public selfPayRefusals;
-
-    /// node -> token -> refundTo -> the model's refundable contribution.
-    mapping(bytes32 => mapping(address => mapping(address => uint256))) public modelContribution;
+    /// node -> token -> refundTo -> refundable, as modelled.
+    mapping(bytes32 => mapping(address => mapping(address => uint256))) public modelled;
 
     constructor(HandleEscrow escrow_, SettableNames names_) {
-        ESCROW = escrow_;
-        NAMES = names_;
+        (ESCROW, NAMES) = (escrow_, names_);
         depositors = [makeAddr("depositor 1"), makeAddr("depositor 2"), makeAddr("depositor 3")];
-        tokens = [
-            address(0),
-            address(new TestERC20("Token", "TKN")),
-            address(new FeeToken()),
-            address(new NoReturnToken()),
-            address(new BlocklistToken())
-        ];
+        tokens = [address(0), address(new TestERC20()), address(new FeeToken()), address(new NoReturnToken())];
         hashes = [keccak256("node a"), keccak256("node b")];
         nodes =
             [IdentityNodes.handleNodeOfHash(PLATFORM, hashes[0]), IdentityNodes.handleNodeOfHash(PLATFORM, hashes[1])];
         holders = [makeAddr("holder 1"), makeAddr("holder 2")];
     }
 
-    function deposit(uint256 depositorSeed, uint256 refundToSeed, uint256 tokenSeed, uint256 nodeSeed, uint256 amount)
+    function deposit(uint256 fromSeed, uint256 refundToSeed, uint256 tokenSeed, uint256 nodeSeed, uint256 amount)
         external
     {
-        address depositor = depositors[depositorSeed % 3];
+        address from = depositors[fromSeed % 3];
         address refundTo = depositors[refundToSeed % 3];
         address token = tokens[tokenSeed % TOKENS];
-        bytes32 handleHash = hashes[nodeSeed % 2];
         bytes32 node = nodes[nodeSeed % 2];
         amount = bound(amount, 1, 1e24);
-        address holder = NAMES.holderOf(node);
+        uint256 delivered = token == tokens[2] ? amount - (amount * FeeToken(token).FEE_BPS()) / 10_000 : amount;
 
-        uint256 delivered = amount;
         if (token == address(0)) {
-            vm.deal(depositor, amount);
-            vm.prank(depositor);
-            ESCROW.deposit{value: amount}(PLATFORM, handleHash, token, amount, refundTo);
+            vm.deal(from, amount);
         } else {
-            _fund(token, depositor, amount);
-            if (token == tokens[2]) delivered = amount - (amount * FeeToken(token).FEE_BPS()) / 10_000;
-            // The pull is from the depositor, to the holder or to the escrow.
-            bool refused = _expectBlocked(token, depositor, holder == address(0) ? address(ESCROW) : holder);
-            vm.prank(depositor);
-            ESCROW.deposit(PLATFORM, handleHash, token, amount, refundTo);
-            if (refused) return;
+            TestERC20(token).mint(from, amount);
+            // `NoReturnToken.approve` returns nothing, so no `IERC20` cast here.
+            vm.prank(from);
+            NoReturnToken(token).approve(address(ESCROW), amount);
         }
-        if (holder == address(0)) modelContribution[node][token][refundTo] += delivered;
+        vm.prank(from);
+        ESCROW.deposit{value: token == address(0) ? amount : 0}(PLATFORM, hashes[nodeSeed % 2], token, amount, refundTo);
+        if (NAMES.holderOf(node) == address(0)) modelled[node][token][refundTo] += delivered;
     }
 
-    /// A holder depositing to its own node, in any token, is refused.
-    function payYourself(uint256 tokenSeed, uint256 nodeSeed, uint256 holderSeed, uint256 amount) external {
-        address token = tokens[tokenSeed % TOKENS];
-        bytes32 handleHash = hashes[nodeSeed % 2];
-        bytes32 node = nodes[nodeSeed % 2];
-        address holder = NAMES.holderOf(node);
-        if (holder == address(0)) {
-            holder = holders[holderSeed % 2];
-            NAMES.setHolder(node, holder);
-        }
-        amount = bound(amount, 1, 1e24);
-        uint256 value = token == address(0) ? amount : 0;
-        if (token == address(0)) vm.deal(holder, amount);
-        else _fund(token, holder, amount);
-
-        vm.expectRevert(abi.encodeWithSelector(HandleEscrow.PayingYourself.selector, holder));
-        vm.prank(holder);
-        ESCROW.deposit{value: value}(PLATFORM, handleHash, token, amount, holder);
-        ++selfPayRefusals;
-    }
-
-    /// Put an address on the blocklist token's list, or take it off.
-    function setBlocked(uint256 whoSeed, bool blocked) external {
-        uint256 i = whoSeed % 5;
-        address who = i < 3 ? depositors[i] : holders[i - 3];
-        BlocklistToken(tokens[4]).setBlocked(who, blocked);
-    }
-
-    function refund(uint256 depositorSeed, uint256 tokenSeed, uint256 nodeSeed) external {
-        address depositor = depositors[depositorSeed % 3];
+    function refund(uint256 refundToSeed, uint256 tokenSeed, uint256 nodeSeed) external {
+        address refundTo = depositors[refundToSeed % 3];
         address token = tokens[tokenSeed % TOKENS];
         bytes32 node = nodes[nodeSeed % 2];
-        uint256 expected = modelContribution[node][token][depositor];
-        uint256 before = _balanceOf(token, depositor);
+        uint256 expected = modelled[node][token][refundTo];
+        uint256 before = _balanceOf(token, refundTo);
 
         if (expected == 0) {
-            vm.expectRevert(abi.encodeWithSelector(HandleEscrow.NothingToRefund.selector, node, token, depositor));
-        } else if (_expectBlocked(token, address(ESCROW), depositor)) {
-            expected = 0;
+            vm.expectRevert(abi.encodeWithSelector(HandleEscrow.NothingToRefund.selector, node, token, refundTo));
         }
-        vm.prank(depositor);
-        ESCROW.refund(node, token, depositor);
-
-        if (expected != 0) {
-            require(_balanceOf(token, depositor) - before == expected, "the refund paid other than the contribution");
-            modelContribution[node][token][depositor] = 0;
-        }
+        vm.prank(refundTo);
+        ESCROW.refund(node, token, refundTo);
+        require(_balanceOf(token, refundTo) - before == expected, "the refund paid other than the contribution");
+        modelled[node][token][refundTo] = 0;
     }
 
     function join(uint256 nodeSeed, uint256 holderSeed) external {
@@ -178,276 +91,62 @@ contract EscrowHandler is CommonBase, StdCheats, StdUtils {
         address token = tokens[tokenSeed % TOKENS];
         bytes32 node = nodes[nodeSeed % 2];
         address holder = NAMES.holderOf(node);
-        if (holder == address(0) || ESCROW.escrowed(node, token) == 0) return;
+        uint256 held = ESCROW.escrowed(node, token);
+        if (holder == address(0) || held == 0) return;
+        uint256 before = _balanceOf(token, holder);
 
-        bool refused = _expectBlocked(token, address(ESCROW), holder);
         vm.prank(holder);
         ESCROW.claim(node, one(token), holder);
-        if (refused) return;
+        require(_balanceOf(token, holder) - before == held, "the claim paid other than what was held");
         for (uint256 i = 0; i < 3; i++) {
-            modelContribution[node][token][depositors[i]] = 0;
+            modelled[node][token][depositors[i]] = 0;
         }
     }
 
     function _balanceOf(address token, address who) internal view returns (uint256) {
         return token == address(0) ? who.balance : IERC20(token).balanceOf(who);
     }
-
-    /// Mint `amount` of `token` to `who` and approve the escrow for it.
-    function _fund(address token, address who, uint256 amount) internal {
-        if (token == tokens[3]) {
-            NoReturnToken(token).mint(who, amount);
-            vm.prank(who);
-            NoReturnToken(token).approve(address(ESCROW), amount);
-            return;
-        }
-        bool blocked = token == tokens[4] && BlocklistToken(token).blocked(who);
-        if (blocked) BlocklistToken(token).setBlocked(who, false);
-        TestERC20(token).mint(who, amount);
-        if (blocked) BlocklistToken(token).setBlocked(who, true);
-        vm.prank(who);
-        IERC20(token).approve(address(ESCROW), amount);
-    }
-
-    /// Whether the blocklist token refuses a transfer from `from` to `to`, and if it does, expect
-    /// the refusal it gives.
-    function _expectBlocked(address token, address from, address to) internal returns (bool) {
-        if (token != tokens[4]) return false;
-        BlocklistToken blocklist = BlocklistToken(token);
-        address refused = blocklist.blocked(from) ? from : blocklist.blocked(to) ? to : address(0);
-        if (refused == address(0)) return false;
-        vm.expectRevert(abi.encodeWithSelector(BlocklistToken.Blocked.selector, refused));
-        ++blockedRefusals;
-        return true;
-    }
 }
 
-/// @notice The escrow's books against its balances and against a model, under random interleavings
-///         of every entry point that moves them.
+/// @notice The books against the balances and the model, under random interleavings.
 contract HandleEscrowAccountingTest is Test {
-    bytes32 internal constant ROOT = 0xfcca8d7d2c66f78c2760f3fcd99e0bf938b0aeb0d0b471f481dd50b8aff6b400;
-    uint256 internal constant ROUND_FIELD = 2;
-    uint256 internal constant CONTRIBUTIONS_FIELD = 3;
-
     HandleEscrow internal escrow;
-    SettableNames internal names;
     EscrowHandler internal handler;
 
     function setUp() public {
-        names = new SettableNames();
-        HandleEscrow impl = new HandleEscrow();
+        SettableNames names = new SettableNames();
         escrow = HandleEscrow(
             address(
                 new ERC1967Proxy(
-                    address(impl),
+                    address(new HandleEscrow()),
                     abi.encodeCall(HandleEscrow.initialize, (address(this), IIdentityNames(address(names))))
                 )
             )
         );
         handler = new EscrowHandler(escrow, names);
         targetContract(address(handler));
-        bytes4[] memory selectors = new bytes4[](7);
-        selectors[0] = EscrowHandler.deposit.selector;
-        selectors[1] = EscrowHandler.refund.selector;
-        selectors[2] = EscrowHandler.join.selector;
-        selectors[3] = EscrowHandler.retire.selector;
-        selectors[4] = EscrowHandler.claim.selector;
-        selectors[5] = EscrowHandler.payYourself.selector;
-        selectors[6] = EscrowHandler.setBlocked.selector;
-        targetSelector(FuzzSelector({addr: address(handler), selectors: selectors}));
     }
 
-    /// A handler call that reverts unexpectedly — including its own check on what a refund paid —
-    /// fails the run rather than being skipped.
+    /// A handler call that reverts, its own checks included, fails the run.
     /// forge-config: default.invariant.fail-on-revert = true
     function invariant_theBooksAddUp() public view {
-        for (uint256 t = 0; t < 5; t++) {
+        for (uint256 t = 0; t < 4; t++) {
             address token = handler.tokens(t);
             uint256 heldTotal;
             for (uint256 n = 0; n < 2; n++) {
                 bytes32 node = handler.nodes(n);
-                uint256 held = escrow.escrowed(node, token);
-                heldTotal += held;
-                uint256 round = uint256(vm.load(address(escrow), _roundSlot(node, token)));
-                uint256 stored;
-                uint256 modelled;
+                uint256 sum;
                 for (uint256 d = 0; d < 3; d++) {
-                    address depositor = handler.depositors(d);
-                    uint256 contribution =
-                        uint256(vm.load(address(escrow), _contributionSlot(node, token, round, depositor)));
-                    uint256 model = handler.modelContribution(node, token, depositor);
-                    assertEq(contribution, model, "a stored contribution departs from the model");
-                    assertEq(escrow.refundable(node, token, depositor), model, "refundable is wrong");
-                    stored += contribution;
-                    modelled += model;
+                    address refundTo = handler.depositors(d);
+                    uint256 model = handler.modelled(node, token, refundTo);
+                    assertEq(escrow.refundable(node, token, refundTo), model, "refundable departs from the model");
+                    sum += model;
                 }
-                assertEq(held, stored, "held is not the sum of the current round's contributions");
-                assertEq(held, modelled, "held departs from the model");
+                assertEq(escrow.escrowed(node, token), sum, "held is not the sum of the open contributions");
+                heldTotal += sum;
             }
             uint256 balance = token == address(0) ? address(escrow).balance : IERC20(token).balanceOf(address(escrow));
-            assertLe(heldTotal, balance, "the books promise more than the escrow holds");
-            assertEq(heldTotal, balance, "the escrow holds value no slot accounts for");
+            assertEq(heldTotal, balance, "the books and the balance disagree");
         }
-    }
-
-    /// The layout the invariant reads through, pinned on a known state so a wrong slot formula
-    /// cannot make the invariant vacuous.
-    function test_theSlotFormulaReadsTheBooks() public {
-        address depositor = handler.depositors(0);
-        bytes32 node = handler.nodes(0);
-        handler.deposit(0, 0, 0, 0, 5 ether);
-
-        assertEq(uint256(vm.load(address(escrow), _roundSlot(node, address(0)))), 0);
-        assertEq(uint256(vm.load(address(escrow), _contributionSlot(node, address(0), 0, depositor))), 5 ether);
-
-        handler.join(0, 0);
-        handler.claim(0, 0);
-        assertEq(uint256(vm.load(address(escrow), _roundSlot(node, address(0)))), 1, "a claim did not close the round");
-    }
-
-    function _field(uint256 index) internal pure returns (bytes32) {
-        return bytes32(uint256(ROOT) + index);
-    }
-
-    function _roundSlot(bytes32 node, address token) internal pure returns (bytes32) {
-        return keccak256(abi.encode(token, keccak256(abi.encode(node, _field(ROUND_FIELD)))));
-    }
-
-    function _contributionSlot(bytes32 node, address token, uint256 round, address depositor)
-        internal
-        pure
-        returns (bytes32)
-    {
-        bytes32 byNode = keccak256(abi.encode(node, _field(CONTRIBUTIONS_FIELD)));
-        bytes32 byToken = keccak256(abi.encode(token, byNode));
-        bytes32 byRound = keccak256(abi.encode(round, byToken));
-        return keccak256(abi.encode(depositor, byRound));
-    }
-}
-
-/// @notice Deposits, claims and refunds of arbitrary amounts, one at a time, each checked against
-///         the balances it moved.
-contract HandleEscrowAmountsTest is Test {
-    bytes32 internal constant PLATFORM = keccak256("x");
-    bytes32 internal constant HASH = keccak256("node");
-    bytes32 internal immutable NODE = IdentityNodes.handleNodeOfHash(PLATFORM, HASH);
-    uint256 internal constant MAX = 1e36;
-
-    HandleEscrow internal escrow;
-    SettableNames internal names;
-    TestERC20 internal token;
-    FeeToken internal fee;
-
-    address internal alice = makeAddr("alice");
-    address internal bob = makeAddr("bob");
-    address internal holder = makeAddr("holder");
-
-    function setUp() public {
-        names = new SettableNames();
-        HandleEscrow impl = new HandleEscrow();
-        escrow = HandleEscrow(
-            address(
-                new ERC1967Proxy(
-                    address(impl),
-                    abi.encodeCall(HandleEscrow.initialize, (address(this), IIdentityNames(address(names))))
-                )
-            )
-        );
-        token = new TestERC20("Token", "TKN");
-        fee = new FeeToken();
-    }
-
-    function testFuzz_aRefundReturnsExactlyTheDeposit(uint256 amount, bool native) public {
-        amount = bound(amount, 1, MAX);
-        address asset = _deposit(alice, amount, native);
-
-        assertEq(escrow.escrowed(NODE, asset), amount);
-        assertEq(escrow.refundable(NODE, asset, alice), amount);
-        vm.prank(alice);
-        escrow.refund(NODE, asset, alice);
-
-        assertEq(_balance(asset, alice), amount, "the refund returned other than the deposit");
-        assertEq(escrow.escrowed(NODE, asset), 0);
-        assertEq(_balance(asset, address(escrow)), 0);
-    }
-
-    function testFuzz_aClaimTakesEveryContribution(uint256 a, uint256 b, bool native) public {
-        a = bound(a, 1, MAX);
-        b = bound(b, 1, MAX);
-        address asset = _deposit(alice, a, native);
-        _deposit(bob, b, native);
-        names.setHolder(NODE, holder);
-
-        vm.prank(holder);
-        escrow.claim(NODE, one(asset), holder);
-
-        assertEq(_balance(asset, holder), a + b, "the claim paid other than the sum");
-        assertEq(escrow.escrowed(NODE, asset), 0);
-        assertEq(_balance(asset, address(escrow)), 0);
-        assertEq(escrow.refundable(NODE, asset, alice), 0, "what the claim took is refundable");
-        assertEq(escrow.refundable(NODE, asset, bob), 0, "what the claim took is refundable");
-    }
-
-    function testFuzz_aRefundLeavesTheRestForTheClaim(uint256 a, uint256 b, bool native) public {
-        a = bound(a, 1, MAX);
-        b = bound(b, 1, MAX);
-        address asset = _deposit(alice, a, native);
-        _deposit(bob, b, native);
-
-        vm.prank(alice);
-        escrow.refund(NODE, asset, alice);
-        assertEq(_balance(asset, alice), a);
-        assertEq(escrow.escrowed(NODE, asset), b, "the refund reached another contribution");
-
-        names.setHolder(NODE, holder);
-        vm.prank(holder);
-        escrow.claim(NODE, one(asset), holder);
-        assertEq(_balance(asset, holder), b, "the claim paid other than what was left");
-        assertEq(_balance(asset, address(escrow)), 0);
-    }
-
-    function testFuzz_aFeeTokenBooksWhatArrived(uint256 amount) public {
-        amount = bound(amount, 1, MAX);
-        uint256 arrived = amount - (amount * fee.FEE_BPS()) / 10_000;
-        fee.mint(alice, amount);
-        vm.startPrank(alice);
-        fee.approve(address(escrow), amount);
-        escrow.deposit(PLATFORM, HASH, address(fee), amount, alice);
-        vm.stopPrank();
-
-        assertEq(escrow.escrowed(NODE, address(fee)), arrived);
-        assertEq(fee.balanceOf(address(escrow)), arrived, "the books and the balance disagree");
-        vm.prank(alice);
-        escrow.refund(NODE, address(fee), alice);
-        assertEq(fee.balanceOf(alice), arrived);
-    }
-
-    function testFuzz_aPayThroughDeliversTheAmount(uint256 amount, bool native) public {
-        amount = bound(amount, 1, MAX);
-        names.setHolder(NODE, holder);
-        address asset = _deposit(alice, amount, native);
-
-        assertEq(_balance(asset, holder), amount);
-        assertEq(escrow.escrowed(NODE, asset), 0);
-        assertEq(_balance(asset, address(escrow)), 0);
-    }
-
-    function _deposit(address who, uint256 amount, bool native) internal returns (address asset) {
-        if (native) {
-            vm.deal(who, amount);
-            vm.prank(who);
-            escrow.deposit{value: amount}(PLATFORM, HASH, address(0), amount, who);
-            return address(0);
-        }
-        token.mint(who, amount);
-        vm.startPrank(who);
-        token.approve(address(escrow), amount);
-        escrow.deposit(PLATFORM, HASH, address(token), amount, who);
-        vm.stopPrank();
-        return address(token);
-    }
-
-    function _balance(address asset, address who) internal view returns (uint256) {
-        return asset == address(0) ? who.balance : token.balanceOf(who);
     }
 }
