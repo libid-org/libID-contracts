@@ -280,7 +280,7 @@ library CeremonyAttestation {
         // copy the whole revealed transcript again and rescan it, so every
         // rejected submission would pay twice for the check that rejected it --
         // on a buffer the prover sizes.
-        uint256 headers = _countNeedle(normalizeHeaderBytes(revealed));
+        uint256 headers = _countNeedle(revealed);
         if (headers != 1) revert NotOneAuthorizationHeader(headers);
 
         // Framing, on RAW bytes at known offsets. Two fixed comparisons make
@@ -374,18 +374,29 @@ library CeremonyAttestation {
         }
     }
 
-    function _countNeedle(bytes memory haystack) private pure returns (uint256 count) {
+    /// @dev How often `AUTHORIZATION_NEEDLE` occurs in
+    ///      `normalizeHeaderBytes(raw)`, counted as the normalized bytes stream
+    ///      past rather than from a normalized copy.
+    ///
+    ///      `matched` is how much of the needle the stream so far ends with.
+    ///      The needle's first byte, CR, appears nowhere else in it, so after
+    ///      a mismatch the only match still open is one this byte starts, and
+    ///      two matches never overlap.
+    function _countNeedle(bytes memory raw) private pure returns (uint256 count) {
         bytes memory needle = AUTHORIZATION_NEEDLE;
-        if (haystack.length < needle.length) return 0;
-        for (uint256 i = 0; i + needle.length <= haystack.length; ++i) {
-            bool hit = true;
-            for (uint256 j = 0; j < needle.length; ++j) {
-                if (haystack[i + j] != needle[j]) {
-                    hit = false;
-                    break;
+        uint256 matched;
+        for (uint256 i = 0; i < raw.length; ++i) {
+            bytes1 c = raw[i];
+            if (c == 0x20 || c == 0x09) continue;
+            if (c >= 0x41 && c <= 0x5a) c = bytes1(uint8(c) + 0x20);
+            if (c == needle[matched]) {
+                if (++matched == needle.length) {
+                    ++count;
+                    matched = 0;
                 }
+            } else {
+                matched = c == needle[0] ? 1 : 0;
             }
-            if (hit) ++count;
         }
     }
 
