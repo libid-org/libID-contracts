@@ -96,11 +96,7 @@ library CeremonyFields {
         // what these reads must not do.
         if (end == data.length) return (Found.Unterminated, "");
 
-        value = new bytes(end - at);
-        for (uint256 i = 0; i < value.length; ++i) {
-            value[i] = data[at + i];
-        }
-        return (Found.One, value);
+        return (Found.One, _slice(data, at, end));
     }
 
     /// @notice `jsonInteger`, reporting ABSENCE and still refusing malformation.
@@ -142,11 +138,7 @@ library CeremonyFields {
         if (end == data.length) return (Found.None, "");
         if (data[end] != "," && data[end] != "}") revert BadIntegerTerminator(name, data[end]);
 
-        digits = new bytes(end - at);
-        for (uint256 i = 0; i < digits.length; ++i) {
-            digits[i] = data[at + i];
-        }
-        return (Found.One, digits);
+        return (Found.One, _slice(data, at, end));
     }
 
     /// @notice `data` with the JSON whitespace that touches a structural
@@ -244,10 +236,7 @@ library CeremonyFields {
             ++end;
         }
 
-        value = new bytes(end - at);
-        for (uint256 i = 0; i < value.length; ++i) {
-            value[i] = data[at + i];
-        }
+        value = _slice(data, at, end);
     }
 
     /// @notice The value of field `name` in a body `requireExactForm`
@@ -341,7 +330,7 @@ library CeremonyFields {
                 at = _formValueToken(body, at);
             }
             if (at == valueStart) revert EmptyFormValue(string(_slice(names, from, to)));
-            form.names[field] = keccak256(_slice(names, from, to));
+            form.names[field] = _hash(names, from, to);
             form.starts[field] = valueStart;
             form.ends[field] = at;
 
@@ -387,10 +376,22 @@ library CeremonyFields {
         return (false, 0);
     }
 
+    /// @dev `data[from:to]`, copied.
     function _slice(bytes memory data, uint256 from, uint256 to) private pure returns (bytes memory out) {
+        // In bounds, so the copy reads only bytes `data` holds.
+        assert(from <= to && to <= data.length);
         out = new bytes(to - from);
-        for (uint256 i = 0; i < out.length; ++i) {
-            out[i] = data[from + i];
+        assembly ("memory-safe") {
+            mcopy(add(out, 0x20), add(add(data, 0x20), from), sub(to, from))
+        }
+    }
+
+    /// @dev keccak256 of `data[from:to]`, read in place.
+    function _hash(bytes memory data, uint256 from, uint256 to) private pure returns (bytes32 hash) {
+        // In bounds, so the hash reads only bytes `data` holds.
+        assert(from <= to && to <= data.length);
+        assembly ("memory-safe") {
+            hash := keccak256(add(add(data, 0x20), from), sub(to, from))
         }
     }
 

@@ -743,17 +743,19 @@ abstract contract TlsNotaryVerifierBase is IPlatformVerifier, PlatformVerifierBa
         }
     }
 
+    /// @dev `data[from:to]`, copied.
     function _slice(bytes memory data, uint256 from, uint256 to) private pure returns (bytes memory out) {
+        // In bounds, so the copy reads only bytes `data` holds.
+        assert(from <= to && to <= data.length);
         out = new bytes(to - from);
-        for (uint256 i = 0; i < out.length; ++i) {
-            out[i] = data[from + i];
+        assembly ("memory-safe") {
+            mcopy(add(out, 0x20), add(add(data, 0x20), from), sub(to, from))
         }
     }
 
     /// @dev keccak256 of `data[from:to]`, read in place.
     function _hash(bytes memory data, uint256 from, uint256 to) private pure returns (bytes32 hash) {
-        // The range must lie inside `data`: what `keccak256` reads is then
-        // bytes `data` holds, never memory beyond it.
+        // In bounds, so the hash reads only bytes `data` holds.
         assert(from <= to && to <= data.length);
         assembly ("memory-safe") {
             hash := keccak256(add(add(data, 0x20), from), sub(to, from))
@@ -785,10 +787,7 @@ abstract contract TlsNotaryVerifierBase is IPlatformVerifier, PlatformVerifierBa
         // remainder is the body the platform parsed.
         if (declared != whole.length - at) revert WrongDeclaredBodyLength(declared, whole.length - at);
 
-        body = new bytes(whole.length - at);
-        for (uint256 i = 0; i < body.length; ++i) {
-            body[i] = whole[at + i];
-        }
+        body = _slice(whole, at, whole.length);
     }
 
     function _startsWith(bytes memory data, bytes memory prefix) internal pure returns (bool) {

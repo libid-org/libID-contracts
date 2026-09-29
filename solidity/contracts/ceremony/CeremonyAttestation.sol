@@ -417,9 +417,12 @@ library CeremonyAttestation {
         uint256 n;
         for (uint256 i = 0; i < block_.revealed.length; ++i) {
             bytes memory v = block_.revealed[i].value;
-            for (uint256 j = 0; j < v.length; ++j) {
-                out[n++] = v[j];
+            // `out` holds `total` bytes, the sum of every length, so each copy
+            // ends inside it.
+            assembly ("memory-safe") {
+                mcopy(add(add(out, 0x20), n), add(v, 0x20), mload(v))
             }
+            n += v.length;
         }
     }
 
@@ -443,9 +446,14 @@ library CeremonyAttestation {
                     uint256 offset = at - r.start;
                     uint256 take = r.value.length - offset;
                     if (take > to - at) take = to - at;
-                    for (uint256 j = 0; j < take; ++j) {
-                        out[n++] = r.value[offset + j];
+                    bytes memory v = r.value;
+                    // `offset + take` stays inside `v` by the line computing
+                    // `take`, and `n + take` inside `out`, since `n` is
+                    // `at - from` and `take` at most `to - at`.
+                    assembly ("memory-safe") {
+                        mcopy(add(add(out, 0x20), n), add(add(v, 0x20), offset), take)
                     }
+                    n += take;
                     // Casting to uint32 is safe: `take` is clamped to `to - at`
                     // above, and both of those are uint32.
                     // forge-lint: disable-next-line(unsafe-typecast)
