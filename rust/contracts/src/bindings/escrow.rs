@@ -39,6 +39,7 @@ mod escrow_inner {
             /// What `refund` would pay `refundTo` now.
             function refundable(bytes32 handleNode, address token, address refundTo) external view returns (uint256);
             function names() external view returns (address);
+            /// The EIP-7528 native-token address, `0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE`.
             function NATIVE() external view returns (address);
 
             function owner() external view returns (address);

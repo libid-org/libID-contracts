@@ -10,6 +10,9 @@ import {ReentrancyGuardUpgradeable} from "@openzeppelin/contracts-upgradeable/ut
 
 import {IIdentityNames} from "../identity/IIdentityNames.sol";
 
+// The EIP-7528 address that stands for the chain's native token.
+address constant NATIVE_TOKEN = 0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE;
+
 /// @title HandleEscrow - send to a platform handle before anybody claims it.
 ///
 /// @notice Holds value against the handle node `IdentityNames` binds. The
@@ -26,8 +29,8 @@ import {IIdentityNames} from "../identity/IIdentityNames.sol";
 contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, ReentrancyGuardUpgradeable {
     using SafeERC20 for IERC20;
 
-    /// @notice The native token of the chain, as a token address.
-    address public constant NATIVE = address(0);
+    /// @notice The native token of the chain, as a token address (EIP-7528).
+    address public constant NATIVE = NATIVE_TOKEN;
 
     /// @custom:storage-location erc7201:libid.storage.HandleEscrow
     struct HandleEscrowStorage {

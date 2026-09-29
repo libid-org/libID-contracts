@@ -14,6 +14,8 @@ escrow.refund(handleNode, token, recipient);   // refundTo, while unclaimed
 ## Integrating
 
 - `refundTo` is the end user. A router passing itself locks the refund.
+- `NATIVE`, the EIP-7528 address `0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE`,
+  names the chain's own coin in `deposit`, `claim`, `refund` and every event.
 - `handleHash` is `keccak256` of the handle normalized under the chain's
   current rules (`IdentityNames.rulesOf`). Hash locally: `handleHashOf` over
   RPC sends the handle to the provider. A wrong hash funds a slot only

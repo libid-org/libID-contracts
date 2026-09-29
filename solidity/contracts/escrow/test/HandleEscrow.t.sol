@@ -16,8 +16,11 @@ import {StubPlatformVerifier} from "../../identity/test/StubPlatformVerifier.sol
 import {CeremonyProofVerifier} from "../../ceremony/CeremonyProofVerifier.sol";
 import {IPlatformVerifier} from "../../ceremony/IPlatformVerifier.sol";
 import {IProofVerifier} from "../../ceremony/IProofVerifier.sol";
-import {HandleEscrow} from "../HandleEscrow.sol";
+import {HandleEscrow, NATIVE_TOKEN} from "../HandleEscrow.sol";
 import {FeeToken, InertToken, RejectEther, TestERC20, one} from "./EscrowMocks.sol";
+
+// The native token as the escrow names it.
+address constant NATIVE = NATIVE_TOKEN;
 
 /// @notice Appends one field to the namespaced root, the only change the storage rule allows.
 contract HandleEscrowV2 is HandleEscrow {
@@ -67,7 +70,7 @@ contract TextPayer {
 
     function pay(bytes32 platformId, string calldata handle) external payable {
         ESCROW.deposit{value: msg.value}(
-            platformId, NAMES.handleHashOf(platformId, handle), address(0), msg.value, msg.sender
+            platformId, NAMES.handleHashOf(platformId, handle), NATIVE, msg.value, msg.sender
         );
     }
 }
@@ -100,7 +103,7 @@ contract ObservingPayee {
     }
 
     function fund(bytes32 platformId, bytes32 handleHash) external payable {
-        ESCROW.deposit{value: msg.value}(platformId, handleHash, address(0), msg.value, address(this));
+        ESCROW.deposit{value: msg.value}(platformId, handleHash, NATIVE, msg.value, address(this));
     }
 
     function take(bytes calldata data) external {
@@ -112,8 +115,8 @@ contract ObservingPayee {
     receive() external payable {
         if (entered) return;
         entered = true;
-        heldDuringPayout = ESCROW.escrowed(NODE, address(0));
-        refundableDuringPayout = ESCROW.refundable(NODE, address(0), address(this));
+        heldDuringPayout = ESCROW.escrowed(NODE, NATIVE);
+        refundableDuringPayout = ESCROW.refundable(NODE, NATIVE, address(this));
         (bool ok, bytes memory reason) = address(ESCROW).call(call_);
         require(!ok, "the reentry was let through");
         reentryError = reason;
@@ -166,7 +169,6 @@ contract HandleEscrowTest is Test {
     bytes32 internal constant GITHUB = HandleVectors.PLATFORM_GITHUB;
     bytes32 internal constant GOOGLE = HandleVectors.PLATFORM_GOOGLE;
     bytes32 internal constant UNWIRED = keccak256("no such platform");
-    address internal constant NATIVE = address(0);
     uint16 internal constant V1 = 1;
 
     address internal alice = makeAddr("alice");
