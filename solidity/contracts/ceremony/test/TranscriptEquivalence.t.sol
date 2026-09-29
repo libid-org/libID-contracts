@@ -95,9 +95,17 @@ contract LiveHelpers {
     function requireBearerHeaderRequest(CeremonyAttestation.DirectionBlock memory block_, uint32 length)
         external
         pure
-        returns (CeremonyAttestation.RangeCommitment memory)
+        returns (CeremonyAttestation.RangeCommitment memory commitment)
     {
-        return CeremonyAttestation.requireBearerHeaderRequest(block_, length);
+        (commitment,) = CeremonyAttestation.requireBearerHeaderRequest(block_, length);
+    }
+
+    function bearerHeaderRequestJoin(CeremonyAttestation.DirectionBlock memory block_, uint32 length)
+        external
+        pure
+        returns (bytes memory revealed)
+    {
+        (, revealed) = CeremonyAttestation.requireBearerHeaderRequest(block_, length);
     }
 
     function requireFramedCommitment(
@@ -932,7 +940,17 @@ contract TranscriptEquivalenceTest is Test {
     function testFuzz_bearerHeaderRequestMatchesReference(uint256 seed) public view {
         Gen.Rng memory r = Gen.Rng(seed);
         (CeremonyAttestation.DirectionBlock memory block_, uint32 len) = r.identityRequest("GET /2/users/me ");
-        _same(address(live), address(ref), abi.encodeCall(LiveHelpers.requireBearerHeaderRequest, (block_, len)));
+        if (!_same(address(live), address(ref), abi.encodeCall(LiveHelpers.requireBearerHeaderRequest, (block_, len))))
+        {
+            return;
+        }
+        // And the join it returns is the join of the revealed ranges.
+        _same(
+            address(live),
+            abi.encodeCall(LiveHelpers.bearerHeaderRequestJoin, (block_, len)),
+            address(ref),
+            abi.encodeCall(RefHelpers.concatRevealed, (block_))
+        );
     }
 
     /// forge-config: default.fuzz.runs = 2000

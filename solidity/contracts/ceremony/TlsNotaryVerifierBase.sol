@@ -432,10 +432,10 @@ abstract contract TlsNotaryVerifierBase is IPlatformVerifier, PlatformVerifierBa
         // together. They are one property: the scan reads only revealed bytes,
         // so without coverage a prover hides a second authorization header in a
         // gap and the count still says one.
-        CeremonyAttestation.RangeCommitment memory bearer =
+        (CeremonyAttestation.RangeCommitment memory bearer, bytes memory revealed) =
             CeremonyAttestation.requireBearerHeaderRequest(data.sent, data.sentTranscriptLength);
         identityCommitment = bearer.commitment;
-        _checkIdentityHead(CeremonyAttestation.concatRevealed(data.sent));
+        _checkIdentityHead(revealed);
 
         // Tiled, not revealed whole. The response may hide bytes, which is
         // what keeps a platform's account metadata off chain when the profile's

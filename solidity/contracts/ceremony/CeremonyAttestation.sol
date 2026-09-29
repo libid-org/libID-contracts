@@ -245,10 +245,12 @@ library CeremonyAttestation {
     ///
     /// @return commitment The committed bearer range, which the caller then
     ///         matches against the circuit's identity-bearer public input.
+    /// @return revealed   The request's revealed bytes, joined in offset
+    ///         order: what the count read, for a caller scanning its lines.
     function requireBearerHeaderRequest(DirectionBlock memory block_, uint32 length)
         internal
         pure
-        returns (RangeCommitment memory commitment)
+        returns (RangeCommitment memory commitment, bytes memory revealed)
     {
         // One committed range, so the range REQ-COMMON-40 frames and the
         // commitment the circuit opens are the same object. The layout permits
@@ -258,7 +260,7 @@ library CeremonyAttestation {
 
         requireExactCoverage(block_, length);
 
-        bytes memory revealed = concatRevealed(block_);
+        revealed = concatRevealed(block_);
         requireCrlfLineEndings(revealed);
 
         // Counted over the CONCATENATION, not per range.
