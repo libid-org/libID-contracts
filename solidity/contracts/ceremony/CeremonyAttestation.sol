@@ -321,21 +321,30 @@ library CeremonyAttestation {
     ///
     ///      Runs BEFORE the count, over the raw bytes: normalization keeps CR
     ///      and LF, so the offsets it reports are transcript offsets.
+    ///
+    ///      One pass. A fold is reported before any bare byte, wherever each
+    ///      lies, so the first bare byte waits for the end of the pass.
     function requireCrlfLineEndings(bytes memory revealed) internal pure {
-        for (uint256 i = 0; i + 2 < revealed.length; ++i) {
-            if (revealed[i] == 0x0d && revealed[i + 1] == 0x0a && (revealed[i + 2] == 0x20 || revealed[i + 2] == 0x09))
-            {
-                revert ObsoleteLineFold(i);
-            }
-        }
+        uint256 bare = type(uint256).max;
+        bool bareLineFeed;
         for (uint256 i = 0; i < revealed.length; ++i) {
-            if (revealed[i] == 0x0a && (i == 0 || revealed[i - 1] != 0x0d)) {
-                revert BareLineFeed(i);
-            }
-            if (revealed[i] == 0x0d && (i + 1 == revealed.length || revealed[i + 1] != 0x0a)) {
-                revert BareCarriageReturn(i);
+            bytes1 c = revealed[i];
+            if (c == 0x0d) {
+                if (i + 1 < revealed.length && revealed[i + 1] == 0x0a) {
+                    if (i + 2 < revealed.length && (revealed[i + 2] == 0x20 || revealed[i + 2] == 0x09)) {
+                        revert ObsoleteLineFold(i);
+                    }
+                } else if (bare == type(uint256).max) {
+                    bare = i;
+                }
+            } else if (c == 0x0a && (i == 0 || revealed[i - 1] != 0x0d) && bare == type(uint256).max) {
+                bare = i;
+                bareLineFeed = true;
             }
         }
+        if (bare == type(uint256).max) return;
+        if (bareLineFeed) revert BareLineFeed(bare);
+        revert BareCarriageReturn(bare);
     }
 
     /// @notice Lowercase ASCII and drop every space and horizontal tab, keeping
