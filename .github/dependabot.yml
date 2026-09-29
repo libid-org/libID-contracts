@@ -1,35 +1,32 @@
 version: 2
+multi-ecosystem-groups:
+  dependencies:
+    schedule:
+      interval: "cron"
+      cronjob: "0 9 * * mon%2" # Every other Monday at 09:00 UTC.
+    open-pull-requests-limit: 1
+    commit-message:
+      prefix: "chore(deps)"
 updates:
   - package-ecosystem: "cargo"
     directory: "/rust"
-    schedule:
-      interval: "weekly"
     allow:
       - dependency-type: "all"
-    commit-message:
-      prefix: "chore(deps)"
+    patterns: ["*"]
+    multi-ecosystem-group: "dependencies"
   - package-ecosystem: "npm"
     directory: "/ts"
-    schedule:
-      interval: "weekly"
     allow:
       - dependency-type: "all"
-    commit-message:
-      prefix: "chore(deps)"
+    patterns: ["*"]
+    multi-ecosystem-group: "dependencies"
   - package-ecosystem: "gitsubmodule"
     directory: "/"
-    schedule:
-      interval: "weekly"
-    commit-message:
-      prefix: "chore(deps)"
+    patterns: ["*"]
+    multi-ecosystem-group: "dependencies"
   - package-ecosystem: "github-actions"
     directories:
       - "/"
       - "/.github/actions/forge-build"
-    schedule:
-      interval: "weekly"
-    groups:
-      github-actions:
-        patterns: ["*"]
-    commit-message:
-      prefix: "chore(deps)"
+    patterns: ["*"]
+    multi-ecosystem-group: "dependencies"
