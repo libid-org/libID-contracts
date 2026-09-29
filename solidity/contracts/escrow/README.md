@@ -40,6 +40,14 @@ escrow.refund(handleNode, token, recipient);   // refundTo, while unclaimed
 - Indexers should allow-list tokens: anyone can emit `Deposited` for a token
   they wrote.
 
+## Deploying
+
+- Upgrade the deployed `IdentityNames` first: `initialize` reverts `NamesLacks`
+  unless it answers `byHandle`, `acceptsClaims` and `nodeOfHash`.
+- The escrow keeps that `IdentityNames` for life. There is no setter, so no
+  key can point claims elsewhere; deploy the escrow once the naming system
+  sits at its final address, and move it later only by upgrade.
+
 ## Privacy and trust
 
 A hash keeps the handle out of the sender's calldata but is not secret: anyone
