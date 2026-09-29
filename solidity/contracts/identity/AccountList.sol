@@ -64,8 +64,7 @@ library AccountList {
         bytes32[] storage list = self.nodes[wallet][platformId];
         uint256 length = list.length;
         if (from >= length) return out;
-        uint256 end = from + limit;
-        if (end > length || end < from) end = length;
+        uint256 end = limit < length - from ? from + limit : length;
         out = new bytes32[](end - from);
         for (uint256 i = from; i < end; i++) {
             out[i - from] = list[i];

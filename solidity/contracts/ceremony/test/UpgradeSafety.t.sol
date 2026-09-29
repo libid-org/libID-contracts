@@ -413,6 +413,8 @@ contract UpgradeSafetyTest is Test {
         assertEq(names.resolveId(X, "2244994945"), alice);
         assertEq(names.resolveHandle(X, "alice"), alice);
         assertEq(names.primaryOf(alice, X), "alice");
+        assertEq(names.accountCount(alice, X), 1);
+        assertEq(names.accountsOf(alice, X, 0, 1)[0].handle, "alice");
         assertTrue(names.digestSpent(digest));
         assertEq(address(names.proofVerifier()), address(proofVerifier));
         assertEq(names.owner(), OWNER);

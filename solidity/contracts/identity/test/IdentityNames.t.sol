@@ -461,6 +461,172 @@ contract IdentityNamesTest is Test {
         assertEq(names.primaryOf(alice, X), "", "but it no longer resolves back");
     }
 
+    // ─── A wallet's accounts ────────────────────────────────────────
+
+    /// Every account a wallet holds on a platform, in one read.
+    function _accounts(address wallet, bytes32 platformId) internal view returns (IdentityNames.Account[] memory) {
+        return names.accountsOf(wallet, platformId, 0, names.accountCount(wallet, platformId));
+    }
+
+    /// Whether a page carries the account with this id.
+    function _holds(IdentityNames.Account[] memory page, string memory userId) internal pure returns (bool) {
+        for (uint256 i = 0; i < page.length; i++) {
+            if (keccak256(bytes(page[i].userId)) == keccak256(bytes(userId))) return true;
+        }
+        return false;
+    }
+
+    /// The listed account with this id. Order is arbitrary, so a test that
+    /// wants one account finds it by what identifies it.
+    function _account(address wallet, bytes32 platformId, string memory userId)
+        internal
+        view
+        returns (IdentityNames.Account memory)
+    {
+        IdentityNames.Account[] memory all = _accounts(wallet, platformId);
+        for (uint256 i = 0; i < all.length; i++) {
+            if (keccak256(bytes(all[i].userId)) == keccak256(bytes(userId))) return all[i];
+        }
+        revert("not listed");
+    }
+
+    function test_aClaimListsTheAccountWithItsIdAndHandle() public {
+        _bind(alice, "123", "alice", 100);
+
+        assertEq(names.accountCount(alice, X), 1);
+        IdentityNames.Account memory a = _account(alice, X, "123");
+        assertEq(a.handle, "alice");
+        assertTrue(a.handleCurrent);
+        assertEq(names.accountCount(alice, GITHUB), 0, "each platform keeps its own list");
+        assertEq(names.accountCount(bob, X), 0, "and so does each wallet");
+    }
+
+    function test_theListedHandleIsTheNormalizedOne() public {
+        _bind(alice, "123", "@Alice", 100);
+        assertEq(_account(alice, X, "123").handle, "alice");
+    }
+
+    function test_aWalletMayHoldSeveralAccountsOnOnePlatform() public {
+        _bind(alice, "123", "alice", 100);
+        _bind(alice, "456", "alicia", 200);
+
+        assertEq(names.accountCount(alice, X), 2);
+        assertEq(_account(alice, X, "123").handle, "alice");
+        assertEq(_account(alice, X, "456").handle, "alicia");
+    }
+
+    function test_aRenameMovesTheHandleAndKeepsOneEntry() public {
+        _bind(alice, "123", "alice", 100);
+        _bind(alice, "123", "alicia", 200);
+
+        assertEq(names.accountCount(alice, X), 1);
+        IdentityNames.Account memory a = _account(alice, X, "123");
+        assertEq(a.handle, "alicia");
+        assertTrue(a.handleCurrent);
+    }
+
+    function test_provingTheSameHandleAgainListsNothingTwice() public {
+        _bind(alice, "123", "alice", 100);
+        _bind(alice, "123", "alice", 200);
+        assertEq(names.accountCount(alice, X), 1);
+    }
+
+    /// The list is alice's: bob taking her handle changes what it resolves
+    /// to, and the entry says so, but the entry is still there with the name
+    /// her account was last known by.
+    function test_aHandleTakenElsewhereStaysListedAsStale() public {
+        _bind(alice, "123", "shared", 100);
+        _bind(bob, "456", "shared", 200);
+
+        assertEq(names.accountCount(alice, X), 1);
+        IdentityNames.Account memory a = _account(alice, X, "123");
+        assertEq(a.handle, "shared");
+        assertFalse(a.handleCurrent, "the handle resolves to bob now");
+        assertTrue(_account(bob, X, "456").handleCurrent);
+    }
+
+    /// The wallet still owns the handle node, through the other account. An
+    /// owner check alone would call both accounts current.
+    function test_aSecondAccountOfTheSameWalletTakingTheHandleIsToldApart() public {
+        _bind(alice, "123", "first", 100);
+        _bind(alice, "456", "second", 200);
+        _bind(alice, "456", "first", 300);
+
+        assertEq(names.accountCount(alice, X), 2);
+        assertFalse(_account(alice, X, "123").handleCurrent);
+        IdentityNames.Account memory second = _account(alice, X, "456");
+        assertEq(second.handle, "first");
+        assertTrue(second.handleCurrent);
+    }
+
+    function test_anAccountProvedFromANewWalletMovesBetweenLists() public {
+        _bind(alice, "123", "alice", 100);
+        _bind(bob, "123", "alice", 200);
+
+        assertEq(names.accountCount(alice, X), 0);
+        assertEq(names.accountCount(bob, X), 1);
+        assertTrue(_account(bob, X, "123").handleCurrent);
+    }
+
+    function test_leavingFromTheMiddleKeepsTheOthersListed() public {
+        _bind(alice, "1", "one", 100);
+        _bind(alice, "2", "two", 200);
+        _bind(alice, "3", "three", 300);
+        _bind(bob, "2", "two", 400);
+
+        assertEq(names.accountCount(alice, X), 2);
+        assertEq(_account(alice, X, "1").handle, "one");
+        assertEq(_account(alice, X, "3").handle, "three");
+        assertEq(_account(bob, X, "2").handle, "two");
+
+        // And back: an account returns to a list it left.
+        _bind(alice, "2", "two", 500);
+        assertEq(names.accountCount(alice, X), 3);
+        assertEq(names.accountCount(bob, X), 0);
+        assertEq(_account(alice, X, "2").handle, "two");
+    }
+
+    function test_pagesClipToTheList() public {
+        _bind(alice, "1", "one", 100);
+        _bind(alice, "2", "two", 200);
+        _bind(alice, "3", "three", 300);
+
+        assertEq(names.accountsOf(alice, X, 0, 2).length, 2);
+        assertEq(names.accountsOf(alice, X, 2, 5).length, 1, "clipped at the end");
+        assertEq(names.accountsOf(alice, X, 3, 1).length, 0, "past the end is empty, not a revert");
+        assertEq(names.accountsOf(alice, X, 0, 0).length, 0);
+        assertEq(names.accountsOf(alice, X, 1, type(uint256).max).length, 2, "a limit past the end is clipped too");
+
+        // Two pages cover the list once each.
+        IdentityNames.Account[] memory first = names.accountsOf(alice, X, 0, 2);
+        IdentityNames.Account[] memory second = names.accountsOf(alice, X, 2, 2);
+        assertEq(second.length, 1);
+        assertTrue(_holds(first, "1") != _holds(second, "1"));
+        assertTrue(_holds(first, "2") != _holds(second, "2"));
+        assertTrue(_holds(first, "3") != _holds(second, "3"));
+    }
+
+    function test_theListRefusesAnUnknownPlatform() public {
+        bytes32 nowhere = keccak256("nowhere");
+        vm.expectRevert(abi.encodeWithSelector(IdentityNames.UnknownPlatform.selector, nowhere));
+        names.accountCount(alice, nowhere);
+        vm.expectRevert(abi.encodeWithSelector(IdentityNames.UnknownPlatform.selector, nowhere));
+        names.accountsOf(alice, nowhere, 0, 1);
+    }
+
+    function test_aListedAccountCannotBeListedAgain() public {
+        _bind(alice, "123", "alice", 100);
+        bytes32 idKey = IdentityNodes.idNode(X, "123");
+        vm.expectRevert(abi.encodeWithSelector(IdentityNames.AccountAlreadyListed.selector, idKey));
+        names.listAccount(X, "123", "alice");
+    }
+
+    function test_listingRefusesAnAccountNobodyProved() public {
+        bytes32 idKey = IdentityNodes.idNode(X, "999");
+        vm.expectRevert(abi.encodeWithSelector(IdentityNames.UnboundAccount.selector, idKey));
+        names.listAccount(X, "999", "ghost");
+    }
+
     // ─── Reading is total in the handle ─────────────────────────────
 
     /// A contract resolving whatever a user typed must not have its whole
