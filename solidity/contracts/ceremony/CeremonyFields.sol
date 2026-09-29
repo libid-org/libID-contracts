@@ -61,7 +61,16 @@ library CeremonyFields {
         pure
         returns (Found found, bytes memory value)
     {
-        data = normalizeJsonBytes(data);
+        return tryNormalizedJsonString(normalizeJsonBytes(data), name);
+    }
+
+    /// @notice `tryJsonString` over bytes `normalizeJsonBytes` returned, for
+    ///         a caller reading more than one field out of them.
+    function tryNormalizedJsonString(bytes memory data, string memory name)
+        internal
+        pure
+        returns (Found found, bytes memory value)
+    {
         bytes memory needle = abi.encodePacked('"', name, '":"');
         uint256 at;
         (found, at) = _findUnique(data, needle);
@@ -99,7 +108,15 @@ library CeremonyFields {
         pure
         returns (Found found, bytes memory digits)
     {
-        data = normalizeJsonBytes(data);
+        return tryNormalizedJsonInteger(normalizeJsonBytes(data), name);
+    }
+
+    /// @notice `tryJsonInteger` over bytes `normalizeJsonBytes` returned.
+    function tryNormalizedJsonInteger(bytes memory data, string memory name)
+        internal
+        pure
+        returns (Found found, bytes memory digits)
+    {
         bytes memory needle = abi.encodePacked('"', name, '":');
         uint256 at;
         (found, at) = _findUnique(data, needle);

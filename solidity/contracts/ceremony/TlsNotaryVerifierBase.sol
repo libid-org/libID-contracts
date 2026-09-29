@@ -218,14 +218,18 @@ abstract contract TlsNotaryVerifierBase is IPlatformVerifier, PlatformVerifierBa
     ///      Requiring the whole match to sit inside one authenticated range
     ///      means every byte of it came from one contiguous run the notary
     ///      signed, at the offsets it signed them at.
-    function _uniqueJsonString(
-        CeremonyAttestation.DirectionBlock memory block_,
-        bytes memory joined,
-        string memory name
-    ) private pure returns (bytes memory value) {
+    ///
+    ///      `ranges` and `joined` arrive normalized by `normalizeJsonBytes`:
+    ///      each revealed range for the read, their concatenation for the
+    ///      count.
+    function _uniqueJsonString(bytes[] memory ranges, bytes memory joined, string memory name)
+        private
+        pure
+        returns (bytes memory value)
+    {
         uint256 matches;
-        for (uint256 i = 0; i < block_.revealed.length; ++i) {
-            (CeremonyFields.Found found, bytes memory v) = CeremonyFields.tryJsonString(block_.revealed[i].value, name);
+        for (uint256 i = 0; i < ranges.length; ++i) {
+            (CeremonyFields.Found found, bytes memory v) = CeremonyFields.tryNormalizedJsonString(ranges[i], name);
             if (found == CeremonyFields.Found.Several) revert FieldNotUnique(name, 2);
             if (found == CeremonyFields.Found.One) {
                 ++matches;
@@ -235,19 +239,19 @@ abstract contract TlsNotaryVerifierBase is IPlatformVerifier, PlatformVerifierBa
         if (matches != 1) revert FieldNotUnique(name, matches);
         // And the delimiter appears once across the whole revealed set, so a
         // second copy cannot hide under a range boundary.
-        uint256 seen = _delimiterCount(CeremonyFields.normalizeJsonBytes(joined), abi.encodePacked('"', name, '":"'));
+        uint256 seen = _delimiterCount(joined, abi.encodePacked('"', name, '":"'));
         if (seen != 1) revert FieldNotUnique(name, seen);
     }
 
     /// @dev The same, for a bare JSON integer.
-    function _uniqueJsonInteger(
-        CeremonyAttestation.DirectionBlock memory block_,
-        bytes memory joined,
-        string memory name
-    ) private pure returns (bytes memory digits) {
+    function _uniqueJsonInteger(bytes[] memory ranges, bytes memory joined, string memory name)
+        private
+        pure
+        returns (bytes memory digits)
+    {
         uint256 matches;
-        for (uint256 i = 0; i < block_.revealed.length; ++i) {
-            (CeremonyFields.Found found, bytes memory v) = CeremonyFields.tryJsonInteger(block_.revealed[i].value, name);
+        for (uint256 i = 0; i < ranges.length; ++i) {
+            (CeremonyFields.Found found, bytes memory v) = CeremonyFields.tryNormalizedJsonInteger(ranges[i], name);
             if (found == CeremonyFields.Found.Several) revert FieldNotUnique(name, 2);
             if (found == CeremonyFields.Found.One) {
                 ++matches;
@@ -255,7 +259,7 @@ abstract contract TlsNotaryVerifierBase is IPlatformVerifier, PlatformVerifierBa
             }
         }
         if (matches != 1) revert FieldNotUnique(name, matches);
-        uint256 seen = _delimiterCount(CeremonyFields.normalizeJsonBytes(joined), abi.encodePacked('"', name, '":'));
+        uint256 seen = _delimiterCount(joined, abi.encodePacked('"', name, '":'));
         if (seen != 1) revert FieldNotUnique(name, seen);
     }
 
@@ -452,16 +456,22 @@ abstract contract TlsNotaryVerifierBase is IPlatformVerifier, PlatformVerifierBa
         // that reaches the REVEALED bytes is still caught, in either range
         // layout; only one hidden behind a commitment is not.
         CeremonyAttestation.requireExactCoverage(data.received, data.recvTranscriptLength);
-        // Joined once, for both readers. The join is what a cross-range COUNT
-        // reads; the per-range values are what a READ reads.
-        bytes memory joined = CeremonyAttestation.concatRevealed(data.received);
+        // Normalized once, for both readers: each range for a READ, the join
+        // for a cross-range COUNT. The join is normalized whole rather than
+        // assembled from the ranges', because whitespace at a seam goes or
+        // stays by its neighbours on both sides.
+        bytes[] memory ranges = new bytes[](data.received.revealed.length);
+        for (uint256 i = 0; i < ranges.length; ++i) {
+            ranges[i] = CeremonyFields.normalizeJsonBytes(data.received.revealed[i].value);
+        }
+        bytes memory joined = CeremonyFields.normalizeJsonBytes(CeremonyAttestation.concatRevealed(data.received));
         (string memory idField, IdShape idShape, string memory handleField) = _identityFields();
         userId = string(
             idShape == IdShape.JsonString
-                ? _uniqueJsonString(data.received, joined, idField)
-                : _uniqueJsonInteger(data.received, joined, idField)
+                ? _uniqueJsonString(ranges, joined, idField)
+                : _uniqueJsonInteger(ranges, joined, idField)
         );
-        handle = string(_uniqueJsonString(data.received, joined, handleField));
+        handle = string(_uniqueJsonString(ranges, joined, handleField));
     }
 
     // ─── Helpers ────────────────────────────────────────────────────
