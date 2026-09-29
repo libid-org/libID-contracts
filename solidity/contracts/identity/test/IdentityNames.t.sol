@@ -628,6 +628,75 @@ contract IdentityNamesTest is Test {
         assertTrue(_holds(first, X, "3") != _holds(second, X, "3"));
     }
 
+    /// The flag reads the nodes. Narrowing a platform's rules re-keys its
+    /// handles, which `resolveHandle` sees at once and the list does not.
+    function test_handleCurrentReadsTheNodesNotTheRules() public {
+        _bind(alice, "123", "with_score", 100);
+        HandleNormalizer.Rules memory rules = HandleVectors.rulesFor(X);
+        rules.allowUnderscore = false;
+        vm.prank(owner);
+        names.setPlatform(X, rules);
+
+        assertEq(names.resolveHandle(X, "with_score"), address(0));
+        assertTrue(_account(alice, X, "123").handleCurrent);
+    }
+
+    /// After any sequence of claims: an account nobody proved is in no
+    /// list, an account somebody proved is in exactly one, the list of the
+    /// wallet whose proof of it is newest, and a handle reported current
+    /// resolves to that wallet and is current for no second account.
+    function testFuzz_everyProvedAccountSitsInExactlyOneList(bytes memory script) public {
+        address[3] memory wallets = [alice, bob, mallory];
+        bytes32[2] memory platforms = [X, GITHUB];
+        string[4] memory ids = ["1", "2", "3", "4"];
+        string[4] memory handles = ["one", "two", "three", "four"];
+
+        uint64 at = 100;
+        for (uint256 i = 0; i + 1 < script.length && i < 64; i += 2) {
+            uint256 a = uint8(script[i]);
+            uint256 b = uint8(script[i + 1]);
+            address who = wallets[a % 3];
+            _stage(ids[b % 4], handles[(b / 4) % 4], who, ++at);
+            vm.prank(who);
+            _claim(platforms[(a / 3) % 2], false);
+        }
+
+        uint256 listed;
+        IdentityNames.Account[] memory current = new IdentityNames.Account[](wallets.length * ids.length * 2);
+        uint256 currents;
+        for (uint256 w = 0; w < wallets.length; w++) {
+            IdentityNames.Account[] memory page = _accounts(wallets[w]);
+            listed += page.length;
+            for (uint256 i = 0; i < page.length; i++) {
+                assertEq(names.resolveId(page[i].platformId, page[i].userId), wallets[w], "listed under its prover");
+                for (uint256 j = 0; j < i; j++) {
+                    assertFalse(_is(page[j], page[i].platformId, page[i].userId), "listed once");
+                }
+                if (page[i].handleCurrent) {
+                    assertEq(
+                        names.resolveHandle(page[i].platformId, page[i].handle), wallets[w], "current, so it resolves"
+                    );
+                    current[currents++] = page[i];
+                }
+            }
+        }
+        for (uint256 i = 0; i < currents; i++) {
+            for (uint256 j = 0; j < i; j++) {
+                bool sameHandle = current[i].platformId == current[j].platformId
+                    && keccak256(bytes(current[i].handle)) == keccak256(bytes(current[j].handle));
+                assertFalse(sameHandle, "a handle is current for one account");
+            }
+        }
+
+        uint256 proved;
+        for (uint256 p = 0; p < platforms.length; p++) {
+            for (uint256 i = 0; i < ids.length; i++) {
+                if (names.resolveId(platforms[p], ids[i]) != address(0)) proved++;
+            }
+        }
+        assertEq(listed, proved, "every proved account is listed, and nothing else");
+    }
+
     // ─── Reading is total in the handle ─────────────────────────────
 
     /// A contract resolving whatever a user typed must not have its whole

@@ -6,6 +6,7 @@ import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.s
 
 import {HandleVectors} from "../HandleVectors.sol";
 import {IdentityNames} from "../IdentityNames.sol";
+import {IdentityNodes} from "../IdentityNodes.sol";
 import {CeremonyProofVerifier} from "../../ceremony/CeremonyProofVerifier.sol";
 import {IPlatformVerifier} from "../../ceremony/IPlatformVerifier.sol";
 import {IProofVerifier} from "../../ceremony/IProofVerifier.sol";
@@ -208,6 +209,34 @@ contract IdentityNamesGasTest is Test {
         _cool();
         names.accountCount(many);
         assertEq(atFew, _used(), "the count");
+    }
+
+    /// The reads under the resolvers: a binding by its node, and a digest.
+    function test_theRawReadsCostTheSame() public measured {
+        _cool();
+        names.byId(IdentityNodes.idNode(X, _id(1, 0)));
+        uint64 atFew = _used();
+        _cool();
+        names.byId(IdentityNodes.idNode(X, _id(2, 0)));
+        assertEq(atFew, _used(), "byId");
+
+        _cool();
+        names.byHandle(IdentityNodes.handleNode(X, _handle(1, 0)));
+        atFew = _used();
+        _cool();
+        names.byHandle(IdentityNodes.handleNode(X, _handle(2, 0)));
+        assertEq(atFew, _used(), "byHandle");
+
+        _prove(few, _id(1, 900_003), _handle(1, 900_003));
+        bytes32 spentByFew = xVerifier.lastDigest();
+        _prove(many, _id(2, 900_003), _handle(2, 900_003));
+        bytes32 spentByMany = xVerifier.lastDigest();
+        _cool();
+        names.digestSpent(spentByFew);
+        atFew = _used();
+        _cool();
+        names.digestSpent(spentByMany);
+        assertEq(atFew, _used(), "digestSpent");
     }
 
     function test_theResolversCostTheSame() public measured {
