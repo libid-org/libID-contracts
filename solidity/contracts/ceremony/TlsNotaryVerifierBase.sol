@@ -43,8 +43,8 @@ abstract contract TlsNotaryVerifierBase is IPlatformVerifier, PlatformVerifierBa
     /// @dev HTTP framing owns this one, not the profile: the client appends
     ///      it and its value is the body's own count, so the head carries it
     ///      and no profile lists it.
-    bytes private constant LENGTH_HEADER = "content-length";
-    bytes private constant AUTHORIZATION = "authorization";
+    bytes32 private constant LENGTH_HEADER = keccak256("content-length");
+    bytes32 private constant AUTHORIZATION = keccak256("authorization");
 
     bytes internal constant ACCESS_TOKEN_PREFIX = '"access_token":"';
     bytes internal constant ACCESS_TOKEN_SUFFIX = '"';
@@ -558,110 +558,137 @@ abstract contract TlsNotaryVerifierBase is IPlatformVerifier, PlatformVerifierBa
     function _checkTokenHead(bytes memory head) private pure returns (uint256 declared) {
         CeremonyAttestation.requireCrlfLineEndings(head);
 
-        bytes memory required = _tokenRequiredHeaders();
-        // One bit per required line. A profile with more than 256 headers is
-        // not a profile, and `validate` in the generator refuses one long
-        // before this could matter.
-        uint256 found;
-        bool lengths;
+        // Both lists read once, not once per header line.
+        TokenHead memory state;
+        state.forbidden = _lineHashes(CeremonyProfile.FORBIDDEN_REQUEST_HEADERS);
+        (state.requiredNames, state.requiredValues) = _requiredHeaders();
 
-        // Past the request line, which `_tokenSession` has already compared.
+        // Past the request line, which `_tokenTranscript` has already compared.
         uint256 from = _lineEnd(head, 0) + 2;
         while (from < head.length) {
             uint256 to = _lineEnd(head, from);
-            (found, lengths, declared) = _tokenHeaderLine(_slice(head, from, to), required, found, lengths, declared);
+            _tokenHeaderLine(head, from, to, state);
             from = to + 2;
         }
 
-        if (!lengths) revert WrongTokenRequestHead();
+        if (!state.lengths) revert WrongTokenRequestHead();
         // Every required line seen: the low bits all set.
-        if (found != (1 << _countLines(required)) - 1) revert WrongTokenRequestHead();
+        if (state.found != (1 << state.requiredNames.length) - 1) revert WrongTokenRequestHead();
+        return state.declared;
     }
 
-    /// @dev One line of the token head against the rule, returning the
-    ///      bookkeeping it advanced: which required lines have been seen,
-    ///      whether the length has, and what it declared. A function of its
-    ///      own so the loop above keeps a stack the compiler can lay out.
+    /// @dev What `_checkTokenHead` knows, and what it has seen so far: the
+    ///      hashes of the forbidden names and of each required line's name
+    ///      and value, one bit per required line seen -- a profile with more
+    ///      than 256 headers is not a profile, and `validate` in the generator
+    ///      refuses one long before this could matter -- whether the length
+    ///      has been, and what it declared.
+    struct TokenHead {
+        bytes32[] forbidden;
+        bytes32[] requiredNames;
+        bytes32[] requiredValues;
+        uint256 found;
+        bool lengths;
+        uint256 declared;
+    }
+
+    /// @dev Line `[from, to)` of the token head against the rule, advancing
+    ///      the bookkeeping in `state`.
     // forge-lint: disable-next-item(incorrect-shift)
-    function _tokenHeaderLine(bytes memory line, bytes memory required, uint256 found, bool lengths, uint256 declared)
-        private
-        pure
-        returns (uint256, bool, uint256)
-    {
-        (bool isHeader, bytes memory name, bytes memory value) = _field(line);
+    function _tokenHeaderLine(bytes memory head, uint256 from, uint256 to, TokenHead memory state) private pure {
+        (bool isHeader, bytes memory name, uint256 valueStart, uint256 valueEnd) = _field(head, from, to);
         if (!isHeader) revert WrongTokenRequestHead();
 
-        if (_indexOfLine(CeremonyProfile.FORBIDDEN_REQUEST_HEADERS, name) != type(uint256).max) {
-            revert ForbiddenRequestHeader(name);
+        bytes32 nameHash = keccak256(name);
+        if (_indexOf(state.forbidden, nameHash) != type(uint256).max) revert ForbiddenRequestHeader(name);
+        if (nameHash == LENGTH_HEADER) {
+            if (state.lengths) revert WrongTokenRequestHead();
+            state.lengths = true;
+            state.declared = _decimal(head, valueStart, valueEnd);
+            return;
         }
-        if (_equal(name, LENGTH_HEADER)) {
-            if (lengths) revert WrongTokenRequestHead();
-            return (found, true, _decimal(value, 0));
-        }
-        uint256 i = _indexOfName(required, name);
-        if (i == type(uint256).max) return (found, lengths, declared);
-        if (!_equal(value, _valueOf(required, i))) revert WrongTokenRequestHead();
-        if (found & (1 << i) != 0) revert WrongTokenRequestHead();
-        return (found | (1 << i), lengths, declared);
+        uint256 i = _indexOf(state.requiredNames, nameHash);
+        if (i == type(uint256).max) return;
+        if (_hash(head, valueStart, valueEnd) != state.requiredValues[i]) revert WrongTokenRequestHead();
+        if (state.found & (1 << i) != 0) revert WrongTokenRequestHead();
+        state.found |= 1 << i;
     }
 
-    /// @dev A header line as the platform reads it: the name before the first
-    ///      colon, lowercased, with any whitespace before the colon removed --
-    ///      the normalization common REQ-COMMON-39 gives the identity request
-    ///      -- and with `_` read as `-`, since a CGI-style stack maps both to
-    ///      one key; then the value after the colon with the optional
-    ///      whitespace on either side removed. A line with no colon, or
-    ///      nothing before it, is not a header, and says so rather than
+    /// @dev The profile's required-header block, each line read by `_field`:
+    ///      the hash of its name, and of its value. A line `_field` does not
+    ///      read as a header hashes the empty name, which no header line has.
+    function _requiredHeaders() private pure returns (bytes32[] memory names, bytes32[] memory values) {
+        bytes memory block_ = _tokenRequiredHeaders();
+        names = new bytes32[](_countLines(block_));
+        values = new bytes32[](names.length);
+        uint256 from;
+        for (uint256 i = 0; i < names.length; ++i) {
+            uint256 to = _lineEnd(block_, from);
+            (, bytes memory name, uint256 valueStart, uint256 valueEnd) = _field(block_, from, to);
+            names[i] = keccak256(name);
+            values[i] = _hash(block_, valueStart, valueEnd);
+            from = to + 2;
+        }
+    }
+
+    /// @dev The hash of every line of the CRLF-joined `block_`, in order.
+    function _lineHashes(bytes memory block_) private pure returns (bytes32[] memory hashes) {
+        hashes = new bytes32[](_countLines(block_));
+        uint256 from;
+        for (uint256 i = 0; i < hashes.length; ++i) {
+            uint256 to = _lineEnd(block_, from);
+            hashes[i] = _hash(block_, from, to);
+            from = to + 2;
+        }
+    }
+
+    /// @dev The first index of `hash` in `hashes`, or `max`.
+    function _indexOf(bytes32[] memory hashes, bytes32 hash) private pure returns (uint256) {
+        for (uint256 i = 0; i < hashes.length; ++i) {
+            if (hashes[i] == hash) return i;
+        }
+        return type(uint256).max;
+    }
+
+    /// @dev A header line, `data[from:to]`, as the platform reads it: the
+    ///      name before the first colon, lowercased, with any whitespace
+    ///      before the colon removed -- the normalization common REQ-COMMON-39
+    ///      gives the identity request -- and with `_` read as `-`, since a
+    ///      CGI-style stack maps both to one key; then the value after the
+    ///      colon with the optional whitespace on either side removed, as the
+    ///      offsets `[valueStart, valueEnd)` of `data`. A line with no colon,
+    ///      or nothing before it, is not a header, and says so rather than
     ///      reverting: the token head refuses one, the identity head leaves it
     ///      to the platform.
-    function _field(bytes memory line) private pure returns (bool isHeader, bytes memory name, bytes memory value) {
-        uint256 colon;
-        while (colon < line.length && line[colon] != ":") {
+    function _field(bytes memory data, uint256 from, uint256 to)
+        private
+        pure
+        returns (bool isHeader, bytes memory name, uint256 valueStart, uint256 valueEnd)
+    {
+        uint256 colon = from;
+        while (colon < to && data[colon] != ":") {
             ++colon;
         }
-        if (colon == line.length) return (false, name, value);
+        if (colon == to) return (false, name, 0, 0);
         uint256 nameEnd = colon;
-        while (nameEnd > 0 && (line[nameEnd - 1] == " " || line[nameEnd - 1] == "\t")) {
+        while (nameEnd > from && (data[nameEnd - 1] == " " || data[nameEnd - 1] == "\t")) {
             --nameEnd;
         }
-        if (nameEnd == 0) return (false, name, value);
-        name = _slice(line, 0, nameEnd);
+        if (nameEnd == from) return (false, name, 0, 0);
+        name = _slice(data, from, nameEnd);
         for (uint256 i = 0; i < name.length; ++i) {
             if (name[i] >= "A" && name[i] <= "Z") name[i] = bytes1(uint8(name[i]) + 32);
             if (name[i] == "_") name[i] = "-";
         }
         isHeader = true;
-        uint256 start = colon + 1;
-        uint256 end = line.length;
-        while (start < end && (line[start] == " " || line[start] == "\t")) {
-            ++start;
+        valueStart = colon + 1;
+        valueEnd = to;
+        while (valueStart < valueEnd && (data[valueStart] == " " || data[valueStart] == "\t")) {
+            ++valueStart;
         }
-        while (end > start && (line[end - 1] == " " || line[end - 1] == "\t")) {
-            --end;
+        while (valueEnd > valueStart && (data[valueEnd - 1] == " " || data[valueEnd - 1] == "\t")) {
+            --valueEnd;
         }
-        value = _slice(line, start, end);
-    }
-
-    /// @dev Which line of the CRLF-joined `block_` names `name`, or `max`.
-    function _indexOfName(bytes memory block_, bytes memory name) private pure returns (uint256 index) {
-        uint256 from;
-        while (from <= block_.length) {
-            uint256 to = _lineEnd(block_, from);
-            (, bytes memory lineName,) = _field(_slice(block_, from, to));
-            if (_equal(lineName, name)) return index;
-            ++index;
-            from = to + 2;
-        }
-        return type(uint256).max;
-    }
-
-    /// @dev The value of line `index` of the CRLF-joined `block_`.
-    function _valueOf(bytes memory block_, uint256 index) private pure returns (bytes memory value) {
-        uint256 from;
-        for (uint256 i = 0; i < index; ++i) {
-            from = _lineEnd(block_, from) + 2;
-        }
-        (,, value) = _field(_slice(block_, from, _lineEnd(block_, from)));
     }
 
     /// @dev Every revealed line of the identity request carries none of the
@@ -673,16 +700,17 @@ abstract contract TlsNotaryVerifierBase is IPlatformVerifier, PlatformVerifierBa
     ///      count is, so a header after a blank line is refused too; a line
     ///      that is not a header is the platform's to refuse.
     function _checkIdentityHead(bytes memory revealed) private pure {
+        bytes32[] memory forbidden = _lineHashes(CeremonyProfile.FORBIDDEN_REQUEST_HEADERS);
         uint256 from = _lineEnd(revealed, 0) + 2;
         while (from < revealed.length) {
             uint256 to = _lineEnd(revealed, from);
             if (to > from) {
-                (bool isHeader, bytes memory name,) = _field(_slice(revealed, from, to));
-                if (
-                    isHeader && !_equal(name, AUTHORIZATION)
-                        && _indexOfLine(CeremonyProfile.FORBIDDEN_REQUEST_HEADERS, name) != type(uint256).max
-                ) {
-                    revert ForbiddenRequestHeader(name);
+                (bool isHeader, bytes memory name,,) = _field(revealed, from, to);
+                if (isHeader) {
+                    bytes32 nameHash = keccak256(name);
+                    if (nameHash != AUTHORIZATION && _indexOf(forbidden, nameHash) != type(uint256).max) {
+                        revert ForbiddenRequestHeader(name);
+                    }
                 }
             }
             from = to + 2;
@@ -706,32 +734,16 @@ abstract contract TlsNotaryVerifierBase is IPlatformVerifier, PlatformVerifierBa
         }
     }
 
-    /// @dev Which line of the CRLF-joined `block_` equals `line`, or `max`.
-    function _indexOfLine(bytes memory block_, bytes memory line) private pure returns (uint256) {
-        uint256 index;
-        uint256 from;
-        while (from <= block_.length) {
-            uint256 to = from;
-            while (to + 1 < block_.length && !(block_[to] == 0x0d && block_[to + 1] == 0x0a)) {
-                ++to;
-            }
-            if (to + 1 >= block_.length) to = block_.length;
-            if (_equal(_slice(block_, from, to), line)) return index;
-            ++index;
-            from = to + 2;
-        }
-        return type(uint256).max;
-    }
-
-    /// @dev Canonical decimal, at most `uint32`'s ten digits. A leading zero is
-    ///      a second spelling of a length this compares one spelling of.
-    function _decimal(bytes memory line, uint256 from) private pure returns (uint256 value) {
-        uint256 width = line.length - from;
+    /// @dev `data[from:to]` as canonical decimal, at most `uint32`'s ten
+    ///      digits. A leading zero is a second spelling of a length this
+    ///      compares one spelling of.
+    function _decimal(bytes memory data, uint256 from, uint256 to) private pure returns (uint256 value) {
+        uint256 width = to - from;
         if (width == 0 || width > 10) revert WrongTokenRequestHead();
-        if (width > 1 && line[from] == "0") revert WrongTokenRequestHead();
-        for (uint256 i = from; i < line.length; ++i) {
-            if (line[i] < "0" || line[i] > "9") revert WrongTokenRequestHead();
-            value = value * 10 + (uint8(line[i]) - 0x30);
+        if (width > 1 && data[from] == "0") revert WrongTokenRequestHead();
+        for (uint256 i = from; i < to; ++i) {
+            if (data[i] < "0" || data[i] > "9") revert WrongTokenRequestHead();
+            value = value * 10 + (uint8(data[i]) - 0x30);
         }
     }
 
@@ -742,8 +754,14 @@ abstract contract TlsNotaryVerifierBase is IPlatformVerifier, PlatformVerifierBa
         }
     }
 
-    function _equal(bytes memory a, bytes memory b) private pure returns (bool) {
-        return a.length == b.length && keccak256(a) == keccak256(b);
+    /// @dev keccak256 of `data[from:to]`, read in place.
+    function _hash(bytes memory data, uint256 from, uint256 to) private pure returns (bytes32 hash) {
+        // The range must lie inside `data`: what `keccak256` reads is then
+        // bytes `data` holds, never memory beyond it.
+        assert(from <= to && to <= data.length);
+        assembly ("memory-safe") {
+            hash := keccak256(add(add(data, 0x20), from), sub(to, from))
+        }
     }
 
     function _tokenBody(CeremonyAttestation.DirectionBlock memory block_) internal pure returns (bytes memory body) {
