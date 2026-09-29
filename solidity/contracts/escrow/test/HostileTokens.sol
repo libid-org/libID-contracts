@@ -11,13 +11,8 @@ interface ITransferHooks {
     function tokensReceived(address from, address to, uint256 amount) external;
 }
 
-/// @notice A token that calls into the sender before a transfer and into the
-///         recipient after it, the way ERC-777 hooks do, for every address
-///         that registered itself.
-///
-/// @dev Test-only. The hooks run inside the escrow's `safeTransfer` and
-///      `safeTransferFrom`, so a registered depositor, holder or recipient
-///      gets control in the middle of a deposit, claim or refund.
+/// @notice A token that calls into the sender before a transfer and into the recipient after it,
+///         the way ERC-777 hooks do, for every address that registered itself.
 contract HookToken is ERC20 {
     mapping(address => bool) public hooked;
 
@@ -39,8 +34,8 @@ contract HookToken is ERC20 {
     }
 }
 
-/// @notice A token that answers `false` instead of reverting while `failing`
-///         is set, and moves nothing then.
+/// @notice A token that answers `false` instead of reverting while `failing` is set, and moves
+///         nothing then.
 contract FalseToken is ERC20 {
     bool public failing;
 
@@ -65,12 +60,8 @@ contract FalseToken is ERC20 {
     }
 }
 
-/// @notice A token whose `transfer`, `transferFrom` and `approve` return
-///         nothing, the way USDT's do on mainnet.
-///
-/// @dev Deliberately not an OpenZeppelin `ERC20`: overriding its functions
-///      cannot drop the `bool` return. A caller that decodes a `bool` from
-///      these reverts, which is what `SafeERC20` exists to avoid.
+/// @notice A token whose `transfer`, `transferFrom` and `approve` return nothing, the way USDT's do
+///         on mainnet.
 contract NoReturnToken {
     mapping(address => uint256) public balanceOf;
     mapping(address => mapping(address => uint256)) public allowance;
@@ -105,8 +96,8 @@ contract NoReturnToken {
     }
 }
 
-/// @notice A token that refuses every transfer from or to an address on its
-///         blocklist, the way USDC and USDT do.
+/// @notice A token that refuses every transfer from or to an address on its blocklist, the way USDC
+///         and USDT do.
 contract BlocklistToken is ERC20 {
     mapping(address => bool) public blocked;
 
@@ -129,9 +120,9 @@ contract BlocklistToken is ERC20 {
     }
 }
 
-/// @notice A token whose `transferFrom`, while `shrinking` is set, burns
-///         twice the amount from the recipient after crediting it: the
-///         recipient ends with less than it had before the transfer.
+/// @notice A token whose `transferFrom`, while `shrinking` is set, burns twice the amount from the
+///         recipient after crediting it: the recipient ends with less than it had before the
+///         transfer.
 contract ShrinkingToken is ERC20 {
     bool public shrinking;
 
@@ -152,9 +143,9 @@ contract ShrinkingToken is ERC20 {
     }
 }
 
-/// @notice A token that takes 1% of every `transfer` — the call a payout
-///         makes — and none of a `transferFrom`, so a deposit arrives whole
-///         and a claim or refund delivers less than the books release.
+/// @notice A token that takes 1% of every `transfer` — the call a payout makes — and none of a
+///         `transferFrom`, so a deposit arrives whole and a claim or refund delivers less than the
+///         books release.
 contract PayoutFeeToken is ERC20 {
     uint256 public constant FEE_BPS = 100;
 

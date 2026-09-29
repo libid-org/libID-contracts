@@ -328,10 +328,8 @@ contract IdentityNames is
 
     // ─── Errors ─────────────────────────────────────────────────────
 
-    // `UnknownPlatform`, for a platform with no keyspace configured, is
-    // declared in `IIdentityNames`.
-    /// Text this platform's rules refuse as a handle, and the normalizer's
-    /// reason. What `handleHashOf` and `nodeOf` revert with.
+    // `UnknownPlatform` is declared in `IIdentityNames`.
+    /// Text the platform's rules refuse, with the normalizer's reason.
     error UnusableHandle(HandleNormalizer.Problem problem);
     /// @notice The one operation this Consumer owns.
     ///
@@ -733,47 +731,16 @@ contract IdentityNames is
 
     // ─── Reading ────────────────────────────────────────────────────
 
-    /// @notice How this platform's handles normalize, as configured right now.
-    ///
-    /// @dev For a client that derives a node itself: one paying a private,
-    ///      digest-profile binding must not send the handle's text to anybody,
-    ///      an RPC provider included, so it cannot ask `nodeOf`. It reads the
-    ///      rules here instead, normalizes locally and hashes with
-    ///      `IdentityNodes.handleNode`, which reaches the node `nodeOf` would.
-    ///
-    ///      Reverts for a platform that is not usable, like the resolvers do.
-    ///
-    ///      What is read here is today's configuration, and the owner may
-    ///      change it. Text normalized under these rules reaches the node this
-    ///      contract would key it on today; a later `setPlatform` can send the
-    ///      same text to a different node, exactly as it does for
-    ///      `resolveHandle`.
+    /// @notice The platform's normalization rules as configured now, for a
+    ///         client that normalizes locally. Reverts like the resolvers.
     function rulesOf(bytes32 platformId) external view returns (HandleNormalizer.Rules memory) {
         return _requireUsable(platformId).rules;
     }
 
-    /// @notice The hash a handle keys to under the platform's current rules:
-    ///         `keccak256` of its normalized form, the `handleHash` that
-    ///         `HandleEscrow.deposit` takes.
-    ///
-    /// @dev The one normalization, so a contract that keys on handles asks
-    ///      here instead of carrying its own copy of the rules, which would
-    ///      disagree with this contract the first time `setPlatform` ran. A
-    ///      caller holding text a user typed passes the answer straight on.
-    ///
-    ///      Reverts `UnusableHandle` with the normalizer's reason for text the
-    ///      rules refuse, where `resolveHandle` answers the zero address: a
-    ///      caller about to key something on the text has to learn that no
-    ///      proof could ever bind it, and a zero-address answer would not say.
-    ///
-    ///      Needs only a keyspace, and reverts `UnknownPlatform` without one.
-    ///      Which hash text keys to is a question about the rules; whether a
-    ///      claim could bind a holder there now is `acceptsClaims`, and a
-    ///      caller that needs both asks both, so the Proof Verifier is not
-    ///      consulted here.
-    ///
-    ///      Today's configuration, as with `rulesOf`: a later `setPlatform` can
-    ///      send the same text to a different hash.
+    /// @notice `keccak256` of a handle normalized under the platform's current
+    ///         rules: the `handleHash` `HandleEscrow.deposit` takes.
+    /// @dev Reverts `UnknownPlatform` without a keyspace and `UnusableHandle`
+    ///      for text the rules refuse (where `resolveHandle` answers zero).
     function handleHashOf(bytes32 platformId, string calldata handle) public view returns (bytes32 handleHash) {
         (HandleNormalizer.Problem problem, string memory normalized) =
             HandleNormalizer.tryNormalize(handle, _requireConfigured(platformId).rules);
@@ -781,29 +748,15 @@ contract IdentityNames is
         return keccak256(bytes(normalized));
     }
 
-    /// @notice The node a handle keys to under the platform's current rules:
-    ///         the node a proof of that handle would be bound under today.
-    ///
-    /// @dev `IdentityNodes.handleNodeOfHash` over `handleHashOf`, with its
-    ///      reverts: what `HandleEscrow.claim` and `refund` take, for a caller
-    ///      that starts from text.
+    /// @notice The node a handle keys to under the platform's current rules,
+    ///         with `handleHashOf`'s reverts.
     function nodeOf(bytes32 platformId, string calldata handle) external view returns (bytes32) {
         return IdentityNodes.handleNodeOfHash(platformId, handleHashOf(platformId, handle));
     }
 
     /// @notice Whether a new identity claim can bind a holder on this platform
-    ///         now.
-    ///
-    /// @dev True when the platform has a keyspace and the configured Proof
-    ///      Verifier `verifiesPlatform` it: the two things `claim` needs before
-    ///      it can write a binding. False, not a revert, for a platform with no
-    ///      keyspace, for an unset Proof Verifier and for a platform whose
-    ///      every version has been retired.
-    ///
-    ///      Narrower than "usable". A platform on which a name was ever bound
-    ///      keeps resolving after its last version is retired, but nothing new
-    ///      can bind on it, and a contract holding value for a handle nobody
-    ///      holds yet needs the second answer, not the first.
+    ///         now: a keyspace, and a Proof Verifier that verifies it. Unlike
+    ///         the resolvers, false after every version is retired.
     function acceptsClaims(bytes32 platformId) external view returns (bool) {
         if (!_s().platforms[platformId].configured) return false;
         IProofVerifier pv = _s().proofVerifier;

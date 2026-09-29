@@ -20,10 +20,7 @@ import {
     ShrinkingToken
 } from "./HostileTokens.sol";
 
-/// @notice A depositor, holder and recipient in one, registered for the hook
-///         token's callbacks. From inside a hook it makes one more escrow
-///         call, catches the refusal and keeps it, so the outer call runs to
-///         the end and what the guard did can be read afterwards.
+/// @notice A depositor, holder and recipient in one, registered for the hook token's callbacks.
 contract HookedParty is ITransferHooks {
     enum Reentry {
         None,
@@ -99,8 +96,8 @@ contract HookedParty is ITransferHooks {
     }
 }
 
-/// @notice A holder that moves every hook token it receives on to a vault
-///         from inside the transfer, and takes native value as it comes.
+/// @notice A holder that moves every hook token it receives on to a vault from inside the transfer,
+///         and takes native value as it comes.
 contract SweepingHolder is ITransferHooks {
     HookToken private immutable TOKEN;
     address private immutable VAULT;
@@ -120,13 +117,8 @@ contract SweepingHolder is ITransferHooks {
     receive() external payable {}
 }
 
-/// @notice Tokens that do what ERC-20 permits and a naive escrow does not
-///         expect: call back in, answer `false`, answer nothing, or refuse an
-///         address.
-///
-/// @dev Against the settable naming system, as the accounting suite runs:
-///      what is under test is how the escrow moves value, not who holds a
-///      node.
+/// @notice Tokens that do what ERC-20 permits and a naive escrow does not expect: call back in,
+///         answer `false`, answer nothing, or refuse an address.
 contract HandleEscrowHostileTokensTest is Test {
     bytes32 internal constant PLATFORM = keccak256("x");
     bytes32 internal constant HASH = keccak256("node");
@@ -154,9 +146,7 @@ contract HandleEscrowHostileTokensTest is Test {
 
     // ─── A token that calls back in ─────────────────────────────────
 
-    /// A hook in the depositor, run while the escrow pulls its tokens, tries
-    /// to deposit again. The guard refuses it, and the outer deposit books
-    /// exactly what it brought.
+    /// A hook in the depositor, run while the escrow pulls its tokens, tries to deposit again.
     function test_aHookReenteringDepositIsRefused() public {
         (HookToken token, HookedParty party) = _hooked();
         token.mint(address(party), 10 ether);
@@ -185,9 +175,7 @@ contract HandleEscrowHostileTokensTest is Test {
         assertEq(token.balanceOf(address(escrow)), 0);
     }
 
-    /// A hook in the depositor, run while its refund pays it, tries to refund
-    /// again. Another depositor's contribution is held beside it, so a second
-    /// payout would have something to take.
+    /// A hook in the depositor, run while its refund pays it, tries to refund again.
     function test_aHookReenteringRefundIsRefused() public {
         (HookToken token, HookedParty party) = _hooked();
         token.mint(address(party), 10 ether);
@@ -203,11 +191,7 @@ contract HandleEscrowHostileTokensTest is Test {
         assertEq(token.balanceOf(address(escrow)), 5 ether);
     }
 
-    /// KNOWN LIMITATION, pinned. A pay-through measures what the holder
-    /// gained, and a holder that sweeps the token onward from inside the
-    /// transfer gains nothing measurable: the deposit reverts `ZeroAmount`
-    /// and the depositor keeps its tokens. The same holder is paid native
-    /// value normally.
+    /// KNOWN LIMITATION, pinned.
     function test_ACCEPTED_aHolderThatSweepsATokenCannotBePaidThroughInIt() public {
         HookToken token = new HookToken();
         SweepingHolder sweeper = new SweepingHolder(token, elsewhere);
@@ -230,8 +214,7 @@ contract HandleEscrowHostileTokensTest is Test {
 
     // ─── A token that answers false ─────────────────────────────────
 
-    /// `false` is a failure, whatever the balance says: the deposit reverts
-    /// and nothing is booked.
+    /// `false` is a failure, whatever the balance says: the deposit reverts and nothing is booked.
     function test_aTokenAnsweringFalseFailsTheDeposit() public {
         FalseToken token = new FalseToken();
         token.mint(depositor, 10 ether);
@@ -245,9 +228,8 @@ contract HandleEscrowHostileTokensTest is Test {
         assertEq(escrow.escrowed(NODE, address(token)), 0);
     }
 
-    /// A payout the token answers `false` to reverts the claim or refund
-    /// whole: the books are as they were, and the value is still there to
-    /// take once the token pays again.
+    /// A payout the token answers `false` to reverts the claim or refund whole: the books are as
+    /// they were, and the value is still there to take once the token pays again.
     function test_aTokenAnsweringFalseFailsThePayoutAndLeavesTheBooks() public {
         FalseToken token = new FalseToken();
         token.mint(depositor, 10 ether);
@@ -276,8 +258,7 @@ contract HandleEscrowHostileTokensTest is Test {
 
     // ─── A token that answers nothing ───────────────────────────────
 
-    /// USDT's shape: no return value anywhere. Every path that moves the token
-    /// works: escrow, refund, claim and pay-through.
+    /// USDT's shape: no return value anywhere.
     function test_aTokenAnsweringNothingMovesOnEveryPath() public {
         NoReturnToken token = new NoReturnToken();
         token.mint(depositor, 30 ether);
@@ -302,10 +283,9 @@ contract HandleEscrowHostileTokensTest is Test {
 
     // ─── A token that shrinks the recipient ─────────────────────────
 
-    /// A transfer into the escrow that leaves it holding LESS than before
-    /// delivered nothing: the deposit is refused `ZeroAmount`, as a
-    /// pay-through that delivers nothing is, not with an arithmetic panic,
-    /// and the books are as they were.
+    /// A transfer into the escrow that leaves it holding LESS than before delivered nothing: the
+    /// deposit is refused `ZeroAmount`, as a pay-through that delivers nothing is, not with an
+    /// arithmetic panic, and the books are as they were.
     function test_aDepositThatLowersTheEscrowsBalanceDeliveredNothing() public {
         ShrinkingToken token = new ShrinkingToken();
         token.mint(depositor, 20 ether);
@@ -325,8 +305,8 @@ contract HandleEscrowHostileTokensTest is Test {
 
     // ─── A token that takes a fee on the payout ─────────────────────
 
-    /// `Claimed` reports what the books released and, beside it, what the
-    /// recipient received: the slot empties by the whole amount held.
+    /// `Claimed` reports what the books released and, beside it, what the recipient received: the
+    /// slot empties by the whole amount held.
     function test_aClaimReportsWhatTheRecipientReceived() public {
         PayoutFeeToken token = _escrowPayoutFeeToken(100 ether);
         names.setHolder(NODE, holder);
@@ -358,8 +338,7 @@ contract HandleEscrowHostileTokensTest is Test {
 
     // ─── A token with a blocklist ───────────────────────────────────
 
-    /// A claim to a recipient the token refuses reverts whole, and the holder
-    /// can name another.
+    /// A claim to a recipient the token refuses reverts whole, and the holder can name another.
     function test_aClaimToABlockedRecipientRevertsAndLeavesTheBooks() public {
         BlocklistToken token = _escrowBlocklistToken(10 ether);
         names.setHolder(NODE, holder);
@@ -375,8 +354,7 @@ contract HandleEscrowHostileTokensTest is Test {
         assertEq(token.balanceOf(elsewhere), 10 ether);
     }
 
-    /// A refund to a recipient the token refuses reverts whole, and the
-    /// depositor can name another.
+    /// A refund to a recipient the token refuses reverts whole, and the depositor can name another.
     function test_aRefundToABlockedRecipientRevertsAndLeavesTheBooks() public {
         BlocklistToken token = _escrowBlocklistToken(10 ether);
         token.setBlocked(depositor, true);
@@ -392,8 +370,8 @@ contract HandleEscrowHostileTokensTest is Test {
         assertEq(token.balanceOf(elsewhere), 10 ether);
     }
 
-    /// A pay-through to a holder the token refuses fails the deposit, and the
-    /// depositor keeps its tokens.
+    /// A pay-through to a holder the token refuses fails the deposit, and the depositor keeps its
+    /// tokens.
     function test_aPayThroughToABlockedHolderReverts() public {
         BlocklistToken token = new BlocklistToken();
         token.mint(depositor, 10 ether);
@@ -408,9 +386,8 @@ contract HandleEscrowHostileTokensTest is Test {
         assertEq(token.balanceOf(depositor), 10 ether);
     }
 
-    /// The token blocklisting the escrow itself freezes every slot in that
-    /// token: no deposit, claim or refund moves it. Lifting the block restores
-    /// all of them, with the books intact.
+    /// The token blocklisting the escrow itself freezes every slot in that token: no deposit, claim
+    /// or refund moves it.
     function test_ACCEPTED_aTokenBlockingTheEscrowFreezesEverySlotInIt() public {
         BlocklistToken token = _escrowBlocklistToken(10 ether);
         token.mint(depositor, 10 ether);

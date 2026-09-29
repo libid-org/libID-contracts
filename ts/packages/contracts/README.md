@@ -125,24 +125,18 @@ normalize(' @Alice_1 ', RULES_X) // 'alice_1'
 
 ## Deriving a handle node
 
-`IdentityNames.byHandle` and `HandleEscrow`'s reads take a handle node, not
-text; `HandleEscrow.deposit` takes the hash of the normalized handle.
-`handleNodeOf` and `handleHashOf` normalize what a user typed under the
-platform's rules and key or hash the result, so a handle is paid without
-putting it in calldata (`IdentityNames.handleHashOf` is the on-chain
-equivalent):
+`HandleEscrow.deposit` takes `handleHash`; `byHandle` and the escrow's reads
+take `handleNode`. Both helpers normalize under the generated rules table
+(`IdentityNames.handleHashOf` is the on-chain equivalent):
 
 ```ts
 import { handleHashOf, handleNodeOf } from '@libid/contracts/identity'
 
-handleNodeOf('google', 'Alice@Gmail.com') === handleNodeOf('google', 'alice@gmail.com') // true
-handleHashOf('google', 'Alice@Gmail.com') // the handleHash HandleEscrow.deposit takes
+handleHashOf('google', 'Alice@Gmail.com') // for HandleEscrow.deposit
+handleNodeOf('google', 'Alice@Gmail.com') // for byHandle, escrowed, claim, refund
 ```
 
-`handleNode(platformId, normalized)` and `handleHash(normalized)` are the steps
-underneath. They take only a `NormalizedHandle`, which `normalize` returns, so a
-raw string does not type-check. `handleNodeOf` uses the rules in the generated table; a client
-following a later `setPlatform` reads `rulesOf` and normalizes with those.
+`handleNode` and `handleHash` take only a `NormalizedHandle` from `normalize`.
 
 ## Development
 

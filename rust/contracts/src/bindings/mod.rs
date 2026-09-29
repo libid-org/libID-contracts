@@ -71,12 +71,9 @@ pub(crate) mod drift {
             .collect()
     }
 
-    /// The hand-written binding against the ABI of the contract it binds, as
-    /// vendored: every function, event and error the artifact has is bound
-    /// with the same inputs, outputs, mutability and indexing, or is listed
-    /// in `omitted` by its signature; the binding has nothing the artifact
-    /// lacks; and `omitted` lists nothing that is bound or gone. A changed
-    /// return type or parameter shows up as one item missing and one extra.
+    /// Every item in the vendored artifact ABI is bound identically (inputs,
+    /// outputs, mutability, indexing) or listed in `omitted`, and the binding
+    /// has nothing extra.
     pub(crate) fn assert_binding_matches_artifact(
         file: &str,
         contract: &str,

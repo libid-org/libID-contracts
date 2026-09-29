@@ -40,11 +40,7 @@ library IdentityNodes {
         return handleNodeOfHash(platformId, keccak256(bytes(normalizedHandle)));
     }
 
-    /// @notice The key a handle is stored under, from the handle's hash.
-    /// @param platformId Which platform, as `keccak256` of its domain string.
-    /// @param handleHash `keccak256` of the handle AFTER normalization: the
-    ///                   inner hash of `handleNode`, for a caller that has
-    ///                   the hash and not the text.
+    /// @notice `handleNode` from the handle's hash, `keccak256(normalized)`.
     function handleNodeOfHash(bytes32 platformId, bytes32 handleHash) internal pure returns (bytes32) {
         return keccak256(abi.encode(HANDLE_NODE_V1, platformId, handleHash));
     }

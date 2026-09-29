@@ -65,20 +65,15 @@ mod names_inner {
             function resolvePair(bytes32 platformId, string calldata handle, string calldata userId) external view returns (address wallet, bool idAgrees);
             function reverseOf(address wallet, bytes32 platformId) external view returns (string memory);
             function primaryOf(address wallet, bytes32 platformId) external view returns (string memory);
-            /// The platform's rules as configured now, for a client that
-            /// normalizes locally rather than send a handle's text to `handleHashOf`.
-            /// Reverts for a platform that is not usable, like the resolvers.
+            /// The platform's rules as configured now, for local normalization.
             function rulesOf(bytes32 platformId) external view returns (Rules memory);
             /// Whether a new identity claim can bind a holder on this platform
             /// now: a keyspace, and a Proof Verifier that verifies it.
             function acceptsClaims(bytes32 platformId) external view returns (bool);
-            /// `keccak256` of a handle normalized under the platform's current
-            /// rules: the `handleHash` `HandleEscrow.deposit` takes. Needs only
-            /// a keyspace; reverts `UnusableHandle` for text the rules refuse.
+            /// `keccak256` of the normalized handle: what `HandleEscrow.deposit`
+            /// takes. Reverts `UnknownPlatform` or `UnusableHandle`.
             function handleHashOf(bytes32 platformId, string calldata handle) external view returns (bytes32 handleHash);
-            /// The node a handle keys to under the platform's current rules.
-            /// Needs only a keyspace; reverts `UnusableHandle` for text the
-            /// rules refuse.
+            /// The node a handle keys to now; reverts as `handleHashOf` does.
             function nodeOf(bytes32 platformId, string calldata handle) external view returns (bytes32 handleNode);
 
             /// Carries the ceremony version that proved the binding -- logged,
@@ -156,9 +151,7 @@ mod tests {
     use super::names_inner::IdentityNames;
     use crate::bindings::drift::assert_binding_matches_artifact;
 
-    /// What the compiled contract has and the binding leaves out on purpose:
-    /// the upgrade and initializer machinery it inherits, reached through
-    /// `proxy::IUUPSUpgradeable`.
+    /// Inherited upgrade and initializer ABI, left to `proxy::IUUPSUpgradeable`.
     const OMITTED: &[&str] = &[
         "error AddressEmptyCode(address)",
         "error ERC1967InvalidImplementation(address)",

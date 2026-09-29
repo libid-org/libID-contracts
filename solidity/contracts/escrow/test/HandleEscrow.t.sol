@@ -19,8 +19,7 @@ import {IProofVerifier} from "../../ceremony/IProofVerifier.sol";
 import {HandleEscrow} from "../HandleEscrow.sol";
 import {IIdentityNames} from "../../identity/IIdentityNames.sol";
 
-/// @notice A plain ERC-20 anybody can mint. Test-only: it lives beside the
-///         tests so no deploy tool can reach it.
+/// @notice A plain ERC-20 anybody can mint.
 contract TestERC20 is ERC20 {
     constructor(string memory name_, string memory symbol_) ERC20(name_, symbol_) {}
 
@@ -53,13 +52,8 @@ contract InertToken is TestERC20 {
     }
 }
 
-/// @notice A second version that APPENDS to the namespaced root, which is the
-///         only change the storage rule allows.
-///
-/// @dev Upgrading to a byte-identical implementation proves nothing about the
-///      layout. This adds a field after the existing ones and reads the old
-///      ones back, so a reordered or removed field shows up as a wrong balance
-///      rather than as a passing test.
+/// @notice A second version that APPENDS to the namespaced root, which is the only change the
+///         storage rule allows.
 contract HandleEscrowV2 is HandleEscrow {
     /// @custom:storage-location erc7201:libid.storage.HandleEscrow
     struct V2Storage {
@@ -106,9 +100,9 @@ contract HandleEscrowV2 is HandleEscrow {
     }
 }
 
-/// @notice A contract paying a handle it holds as text, the way one should:
-///         the naming system hashes the text under the platform's current
-///         rules, and the hash is deposited, in one transaction.
+/// @notice A contract paying a handle it holds as text, the way one should: the naming system
+///         hashes the text under the platform's current rules, and the hash is deposited, in one
+///         transaction.
 contract TextPayer {
     HandleEscrow private immutable ESCROW;
     IdentityNames private immutable NAMES;
@@ -125,8 +119,8 @@ contract TextPayer {
     }
 }
 
-/// @notice Deposits native value for a node, then refunds it to itself and,
-///         from inside the payout, refunds again.
+/// @notice Deposits native value for a node, then refunds it to itself and, from inside the payout,
+///         refunds again.
 contract ReenteringRefunder {
     HandleEscrow private immutable ESCROW;
     bytes32 private immutable NODE;
@@ -156,10 +150,9 @@ contract ReenteringRefunder {
     }
 }
 
-/// @notice Refunds, and from inside the native payout reads the books and
-///         tries to refund again — catching the refusal, so each of the two
-///         defences can be seen on its own, as `ObservingClaimer` does for
-///         `claim`.
+/// @notice Refunds, and from inside the native payout reads the books and tries to refund again —
+///         catching the refusal, so each of the two defences can be seen on its own, as
+///         `ObservingClaimer` does for `claim`.
 contract ObservingRefunder {
     HandleEscrow private immutable ESCROW;
     bytes32 private immutable NODE;
@@ -201,8 +194,8 @@ contract ObservingRefunder {
     }
 }
 
-/// @notice A token that deposits itself and, when the escrow pays it back,
-///         calls `refund` again from inside that transfer.
+/// @notice A token that deposits itself and, when the escrow pays it back, calls `refund` again
+///         from inside that transfer.
 contract RefundReenteringToken is TestERC20 {
     HandleEscrow private escrow;
     bytes32 private node;
@@ -237,8 +230,8 @@ contract RejectEther {
     // No receive, no fallback.
 }
 
-/// @notice A naming contract as it was before the escrow: it answers
-///         `byHandle` and nothing the escrow added.
+/// @notice A naming contract as it was before the escrow: it answers `byHandle` and nothing the
+///         escrow added.
 contract NamesBeforeTheEscrow {
     function byHandle(bytes32) external pure returns (address owner, uint64 observedAt) {
         return (address(0), 0);
@@ -252,9 +245,9 @@ contract NamesWithoutNodeOf is NamesBeforeTheEscrow {
     }
 }
 
-/// @notice One that answers `byHandle` and `acceptsClaims` as the naming
-///         system does, and whose fallback answers everything else with a
-///         zero word: `nodeOf` then "returns" the zero node.
+/// @notice One that answers `byHandle` and `acceptsClaims` as the naming system does, and whose
+///         fallback answers everything else with a zero word: `nodeOf` then "returns" the zero
+///         node.
 contract NamesWithAZeroFallback is NamesWithoutNodeOf {
     fallback() external {
         assembly {
@@ -264,8 +257,7 @@ contract NamesWithAZeroFallback is NamesWithoutNodeOf {
     }
 }
 
-/// @notice One whose `nodeOf` refuses the zero platform, but not with
-///         `UnknownPlatform`.
+/// @notice One whose `nodeOf` refuses the zero platform, but not with `UnknownPlatform`.
 contract NamesWithTheWrongRevert is NamesWithoutNodeOf {
     error NoSuchPlatform(bytes32 platformId);
 
@@ -274,15 +266,14 @@ contract NamesWithTheWrongRevert is NamesWithoutNodeOf {
     }
 }
 
-/// @notice One that answers `byHandle` and succeeds, returning nothing, on
-///         every other call: a fallback that swallows what it does not know.
+/// @notice One that answers `byHandle` and succeeds, returning nothing, on every other call: a
+///         fallback that swallows what it does not know.
 contract NamesWithASilentFallback is NamesBeforeTheEscrow {
     fallback() external {}
 }
 
-/// @notice Makes any call for anybody, value included, the way Multicall3's
-///         `aggregate3Value` or a payment router does: the target sees this
-///         contract as `msg.sender`, whoever asked.
+/// @notice Makes any call for anybody, value included, the way Multicall3's `aggregate3Value` or a
+///         payment router does: the target sees this contract as `msg.sender`, whoever asked.
 contract SharedForwarder {
     function forward(address target, bytes calldata data) external payable returns (bytes memory) {
         (bool ok, bytes memory result) = target.call{value: msg.value}(data);
@@ -295,14 +286,8 @@ contract SharedForwarder {
     }
 }
 
-/// @notice Deposits again from inside its own transfer, the way a token with a
-///         receiver hook does, through `deposit` again.
-///
-/// @dev This is what the guard on `deposit` is for. The credit is the
-///      balance the contract GAINED, measured across the transfer — so a
-///      transfer that re-enters and deposits again folds the inner deposit's
-///      tokens into the outer one's measurement, and the books end up
-///      promising more than the contract holds.
+/// @notice Deposits again from inside its own transfer, the way a token with a receiver hook does,
+///         through `deposit` again.
 contract ReenteringToken is TestERC20 {
     HandleEscrow public escrow;
     bytes32 public platformId;
@@ -348,13 +333,8 @@ contract ReenteringClaimer {
     }
 }
 
-/// @notice Claims, and from inside the native payout reads the slot and tries
-///         to claim again — without failing the payout, so each of the two
-///         defences can be seen on its own.
-///
-/// @dev `claimAgain` catches the inner claim's refusal and keeps it. A claim
-///      that reverted here would fail the outer payout, and the outer revert
-///      looks the same whichever defence stopped the second claim.
+/// @notice Claims, and from inside the native payout reads the slot and tries to claim again —
+///         without failing the payout, so each of the two defences can be seen on its own.
 contract ObservingClaimer {
     HandleEscrow private immutable ESCROW;
     bytes32 private immutable NODE;
@@ -386,11 +366,6 @@ contract ObservingClaimer {
 }
 
 /// @notice The handle-keyed escrow, against the real naming system.
-///
-/// @dev Wired to a real `IdentityNames` behind its proxy, dispatching through a
-///      real `CeremonyProofVerifier`, so a rename and a recycled handle are
-///      stageable exactly as they happen. Only the Platform Verifier is the
-///      identity suite's stub: what a real one checks has its own suite.
 contract HandleEscrowTest is Test {
     IdentityNames internal names;
     CeremonyProofVerifier internal proofVerifier;
@@ -412,8 +387,8 @@ contract HandleEscrowTest is Test {
     uint16 internal constant V1 = 1;
     address internal constant NATIVE = address(0);
 
-    /// The node `alice` keys to on X, computed by the naming system's own
-    /// library rather than read out of the escrow.
+    /// The node `alice` keys to on X, computed by the naming system's own library rather than read
+    /// out of the escrow.
     bytes32 internal aliceNode = IdentityNodes.handleNode(X, "alice");
     /// `keccak256` of `alice`, what `deposit` takes.
     bytes32 internal aliceHash = keccak256("alice");
@@ -430,10 +405,8 @@ contract HandleEscrowTest is Test {
         xVerifier = new StubPlatformVerifier(X, 0);
         githubVerifier = new StubPlatformVerifier(GITHUB, 0);
 
-        // Both platforms usable the way a deployment makes them: a keyspace,
-        // and a registered verifier the Proof Verifier answers for. GitHub is
-        // never claimed on below, so `verifiesPlatform` is what lets it
-        // accept claims.
+        // Both platforms usable the way a deployment makes them: a keyspace, and a registered
+        // verifier the Proof Verifier answers for.
         vm.startPrank(owner);
         names.setProofVerifier(IProofVerifier(address(proofVerifier)));
         names.setPlatform(X, HandleVectors.rulesFor(X));
@@ -465,17 +438,14 @@ contract HandleEscrowTest is Test {
     uint256 private nonce;
 
     /// Prove `handle` on X for `who`, the way a login does.
-    ///
-    /// @dev The stub is staged and the payload built BEFORE the prank: `vm.prank`
-    ///      is spent on the next external call, and it has to be the claim.
     function _bind(address who, string memory userId, string memory handle, uint64 at) internal {
         xVerifier.set(userId, handle);
         xVerifier.setObservedAt(at);
         bytes memory payload = abi.encode(
             StubPlatformVerifier.StubPayload({
                 ceremonyVersion: 1,
-                // A literal, not `names.CLAIM_IDENTITY_DOMAIN()`: reading it
-                // would be one more external call to keep the prank off.
+                // A literal, not `names.CLAIM_IDENTITY_DOMAIN()`: reading it would be one more
+                // external call to keep the prank off.
                 operationDomain: keccak256(bytes("libid.claim-identity")),
                 authorizationNonce: bytes32(++nonce),
                 // The free shape: a ceremony composed by hand names no fee.
@@ -486,8 +456,8 @@ contract HandleEscrowTest is Test {
         names.claim(X, V1, payload, false);
     }
 
-    /// A deposit made from text the way a caller holding text makes one: the
-    /// naming system hashes it, and the hash is what is deposited.
+    /// A deposit made from text the way a caller holding text makes one: the naming system hashes
+    /// it, and the hash is what is deposited.
     function _depositNative(string memory handle, uint256 amount) internal {
         bytes32 handleHash = names.handleHashOf(X, handle);
         vm.prank(sender);
@@ -500,17 +470,11 @@ contract HandleEscrowTest is Test {
 
     // ─── The key ────────────────────────────────────────────────────
 
-    /// The lemma the whole design rests on: the escrow keys every handle on
-    /// the node the naming system binds it under. For every accepted row of
-    /// the shared table, the node the escrow derives from the RAW input is
-    /// `IdentityNodes.handleNode` of the table's normalized output, and the
-    /// hash `handleHashOf` gives a depositor is `keccak256` of that output,
-    /// the value the TypeScript `handleHashOf` is pinned to over the same
-    /// table; every refused row is refused with the table's reason, by both. All rows run, none is
-    /// skipped, and the count is checked.
+    /// The lemma the whole design rests on: the escrow keys every handle on the node the naming
+    /// system binds it under.
     function test_everyVectorRowKeysOnTheNamingSystemsNode() public {
-        // Google is wired here only: elsewhere in this suite it stands for a
-        // platform that cannot verify yet.
+        // Google is wired here only: elsewhere in this suite it stands for a platform that cannot
+        // verify yet.
         StubPlatformVerifier googleVerifier = new StubPlatformVerifier(GOOGLE, 0);
         vm.startPrank(owner);
         names.setPlatform(GOOGLE, HandleVectors.rulesFor(GOOGLE));
@@ -537,8 +501,7 @@ contract HandleEscrowTest is Test {
                 );
                 accepted++;
             } else {
-                // `Problem` is the table's error kind shifted by one: `None`
-                // takes zero.
+                // `Problem` is the table's error kind shifted by one: `None` takes zero.
                 vm.expectRevert(
                     abi.encodeWithSelector(
                         IdentityNames.UnusableHandle.selector, HandleNormalizer.Problem(v.errorKind + 1)
@@ -559,22 +522,16 @@ contract HandleEscrowTest is Test {
         assertGt(refused, 0, "the table has no refused rows");
     }
 
-    /// A literal, so Rust and TypeScript cannot compute a different key and
-    /// still pass their own tests.
-    ///
-    /// Computed with `cast`, not read out of this contract:
-    ///   keccak256(abi.encode(keccak256("libid.identity.handle-node.v1"),
-    ///                        keccak256("x"),
-    ///                        keccak256("alice_1")))
+    /// A literal, so Rust and TypeScript cannot compute a different key and still pass their own
+    /// tests.
     function test_theNodeDerivationIsPinned() public view {
         bytes32 pinned = 0x1c43d5d3cf3d99e9d5b6e8c74c23d14bcbb6a743712cf7fa7c15750c4fc2150d;
         assertEq(escrow.nodeOf(X, " Alice_1 "), pinned);
         assertEq(IdentityNodes.handleNode(X, "alice_1"), pinned);
     }
 
-    /// The node the escrow keys on is the one the naming system binds: a
-    /// claim of the handle makes `byHandle` of the escrow's node answer with
-    /// the claimer.
+    /// The node the escrow keys on is the one the naming system binds: a claim of the handle makes
+    /// `byHandle` of the escrow's node answer with the claimer.
     function test_theEscrowsNodeIsTheOneTheNamingSystemBinds() public {
         _bind(alice, "1", "Alice_1", 100);
 
@@ -582,8 +539,7 @@ contract HandleEscrowTest is Test {
         assertEq(holder, alice);
     }
 
-    /// X strips a leading at-sign, so both spellings are one handle there and
-    /// reach one slot.
+    /// X strips a leading at-sign, so both spellings are one handle there and reach one slot.
     function test_aLeadingAtSignFoldsWhereThePlatformStripsIt() public {
         assertEq(escrow.nodeOf(X, "@alice"), aliceNode);
         assertEq(escrow.nodeOf(X, "  @Alice  "), aliceNode);
@@ -609,10 +565,9 @@ contract HandleEscrowTest is Test {
         escrow.nodeOf(UNWIRED, "alice");
     }
 
-    /// The platform a hash deposit names is part of the node it funds, so it
-    /// cannot be one platform's gate with another platform's slot: the same
-    /// hash on GitHub funds GitHub's node, and X's holder of that text is not
-    /// paid by it.
+    /// The platform a hash deposit names is part of the node it funds, so it cannot be one
+    /// platform's gate with another platform's slot: the same hash on GitHub funds GitHub's node,
+    /// and X's holder of that text is not paid by it.
     function test_aHashDepositFundsTheNodeOfThePlatformItNames() public {
         _bind(alice, "1", "alice", 100); // on X only
 
@@ -624,21 +579,19 @@ contract HandleEscrowTest is Test {
         assertEq(escrow.escrowed(aliceNode, NATIVE), 0);
     }
 
-    /// The hash path keys with the naming system's own library: the hash of
-    /// the normalized handle is the inner hash of `handleNode`.
+    /// The hash path keys with the naming system's own library: the hash of the normalized handle
+    /// is the inner hash of `handleNode`.
     function test_theHashPathKeysOnTheNamingSystemsNode() public pure {
         assertEq(IdentityNodes.handleNodeOfHash(X, keccak256("alice_1")), IdentityNodes.handleNode(X, "alice_1"));
     }
 
-    /// Different platforms are different keyspaces, so the same text on two of
-    /// them is two slots.
+    /// Different platforms are different keyspaces, so the same text on two of them is two slots.
     function test_theNodeIsPerPlatform() public view {
         assertTrue(escrow.nodeOf(X, "alice") != escrow.nodeOf(GITHUB, "alice"));
     }
 
-    /// The platform id is load-bearing in the key, not decoration: the same
-    /// text on two platforms is two different people, and their money must not
-    /// meet. Proving it on one platform reaches only that one's slot.
+    /// The platform id is load-bearing in the key, not decoration: the same text on two platforms
+    /// is two different people, and their money must not meet.
     function test_theSameTextOnTwoPlatformsIsTwoEscrows() public {
         vm.startPrank(sender);
         escrow.deposit{value: 1 ether}(X, aliceHash, NATIVE, 1 ether, sender);
@@ -684,9 +637,8 @@ contract HandleEscrowTest is Test {
         assertEq(escrow.escrowed(aliceNode, NATIVE), 3 ether);
     }
 
-    /// A hash the naming system computed from text and one computed locally
-    /// from the normalized handle reach one slot: the one
-    /// `IdentityNodes.handleNode` names for the normalized handle.
+    /// A hash the naming system computed from text and one computed locally from the normalized
+    /// handle reach one slot: the one `IdentityNodes.handleNode` names for the normalized handle.
     function test_aLocalHashLandsWhereTheNamingSystemsDoes() public {
         _depositNative(" Alice ", 1 ether);
         vm.prank(sender);
@@ -724,9 +676,7 @@ contract HandleEscrowTest is Test {
         assertEq(escrow.escrowed(_nodeX("nobody"), NATIVE), 1 ether);
     }
 
-    /// The escrow exists for the window before a handle is claimed. Once it
-    /// resolves, holding the value would only add a claim transaction to reach
-    /// the same wallet, so the deposit is a payment.
+    /// The escrow exists for the window before a handle is claimed.
     function test_depositForAHeldHandleIsPaidStraightThrough() public {
         _bind(alice, "1", "alice", 100);
 
@@ -768,9 +718,7 @@ contract HandleEscrowTest is Test {
         assertEq(escrow.escrowed(aliceNode, address(token)), 0);
     }
 
-    /// The price of paying through: the call depends on the recipient. Failing
-    /// is the honest outcome — the sender learns, instead of the value waiting
-    /// in a slot only that same wallet could ever claim.
+    /// The price of paying through: the call depends on the recipient.
     function test_aHolderThatCannotReceiveFailsTheDeposit() public {
         address rejector = address(new RejectEther());
         _bind(rejector, "1", "alice", 100);
@@ -780,8 +728,8 @@ contract HandleEscrowTest is Test {
         escrow.deposit{value: 1 ether}(X, aliceHash, NATIVE, 1 ether, sender);
     }
 
-    /// The window the escrow is for: deposit while unclaimed, and the same
-    /// handle pays through once it is claimed.
+    /// The window the escrow is for: deposit while unclaimed, and the same handle pays through once
+    /// it is claimed.
     function test_theSameHandleEscrowsThenPaysThrough() public {
         _depositNative("alice", 1 ether);
         assertEq(escrow.escrowed(aliceNode, NATIVE), 1 ether);
@@ -823,9 +771,7 @@ contract HandleEscrowTest is Test {
         vm.stopPrank();
     }
 
-    /// A mistyped platform id takes nobody's money. The naming system has no
-    /// rules to hash text under for it, and a hash deposited there meets the
-    /// claim gate.
+    /// A mistyped platform id takes nobody's money.
     function test_anUnwiredPlatformIsRefused() public {
         vm.expectRevert(abi.encodeWithSelector(IIdentityNames.UnknownPlatform.selector, UNWIRED));
         names.handleHashOf(UNWIRED, "alice");
@@ -834,10 +780,8 @@ contract HandleEscrowTest is Test {
         escrow.deposit{value: 1 ether}(UNWIRED, keccak256("alice"), NATIVE, 1 ether, sender);
     }
 
-    /// A platform with a keyspace and no way to verify is not wired yet: no
-    /// proof could claim what it would hold, so it takes nobody's money
-    /// either. The text has a hash and a node — the keyspace is enough for
-    /// that — but nothing can bind a holder there.
+    /// A platform with a keyspace and no way to verify is not wired yet: no proof could claim what
+    /// it would hold, so it takes nobody's money either.
     function test_aPlatformThatCannotVerifyYetIsRefused() public {
         vm.prank(owner);
         names.setPlatform(GOOGLE, HandleVectors.rulesFor(GOOGLE));
@@ -850,10 +794,7 @@ contract HandleEscrowTest is Test {
         escrow.deposit{value: 1 ether}(GOOGLE, handleHash, NATIVE, 1 ether, sender);
     }
 
-    /// Escrowing needs a claim that could ever take the value; paying a holder
-    /// does not. A platform whose every version was retired still resolves
-    /// the names bound on it, so its holders are still paid — but nothing new
-    /// can bind there, and an unheld handle would hold value forever.
+    /// Escrowing needs a claim that could ever take the value; paying a holder does not.
     function test_aPlatformThatAcceptsNoClaimsPaysHoldersButDoesNotEscrow() public {
         _depositNative("alice", 1 ether);
         _bind(alice, "1", "alice", 100);
@@ -870,7 +811,6 @@ contract HandleEscrowTest is Test {
         assertEq(alice.balance, before + 5 ether, "the holder was not paid");
 
         // Nobody holds bob, and nothing could bind him now.
-        bytes32 bobNode = _nodeX("bob");
         vm.startPrank(sender);
         vm.expectRevert(abi.encodeWithSelector(HandleEscrow.PlatformAcceptsNoClaims.selector, X));
         escrow.deposit{value: 1 ether}(X, keccak256("bob"), NATIVE, 1 ether, sender);
@@ -885,12 +825,8 @@ contract HandleEscrowTest is Test {
         assertEq(escrow.escrowed(aliceNode, NATIVE), 0);
     }
 
-    /// Why text goes through the naming system's `handleHashOf`, which refuses
-    /// what `resolveHandle` would answer with nobody. Text this platform could
-    /// never accept would otherwise fund a slot no proof can ever claim, and
-    /// the value would sit there until its depositor noticed and refunded it.
-    /// A contract holding text a user typed pays through `TextPayer`'s shape:
-    /// hash, then deposit, in one transaction.
+    /// Why text goes through the naming system's `handleHashOf`, which refuses what `resolveHandle`
+    /// would answer with nobody.
     function test_aHandleThePlatformCouldNeverAcceptIsRefused() public {
         TextPayer payer = new TextPayer(escrow, names);
         vm.deal(address(payer), 10 ether);
@@ -910,9 +846,8 @@ contract HandleEscrowTest is Test {
         assertEq(address(escrow).balance, 0);
     }
 
-    /// Text a caller hashes through the naming system and then deposits lands
-    /// on the node a proof of that text is bound under, whatever the
-    /// platform's normalization folds on the way.
+    /// Text a caller hashes through the naming system and then deposits lands on the node a proof
+    /// of that text is bound under, whatever the platform's normalization folds on the way.
     function test_textHashedByTheNamingSystemLandsOnTheProvedNode() public {
         TextPayer payer = new TextPayer(escrow, names);
         vm.deal(address(payer), 10 ether);
@@ -928,11 +863,7 @@ contract HandleEscrowTest is Test {
         assertEq(alice.balance, 3 ether);
     }
 
-    /// NOT a vulnerability. A handle hash cannot be checked: one that is not
-    /// the hash of any handle escrows, and nothing can ever claim it. That is
-    /// the price of an entry point that never sees the handle, and it is why
-    /// the SDK derives the hash rather than a user typing one. Nobody ever
-    /// holds such a node, so its depositor can always take it back.
+    /// NOT a vulnerability.
     function test_ACCEPTED_aHashNoHandleReachesEscrowsForNobody() public {
         bytes32 garbageHash = keccak256("not the hash of any handle");
         bytes32 garbage = IdentityNodes.handleNodeOfHash(X, garbageHash);
@@ -967,8 +898,7 @@ contract HandleEscrowTest is Test {
         assertEq(address(escrow).balance, 0);
     }
 
-    /// The claimer names where it goes, so a wallet that holds the name can pay
-    /// out somewhere else.
+    /// The claimer names where it goes, so a wallet that holds the name can pay out somewhere else.
     function test_theClaimerChoosesTheRecipient() public {
         _depositNative("alice", 1 ether);
         _bind(alice, "1", "alice", 100);
@@ -1031,9 +961,9 @@ contract HandleEscrowTest is Test {
         escrow.claim(aliceNode, NATIVE, rejector);
     }
 
-    /// A token whose transfer re-enters `deposit` is refused: were it not, the
-    /// outer deposit would credit the inner deposit's tokens as well — two
-    /// slots funded by one transfer, and more promised than held.
+    /// A token whose transfer re-enters `deposit` is refused: were it not, the outer deposit would
+    /// credit the inner deposit's tokens as well — two slots funded by one transfer, and more
+    /// promised than held.
     function test_aTokenThatReentersDepositIsRefused() public {
         ReenteringToken hook = new ReenteringToken();
         hook.mint(sender, 100 ether);
@@ -1042,8 +972,8 @@ contract HandleEscrowTest is Test {
 
         vm.startPrank(sender);
         hook.approve(address(escrow), type(uint256).max);
-        // The guard specifically, not any revert: a mis-staged token or a
-        // missing approval would also revert and would also look green.
+        // The guard specifically, not any revert: a mis-staged token or a missing approval would
+        // also revert and would also look green.
         vm.expectRevert(abi.encodeWithSelector(ReentrancyGuardUpgradeable.ReentrancyGuardReentrantCall.selector));
         escrow.deposit(X, aliceHash, address(hook), 100 ether, sender);
         vm.stopPrank();
@@ -1054,11 +984,6 @@ contract HandleEscrowTest is Test {
     }
 
     /// The payout is an external call to an address the claimer chose.
-    ///
-    /// Somebody else's escrow is funded alongside, and that is the point: a
-    /// second drain is only observable when the contract holds more than the
-    /// claimed slot. Without it, the second transfer runs out of balance and
-    /// fails for a reason that has nothing to do with reentrancy.
     function test_aReenteringClaimerCannotDrainTwice() public {
         ReenteringClaimer claimer = new ReenteringClaimer(escrow, aliceNode);
         _depositNative("alice", 1 ether);
@@ -1074,10 +999,7 @@ contract HandleEscrowTest is Test {
         assertEq(address(claimer).balance, 0, "the claimer took anything at all");
     }
 
-    /// The two defences of the payout, each observable alone. The slot reads
-    /// empty while the payout runs, so the books are settled before the
-    /// external call; and a second claim from inside it is refused by the
-    /// reentrancy guard itself, not by the empty slot behind it.
+    /// The two defences of the payout, each observable alone.
     function test_aClaimSettlesTheSlotBeforePayingAndTheGuardRefusesReentry() public {
         ObservingClaimer claimer = new ObservingClaimer(escrow, aliceNode);
         _depositNative("alice", 1 ether);
@@ -1097,9 +1019,7 @@ contract HandleEscrowTest is Test {
         assertEq(address(escrow).balance, 1 ether);
     }
 
-    /// A payout to nobody is not a payout. The zero address ACCEPTS a native
-    /// transfer, so without this the slot would be emptied, the value burned
-    /// and `Claimed` would report success.
+    /// A payout to nobody is not a payout.
     function test_aClaimToNobodyIsRefused() public {
         _depositNative("alice", 1 ether);
         _bind(alice, "1", "alice", 100);
@@ -1112,8 +1032,8 @@ contract HandleEscrowTest is Test {
         assertEq(address(0).balance, 0, "value was burned");
     }
 
-    /// A payout to this contract would zero the books and leave the value here
-    /// as surplus no slot points at, and no function here recovers it.
+    /// A payout to this contract would zero the books and leave the value here as surplus no slot
+    /// points at, and no function here recovers it.
     function test_aClaimBackIntoTheEscrowIsRefused() public {
         vm.prank(sender);
         escrow.deposit(X, aliceHash, address(token), 10 ether, sender);
@@ -1127,8 +1047,8 @@ contract HandleEscrowTest is Test {
         assertEq(token.balanceOf(address(escrow)), 10 ether);
     }
 
-    /// The ERC-20 payout branch, which no other test reaches: every other
-    /// claim in this suite takes the native token.
+    /// The ERC-20 payout branch, which no other test reaches: every other claim in this suite takes
+    /// the native token.
     function test_aTokenClaimPaysTheRecipient() public {
         vm.prank(sender);
         escrow.deposit(X, aliceHash, address(token), 10 ether, sender);
@@ -1142,8 +1062,7 @@ contract HandleEscrowTest is Test {
         assertEq(escrow.escrowed(aliceNode, address(token)), 0);
     }
 
-    /// The payloads an indexer reads. None carries the handle's text: the
-    /// node is what joins these to `IdentityBound.handleNode`.
+    /// The payloads an indexer reads.
     function test_depositAndClaimAnnounceTheirPayloads() public {
         vm.expectEmit(true, true, true, true, address(escrow));
         emit HandleEscrow.Deposited(aliceNode, NATIVE, sender, sender, X, 1 ether);
@@ -1163,9 +1082,8 @@ contract HandleEscrowTest is Test {
         escrow.claim(aliceNode, NATIVE, bob);
     }
 
-    /// A fee-on-transfer token delivers less than was asked for, and the event
-    /// is the only record of a payment that never entered the books: it
-    /// carries both.
+    /// A fee-on-transfer token delivers less than was asked for, and the event is the only record
+    /// of a payment that never entered the books: it carries both.
     function test_aForwardedPaymentReportsWhatArrived() public {
         FeeToken fee = new FeeToken();
         fee.mint(sender, 100 ether);
@@ -1181,9 +1099,7 @@ contract HandleEscrowTest is Test {
         assertEq(fee.balanceOf(alice), 99 ether, "the holder received something else");
     }
 
-    /// A holder depositing to its own node would pay itself. It is refused
-    /// with its own error, the same for native value and tokens, and nothing
-    /// moves.
+    /// A holder depositing to its own node would pay itself.
     function test_aHolderPayingItselfNativeIsRefused() public {
         _assertPayingYourselfRefused(NATIVE);
     }
@@ -1192,9 +1108,8 @@ contract HandleEscrowTest is Test {
         _assertPayingYourselfRefused(address(token));
     }
 
-    /// A fee-on-transfer token paid by its holder to itself would leave it
-    /// with LESS than it started with. The refusal comes first, so the fee is
-    /// never taken.
+    /// A fee-on-transfer token paid by its holder to itself would leave it with LESS than it
+    /// started with.
     function test_aHolderPayingItselfAFeeTokenIsRefused() public {
         _bind(alice, "1", "alice", 100);
         FeeToken fee = new FeeToken();
@@ -1228,8 +1143,8 @@ contract HandleEscrowTest is Test {
         assertEq(escrow.escrowed(aliceNode, asset), 0, "the refused deposit was booked");
     }
 
-    /// A token that reports success and moves nothing credits nothing when it
-    /// escrows, and delivers nothing when it pays through. Both are refused.
+    /// A token that reports success and moves nothing credits nothing when it escrows, and delivers
+    /// nothing when it pays through.
     function test_aTokenThatDeliversNothingIsRefused() public {
         InertToken inert = new InertToken();
 
@@ -1261,8 +1176,7 @@ contract HandleEscrowTest is Test {
         assertEq(address(escrow).balance, 0);
     }
 
-    /// The ERC-20 payout branch of a refund, to a recipient the depositor
-    /// names.
+    /// The ERC-20 payout branch of a refund, to a recipient the depositor names.
     function test_aTokenRefundPaysTheRecipientTheDepositorNames() public {
         vm.prank(sender);
         escrow.deposit(X, aliceHash, address(token), 10 ether, sender);
@@ -1287,10 +1201,8 @@ contract HandleEscrowTest is Test {
         assertEq(escrow.escrowed(aliceNode, NATIVE), 1 ether, "somebody else's deposit moved");
     }
 
-    /// A deposit made through a contract that calls for anybody is booked to
-    /// the `refundTo` it names, not to the contract. A stranger who makes the
-    /// same contract call `refund` finds nothing booked under it, and the
-    /// named address takes the value back itself.
+    /// A deposit made through a contract that calls for anybody is booked to the `refundTo` it
+    /// names, not to the contract.
     function test_aDepositThroughASharedForwarderIsRefundableOnlyByItsRefundTo() public {
         SharedForwarder forwarder = new SharedForwarder();
         vm.expectEmit(true, true, true, true, address(escrow));
@@ -1302,8 +1214,8 @@ contract HandleEscrowTest is Test {
         assertEq(escrow.refundable(aliceNode, NATIVE, address(forwarder)), 0, "booked to the forwarder");
         assertEq(escrow.refundable(aliceNode, NATIVE, sender), 1 ether, "not booked to refundTo");
 
-        // Through the forwarder the escrow sees the forwarder, which has
-        // nothing booked; directly, the stranger has nothing booked either.
+        // Through the forwarder the escrow sees the forwarder, which has nothing booked; directly,
+        // the stranger has nothing booked either.
         vm.prank(bob);
         vm.expectRevert(
             abi.encodeWithSelector(HandleEscrow.NothingToRefund.selector, aliceNode, NATIVE, address(forwarder))
@@ -1321,8 +1233,7 @@ contract HandleEscrowTest is Test {
         assertEq(escrow.escrowed(aliceNode, NATIVE), 0);
     }
 
-    /// Whoever pays, the deposit is the named address's to take back, and
-    /// not the payer's.
+    /// Whoever pays, the deposit is the named address's to take back, and not the payer's.
     function test_aDepositMadeForSomebodyElseIsTheirsToRefund() public {
         vm.prank(sender);
         escrow.deposit(X, aliceHash, address(token), 10 ether, bob);
@@ -1342,9 +1253,8 @@ contract HandleEscrowTest is Test {
         assertEq(token.balanceOf(bob), 10 ether);
     }
 
-    /// There is no default refundTo: a router passing a zero through must not
-    /// book the deposit to itself. Refused on both entry points and on both
-    /// branches, before anything moves.
+    /// There is no default refundTo: a router passing a zero through must not book the deposit to
+    /// itself.
     function test_aDepositMustNameWhoMayRefundIt() public {
         vm.startPrank(sender);
         vm.expectRevert(HandleEscrow.NoRefundTo.selector);
@@ -1353,8 +1263,8 @@ contract HandleEscrowTest is Test {
         escrow.deposit(X, aliceHash, address(token), 1 ether, address(0));
         vm.stopPrank();
 
-        // A held node pays through and books nothing, and is refused the
-        // same, so one calldata does not succeed or fail by the race.
+        // A held node pays through and books nothing, and is refused the same, so one calldata does
+        // not succeed or fail by the race.
         _bind(alice, "1", "alice", 100);
         vm.startPrank(sender);
         vm.expectRevert(HandleEscrow.NoRefundTo.selector);
@@ -1399,8 +1309,8 @@ contract HandleEscrowTest is Test {
         assertEq(address(escrow).balance, 0);
     }
 
-    /// Refundable until collected: the payee having joined does not close the
-    /// refund, only its claim does. The claim then takes what is left.
+    /// Refundable until collected: the payee having joined does not close the refund, only its
+    /// claim does.
     function test_aRefundWorksAfterThePayeeJoinsUntilItClaims() public {
         _depositNative("alice", 1 ether);
         vm.deal(bob, 2 ether);
@@ -1421,8 +1331,6 @@ contract HandleEscrowTest is Test {
     }
 
     /// A refund and the payee's claim racing: whichever lands first wins.
-    /// Refund first returns the contribution and the claim takes the rest;
-    /// claim first takes everything and the refund finds nothing.
     function test_ACCEPTED_aRefundAndAClaimRaceAndTheFirstWins() public {
         _depositNative("alice", 1 ether);
         _bind(alice, "1", "alice", 100);
@@ -1443,9 +1351,7 @@ contract HandleEscrowTest is Test {
         assertEq(alice.balance, 1 ether);
     }
 
-    /// A claim closes the round. What it took is not refundable afterwards,
-    /// even once the holder renames away and the node has no holder again;
-    /// what is deposited after that is.
+    /// A claim closes the round.
     function test_whatAClaimTookIsNeverRefundable() public {
         _depositNative("alice", 1 ether);
         _bind(alice, "1", "alice", 100);
@@ -1466,8 +1372,8 @@ contract HandleEscrowTest is Test {
         assertEq(address(escrow).balance, 0);
     }
 
-    /// A holder who never claimed and renamed away leaves a node with no
-    /// holder, and every contribution it left is still refundable.
+    /// A holder who never claimed and renamed away leaves a node with no holder, and every
+    /// contribution it left is still refundable.
     function test_aRetiredHandlesUnclaimedContributionsStayRefundable() public {
         _depositNative("alice", 1 ether);
         _bind(alice, "1", "alice", 100);
@@ -1486,8 +1392,8 @@ contract HandleEscrowTest is Test {
         escrow.claim(aliceNode, NATIVE, bob);
     }
 
-    /// A contribution is what the escrow received, so the contributions in a
-    /// slot add up to what it holds, and a refund returns what arrived.
+    /// A contribution is what the escrow received, so the contributions in a slot add up to what it
+    /// holds, and a refund returns what arrived.
     function test_aFeeOnTransferContributionIsWhatArrived() public {
         FeeToken fee = new FeeToken();
         fee.mint(sender, 100 ether);
@@ -1520,8 +1426,8 @@ contract HandleEscrowTest is Test {
         assertEq(fee.balanceOf(address(escrow)), 0, "a refund left value behind");
     }
 
-    /// The same deposit through the hash path, the one no rules check: a
-    /// refund is what makes a mistaken hash recoverable.
+    /// The same deposit through the hash path, the one no rules check: a refund is what makes a
+    /// mistaken hash recoverable.
     function test_aHashDepositIsRefundable() public {
         bytes32 bobNode = _nodeX("bob");
         vm.prank(sender);
@@ -1533,9 +1439,8 @@ contract HandleEscrowTest is Test {
         assertEq(escrow.escrowed(bobNode, address(token)), 0);
     }
 
-    /// A platform that stops accepting claims stops taking new escrow, and
-    /// nothing could ever claim what it holds for an unheld node, so that
-    /// value must still come back.
+    /// A platform that stops accepting claims stops taking new escrow, and nothing could ever claim
+    /// what it holds for an unheld node, so that value must still come back.
     function test_aPlatformThatAcceptsNoClaimsStillRefunds() public {
         _depositNative("alice", 1 ether);
         vm.prank(owner);
@@ -1572,9 +1477,7 @@ contract HandleEscrowTest is Test {
         assertEq(token.balanceOf(address(escrow)), 10 ether);
     }
 
-    /// The payout goes to an address the depositor chose. Somebody else's
-    /// contribution sits in the same slot, so a second payout would have value
-    /// to take.
+    /// The payout goes to an address the depositor chose.
     function test_aReenteringRefunderCannotTakeTwice() public {
         ReenteringRefunder refunder = new ReenteringRefunder(escrow, X, aliceHash);
         refunder.fund{value: 1 ether}();
@@ -1590,9 +1493,9 @@ contract HandleEscrowTest is Test {
         assertEq(address(refunder).balance, 0, "the refunder took anything at all");
     }
 
-    /// The two defences of the refund payout, each observable alone: the
-    /// contribution and the slot read settled while the payout runs, and a
-    /// second refund from inside it is refused by the guard itself.
+    /// The two defences of the refund payout, each observable alone: the contribution and the slot
+    /// read settled while the payout runs, and a second refund from inside it is refused by the
+    /// guard itself.
     function test_aRefundSettlesTheBooksBeforePayingAndTheGuardRefusesReentry() public {
         ObservingRefunder refunder = new ObservingRefunder(escrow, X, aliceHash);
         refunder.fund{value: 1 ether}();
@@ -1612,8 +1515,7 @@ contract HandleEscrowTest is Test {
         assertEq(address(escrow).balance, 1 ether);
     }
 
-    /// A token that calls `refund` again from inside the escrow's transfer is
-    /// refused by the guard.
+    /// A token that calls `refund` again from inside the escrow's transfer is refused by the guard.
     function test_aTokenThatReentersRefundIsRefused() public {
         RefundReenteringToken hook = new RefundReenteringToken();
         hook.fund(escrow, X, aliceHash, 10 ether);
@@ -1642,17 +1544,13 @@ contract HandleEscrowTest is Test {
 
     // ─── Consequences accepted on purpose ───────────────────────────
 
-    /// NOT a vulnerability. The escrow is keyed by the handle and nothing else,
-    /// so a platform that frees a handle and gives it to somebody new hands the
-    /// new holder whatever the depositors left held for the old one. This is
-    /// the decision, and this test exists so changing it fails here.
+    /// NOT a vulnerability.
     function test_ACCEPTED_aRecycledHandlePaysTheNewHolder() public {
         // Escrowed while nobody held it, and never claimed.
         _depositNative("alice", 1 ether);
         _bind(alice, "1", "alice", 100);
 
-        // The platform frees the handle: alice renames away, bob's account
-        // takes it.
+        // The platform frees the handle: alice renames away, bob's account takes it.
         _bind(alice, "1", "alice2", 200);
         _bind(bob, "2", "alice", 300);
 
@@ -1662,10 +1560,7 @@ contract HandleEscrowTest is Test {
         assertEq(bob.balance, 1 ether, "the new holder did not receive it");
     }
 
-    /// NOT a vulnerability. Between a rename and the next proof of the freed
-    /// handle, the handle has no holder and nobody can claim the slot —
-    /// including the account that just renamed away from it. Its depositors
-    /// can refund until somebody claims; see the refund tests.
+    /// NOT a vulnerability.
     function test_ACCEPTED_aRenamedAwayHandleIsClaimableByNobody() public {
         _depositNative("alice", 1 ether);
         _bind(alice, "1", "alice", 100);
@@ -1680,8 +1575,7 @@ contract HandleEscrowTest is Test {
         assertEq(escrow.escrowed(aliceNode, NATIVE), 1 ether);
     }
 
-    /// A depositor is not the holder, so `claim` is not its way back; `refund`
-    /// is.
+    /// A depositor is not the holder, so `claim` is not its way back; `refund` is.
     function test_theDepositorTakesItBackByRefundNotByClaim() public {
         _depositNative("alice", 1 ether);
 
@@ -1695,9 +1589,7 @@ contract HandleEscrowTest is Test {
         assertEq(escrow.escrowed(aliceNode, NATIVE), 0);
     }
 
-    /// Being the escrow's owner does not make it the holder, and no owner
-    /// function moves a balance. The owner can still UPGRADE to code that
-    /// does; that key is in the trust base the contract comment lists.
+    /// Being the escrow's owner does not make it the holder, and no owner function moves a balance.
     function test_theOwnerHasNoFunctionThatMovesADeposit() public {
         _depositNative("alice", 1 ether);
 
@@ -1710,12 +1602,8 @@ contract HandleEscrowTest is Test {
         escrow.refund(aliceNode, NATIVE, owner);
     }
 
-    /// A claim reads the holder of the node and nothing else, so the
-    /// platform's current rules play no part in it. The owner narrowing X
-    /// after a handle was bound refuses that handle's TEXT from then on — by
-    /// `nodeOf`, by a text deposit and by `resolveHandle` — but the binding
-    /// still sits on its node, and its holder still claims and is still paid
-    /// through by hash.
+    /// A claim reads the holder of the node and nothing else, so the platform's current rules play
+    /// no part in it.
     function test_aRulesChangeDoesNotStopTheHolderClaiming() public {
         _depositNative("alice_9", 1 ether);
         bytes32 node = _nodeX("alice_9");
@@ -1753,8 +1641,7 @@ contract HandleEscrowTest is Test {
 
     // ─── Wiring ─────────────────────────────────────────────────────
 
-    /// Repointing it would redirect every entitlement held, so there is no
-    /// setter. Moving it is an upgrade, which leaves a record.
+    /// Repointing it would redirect every entitlement held, so there is no setter.
     function test_theNamingContractIsReadableAndHasNoSetter() public view {
         assertEq(address(escrow.names()), address(names));
     }
@@ -1765,9 +1652,8 @@ contract HandleEscrowTest is Test {
         new ERC1967Proxy(address(impl), abi.encodeCall(HandleEscrow.initialize, (owner, IIdentityNames(address(0)))));
     }
 
-    /// An escrow wired to a naming contract that lacks what it calls is
-    /// refused at `initialize`, naming the first function missing, rather
-    /// than deploying and failing on its first deposit.
+    /// An escrow wired to a naming contract that lacks what it calls is refused at `initialize`,
+    /// naming the first function missing, rather than deploying and failing on its first deposit.
     function test_initializeRefusesANamingContractThatLacksWhatTheEscrowCalls() public {
         address old = address(new NamesBeforeTheEscrow());
         address halfway = address(new NamesWithoutNodeOf());
@@ -1779,15 +1665,14 @@ contract HandleEscrowTest is Test {
         // A call that succeeds is not an answer: it must be one bool wide.
         _assertInitializeRefused(silent, IIdentityNames.acceptsClaims.selector);
         _assertInitializeRefused(noCode, IIdentityNames.byHandle.selector);
-        // A zero word from a fallback is not a node, and a refusal other than
-        // `UnknownPlatform` is not the naming system's.
+        // A zero word from a fallback is not a node, and a refusal other than `UnknownPlatform` is
+        // not the naming system's.
         _assertInitializeRefused(address(new NamesWithAZeroFallback()), IIdentityNames.nodeOf.selector);
         _assertInitializeRefused(address(new NamesWithTheWrongRevert()), IIdentityNames.nodeOf.selector);
     }
 
-    /// The implementation behind the proxy is never initialized: whoever
-    /// could would own a contract that holds nothing, but could still call
-    /// what an owner may.
+    /// The implementation behind the proxy is never initialized: whoever could would own a contract
+    /// that holds nothing, but could still call what an owner may.
     function test_theImplementationRefusesInitialize() public {
         HandleEscrow impl = new HandleEscrow();
         vm.expectRevert(Initializable.InvalidInitialization.selector);
@@ -1818,20 +1703,19 @@ contract HandleEscrowTest is Test {
         escrow.upgradeToAndCall(address(next), "");
     }
 
-    /// The balances have to survive it, or the upgrade is the theft the pause
-    /// was refused to avoid.
+    /// The balances have to survive it, or the upgrade is the theft the pause was refused to avoid.
     function test_balancesSurviveAnUpgrade() public {
         _depositNative("alice", 1 ether);
-        // A second round, so the round counter and a closed round's
-        // contribution are both non-zero to read back.
+        // A second round, so the round counter and a closed round's contribution are both non-zero
+        // to read back.
         _bind(alice, "1", "alice", 100);
         vm.prank(alice);
         escrow.claim(aliceNode, NATIVE, alice);
         _bind(alice, "1", "alice2", 200);
         _depositNative("alice", 1 ether);
-        // A version that APPENDS a field, not a copy of the same bytecode: a
-        // byte-identical upgrade cannot detect a reordered or removed one,
-        // which is the only mistake this test exists to catch.
+        // A version that APPENDS a field, not a copy of the same bytecode: a byte-identical upgrade
+        // cannot detect a reordered or removed one, which is the only mistake this test exists to
+        // catch.
         HandleEscrowV2 next = new HandleEscrowV2();
 
         vm.prank(owner);
@@ -1854,13 +1738,12 @@ contract HandleEscrowTest is Test {
     }
 
     /// OpenZeppelin's ERC-7201 root for the storage-based reentrancy guard,
-    /// `openzeppelin.storage.ReentrancyGuard`. Distinct from the escrow's own
-    /// root, so the guard's word and the books cannot overlap.
+    /// `openzeppelin.storage.ReentrancyGuard`.
     bytes32 internal constant GUARD_SLOT = 0x9b779b17422d0df92223018b32b4d1fa46e071723d6817e2486d003becc55f00;
     bytes32 internal constant ESCROW_ROOT = 0xfcca8d7d2c66f78c2760f3fcd99e0bf938b0aeb0d0b471f481dd50b8aff6b400;
 
-    /// `initialize` arms the guard: its word reads NOT_ENTERED (1), and reads
-    /// it again after a guarded call has run and returned.
+    /// `initialize` arms the guard: its word reads NOT_ENTERED (1), and reads it again after a
+    /// guarded call has run and returned.
     function test_initializeArmsTheReentrancyGuard() public {
         assertTrue(GUARD_SLOT != ESCROW_ROOT);
         assertEq(uint256(vm.load(address(escrow), GUARD_SLOT)), 1, "initialize did not arm the guard");

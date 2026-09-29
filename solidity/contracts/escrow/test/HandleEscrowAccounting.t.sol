@@ -15,13 +15,6 @@ import {FeeToken, TestERC20} from "./HandleEscrow.t.sol";
 import {BlocklistToken, NoReturnToken} from "./HostileTokens.sol";
 
 /// @notice A naming system whose holders are set directly.
-///
-/// @dev The escrow reads `byHandle` and `acceptsClaims` when it deposits,
-///      and `nodeOf` when `initialize` probes it; this also answers
-///      `handleHashOf` to satisfy the interface. The accounting under test depends only on whether `byHandle`
-///      names a holder, so the handler flips that directly instead of
-///      staging identity claims; `HandleEscrow.t.sol` runs the real naming
-///      system.
 contract SettableNames is IIdentityNames {
     mapping(bytes32 => address) public holderOf;
 
@@ -33,9 +26,8 @@ contract SettableNames is IIdentityNames {
         return (holderOf[handleNode], 0);
     }
 
-    /// The text keyed as given: nothing here normalizes, and the suites that
-    /// use this deposit by hash. The zero platform is unknown, as it is to
-    /// the naming system, which is what `HandleEscrow.initialize` checks.
+    /// The text keyed as given: nothing here normalizes, and the suites that use this deposit by
+    /// hash.
     function nodeOf(bytes32 platformId, string calldata handle) external pure returns (bytes32) {
         if (platformId == bytes32(0)) revert UnknownPlatform(platformId);
         return IdentityNodes.handleNode(platformId, handle);
@@ -51,23 +43,8 @@ contract SettableNames is IIdentityNames {
     }
 }
 
-/// @notice Drives the escrow through random deposits, refunds, joins, claims
-///         and retirements, and keeps its own model of each depositor's
-///         refundable contribution.
-///
-/// @dev The model is deliberately simpler than the contract: a deposit to a
-///      node with no holder adds what the token delivers, computed from the
-///      token's own fee rule, to the entry of the `refundTo` it names — drawn
-///      independently of the depositor who pays, so a deposit made for
-///      somebody else is exercised; a refund zeroes the caller's entry; a
-///      claim zeroes every entry for the slot. It knows nothing of rounds.
-///
-///      Five tokens: native value, a plain ERC-20, one that takes a fee on
-///      transfer, one that returns nothing (USDT's shape), and one with a
-///      blocklist that `setBlocked` toggles for depositors and holders. A
-///      call the blocklist refuses is expected to revert with the token's
-///      error, and the model does not move for it. A holder depositing to its
-///      own node is expected to revert `PayingYourself`.
+/// @notice Drives the escrow through random deposits, refunds, joins, claims and retirements, and
+///         keeps its own model of each depositor's refundable contribution.
 contract EscrowHandler is CommonBase, StdCheats, StdUtils {
     bytes32 internal constant PLATFORM = keccak256("x");
 
@@ -82,8 +59,8 @@ contract EscrowHandler is CommonBase, StdCheats, StdUtils {
     bytes32[2] public nodes;
     address[2] public holders;
 
-    /// How many calls the blocklist refused, and how many self-payments were
-    /// refused, for reading off a run.
+    /// How many calls the blocklist refused, and how many self-payments were refused, for reading
+    /// off a run.
     uint256 public blockedRefusals;
     uint256 public selfPayRefusals;
 
@@ -135,8 +112,7 @@ contract EscrowHandler is CommonBase, StdCheats, StdUtils {
         if (holder == address(0)) modelContribution[node][token][refundTo] += delivered;
     }
 
-    /// A holder depositing to its own node, in any token, is refused. A node
-    /// nobody holds is given a holder first, so every call tries one.
+    /// A holder depositing to its own node, in any token, is refused.
     function payYourself(uint256 tokenSeed, uint256 nodeSeed, uint256 holderSeed, uint256 amount) external {
         address token = tokens[tokenSeed % TOKENS];
         bytes32 handleHash = hashes[nodeSeed % 2];
@@ -212,9 +188,7 @@ contract EscrowHandler is CommonBase, StdCheats, StdUtils {
         return token == address(0) ? who.balance : IERC20(token).balanceOf(who);
     }
 
-    /// Mint `amount` of `token` to `who` and approve the escrow for it. The
-    /// blocklist token refuses a mint to a blocked address, so a blocked
-    /// address is let off the list for its mint and put back.
+    /// Mint `amount` of `token` to `who` and approve the escrow for it.
     function _fund(address token, address who, uint256 amount) internal {
         if (token == tokens[3]) {
             NoReturnToken(token).mint(who, amount);
@@ -230,8 +204,8 @@ contract EscrowHandler is CommonBase, StdCheats, StdUtils {
         IERC20(token).approve(address(ESCROW), amount);
     }
 
-    /// Whether the blocklist token refuses a transfer from `from` to `to`, and
-    /// if it does, expect the refusal it gives.
+    /// Whether the blocklist token refuses a transfer from `from` to `to`, and if it does, expect
+    /// the refusal it gives.
     function _expectBlocked(address token, address from, address to) internal returns (bool) {
         if (token != tokens[4]) return false;
         BlocklistToken blocklist = BlocklistToken(token);
@@ -243,12 +217,8 @@ contract EscrowHandler is CommonBase, StdCheats, StdUtils {
     }
 }
 
-/// @notice The escrow's books against its balances and against a model, under
-///         random interleavings of every entry point that moves them.
-///
-/// @dev Contributions are read straight out of storage with `vm.load`, at
-///      slots computed here from the ERC-7201 root, and through `refundable`
-///      too, so the view and the storage are each checked against the model.
+/// @notice The escrow's books against its balances and against a model, under random interleavings
+///         of every entry point that moves them.
 contract HandleEscrowAccountingTest is Test {
     bytes32 internal constant ROOT = 0xfcca8d7d2c66f78c2760f3fcd99e0bf938b0aeb0d0b471f481dd50b8aff6b400;
     uint256 internal constant ROUND_FIELD = 2;
@@ -282,12 +252,8 @@ contract HandleEscrowAccountingTest is Test {
         targetSelector(FuzzSelector({addr: address(handler), selectors: selectors}));
     }
 
-    /// A handler call that reverts unexpectedly — including its own check on
-    /// what a refund paid — fails the run rather than being skipped.
-    ///
-    /// forge-config: default.invariant.runs = 128
-    /// forge-config: default.invariant.depth = 128
-    /// forge-config: default.invariant.fail-on-revert = true
+    /// A handler call that reverts unexpectedly — including its own check on what a refund paid —
+    /// fails the run rather than being skipped.
     function invariant_theBooksAddUp() public view {
         for (uint256 t = 0; t < 5; t++) {
             address token = handler.tokens(t);
@@ -318,8 +284,8 @@ contract HandleEscrowAccountingTest is Test {
         }
     }
 
-    /// The layout the invariant reads through, pinned on a known state so a
-    /// wrong slot formula cannot make the invariant vacuous.
+    /// The layout the invariant reads through, pinned on a known state so a wrong slot formula
+    /// cannot make the invariant vacuous.
     function test_theSlotFormulaReadsTheBooks() public {
         address depositor = handler.depositors(0);
         bytes32 node = handler.nodes(0);
@@ -353,8 +319,8 @@ contract HandleEscrowAccountingTest is Test {
     }
 }
 
-/// @notice Deposits, claims and refunds of arbitrary amounts, one at a time,
-///         each checked against the balances it moved.
+/// @notice Deposits, claims and refunds of arbitrary amounts, one at a time, each checked against
+///         the balances it moved.
 contract HandleEscrowAmountsTest is Test {
     bytes32 internal constant PLATFORM = keccak256("x");
     bytes32 internal constant HASH = keccak256("node");

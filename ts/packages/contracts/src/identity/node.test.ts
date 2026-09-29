@@ -6,15 +6,10 @@ import { handleHash, handleHashOf, handleNode, handleNodeOf, handleNodeOfHash } 
 import { HANDLE_VECTORS } from './handleVectors.js'
 import { platformId } from './resolve.js'
 
-/// `test_theNodeDerivationIsPinned` in HandleEscrow.t.sol pins this literal
-/// for X's `alice_1`, computed with `cast`.
+/// X's `alice_1`, computed with `cast`; the Solidity suite pins the same value.
 const ALICE_1_ON_X = '0x1c43d5d3cf3d99e9d5b6e8c74c23d14bcbb6a743712cf7fa7c15750c4fc2150d'
 
-/// The node a handle keys to, against literals computed with `cast`. The
-/// Solidity suite pins the X literal against `HandleEscrow.nodeOf` and
-/// `IdentityNodes.handleNode`, and the Rust anvil test pins the GitHub one
-/// against a deployed escrow, so a TypeScript client that derived another node
-/// would fail here.
+/// Literals shared with the Solidity suite (X) and the Rust anvil test (GitHub).
 describe('handle node', () => {
   it('matches the node the contracts key on', () => {
     expect(handleNode(platformId('x'), normalize(' Alice_1 ', RULES_X))).toBe(ALICE_1_ON_X)
@@ -23,9 +18,7 @@ describe('handle node', () => {
     )
   })
 
-  /// The node is of the normalized handle. Skipping normalization gives a
-  /// different key, which is why the type refuses a raw string: the casts
-  /// below are the only way past it.
+  /// Raw text keys elsewhere, so the type refuses it without a cast.
   it('is not the node of the raw text', () => {
     expect(handleNode(platformId('x'), ' Alice_1 ' as NormalizedHandle)).not.toBe(
       handleNode(platformId('x'), 'alice_1' as NormalizedHandle),
@@ -62,8 +55,6 @@ describe('handleNodeOf', () => {
 })
 
 describe('handle hash', () => {
-  /// `deposit` keys the hash under the platform itself; the node it reaches
-  /// is the one `handleNode` gives for the same handle.
   it('keys to the node of the same handle', () => {
     expect(handleHash(normalize(' Alice_1 ', RULES_X))).toBe(keccak256(toHex('alice_1')))
     expect(handleNodeOfHash(platformId('x'), handleHashOf('x', ' @Alice_1 '))).toBe(ALICE_1_ON_X)
@@ -74,8 +65,7 @@ describe('handle hash', () => {
     expect(() => handleHashOf('mastodon', 'alice')).toThrow(/no handle rules/)
   })
 
-  /// The Solidity suite pins `IdentityNames.handleHashOf` to `keccak256` of
-  /// each accepted row's output over this same table, so the two agree.
+  /// The Solidity suite pins `IdentityNames.handleHashOf` to the same values.
   it('is keccak256 of the normalized output on every accepted vector', () => {
     const accepted = HANDLE_VECTORS.filter((v) => v.accepted)
     expect(accepted.length).toBeGreaterThan(0)

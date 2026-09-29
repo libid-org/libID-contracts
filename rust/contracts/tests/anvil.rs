@@ -737,24 +737,10 @@ async fn deploys_and_initializes_every_platform_verifier() {
     );
 }
 
-/// (e2) The handle escrow against a real chain: deploy it over the identity
-/// stack, pay a handle nobody has claimed by its hash, and watch the value
-/// land in the naming system's handle node, computed here from the normalized
-/// handle. Then the depositor takes its value back, which nobody
-/// else can.
-///
-/// The platform is made usable the way a deployment makes it: a keyspace, and
-/// a real Platform Verifier registered with the Proof Verifier. Nothing here
-/// calls that verifier — the escrow only reads `acceptsClaims` and
-/// `byHandle`, and `acceptsClaims` answers once the Proof Verifier
-/// `verifiesPlatform`.
-///
-/// The payout path is covered by the Solidity suite, which stages claims
-/// through a stub Platform Verifier. That stub deliberately does NOT ship in
-/// this crate's artifacts: it reports whatever a caller stages, so a copy
-/// reachable from a deploy tool is a way to bind any identity on a live chain.
-/// What is left for Rust is what Rust owns — the artifact deploys, the binding
-/// shapes, and the slot derivation agreeing with the contract.
+/// (e2) The handle escrow against a real chain: pay an unclaimed handle by its
+/// hash, check the value lands on the naming system's node, and refund it. The
+/// payout path needs a stub Platform Verifier, which is kept out of this
+/// crate's artifacts; the Solidity suite covers it.
 #[tokio::test]
 async fn escrows_value_against_an_unclaimed_handle() {
     use alloy::{
@@ -849,9 +835,7 @@ async fn escrows_value_against_an_unclaimed_handle() {
         .await
         .unwrap();
 
-    // A keyspace alone is not a usable platform: nothing could claim what
-    // the escrow would hold for it. The refusal specifically — a bare
-    // `is_err` would also pass on an RPC failure or a missing function.
+    // A keyspace alone accepts no claims; match the refusal, not any error.
     let err = names
         .rulesOf(platform_id)
         .call()
@@ -916,10 +900,7 @@ async fn escrows_value_against_an_unclaimed_handle() {
     let escrow = HandleEscrow::new(escrow_proxy, &provider);
     assert_eq!(escrow.names().call().await.unwrap(), names_proxy);
 
-    // The node a client computes off chain from the normalized handle has to
-    // be the node the contract keys on, or an indexer watches the wrong one.
-    // `alice-1` is ` Alice-1 ` normalized under GitHub's rules; the literal
-    // is the same derivation computed with `cast`.
+    // The off-chain node of ` Alice-1 ` on GitHub, pinned with `cast`.
     let handle_node_v1 = keccak256(b"libid.identity.handle-node.v1");
     let handle_hash = keccak256(b"alice-1");
     let computed =
@@ -973,9 +954,7 @@ async fn escrows_value_against_an_unclaimed_handle() {
         "the deposits did not land in the node the contract keys on"
     );
 
-    // Nobody holds the node, so nobody can take it. The AUTHORIZATION
-    // refusal specifically: a bare `is_err` would also pass on an RPC
-    // hiccup, so it would stay green with the holder check removed.
+    // Nobody holds the node, so a claim is refused as unauthorized.
     let err = escrow
         .claim(computed, Address::ZERO, stranger)
         .from(stranger)
@@ -989,8 +968,7 @@ async fn escrows_value_against_an_unclaimed_handle() {
         "refused for the wrong reason: {err}"
     );
 
-    // A stranger deposited nothing, so it has nothing to refund, though the
-    // slot holds value. The contribution refusal specifically.
+    // A stranger has nothing to refund.
     let err = escrow
         .refund(computed, Address::ZERO, stranger)
         .from(stranger)
