@@ -29,9 +29,13 @@ An entry with no namespace (LibidFactory) records only its `contract` lines.
 Types are compared by their label (`mapping(bytes32 => uint256)`), not by the
 compiler's `t_...` ids, which embed AST ids that move on unrelated edits.
 
-Exit status is 0 only when every layout equals its snapshot. A change that
-only appends fields at the end of a section is reported as an append to
-record; any other change is reported as INCOMPATIBLE.
+Exit status is 0 only when every layout equals its snapshot and every
+concrete UUPS contract under solidity/contracts is covered by LAYOUTS. A change
+that only appends at the end of a section (each contract's own `contract`
+lines, the `field` lines, each struct's members) is reported as an append to
+record; any other change is reported as INCOMPATIBLE. So is growth of a struct
+stored as an array element, or inline in one: it changes the element's size,
+and every element after the first is read from the wrong slots.
 
 Updating it deliberately: append the new field at the END of the struct, run
 
@@ -241,23 +245,71 @@ def classify(old: list[str], new: list[str], where: pathlib.Path) -> str:
     before, after = sections(old, where), sections(new, where)
     if before["root"] != after["root"]:
         return "incompatible"
-    for name in ("contract", "field"):
-        if after[name][: len(before[name])] != before[name]:
-            return "incompatible"
-    # Each struct may only grow at its own end. A struct that grew where it
-    # sits inline shifts the fields after it, which the checks above catch.
-    for struct, members in by_struct(before["struct"]).items():
-        grown = by_struct(after["struct"]).get(struct, [])
-        if grown[: len(members)] != members:
-            return "incompatible"
+    if after["field"][: len(before["field"])] != before["field"]:
+        return "incompatible"
+    # Each contract's own variables, and each struct's members, may only grow
+    # at their own end. A struct that grew where it sits inline shifts what
+    # follows it, which these checks catch; one that is an array element
+    # changes the stride, which they do not.
+    strided = array_elements(old + new)
+    for name in ("contract", "struct"):
+        grown = by_owner(after[name])
+        for owner, members in by_owner(before[name]).items():
+            now = grown.get(owner, [])
+            if now[: len(members)] != members:
+                return "incompatible"
+            if name == "struct" and owner in strided and len(now) != len(members):
+                return "incompatible"
     return "append"
 
 
-def by_struct(lines: list[str]) -> dict[str, list[str]]:
+def by_owner(lines: list[str]) -> dict[str, list[str]]:
+    """`contract` or `struct` lines grouped by the contract or struct named."""
     out: dict[str, list[str]] = {}
     for line in lines:
         out.setdefault(line.split(" ", 2)[1], []).append(line)
     return out
+
+
+def array_elements(lines: list[str]) -> set[str]:
+    """Structs whose size is an array's stride: stored as an array element,
+    or inline (not behind a mapping or array) in one that is."""
+    types = [line.split(": ", 1)[1] for line in lines if ": " in line]
+    found = {name for label in types for name in re.findall(r"struct ([\w.]+)\[", label)}
+    inline = [
+        (line.split(" ", 2)[1], line.split(": ", 1)[1].removeprefix("struct "))
+        for line in lines
+        if line.startswith("struct ") and re.fullmatch(r"struct [\w.]+", line.split(": ", 1)[1])
+    ]
+    while True:
+        more = {inner for outer, inner in inline if outer in found} - found
+        if not more:
+            return found
+        found |= more
+
+
+def upgradeable_contracts() -> set[str]:
+    """Concrete contracts under solidity/contracts (tests and scripts aside)
+    that inherit UUPSUpgradeable, directly or through the repository's own
+    abstract bases."""
+    declaration = re.compile(r"\b(abstract\s+)?contract\s+(\w+)\s+is\s+([^{]+)\{")
+    bases: dict[str, list[str]] = {}
+    concrete: set[str] = set()
+    for path in CONTRACTS_ROOT.rglob("*.sol"):
+        if "test" in path.relative_to(CONTRACTS_ROOT).parts or path.name.endswith((".t.sol", ".s.sol")):
+            continue
+        for match in declaration.finditer(path.read_text()):
+            bases[match.group(2)] = [b.split("(")[0].strip() for b in match.group(3).split(",") if b.strip()]
+            if not match.group(1):
+                concrete.add(match.group(2))
+
+    def uups(name: str, seen: frozenset[str]) -> bool:
+        return any(
+            base == "UUPSUpgradeable" or (base not in seen and uups(base, seen | {name}))
+            for base in bases.get(name, [])
+        )
+
+    return {name for name in concrete if uups(name, frozenset())}
 
 
 def diff(old: list[str], new: list[str]) -> str:
@@ -293,6 +345,12 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--update", action="store_true", help="record an exact match or a pure append")
     args = parser.parse_args()
+
+    covered = {contract for layout in LAYOUTS for contract in layout.contracts}
+    missing = sorted(upgradeable_contracts() - covered)
+    if missing:
+        print(f"UNCHECKED: {', '.join(missing)} can be upgraded but has no entry in LAYOUTS.", file=sys.stderr)
+        return 1
 
     probe = inspect(PROBE)
     results = [check(layout, probe, args.update) for layout in LAYOUTS]

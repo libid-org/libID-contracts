@@ -81,7 +81,9 @@ jobs:
       # with --update) apart from a reorder, removal or retype (undo it). See
       # the script's header.
       - name: Storage layout
-        run: python3 scripts/check-storage-layout.py
+        run: |
+          python3 scripts/test_check_storage_layout.py
+          python3 scripts/check-storage-layout.py
 
       - name: Test
         working-directory: solidity
@@ -225,6 +227,11 @@ jobs:
 
       - name: Build
         run: pnpm -C ts build
+
+      # The build excludes tests and vitest does not type-check, so this is
+      # what enforces the tests' `@ts-expect-error` lines.
+      - name: Typecheck, tests included
+        run: pnpm -C ts typecheck
 
       - name: Tests
         run: pnpm -C ts test
