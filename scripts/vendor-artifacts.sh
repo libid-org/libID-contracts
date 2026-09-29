@@ -4,19 +4,16 @@
 # Runs `forge build` in solidity/ (submodules must be initialized), then copies
 # the artifact JSONs the crate needs from solidity/out into
 # rust/contracts/artifacts/<File>.sol/<Name>.json, pruned to the fields the
-# crate reads: bytecode.object, bytecode.linkReferences, methodIdentifiers.
-# Libraries referenced through linkReferences are followed transitively and
-# vendored too: the two Honk verifiers link RelationsLib and ZKTranscriptLib,
-# and both are listed below as well so the list and the crate's COVERED agree
-# line for line. The circuits pin rides along as circuits.json, so the crate
-# can say which libid-circuits release its verifiers came from.
+# crate reads: bytecode.object, methodIdentifiers. The circuits pin rides
+# along as circuits.json, so the crate can say which libid-circuits release
+# its verifiers came from.
 #
 # The result is NOT committed: rust/contracts/artifacts is gitignored and
 # regenerated on demand. Run this before any cargo command in rust/ — the
 # crate embeds the directory with include_dir!, so a missing one is a compile
 # error. CI runs it in every job that touches the crate, publishing included.
 #
-# solc is pinned (0.8.33) and via_ir builds are deterministic, so two runs of
+# solc is pinned (0.8.33) and its builds are deterministic, so two runs of
 # this script over the same contracts produce byte-identical output.
 #
 # Usage:
@@ -41,15 +38,9 @@ ARTIFACTS=(
     "GitHubPlatformVerifier:GitHubPlatformVerifier"
     "GooglePlatformVerifier:GooglePlatformVerifier"
     # circuits: the UltraHonk verifiers the Platform Verifiers pin, vendored
-    # from the libid-circuits release by scripts/vendor-circuit-verifiers.sh,
-    # each with the two libraries it links (bb emits them as external
-    # libraries, so they are deployed contracts the verifier is linked to)
+    # from the libid-circuits release by scripts/vendor-circuit-verifiers.sh
     "BearerLinkHonkVerifier:BearerLinkHonkVerifier"
-    "BearerLinkHonkVerifier:RelationsLib"
-    "BearerLinkHonkVerifier:ZKTranscriptLib"
     "OidcGoogleHonkVerifier:OidcGoogleHonkVerifier"
-    "OidcGoogleHonkVerifier:RelationsLib"
-    "OidcGoogleHonkVerifier:ZKTranscriptLib"
     # identity
     "IdentityNames:IdentityNames"
     # ens (deployed once per network, not CREATE3-canonical; embedded so a
@@ -80,29 +71,7 @@ echo "==> forge build"
 STAGE="$(mktemp -d)"
 trap 'rm -rf "$STAGE"' EXIT
 
-# prune <src> <file> <contract>: write the pruned artifact into the stage.
-prune() {
-    local src="$1" file="$2" contract="$3"
-    mkdir -p "$STAGE/$file.sol"
-    jq -S '{
-        bytecode: {
-            object: .bytecode.object,
-            linkReferences: .bytecode.linkReferences
-        },
-        methodIdentifiers: .methodIdentifiers
-    }' "$src" > "$STAGE/$file.sol/$contract.json"
-}
-
-# Vendor the listed artifacts, then follow linkReferences transitively so every
-# library the crate's linker needs ships too.
-queue=("${ARTIFACTS[@]}")
-seen=""
-while [[ ${#queue[@]} -gt 0 ]]; do
-    entry="${queue[0]}"
-    queue=("${queue[@]:1}")
-    case " $seen " in *" $entry "*) continue ;; esac
-    seen="$seen $entry"
-
+for entry in "${ARTIFACTS[@]}"; do
     file="${entry%%:*}"
     contract="${entry##*:}"
     src="$OUT/$file.sol/$contract.json"
@@ -110,19 +79,11 @@ while [[ ${#queue[@]} -gt 0 ]]; do
         echo "missing artifact: $src (did forge build succeed?)" >&2
         exit 1
     fi
-    prune "$src" "$file" "$contract"
-
-    # linkReferences: { "path/to/LibFile.sol": { "LibName": [...] } } — the
-    # library artifact lives at out/<LibFile>.sol/<LibName>.json.
-    while IFS=: read -r lib_path lib_name; do
-        [[ -n "$lib_path" ]] || continue
-        lib_file="$(basename "$lib_path" .sol)"
-        queue+=("$lib_file:$lib_name")
-    done < <(jq -r '.bytecode.linkReferences // {}
-                    | to_entries[]
-                    | .key as $p
-                    | .value | keys[]
-                    | "\($p):\(.)"' "$src")
+    mkdir -p "$STAGE/$file.sol"
+    jq -S '{
+        bytecode: { object: .bytecode.object },
+        methodIdentifiers: .methodIdentifiers
+    }' "$src" > "$STAGE/$file.sol/$contract.json"
 done
 
 cp "$CIRCUITS_PIN" "$STAGE/circuits.json"
