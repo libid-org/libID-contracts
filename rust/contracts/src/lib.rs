@@ -32,9 +32,6 @@
 //!   proves under, and a deploy that links the libraries a bb verifier
 //!   needs, one deployment per distinct bytecode across the set.
 //!
-//! - [`nodes`] — the identity and handle nodes `IdentityNodes.sol` derives,
-//!   and the handle hash `HandleEscrow.deposit` takes.
-//!
 //! Signing is the consumer's concern: every helper takes a provider you have
 //! already wired with a wallet.
 
@@ -44,7 +41,6 @@ pub mod circuits;
 pub mod deploy;
 mod error;
 pub mod factory;
-pub mod nodes;
 pub mod platform_verifier;
 
 pub use artifacts::Artifacts;

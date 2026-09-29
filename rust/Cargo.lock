@@ -2562,7 +2562,6 @@ version = "0.13.1"
 dependencies = [
  "alloy",
  "include_dir",
- "libid-identity",
  "libid-profiles",
  "serde",
  "serde_json",
