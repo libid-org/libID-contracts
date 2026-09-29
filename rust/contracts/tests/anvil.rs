@@ -746,10 +746,7 @@ async fn escrows_value_against_an_unclaimed_handle() {
     use alloy::{
         hex,
         primitives::b256,
-        sol_types::{
-            SolError,
-            SolValue,
-        },
+        sol_types::SolError,
     };
     use libid_contracts::{
         bindings::escrow::HandleEscrow,
@@ -757,6 +754,7 @@ async fn escrows_value_against_an_unclaimed_handle() {
             deploy_honk_verifiers,
             Circuit,
         },
+        nodes,
         platform_verifier::{
             deploy_platform_verifier,
             Initializer,
@@ -835,16 +833,10 @@ async fn escrows_value_against_an_unclaimed_handle() {
         .await
         .unwrap();
 
-    // A keyspace alone accepts no claims; match the refusal, not any error.
-    let err = names
-        .rulesOf(platform_id)
-        .call()
-        .await
-        .expect_err("a platform nothing verifies answered rulesOf")
-        .to_string();
-    assert!(
-        err.contains(&hex::encode(IdentityNames::UnknownPlatform::SELECTOR)),
-        "refused for the wrong reason: {err}"
+    // A keyspace alone answers its rules but accepts no claims.
+    assert_eq!(
+        names.rulesOf(platform_id).call().await.unwrap().maxLength,
+        39
     );
     assert!(
         !names.acceptsClaims(platform_id).call().await.unwrap(),
@@ -901,10 +893,8 @@ async fn escrows_value_against_an_unclaimed_handle() {
     assert_eq!(escrow.names().call().await.unwrap(), names_proxy);
 
     // The off-chain node of ` Alice-1 ` on GitHub, pinned with `cast`.
-    let handle_node_v1 = keccak256(b"libid.identity.handle-node.v1");
-    let handle_hash = keccak256(b"alice-1");
-    let computed =
-        keccak256((handle_node_v1, platform_id, handle_hash).abi_encode_params());
+    let handle_hash = nodes::handle_hash("alice-1");
+    let computed = nodes::handle_node_of_hash(platform_id, handle_hash);
     assert_eq!(
         computed,
         b256!("2e2bee956f308d03271ce24b26e5aa20103b41841ddee3c96a94d2449902f710"),
@@ -918,6 +908,15 @@ async fn escrows_value_against_an_unclaimed_handle() {
             .unwrap(),
         computed,
         "Rust and the contract derive different nodes"
+    );
+    assert_eq!(
+        names
+            .nodeOfHash(platform_id, handle_hash)
+            .call()
+            .await
+            .unwrap(),
+        computed,
+        "Rust and nodeOfHash derive different nodes"
     );
 
     // The naming system hashes text the way a client does locally.

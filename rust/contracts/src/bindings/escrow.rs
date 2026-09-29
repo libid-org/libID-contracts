@@ -98,8 +98,8 @@ mod escrow_inner {
             error NotTheHolder(address holder, address caller);
             /// Nothing refundable is booked under `refundTo`.
             error NothingToRefund(bytes32 handleNode, address token, address refundTo);
-            /// A deposit named no `refundTo`.
-            error NoRefundTo();
+            /// `refundTo` is zero or the escrow: nobody could refund.
+            error BadRefundTo(address refundTo);
             error BadRecipient(address recipient);
             /// Nobody holds the node and nothing new can bind on the platform.
             error PlatformAcceptsNoClaims(bytes32 platformId);

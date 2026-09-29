@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.20;
+pragma solidity ^0.8.24;
 
 import {Test} from "forge-std/Test.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
@@ -100,9 +100,8 @@ contract HandleEscrowV2 is HandleEscrow {
     }
 }
 
-/// @notice A contract paying a handle it holds as text, the way one should: the naming system
-///         hashes the text under the platform's current rules, and the hash is deposited, in one
-///         transaction.
+/// @notice A router paying a handle given as text: the naming system hashes the text under the
+///         platform's current rules, and the caller, who can call `refund`, is `refundTo`.
 contract TextPayer {
     HandleEscrow private immutable ESCROW;
     IdentityNames private immutable NAMES;
@@ -112,9 +111,9 @@ contract TextPayer {
         NAMES = names_;
     }
 
-    function pay(bytes32 platformId, string calldata handle, uint256 amount) external {
-        ESCROW.deposit{value: amount}(
-            platformId, NAMES.handleHashOf(platformId, handle), address(0), amount, address(this)
+    function pay(bytes32 platformId, string calldata handle) external payable {
+        ESCROW.deposit{value: msg.value}(
+            platformId, NAMES.handleHashOf(platformId, handle), address(0), msg.value, msg.sender
         );
     }
 }
@@ -263,6 +262,21 @@ contract NamesWithTheWrongRevert is NamesWithoutNodeOf {
 
     function nodeOf(bytes32 platformId, string calldata) external pure returns (bytes32) {
         revert NoSuchPlatform(platformId);
+    }
+}
+
+/// @notice One that answers `nodeOf` as the naming system does, but not `nodeOfHash`: an
+///         `IdentityNames` from before the escrow derived nodes through it.
+contract NamesWithoutNodeOfHash is NamesWithoutNodeOf {
+    function nodeOf(bytes32 platformId, string calldata) external pure returns (bytes32) {
+        revert IIdentityNames.UnknownPlatform(platformId);
+    }
+}
+
+/// @notice One whose `nodeOfHash` keys differently from the V1 derivation the escrow expects.
+contract NamesWithAnotherNodeDerivation is NamesWithoutNodeOfHash {
+    function nodeOfHash(bytes32 platformId, bytes32 handleHash) external pure returns (bytes32) {
+        return keccak256(abi.encode(platformId, handleHash));
     }
 }
 
@@ -504,13 +518,13 @@ contract HandleEscrowTest is Test {
                 // `Problem` is the table's error kind shifted by one: `None` takes zero.
                 vm.expectRevert(
                     abi.encodeWithSelector(
-                        IdentityNames.UnusableHandle.selector, HandleNormalizer.Problem(v.errorKind + 1)
+                        IIdentityNames.UnusableHandle.selector, HandleNormalizer.Problem(v.errorKind + 1)
                     )
                 );
                 escrow.nodeOf(platformId, v.input);
                 vm.expectRevert(
                     abi.encodeWithSelector(
-                        IdentityNames.UnusableHandle.selector, HandleNormalizer.Problem(v.errorKind + 1)
+                        IIdentityNames.UnusableHandle.selector, HandleNormalizer.Problem(v.errorKind + 1)
                     )
                 );
                 names.handleHashOf(platformId, v.input);
@@ -551,12 +565,12 @@ contract HandleEscrowTest is Test {
 
     /// Text with nothing left after trimming and the at-sign has no node.
     function test_aBareAtSignHasNoNode() public {
-        vm.expectRevert(abi.encodeWithSelector(IdentityNames.UnusableHandle.selector, HandleNormalizer.Problem.Empty));
+        vm.expectRevert(abi.encodeWithSelector(IIdentityNames.UnusableHandle.selector, HandleNormalizer.Problem.Empty));
         escrow.nodeOf(X, " @ ");
     }
 
     function test_textWithNothingInItHasNoNode() public {
-        vm.expectRevert(abi.encodeWithSelector(IdentityNames.UnusableHandle.selector, HandleNormalizer.Problem.Empty));
+        vm.expectRevert(abi.encodeWithSelector(IIdentityNames.UnusableHandle.selector, HandleNormalizer.Problem.Empty));
         escrow.nodeOf(X, "   ");
     }
 
@@ -829,38 +843,61 @@ contract HandleEscrowTest is Test {
     /// would answer with nobody.
     function test_aHandleThePlatformCouldNeverAcceptIsRefused() public {
         TextPayer payer = new TextPayer(escrow, names);
-        vm.deal(address(payer), 10 ether);
 
         // A space inside is not a handle on X.
-        vm.expectRevert(abi.encodeWithSelector(IdentityNames.UnusableHandle.selector, HandleNormalizer.Problem.BadChar));
-        payer.pay(X, "ali ce", 1 ether);
+        vm.prank(sender);
+        vm.expectRevert(
+            abi.encodeWithSelector(IIdentityNames.UnusableHandle.selector, HandleNormalizer.Problem.BadChar)
+        );
+        payer.pay{value: 1 ether}(X, "ali ce");
 
         // A hyphen is GitHub's, not X's.
-        vm.expectRevert(abi.encodeWithSelector(IdentityNames.UnusableHandle.selector, HandleNormalizer.Problem.BadChar));
-        payer.pay(X, "ali-ce", 1 ether);
+        vm.prank(sender);
+        vm.expectRevert(
+            abi.encodeWithSelector(IIdentityNames.UnusableHandle.selector, HandleNormalizer.Problem.BadChar)
+        );
+        payer.pay{value: 1 ether}(X, "ali-ce");
 
         // Past X's length.
-        vm.expectRevert(abi.encodeWithSelector(IdentityNames.UnusableHandle.selector, HandleNormalizer.Problem.TooLong));
-        payer.pay(X, "a123456789012345", 1 ether);
+        vm.prank(sender);
+        vm.expectRevert(
+            abi.encodeWithSelector(IIdentityNames.UnusableHandle.selector, HandleNormalizer.Problem.TooLong)
+        );
+        payer.pay{value: 1 ether}(X, "a123456789012345");
 
         assertEq(address(escrow).balance, 0);
     }
 
     /// Text a caller hashes through the naming system and then deposits lands on the node a proof
-    /// of that text is bound under, whatever the platform's normalization folds on the way.
+    /// of that text is bound under, whatever the platform's normalization folds on the way, and the
+    /// router's caller can refund it.
     function test_textHashedByTheNamingSystemLandsOnTheProvedNode() public {
         TextPayer payer = new TextPayer(escrow, names);
-        vm.deal(address(payer), 10 ether);
 
-        payer.pay(X, "  @Alice ", 1 ether);
-        payer.pay(X, "ALICE", 2 ether);
+        vm.startPrank(sender);
+        payer.pay{value: 1 ether}(X, "  @Alice ");
+        payer.pay{value: 2 ether}(X, "ALICE");
+        vm.stopPrank();
         assertEq(escrow.escrowed(aliceNode, NATIVE), 3 ether);
-        assertEq(escrow.refundable(aliceNode, NATIVE, address(payer)), 3 ether);
+        assertEq(escrow.refundable(aliceNode, NATIVE, sender), 3 ether);
+        assertEq(escrow.refundable(aliceNode, NATIVE, address(payer)), 0);
 
         _bind(alice, "1", "Alice", 100);
         vm.prank(alice);
         escrow.claim(aliceNode, NATIVE, alice);
         assertEq(alice.balance, 3 ether);
+    }
+
+    /// What a router books under its caller, the caller takes back.
+    function test_aRoutersCallerCanRefund() public {
+        TextPayer payer = new TextPayer(escrow, names);
+        vm.prank(sender);
+        payer.pay{value: 1 ether}(X, "Alice");
+
+        uint256 before = sender.balance;
+        vm.prank(sender);
+        escrow.refund(aliceNode, NATIVE, sender);
+        assertEq(sender.balance, before + 1 ether);
     }
 
     /// NOT a vulnerability.
@@ -1257,9 +1294,9 @@ contract HandleEscrowTest is Test {
     /// itself.
     function test_aDepositMustNameWhoMayRefundIt() public {
         vm.startPrank(sender);
-        vm.expectRevert(HandleEscrow.NoRefundTo.selector);
+        vm.expectRevert(abi.encodeWithSelector(HandleEscrow.BadRefundTo.selector, address(0)));
         escrow.deposit{value: 1 ether}(X, aliceHash, NATIVE, 1 ether, address(0));
-        vm.expectRevert(HandleEscrow.NoRefundTo.selector);
+        vm.expectRevert(abi.encodeWithSelector(HandleEscrow.BadRefundTo.selector, address(0)));
         escrow.deposit(X, aliceHash, address(token), 1 ether, address(0));
         vm.stopPrank();
 
@@ -1267,15 +1304,27 @@ contract HandleEscrowTest is Test {
         // not succeed or fail by the race.
         _bind(alice, "1", "alice", 100);
         vm.startPrank(sender);
-        vm.expectRevert(HandleEscrow.NoRefundTo.selector);
+        vm.expectRevert(abi.encodeWithSelector(HandleEscrow.BadRefundTo.selector, address(0)));
         escrow.deposit{value: 1 ether}(X, aliceHash, NATIVE, 1 ether, address(0));
-        vm.expectRevert(HandleEscrow.NoRefundTo.selector);
+        vm.expectRevert(abi.encodeWithSelector(HandleEscrow.BadRefundTo.selector, address(0)));
         escrow.deposit(X, aliceHash, address(token), 1 ether, address(0));
         vm.stopPrank();
 
         assertEq(alice.balance, 0, "the holder was paid");
         assertEq(token.balanceOf(address(escrow)), 0);
         assertEq(address(escrow).balance, 0);
+    }
+
+    /// The escrow never calls `refund`, so naming it as `refundTo` would lock what a wrong hash
+    /// funds.
+    function test_theEscrowCannotBeWhoMayRefund() public {
+        bytes memory refused = abi.encodeWithSelector(HandleEscrow.BadRefundTo.selector, address(escrow));
+        vm.startPrank(sender);
+        vm.expectRevert(refused);
+        escrow.deposit{value: 1 ether}(X, keccak256("Alice"), NATIVE, 1 ether, address(escrow));
+        vm.expectRevert(refused);
+        escrow.deposit(X, aliceHash, address(token), 1 ether, address(escrow));
+        vm.stopPrank();
     }
 
     /// Two depositors share a slot and each takes back exactly its own, once.
@@ -1620,9 +1669,13 @@ contract HandleEscrowTest is Test {
 
         // The text is refused everywhere text is read.
         assertEq(names.resolveHandle(X, "alice_9"), address(0));
-        vm.expectRevert(abi.encodeWithSelector(IdentityNames.UnusableHandle.selector, HandleNormalizer.Problem.BadChar));
+        vm.expectRevert(
+            abi.encodeWithSelector(IIdentityNames.UnusableHandle.selector, HandleNormalizer.Problem.BadChar)
+        );
         escrow.nodeOf(X, "alice_9");
-        vm.expectRevert(abi.encodeWithSelector(IdentityNames.UnusableHandle.selector, HandleNormalizer.Problem.BadChar));
+        vm.expectRevert(
+            abi.encodeWithSelector(IIdentityNames.UnusableHandle.selector, HandleNormalizer.Problem.BadChar)
+        );
         names.handleHashOf(X, "alice_9");
 
         // The node is untouched: still held, still funded.
@@ -1669,6 +1722,9 @@ contract HandleEscrowTest is Test {
         // not the naming system's.
         _assertInitializeRefused(address(new NamesWithAZeroFallback()), IIdentityNames.nodeOf.selector);
         _assertInitializeRefused(address(new NamesWithTheWrongRevert()), IIdentityNames.nodeOf.selector);
+        // Deposits key through `nodeOfHash`, so it must exist and derive the node claims bind.
+        _assertInitializeRefused(address(new NamesWithoutNodeOfHash()), IIdentityNames.nodeOfHash.selector);
+        _assertInitializeRefused(address(new NamesWithAnotherNodeDerivation()), IIdentityNames.nodeOfHash.selector);
     }
 
     /// The implementation behind the proxy is never initialized: whoever could would own a contract

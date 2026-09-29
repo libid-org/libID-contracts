@@ -17,8 +17,8 @@ import {IdentityNodes} from "../identity/IdentityNodes.sol";
 ///         `IdentityNames` claims it; until then each deposit's `refundTo`
 ///         can take its own contribution back.
 ///
-/// @dev - A slot is `IdentityNodes.handleNode(platformId, normalized)`, the
-///        node `IdentityNames` binds and emits. `claim` is authorized by
+/// @dev - A slot is the node `IdentityNames` binds for the handle, which it
+///        derives (`nodeOfHash`). `claim` is authorized by
 ///        `names.byHandle(node).owner` alone.
 ///      - A deposit for a held node is paid straight through; only an unheld
 ///        node on a platform that `acceptsClaims` escrows.
@@ -127,8 +127,9 @@ contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable
     error NotTheHolder(address holder, address caller);
     /// Nothing refundable is booked under this address in the current round.
     error NothingToRefund(bytes32 handleNode, address token, address refundTo);
-    /// `refundTo` must be nonzero.
-    error NoRefundTo();
+    /// `refundTo` must be an address that can call `refund`: not zero, not
+    /// this contract.
+    error BadRefundTo(address refundTo);
     /// A payout may not go to the zero address or this contract.
     error BadRecipient(address recipient);
     /// Nobody holds the node and nothing new can bind on this platform.
@@ -179,18 +180,19 @@ contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable
     ///        A holder that sweeps tokens onward inside the transfer gains
     ///        nothing and the deposit reverts `ZeroAmount`.
     /// @param token    An ERC-20, or `NATIVE`, when `amount` must equal `msg.value`.
-    /// @param refundTo Who may refund an escrowed deposit. Never zero.
+    /// @param refundTo Who may refund an escrowed deposit: an address that can
+    ///                 call `refund`, never zero or this contract.
     function deposit(bytes32 platformId, bytes32 handleHash, address token, uint256 amount, address refundTo)
         external
         payable
         nonReentrant
     {
-        _deposit(platformId, IdentityNodes.handleNodeOfHash(platformId, handleHash), token, amount, refundTo);
+        _deposit(platformId, _s().names.nodeOfHash(platformId, handleHash), token, amount, refundTo);
     }
 
     function _deposit(bytes32 platformId, bytes32 node, address token, uint256 amount, address refundTo) private {
         if (amount == 0) revert ZeroAmount();
-        if (refundTo == address(0)) revert NoRefundTo();
+        if (refundTo == address(0) || refundTo == address(this)) revert BadRefundTo(refundTo);
 
         if (token == NATIVE) {
             if (msg.value != amount) revert ValueMismatch(amount, msg.value);
@@ -293,7 +295,8 @@ contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable
     }
 
     /// @dev Requires the exact answers `IdentityNames` gives for the zero node
-    ///      and platform: an empty binding, `false`, and `UnknownPlatform(0)`.
+    ///      and platform: an empty binding, `false`, `UnknownPlatform(0)`, and
+    ///      the V1 node of a zero hash.
     function _requireAnswers(IIdentityNames names_) private view {
         bytes memory result;
         bool ok;
@@ -308,6 +311,10 @@ contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable
         (ok, result) = address(names_).staticcall(abi.encodeCall(IIdentityNames.nodeOf, (bytes32(0), "")));
         if (ok || keccak256(result) != keccak256(abi.encodeWithSelector(IIdentityNames.UnknownPlatform.selector, 0))) {
             revert NamesLacks(address(names_), IIdentityNames.nodeOf.selector);
+        }
+        (ok, result) = address(names_).staticcall(abi.encodeCall(IIdentityNames.nodeOfHash, (bytes32(0), bytes32(0))));
+        if (!ok || keccak256(result) != keccak256(abi.encode(IdentityNodes.handleNodeOfHash(0, 0)))) {
+            revert NamesLacks(address(names_), IIdentityNames.nodeOfHash.selector);
         }
     }
 

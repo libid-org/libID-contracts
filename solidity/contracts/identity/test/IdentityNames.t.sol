@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.20;
+pragma solidity ^0.8.24;
 
 import {Test, Vm} from "forge-std/Test.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
@@ -328,13 +328,17 @@ contract IdentityNamesTest is Test {
     /// Text the rules refuse has no node, and the refusal carries the
     /// normalizer's reason — where `resolveHandle` answers nobody.
     function test_nodeOfRefusesTextTheRulesRefuseWithTheReason() public {
-        vm.expectRevert(abi.encodeWithSelector(IdentityNames.UnusableHandle.selector, HandleNormalizer.Problem.Empty));
+        vm.expectRevert(abi.encodeWithSelector(IIdentityNames.UnusableHandle.selector, HandleNormalizer.Problem.Empty));
         names.nodeOf(X, " @ ");
-        vm.expectRevert(abi.encodeWithSelector(IdentityNames.UnusableHandle.selector, HandleNormalizer.Problem.TooLong));
+        vm.expectRevert(
+            abi.encodeWithSelector(IIdentityNames.UnusableHandle.selector, HandleNormalizer.Problem.TooLong)
+        );
         names.nodeOf(X, "a123456789012345");
-        vm.expectRevert(abi.encodeWithSelector(IdentityNames.UnusableHandle.selector, HandleNormalizer.Problem.BadChar));
+        vm.expectRevert(
+            abi.encodeWithSelector(IIdentityNames.UnusableHandle.selector, HandleNormalizer.Problem.BadChar)
+        );
         names.nodeOf(X, "ali-ce");
-        vm.expectRevert(abi.encodeWithSelector(IdentityNames.UnusableHandle.selector, HandleNormalizer.Problem.Shape));
+        vm.expectRevert(abi.encodeWithSelector(IIdentityNames.UnusableHandle.selector, HandleNormalizer.Problem.Shape));
         names.nodeOf(GITHUB, "-alice");
 
         assertEq(names.resolveHandle(X, "ali-ce"), address(0), "the resolver stopped answering nobody");
@@ -361,12 +365,25 @@ contract IdentityNamesTest is Test {
         vm.prank(owner);
         names.setPlatform(X, HandleVectors.rulesFor(GITHUB));
 
-        vm.expectRevert(abi.encodeWithSelector(IdentityNames.UnusableHandle.selector, HandleNormalizer.Problem.BadChar));
+        vm.expectRevert(
+            abi.encodeWithSelector(IIdentityNames.UnusableHandle.selector, HandleNormalizer.Problem.BadChar)
+        );
         names.nodeOf(X, "alice_1");
         assertEq(names.nodeOf(X, "ali-ce"), IdentityNodes.handleNode(X, "ali-ce"));
     }
 
     // ─── The hash of a handle ───────────────────────────────────────
+
+    /// `nodeOfHash` is the node derivation `claim` writes under, for any hash.
+    function test_nodeOfHashIsTheNodeAClaimBinds() public {
+        _bind(alice, "123", "alice", 100);
+        (address holder,) = names.byHandle(names.nodeOfHash(X, keccak256("alice")));
+        assertEq(holder, alice);
+        assertEq(names.nodeOfHash(X, keccak256("alice")), IdentityNodes.handleNode(X, "alice"));
+        assertEq(
+            names.nodeOfHash(keccak256("nowhere"), bytes32(0)), IdentityNodes.handleNodeOfHash(keccak256("nowhere"), 0)
+        );
+    }
 
     /// `handleHashOf` is `keccak256` of the handle normalized under the
     /// platform's rules: the inner hash of the node a proof of it is bound
@@ -382,13 +399,17 @@ contract IdentityNamesTest is Test {
     }
 
     function test_handleHashOfRefusesTextTheRulesRefuseWithTheReason() public {
-        vm.expectRevert(abi.encodeWithSelector(IdentityNames.UnusableHandle.selector, HandleNormalizer.Problem.Empty));
+        vm.expectRevert(abi.encodeWithSelector(IIdentityNames.UnusableHandle.selector, HandleNormalizer.Problem.Empty));
         names.handleHashOf(X, " @ ");
-        vm.expectRevert(abi.encodeWithSelector(IdentityNames.UnusableHandle.selector, HandleNormalizer.Problem.TooLong));
+        vm.expectRevert(
+            abi.encodeWithSelector(IIdentityNames.UnusableHandle.selector, HandleNormalizer.Problem.TooLong)
+        );
         names.handleHashOf(X, "a123456789012345");
-        vm.expectRevert(abi.encodeWithSelector(IdentityNames.UnusableHandle.selector, HandleNormalizer.Problem.BadChar));
+        vm.expectRevert(
+            abi.encodeWithSelector(IIdentityNames.UnusableHandle.selector, HandleNormalizer.Problem.BadChar)
+        );
         names.handleHashOf(X, "ali-ce");
-        vm.expectRevert(abi.encodeWithSelector(IdentityNames.UnusableHandle.selector, HandleNormalizer.Problem.Shape));
+        vm.expectRevert(abi.encodeWithSelector(IIdentityNames.UnusableHandle.selector, HandleNormalizer.Problem.Shape));
         names.handleHashOf(GITHUB, "-alice");
     }
 
@@ -409,7 +430,9 @@ contract IdentityNamesTest is Test {
         vm.prank(owner);
         names.setPlatform(X, HandleVectors.rulesFor(GITHUB));
 
-        vm.expectRevert(abi.encodeWithSelector(IdentityNames.UnusableHandle.selector, HandleNormalizer.Problem.BadChar));
+        vm.expectRevert(
+            abi.encodeWithSelector(IIdentityNames.UnusableHandle.selector, HandleNormalizer.Problem.BadChar)
+        );
         names.handleHashOf(X, "alice_1");
         assertEq(names.handleHashOf(X, "ali-ce"), keccak256("ali-ce"));
     }
@@ -747,10 +770,11 @@ contract IdentityNamesTest is Test {
         vm.expectRevert(abi.encodeWithSelector(IIdentityNames.UnknownPlatform.selector, fresh));
         names.resolvePair(fresh, "alice", "123");
 
-        // The rules exist, but a contract asking whether text could be a
-        // handle here must hear "not wired", not a rule set nothing verifies.
-        vm.expectRevert(abi.encodeWithSelector(IIdentityNames.UnknownPlatform.selector, fresh));
-        names.rulesOf(fresh);
+        // The keyspace questions answer, and agree with each other: a client
+        // normalizing under `rulesOf` reaches the node `nodeOf` names.
+        assertEq(names.rulesOf(fresh).maxLength, HandleVectors.rulesFor(X).maxLength);
+        assertEq(names.handleHashOf(fresh, "Alice"), keccak256("alice"));
+        assertEq(names.nodeOf(fresh, "Alice"), names.nodeOfHash(fresh, keccak256("alice")));
     }
 
     /// And claiming says the same thing, rather than naming a version the

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.20;
+pragma solidity ^0.8.24;
 
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
@@ -328,9 +328,7 @@ contract IdentityNames is
 
     // ─── Errors ─────────────────────────────────────────────────────
 
-    // `UnknownPlatform` is declared in `IIdentityNames`.
-    /// Text the platform's rules refuse, with the normalizer's reason.
-    error UnusableHandle(HandleNormalizer.Problem problem);
+    // `UnknownPlatform` and `UnusableHandle` are declared in `IIdentityNames`.
     /// @notice The one operation this Consumer owns.
     ///
     /// @dev A new operation, or a change to what its transaction data means,
@@ -731,16 +729,20 @@ contract IdentityNames is
 
     // ─── Reading ────────────────────────────────────────────────────
 
+    // `rulesOf`, `handleHashOf` and `nodeOf` answer keyspace questions, so
+    // they need a keyspace and nothing more: they agree with each other, and
+    // keep answering before a platform's first verifier and after its last.
+
     /// @notice The platform's normalization rules as configured now, for a
-    ///         client that normalizes locally. Reverts like the resolvers.
+    ///         client that normalizes locally. Reverts `UnknownPlatform`.
     function rulesOf(bytes32 platformId) external view returns (HandleNormalizer.Rules memory) {
-        return _requireUsable(platformId).rules;
+        return _requireConfigured(platformId).rules;
     }
 
     /// @notice `keccak256` of a handle normalized under the platform's current
     ///         rules: the `handleHash` `HandleEscrow.deposit` takes.
-    /// @dev Reverts `UnknownPlatform` without a keyspace and `UnusableHandle`
-    ///      for text the rules refuse (where `resolveHandle` answers zero).
+    /// @dev Reverts `UnusableHandle` for text the rules refuse (where
+    ///      `resolveHandle` answers zero).
     function handleHashOf(bytes32 platformId, string calldata handle) public view returns (bytes32 handleHash) {
         (HandleNormalizer.Problem problem, string memory normalized) =
             HandleNormalizer.tryNormalize(handle, _requireConfigured(platformId).rules);
@@ -751,7 +753,13 @@ contract IdentityNames is
     /// @notice The node a handle keys to under the platform's current rules,
     ///         with `handleHashOf`'s reverts.
     function nodeOf(bytes32 platformId, string calldata handle) external view returns (bytes32) {
-        return IdentityNodes.handleNodeOfHash(platformId, handleHashOf(platformId, handle));
+        return nodeOfHash(platformId, handleHashOf(platformId, handle));
+    }
+
+    /// @notice The node of a handle given as its hash: what `claim` binds and
+    ///         `byHandle` reads. Unchecked; any hash has a node.
+    function nodeOfHash(bytes32 platformId, bytes32 handleHash) public pure returns (bytes32) {
+        return IdentityNodes.handleNodeOfHash(platformId, handleHash);
     }
 
     /// @notice Whether a new identity claim can bind a holder on this platform

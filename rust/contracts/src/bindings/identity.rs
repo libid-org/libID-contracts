@@ -75,6 +75,8 @@ mod names_inner {
             function handleHashOf(bytes32 platformId, string calldata handle) external view returns (bytes32 handleHash);
             /// The node a handle keys to now; reverts as `handleHashOf` does.
             function nodeOf(bytes32 platformId, string calldata handle) external view returns (bytes32 handleNode);
+            /// The node of a handle given as its hash, as `claim` binds it.
+            function nodeOfHash(bytes32 platformId, bytes32 handleHash) external pure returns (bytes32);
 
             /// Carries the ceremony version that proved the binding -- logged,
             /// never stored, because nothing on chain acts on it and an

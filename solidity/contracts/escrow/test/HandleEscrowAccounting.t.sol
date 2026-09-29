@@ -38,6 +38,10 @@ contract SettableNames is IIdentityNames {
         return keccak256(bytes(handle));
     }
 
+    function nodeOfHash(bytes32 platformId, bytes32 handleHash) external pure returns (bytes32) {
+        return IdentityNodes.handleNodeOfHash(platformId, handleHash);
+    }
+
     function acceptsClaims(bytes32 platformId) external pure returns (bool) {
         return platformId != bytes32(0);
     }
