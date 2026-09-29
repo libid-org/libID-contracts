@@ -8,10 +8,13 @@ import {StdUtils} from "forge-std/StdUtils.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
-import {HandleEscrow} from "../HandleEscrow.sol";
+import {HandleEscrow, NATIVE_TOKEN} from "../HandleEscrow.sol";
 import {IdentityNodes} from "../../identity/IdentityNodes.sol";
 import {IIdentityNames} from "../../identity/IIdentityNames.sol";
 import {FeeToken, NoReturnToken, SettableNames, TestERC20, one} from "./EscrowMocks.sol";
+
+// The native token as the escrow names it.
+address constant NATIVE = NATIVE_TOKEN;
 
 /// @notice Drives random deposits, refunds, joins, retirements and claims, and models each
 ///         `refundTo`'s refundable contribution.
@@ -33,7 +36,7 @@ contract EscrowHandler is CommonBase, StdCheats, StdUtils {
     constructor(HandleEscrow escrow_, SettableNames names_) {
         (ESCROW, NAMES) = (escrow_, names_);
         depositors = [makeAddr("depositor 1"), makeAddr("depositor 2"), makeAddr("depositor 3")];
-        tokens = [address(0), address(new TestERC20()), address(new FeeToken()), address(new NoReturnToken())];
+        tokens = [NATIVE, address(new TestERC20()), address(new FeeToken()), address(new NoReturnToken())];
         hashes = [keccak256("node a"), keccak256("node b")];
         nodes =
             [IdentityNodes.handleNodeOfHash(PLATFORM, hashes[0]), IdentityNodes.handleNodeOfHash(PLATFORM, hashes[1])];
@@ -50,7 +53,7 @@ contract EscrowHandler is CommonBase, StdCheats, StdUtils {
         amount = bound(amount, 1, 1e24);
         uint256 delivered = token == tokens[2] ? amount - (amount * FeeToken(token).FEE_BPS()) / 10_000 : amount;
 
-        if (token == address(0)) {
+        if (token == NATIVE) {
             vm.deal(from, amount);
         } else {
             TestERC20(token).mint(from, amount);
@@ -59,7 +62,7 @@ contract EscrowHandler is CommonBase, StdCheats, StdUtils {
             NoReturnToken(token).approve(address(ESCROW), amount);
         }
         vm.prank(from);
-        ESCROW.deposit{value: token == address(0) ? amount : 0}(PLATFORM, hashes[nodeSeed % 2], token, amount, refundTo);
+        ESCROW.deposit{value: token == NATIVE ? amount : 0}(PLATFORM, hashes[nodeSeed % 2], token, amount, refundTo);
         if (NAMES.holderOf(node) == address(0)) modelled[node][token][refundTo] += delivered;
     }
 
@@ -104,7 +107,7 @@ contract EscrowHandler is CommonBase, StdCheats, StdUtils {
     }
 
     function _balanceOf(address token, address who) internal view returns (uint256) {
-        return token == address(0) ? who.balance : IERC20(token).balanceOf(who);
+        return token == NATIVE ? who.balance : IERC20(token).balanceOf(who);
     }
 }
 
@@ -145,7 +148,7 @@ contract HandleEscrowAccountingTest is Test {
                 assertEq(escrow.escrowed(node, token), sum, "held is not the sum of the open contributions");
                 heldTotal += sum;
             }
-            uint256 balance = token == address(0) ? address(escrow).balance : IERC20(token).balanceOf(address(escrow));
+            uint256 balance = token == NATIVE ? address(escrow).balance : IERC20(token).balanceOf(address(escrow));
             assertEq(heldTotal, balance, "the books and the balance disagree");
         }
     }

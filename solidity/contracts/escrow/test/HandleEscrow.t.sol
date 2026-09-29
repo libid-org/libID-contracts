@@ -16,8 +16,11 @@ import {StubPlatformVerifier} from "../../identity/test/StubPlatformVerifier.sol
 import {CeremonyProofVerifier} from "../../ceremony/CeremonyProofVerifier.sol";
 import {IPlatformVerifier} from "../../ceremony/IPlatformVerifier.sol";
 import {IProofVerifier} from "../../ceremony/IProofVerifier.sol";
-import {HandleEscrow} from "../HandleEscrow.sol";
+import {HandleEscrow, NATIVE_TOKEN} from "../HandleEscrow.sol";
 import {FeeToken, InertToken, RejectEther, TestERC20, one} from "./EscrowMocks.sol";
+
+// The native token as the escrow names it.
+address constant NATIVE = NATIVE_TOKEN;
 
 /// @notice Appends one field to the namespaced root, the only change the storage rule allows.
 contract HandleEscrowV2 is HandleEscrow {
@@ -67,7 +70,7 @@ contract TextPayer {
 
     function pay(bytes32 platformId, string calldata handle) external payable {
         ESCROW.deposit{value: msg.value}(
-            platformId, NAMES.handleHashOf(platformId, handle), address(0), msg.value, msg.sender
+            platformId, NAMES.handleHashOf(platformId, handle), NATIVE, msg.value, msg.sender
         );
     }
 }
@@ -100,7 +103,7 @@ contract ObservingPayee {
     }
 
     function fund(bytes32 platformId, bytes32 handleHash) external payable {
-        ESCROW.deposit{value: msg.value}(platformId, handleHash, address(0), msg.value, address(this));
+        ESCROW.deposit{value: msg.value}(platformId, handleHash, NATIVE, msg.value, address(this));
     }
 
     function take(bytes calldata data) external {
@@ -112,8 +115,8 @@ contract ObservingPayee {
     receive() external payable {
         if (entered) return;
         entered = true;
-        heldDuringPayout = ESCROW.escrowed(NODE, address(0));
-        refundableDuringPayout = ESCROW.refundable(NODE, address(0), address(this));
+        heldDuringPayout = ESCROW.escrowed(NODE, NATIVE);
+        refundableDuringPayout = ESCROW.refundable(NODE, NATIVE, address(this));
         (bool ok, bytes memory reason) = address(ESCROW).call(call_);
         require(!ok, "the reentry was let through");
         reentryError = reason;
@@ -166,7 +169,6 @@ contract HandleEscrowTest is Test {
     bytes32 internal constant GITHUB = HandleVectors.PLATFORM_GITHUB;
     bytes32 internal constant GOOGLE = HandleVectors.PLATFORM_GOOGLE;
     bytes32 internal constant UNWIRED = keccak256("no such platform");
-    address internal constant NATIVE = address(0);
     uint16 internal constant V1 = 1;
 
     address internal alice = makeAddr("alice");
@@ -290,7 +292,7 @@ contract HandleEscrowTest is Test {
     /// still waiting for its claim.
     function test_anUnheldHandleEscrowsAndAHeldOnePaysThrough() public {
         vm.expectEmit(address(escrow));
-        emit HandleEscrow.Deposited(aliceNode, address(token), sender, sender, X, 10 ether);
+        emit HandleEscrow.Deposited(aliceNode, address(token), sender, sender, X, 0, 10 ether);
         vm.prank(sender);
         escrow.deposit(X, aliceHash, address(token), 10 ether, sender);
         assertEq(token.balanceOf(address(escrow)), 10 ether);
@@ -406,9 +408,9 @@ contract HandleEscrowTest is Test {
         address[] memory tokens = new address[](2);
         (tokens[0], tokens[1]) = (NATIVE, address(token));
         vm.expectEmit(address(escrow));
-        emit HandleEscrow.Claimed(aliceNode, NATIVE, alice, bob, 1 ether, 1 ether);
+        emit HandleEscrow.Claimed(aliceNode, NATIVE, alice, bob, 0, 1 ether, 1 ether);
         vm.expectEmit(address(escrow));
-        emit HandleEscrow.Claimed(aliceNode, address(token), alice, bob, 3 ether, 3 ether);
+        emit HandleEscrow.Claimed(aliceNode, address(token), alice, bob, 0, 3 ether, 3 ether);
         vm.prank(alice);
         escrow.claim(aliceNode, tokens, bob);
 
@@ -516,7 +518,7 @@ contract HandleEscrowTest is Test {
         escrow.refund(aliceNode, address(token), sender);
 
         vm.expectEmit(address(escrow));
-        emit HandleEscrow.Refunded(aliceNode, address(token), bob, alice, 10 ether, 10 ether);
+        emit HandleEscrow.Refunded(aliceNode, address(token), bob, alice, 0, 10 ether, 10 ether);
         vm.prank(bob);
         escrow.refund(aliceNode, address(token), alice);
         vm.prank(sender);
@@ -625,6 +627,26 @@ contract HandleEscrowTest is Test {
         vm.prank(alice);
         escrow.claim(IdentityNodes.handleNode(X, "alice_9"), one(NATIVE), alice);
         assertEq(alice.balance, 1 ether);
+    }
+
+    /// Every event names its round: a claim closes the round it names, and the next deposit to the
+    /// node opens the next one, which its refund names too.
+    function test_theEventsNameTheRoundAClaimCloses() public {
+        _depositNative("alice", 1 ether);
+        _bind(alice, "1", "alice", 100);
+        vm.expectEmit(address(escrow));
+        emit HandleEscrow.Claimed(aliceNode, NATIVE, alice, alice, 0, 1 ether, 1 ether);
+        _claimNative(alice, alice);
+
+        _bind(alice, "1", "alice2", 200);
+        vm.expectEmit(address(escrow));
+        emit HandleEscrow.Deposited(aliceNode, NATIVE, sender, sender, X, 1, 2 ether);
+        _depositNative("alice", 2 ether);
+        vm.expectEmit(address(escrow));
+        emit HandleEscrow.Refunded(aliceNode, NATIVE, sender, sender, 1, 2 ether, 2 ether);
+        vm.prank(sender);
+        escrow.refund(aliceNode, NATIVE, sender);
+        assertEq(escrow.refundable(aliceNode, NATIVE, sender), 0);
     }
 
     // ─── Wiring and upgrades ────────────────────────────────────────

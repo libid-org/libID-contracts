@@ -10,6 +10,9 @@ import {ReentrancyGuardUpgradeable} from "@openzeppelin/contracts-upgradeable/ut
 
 import {IIdentityNames} from "../identity/IIdentityNames.sol";
 
+// The EIP-7528 address that stands for the chain's native token.
+address constant NATIVE_TOKEN = 0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE;
+
 /// @title HandleEscrow - send to a platform handle before anybody claims it.
 ///
 /// @notice Holds value against the handle node `IdentityNames` binds. The
@@ -22,12 +25,13 @@ import {IIdentityNames} from "../identity/IIdentityNames.sol";
 ///      - A claim empties the slot and opens a new round, ending the old
 ///        round's refunds. Refunds have no delay and no pause gates them.
 ///      - Each token is one pool across all nodes; a payout that debits it by
-///        more than it books reverts `OverDebited`.
+///        more than it books reverts `OverDebited`, so a token that charges
+///        its sender on `transfer` deposits but never pays out.
 contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, ReentrancyGuardUpgradeable {
     using SafeERC20 for IERC20;
 
-    /// @notice The native token of the chain, as a token address.
-    address public constant NATIVE = address(0);
+    /// @notice The native token of the chain, as a token address (EIP-7528).
+    address public constant NATIVE = NATIVE_TOKEN;
 
     /// @custom:storage-location erc7201:libid.storage.HandleEscrow
     struct HandleEscrowStorage {
@@ -54,14 +58,16 @@ contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable
 
     // ─── Events ─────────────────────────────────────────────────────
 
-    /// @notice Value was escrowed for a node nobody holds. `amount` is what
-    ///         arrived; `depositor` paid, `refundTo` may refund.
+    /// @notice Value was escrowed for a node nobody holds, under `round`.
+    ///         `amount` is what arrived; `depositor` paid, `refundTo` may
+    ///         refund until the round's claim.
     event Deposited(
         bytes32 indexed handleNode,
         address indexed token,
         address indexed refundTo,
         address depositor,
         bytes32 platformId,
+        uint256 round,
         uint256 amount
     );
 
@@ -77,24 +83,27 @@ contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable
         uint256 received
     );
 
-    /// @notice The holder took what was held in one token. `released` left the books;
-    ///         `received` is what `recipient` gained.
+    /// @notice The holder took what was held in one token, closing `round`.
+    ///         `released` left the books; `received` is what `recipient`
+    ///         gained.
     event Claimed(
         bytes32 indexed handleNode,
         address indexed token,
         address indexed claimer,
         address recipient,
+        uint256 round,
         uint256 released,
         uint256 received
     );
 
-    /// @notice `refundTo` took its contribution back. `released` left the
-    ///         books; `received` is what `recipient` gained.
+    /// @notice `refundTo` took its `round` contribution back. `released` left
+    ///         the books; `received` is what `recipient` gained.
     event Refunded(
         bytes32 indexed handleNode,
         address indexed token,
         address indexed refundTo,
         address recipient,
+        uint256 round,
         uint256 released,
         uint256 received
     );
@@ -195,9 +204,10 @@ contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable
         uint256 credited = _move(token, msg.sender, address(this), amount);
         if (credited == 0) revert ZeroAmount();
 
+        uint256 round = $.round[node][token];
         $.held[node][token] += credited;
-        $.contributions[node][token][$.round[node][token]][refundTo] += credited;
-        emit Deposited(node, token, refundTo, msg.sender, platformId, credited);
+        $.contributions[node][token][round][refundTo] += credited;
+        emit Deposited(node, token, refundTo, msg.sender, platformId, round, credited);
     }
 
     // ─── Claiming ───────────────────────────────────────────────────
@@ -221,10 +231,10 @@ contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable
             uint256 amount = $.held[handleNode][token];
             if (amount == 0) continue;
             $.held[handleNode][token] = 0;
-            ++$.round[handleNode][token];
+            uint256 round = $.round[handleNode][token]++;
             paid = true;
             emit Claimed(
-                handleNode, token, msg.sender, recipient, amount, _move(token, address(this), recipient, amount)
+                handleNode, token, msg.sender, recipient, round, amount, _move(token, address(this), recipient, amount)
             );
         }
         if (!paid) revert NothingHeld(handleNode);
@@ -238,13 +248,16 @@ contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable
         if (recipient == address(0) || recipient == address(this)) revert BadRecipient(recipient);
 
         HandleEscrowStorage storage $ = _s();
-        mapping(address => uint256) storage current = $.contributions[handleNode][token][$.round[handleNode][token]];
+        uint256 round = $.round[handleNode][token];
+        mapping(address => uint256) storage current = $.contributions[handleNode][token][round];
         uint256 amount = current[msg.sender];
         if (amount == 0) revert NothingToRefund(handleNode, token, msg.sender);
         current[msg.sender] = 0;
         $.held[handleNode][token] -= amount;
 
-        emit Refunded(handleNode, token, msg.sender, recipient, amount, _move(token, address(this), recipient, amount));
+        emit Refunded(
+            handleNode, token, msg.sender, recipient, round, amount, _move(token, address(this), recipient, amount)
+        );
     }
 
     // ─── Reading ────────────────────────────────────────────────────
