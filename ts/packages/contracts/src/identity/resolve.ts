@@ -11,6 +11,7 @@
 import { type Address, keccak256, type PublicClient, toHex, zeroAddress } from 'viem'
 
 import { identityNamesAbi } from '../abis/identityNames.js'
+import type { Rules } from './handle.js'
 
 /// A platform id is `keccak256` of its domain string. The domains are generated
 /// from `handles.json`, so this and the contract agree by construction.
@@ -42,6 +43,19 @@ function read<T>(reader: NamesReader, functionName: string, args: readonly unkno
     functionName,
     args,
   })
+}
+
+/// The platform's normalization rules as configured on chain now
+/// (`IdentityNames.rulesOf`). Reverts `UnknownPlatform` without a keyspace.
+export async function rulesOnChain(reader: NamesReader, platform: `0x${string}`): Promise<Rules> {
+  const rules = await read<Rules>(reader, 'rulesOf', [platform])
+  return {
+    maxLength: Number(rules.maxLength),
+    stripLeadingAt: rules.stripLeadingAt,
+    isEmail: rules.isEmail,
+    allowUnderscore: rules.allowUnderscore,
+    allowHyphen: rules.allowHyphen,
+  }
 }
 
 /// The wallet that proved this account id, or `null`.

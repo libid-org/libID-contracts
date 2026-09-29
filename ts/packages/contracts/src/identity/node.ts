@@ -1,11 +1,15 @@
 /// Handle nodes and hashes, mirroring `IdentityNodes.handleNode` and
-/// `handleNodeOfHash`. `HandleEscrow.deposit` takes `handleHash`; `byHandle`
-/// and the escrow's reads take `handleNode`.
+/// `IdentityNames.nodeOfHash`. `HandleEscrow.deposit` takes `handleHash`;
+/// `byHandle` and the escrow's reads take `handleNode`.
+///
+/// Raw text is normalized under rules the caller passes. `rulesOnChain` reads
+/// the rules a platform has now; `rulesFor` is the generated table, which the
+/// chain's owner can narrow after release.
 
 import { encodeAbiParameters, type Hex, keccak256, toHex } from 'viem'
 
-import { type NormalizedHandle, normalize, rulesFor } from './handle.js'
-import { platformId } from './resolve.js'
+import { type NormalizedHandle, normalize, type Rules } from './handle.js'
+import { type NamesReader, platformId, rulesOnChain } from './resolve.js'
 
 /// The version tag that leads every handle-node preimage.
 export const HANDLE_NODE_V1: Hex = keccak256(toHex('libid.identity.handle-node.v1'))
@@ -30,20 +34,24 @@ export function handleNodeOfHash(platform: Hex, hash: Hex): Hex {
   )
 }
 
-/// The node of raw text on a platform in the generated table. Throws
-/// `HandleError` for text the rules refuse. Valid text is not always a real
-/// account (e.g. `a.lice@gmail.com`); a deposit to it is only refundable.
-export function handleNodeOf(platform: string, rawHandle: string): Hex {
-  return handleNode(platformId(platform), normalizeFor(platform, rawHandle))
+/// The `handleHash` of raw text under `rules`. Throws `HandleError` for text
+/// the rules refuse. Valid text is not always a real account (e.g.
+/// `a.lice@gmail.com`); a deposit to it is only refundable.
+export function handleHashOf(rawHandle: string, rules: Rules): Hex {
+  return handleHash(normalize(rawHandle, rules))
 }
 
-/// The `handleHash` of raw text: the off-chain `IdentityNames.handleHashOf`.
-export function handleHashOf(platform: string, rawHandle: string): Hex {
-  return handleHash(normalizeFor(platform, rawHandle))
+/// The node of raw text on a platform (its domain, e.g. `'x'`) under `rules`.
+export function handleNodeOf(platform: string, rawHandle: string, rules: Rules): Hex {
+  return handleNodeOfHash(platformId(platform), handleHashOf(rawHandle, rules))
 }
 
-function normalizeFor(platform: string, rawHandle: string): NormalizedHandle {
-  const rules = rulesFor(platform)
-  if (rules === null) throw new Error(`no handle rules for platform ${JSON.stringify(platform)}`)
-  return normalize(rawHandle, rules)
+/// The `handleHash` of raw text under the platform's rules on chain now,
+/// computed locally: only the platform id reaches the RPC, never the text.
+export async function handleHashOnChainRules(
+  reader: NamesReader,
+  platform: string,
+  rawHandle: string,
+): Promise<Hex> {
+  return handleHashOf(rawHandle, await rulesOnChain(reader, platformId(platform)))
 }
