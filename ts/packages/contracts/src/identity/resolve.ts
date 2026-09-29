@@ -13,9 +13,14 @@ import { type Address, keccak256, type PublicClient, toHex, zeroAddress } from '
 import { identityNamesAbi } from '../abis/identityNames.js'
 import type { Rules } from './handle.js'
 
+/// A platform's domain (`'x'`, `'github'`, ...), refusing at compile time a
+/// value typed as hex: an id passed where a domain belongs would be hashed
+/// again into a platform nothing binds.
+export type PlatformDomain<D extends string> = D extends `0x${string}` ? never : D
+
 /// A platform id is `keccak256` of its domain string. The domains are generated
 /// from `handles.json`, so this and the contract agree by construction.
-export function platformId(domain: string): `0x${string}` {
+export function platformId<D extends string>(domain: PlatformDomain<D>): `0x${string}` {
   return keccak256(toHex(domain))
 }
 
@@ -46,9 +51,12 @@ function read<T>(reader: NamesReader, functionName: string, args: readonly unkno
 }
 
 /// The platform's normalization rules as configured on chain now
-/// (`IdentityNames.rulesOf`). Reverts `UnknownPlatform` without a keyspace.
-export async function rulesOnChain(reader: NamesReader, platform: `0x${string}`): Promise<Rules> {
-  const rules = await read<Rules>(reader, 'rulesOf', [platform])
+/// (`IdentityNames.rulesOf`); only the platform id is sent.
+export async function rulesOnChain<D extends string>(
+  reader: NamesReader,
+  domain: PlatformDomain<D>,
+): Promise<Rules> {
+  const rules = await read<Rules>(reader, 'rulesOf', [platformId(domain)])
   return {
     maxLength: Number(rules.maxLength),
     stripLeadingAt: rules.stripLeadingAt,

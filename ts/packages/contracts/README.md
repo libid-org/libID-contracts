@@ -125,26 +125,14 @@ normalize(' @Alice_1 ', RULES_X) // 'alice_1'
 
 ## Deriving a handle node
 
-`HandleEscrow.deposit` takes `handleHash`; `byHandle` and the escrow's reads
-take `handleNode`. Raw text is normalized under rules you pass. Read them from
-the chain, since its owner can change a platform's rules; the text itself stays
-local:
+Hash locally, so the handle text never reaches an RPC:
 
 ```ts
-import {
-  handleHashOnChainRules,
-  handleNodeOf,
-  platformId,
-  rulesOnChain,
-} from '@libid/contracts/identity'
+import { handleHash, handleNode, rulesOnChain } from '@libid/contracts/identity'
 
-const hash = await handleHashOnChainRules(reader, 'google', 'Alice@Gmail.com') // for deposit
-const rules = await rulesOnChain(reader, platformId('google'))
-handleNodeOf('google', 'Alice@Gmail.com', rules) // for byHandle, escrowed, claim, refund
+const hash = handleHash('Alice@Gmail.com', await rulesOnChain(reader, 'google')) // HandleEscrow.deposit
+const node = handleNode('google', hash) // byHandle, escrowed, claim, refund
 ```
-
-`rulesFor(platform)` gives the generated table's rules for offline use.
-`handleNode` and `handleHash` take only a `NormalizedHandle` from `normalize`.
 
 ## Development
 
