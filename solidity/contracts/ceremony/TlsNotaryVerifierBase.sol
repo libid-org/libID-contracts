@@ -194,20 +194,9 @@ abstract contract TlsNotaryVerifierBase is IPlatformVerifier, PlatformVerifierBa
     ///      means every byte of it came from one contiguous run the notary
     ///      signed, at the offsets it signed them at.
     ///
-    ///      The delimiter is then counted across the whole revealed set, seams
-    ///      included. Counting and reading want opposite things. A READ must
-    ///      stay inside one authenticated range, or a prover splices a
-    ///      document that never crossed the wire. A COUNT must not miss, or a
-    ///      prover cuts a range through a second delimiter and the duplicate
-    ///      REQ-COMMON-19A exists to reject becomes invisible to it. So the
-    ///      value is read per range and the occurrences are counted over the
-    ///      concatenation -- where a seam can only over-count, which fails
-    ///      closed. Both read bytes with the JSON whitespace removed, so a copy
-    ///      spelled with spaces is a copy.
-    ///
-    ///      `ranges` and `joined` arrive normalized by `normalizeJsonBytes`:
-    ///      each revealed range for the read, their concatenation for the
-    ///      count.
+    ///      `ranges` holds each revealed range and `joined` their concatenation,
+    ///      each normalized whole by `normalizeJsonBytes`. The count over
+    ///      `joined` can only over-count at a seam, which fails closed.
     function _uniqueJsonString(bytes[] memory ranges, bytes memory joined, string memory name)
         private
         pure
@@ -316,9 +305,8 @@ abstract contract TlsNotaryVerifierBase is IPlatformVerifier, PlatformVerifierBa
         observedAt = _requireFresh(data.createdAt);
     }
 
-    /// @dev Every check the token session's transcript answers for, in both
-    ///      directions: the request's layout, head, form and digest binding,
-    ///      then the response's tiling and bearer framing. Returns the client
+    /// @dev Every transcript check of the token session, request then
+    ///      response; `data` must come from `_authenticate`. Returns the client
     ///      identifier and the committed bearer.
     function _tokenTranscript(
         CeremonyAttestation.AttestedData memory data,
@@ -341,10 +329,10 @@ abstract contract TlsNotaryVerifierBase is IPlatformVerifier, PlatformVerifierBa
         if (data.sent.revealed[0].start != 0) {
             revert RequestLineNotAtOrigin(data.sent.revealed[0].start);
         }
+        // The one comparison of the method and path (REQ-COMMON-21A): the head
+        // check below starts past the request line.
         if (!_startsWith(data.sent.revealed[0].value, _tokenRequestLine())) revert WrongRequestLine();
 
-        // The head check below starts past the request line, so this is the
-        // one comparison of the method and the path (REQ-COMMON-21A).
         bytes memory body = _tokenBody(data.sent);
 
         // The shape first, then the values a verifier compares: a read below
@@ -391,10 +379,9 @@ abstract contract TlsNotaryVerifierBase is IPlatformVerifier, PlatformVerifierBa
         (identityCommitment, fields.userId, fields.handle) = _identityTranscript(data);
     }
 
-    /// @dev Every check the identity session's transcript answers for: the
-    ///      request line, the bearer header and the refused headers of the
-    ///      request, then the two members read out of the response. Returns
-    ///      the committed bearer, the user id and the raw handle.
+    /// @dev Every transcript check of the identity session, request then
+    ///      response; `data` must come from `_authenticate`. Returns the
+    ///      committed bearer, the user id and the raw handle.
     function _identityTranscript(CeremonyAttestation.AttestedData memory data)
         internal
         pure
@@ -440,10 +427,8 @@ abstract contract TlsNotaryVerifierBase is IPlatformVerifier, PlatformVerifierBa
         // that reaches the REVEALED bytes is still caught, in either range
         // layout; only one hidden behind a commitment is not.
         CeremonyAttestation.requireExactCoverage(data.received, data.recvTranscriptLength);
-        // Normalized once, for both readers: each range for a READ, the join
-        // for a cross-range COUNT. The join is normalized whole rather than
-        // assembled from the ranges', because whitespace at a seam goes or
-        // stays by its neighbours on both sides.
+        // The join is normalized whole, not assembled from the normalized
+        // ranges: whitespace at a seam goes or stays by the bytes on both sides.
         bytes[] memory ranges = new bytes[](data.received.revealed.length);
         for (uint256 i = 0; i < ranges.length; ++i) {
             ranges[i] = CeremonyFields.normalizeJsonBytes(data.received.revealed[i].value);
@@ -518,7 +503,6 @@ abstract contract TlsNotaryVerifierBase is IPlatformVerifier, PlatformVerifierBa
     function _checkTokenHead(bytes memory head) private pure returns (uint256 declared) {
         CeremonyAttestation.requireCrlfLineEndings(head);
 
-        // The required lines read once, not once per header line.
         TokenHead memory state;
         (state.requiredNames, state.requiredValues) = _requiredHeaders();
 
@@ -536,12 +520,9 @@ abstract contract TlsNotaryVerifierBase is IPlatformVerifier, PlatformVerifierBa
         return state.declared;
     }
 
-    /// @dev What `_checkTokenHead` knows, and what it has seen so far: the
-    ///      hashes of each required line's name and value, one bit per
-    ///      required line seen -- a profile with more than 256 headers is not
-    ///      a profile, and `validate` in the generator refuses one long before
-    ///      this could matter -- whether the length has been, and what it
-    ///      declared.
+    /// @dev `_checkTokenHead`'s state. `found` holds a bit per required line,
+    ///      capping a profile at 255 of them (the generator allows two).
+    ///      `lengths` records a `content-length` line, `declared` its value.
     struct TokenHead {
         bytes32[] requiredNames;
         bytes32[] requiredValues;
@@ -550,8 +531,7 @@ abstract contract TlsNotaryVerifierBase is IPlatformVerifier, PlatformVerifierBa
         uint256 declared;
     }
 
-    /// @dev Line `[from, to)` of the token head against the rule, advancing
-    ///      the bookkeeping in `state`.
+    /// @dev Checks token-head line `head[from:to]` and records it in `state`.
     // forge-lint: disable-next-item(incorrect-shift)
     function _tokenHeaderLine(bytes memory head, uint256 from, uint256 to, TokenHead memory state) private pure {
         (bool isHeader, bytes memory name, uint256 valueStart, uint256 valueEnd) = _field(head, from, to);
@@ -572,9 +552,9 @@ abstract contract TlsNotaryVerifierBase is IPlatformVerifier, PlatformVerifierBa
         state.found |= 1 << i;
     }
 
-    /// @dev The profile's required-header block, each line read by `_field`:
-    ///      the hash of its name, and of its value. A line `_field` does not
-    ///      read as a header hashes the empty name, which no header line has.
+    /// @dev The name and value hashes of each `_tokenRequiredHeaders()` line.
+    ///      A line `_field` rejects hashes as the empty name, which no header
+    ///      line has, so no head satisfies it.
     function _requiredHeaders() private pure returns (bytes32[] memory names, bytes32[] memory values) {
         bytes memory block_ = _tokenRequiredHeaders();
         names = new bytes32[](_countLines(block_));
@@ -597,16 +577,12 @@ abstract contract TlsNotaryVerifierBase is IPlatformVerifier, PlatformVerifierBa
         return type(uint256).max;
     }
 
-    /// @dev A header line, `data[from:to]`, as the platform reads it: the
-    ///      name before the first colon, lowercased, with any whitespace
-    ///      before the colon removed -- the normalization common REQ-COMMON-39
-    ///      gives the identity request -- and with `_` read as `-`, since a
-    ///      CGI-style stack maps both to one key; then the value after the
-    ///      colon with the optional whitespace on either side removed, as the
-    ///      offsets `[valueStart, valueEnd)` of `data`. A line with no colon,
-    ///      or nothing before it, is not a header, and says so rather than
-    ///      reverting: the token head refuses one, the identity head leaves it
-    ///      to the platform.
+    /// @dev Header line `data[from:to]` as the platform reads it: the name
+    ///      before the first colon, lowercased, whitespace before the colon
+    ///      dropped (REQ-COMMON-39), `_` read as `-` since a CGI-style stack
+    ///      maps both to one key; the value as offsets, optional whitespace
+    ///      trimmed. No colon or an empty name returns `isHeader` false: the
+    ///      token head refuses it; the identity head leaves it to the platform.
     function _field(bytes memory data, uint256 from, uint256 to)
         private
         pure
@@ -620,7 +596,7 @@ abstract contract TlsNotaryVerifierBase is IPlatformVerifier, PlatformVerifierBa
         uint256 nameEnd = _trimEnd(data, from, colon);
         if (nameEnd == from) return (false, name, 0, 0);
         name = _slice(data, from, nameEnd);
-        // `A`-`Z` lowered and `_` read as `-`, in place, below `name.length`.
+        // In place; every read and write is below `name.length`.
         assembly ("memory-safe") {
             let p := add(name, 0x20)
             let len := mload(name)
@@ -632,8 +608,7 @@ abstract contract TlsNotaryVerifierBase is IPlatformVerifier, PlatformVerifierBa
         }
         isHeader = true;
         valueStart = colon + 1;
-        // Past the spaces and tabs that open the value, then back over the
-        // ones that close it. Every offset read lies in [valueStart, to).
+        // Skips the value's leading spaces and tabs, reading only below `to`.
         assembly ("memory-safe") {
             let p := add(data, 0x20)
             for {} lt(valueStart, to) { valueStart := add(valueStart, 1) } {
@@ -644,12 +619,11 @@ abstract contract TlsNotaryVerifierBase is IPlatformVerifier, PlatformVerifierBa
         valueEnd = _trimEnd(data, valueStart, to);
     }
 
-    /// @dev `to`, moved back over the spaces and tabs that end
-    ///      `data[from:to]`.
+    /// @dev `to`, moved back over the spaces and tabs ending `data[from:to]`.
     function _trimEnd(bytes memory data, uint256 from, uint256 to) private pure returns (uint256 end) {
         end = to;
-        // Reads `data[end - 1]` only while `end > from`, and `from` and `to`
-        // bound a range inside `data` at every call.
+        // Reads `data[end - 1]` only for `from < end <= to`, and every caller
+        // keeps `to <= data.length`.
         assembly ("memory-safe") {
             let p := add(data, 0x20)
             for {} gt(end, from) { end := sub(end, 1) } {
@@ -737,30 +711,12 @@ abstract contract TlsNotaryVerifierBase is IPlatformVerifier, PlatformVerifierBa
         }
     }
 
-    /// @dev The HTTP message body of the token request.
-    ///
-    ///      Located by the framing the SERVER parsed -- the `\r\n\r\n` that ends
-    ///      the head -- and not by a position in the range list. That
-    ///      distinction is the whole point: a prover who can choose which run
-    ///      counts as "the body" simply reveals a decoy after committing the
-    ///      real one, and every field below is then read from bytes the
-    ///      platform never saw while the platform executed something else.
-    ///
-    ///      So the shape is fixed exactly: ONE revealed run beginning at
-    ///      offset 0 and no commitment at all, so the run covers the request
-    ///      through to its signed length and no body byte is hidden.
-    ///
-    ///      And the head is checked, not only revealed: `_checkTokenHead`
-    ///      holds its lines to the profile's required and forbidden names.
-    ///      REQ-COMMON-21B fixes the media type because it selects the
-    ///      platform's request parser, and a pinned value nothing compares is
-    ///      a pin in name only.
-    ///
-    ///      `content-length` is the one value the profile cannot fix, because
-    ///      it is the body's own length -- so it is read, and matched against
-    ///      the length the NOTARY signed. Without that the platform could frame
-    ///      a shorter body than the one read below, and parse a form this
-    ///      verifier never saw.
+    /// @dev The token request's body: the bytes after its one `\r\n\r\n`. The
+    ///      request must be one revealed range with no commitment, which the
+    ///      caller's exact coverage makes the whole request: the body is the one
+    ///      the platform framed, not a decoy beside a committed original. Its
+    ///      `content-length` must equal the signed body length, or the platform
+    ///      could parse a shorter form than the one read here.
     function _tokenBody(CeremonyAttestation.DirectionBlock memory block_) internal pure returns (bytes memory body) {
         if (block_.revealed.length != 1 || block_.commitments.length != 0) {
             revert WrongTokenRequestLayout(block_.revealed.length, block_.commitments.length);

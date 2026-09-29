@@ -59,10 +59,9 @@ contract CeremonyProfileTest is Test {
         assertEq(CeremonyProfile.LAUNCH_VERSION, 1);
     }
 
-    /// @dev The membership test and the list it tests are one list: each
-    ///      name the list holds is forbidden, and nothing else is -- not a
-    ///      name the verifier reads, not another spelling, not two names
-    ///      joined.
+    /// @dev `isForbiddenRequestHeader` is true for every listed name and false
+    ///      for near misses: a header the verifier reads, another case, a
+    ///      trailing space, the empty name, two names joined.
     function test_theForbiddenNamesAreTheListedOnes() public pure {
         bytes memory list = CeremonyProfile.FORBIDDEN_REQUEST_HEADERS;
         uint256 listed;

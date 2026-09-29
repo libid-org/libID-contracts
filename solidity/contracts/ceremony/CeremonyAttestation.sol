@@ -207,8 +207,7 @@ library CeremonyAttestation {
             bytes memory normalized = CeremonyFields.normalizeJsonBytes(range.value);
             if (normalized.length < prefix.length) return false;
             bytes32 tail;
-            // The last `prefix.length` bytes, which the line above keeps inside
-            // `normalized`.
+            // The last `prefix.length` bytes, in bounds by the length check above.
             assembly ("memory-safe") {
                 let size := mload(prefix)
                 tail := keccak256(add(add(normalized, 0x20), sub(mload(normalized), size)), size)
@@ -236,8 +235,7 @@ library CeremonyAttestation {
     ///
     /// @return commitment The committed bearer range, which the caller then
     ///         matches against the circuit's identity-bearer public input.
-    /// @return revealed   The request's revealed bytes, joined in offset
-    ///         order: what the count read, for a caller scanning its lines.
+    /// @return revealed   `concatRevealed(block_)`, the bytes the count read.
     function requireBearerHeaderRequest(DirectionBlock memory block_, uint32 length)
         internal
         pure
@@ -270,9 +268,9 @@ library CeremonyAttestation {
         // and reading want opposite things: a count must not miss, a read must
         // not splice.
         // Counted once. Filling the error argument with a second call would
-        // copy the whole revealed transcript again and rescan it, so every
-        // rejected submission would pay twice for the check that rejected it --
-        // on a buffer the prover sizes.
+        // rescan the whole revealed transcript, so every rejected submission
+        // would pay twice for the check that rejected it -- on a buffer the
+        // prover sizes.
         uint256 headers = _countNeedle(revealed);
         if (headers != 1) revert NotOneAuthorizationHeader(headers);
 
@@ -315,8 +313,7 @@ library CeremonyAttestation {
     ///      Runs BEFORE the count, over the raw bytes: normalization keeps CR
     ///      and LF, so the offsets it reports are transcript offsets.
     ///
-    ///      One pass. A fold is reported before any bare byte, wherever each
-    ///      lies, so the first bare byte waits for the end of the pass.
+    ///      A fold anywhere is reported before the first bare CR or LF.
     function requireCrlfLineEndings(bytes memory revealed) internal pure {
         uint256 bare = type(uint256).max;
         bool bareLineFeed;
@@ -356,10 +353,10 @@ library CeremonyAttestation {
     ///      spurious match, which over-rejects and is safe, but can never hide
     ///      a real one.
     ///
-    ///      `internal` for the same reason `concatRevealed` is: a header
-    ///      COUNT reads this, and what it strips decides what a count can
-    ///      miss -- so one implementation of it, shared with the JWKS root
-    ///      list's `Host` scan, rather than two.
+    ///      `internal` because a header COUNT reads this -- the JWKS root
+    ///      list's `Host` scan -- and what it strips decides what a count can
+    ///      miss. `_countNeedle` strips the same bytes inline, so the two must
+    ///      change together.
     function normalizeHeaderBytes(bytes memory raw) internal pure returns (bytes memory out) {
         out = new bytes(raw.length);
         uint256 n;
@@ -374,14 +371,10 @@ library CeremonyAttestation {
         }
     }
 
-    /// @dev How often `AUTHORIZATION_NEEDLE` occurs in
-    ///      `normalizeHeaderBytes(raw)`, counted as the normalized bytes stream
-    ///      past rather than from a normalized copy.
-    ///
-    ///      `matched` is how much of the needle the stream so far ends with.
-    ///      The needle's first byte, CR, appears nowhere else in it, so after
-    ///      a mismatch the only match still open is one this byte starts, and
-    ///      two matches never overlap.
+    /// @dev How often `AUTHORIZATION_NEEDLE` occurs in `normalizeHeaderBytes(raw)`.
+    ///      Relies on the needle's first byte, CR, occurring nowhere else in it:
+    ///      after a mismatch the only match left open starts at the current
+    ///      byte, and matches never overlap.
     function _countNeedle(bytes memory raw) private pure returns (uint256 count) {
         bytes memory needle = AUTHORIZATION_NEEDLE;
         // Reads `raw[i]` only below its length. The needle is sixteen bytes,
@@ -424,8 +417,7 @@ library CeremonyAttestation {
         uint256 n;
         for (uint256 i = 0; i < block_.revealed.length; ++i) {
             bytes memory v = block_.revealed[i].value;
-            // `out` holds `total` bytes, the sum of every length, so each copy
-            // ends inside it.
+            // In bounds: `n + v.length` never exceeds `total`, `out`'s length.
             assembly ("memory-safe") {
                 mcopy(add(add(out, 0x20), n), add(v, 0x20), mload(v))
             }
@@ -454,9 +446,8 @@ library CeremonyAttestation {
                     uint256 take = r.value.length - offset;
                     if (take > to - at) take = to - at;
                     bytes memory v = r.value;
-                    // `offset + take` stays inside `v` by the line computing
-                    // `take`, and `n + take` inside `out`, since `n` is
-                    // `at - from` and `take` at most `to - at`.
+                    // Reads stay in `v`: `take <= v.length - offset`. Writes
+                    // stay in `out`: `n == at - from` and `take <= to - at`.
                     assembly ("memory-safe") {
                         mcopy(add(add(out, 0x20), n), add(add(v, 0x20), offset), take)
                     }
