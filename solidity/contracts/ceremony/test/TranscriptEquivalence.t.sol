@@ -10,8 +10,7 @@ import {GitHubPlatformVerifier} from "../GitHubPlatformVerifier.sol";
 import {XPlatformVerifier} from "../XPlatformVerifier.sol";
 import {RefCeremonyAttestation, RefCeremonyFields, RefTranscript} from "./TranscriptReference.sol";
 
-/// @notice `XPlatformVerifier`'s transcript checks, callable one session at a
-///         time.
+/// @notice `XPlatformVerifier`'s transcript checks, one session per call.
 contract XTranscripts is XPlatformVerifier {
     function tokenTranscript(CeremonyAttestation.AttestedData memory data, bytes32 digest, bytes32 nonce)
         external
@@ -161,7 +160,7 @@ contract LiveHelpers {
     }
 }
 
-/// @notice And the same helpers as they were.
+/// @notice The same helpers, from `TranscriptReference.sol`.
 contract RefHelpers {
     function requireCrlfLineEndings(bytes memory data) external pure {
         RefCeremonyAttestation.requireCrlfLineEndings(data);
@@ -228,16 +227,9 @@ contract RefHelpers {
     }
 }
 
-/// @notice Transcripts built to reach every check: an honest session of each
-///         kind, bent by a seeded choice of the edits the checks exist to
-///         catch.
-/// @dev A byte-level fuzzer rarely writes `\r\nauthorization:` or a form
-///      whose length its own head declares, so the checks past the first
-///      would go unexercised. These generators start from the shape the
-///      browser sends and change it a piece at a time -- a header spelled
-///      another way, a line ending bared, a pair repeated, a range cut
-///      through a delimiter -- so both implementations meet inputs that pass
-///      some checks and fail a later one.
+/// @notice Seeded transcripts: an honest session of each kind, bent by the
+///         edits the checks exist to catch, so an input can pass some checks
+///         and fail a later one. Random bytes rarely pass the first.
 library Gen {
     struct Rng {
         uint256 state;
@@ -365,7 +357,7 @@ library Gen {
     /// @dev `t` cut at every offset in `bounds` and at up to `extra` random
     ///      ones; the segments `bounds` makes take `boundKinds` in order and every
     ///      further cut splits a segment into two of the same kind. Now and
-    ///      then a segment turns to a gap, or the whole kind flips.
+    ///      then a segment turns to a gap, or its kind flips.
     function split(Rng memory r, bytes memory t, uint256[] memory bounds, uint8[] memory boundKinds, uint256 extra)
         internal
         pure
@@ -383,8 +375,6 @@ library Gen {
         for (uint256 i = 0; i < extra; ++i) {
             cuts[count++] = t.length == 0 ? 0 : pick(r, t.length + 1);
         }
-        // Insertion sort, and remember which mark-bounded segment each cut
-        // falls in by the kinds already laid down.
         for (uint256 i = 1; i < count; ++i) {
             uint256 v = cuts[i];
             uint256 j = i;
@@ -394,6 +384,7 @@ library Gen {
             }
             cuts[j] = v;
         }
+        // Each segment takes the kind of the `bounds` segment it starts in.
         for (uint256 i = 0; i + 1 < count; ++i) {
             uint256 segment = 0;
             for (uint256 m = 0; m < bounds.length; ++m) {
@@ -411,8 +402,8 @@ library Gen {
         return layout(t, trimmed, segmentKinds);
     }
 
-    /// @dev The signed length of a direction over `t`: itself, or now and
-    ///      then a little more or less.
+    /// @dev The signed length of a direction over `t`: its length, or now and
+    ///      then 1 to 3 bytes more.
     function length(Rng memory r, bytes memory t) internal pure returns (uint32) {
         uint256 len = t.length;
         if (chance(r, 2)) len += 1 + pick(r, 3);
@@ -777,12 +768,10 @@ library Gen {
     }
 }
 
-/// @notice Every transcript check the verifiers run, against a copy of the
-///         same check as it stood before its rewrite: equal results, and
-///         equal revert data, for every input the generators make.
-/// @dev One test per stage and profile, fed whole sessions, so the ORDER of
-///      the checks is compared along with each one; and one per library
-///      helper other contracts call, fed bytes a helper alone would see.
+/// @notice Every transcript check the verifiers run, against its copy in
+///         `TranscriptReference.sol`: equal results and equal revert data.
+/// @dev Whole sessions per stage and profile, so the order of the checks is
+///      compared too; and each library helper other contracts call, on its own.
 contract TranscriptEquivalenceTest is Test {
     using Gen for Gen.Rng;
 
@@ -943,8 +932,7 @@ contract TranscriptEquivalenceTest is Test {
         string memory name = string(r.oneOf(Gen.list("client_id", "code_verifier", "grant_type", r.soup("ab_", 3))));
         bool exact = _same(address(live), address(ref), abi.encodeCall(LiveHelpers.requireExactForm, (body, names)));
         _same(address(live), address(ref), abi.encodeCall(LiveHelpers.formField, (body, name)));
-        // Over a body the form holds, the value read off the list is the one
-        // a scan of the body finds, and so is the error when there is none.
+        // On an exact body, `valueOf` answers as `formField` does, errors included.
         if (exact) {
             _same(
                 address(live),
@@ -1014,9 +1002,7 @@ contract TranscriptEquivalenceTest is Test {
 
     // ─── The byte search ────────────────────────────────────────────
 
-    /// @dev `indexOfByte` against the loop it replaces, over every
-    ///      alignment: the answer is the first offset at or after `from`
-    ///      holding `b`, or the length.
+    /// @dev `indexOfByte` against a byte loop, at every alignment.
     /// forge-config: default.fuzz.runs = 5000
     function testFuzz_indexOfByteMatchesAByteLoop(uint256 seed, bytes memory data, uint256 from) public pure {
         Gen.Rng memory r = Gen.Rng(seed);

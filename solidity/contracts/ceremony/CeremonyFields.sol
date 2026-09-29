@@ -51,9 +51,8 @@ library CeremonyFields {
         Unterminated
     }
 
-    /// @notice A body `requireExactForm` accepted, as offsets: for each field
-    ///         of the list it was held to, in list order, the hash of its name
-    ///         and where its value lies in `body`.
+    /// @notice A body `requireExactForm` accepted: per listed field, in list
+    ///         order, its name's hash and its value's offsets in `body`.
     struct Form {
         bytes body;
         bytes32[] names;
@@ -61,9 +60,8 @@ library CeremonyFields {
         uint256[] ends;
     }
 
-    // Byte classes as 256-bit sets: byte `c` is in a class when bit `c` of
-    // the class's set is. The lint reads `1 << c` as swapped operands; a set
-    // bit per member is what it is.
+    // Byte classes as 256-bit sets: byte `c` is a member when bit `c` is set.
+    // The lint misreads each member's `1 << c` as swapped shift operands.
     // forge-lint: disable-next-line(incorrect-shift)
     uint256 private constant JSON_WHITESPACE = (1 << 0x20) | (1 << 0x09) | (1 << 0x0a) | (1 << 0x0d);
     /// @dev `:` `,` `{` `}` `[` `]`.
@@ -88,8 +86,7 @@ library CeremonyFields {
         return tryNormalizedJsonString(normalizeJsonBytes(data), name);
     }
 
-    /// @notice `tryJsonString` over bytes `normalizeJsonBytes` returned, for
-    ///         a caller reading more than one field out of them.
+    /// @notice `tryJsonString` over bytes `normalizeJsonBytes` returned.
     function tryNormalizedJsonString(bytes memory data, string memory name)
         internal
         pure
@@ -187,8 +184,7 @@ library CeremonyFields {
         uint256 n;
         uint256 i;
         while (i < data.length) {
-            // The run of other bytes from `i`, crossed a word at a time and
-            // kept whole.
+            // `j`: the first whitespace byte at or after `i`, or the end.
             uint256 j = i;
             while (j < data.length) {
                 uint256 marked = _jsonWhitespaceBytes(_word(data, j));
@@ -203,8 +199,7 @@ library CeremonyFields {
             n += j - i;
             if (j == data.length) break;
 
-            // The whitespace run [j, k) goes when the byte kept before it or
-            // the byte after it is structural.
+            // Whitespace [j, k) goes if the last kept byte or `data[k]` is structural.
             uint256 k = j + 1;
             while (k < data.length && (JSON_WHITESPACE >> uint8(data[k])) & 1 == 1) {
                 ++k;
@@ -224,16 +219,14 @@ library CeremonyFields {
 
     /// @dev `data[from:to]` written into `out` at `at`.
     function _append(bytes memory out, uint256 at, bytes memory data, uint256 from, uint256 to) private pure {
-        // Both ranges inside their arrays, so the copy reads and writes only
-        // bytes those arrays hold.
+        // Both ranges in bounds, so the copy stays inside both arrays.
         assert(from <= to && to <= data.length && at + (to - from) <= out.length);
         assembly ("memory-safe") {
             mcopy(add(add(out, 0x20), at), add(add(data, 0x20), from), sub(to, from))
         }
     }
 
-    /// @dev 0x80 in every byte of `word` that is JSON whitespace -- space,
-    ///      tab, line feed, carriage return -- and 0 in every other.
+    /// @dev 0x80 in each byte of `word` that is space, tab, LF or CR; 0 elsewhere.
     function _jsonWhitespaceBytes(uint256 word) private pure returns (uint256 marked) {
         assembly ("memory-safe") {
             // Bytes equal to `v`, marked as `indexOfByte` marks them.
@@ -271,15 +264,13 @@ library CeremonyFields {
         at = type(uint256).max;
         uint256 n = needle.length;
         if (n > data.length) return at;
-        // The last offset a copy fits at: every comparison below reads
-        // `data[i:i + n]` with `i` at most this, so inside `data`.
+        // Each comparison covers `data[i:i + n]` with `i <= last`: inside `data`.
         uint256 last = data.length - n;
         assembly ("memory-safe") {
             let p := add(data, 0x20)
             switch gt(n, 32)
             case 0 {
-                // One word: `mask` keeps the first `n` bytes, what lies
-                // past them in either word is not compared.
+                // `mask` keeps a word's first `n` bytes; the rest is not compared.
                 let mask := not(shr(mul(n, 8), not(0)))
                 let want := and(mload(add(needle, 0x20)), mask)
                 for { let i := from } iszero(gt(i, last)) { i := add(i, 1) } {
@@ -304,13 +295,10 @@ library CeremonyFields {
     /// @notice The first offset at or after `from` holding byte `b`, or
     ///         `data.length` when none does.
     ///
-    /// @dev Thirty-two bytes a step. XOR with `b` in every byte zeroes the
-    ///      bytes equal to it, and a byte `x` is zero exactly when neither
-    ///      `(x & 0x7f) + 0x7f` nor `x` sets its top bit -- the sum stays
-    ///      below 0x100, so nothing carries into the next byte. `hits` holds
-    ///      0x80 in each such byte, and the first of them, the word's highest
-    ///      set bit, is found by halving. A word may read past `data.length`;
-    ///      a hit there is not an answer, and no later word is read.
+    /// @dev After XOR with `b` in every byte, a byte `x` is zero iff neither
+    ///      `(x & 0x7f) + 0x7f` nor `x` sets its top bit; the sum stays below
+    ///      0x100, so no byte carries into the next. A word may extend past
+    ///      `data.length`; a hit there returns `data.length`.
     function indexOfByte(bytes memory data, uint256 from, bytes1 b) internal pure returns (uint256 at) {
         assembly ("memory-safe") {
             let low7 := 0x7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f
@@ -375,16 +363,10 @@ library CeremonyFields {
         value = _slice(data, at, end);
     }
 
-    /// @notice The value of field `name` in a body `requireExactForm`
-    ///         accepted.
+    /// @notice The value of field `name` in a body `requireExactForm` accepted.
     ///
-    /// @dev What `formField` finds by scanning the body, read off the list
-    ///      instead. An exact body carries each listed name once, at the pair
-    ///      the list puts it, and nothing else: its `&` bytes are exactly the
-    ///      pair boundaries, since no value holds one, and a name the generator
-    ///      admits holds no `=`, so `name=` at a boundary is that pair's own
-    ///      name. A name listed twice is ambiguous here as it is there, and one
-    ///      not listed is not found.
+    /// @dev Listed names carry no form delimiter (the generator refuses one),
+    ///      so each recorded value is the one a form parser reads for its name.
     function valueOf(Form memory form, string memory name) internal pure returns (bytes memory) {
         bytes32 wanted = keccak256(bytes(name));
         uint256 found = type(uint256).max;
@@ -477,11 +459,9 @@ library CeremonyFields {
         }
     }
 
-    /// @dev The form value from `at` to the next `&` or the end of `body`,
-    ///      one token at a time -- a pass-through byte, a `+`, or a `%XX`
-    ///      escape in uppercase of a byte the serializer escapes -- and where
-    ///      it ends; or the offset of the first token that is none of those.
-    ///      A run of pass-through bytes is crossed a word at a time.
+    /// @dev The end of the form value from `at`: the next `&` or the end of
+    ///      `body`. With `malformed`, the first token that is not a pass-through
+    ///      byte, `+`, or an uppercase `%XX` of a byte the serializer escapes.
     function _formValue(bytes memory body, uint256 at) private pure returns (uint256, bool malformed) {
         while (at < body.length) {
             uint256 escaped = serializerUnsafeBytes(_word(body, at));
@@ -518,12 +498,10 @@ library CeremonyFields {
     /// @notice 0x80 in every byte of `word` outside the serializer's
     ///         pass-through set `[A-Za-z0-9*._-]`, and 0 in every byte in it.
     ///
-    /// @dev The set as ranges, each tested in all 32 bytes at once. For a byte
-    ///      `x` below 0x80, with `t = x & 0x7f`, `t + (0x7f - m)` sets the top
-    ///      bit exactly when `x > m`, and `(0x7f + n) - t` exactly when
-    ///      `x < n`; neither leaves the byte, so no byte disturbs its
-    ///      neighbour, and `~x` rules out a byte at or above 0x80. One byte
-    ///      value is a zero after XOR, marked as `indexOfByte` marks one.
+    /// @dev For a byte `x < 0x80`, with `t = x & 0x7f`: `t + (0x7f - m)` sets
+    ///      the top bit iff `x > m`, and `(0x7f + n) - t` iff `x < n`; neither
+    ///      carries or borrows out of the byte. `~x` excludes bytes at or above
+    ///      0x80.
     function serializerUnsafeBytes(uint256 word) internal pure returns (uint256 escaped) {
         assembly ("memory-safe") {
             // Bytes `x` with `m < x < n`, for `m < n <= 0x80`.
@@ -534,7 +512,7 @@ library CeremonyFields {
                 let below := sub(mul(ones, add(0x7f, n)), t)
                 f := and(and(above, below), and(not(w), mul(ones, 0x80)))
             }
-            // Bytes equal to `v`.
+            // Bytes equal to `v`, marked as `indexOfByte` marks them.
             function equal(w, v) -> f {
                 let ones := 0x0101010101010101010101010101010101010101010101010101010101010101
                 let low7 := mul(ones, 0x7f)
