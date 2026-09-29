@@ -194,19 +194,19 @@ contract IdentityNamesGasTest is Test {
     /// take the same path through the paging.
     function test_aPageCostsTheSame() public measured {
         _cool();
-        names.accountsOf(few, X, 0, FEW - 1);
+        names.accountsOf(few, 0, FEW - 1);
         uint64 atFew = _used();
         _cool();
-        names.accountsOf(many, X, 0, FEW - 1);
+        names.accountsOf(many, 0, FEW - 1);
         assertEq(atFew, _used(), "a page of three");
     }
 
     function test_countingCostsTheSame() public measured {
         _cool();
-        names.accountCount(few, X);
+        names.accountCount(few);
         uint64 atFew = _used();
         _cool();
-        names.accountCount(many, X);
+        names.accountCount(many);
         assertEq(atFew, _used(), "the count");
     }
 

@@ -30,6 +30,7 @@ mod names_inner {
             /// account was known as.
             #[derive(Debug, serde::Serialize, serde::Deserialize)]
             struct Account {
+                bytes32 platformId;
                 string userId;
                 string handle;
                 bool handleCurrent;
@@ -64,15 +65,15 @@ mod names_inner {
             function reverseOf(address wallet, bytes32 platformId) external view returns (string memory);
             function primaryOf(address wallet, bytes32 platformId) external view returns (string memory);
 
-            /// How many accounts a wallet holds on a platform.
-            function accountCount(address wallet, bytes32 platformId) external view returns (uint256);
-            /// A page of the accounts a wallet holds on a platform: the
-            /// indices `[from, from + limit)`, counted from zero and clipped
-            /// to the list. Order
+            /// How many accounts a wallet holds, on every platform together.
+            function accountCount(address wallet) external view returns (uint256);
+            /// A page of the accounts a wallet holds, on every platform
+            /// together: the indices `[from, from + limit)`, counted from
+            /// zero and clipped to the list. Order
             /// is arbitrary and changes when an account leaves the list, so
             /// a reader that needs every account reads `accountCount` and
             /// the pages in one block.
-            function accountsOf(address wallet, bytes32 platformId, uint256 from, uint256 limit) external view returns (Account[] memory);
+            function accountsOf(address wallet, uint256 from, uint256 limit) external view returns (Account[] memory);
 
             /// Carries the ceremony version that proved the binding -- logged,
             /// never stored, because nothing on chain acts on it and an

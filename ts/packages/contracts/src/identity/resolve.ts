@@ -140,8 +140,10 @@ export async function resolvePair(
   return { wallet: wallet === zeroAddress ? null : wallet, idAgrees }
 }
 
-/// One account a wallet proved on a platform, as the wallet's list reports it.
+/// One account a wallet proved, as the wallet's list reports it.
 export interface Account {
+  /// The platform the account is on, as `platformId` derives it.
+  platformId: `0x${string}`
   /// The account id, byte for byte as the platform issued it.
   userId: string
   /// The handle this account proved most recently, as normalized on chain.
@@ -154,21 +156,15 @@ export interface Account {
   handleCurrent: boolean
 }
 
-/// How many accounts a wallet holds on a platform.
-///
-/// A revert propagates, as in `resolveHandle`: `UnknownPlatform` means the
-/// platform is not configured.
-export async function accountCount(
-  reader: NamesReader,
-  wallet: Address,
-  platform: `0x${string}`,
-): Promise<bigint> {
-  return read<bigint>(reader, 'accountCount', [wallet, platform])
+/// How many accounts a wallet holds, on every platform together.
+export async function accountCount(reader: NamesReader, wallet: Address): Promise<bigint> {
+  return read<bigint>(reader, 'accountCount', [wallet])
 }
 
-/// A page of the accounts a wallet holds on a platform: the indices
-/// `[from, from + limit)` of its list, counted from zero and clipped to the
-/// list. A `from` past the end answers an empty page.
+/// A page of the accounts a wallet holds, on every platform together: the
+/// indices `[from, from + limit)` of its list, counted from zero and clipped
+/// to the list. A `from` past the end answers an empty page. A reader that
+/// wants one platform filters a page by `platformId`.
 ///
 /// Order is arbitrary and changes when an account leaves the list, so two
 /// pages read across a removal may overlap or skip. A reader that needs every
@@ -179,10 +175,14 @@ export async function accountCount(
 export async function accountsOf(
   reader: NamesReader,
   wallet: Address,
-  platform: `0x${string}`,
   from: bigint,
   limit: bigint,
 ): Promise<Account[]> {
-  const page = await read<readonly Account[]>(reader, 'accountsOf', [wallet, platform, from, limit])
-  return page.map(({ userId, handle, handleCurrent }) => ({ userId, handle, handleCurrent }))
+  const page = await read<readonly Account[]>(reader, 'accountsOf', [wallet, from, limit])
+  return page.map(({ platformId, userId, handle, handleCurrent }) => ({
+    platformId,
+    userId,
+    handle,
+    handleCurrent,
+  }))
 }

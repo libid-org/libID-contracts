@@ -463,42 +463,64 @@ contract IdentityNamesTest is Test {
 
     // ─── A wallet's accounts ────────────────────────────────────────
 
-    /// Every account a wallet holds on a platform, in one read.
-    function _accounts(address wallet, bytes32 platformId) internal view returns (IdentityNames.Account[] memory) {
-        return names.accountsOf(wallet, platformId, 0, names.accountCount(wallet, platformId));
+    /// Every account a wallet holds, in one read.
+    function _accounts(address wallet) internal view returns (IdentityNames.Account[] memory) {
+        return names.accountsOf(wallet, 0, names.accountCount(wallet));
     }
 
-    /// Whether a page carries the account with this id.
-    function _holds(IdentityNames.Account[] memory page, string memory userId) internal pure returns (bool) {
+    function _is(IdentityNames.Account memory a, bytes32 platformId, string memory userId)
+        internal
+        pure
+        returns (bool)
+    {
+        return a.platformId == platformId && keccak256(bytes(a.userId)) == keccak256(bytes(userId));
+    }
+
+    /// Whether a page carries this account.
+    function _holds(IdentityNames.Account[] memory page, bytes32 platformId, string memory userId)
+        internal
+        pure
+        returns (bool)
+    {
         for (uint256 i = 0; i < page.length; i++) {
-            if (keccak256(bytes(page[i].userId)) == keccak256(bytes(userId))) return true;
+            if (_is(page[i], platformId, userId)) return true;
         }
         return false;
     }
 
-    /// The listed account with this id. Order is arbitrary, so a test that
-    /// wants one account finds it by what identifies it.
+    /// The listed account. Order is arbitrary, so a test that wants one
+    /// account finds it by what identifies it.
     function _account(address wallet, bytes32 platformId, string memory userId)
         internal
         view
         returns (IdentityNames.Account memory)
     {
-        IdentityNames.Account[] memory all = _accounts(wallet, platformId);
+        IdentityNames.Account[] memory all = _accounts(wallet);
         for (uint256 i = 0; i < all.length; i++) {
-            if (keccak256(bytes(all[i].userId)) == keccak256(bytes(userId))) return all[i];
+            if (_is(all[i], platformId, userId)) return all[i];
         }
         revert("not listed");
     }
 
-    function test_aClaimListsTheAccountWithItsIdAndHandle() public {
+    function test_aClaimListsTheAccountWithItsPlatformIdAndHandle() public {
         _bind(alice, "123", "alice", 100);
 
-        assertEq(names.accountCount(alice, X), 1);
+        assertEq(names.accountCount(alice), 1);
         IdentityNames.Account memory a = _account(alice, X, "123");
         assertEq(a.handle, "alice");
         assertTrue(a.handleCurrent);
-        assertEq(names.accountCount(alice, GITHUB), 0, "each platform keeps its own list");
-        assertEq(names.accountCount(bob, X), 0, "and so does each wallet");
+        assertEq(names.accountCount(bob), 0, "each wallet keeps its own list");
+    }
+
+    function test_accountsOnEveryPlatformShareOneList() public {
+        _bind(alice, "123", "alice", 100);
+        _stage("123", "alice", alice, 200);
+        vm.prank(alice);
+        _claim(GITHUB, false);
+
+        assertEq(names.accountCount(alice), 2);
+        assertTrue(_account(alice, X, "123").handleCurrent);
+        assertTrue(_account(alice, GITHUB, "123").handleCurrent);
     }
 
     function test_theListedHandleIsTheNormalizedOne() public {
@@ -510,7 +532,7 @@ contract IdentityNamesTest is Test {
         _bind(alice, "123", "alice", 100);
         _bind(alice, "456", "alicia", 200);
 
-        assertEq(names.accountCount(alice, X), 2);
+        assertEq(names.accountCount(alice), 2);
         assertEq(_account(alice, X, "123").handle, "alice");
         assertEq(_account(alice, X, "456").handle, "alicia");
     }
@@ -519,7 +541,7 @@ contract IdentityNamesTest is Test {
         _bind(alice, "123", "alice", 100);
         _bind(alice, "123", "alicia", 200);
 
-        assertEq(names.accountCount(alice, X), 1);
+        assertEq(names.accountCount(alice), 1);
         IdentityNames.Account memory a = _account(alice, X, "123");
         assertEq(a.handle, "alicia");
         assertTrue(a.handleCurrent);
@@ -528,7 +550,7 @@ contract IdentityNamesTest is Test {
     function test_provingTheSameHandleAgainListsNothingTwice() public {
         _bind(alice, "123", "alice", 100);
         _bind(alice, "123", "alice", 200);
-        assertEq(names.accountCount(alice, X), 1);
+        assertEq(names.accountCount(alice), 1);
     }
 
     /// The list is alice's: bob taking her handle changes what it resolves
@@ -538,7 +560,7 @@ contract IdentityNamesTest is Test {
         _bind(alice, "123", "shared", 100);
         _bind(bob, "456", "shared", 200);
 
-        assertEq(names.accountCount(alice, X), 1);
+        assertEq(names.accountCount(alice), 1);
         IdentityNames.Account memory a = _account(alice, X, "123");
         assertEq(a.handle, "shared");
         assertFalse(a.handleCurrent, "the handle resolves to bob now");
@@ -552,7 +574,7 @@ contract IdentityNamesTest is Test {
         _bind(alice, "456", "second", 200);
         _bind(alice, "456", "first", 300);
 
-        assertEq(names.accountCount(alice, X), 2);
+        assertEq(names.accountCount(alice), 2);
         assertFalse(_account(alice, X, "123").handleCurrent);
         IdentityNames.Account memory second = _account(alice, X, "456");
         assertEq(second.handle, "first");
@@ -563,8 +585,8 @@ contract IdentityNamesTest is Test {
         _bind(alice, "123", "alice", 100);
         _bind(bob, "123", "alice", 200);
 
-        assertEq(names.accountCount(alice, X), 0);
-        assertEq(names.accountCount(bob, X), 1);
+        assertEq(names.accountCount(alice), 0);
+        assertEq(names.accountCount(bob), 1);
         assertTrue(_account(bob, X, "123").handleCurrent);
     }
 
@@ -574,15 +596,15 @@ contract IdentityNamesTest is Test {
         _bind(alice, "3", "three", 300);
         _bind(bob, "2", "two", 400);
 
-        assertEq(names.accountCount(alice, X), 2);
+        assertEq(names.accountCount(alice), 2);
         assertEq(_account(alice, X, "1").handle, "one");
         assertEq(_account(alice, X, "3").handle, "three");
         assertEq(_account(bob, X, "2").handle, "two");
 
         // And back: an account returns to a list it left.
         _bind(alice, "2", "two", 500);
-        assertEq(names.accountCount(alice, X), 3);
-        assertEq(names.accountCount(bob, X), 0);
+        assertEq(names.accountCount(alice), 3);
+        assertEq(names.accountCount(bob), 0);
         assertEq(_account(alice, X, "2").handle, "two");
     }
 
@@ -591,27 +613,19 @@ contract IdentityNamesTest is Test {
         _bind(alice, "2", "two", 200);
         _bind(alice, "3", "three", 300);
 
-        assertEq(names.accountsOf(alice, X, 0, 2).length, 2);
-        assertEq(names.accountsOf(alice, X, 2, 5).length, 1, "clipped at the end");
-        assertEq(names.accountsOf(alice, X, 3, 1).length, 0, "past the end is empty, not a revert");
-        assertEq(names.accountsOf(alice, X, 0, 0).length, 0);
-        assertEq(names.accountsOf(alice, X, 1, type(uint256).max).length, 2, "a limit past the end is clipped too");
+        assertEq(names.accountsOf(alice, 0, 2).length, 2);
+        assertEq(names.accountsOf(alice, 2, 5).length, 1, "clipped at the end");
+        assertEq(names.accountsOf(alice, 3, 1).length, 0, "past the end is empty, not a revert");
+        assertEq(names.accountsOf(alice, 0, 0).length, 0);
+        assertEq(names.accountsOf(alice, 1, type(uint256).max).length, 2, "a limit past the end is clipped too");
 
         // Two pages cover the list once each.
-        IdentityNames.Account[] memory first = names.accountsOf(alice, X, 0, 2);
-        IdentityNames.Account[] memory second = names.accountsOf(alice, X, 2, 2);
+        IdentityNames.Account[] memory first = names.accountsOf(alice, 0, 2);
+        IdentityNames.Account[] memory second = names.accountsOf(alice, 2, 2);
         assertEq(second.length, 1);
-        assertTrue(_holds(first, "1") != _holds(second, "1"));
-        assertTrue(_holds(first, "2") != _holds(second, "2"));
-        assertTrue(_holds(first, "3") != _holds(second, "3"));
-    }
-
-    function test_theListRefusesAnUnknownPlatform() public {
-        bytes32 nowhere = keccak256("nowhere");
-        vm.expectRevert(abi.encodeWithSelector(IdentityNames.UnknownPlatform.selector, nowhere));
-        names.accountCount(alice, nowhere);
-        vm.expectRevert(abi.encodeWithSelector(IdentityNames.UnknownPlatform.selector, nowhere));
-        names.accountsOf(alice, nowhere, 0, 1);
+        assertTrue(_holds(first, X, "1") != _holds(second, X, "1"));
+        assertTrue(_holds(first, X, "2") != _holds(second, X, "2"));
+        assertTrue(_holds(first, X, "3") != _holds(second, X, "3"));
     }
 
     // ─── Reading is total in the handle ─────────────────────────────

@@ -413,8 +413,8 @@ contract UpgradeSafetyTest is Test {
         assertEq(names.resolveId(X, "2244994945"), alice);
         assertEq(names.resolveHandle(X, "alice"), alice);
         assertEq(names.primaryOf(alice, X), "alice");
-        assertEq(names.accountCount(alice, X), 1);
-        assertEq(names.accountsOf(alice, X, 0, 1)[0].handle, "alice");
+        assertEq(names.accountCount(alice), 1);
+        assertEq(names.accountsOf(alice, 0, 1)[0].handle, "alice");
         assertTrue(names.digestSpent(digest));
         assertEq(address(names.proofVerifier()), address(proofVerifier));
         assertEq(names.owner(), OWNER);
@@ -443,14 +443,16 @@ contract UpgradeSafetyTest is Test {
         bytes32 idNode = IdentityNodes.idNode(X, "2244994945");
         bytes32 handleNode = IdentityNodes.handleNode(X, "alice");
 
-        bytes32 list = keccak256(abi.encode(X, keccak256(abi.encode(alice, root + 9))));
+        bytes32 list = keccak256(abi.encode(alice, root + 9));
         assertEq(uint256(vm.load(address(names), list)), 1, "nodes: the list holds one account");
         assertEq(vm.load(address(names), keccak256(abi.encode(list))), idNode, "nodes: and it is this one");
         assertEq(uint256(vm.load(address(names), keccak256(abi.encode(idNode, root + 10)))), 1, "position");
+        bytes32 key = keccak256(abi.encode(idNode, root + 11));
+        assertEq(vm.load(address(names), key), X, "accountOf: the platform");
         assertEq(
-            vm.load(address(names), keccak256(abi.encode(idNode, root + 11))),
+            vm.load(address(names), bytes32(uint256(key) + 1)),
             abi.decode(abi.encodePacked("2244994945", new bytes(21), hex"14"), (bytes32)),
-            "userIdOf: a short string, its doubled length in the low byte"
+            "accountOf: the account id, a short string with its doubled length in the low byte"
         );
         assertEq(
             vm.load(address(names), keccak256(abi.encode(handleNode, root + 12))),

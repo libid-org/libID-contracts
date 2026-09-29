@@ -87,10 +87,11 @@ import {IdentityNodes} from "./IdentityNodes.sol";
 ///      predicted ahead of its deployment.
 ///
 ///      **A wallet's accounts can be walked, and the walk is paid for by the
-///      walker.** Every account a wallet proved sits in that wallet's list
-///      for the platform, with the account id and the handle it holds, so a
-///      contract can enumerate what a wallet is without an indexer. The list
-///      is kept by the account rather than by the handle: a rename moves one
+///      walker.** Every account a wallet proved sits in that wallet's list,
+///      whatever the platform, with the platform, the account id and the
+///      handle it holds, so a contract can enumerate what a wallet is without
+///      an indexer and without knowing which platforms exist. The list is
+///      kept by the account rather than by the handle: a rename moves one
 ///      pointer, a handle passing to somebody else changes nothing in it, and
 ///      only an account proved from a new wallet moves between two lists.
 ///      Each of those costs the same whether the list holds four accounts or
@@ -126,9 +127,16 @@ contract IdentityNames is Initializable, UUPSUpgradeable, Ownable2StepUpgradeabl
     ///      change to the platform's rules, which re-keys handles, is seen by
     ///      `resolveHandle` before it is seen here.
     struct Account {
+        bytes32 platformId;
         string userId;
         string handle;
         bool handleCurrent;
+    }
+
+    /// @notice What an account node hashes: its platform and its account id.
+    struct AccountKey {
+        bytes32 platformId;
+        string userId;
     }
 
     /// @notice A platform this contract accepts proofs for: its keyspace.
@@ -235,13 +243,14 @@ contract IdentityNames is Initializable, UUPSUpgradeable, Ownable2StepUpgradeabl
         /// -- a denial of service costing the attacker only a fee.
         mapping(bytes32 => bool) spentDigests;
         // ── The account lists, appended after everything above.
-        /// wallet -> platformId -> the account nodes that wallet holds.
+        /// wallet -> the account nodes it holds, on every platform.
         AccountList.Data accounts;
-        /// idNode -> the account id, byte for byte as the platform issued it.
+        /// idNode -> its platform, and the account id byte for byte as the
+        /// platform issued it.
         ///
-        /// A node cannot be turned back into a string, and a list of nodes
-        /// tells a reader nothing. This is the plaintext the node hashes.
-        mapping(bytes32 => string) userIdOf;
+        /// A node cannot be turned back into what it hashes, and a list of
+        /// nodes tells a reader nothing. This is the plaintext behind one.
+        mapping(bytes32 => AccountKey) accountOf;
         /// handleNode -> the handle, as normalized on the way in.
         mapping(bytes32 => string) handleOf;
     }
@@ -688,9 +697,9 @@ contract IdentityNames is Initializable, UUPSUpgradeable, Ownable2StepUpgradeabl
     ///
     ///      An account enters a list on its first proof and leaves it only
     ///      for another list, so `byId` says which case this is: no owner
-    ///      yet, a first proof; another owner, a move. The strings are the
-    ///      preimages of the nodes, so each is written once. A handle's may
-    ///      already be there from an earlier holder.
+    ///      yet, a first proof; another owner, a move. The key and the handle
+    ///      are the preimages of the nodes, so each is written once. A
+    ///      handle's may already be there from an earlier holder.
     function _list(
         bytes32 platformId,
         bytes32 idKey,
@@ -701,11 +710,11 @@ contract IdentityNames is Initializable, UUPSUpgradeable, Ownable2StepUpgradeabl
     ) private {
         IdentityNamesStorage storage $ = _s();
         if (heldBy == address(0)) {
-            $.accounts.add(msg.sender, platformId, idKey);
-            $.userIdOf[idKey] = userId;
+            $.accounts.add(msg.sender, idKey);
+            $.accountOf[idKey] = AccountKey({platformId: platformId, userId: userId});
         } else if (heldBy != msg.sender) {
-            $.accounts.remove(heldBy, platformId, idKey);
-            $.accounts.add(msg.sender, platformId, idKey);
+            $.accounts.remove(heldBy, idKey);
+            $.accounts.add(msg.sender, idKey);
         }
         if (bytes($.handleOf[handleKey]).length == 0) $.handleOf[handleKey] = handle;
     }
@@ -863,21 +872,22 @@ contract IdentityNames is Initializable, UUPSUpgradeable, Ownable2StepUpgradeabl
         return published;
     }
 
-    /// @notice How many accounts a wallet holds on a platform.
-    /// @dev Reverts for an unwired platform, like every resolver.
-    function accountCount(address wallet, bytes32 platformId) external view returns (uint256) {
-        _requireUsable(platformId);
-        return _s().accounts.count(wallet, platformId);
+    /// @notice How many accounts a wallet holds, on every platform together.
+    function accountCount(address wallet) external view returns (uint256) {
+        return _s().accounts.count(wallet);
     }
 
-    /// @notice A page of the accounts a wallet holds on a platform.
+    /// @notice A page of the accounts a wallet holds, on every platform
+    ///         together.
     ///
     /// @dev The page is the indices `[from, from + limit)`, counted from
     ///      zero and clipped to the list. A `from` past the end answers an
-    ///      empty page. Reading costs
-    ///      about five storage loads per account returned, so the whole of a
-    ///      list is only for a caller that chose the list, and a contract
-    ///      reading a wallet it did not choose keeps `limit` small.
+    ///      empty page. Reading costs about six storage loads per account
+    ///      returned, so the whole of a list is only for a caller that chose
+    ///      the list, and a contract reading a wallet it did not choose keeps
+    ///      `limit` small. A reader that wants one platform filters a page by
+    ///      `platformId`, which keeps a read bounded by the page and never by
+    ///      the list.
     ///
     ///      Order is arbitrary and changes when an account leaves the list, so
     ///      two pages read across a removal may overlap or skip. A reader that
@@ -889,20 +899,17 @@ contract IdentityNames is Initializable, UUPSUpgradeable, Ownable2StepUpgradeabl
     ///      any other account overwrites -- including a second account of the
     ///      same wallet, where the wallet still owns the handle node and an
     ///      owner check alone would report both accounts as holding it.
-    function accountsOf(address wallet, bytes32 platformId, uint256 from, uint256 limit)
-        external
-        view
-        returns (Account[] memory out)
-    {
-        _requireUsable(platformId);
+    function accountsOf(address wallet, uint256 from, uint256 limit) external view returns (Account[] memory out) {
         IdentityNamesStorage storage $ = _s();
-        bytes32[] memory nodes = $.accounts.page(wallet, platformId, from, limit);
+        bytes32[] memory nodes = $.accounts.page(wallet, from, limit);
         out = new Account[](nodes.length);
         for (uint256 i = 0; i < nodes.length; i++) {
             bytes32 idKey = nodes[i];
             bytes32 handleKey = $.handleOfId[idKey];
+            AccountKey storage key = $.accountOf[idKey];
             out[i] = Account({
-                userId: $.userIdOf[idKey],
+                platformId: key.platformId,
+                userId: key.userId,
                 handle: $.handleOf[handleKey],
                 handleCurrent: $.idOfHandle[handleKey] == idKey
             });
