@@ -648,9 +648,14 @@ abstract contract TlsNotaryVerifierBase is IPlatformVerifier, PlatformVerifierBa
         pure
         returns (bool isHeader, bytes memory name, uint256 valueStart, uint256 valueEnd)
     {
+        // The line lies inside `data`, so every read below does.
+        assert(from <= to && to <= data.length);
         uint256 colon = from;
-        while (colon < to && data[colon] != ":") {
-            ++colon;
+        assembly ("memory-safe") {
+            let p := add(data, 0x20)
+            for {} lt(colon, to) { colon := add(colon, 1) } {
+                if eq(byte(0, mload(add(p, colon))), 0x3a) { break }
+            }
         }
         if (colon == to) return (false, name, 0, 0);
         uint256 nameEnd = colon;
@@ -659,9 +664,15 @@ abstract contract TlsNotaryVerifierBase is IPlatformVerifier, PlatformVerifierBa
         }
         if (nameEnd == from) return (false, name, 0, 0);
         name = _slice(data, from, nameEnd);
-        for (uint256 i = 0; i < name.length; ++i) {
-            if (name[i] >= "A" && name[i] <= "Z") name[i] = bytes1(uint8(name[i]) + 32);
-            if (name[i] == "_") name[i] = "-";
+        // `A`-`Z` lowered and `_` read as `-`, in place, below `name.length`.
+        assembly ("memory-safe") {
+            let p := add(name, 0x20)
+            let len := mload(name)
+            for { let i := 0 } lt(i, len) { i := add(i, 1) } {
+                let c := byte(0, mload(add(p, i)))
+                if and(gt(c, 0x40), lt(c, 0x5b)) { mstore8(add(p, i), add(c, 0x20)) }
+                if eq(c, 0x5f) { mstore8(add(p, i), 0x2d) }
+            }
         }
         isHeader = true;
         valueStart = colon + 1;
@@ -702,17 +713,26 @@ abstract contract TlsNotaryVerifierBase is IPlatformVerifier, PlatformVerifierBa
     /// @dev The offset of the CRLF that ends the line beginning at `from`, or
     ///      the end of `data` for the last line -- the head is sliced at the
     ///      blank line, so its final header carries no CRLF of its own.
-    function _lineEnd(bytes memory data, uint256 from) private pure returns (uint256) {
-        for (uint256 i = from; i + 1 < data.length; ++i) {
-            if (data[i] == 0x0d && data[i + 1] == 0x0a) return i;
+    function _lineEnd(bytes memory data, uint256 from) private pure returns (uint256 end) {
+        // Reads `data[i]` and `data[i + 1]` only while `i + 1` is below the
+        // length.
+        assembly ("memory-safe") {
+            let p := add(data, 0x20)
+            let len := mload(data)
+            end := len
+            for { let i := from } lt(add(i, 1), len) { i := add(i, 1) } {
+                if and(eq(byte(0, mload(add(p, i))), 0x0d), eq(byte(0, mload(add(p, add(i, 1)))), 0x0a)) {
+                    end := i
+                    break
+                }
+            }
         }
-        return data.length;
     }
 
     function _countLines(bytes memory block_) private pure returns (uint256 count) {
         count = 1;
-        for (uint256 i = 0; i + 1 < block_.length; ++i) {
-            if (block_[i] == 0x0d && block_[i + 1] == 0x0a) ++count;
+        for (uint256 end = _lineEnd(block_, 0); end < block_.length; end = _lineEnd(block_, end + 2)) {
+            ++count;
         }
     }
 
@@ -758,10 +778,16 @@ abstract contract TlsNotaryVerifierBase is IPlatformVerifier, PlatformVerifierBa
         // it removes any question of which run of bytes the body is.
         uint256 at = type(uint256).max;
         uint256 seen;
-        for (uint256 i = 0; i + 4 <= whole.length; ++i) {
-            if (whole[i] == 0x0d && whole[i + 1] == 0x0a && whole[i + 2] == 0x0d && whole[i + 3] == 0x0a) {
-                ++seen;
-                if (at == type(uint256).max) at = i;
+        // Reads the four bytes at `i` only while `i + 4` is within the
+        // length; `shr(224, ...)` keeps those four and nothing past them.
+        assembly ("memory-safe") {
+            let p := add(whole, 0x20)
+            let len := mload(whole)
+            for { let i := 0 } iszero(gt(add(i, 4), len)) { i := add(i, 1) } {
+                if eq(shr(224, mload(add(p, i))), 0x0d0a0d0a) {
+                    seen := add(seen, 1)
+                    if eq(at, not(0)) { at := i }
+                }
             }
         }
         if (seen != 1) revert NoHeadBoundary(seen);
@@ -778,9 +804,6 @@ abstract contract TlsNotaryVerifierBase is IPlatformVerifier, PlatformVerifierBa
 
     function _startsWith(bytes memory data, bytes memory prefix) internal pure returns (bool) {
         if (data.length < prefix.length) return false;
-        for (uint256 i = 0; i < prefix.length; ++i) {
-            if (data[i] != prefix[i]) return false;
-        }
-        return true;
+        return _hash(data, 0, prefix.length) == keccak256(prefix);
     }
 }
