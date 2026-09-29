@@ -184,40 +184,65 @@ library CeremonyFields {
     ///      whitespace beside a structural byte inside its value.
     function normalizeJsonBytes(bytes memory data) internal pure returns (bytes memory out) {
         out = new bytes(data.length);
-        uint256 whitespace = JSON_WHITESPACE;
-        uint256 structural = JSON_STRUCTURAL;
-        // Reads `data[i]` and `data[j]` only below `data.length`, and writes
-        // `out` only below the bytes of `data` already consumed, so both stay
-        // inside their arrays.
-        assembly ("memory-safe") {
-            let src := add(data, 0x20)
-            let dst := add(out, 0x20)
-            let len := mload(data)
-            let n := 0
-            for { let i := 0 } lt(i, len) {} {
-                let c := byte(0, mload(add(src, i)))
-                if iszero(and(shr(c, whitespace), 1)) {
-                    mstore8(add(dst, n), c)
-                    n := add(n, 1)
-                    i := add(i, 1)
-                    continue
+        uint256 n;
+        uint256 i;
+        while (i < data.length) {
+            // The run of other bytes from `i`, crossed a word at a time and
+            // kept whole.
+            uint256 j = i;
+            while (j < data.length) {
+                uint256 marked = _jsonWhitespaceBytes(_word(data, j));
+                if (j + 32 > data.length) marked &= _leading(data.length - j);
+                if (marked != 0) {
+                    j += _firstMarked(marked);
+                    break;
                 }
-                // The whitespace run [i, j) goes when the byte kept before
-                // it or the byte after it is structural.
-                let j := add(i, 1)
-                for {} lt(j, len) { j := add(j, 1) } {
-                    if iszero(and(shr(byte(0, mload(add(src, j))), whitespace), 1)) { break }
-                }
-                let touches := 0
-                if n { touches := and(shr(byte(0, mload(add(dst, sub(n, 1)))), structural), 1) }
-                if lt(j, len) { touches := or(touches, and(shr(byte(0, mload(add(src, j))), structural), 1)) }
-                if iszero(touches) {
-                    mcopy(add(dst, n), add(src, i), sub(j, i))
-                    n := add(n, sub(j, i))
-                }
-                i := j
+                j = j + 32 < data.length ? j + 32 : data.length;
             }
+            _append(out, n, data, i, j);
+            n += j - i;
+            if (j == data.length) break;
+
+            // The whitespace run [j, k) goes when the byte kept before it or
+            // the byte after it is structural.
+            uint256 k = j + 1;
+            while (k < data.length && (JSON_WHITESPACE >> uint8(data[k])) & 1 == 1) {
+                ++k;
+            }
+            bool touches = (n != 0 && (JSON_STRUCTURAL >> uint8(out[n - 1])) & 1 == 1)
+                || (k < data.length && (JSON_STRUCTURAL >> uint8(data[k])) & 1 == 1);
+            if (!touches) {
+                _append(out, n, data, j, k);
+                n += k - j;
+            }
+            i = k;
+        }
+        assembly ("memory-safe") {
             mstore(out, n)
+        }
+    }
+
+    /// @dev `data[from:to]` written into `out` at `at`.
+    function _append(bytes memory out, uint256 at, bytes memory data, uint256 from, uint256 to) private pure {
+        // Both ranges inside their arrays, so the copy reads and writes only
+        // bytes those arrays hold.
+        assert(from <= to && to <= data.length && at + (to - from) <= out.length);
+        assembly ("memory-safe") {
+            mcopy(add(add(out, 0x20), at), add(add(data, 0x20), from), sub(to, from))
+        }
+    }
+
+    /// @dev 0x80 in every byte of `word` that is JSON whitespace -- space,
+    ///      tab, line feed, carriage return -- and 0 in every other.
+    function _jsonWhitespaceBytes(uint256 word) private pure returns (uint256 marked) {
+        assembly ("memory-safe") {
+            // Bytes equal to `v`, marked as `indexOfByte` marks them.
+            function equal(w, v) -> f {
+                let low7 := 0x7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f
+                let x := xor(w, mul(0x0101010101010101010101010101010101010101010101010101010101010101, v))
+                f := not(or(or(add(and(x, low7), low7), x), low7))
+            }
+            marked := or(or(equal(word, 0x20), equal(word, 0x09)), or(equal(word, 0x0a), equal(word, 0x0d)))
         }
     }
 
