@@ -5,3 +5,4 @@ field slot=0 offset=0 held: mapping(bytes32 => mapping(address => uint256))
 field slot=1 offset=0 names: contract IIdentityNames
 field slot=2 offset=0 round: mapping(bytes32 => mapping(address => uint256))
 field slot=3 offset=0 contributions: mapping(bytes32 => mapping(address => mapping(uint256 => mapping(address => uint256))))
+field slot=4 offset=0 platformOf: mapping(bytes32 => bytes32)

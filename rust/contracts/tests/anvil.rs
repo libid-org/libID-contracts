@@ -745,7 +745,10 @@ async fn deploys_and_initializes_every_platform_verifier() {
 async fn escrows_value_against_an_unclaimed_handle() {
     use alloy::{
         hex,
-        primitives::b256,
+        primitives::{
+            address,
+            b256,
+        },
         sol_types::SolError,
     };
     use libid_contracts::{
@@ -890,10 +893,14 @@ async fn escrows_value_against_an_unclaimed_handle() {
         b256!("2e2bee956f308d03271ce24b26e5aa20103b41841ddee3c96a94d2449902f710")
     );
 
-    // Escrowed for nobody; an unheld node refuses a claim with the bound error.
+    // Escrowed for nobody (`UNHELD`: escrow only); an unheld node refuses a
+    // claim with the bound error.
+    let native = escrow.NATIVE().call().await.unwrap();
+    assert_eq!(native, address!("EeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE"));
+    let unheld = escrow.UNHELD().call().await.unwrap();
     let amount = U256::from(1_000_000_000_000_000_000u64);
     escrow
-        .deposit(platform_id, handle_hash, Address::ZERO, amount, deployer)
+        .deposit(platform_id, handle_hash, native, amount, deployer, unheld)
         .value(amount)
         .send()
         .await
@@ -901,12 +908,9 @@ async fn escrows_value_against_an_unclaimed_handle() {
         .get_receipt()
         .await
         .unwrap();
-    assert_eq!(
-        escrow.escrowed(node, Address::ZERO).call().await.unwrap(),
-        amount
-    );
+    assert_eq!(escrow.escrowed(node, native).call().await.unwrap(), amount);
     let err = escrow
-        .claim(node, vec![Address::ZERO], stranger)
+        .claim(node, vec![native], stranger)
         .from(stranger)
         .call()
         .await
@@ -921,7 +925,7 @@ async fn escrows_value_against_an_unclaimed_handle() {
     // The depositor refunds to a recipient it names, and the event decodes.
     let before = provider.get_balance(stranger).await.unwrap();
     let receipt = escrow
-        .refund(node, Address::ZERO, stranger)
+        .refund(node, native, stranger)
         .send()
         .await
         .unwrap()
@@ -936,10 +940,20 @@ async fn escrows_value_against_an_unclaimed_handle() {
             refunded.handleNode,
             refunded.refundTo,
             refunded.recipient,
+            refunded.platformId,
+            refunded.round,
             refunded.released,
             refunded.received
         ),
-        (node, deployer, stranger, amount, amount)
+        (
+            node,
+            deployer,
+            stranger,
+            platform_id,
+            U256::ZERO,
+            amount,
+            amount
+        )
     );
     assert_eq!(
         provider.get_balance(stranger).await.unwrap() - before,
