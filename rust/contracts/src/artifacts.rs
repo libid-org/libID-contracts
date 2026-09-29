@@ -55,6 +55,8 @@ pub const COVERED: &[(&str, &str)] = &[
     ("IdentityNames", "IdentityNames"),
     // ens (deployed once per network, not CREATE3-canonical)
     ("HandleResolver", "HandleResolver"),
+    // escrow: value held against a handle nobody has claimed yet
+    ("HandleEscrow", "HandleEscrow"),
     // factory
     ("LibidFactory", "LibidFactory"),
     ("WTIA9", "WTIA9"),

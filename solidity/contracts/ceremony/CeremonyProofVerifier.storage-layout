@@ -1,0 +1,5 @@
+# CeremonyProofVerifier storage layout. Checked in CI by scripts/check-storage-layout.py.
+# Fields may only be APPENDED. Record an append with --update; see the script.
+root erc7201:libid.storage.CeremonyProofVerifier 0x128443dce113885ee8c5806bf38d25bc0d69e6c9a5ceda8792c21c106d531700
+field slot=0 offset=0 verifiers: mapping(bytes32 => mapping(uint16 => contract IPlatformVerifier))
+field slot=1 offset=0 versionCount: mapping(bytes32 => uint256)

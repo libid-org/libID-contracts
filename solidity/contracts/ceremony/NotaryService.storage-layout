@@ -1,0 +1,5 @@
+# NotaryService storage layout. Checked in CI by scripts/check-storage-layout.py.
+# Fields may only be APPENDED. Record an append with --update; see the script.
+root erc7201:libid.storage.NotaryService 0x7e0f45e5fb68069046082b9a29aa418cbadf43bb1025c0e2debddab14853f800
+field slot=0 offset=0 fee: uint256
+field slot=1 offset=0 trusted: mapping(address => bool)

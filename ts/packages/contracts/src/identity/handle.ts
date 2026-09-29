@@ -87,7 +87,9 @@ export const RULES_GOOGLE: Rules = {
   allowHyphen: ALLOW_HYPHEN_GOOGLE,
 }
 
-/// The rules for a platform key from the vector table.
+/// The rules for a platform key from the generated table: what the contracts
+/// were released with. The chain's owner can change a platform's rules, so a
+/// hash for a deposit should use `rulesOnChain`.
 export function rulesFor(platform: string): Rules | null {
   if (platform === 'x') return RULES_X
   if (platform === 'github') return RULES_GITHUB

@@ -132,6 +132,17 @@ normalize(' @Alice_1 ', RULES_X) // 'alice_1'
 // Throws HandleError (with a kind matching the on-chain error) on refusal.
 ```
 
+## Deriving a handle node
+
+Hash locally, so the handle text never reaches an RPC:
+
+```ts
+import { handleHash, handleNode, rulesOnChain } from '@libid/contracts/identity'
+
+const hash = handleHash('Alice@Gmail.com', await rulesOnChain(reader, 'google')) // HandleEscrow.deposit
+const node = handleNode('google', hash) // byHandle, escrowed, claim, refund
+```
+
 ## Development
 
 ```sh

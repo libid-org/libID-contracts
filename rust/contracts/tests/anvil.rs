@@ -737,6 +737,215 @@ async fn deploys_and_initializes_every_platform_verifier() {
     );
 }
 
+/// (e2) The handle escrow against a real chain: pay an unclaimed handle by its
+/// hash, check the value lands on the naming system's node, and refund it. The
+/// payout path needs a stub Platform Verifier, which is kept out of this
+/// crate's artifacts; the Solidity suite covers it.
+#[tokio::test]
+async fn escrows_value_against_an_unclaimed_handle() {
+    use alloy::{
+        hex,
+        primitives::b256,
+        sol_types::SolError,
+    };
+    use libid_contracts::{
+        bindings::escrow::HandleEscrow,
+        circuits::{
+            deploy_honk_verifiers,
+            Circuit,
+        },
+        platform_verifier::{
+            deploy_platform_verifier,
+            Initializer,
+            PlatformVerifier,
+            TlsNotaryRoots,
+        },
+    };
+
+    let provider = test_provider();
+    let artifacts = Artifacts::embedded();
+    let deployer = default_signer(&provider).await;
+    let stranger = provider.get_accounts().await.unwrap()[1];
+
+    let notary_proxy = deploy_behind_proxy(
+        &provider,
+        &artifacts,
+        "NotaryService",
+        &NotaryService::initializeCall {
+            owner_: deployer,
+            notary_: Address::repeat_byte(0x11),
+            fee_: U256::from(1_000),
+        },
+        None,
+    )
+    .await
+    .unwrap();
+    let proof_verifier_proxy = deploy_behind_proxy(
+        &provider,
+        &artifacts,
+        "CeremonyProofVerifier",
+        &CeremonyProofVerifier::initializeCall { owner_: deployer },
+        None,
+    )
+    .await
+    .unwrap();
+    let names_proxy = deploy_behind_proxy(
+        &provider,
+        &artifacts,
+        "IdentityNames",
+        &IdentityNames::initializeCall { owner_: deployer },
+        None,
+    )
+    .await
+    .unwrap();
+
+    let platform_id = keccak256(b"github");
+    assert_eq!(
+        platform_id,
+        PlatformVerifier::GitHub.platform_id(),
+        "the test and the crate name GitHub differently"
+    );
+    let names = IdentityNames::new(names_proxy, &provider);
+    names
+        .setProofVerifier(proof_verifier_proxy)
+        .send()
+        .await
+        .unwrap()
+        .get_receipt()
+        .await
+        .unwrap();
+    names
+        .setPlatform(
+            platform_id,
+            IdentityNames::Rules {
+                maxLength: 39,
+                stripLeadingAt: true,
+                isEmail: false,
+                allowUnderscore: false,
+                allowHyphen: true,
+            },
+        )
+        .send()
+        .await
+        .unwrap()
+        .get_receipt()
+        .await
+        .unwrap();
+
+    // The real GitHub Platform Verifier, on the real Honk verifier for its
+    // circuit, registered as version 1.
+    let honk = deploy_honk_verifiers(&provider, &artifacts, &[Circuit::BearerLink], None)
+        .await
+        .unwrap()
+        .verifiers[&Circuit::BearerLink];
+    let github = Initializer::GitHub(TlsNotaryRoots {
+        owner: deployer,
+        notary_service: notary_proxy,
+        honk_verifier: honk,
+        proof_lifetime: libid_profiles::PROOF_LIFETIME_SECONDS_GITHUB,
+        max_future_attestation_skew: libid_profiles::MAX_FUTURE_ATTESTATION_SKEW_SECONDS,
+        future_observation_allowance: 300,
+    });
+    let github_proxy = deploy_platform_verifier(&provider, &artifacts, &github, None)
+        .await
+        .unwrap();
+    CeremonyProofVerifier::new(proof_verifier_proxy, &provider)
+        .setVerifier(platform_id, 1, github_proxy)
+        .send()
+        .await
+        .unwrap()
+        .get_receipt()
+        .await
+        .unwrap();
+    assert!(names.acceptsClaims(platform_id).call().await.unwrap());
+
+    let escrow_proxy = deploy_behind_proxy(
+        &provider,
+        &artifacts,
+        "HandleEscrow",
+        &HandleEscrow::initializeCall {
+            owner_: deployer,
+            names_: names_proxy,
+        },
+        None,
+    )
+    .await
+    .unwrap();
+    let escrow = HandleEscrow::new(escrow_proxy, &provider);
+    let native = escrow.NATIVE().call().await.unwrap();
+
+    // The naming system hashes and keys the text; the node is pinned with `cast`.
+    let handle_hash = names
+        .handleHashOf(platform_id, " Alice-1 ".into())
+        .call()
+        .await
+        .unwrap();
+    assert_eq!(handle_hash, keccak256("alice-1"));
+    let node = names
+        .nodeOfHash(platform_id, handle_hash)
+        .call()
+        .await
+        .unwrap();
+    assert_eq!(
+        node,
+        b256!("2e2bee956f308d03271ce24b26e5aa20103b41841ddee3c96a94d2449902f710")
+    );
+
+    // Escrowed for nobody; an unheld node refuses a claim with the bound error.
+    let amount = U256::from(1_000_000_000_000_000_000u64);
+    escrow
+        .deposit(platform_id, handle_hash, native, amount, deployer)
+        .value(amount)
+        .send()
+        .await
+        .unwrap()
+        .get_receipt()
+        .await
+        .unwrap();
+    assert_eq!(escrow.escrowed(node, native).call().await.unwrap(), amount);
+    let err = escrow
+        .claim(node, vec![native], stranger)
+        .from(stranger)
+        .call()
+        .await
+        .err()
+        .expect("an unheld handle was claimable")
+        .to_string();
+    assert!(
+        err.contains(&hex::encode(HandleEscrow::NotTheHolder::SELECTOR)),
+        "{err}"
+    );
+
+    // The depositor refunds to a recipient it names, and the event decodes.
+    let before = provider.get_balance(stranger).await.unwrap();
+    let receipt = escrow
+        .refund(node, native, stranger)
+        .send()
+        .await
+        .unwrap()
+        .get_receipt()
+        .await
+        .unwrap();
+    let refunded = receipt
+        .decoded_log::<HandleEscrow::Refunded>()
+        .expect("no Refunded event");
+    assert_eq!(
+        (
+            refunded.handleNode,
+            refunded.refundTo,
+            refunded.recipient,
+            refunded.round,
+            refunded.released,
+            refunded.received
+        ),
+        (node, deployer, stranger, U256::ZERO, amount, amount)
+    );
+    assert_eq!(
+        provider.get_balance(stranger).await.unwrap() - before,
+        amount
+    );
+}
+
 /// (f) The two Honk verifiers through `deploy_honk_verifiers`: each library
 /// is deployed once and both verifiers link against it — four transactions
 /// for the set, not six — and each lands under EIP-170 and answers for its

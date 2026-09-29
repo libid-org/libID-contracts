@@ -10,4 +10,5 @@
 
 export * from './handle.js'
 export * from './handleVectors.js'
+export * from './node.js'
 export * from './resolve.js'
