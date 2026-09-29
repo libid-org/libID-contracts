@@ -568,9 +568,8 @@ abstract contract TlsNotaryVerifierBase is IPlatformVerifier, PlatformVerifierBa
     function _checkTokenHead(bytes memory head) private pure returns (uint256 declared) {
         CeremonyAttestation.requireCrlfLineEndings(head);
 
-        // Both lists read once, not once per header line.
+        // The required lines read once, not once per header line.
         TokenHead memory state;
-        state.forbidden = _lineHashes(CeremonyProfile.FORBIDDEN_REQUEST_HEADERS);
         (state.requiredNames, state.requiredValues) = _requiredHeaders();
 
         // Past the request line, which `_tokenTranscript` has already compared.
@@ -588,13 +587,12 @@ abstract contract TlsNotaryVerifierBase is IPlatformVerifier, PlatformVerifierBa
     }
 
     /// @dev What `_checkTokenHead` knows, and what it has seen so far: the
-    ///      hashes of the forbidden names and of each required line's name
-    ///      and value, one bit per required line seen -- a profile with more
-    ///      than 256 headers is not a profile, and `validate` in the generator
-    ///      refuses one long before this could matter -- whether the length
-    ///      has been, and what it declared.
+    ///      hashes of each required line's name and value, one bit per
+    ///      required line seen -- a profile with more than 256 headers is not
+    ///      a profile, and `validate` in the generator refuses one long before
+    ///      this could matter -- whether the length has been, and what it
+    ///      declared.
     struct TokenHead {
-        bytes32[] forbidden;
         bytes32[] requiredNames;
         bytes32[] requiredValues;
         uint256 found;
@@ -610,7 +608,7 @@ abstract contract TlsNotaryVerifierBase is IPlatformVerifier, PlatformVerifierBa
         if (!isHeader) revert WrongTokenRequestHead();
 
         bytes32 nameHash = keccak256(name);
-        if (_indexOf(state.forbidden, nameHash) != type(uint256).max) revert ForbiddenRequestHeader(name);
+        if (CeremonyProfile.isForbiddenRequestHeader(nameHash)) revert ForbiddenRequestHeader(name);
         if (nameHash == LENGTH_HEADER) {
             if (state.lengths) revert WrongTokenRequestHead();
             state.lengths = true;
@@ -637,17 +635,6 @@ abstract contract TlsNotaryVerifierBase is IPlatformVerifier, PlatformVerifierBa
             (, bytes memory name, uint256 valueStart, uint256 valueEnd) = _field(block_, from, to);
             names[i] = keccak256(name);
             values[i] = _hash(block_, valueStart, valueEnd);
-            from = to + 2;
-        }
-    }
-
-    /// @dev The hash of every line of the CRLF-joined `block_`, in order.
-    function _lineHashes(bytes memory block_) private pure returns (bytes32[] memory hashes) {
-        hashes = new bytes32[](_countLines(block_));
-        uint256 from;
-        for (uint256 i = 0; i < hashes.length; ++i) {
-            uint256 to = _lineEnd(block_, from);
-            hashes[i] = _hash(block_, from, to);
             from = to + 2;
         }
     }
@@ -710,7 +697,6 @@ abstract contract TlsNotaryVerifierBase is IPlatformVerifier, PlatformVerifierBa
     ///      count is, so a header after a blank line is refused too; a line
     ///      that is not a header is the platform's to refuse.
     function _checkIdentityHead(bytes memory revealed) private pure {
-        bytes32[] memory forbidden = _lineHashes(CeremonyProfile.FORBIDDEN_REQUEST_HEADERS);
         uint256 from = _lineEnd(revealed, 0) + 2;
         while (from < revealed.length) {
             uint256 to = _lineEnd(revealed, from);
@@ -718,7 +704,7 @@ abstract contract TlsNotaryVerifierBase is IPlatformVerifier, PlatformVerifierBa
                 (bool isHeader, bytes memory name,,) = _field(revealed, from, to);
                 if (isHeader) {
                     bytes32 nameHash = keccak256(name);
-                    if (nameHash != AUTHORIZATION && _indexOf(forbidden, nameHash) != type(uint256).max) {
+                    if (nameHash != AUTHORIZATION && CeremonyProfile.isForbiddenRequestHeader(nameHash)) {
                         revert ForbiddenRequestHeader(name);
                     }
                 }

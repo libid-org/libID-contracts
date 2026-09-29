@@ -59,6 +59,32 @@ contract CeremonyProfileTest is Test {
         assertEq(CeremonyProfile.LAUNCH_VERSION, 1);
     }
 
+    /// @dev The membership test and the list it tests are one list: each
+    ///      name the list holds is forbidden, and nothing else is -- not a
+    ///      name the verifier reads, not another spelling, not two names
+    ///      joined.
+    function test_theForbiddenNamesAreTheListedOnes() public pure {
+        bytes memory list = CeremonyProfile.FORBIDDEN_REQUEST_HEADERS;
+        uint256 listed;
+        uint256 from;
+        for (uint256 i = 0; i <= list.length; ++i) {
+            if (i < list.length && list[i] != "\r") continue;
+            bytes memory name = new bytes(i - from);
+            for (uint256 j = 0; j < name.length; ++j) {
+                name[j] = list[from + j];
+            }
+            assertTrue(CeremonyProfile.isForbiddenRequestHeader(keccak256(name)), string(name));
+            ++listed;
+            from = i + 2;
+        }
+        assertEq(listed, 7);
+
+        string[6] memory others = ["host", "content-length", "Cookie", "cookie ", "", "cookie\r\nauthorization"];
+        for (uint256 i = 0; i < others.length; ++i) {
+            assertFalse(CeremonyProfile.isForbiddenRequestHeader(keccak256(bytes(others[i]))), others[i]);
+        }
+    }
+
     /// @dev The pinned fixture in CeremonyAttestation.t.sol opens with the
     ///      X API authority id and nothing else names a platform. If
     ///      these constants and that fixture ever drift apart, one of them is

@@ -397,6 +397,16 @@ def gen_sol(spec: dict[str, Any]) -> str:
     lines.append(
         f'    bytes internal constant FORBIDDEN_REQUEST_HEADERS = "{escaped(crlf(forbidden_headers(spec)))}";'
     )
+    lines += [
+        "",
+        "    /// @dev Whether `nameHash` is the keccak256 of a name",
+        "    ///      `FORBIDDEN_REQUEST_HEADERS` lists.",
+        "    function isForbiddenRequestHeader(bytes32 nameHash) internal pure returns (bool) {",
+        "        return "
+        + " || ".join(f'nameHash == keccak256("{name}")' for name in forbidden_headers(spec))
+        + ";",
+        "    }",
+    ]
 
     lines += [
         "",

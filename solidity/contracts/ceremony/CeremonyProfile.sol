@@ -97,6 +97,15 @@ library CeremonyProfile {
     bytes internal constant FORBIDDEN_REQUEST_HEADERS =
         "authorization\r\ncontent-encoding\r\ncookie\r\ntransfer-encoding\r\nx-http-method\r\nx-http-method-override\r\nx-method-override";
 
+    /// @dev Whether `nameHash` is the keccak256 of a name
+    ///      `FORBIDDEN_REQUEST_HEADERS` lists.
+    function isForbiddenRequestHeader(bytes32 nameHash) internal pure returns (bool) {
+        return nameHash == keccak256("authorization") || nameHash == keccak256("content-encoding")
+            || nameHash == keccak256("cookie") || nameHash == keccak256("transfer-encoding")
+            || nameHash == keccak256("x-http-method") || nameHash == keccak256("x-http-method-override")
+            || nameHash == keccak256("x-method-override");
+    }
+
     /// @dev The two identity members a Platform Verifier reads out of the
     ///      revealed response bytes (REQ-PLAT-51).
 
