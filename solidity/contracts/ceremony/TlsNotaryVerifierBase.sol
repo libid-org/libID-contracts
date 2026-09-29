@@ -319,7 +319,22 @@ abstract contract TlsNotaryVerifierBase is IPlatformVerifier, PlatformVerifierBa
         VerifiedClaim memory fields
     ) private returns (uint64 observedAt, bytes32 tokenCommitment) {
         CeremonyAttestation.AttestedData memory data = _authenticate(p.tokenSession, _tokenAuthority(), fee);
+        (fields.clientIdentifier, tokenCommitment) = _tokenTranscript(data, authorizationDigest, p.authorizationNonce);
 
+        // The token attestation is the one-time PKCE and digest binding, so it
+        // alone supplies evidence time (section 2.2).
+        observedAt = _requireFresh(data.createdAt);
+    }
+
+    /// @dev Every check the token session's transcript answers for, in both
+    ///      directions: the request's layout, head, form and digest binding,
+    ///      then the response's tiling and bearer framing. Returns the client
+    ///      identifier and the committed bearer.
+    function _tokenTranscript(
+        CeremonyAttestation.AttestedData memory data,
+        bytes32 authorizationDigest,
+        bytes32 authorizationNonce
+    ) internal pure returns (bytes memory clientId, bytes32 tokenCommitment) {
         // REQ-COMMON-18A applies to THIS direction too. Without tiling, a
         // prover reveals two header values it composed itself and this verifier
         // reads them as the request line and the body -- every field below then
@@ -358,14 +373,13 @@ abstract contract TlsNotaryVerifierBase is IPlatformVerifier, PlatformVerifierBa
         bytes memory revealedVerifier = CeremonyFields.formField(body, "code_verifier");
         // Under the same nonce the digest commits, so a caller has no second
         // value to move: changing it moves the digest too (REQ-COMMON-12).
-        bytes memory expected = CeremonyAuthorization.codeVerifier(authorizationDigest, p.authorizationNonce);
+        bytes memory expected = CeremonyAuthorization.codeVerifier(authorizationDigest, authorizationNonce);
         if (keccak256(revealedVerifier) != keccak256(expected)) revert CodeVerifierMismatch();
 
-        bytes memory clientId = CeremonyFields.formField(body, "client_id");
+        clientId = CeremonyFields.formField(body, "client_id");
         if (!CeremonyFields.isSerializerSafe(clientId)) {
             revert ClientIdentifierNotSerializerSafe(clientId);
         }
-        fields.clientIdentifier = clientId;
 
         // Tiled, like every other direction. The profile says every byte
         // outside the anchors is committed; this is what makes that true rather
@@ -379,10 +393,6 @@ abstract contract TlsNotaryVerifierBase is IPlatformVerifier, PlatformVerifierBa
         CeremonyAttestation.RangeCommitment memory bearer =
             CeremonyAttestation.requireFramedCommitment(data.received, ACCESS_TOKEN_PREFIX, ACCESS_TOKEN_SUFFIX);
         tokenCommitment = bearer.commitment;
-
-        // The token attestation is the one-time PKCE and digest binding, so it
-        // alone supplies evidence time (section 2.2).
-        observedAt = _requireFresh(data.createdAt);
     }
 
     function _identitySession(TlsNotaryProof memory p, uint256 fee, VerifiedClaim memory fields)
@@ -390,7 +400,18 @@ abstract contract TlsNotaryVerifierBase is IPlatformVerifier, PlatformVerifierBa
         returns (bytes32 identityCommitment)
     {
         CeremonyAttestation.AttestedData memory data = _authenticate(p.identitySession, _identityAuthority(), fee);
+        (identityCommitment, fields.userId, fields.handle) = _identityTranscript(data);
+    }
 
+    /// @dev Every check the identity session's transcript answers for: the
+    ///      request line, the bearer header and the refused headers of the
+    ///      request, then the two members read out of the response. Returns
+    ///      the committed bearer, the user id and the raw handle.
+    function _identityTranscript(CeremonyAttestation.AttestedData memory data)
+        internal
+        pure
+        returns (bytes32 identityCommitment, string memory userId, string memory handle)
+    {
         // REQ-COMMON-21A: the path separates operations on the same server.
         // Anchored at the origin for the same reason as the token request --
         // the lowest-offset revealed range is wherever the prover put it.
@@ -435,12 +456,12 @@ abstract contract TlsNotaryVerifierBase is IPlatformVerifier, PlatformVerifierBa
         // reads; the per-range values are what a READ reads.
         bytes memory joined = CeremonyAttestation.concatRevealed(data.received);
         (string memory idField, IdShape idShape, string memory handleField) = _identityFields();
-        fields.userId = string(
+        userId = string(
             idShape == IdShape.JsonString
                 ? _uniqueJsonString(data.received, joined, idField)
                 : _uniqueJsonInteger(data.received, joined, idField)
         );
-        fields.handle = string(_uniqueJsonString(data.received, joined, handleField));
+        handle = string(_uniqueJsonString(data.received, joined, handleField));
     }
 
     // ─── Helpers ────────────────────────────────────────────────────
