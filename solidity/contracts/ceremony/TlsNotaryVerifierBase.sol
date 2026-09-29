@@ -653,10 +653,7 @@ abstract contract TlsNotaryVerifierBase is IPlatformVerifier, PlatformVerifierBa
         uint256 colon = CeremonyFields.indexOfByte(data, from, ":");
         if (colon > to) colon = to;
         if (colon == to) return (false, name, 0, 0);
-        uint256 nameEnd = colon;
-        while (nameEnd > from && (data[nameEnd - 1] == " " || data[nameEnd - 1] == "\t")) {
-            --nameEnd;
-        }
+        uint256 nameEnd = _trimEnd(data, from, colon);
         if (nameEnd == from) return (false, name, 0, 0);
         name = _slice(data, from, nameEnd);
         // `A`-`Z` lowered and `_` read as `-`, in place, below `name.length`.
@@ -671,12 +668,30 @@ abstract contract TlsNotaryVerifierBase is IPlatformVerifier, PlatformVerifierBa
         }
         isHeader = true;
         valueStart = colon + 1;
-        valueEnd = to;
-        while (valueStart < valueEnd && (data[valueStart] == " " || data[valueStart] == "\t")) {
-            ++valueStart;
+        // Past the spaces and tabs that open the value, then back over the
+        // ones that close it. Every offset read lies in [valueStart, to).
+        assembly ("memory-safe") {
+            let p := add(data, 0x20)
+            for {} lt(valueStart, to) { valueStart := add(valueStart, 1) } {
+                let c := byte(0, mload(add(p, valueStart)))
+                if iszero(or(eq(c, 0x20), eq(c, 0x09))) { break }
+            }
         }
-        while (valueEnd > valueStart && (data[valueEnd - 1] == " " || data[valueEnd - 1] == "\t")) {
-            --valueEnd;
+        valueEnd = _trimEnd(data, valueStart, to);
+    }
+
+    /// @dev `to`, moved back over the spaces and tabs that end
+    ///      `data[from:to]`.
+    function _trimEnd(bytes memory data, uint256 from, uint256 to) private pure returns (uint256 end) {
+        end = to;
+        // Reads `data[end - 1]` only while `end > from`, and `from` and `to`
+        // bound a range inside `data` at every call.
+        assembly ("memory-safe") {
+            let p := add(data, 0x20)
+            for {} gt(end, from) { end := sub(end, 1) } {
+                let c := byte(0, mload(add(p, sub(end, 1))))
+                if iszero(or(eq(c, 0x20), eq(c, 0x09))) { break }
+            }
         }
     }
 
