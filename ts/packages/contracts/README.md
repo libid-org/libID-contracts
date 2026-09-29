@@ -73,6 +73,8 @@ const rotate = calls.googleJwtRoots.rotate(roots, fee, attestedData, proof)
 
 ```ts
 import {
+  accountCount,
+  accountsOf,
   platformId,
   resolveHandle,
   resolvePair,
@@ -92,6 +94,13 @@ const { wallet, idAgrees } = await resolvePair(reader, x, 'alice', '42')
 
 // The display name for a wallet, forward-checked on chain.
 const name = await primaryName(reader, wallet!, x)
+
+// Every account the wallet proved, on every platform, a page at a time.
+// Order is arbitrary, and a page read across a removal may overlap or skip:
+// read the count and the pages against one block when every account matters.
+const total = await accountCount(reader, wallet!)
+const accounts = await accountsOf(reader, wallet!, 0n, 50n)
+// [{ platformId: x, userId: '42', handle: 'alice', handleCurrent: true }, …]
 ```
 
 ## Claiming a name

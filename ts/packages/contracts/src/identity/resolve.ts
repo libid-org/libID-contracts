@@ -161,3 +161,50 @@ export async function resolvePair(
 
   return { wallet: wallet === zeroAddress ? null : wallet, idAgrees }
 }
+
+/// One account a wallet proved, as the wallet's list reports it.
+export interface Account {
+  /// The platform the account is on, as `platformId` derives it.
+  platformId: `0x${string}`
+  /// The account id, byte for byte as the platform issued it.
+  userId: string
+  /// The handle this account proved most recently, as normalized on chain.
+  handle: string
+  /// True while the handle node still points back at this account.
+  ///
+  /// False once another account proves the same handle: the string stays as
+  /// the last thing this account was known as, and the flag says not to route
+  /// by it.
+  handleCurrent: boolean
+}
+
+/// How many accounts a wallet holds, on every platform together.
+export async function accountCount(reader: NamesReader, wallet: Address): Promise<bigint> {
+  return read<bigint>(reader, 'accountCount', [wallet])
+}
+
+/// A page of the accounts a wallet holds, on every platform together: the
+/// indices `[from, from + limit)` of its list, counted from zero and clipped
+/// to the list. A `from` past the end answers an empty page. A reader that
+/// wants one platform filters a page by `platformId`.
+///
+/// Order is arbitrary and changes when an account leaves the list, so two
+/// pages read across a removal may overlap or skip. A reader that needs every
+/// account reads `accountCount` and the pages against one block.
+///
+/// A list is as long as its wallet made it, and a call's gas is not. A caller
+/// enumerating a wallet it did not choose keeps `limit` small and pages.
+export async function accountsOf(
+  reader: NamesReader,
+  wallet: Address,
+  from: bigint,
+  limit: bigint,
+): Promise<Account[]> {
+  const page = await read<readonly Account[]>(reader, 'accountsOf', [wallet, from, limit])
+  return page.map(({ platformId, userId, handle, handleCurrent }) => ({
+    platformId,
+    userId,
+    handle,
+    handleCurrent,
+  }))
+}

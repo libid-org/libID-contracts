@@ -22,6 +22,20 @@ mod names_inner {
                 bool allowHyphen;
             }
 
+            /// One account a wallet proved, as its list reports it. `handle`
+            /// is the one the account proved most recently, and
+            /// `handleCurrent` says whether the handle node still points back
+            /// at this account: it stops doing so when another account proves
+            /// the same handle, and the string stays as the last thing the
+            /// account was known as.
+            #[derive(Debug, serde::Serialize, serde::Deserialize)]
+            struct Account {
+                bytes32 platformId;
+                string userId;
+                string handle;
+                bool handleCurrent;
+            }
+
             function initialize(address owner_) external;
 
             /// The wallet that proved an account id, and when.
@@ -77,6 +91,16 @@ mod names_inner {
             function nodeOf(bytes32 platformId, string calldata handle) external view returns (bytes32 handleNode);
             /// The node of a handle given as its hash, as `claim` binds it.
             function nodeOfHash(bytes32 platformId, bytes32 handleHash) external pure returns (bytes32);
+
+            /// How many accounts a wallet holds, on every platform together.
+            function accountCount(address wallet) external view returns (uint256);
+            /// A page of the accounts a wallet holds, on every platform
+            /// together: the indices `[from, from + limit)`, counted from
+            /// zero and clipped to the list. Order
+            /// is arbitrary and changes when an account leaves the list, so
+            /// a reader that needs every account reads `accountCount` and
+            /// the pages in one block.
+            function accountsOf(address wallet, uint256 from, uint256 limit) external view returns (Account[] memory);
 
             /// Carries the ceremony version that proved the binding -- logged,
             /// never stored, because nothing on chain acts on it and an

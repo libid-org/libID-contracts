@@ -8,6 +8,7 @@ import {ReentrancyGuardUpgradeable} from "@openzeppelin/contracts-upgradeable/ut
 
 import {ICeremony} from "../ceremony/ICeremony.sol";
 import {IProofVerifier} from "../ceremony/IProofVerifier.sol";
+import {AccountList} from "./AccountList.sol";
 import {HandleNormalizer} from "./HandleNormalizer.sol";
 import {IIdentityNames} from "./IIdentityNames.sol";
 import {IdentityNodes} from "./IdentityNodes.sol";
@@ -85,6 +86,19 @@ import {IdentityNodes} from "./IdentityNodes.sol";
 ///      **There is no pause.** A pause is a lever over other people's names,
 ///      and nothing here needs one: no funds are held, and no address is
 ///      predicted ahead of its deployment.
+///
+///      **A wallet's accounts can be walked, and the walk is paid for by the
+///      walker.** Every account a wallet proved sits in that wallet's list,
+///      whatever the platform, with the platform, the account id and the
+///      handle it holds, so a contract can enumerate what a wallet is without
+///      an indexer and without knowing which platforms exist. The list is
+///      kept by the account rather than by the handle: a rename moves one
+///      pointer, a handle passing to somebody else changes nothing in it, and
+///      only an account proved from a new wallet moves between two lists.
+///      Each of those costs the same whether the list holds four accounts or
+///      four thousand. What grows with the list is reading it, which is why
+///      it is read by page and why a contract should never walk a list it did
+///      not choose the size of.
 contract IdentityNames is
     IIdentityNames,
     Initializable,
@@ -92,6 +106,8 @@ contract IdentityNames is
     Ownable2StepUpgradeable,
     ReentrancyGuardUpgradeable
 {
+    using AccountList for AccountList.Data;
+
     /// @notice A binding, and the moment the platform stated it.
     ///
     /// @dev `observedAt` is a provider timestamp, never a chain timestamp. Two
@@ -105,6 +121,29 @@ contract IdentityNames is
     struct Binding {
         address owner;
         uint64 observedAt;
+    }
+
+    /// @notice One account a wallet proved, as its list reports it.
+    ///
+    /// @dev `handle` is the one the account proved most recently, and
+    ///      `handleCurrent` says whether the handle node still points back at
+    ///      this account, which is what `claim` writes and what any other
+    ///      account proving the same handle overwrites. Once it is false the
+    ///      string stays as the last thing this account was known as, and the
+    ///      flag says not to route by it. The flag reads the nodes, so a
+    ///      change to the platform's rules, which re-keys handles, is seen by
+    ///      `resolveHandle` before it is seen here.
+    struct Account {
+        bytes32 platformId;
+        string userId;
+        string handle;
+        bool handleCurrent;
+    }
+
+    /// @notice What an account node hashes: its platform and its account id.
+    struct AccountKey {
+        bytes32 platformId;
+        string userId;
     }
 
     /// @notice A platform this contract accepts proofs for: its keyspace.
@@ -210,6 +249,17 @@ contract IdentityNames is
         /// first, consume the digest, and leave this contract nothing to apply
         /// -- a denial of service costing the attacker only a fee.
         mapping(bytes32 => bool) spentDigests;
+        // ── The account lists, appended after everything above.
+        /// wallet -> the account nodes it holds, on every platform.
+        AccountList.Data accounts;
+        /// idNode -> its platform, and the account id byte for byte as the
+        /// platform issued it.
+        ///
+        /// A node cannot be turned back into what it hashes, and a list of
+        /// nodes tells a reader nothing. This is the plaintext behind one.
+        mapping(bytes32 => AccountKey) accountOf;
+        /// handleNode -> the handle, as normalized on the way in.
+        mapping(bytes32 => string) handleOf;
     }
 
     // keccak256(abi.encode(uint256(keccak256("libid.storage.IdentityNames")) - 1)) & ~bytes32(uint256(0xff))
@@ -620,7 +670,8 @@ contract IdentityNames is
         //
         // Checking the handle node too is the load-bearing half: after somebody
         // else proves this handle, an older proof of it must not take it back.
-        _requireNewer(observedAt, _s().byId[idKey].observedAt);
+        Binding memory held = _s().byId[idKey];
+        _requireNewer(observedAt, held.observedAt);
         _requireNewer(observedAt, _s().byHandle[handleKey].observedAt);
 
         _s().byId[idKey] = Binding({owner: msg.sender, observedAt: observedAt});
@@ -629,6 +680,8 @@ contract IdentityNames is
         _retirePreviousHandle(platformId, idKey, handleKey);
         _s().handleOfId[idKey] = handleKey;
         _s().idOfHandle[handleKey] = idKey;
+
+        _list(platformId, idKey, handleKey, userId, handle, held.owner);
 
         // Publishing follows the wallet's own name, rather than the flag's
         // default. A caller that re-proves after a rename must not keep
@@ -643,6 +696,33 @@ contract IdentityNames is
         emit IdentityBound(
             msg.sender, idKey, handleKey, platformId, userId, handle, observedAt, published, ceremonyVersion
         );
+    }
+
+    /// @dev Put the account just bound in the caller's list, and keep the
+    ///      plaintext behind its nodes.
+    ///
+    ///      An account enters a list on its first proof and leaves it only
+    ///      for another list, so `byId` says which case this is: no owner
+    ///      yet, a first proof; another owner, a move. The key and the handle
+    ///      are the preimages of the nodes, so each is written once. A
+    ///      handle's may already be there from an earlier holder.
+    function _list(
+        bytes32 platformId,
+        bytes32 idKey,
+        bytes32 handleKey,
+        string memory userId,
+        string memory handle,
+        address heldBy
+    ) private {
+        IdentityNamesStorage storage $ = _s();
+        if (heldBy == address(0)) {
+            $.accounts.add(msg.sender, idKey);
+            $.accountOf[idKey] = AccountKey({platformId: platformId, userId: userId});
+        } else if (heldBy != msg.sender) {
+            $.accounts.remove(heldBy, idKey);
+            $.accounts.add(msg.sender, idKey);
+        }
+        if (bytes($.handleOf[handleKey]).length == 0) $.handleOf[handleKey] = handle;
     }
 
     /// @dev Stop resolving the handle this account used to hold.
@@ -839,6 +919,50 @@ contract IdentityNames is
         if (problem != HandleNormalizer.Problem.None) return "";
         if (_s().byHandle[handleKey].owner != wallet) return "";
         return published;
+    }
+
+    /// @notice How many accounts a wallet holds, on every platform together.
+    function accountCount(address wallet) external view returns (uint256) {
+        return _s().accounts.count(wallet);
+    }
+
+    /// @notice A page of the accounts a wallet holds, on every platform
+    ///         together.
+    ///
+    /// @dev The page is the indices `[from, from + limit)`, counted from
+    ///      zero and clipped to the list. A `from` past the end answers an
+    ///      empty page. Reading costs about six storage loads per account
+    ///      returned, so the whole of a list is only for a caller that chose
+    ///      the list, and a contract reading a wallet it did not choose keeps
+    ///      `limit` small. A reader that wants one platform filters a page by
+    ///      `platformId`, which keeps a read bounded by the page and never by
+    ///      the list.
+    ///
+    ///      Order is arbitrary and changes when an account leaves the list, so
+    ///      two pages read across a removal may overlap or skip. A reader that
+    ///      needs every account reads `accountCount` and the pages in one
+    ///      block.
+    ///
+    ///      `handleCurrent` is decided by the handle node pointing back at
+    ///      this account, which is what `claim` writes and what a takeover by
+    ///      any other account overwrites -- including a second account of the
+    ///      same wallet, where the wallet still owns the handle node and an
+    ///      owner check alone would report both accounts as holding it.
+    function accountsOf(address wallet, uint256 from, uint256 limit) external view returns (Account[] memory out) {
+        IdentityNamesStorage storage $ = _s();
+        bytes32[] memory nodes = $.accounts.page(wallet, from, limit);
+        out = new Account[](nodes.length);
+        for (uint256 i = 0; i < nodes.length; i++) {
+            bytes32 idKey = nodes[i];
+            bytes32 handleKey = $.handleOfId[idKey];
+            AccountKey storage key = $.accountOf[idKey];
+            out[i] = Account({
+                platformId: key.platformId,
+                userId: key.userId,
+                handle: $.handleOf[handleKey],
+                handleCurrent: $.idOfHandle[handleKey] == idKey
+            });
+        }
     }
 
     /// @notice Resolve a handle, and say whether the caller's account id agrees.
