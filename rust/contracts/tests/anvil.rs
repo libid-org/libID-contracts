@@ -754,7 +754,6 @@ async fn escrows_value_against_an_unclaimed_handle() {
             deploy_honk_verifiers,
             Circuit,
         },
-        nodes,
         platform_verifier::{
             deploy_platform_verifier,
             Initializer,
@@ -892,22 +891,27 @@ async fn escrows_value_against_an_unclaimed_handle() {
     let escrow = HandleEscrow::new(escrow_proxy, &provider);
     assert_eq!(escrow.names().call().await.unwrap(), names_proxy);
 
-    // The off-chain node of ` Alice-1 ` on GitHub, pinned with `cast`.
-    let handle_hash = nodes::handle_hash("alice-1");
-    let computed = nodes::handle_node_of_hash(platform_id, handle_hash);
+    // The naming system normalizes ` Alice-1 ` to `alice-1`; its node is
+    // pinned with `cast`, and both derivations agree on it.
+    let handle_hash = names
+        .handleHashOf(platform_id, " Alice-1 ".into())
+        .call()
+        .await
+        .unwrap();
+    assert_eq!(
+        handle_hash,
+        keccak256("alice-1"),
+        "handleHashOf did not normalize"
+    );
+    let computed = names
+        .nodeOf(platform_id, " Alice-1 ".into())
+        .call()
+        .await
+        .unwrap();
     assert_eq!(
         computed,
         b256!("2e2bee956f308d03271ce24b26e5aa20103b41841ddee3c96a94d2449902f710"),
-        "the off-chain derivation drifted from the pinned node"
-    );
-    assert_eq!(
-        escrow
-            .nodeOf(platform_id, " Alice-1 ".into())
-            .call()
-            .await
-            .unwrap(),
-        computed,
-        "Rust and the contract derive different nodes"
+        "nodeOf drifted from the pinned node"
     );
     assert_eq!(
         names
@@ -916,18 +920,7 @@ async fn escrows_value_against_an_unclaimed_handle() {
             .await
             .unwrap(),
         computed,
-        "Rust and nodeOfHash derive different nodes"
-    );
-
-    // The naming system hashes text the way a client does locally.
-    assert_eq!(
-        names
-            .handleHashOf(platform_id, " Alice-1 ".into())
-            .call()
-            .await
-            .unwrap(),
-        handle_hash,
-        "Rust and the contract hash the handle differently"
+        "nodeOf and nodeOfHash derive different nodes"
     );
 
     // Paid before anybody holds it, twice, by the handle's hash.
@@ -955,7 +948,7 @@ async fn escrows_value_against_an_unclaimed_handle() {
 
     // Nobody holds the node, so a claim is refused as unauthorized.
     let err = escrow
-        .claim(computed, Address::ZERO, stranger)
+        .claim(computed, vec![Address::ZERO], stranger)
         .from(stranger)
         .call()
         .await

@@ -7,6 +7,7 @@ import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol
 import {ReentrancyGuardUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardUpgradeable.sol";
 
 import {HandleEscrow} from "../HandleEscrow.sol";
+import {one} from "./One.sol";
 import {IdentityNodes} from "../../identity/IdentityNodes.sol";
 import {IIdentityNames} from "../../identity/IIdentityNames.sol";
 import {SettableNames} from "./HandleEscrowAccounting.t.sol";
@@ -17,8 +18,17 @@ import {
     ITransferHooks,
     NoReturnToken,
     PayoutFeeToken,
+    RebasingToken,
+    SenderFeeToken,
     ShrinkingToken
 } from "./HostileTokens.sol";
+import {IERC20Errors} from "@openzeppelin/contracts/interfaces/draft-IERC6093.sol";
+
+/// @notice The two calls a test makes on any of the mintable tokens.
+interface IMintable {
+    function mint(address to, uint256 amount) external;
+    function approve(address spender, uint256 amount) external returns (bool);
+}
 
 /// @notice A depositor, holder and recipient in one, registered for the hook token's callbacks.
 contract HookedParty is ITransferHooks {
@@ -63,7 +73,7 @@ contract HookedParty is ITransferHooks {
     }
 
     function claim() external {
-        ESCROW.claim(NODE, address(TOKEN), address(this));
+        ESCROW.claim(NODE, one(address(TOKEN)), address(this));
     }
 
     function refund() external {
@@ -86,7 +96,7 @@ contract HookedParty is ITransferHooks {
         if (reentry == Reentry.Deposit) {
             call = abi.encodeCall(HandleEscrow.deposit, (PLATFORM, HASH, address(TOKEN), 1, address(this)));
         } else if (reentry == Reentry.Claim) {
-            call = abi.encodeCall(HandleEscrow.claim, (NODE, address(TOKEN), address(this)));
+            call = abi.encodeCall(HandleEscrow.claim, (NODE, one(address(TOKEN)), address(this)));
         } else {
             call = abi.encodeCall(HandleEscrow.refund, (NODE, address(TOKEN), address(this)));
         }
@@ -123,6 +133,8 @@ contract HandleEscrowHostileTokensTest is Test {
     bytes32 internal constant PLATFORM = keccak256("x");
     bytes32 internal constant HASH = keccak256("node");
     bytes32 internal immutable NODE = IdentityNodes.handleNodeOfHash(PLATFORM, HASH);
+    bytes32 internal constant HASH2 = keccak256("node 2");
+    bytes32 internal immutable NODE2 = IdentityNodes.handleNodeOfHash(PLATFORM, HASH2);
 
     HandleEscrow internal escrow;
     SettableNames internal names;
@@ -130,6 +142,7 @@ contract HandleEscrowHostileTokensTest is Test {
     address internal depositor = makeAddr("depositor");
     address internal holder = makeAddr("holder");
     address internal elsewhere = makeAddr("elsewhere");
+    address internal other = makeAddr("other");
 
     function setUp() public {
         names = new SettableNames();
@@ -247,12 +260,12 @@ contract HandleEscrowHostileTokensTest is Test {
         names.setHolder(NODE, holder);
         vm.prank(holder);
         vm.expectRevert(abi.encodeWithSelector(SafeERC20.SafeERC20FailedOperation.selector, address(token)));
-        escrow.claim(NODE, address(token), holder);
+        escrow.claim(NODE, one(address(token)), holder);
         assertEq(escrow.escrowed(NODE, address(token)), 10 ether, "a failed claim emptied the slot");
 
         token.setFailing(false);
         vm.prank(holder);
-        escrow.claim(NODE, address(token), holder);
+        escrow.claim(NODE, one(address(token)), holder);
         assertEq(token.balanceOf(holder), 10 ether);
     }
 
@@ -272,7 +285,7 @@ contract HandleEscrowHostileTokensTest is Test {
 
         names.setHolder(NODE, holder);
         vm.prank(holder);
-        escrow.claim(NODE, address(token), holder);
+        escrow.claim(NODE, one(address(token)), holder);
         assertEq(token.balanceOf(holder), 10 ether, "the claim did not pay");
 
         vm.prank(depositor);
@@ -314,7 +327,7 @@ contract HandleEscrowHostileTokensTest is Test {
         vm.expectEmit(true, true, true, true, address(escrow));
         emit HandleEscrow.Claimed(NODE, address(token), holder, elsewhere, 100 ether, 99 ether);
         vm.prank(holder);
-        escrow.claim(NODE, address(token), elsewhere);
+        escrow.claim(NODE, one(address(token)), elsewhere);
 
         assertEq(token.balanceOf(elsewhere), 99 ether);
         assertEq(escrow.escrowed(NODE, address(token)), 0, "the books kept the fee");
@@ -346,11 +359,11 @@ contract HandleEscrowHostileTokensTest is Test {
 
         vm.prank(holder);
         vm.expectRevert(abi.encodeWithSelector(BlocklistToken.Blocked.selector, holder));
-        escrow.claim(NODE, address(token), holder);
+        escrow.claim(NODE, one(address(token)), holder);
         assertEq(escrow.escrowed(NODE, address(token)), 10 ether, "a failed claim emptied the slot");
 
         vm.prank(holder);
-        escrow.claim(NODE, address(token), elsewhere);
+        escrow.claim(NODE, one(address(token)), elsewhere);
         assertEq(token.balanceOf(elsewhere), 10 ether);
     }
 
@@ -403,16 +416,71 @@ contract HandleEscrowHostileTokensTest is Test {
         names.setHolder(NODE, holder);
         vm.prank(holder);
         vm.expectRevert(abi.encodeWithSelector(BlocklistToken.Blocked.selector, address(escrow)));
-        escrow.claim(NODE, address(token), holder);
+        escrow.claim(NODE, one(address(token)), holder);
         assertEq(escrow.escrowed(NODE, address(token)), 10 ether, "the frozen slot changed");
 
         token.setBlocked(address(escrow), false);
         vm.prank(holder);
-        escrow.claim(NODE, address(token), holder);
+        escrow.claim(NODE, one(address(token)), holder);
         assertEq(token.balanceOf(holder), 10 ether);
     }
 
+    // ─── One pool per token ─────────────────────────────────────────
+
+    /// A payout that would take more of the pool than it books is refused, so one node's claim
+    /// cannot spend another node's backing.
+    function test_aPayoutThatOverDebitsThePoolIsRefused() public {
+        SenderFeeToken token = new SenderFeeToken();
+        _escrowTwoNodes(address(token), 10 ether);
+
+        names.setHolder(NODE, holder);
+        vm.prank(holder);
+        vm.expectRevert(abi.encodeWithSelector(HandleEscrow.OverDebited.selector, address(token), 10 ether, 10.1 ether));
+        escrow.claim(NODE, one(address(token)), holder);
+
+        vm.prank(depositor);
+        vm.expectRevert(abi.encodeWithSelector(HandleEscrow.OverDebited.selector, address(token), 10 ether, 10.1 ether));
+        escrow.refund(NODE, address(token), depositor);
+
+        assertEq(escrow.escrowed(NODE, address(token)), 10 ether);
+        assertEq(escrow.escrowed(NODE2, address(token)), 10 ether);
+        assertEq(token.balanceOf(address(escrow)), 20 ether);
+    }
+
+    /// KNOWN LIMITATION, pinned: a negative rebase shrinks the shared pool, and whoever withdraws
+    /// that token last cannot.
+    function test_ACCEPTED_aNegativeRebaseStrandsTheLastWithdrawal() public {
+        RebasingToken token = new RebasingToken();
+        _escrowTwoNodes(address(token), 10 ether);
+        token.slash(address(escrow), 5 ether);
+
+        vm.prank(depositor);
+        escrow.refund(NODE, address(token), depositor);
+        assertEq(token.balanceOf(depositor), 10 ether, "the first refund was not whole");
+
+        vm.prank(other);
+        vm.expectRevert(
+            abi.encodeWithSelector(IERC20Errors.ERC20InsufficientBalance.selector, address(escrow), 5 ether, 10 ether)
+        );
+        escrow.refund(NODE2, address(token), other);
+        assertEq(escrow.escrowed(NODE2, address(token)), 10 ether, "the stranded slot changed");
+    }
+
     // ─── Helpers ────────────────────────────────────────────────────
+
+    /// `amount` escrowed for NODE by `depositor` and for NODE2 by `other`.
+    function _escrowTwoNodes(address token, uint256 amount) internal {
+        IMintable(token).mint(depositor, amount);
+        IMintable(token).mint(other, amount);
+        vm.startPrank(depositor);
+        IMintable(token).approve(address(escrow), amount);
+        escrow.deposit(PLATFORM, HASH, token, amount, depositor);
+        vm.stopPrank();
+        vm.startPrank(other);
+        IMintable(token).approve(address(escrow), amount);
+        escrow.deposit(PLATFORM, HASH2, token, amount, other);
+        vm.stopPrank();
+    }
 
     function _hooked() internal returns (HookToken token, HookedParty party) {
         token = new HookToken();

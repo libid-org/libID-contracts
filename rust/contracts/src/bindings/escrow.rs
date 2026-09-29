@@ -26,8 +26,10 @@ mod escrow_inner {
                 address refundTo
             ) external payable;
 
-            /// Take everything held for a node in one token; holder only.
-            function claim(bytes32 handleNode, address token, address recipient) external;
+            /// Take everything held for a node in each of `tokens`; holder
+            /// only. Tokens with nothing held are skipped; reverts
+            /// `NothingHeld` when none paid.
+            function claim(bytes32 handleNode, address[] calldata tokens, address recipient) external;
 
             /// Take back the caller's contribution to a node in the current
             /// round, until the holder claims.
@@ -36,8 +38,6 @@ mod escrow_inner {
             function escrowed(bytes32 handleNode, address token) external view returns (uint256);
             /// What `refund` would pay `refundTo` now.
             function refundable(bytes32 handleNode, address token, address refundTo) external view returns (uint256);
-            /// `IdentityNames.nodeOf`, asked through the escrow.
-            function nodeOf(bytes32 platformId, string calldata handle) external view returns (bytes32);
             function names() external view returns (address);
             function NATIVE() external view returns (address);
 
@@ -93,7 +93,7 @@ mod escrow_inner {
             /// The caller holds the node it is paying.
             error PayingYourself(address holder);
             error ValueMismatch(uint256 expected, uint256 provided);
-            error NothingHeld(bytes32 handleNode, address token);
+            error NothingHeld(bytes32 handleNode);
             /// The caller is not the node's holder.
             error NotTheHolder(address holder, address caller);
             /// Nothing refundable is booked under `refundTo`.
@@ -104,6 +104,8 @@ mod escrow_inner {
             /// Nobody holds the node and nothing new can bind on the platform.
             error PlatformAcceptsNoClaims(bytes32 platformId);
             error NativeTransferFailed(address recipient, uint256 amount);
+            /// A payout took more of the escrow's balance than it booked.
+            error OverDebited(address token, uint256 booked, uint256 debited);
             error NoNames();
             /// `initialize`: the naming contract does not answer `selector`.
             error NamesLacks(address names, bytes4 selector);

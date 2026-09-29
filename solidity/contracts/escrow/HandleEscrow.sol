@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.24;
+pragma solidity ^0.8.22;
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
@@ -9,34 +9,20 @@ import {Ownable2StepUpgradeable} from "@openzeppelin/contracts-upgradeable/acces
 import {ReentrancyGuardUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardUpgradeable.sol";
 
 import {IIdentityNames} from "../identity/IIdentityNames.sol";
-import {IdentityNodes} from "../identity/IdentityNodes.sol";
 
 /// @title HandleEscrow - send to a platform handle before anybody claims it.
 ///
-/// @notice Holds value against a handle node. The node's holder in
-///         `IdentityNames` claims it; until then each deposit's `refundTo`
-///         can take its own contribution back.
+/// @notice Holds value against the handle node `IdentityNames` binds. The
+///         node's holder claims it; until then each deposit's `refundTo`
+///         can take its own contribution back. Integrator notes, privacy and
+///         trust: `README.md` beside this file.
 ///
-/// @dev - A slot is the node `IdentityNames` binds for the handle, which it
-///        derives (`nodeOfHash`). `claim` is authorized by
-///        `names.byHandle(node).owner` alone.
-///      - A deposit for a held node is paid straight through; only an unheld
-///        node on a platform that `acceptsClaims` escrows.
-///      - Refunds have no delay and stay open until the holder claims; a claim
-///        takes everything and moves the slot to a new round, which ends the
-///        refunds of the old one. A refund and a claim racing: first wins.
-///      - The handle is the whole key: a recycled handle, or a stale binding
-///        (`byHandle` names whoever last proved it), receives what is paid or
-///        left unrefunded. Wallets should show `byHandle(node).observedAt`.
-///      - No pause. `refund` depends on neither the platform's rules nor
-///        `acceptsClaims`, so it stays the way out when those change.
-///      - Unsupported: rebasing tokens. Value arriving outside a deposit is
-///        never swept. A token that blocklists this contract freezes its slots.
-///      - Trust base: every key that can change what `byHandle` answers (the
-///        `IdentityNames`, `CeremonyProofVerifier`, `NotaryService`,
-///        Platform Verifier and `GoogleJwtRoots` owners, trusted notary keys,
-///        the platforms themselves) can take held value through an ordinary
-///        identity claim; this contract's owner can upgrade it.
+/// @dev - A held node is paid straight through; only an unheld node on a
+///        platform that `acceptsClaims` escrows.
+///      - A claim empties the slot and opens a new round, ending the old
+///        round's refunds. Refunds have no delay and no pause gates them.
+///      - Each token is one pool across all nodes; a payout that debits it by
+///        more than it books reverts `OverDebited`.
 contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, ReentrancyGuardUpgradeable {
     using SafeERC20 for IERC20;
 
@@ -91,7 +77,7 @@ contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable
         uint256 received
     );
 
-    /// @notice The holder took what was held. `released` left the books;
+    /// @notice The holder took what was held in one token. `released` left the books;
     ///         `received` is what `recipient` gained.
     event Claimed(
         bytes32 indexed handleNode,
@@ -121,8 +107,8 @@ contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable
     error PayingYourself(address holder);
     /// Native value must equal the amount, and a token deposit carries none.
     error ValueMismatch(uint256 expected, uint256 provided);
-    /// Nothing is held for this handle node in this token.
-    error NothingHeld(bytes32 handleNode, address token);
+    /// Nothing is held for this handle node in any of the tokens asked for.
+    error NothingHeld(bytes32 handleNode);
     /// The caller does not hold this handle node.
     error NotTheHolder(address holder, address caller);
     /// Nothing refundable is booked under this address in the current round.
@@ -134,6 +120,8 @@ contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable
     error BadRecipient(address recipient);
     /// Nobody holds the node and nothing new can bind on this platform.
     error PlatformAcceptsNoClaims(bytes32 platformId);
+    /// A payout took more of this contract's balance than it booked.
+    error OverDebited(address token, uint256 booked, uint256 debited);
     /// The recipient refused the transfer.
     error NativeTransferFailed(address recipient, uint256 amount);
     /// The escrow needs a naming system to resolve through.
@@ -171,26 +159,17 @@ contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable
     /// @notice Pay `amount` of `token` to a handle, given as `keccak256` of its
     ///         normalized form (`IdentityNames.handleHashOf`).
     ///
-    /// @dev - The hash cannot be checked: a wrong one funds a slot nobody can
-    ///        claim, which `refundTo` can refund.
-    ///      - A held node is paid straight through (`Forwarded`), and a holder
-    ///        paying itself reverts `PayingYourself`. Otherwise the value is
-    ///        escrowed under `refundTo` (`Deposited`).
-    ///      - Both branches book what arrived, so fee-on-transfer tokens work.
-    ///        A holder that sweeps tokens onward inside the transfer gains
-    ///        nothing and the deposit reverts `ZeroAmount`.
+    /// @dev The hash cannot be checked: a wrong one funds a slot nobody can
+    ///      claim, which `refundTo` can refund. Both branches book what
+    ///      arrived, so fee-on-transfer tokens work; nothing arriving reverts
+    ///      `ZeroAmount`.
     /// @param token    An ERC-20, or `NATIVE`, when `amount` must equal `msg.value`.
-    /// @param refundTo Who may refund an escrowed deposit: an address that can
-    ///                 call `refund`, never zero or this contract.
+    /// @param refundTo Who may refund an escrowed deposit; never zero or this contract.
     function deposit(bytes32 platformId, bytes32 handleHash, address token, uint256 amount, address refundTo)
         external
         payable
         nonReentrant
     {
-        _deposit(platformId, _s().names.nodeOfHash(platformId, handleHash), token, amount, refundTo);
-    }
-
-    function _deposit(bytes32 platformId, bytes32 node, address token, uint256 amount, address refundTo) private {
         if (amount == 0) revert ZeroAmount();
         if (refundTo == address(0) || refundTo == address(this)) revert BadRefundTo(refundTo);
 
@@ -200,7 +179,9 @@ contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable
             revert ValueMismatch(0, msg.value);
         }
 
-        (address holder,) = _s().names.byHandle(node);
+        HandleEscrowStorage storage $ = _s();
+        bytes32 node = $.names.nodeOfHash(platformId, handleHash);
+        (address holder,) = $.names.byHandle(node);
         if (holder != address(0)) {
             if (holder == msg.sender) revert PayingYourself(holder);
             uint256 received = _move(token, msg.sender, holder, amount);
@@ -209,12 +190,11 @@ contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable
             return;
         }
 
-        if (!_s().names.acceptsClaims(platformId)) revert PlatformAcceptsNoClaims(platformId);
+        if (!$.names.acceptsClaims(platformId)) revert PlatformAcceptsNoClaims(platformId);
 
         uint256 credited = _move(token, msg.sender, address(this), amount);
         if (credited == 0) revert ZeroAmount();
 
-        HandleEscrowStorage storage $ = _s();
         $.held[node][token] += credited;
         $.contributions[node][token][$.round[node][token]][refundTo] += credited;
         emit Deposited(node, token, refundTo, msg.sender, platformId, credited);
@@ -222,21 +202,32 @@ contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable
 
     // ─── Claiming ───────────────────────────────────────────────────
 
-    /// @notice Take everything held for a node in one token. The caller must
-    ///         be `byHandle(handleNode).owner`; `recipient` is its choice.
-    function claim(bytes32 handleNode, address token, address recipient) external nonReentrant {
+    /// @notice Take everything held for a node in each of `tokens`. The caller
+    ///         must be `byHandle(handleNode).owner`; `recipient` is its choice.
+    /// @dev Tokens with nothing held are skipped, so a list read from an
+    ///      indexer survives a refund landing first; a repeated token pays
+    ///      once. Reverts `NothingHeld` only when no token paid. One `Claimed`
+    ///      per token paid.
+    function claim(bytes32 handleNode, address[] calldata tokens, address recipient) external nonReentrant {
         if (recipient == address(0) || recipient == address(this)) revert BadRecipient(recipient);
 
         (address holder,) = _s().names.byHandle(handleNode);
         if (holder != msg.sender) revert NotTheHolder(holder, msg.sender);
 
         HandleEscrowStorage storage $ = _s();
-        uint256 amount = $.held[handleNode][token];
-        if (amount == 0) revert NothingHeld(handleNode, token);
-        $.held[handleNode][token] = 0;
-        ++$.round[handleNode][token];
-
-        emit Claimed(handleNode, token, msg.sender, recipient, amount, _move(token, address(this), recipient, amount));
+        bool paid;
+        for (uint256 i; i < tokens.length; ++i) {
+            address token = tokens[i];
+            uint256 amount = $.held[handleNode][token];
+            if (amount == 0) continue;
+            $.held[handleNode][token] = 0;
+            ++$.round[handleNode][token];
+            paid = true;
+            emit Claimed(
+                handleNode, token, msg.sender, recipient, amount, _move(token, address(this), recipient, amount)
+            );
+        }
+        if (!paid) revert NothingHeld(handleNode);
     }
 
     // ─── Refunding ──────────────────────────────────────────────────
@@ -269,23 +260,27 @@ contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable
         return $.contributions[handleNode][token][$.round[handleNode][token]][refundTo];
     }
 
-    /// @notice `IdentityNames.nodeOf`: the node a handle keys to now, which
-    ///         `claim`, `refund` and the reads take.
-    function nodeOf(bytes32 platformId, string calldata handle) external view returns (bytes32) {
-        return _s().names.nodeOf(platformId, handle);
-    }
-
     /// @dev Moves value and returns what `to` gained (native: `amount`). Zero is
-    ///      returned, not refused: deposits refuse it, payouts accept it.
+    ///      returned, not refused: deposits refuse it, payouts accept it. A
+    ///      payout may not take more of this contract's balance than `amount`.
     function _move(address token, address from, address to, uint256 amount) private returns (uint256 gained) {
         if (token == NATIVE) {
             if (to != address(this)) _sendNative(to, amount);
             return amount;
         }
-        uint256 before = IERC20(token).balanceOf(to);
-        if (from == address(this)) IERC20(token).safeTransfer(to, amount);
-        else IERC20(token).safeTransferFrom(from, to, amount);
-        uint256 afterwards = IERC20(token).balanceOf(to);
+        IERC20 erc20 = IERC20(token);
+        uint256 before = erc20.balanceOf(to);
+        if (from == address(this)) {
+            uint256 poolBefore = erc20.balanceOf(address(this));
+            erc20.safeTransfer(to, amount);
+            uint256 poolAfter = erc20.balanceOf(address(this));
+            if (poolAfter < poolBefore && poolBefore - poolAfter > amount) {
+                revert OverDebited(token, amount, poolBefore - poolAfter);
+            }
+        } else {
+            erc20.safeTransferFrom(from, to, amount);
+        }
+        uint256 afterwards = erc20.balanceOf(to);
         return afterwards > before ? afterwards - before : 0;
     }
 
@@ -294,28 +289,28 @@ contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable
         if (!ok) revert NativeTransferFailed(to, amount);
     }
 
-    /// @dev Requires the exact answers `IdentityNames` gives for the zero node
-    ///      and platform: an empty binding, `false`, `UnknownPlatform(0)`, and
-    ///      the V1 node of a zero hash.
+    /// @dev Refuses a naming contract that does not answer the three calls the
+    ///      escrow makes in their shape: a two-word binding, a boolean, and a
+    ///      nonzero node that depends on the hash.
     function _requireAnswers(IIdentityNames names_) private view {
-        bytes memory result;
-        bool ok;
-        (ok, result) = address(names_).staticcall(abi.encodeCall(IIdentityNames.byHandle, (bytes32(0))));
-        if (!ok || keccak256(result) != keccak256(abi.encode(address(0), uint64(0)))) {
-            revert NamesLacks(address(names_), IIdentityNames.byHandle.selector);
-        }
+        (bool ok, bytes memory result) =
+            address(names_).staticcall(abi.encodeCall(IIdentityNames.byHandle, (bytes32(0))));
+        if (!ok || result.length != 64) revert NamesLacks(address(names_), IIdentityNames.byHandle.selector);
+
         (ok, result) = address(names_).staticcall(abi.encodeCall(IIdentityNames.acceptsClaims, (bytes32(0))));
-        if (!ok || keccak256(result) != keccak256(abi.encode(false))) {
+        if (!ok || result.length != 32 || abi.decode(result, (uint256)) > 1) {
             revert NamesLacks(address(names_), IIdentityNames.acceptsClaims.selector);
         }
-        (ok, result) = address(names_).staticcall(abi.encodeCall(IIdentityNames.nodeOf, (bytes32(0), "")));
-        if (ok || keccak256(result) != keccak256(abi.encodeWithSelector(IIdentityNames.UnknownPlatform.selector, 0))) {
-            revert NamesLacks(address(names_), IIdentityNames.nodeOf.selector);
-        }
-        (ok, result) = address(names_).staticcall(abi.encodeCall(IIdentityNames.nodeOfHash, (bytes32(0), bytes32(0))));
-        if (!ok || keccak256(result) != keccak256(abi.encode(IdentityNodes.handleNodeOfHash(0, 0)))) {
-            revert NamesLacks(address(names_), IIdentityNames.nodeOfHash.selector);
-        }
+
+        bytes32 a = _nodeOfHashAnswer(names_, bytes32(0));
+        bytes32 b = _nodeOfHashAnswer(names_, bytes32(uint256(1)));
+        if (a == 0 || b == 0 || a == b) revert NamesLacks(address(names_), IIdentityNames.nodeOfHash.selector);
+    }
+
+    function _nodeOfHashAnswer(IIdentityNames names_, bytes32 handleHash) private view returns (bytes32) {
+        (bool ok, bytes memory result) =
+            address(names_).staticcall(abi.encodeCall(IIdentityNames.nodeOfHash, (bytes32(0), handleHash)));
+        return ok && result.length == 32 ? abi.decode(result, (bytes32)) : bytes32(0);
     }
 
     // ─── Upgrade ────────────────────────────────────────────────────

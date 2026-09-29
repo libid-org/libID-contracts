@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.24;
+pragma solidity ^0.8.20;
 
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 
@@ -160,5 +160,37 @@ contract PayoutFeeToken is ERC20 {
         _transfer(msg.sender, address(0xdead), fee);
         _transfer(msg.sender, to, amount - fee);
         return true;
+    }
+}
+
+/// @notice A token whose `transfer` charges the sender 1% on top of the amount it delivers, so a
+///         payout takes more of the escrow's pool than it books.
+contract SenderFeeToken is ERC20 {
+    uint256 public constant FEE_BPS = 100;
+
+    constructor() ERC20("SenderFee", "SFEE") {}
+
+    function mint(address to, uint256 amount) external {
+        _mint(to, amount);
+    }
+
+    function transfer(address to, uint256 amount) public override returns (bool) {
+        _transfer(msg.sender, address(0xdead), (amount * FEE_BPS) / 10_000);
+        _transfer(msg.sender, to, amount);
+        return true;
+    }
+}
+
+/// @notice A token whose balances can shrink without a transfer, the way a negative rebase or a
+///         slashing does.
+contract RebasingToken is ERC20 {
+    constructor() ERC20("Rebase", "REB") {}
+
+    function mint(address to, uint256 amount) external {
+        _mint(to, amount);
+    }
+
+    function slash(address account, uint256 amount) external {
+        _burn(account, amount);
     }
 }

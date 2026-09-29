@@ -10,6 +10,7 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 import {IdentityNodes} from "../../identity/IdentityNodes.sol";
 import {HandleEscrow} from "../HandleEscrow.sol";
+import {one} from "./One.sol";
 import {IIdentityNames} from "../../identity/IIdentityNames.sol";
 import {FeeToken, TestERC20} from "./HandleEscrow.t.sol";
 import {BlocklistToken, NoReturnToken} from "./HostileTokens.sol";
@@ -181,7 +182,7 @@ contract EscrowHandler is CommonBase, StdCheats, StdUtils {
 
         bool refused = _expectBlocked(token, address(ESCROW), holder);
         vm.prank(holder);
-        ESCROW.claim(node, token, holder);
+        ESCROW.claim(node, one(token), holder);
         if (refused) return;
         for (uint256 i = 0; i < 3; i++) {
             modelContribution[node][token][depositors[i]] = 0;
@@ -258,6 +259,7 @@ contract HandleEscrowAccountingTest is Test {
 
     /// A handler call that reverts unexpectedly — including its own check on what a refund paid —
     /// fails the run rather than being skipped.
+    /// forge-config: default.invariant.fail-on-revert = true
     function invariant_theBooksAddUp() public view {
         for (uint256 t = 0; t < 5; t++) {
             address token = handler.tokens(t);
@@ -377,7 +379,7 @@ contract HandleEscrowAmountsTest is Test {
         names.setHolder(NODE, holder);
 
         vm.prank(holder);
-        escrow.claim(NODE, asset, holder);
+        escrow.claim(NODE, one(asset), holder);
 
         assertEq(_balance(asset, holder), a + b, "the claim paid other than the sum");
         assertEq(escrow.escrowed(NODE, asset), 0);
@@ -399,7 +401,7 @@ contract HandleEscrowAmountsTest is Test {
 
         names.setHolder(NODE, holder);
         vm.prank(holder);
-        escrow.claim(NODE, asset, holder);
+        escrow.claim(NODE, one(asset), holder);
         assertEq(_balance(asset, holder), b, "the claim paid other than what was left");
         assertEq(_balance(asset, address(escrow)), 0);
     }
