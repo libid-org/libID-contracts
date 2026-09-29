@@ -80,9 +80,13 @@ pub(crate) mod drift {
         bound: &JsonAbi,
         omitted: &[&str],
     ) {
-        let json = Artifacts::embedded().raw(file, contract).unwrap();
+        // The crate embeds no ABI; the check reads forge's build output.
+        let out = concat!(env!("CARGO_MANIFEST_DIR"), "/../../solidity/out");
+        let json = Artifacts::from_dir(out)
+            .raw(file, contract)
+            .expect("no forge build output; run `forge build` in solidity/");
         let compiled: JsonAbi = serde_json::from_value(json["abi"].clone())
-            .expect("the vendored artifact has no ABI; run scripts/vendor-artifacts.sh");
+            .expect("the forge artifact has no ABI");
         let compiled = items(&compiled);
         let bound = items(bound);
 
