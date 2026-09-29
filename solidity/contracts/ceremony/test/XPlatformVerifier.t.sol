@@ -692,6 +692,19 @@ contract XPlatformVerifierTest is Test {
         this.run{value: quote}(s);
     }
 
+    /// @dev A space or a tab inside the name does not hide it: names are
+    ///      compared with every space and tab removed (REQ-COMMON-39B).
+    function test_rejectsACookieWithWhitespaceInsideItsName() public {
+        TlsNotaryVerifierBase.TlsNotaryProof memory s = _payload();
+        s.identitySession = _identityAttestation("2244994945", "alice", "Coo kie: auth_token=stolen\r\n");
+        vm.expectRevert(abi.encodeWithSelector(TlsNotaryVerifierBase.ForbiddenRequestHeader.selector, bytes("cookie")));
+        this.run{value: quote}(s);
+
+        s.identitySession = _identityAttestation("2244994945", "alice", "Co\tokie: auth_token=stolen\r\n");
+        vm.expectRevert(abi.encodeWithSelector(TlsNotaryVerifierBase.ForbiddenRequestHeader.selector, bytes("cookie")));
+        this.run{value: quote}(s);
+    }
+
     /// @dev Any other header on the identity request is the runtime's own.
     function test_acceptsAnUnlistedHeaderOnTheIdentityRequest() public {
         TlsNotaryVerifierBase.TlsNotaryProof memory s = _payload();
@@ -1418,6 +1431,28 @@ contract XPlatformVerifierTest is Test {
         );
         vm.expectRevert(
             abi.encodeWithSelector(TlsNotaryVerifierBase.ForbiddenRequestHeader.selector, bytes("authorization"))
+        );
+        this.run{value: quote}(s);
+    }
+
+    /// @dev A forbidden name with a space or a tab inside it is still the
+    ///      forbidden name (REQ-PLAT-56A).
+    function test_rejectsAForbiddenHeaderWithWhitespaceInsideItsName() public {
+        TlsNotaryVerifierBase.TlsNotaryProof memory s = _payloadWithHeaders(
+            "host: api.x.com\r\ncontent-type: application/x-www-form-urlencoded\r\naccept: application/json\r\n"
+            "author ization: Basic bXlDbGllbnQtMTpzM2NyZXQ=\r\nconnection: close\r\n"
+        );
+        vm.expectRevert(
+            abi.encodeWithSelector(TlsNotaryVerifierBase.ForbiddenRequestHeader.selector, bytes("authorization"))
+        );
+        this.run{value: quote}(s);
+
+        s = _payloadWithHeaders(
+            "host: api.x.com\r\ncontent-type: application/x-www-form-urlencoded\r\naccept: application/json\r\n"
+            "Transfer\t-Encoding: chunked\r\nconnection: close\r\n"
+        );
+        vm.expectRevert(
+            abi.encodeWithSelector(TlsNotaryVerifierBase.ForbiddenRequestHeader.selector, bytes("transfer-encoding"))
         );
         this.run{value: quote}(s);
     }

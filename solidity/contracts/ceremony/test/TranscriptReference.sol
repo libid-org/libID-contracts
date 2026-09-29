@@ -6,8 +6,9 @@ import {CeremonyFields} from "../CeremonyFields.sol";
 import {CeremonyProfile} from "../CeremonyProfile.sol";
 
 /// @notice The transcript checks of `CeremonyAttestation` as of commit 7a63c20,
-///         code unchanged, for the differential tests in
-///         `TranscriptEquivalence.t.sol`.
+///         for the differential tests in `TranscriptEquivalence.t.sol`. Code
+///         unchanged except `_field`, whose header names drop every space and
+///         tab as REQ-PLAT-56A and REQ-COMMON-39B require.
 /// @dev Errors are declared here with the signatures of the originals, so a
 ///      revert carries the same data. Types are the live library's, so one
 ///      input feeds both implementations.
@@ -689,16 +690,17 @@ library RefTranscript {
             ++colon;
         }
         if (colon == line.length) return (false, name, value);
-        uint256 nameEnd = colon;
-        while (nameEnd > 0 && (line[nameEnd - 1] == " " || line[nameEnd - 1] == "\t")) {
-            --nameEnd;
+        bytes memory kept = new bytes(colon);
+        uint256 n;
+        for (uint256 i = 0; i < colon; ++i) {
+            bytes1 c = line[i];
+            if (c == " " || c == "\t") continue;
+            if (c >= "A" && c <= "Z") c = bytes1(uint8(c) + 32);
+            if (c == "_") c = "-";
+            kept[n++] = c;
         }
-        if (nameEnd == 0) return (false, name, value);
-        name = _slice(line, 0, nameEnd);
-        for (uint256 i = 0; i < name.length; ++i) {
-            if (name[i] >= "A" && name[i] <= "Z") name[i] = bytes1(uint8(name[i]) + 32);
-            if (name[i] == "_") name[i] = "-";
-        }
+        if (n == 0) return (false, name, value);
+        name = _slice(kept, 0, n);
         isHeader = true;
         uint256 start = colon + 1;
         uint256 end = line.length;

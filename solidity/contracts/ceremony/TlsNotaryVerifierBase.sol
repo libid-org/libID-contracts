@@ -592,19 +592,26 @@ abstract contract TlsNotaryVerifierBase is IPlatformVerifier, PlatformVerifierBa
         assert(from <= to && to <= data.length);
         uint256 colon = CeremonyFields.indexOfByte(data, from, to, ":");
         if (colon == to) return (false, name, 0, 0);
-        uint256 nameEnd = _trimEnd(data, from, colon);
-        if (nameEnd == from) return (false, name, 0, 0);
-        name = _slice(data, from, nameEnd);
-        // In place; every read and write is below `name.length`.
+        name = _slice(data, from, colon);
+        // The name lowercased, `_` read as `-`, every space and tab dropped
+        // (REQ-PLAT-56A, REQ-COMMON-39B). In place: the write index never
+        // passes the read index, which stays below `name.length`.
         assembly ("memory-safe") {
             let p := add(name, 0x20)
             let len := mload(name)
+            let kept := 0
             for { let i := 0 } lt(i, len) { i := add(i, 1) } {
                 let c := byte(0, mload(add(p, i)))
-                if and(gt(c, 0x40), lt(c, 0x5b)) { mstore8(add(p, i), add(c, 0x20)) }
-                if eq(c, 0x5f) { mstore8(add(p, i), 0x2d) }
+                if iszero(or(eq(c, 0x20), eq(c, 0x09))) {
+                    if and(gt(c, 0x40), lt(c, 0x5b)) { c := add(c, 0x20) }
+                    if eq(c, 0x5f) { c := 0x2d }
+                    mstore8(add(p, kept), c)
+                    kept := add(kept, 1)
+                }
             }
+            mstore(name, kept)
         }
+        if (name.length == 0) return (false, name, 0, 0);
         isHeader = true;
         valueStart = colon + 1;
         // Skips the value's leading spaces and tabs, reading only below `to`.
