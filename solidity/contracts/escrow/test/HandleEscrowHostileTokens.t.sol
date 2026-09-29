@@ -225,8 +225,10 @@ contract HandleEscrowHostileTokensTest is Test {
         assertEq(token.balanceOf(holder), 10 ether);
     }
 
-    /// A payout taking more of the pool than it books is refused, so one node cannot spend another's.
-    function test_aPayoutThatOverDebitsThePoolIsRefused() public {
+    /// KNOWN LIMITATION: a token charging its sender on `transfer` deposits but never pays out. Every
+    /// claim and refund would take more of the pool than it books and is refused, which is what keeps
+    /// one node from spending another's; only an upgrade can release the value.
+    function test_ACCEPTED_aSenderFeeTokenDepositsButNeverPaysOut() public {
         SenderFeeToken token = new SenderFeeToken();
         _escrow(address(token), depositor, HASH, 10 ether);
         _escrow(address(token), other, HASH2, 10 ether);
@@ -241,6 +243,8 @@ contract HandleEscrowHostileTokensTest is Test {
         vm.expectRevert(over);
         escrow.claim(NODE, one(address(token)), holder);
         assertEq(token.balanceOf(address(escrow)), 20 ether);
+        assertEq(escrow.escrowed(NODE, address(token)), 10 ether);
+        assertEq(escrow.refundable(NODE, address(token), depositor), 10 ether);
     }
 
     /// KNOWN LIMITATION: a negative rebase shrinks the shared pool; the last withdrawal fails.

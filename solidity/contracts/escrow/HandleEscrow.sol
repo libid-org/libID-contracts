@@ -25,7 +25,8 @@ address constant NATIVE_TOKEN = 0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE;
 ///      - A claim empties the slot and opens a new round, ending the old
 ///        round's refunds. Refunds have no delay and no pause gates them.
 ///      - Each token is one pool across all nodes; a payout that debits it by
-///        more than it books reverts `OverDebited`.
+///        more than it books reverts `OverDebited`, so a token that charges
+///        its sender on `transfer` deposits but never pays out.
 contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, ReentrancyGuardUpgradeable {
     using SafeERC20 for IERC20;
 

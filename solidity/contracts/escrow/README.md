@@ -31,8 +31,11 @@ escrow.refund(handleNode, token, recipient);   // refundTo, while unclaimed
   that rejects ETH cannot be paid in ETH; a holder contract can burn its
   payers' gas.
 - Each token is one pool. Rebasing tokens are unsupported: after a negative
-  rebase the last withdrawal in that token fails. A token that blocklists the
-  escrow freezes its slots; value sent outside `deposit` is never swept.
+  rebase the last withdrawal in that token fails. A token that charges its
+  sender on `transfer` deposits but never pays out: every claim and refund
+  reverts `OverDebited`, and only an upgrade can release it. A token that
+  blocklists the escrow freezes its slots; value sent outside `deposit` is
+  never swept.
 - Refunds work whatever the platform's rules or `acceptsClaims` say.
 - Indexers should allow-list tokens: anyone can emit `Deposited` for a token
   they wrote.
