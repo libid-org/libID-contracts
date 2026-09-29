@@ -61,6 +61,20 @@ library CeremonyFields {
         uint256[] ends;
     }
 
+    // Byte classes as 256-bit sets: byte `c` is in a class when bit `c` of
+    // the class's set is. The lint reads `1 << c` as swapped operands; a set
+    // bit per member is what it is.
+    // forge-lint: disable-next-line(incorrect-shift)
+    uint256 private constant JSON_WHITESPACE = (1 << 0x20) | (1 << 0x09) | (1 << 0x0a) | (1 << 0x0d);
+    /// @dev `:` `,` `{` `}` `[` `]`.
+    // forge-lint: disable-next-line(incorrect-shift)
+    uint256 private constant JSON_STRUCTURAL =
+        (1 << 0x3a) | (1 << 0x2c) | (1 << 0x7b) | (1 << 0x7d) | (1 << 0x5b) | (1 << 0x5d);
+    /// @dev `[A-Za-z0-9*._-]`, the bytes the form serializer passes through.
+    // forge-lint: disable-next-line(incorrect-shift)
+    uint256 private constant SERIALIZER_SAFE = (((1 << 26) - 1) << 0x41) | (((1 << 26) - 1) << 0x61)
+        | (((1 << 10) - 1) << 0x30) | (1 << 0x2a) | (1 << 0x2e) | (1 << 0x5f) | (1 << 0x2d);
+
     /// @notice `jsonString`, reporting instead of reverting.
     ///
     /// @dev A caller searching several revealed ranges needs to distinguish
@@ -87,10 +101,7 @@ library CeremonyFields {
         if (found != Found.One) return (found, "");
 
         at += needle.length;
-        uint256 end = at;
-        while (end < data.length && data[end] != '"') {
-            ++end;
-        }
+        uint256 end = _indexOfByte(data, at, '"');
         // A value with no closing quote inside THIS range has no established
         // extent, and splicing the rest from a neighbouring range is exactly
         // what these reads must not do.
@@ -130,8 +141,14 @@ library CeremonyFields {
 
         at += needle.length;
         uint256 end = at;
-        while (end < data.length && data[end] >= "0" && data[end] <= "9") {
-            ++end;
+        // Reads `data[end]` only below `data.length`.
+        assembly ("memory-safe") {
+            let p := add(data, 0x20)
+            let len := mload(data)
+            for {} lt(end, len) { end := add(end, 1) } {
+                let c := byte(0, mload(add(p, end)))
+                if or(lt(c, 0x30), gt(c, 0x39)) { break }
+            }
         }
         if (end == at) revert NoncanonicalInteger(name);
         if (end - at > 1 && data[at] == "0") revert NoncanonicalInteger(name);
@@ -167,48 +184,114 @@ library CeremonyFields {
     ///      whitespace beside a structural byte inside its value.
     function normalizeJsonBytes(bytes memory data) internal pure returns (bytes memory out) {
         out = new bytes(data.length);
-        uint256 n;
-        uint256 i;
-        while (i < data.length) {
-            if (!_isJsonWhitespace(data[i])) {
-                out[n++] = data[i];
-                ++i;
-                continue;
-            }
-            uint256 j = i;
-            while (j < data.length && _isJsonWhitespace(data[j])) {
-                ++j;
-            }
-            bool touches = (n != 0 && _isStructural(out[n - 1])) || (j < data.length && _isStructural(data[j]));
-            if (!touches) {
-                for (uint256 k = i; k < j; ++k) {
-                    out[n++] = data[k];
-                }
-            }
-            i = j;
-        }
+        uint256 whitespace = JSON_WHITESPACE;
+        uint256 structural = JSON_STRUCTURAL;
+        // Reads `data[i]` and `data[j]` only below `data.length`, and writes
+        // `out` only below the bytes of `data` already consumed, so both stay
+        // inside their arrays.
         assembly ("memory-safe") {
+            let src := add(data, 0x20)
+            let dst := add(out, 0x20)
+            let len := mload(data)
+            let n := 0
+            for { let i := 0 } lt(i, len) {} {
+                let c := byte(0, mload(add(src, i)))
+                if iszero(and(shr(c, whitespace), 1)) {
+                    mstore8(add(dst, n), c)
+                    n := add(n, 1)
+                    i := add(i, 1)
+                    continue
+                }
+                // The whitespace run [i, j) goes when the byte kept before
+                // it or the byte after it is structural.
+                let j := add(i, 1)
+                for {} lt(j, len) { j := add(j, 1) } {
+                    if iszero(and(shr(byte(0, mload(add(src, j))), whitespace), 1)) { break }
+                }
+                let touches := 0
+                if n { touches := and(shr(byte(0, mload(add(dst, sub(n, 1)))), structural), 1) }
+                if lt(j, len) { touches := or(touches, and(shr(byte(0, mload(add(src, j))), structural), 1)) }
+                if iszero(touches) {
+                    mcopy(add(dst, n), add(src, i), sub(j, i))
+                    n := add(n, sub(j, i))
+                }
+                i := j
+            }
             mstore(out, n)
         }
     }
 
-    function _isJsonWhitespace(bytes1 c) private pure returns (bool) {
-        return c == 0x20 || c == 0x09 || c == 0x0a || c == 0x0d;
-    }
-
-    function _isStructural(bytes1 c) private pure returns (bool) {
-        return c == ":" || c == "," || c == "{" || c == "}" || c == "[" || c == "]";
-    }
-
     function _findUnique(bytes memory data, bytes memory needle) private pure returns (Found found, uint256 at) {
-        uint256 hit = type(uint256).max;
-        for (uint256 i = 0; i + needle.length <= data.length; ++i) {
-            if (!_matchesAt(data, needle, i)) continue;
-            if (hit != type(uint256).max) return (Found.Several, 0);
-            hit = i;
+        at = _indexOf(data, needle, 0);
+        if (at == type(uint256).max) return (Found.None, 0);
+        if (_indexOf(data, needle, at + 1) != type(uint256).max) return (Found.Several, 0);
+        return (Found.One, at);
+    }
+
+    /// @notice How many offsets of `haystack` begin a copy of `needle`,
+    ///         overlapping copies included.
+    function occurrences(bytes memory haystack, bytes memory needle) internal pure returns (uint256 count) {
+        for (
+            uint256 at = _indexOf(haystack, needle, 0);
+            at != type(uint256).max;
+            at = _indexOf(haystack, needle, at + 1)
+        ) {
+            ++count;
         }
-        if (hit == type(uint256).max) return (Found.None, 0);
-        return (Found.One, hit);
+    }
+
+    /// @dev The first offset at or after `from` that begins a copy of
+    ///      `needle` in `data`, or `max`.
+    function _indexOf(bytes memory data, bytes memory needle, uint256 from) private pure returns (uint256 at) {
+        at = type(uint256).max;
+        uint256 n = needle.length;
+        if (n > data.length) return at;
+        // The last offset a copy fits at: every comparison below reads
+        // `data[i:i + n]` with `i` at most this, so inside `data`.
+        uint256 last = data.length - n;
+        assembly ("memory-safe") {
+            let p := add(data, 0x20)
+            switch gt(n, 32)
+            case 0 {
+                // One word: `mask` keeps the first `n` bytes, what lies
+                // past them in either word is not compared.
+                let mask := not(shr(mul(n, 8), not(0)))
+                let want := and(mload(add(needle, 0x20)), mask)
+                for { let i := from } iszero(gt(i, last)) { i := add(i, 1) } {
+                    if eq(and(mload(add(p, i)), mask), want) {
+                        at := i
+                        break
+                    }
+                }
+            }
+            default {
+                let want := keccak256(add(needle, 0x20), n)
+                for { let i := from } iszero(gt(i, last)) { i := add(i, 1) } {
+                    if eq(keccak256(add(p, i), n), want) {
+                        at := i
+                        break
+                    }
+                }
+            }
+        }
+    }
+
+    /// @dev The first offset at or after `from` holding `b`, or
+    ///      `data.length`.
+    function _indexOfByte(bytes memory data, uint256 from, bytes1 b) private pure returns (uint256 at) {
+        // Reads `data[i]` only below `data.length`.
+        assembly ("memory-safe") {
+            let p := add(data, 0x20)
+            let len := mload(data)
+            let want := byte(0, b)
+            at := len
+            for { let i := from } lt(i, len) { i := add(i, 1) } {
+                if eq(byte(0, mload(add(p, i))), want) {
+                    at := i
+                    break
+                }
+            }
+        }
     }
 
     /// @notice The value of `name=value` in an `application/x-www-form-urlencoded`
@@ -299,8 +382,8 @@ library CeremonyFields {
     /// @return form Where each listed field's value lies, for `valueOf`.
     function requireExactForm(bytes memory body, bytes memory names) internal pure returns (Form memory form) {
         uint256 fields = 1;
-        for (uint256 i = 0; i < names.length; ++i) {
-            if (names[i] == "&") ++fields;
+        for (uint256 i = _indexOfByte(names, 0, "&"); i < names.length; i = _indexOfByte(names, i + 1, "&")) {
+            ++fields;
         }
         form.body = body;
         form.names = new bytes32[](fields);
@@ -310,25 +393,20 @@ library CeremonyFields {
         uint256 at;
         uint256 from;
         for (uint256 field = 0;; ++field) {
-            uint256 to = from;
-            while (to < names.length && names[to] != "&") {
-                ++to;
-            }
+            uint256 to = _indexOfByte(names, from, "&");
 
             // The pair begins with the literal name and `=`, or it is not the
             // pair expected here: a reordering, a duplicate, another spelling.
             uint256 start = at;
-            for (uint256 i = from; i < to; ++i) {
-                if (at >= body.length || body[at] != names[i]) revert MalformedForm(start);
-                ++at;
-            }
+            at += to - from;
+            if (at > body.length || _hash(body, start, at) != _hash(names, from, to)) revert MalformedForm(start);
             if (at >= body.length || body[at] != "=") revert MalformedForm(start);
             ++at;
 
             uint256 valueStart = at;
-            while (at < body.length && body[at] != "&") {
-                at = _formValueToken(body, at);
-            }
+            bool malformed;
+            (at, malformed) = _formValue(body, at);
+            if (malformed) revert MalformedForm(at);
             if (at == valueStart) revert EmptyFormValue(string(_slice(names, from, to)));
             form.names[field] = _hash(names, from, to);
             form.starts[field] = valueStart;
@@ -346,34 +424,53 @@ library CeremonyFields {
         }
     }
 
-    /// @dev One token of a form value at `at` -- a pass-through byte, a `+`,
-    ///      or a `%XX` escape in uppercase of a byte the serializer escapes --
-    ///      and the offset after it.
-    function _formValueToken(bytes memory body, uint256 at) private pure returns (uint256) {
-        bytes1 c = body[at];
-        if (c == "%") {
-            if (at + 2 >= body.length) revert MalformedForm(at);
-            (bool ok, bytes1 decoded) = _hexByte(body[at + 1], body[at + 2]);
-            if (!ok || decoded == 0x20 || _isSerializerSafe(decoded)) revert MalformedForm(at);
-            return at + 3;
+    /// @dev The form value from `at` to the next `&` or the end of `body`,
+    ///      one token at a time -- a pass-through byte, a `+`, or a `%XX`
+    ///      escape in uppercase of a byte the serializer escapes -- and where
+    ///      it ends; or the offset of the first token that is none of those.
+    function _formValue(bytes memory body, uint256 at) private pure returns (uint256, bool malformed) {
+        uint256 safe = SERIALIZER_SAFE;
+        // Reads `body[at]` only below `body.length`, and an escape's two
+        // digits only once `at + 2` is below it.
+        assembly ("memory-safe") {
+            // An uppercase hex digit's value, or 16 for any other byte.
+            function hexDigit(c) -> v {
+                v := 16
+                if and(gt(c, 0x2f), lt(c, 0x3a)) { v := sub(c, 0x30) }
+                if and(gt(c, 0x40), lt(c, 0x47)) { v := sub(c, 0x37) }
+            }
+            let p := add(body, 0x20)
+            let len := mload(body)
+            for {} lt(at, len) {} {
+                let c := byte(0, mload(add(p, at)))
+                if eq(c, 0x26) { break }
+                if eq(c, 0x25) {
+                    if iszero(lt(add(at, 2), len)) {
+                        malformed := 1
+                        break
+                    }
+                    let hi := hexDigit(byte(0, mload(add(p, add(at, 1)))))
+                    let lo := hexDigit(byte(0, mload(add(p, add(at, 2)))))
+                    if or(gt(hi, 15), gt(lo, 15)) {
+                        malformed := 1
+                        break
+                    }
+                    let decoded := or(shl(4, hi), lo)
+                    if or(eq(decoded, 0x20), and(shr(decoded, safe), 1)) {
+                        malformed := 1
+                        break
+                    }
+                    at := add(at, 3)
+                    continue
+                }
+                if iszero(or(eq(c, 0x2b), and(shr(c, safe), 1))) {
+                    malformed := 1
+                    break
+                }
+                at := add(at, 1)
+            }
         }
-        if (c == "+" || _isSerializerSafe(c)) return at + 1;
-        revert MalformedForm(at);
-    }
-
-    /// @dev The byte two UPPERCASE hex digits spell, and whether they are that.
-    function _hexByte(bytes1 hi, bytes1 lo) private pure returns (bool ok, bytes1 value) {
-        (bool hiOk, uint8 h) = _hexNibble(hi);
-        (bool loOk, uint8 l) = _hexNibble(lo);
-        if (!hiOk || !loOk) return (false, 0);
-        return (true, bytes1((h << 4) | l));
-    }
-
-    function _hexNibble(bytes1 c) private pure returns (bool, uint8) {
-        uint8 b = uint8(c);
-        if (c >= "0" && c <= "9") return (true, b - 0x30);
-        if (c >= "A" && c <= "F") return (true, b - 0x41 + 10);
-        return (false, 0);
+        return (at, malformed);
     }
 
     /// @dev `data[from:to]`, copied.
@@ -403,17 +500,21 @@ library CeremonyFields {
     ///      outside it are the SERIALIZATION rather than the identifier.
     ///      Returning those would hand a Consumer `my%2Bapp` where the client is
     ///      `my+app`.
-    function isSerializerSafe(bytes memory value) internal pure returns (bool) {
+    function isSerializerSafe(bytes memory value) internal pure returns (bool isSafe) {
         if (value.length == 0) return false;
-        for (uint256 i = 0; i < value.length; ++i) {
-            if (!_isSerializerSafe(value[i])) return false;
+        uint256 safe = SERIALIZER_SAFE;
+        // Reads `value[i]` only below `value.length`.
+        assembly ("memory-safe") {
+            isSafe := 1
+            let p := add(value, 0x20)
+            let len := mload(value)
+            for { let i := 0 } lt(i, len) { i := add(i, 1) } {
+                if iszero(and(shr(byte(0, mload(add(p, i))), safe), 1)) {
+                    isSafe := 0
+                    break
+                }
+            }
         }
-        return true;
-    }
-
-    function _isSerializerSafe(bytes1 c) private pure returns (bool) {
-        return (c >= "A" && c <= "Z") || (c >= "a" && c <= "z") || (c >= "0" && c <= "9") || c == "*" || c == "."
-            || c == "_" || c == "-";
     }
 
     function _matchesAt(bytes memory data, bytes memory needle, uint256 at) private pure returns (bool) {

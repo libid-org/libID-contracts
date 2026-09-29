@@ -155,6 +155,10 @@ contract LiveHelpers {
     function isSerializerSafe(bytes memory value) external pure returns (bool) {
         return CeremonyFields.isSerializerSafe(value);
     }
+
+    function occurrences(bytes memory haystack, bytes memory needle) external pure returns (uint256) {
+        return CeremonyFields.occurrences(haystack, needle);
+    }
 }
 
 /// @notice And the same helpers as they were.
@@ -217,6 +221,10 @@ contract RefHelpers {
 
     function isSerializerSafe(bytes memory value) external pure returns (bool) {
         return RefCeremonyFields.isSerializerSafe(value);
+    }
+
+    function occurrences(bytes memory haystack, bytes memory needle) external pure returns (uint256) {
+        return RefCeremonyAttestation._occurrences(haystack, needle);
     }
 }
 
@@ -898,7 +906,16 @@ contract TranscriptEquivalenceTest is Test {
     /// forge-config: default.fuzz.runs = 2000
     function testFuzz_jsonReadsMatchReference(uint256 seed) public view {
         Gen.Rng memory r = Gen.Rng(seed);
-        string memory name = string(r.oneOf(Gen.list("id", "login", "username", "")));
+        string memory name = string(
+            r.oneOf(
+                Gen.list(
+                    "id",
+                    "login",
+                    "username",
+                    r.chance(50) ? bytes("") : bytes("a_member_name_long_enough_for_two_words")
+                )
+            )
+        );
         bytes memory data = bytes.concat(
             r.soup(' "{}:,1a', 12),
             r.chance(70) ? abi.encodePacked('"', name, '"', r.soup(" :", 3), ":", r.soup(' "', 2)) : bytes(""),
@@ -936,6 +953,19 @@ contract TranscriptEquivalenceTest is Test {
                 abi.encodeCall(RefHelpers.formField, (body, name))
             );
         }
+    }
+
+    /// forge-config: default.fuzz.runs = 2000
+    function testFuzz_occurrencesMatchReference(uint256 seed) public view {
+        Gen.Rng memory r = Gen.Rng(seed);
+        bytes memory haystack = r.soup('ab"', 90);
+        bytes memory needle = r.soup('ab"', 40);
+        if (r.chance(50) && haystack.length != 0) {
+            // A needle cut from the haystack, so it is found at least once.
+            uint256 from = r.pick(haystack.length);
+            needle = Gen._slice(haystack, from, from + r.pick(haystack.length - from + 1));
+        }
+        _same(address(live), address(ref), abi.encodeCall(LiveHelpers.occurrences, (haystack, needle)));
     }
 
     /// forge-config: default.fuzz.runs = 2000

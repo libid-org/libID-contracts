@@ -68,7 +68,7 @@ library RefCeremonyAttestation {
         return false;
     }
 
-    function _occurrences(bytes memory haystack, bytes memory needle) private pure returns (uint256 count) {
+    function _occurrences(bytes memory haystack, bytes memory needle) internal pure returns (uint256 count) {
         for (uint256 i = 0; i + needle.length <= haystack.length; ++i) {
             bool hit = true;
             for (uint256 j = 0; j < needle.length; ++j) {

@@ -175,7 +175,7 @@ library CeremonyAttestation {
         // The prefix at most once across everything revealed, JSON whitespace
         // removed: a second one, in any spelling, is a second place the framing
         // could point, whether or not a commitment sits behind it.
-        if (_occurrences(CeremonyFields.normalizeJsonBytes(concatRevealed(block_)), prefix) > 1) {
+        if (CeremonyFields.occurrences(CeremonyFields.normalizeJsonBytes(concatRevealed(block_)), prefix) > 1) {
             revert AmbiguousFraming();
         }
 
@@ -212,19 +212,6 @@ library CeremonyAttestation {
             return true;
         }
         return false;
-    }
-
-    function _occurrences(bytes memory haystack, bytes memory needle) private pure returns (uint256 count) {
-        for (uint256 i = 0; i + needle.length <= haystack.length; ++i) {
-            bool hit = true;
-            for (uint256 j = 0; j < needle.length; ++j) {
-                if (haystack[i + j] != needle[j]) {
-                    hit = false;
-                    break;
-                }
-            }
-            if (hit) ++count;
-        }
     }
 
     /// @notice Every check REQ-COMMON-35, -39 and -40 require of an
