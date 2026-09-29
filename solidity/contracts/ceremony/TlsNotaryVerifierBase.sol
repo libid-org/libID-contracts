@@ -134,7 +134,7 @@ abstract contract TlsNotaryVerifierBase is IPlatformVerifier, PlatformVerifierBa
     function _tokenRequiredHeaders() internal pure virtual returns (bytes memory);
 
     /// @dev The form fields the token request's body carries, `&`-joined in
-    ///      the order the prover serializes them. `_tokenSession` holds the
+    ///      the order the prover serializes them. `_tokenTranscript` holds the
     ///      WHOLE body to this list (`requireExactForm`): exactly these names
     ///      in this order, each once with a nonempty value in the serializer's
     ///      one spelling, and nothing after the last. Every profile is held
@@ -343,10 +343,8 @@ abstract contract TlsNotaryVerifierBase is IPlatformVerifier, PlatformVerifierBa
         }
         if (!_startsWith(data.sent.revealed[0].value, _tokenRequestLine())) revert WrongRequestLine();
 
-        // The head is pinned whole below, which subsumes the line just checked.
-        // Both stay: REQ-COMMON-21A is about the method and the path, and a
-        // deployment pointed at the wrong endpoint should hear that rather than
-        // that some byte of its request differs.
+        // The head check below starts past the request line, so this is the
+        // one comparison of the method and the path (REQ-COMMON-21A).
         bytes memory body = _tokenBody(data.sent);
 
         // The shape first, then the values a verifier compares: a read below
@@ -492,40 +490,6 @@ abstract contract TlsNotaryVerifierBase is IPlatformVerifier, PlatformVerifierBa
         }
     }
 
-    /// @dev The HTTP message body of the token request.
-    ///
-    ///      Located by the framing the SERVER parsed -- the `\r\n\r\n` that ends
-    ///      the head -- and not by a position in the range list. That
-    ///      distinction is the whole point: a prover who can choose which run
-    ///      counts as "the body" simply reveals a decoy after committing the
-    ///      real one, and every field below is then read from bytes the
-    ///      platform never saw while the platform executed something else.
-    ///
-    ///      So the shape is fixed exactly: ONE revealed run beginning at
-    ///      offset 0 and no commitment at all, so the run covers the request
-    ///      through to its signed length and no body byte is hidden.
-    ///
-    ///      AND THE HEAD ITSELF, byte for byte. Revealing the headers is not
-    ///      checking them: they were public and unconstrained here, while
-    ///      `formField` below reads the body under a form-encoding assumption
-    ///      that only `content-type` makes true of the platform as well.
-    ///      REQ-COMMON-21B fixes the media type in the deployment profile
-    ///      because it selects the platform's request parser, and a pinned
-    ///      value nothing compares is a pin in name only. The same holds of
-    ///      any other header that changes what the platform does with these
-    ///      bytes, so the profile fixes the whole run rather than one field.
-    ///
-    ///      One comparison against fixed bytes, not a header parser. A header
-    ///      added, removed, reordered or given another value all move the same
-    ///      bytes, so all four fail here; a parser would have to catch each of
-    ///      them, and its own leniencies are what the CRLF rules on the
-    ///      identity request exist to close.
-    ///
-    ///      `content-length` is the one value the profile cannot fix, because
-    ///      it is the body's own length -- so it is read, and matched against
-    ///      the length the NOTARY signed. Without that the platform could frame
-    ///      a shorter body than the one read below, and parse a form this
-    ///      verifier never saw.
     /// @dev The head's header lines: each required one exactly once with its
     ///      value, none of the forbidden names, one `content-length`, and
     ///      anything else ignored. Returns the declared length.
@@ -773,6 +737,30 @@ abstract contract TlsNotaryVerifierBase is IPlatformVerifier, PlatformVerifierBa
         }
     }
 
+    /// @dev The HTTP message body of the token request.
+    ///
+    ///      Located by the framing the SERVER parsed -- the `\r\n\r\n` that ends
+    ///      the head -- and not by a position in the range list. That
+    ///      distinction is the whole point: a prover who can choose which run
+    ///      counts as "the body" simply reveals a decoy after committing the
+    ///      real one, and every field below is then read from bytes the
+    ///      platform never saw while the platform executed something else.
+    ///
+    ///      So the shape is fixed exactly: ONE revealed run beginning at
+    ///      offset 0 and no commitment at all, so the run covers the request
+    ///      through to its signed length and no body byte is hidden.
+    ///
+    ///      And the head is checked, not only revealed: `_checkTokenHead`
+    ///      holds its lines to the profile's required and forbidden names.
+    ///      REQ-COMMON-21B fixes the media type because it selects the
+    ///      platform's request parser, and a pinned value nothing compares is
+    ///      a pin in name only.
+    ///
+    ///      `content-length` is the one value the profile cannot fix, because
+    ///      it is the body's own length -- so it is read, and matched against
+    ///      the length the NOTARY signed. Without that the platform could frame
+    ///      a shorter body than the one read below, and parse a form this
+    ///      verifier never saw.
     function _tokenBody(CeremonyAttestation.DirectionBlock memory block_) internal pure returns (bytes memory body) {
         if (block_.revealed.length != 1 || block_.commitments.length != 0) {
             revert WrongTokenRequestLayout(block_.revealed.length, block_.commitments.length);

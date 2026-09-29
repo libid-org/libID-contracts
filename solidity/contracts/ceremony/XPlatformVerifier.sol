@@ -83,8 +83,8 @@ contract XPlatformVerifier is TlsNotaryVerifierBase {
         return CeremonyProfile.X_TOKEN_REQUEST_LINE;
     }
 
-    /// @dev REQ-COMMON-21B. `host`, and the media type that makes X read the
-    ///      body the way `formField` reads it. Revealed but uncompared, the
+    /// @dev REQ-COMMON-21B. `host`, and the media type that makes X parse the
+    ///      body as the form this verifier reads. Revealed but uncompared, the
     ///      media type was a byte a prover chose in a request every other
     ///      field of which is pinned. The rest of what the browser sends is
     ///      not compared: it changes what X answers, never what X parses.
