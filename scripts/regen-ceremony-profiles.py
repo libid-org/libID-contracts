@@ -449,23 +449,9 @@ def gen_sol(spec: dict[str, Any]) -> str:
         "    }",
         "",
         "    error UnknownPlatform(bytes32 platformId);",
-        "",
-        "    // --- Protocol parameters -------------------------------------------------",
+        "}",
         "",
     ]
-    lines += sol_doc(spec["parameters"].get("note"))
-    for profile in profiles:
-        if "proofLifetimeSeconds" not in profile:
-            continue
-        lines.append(
-            f"    uint64 internal constant LAUNCH_PROOF_LIFETIME_{upper(profile['platform'])} = "
-            f"{profile['proofLifetimeSeconds']};"
-        )
-    lines.append(
-        "    uint64 internal constant LAUNCH_MAX_FUTURE_ATTESTATION_SKEW = "
-        f"{spec['parameters']['maxFutureAttestationSkewSeconds']};"
-    )
-    lines += ["}", ""]
     return "\n".join(lines)
 
 

@@ -129,14 +129,4 @@ library CeremonyProfile {
     }
 
     error UnknownPlatform(bytes32 platformId);
-
-    // --- Protocol parameters -------------------------------------------------
-
-    /// @dev Governance-owned seconds, read where they are enforced. A Platform
-    ///      Verifier reads the current value when it verifies and MUST NOT accept a
-    ///      caller-supplied substitute (REQ-PARAM-02). These are the launch values;
-    ///      a deployment stores and updates them.
-    uint64 internal constant LAUNCH_PROOF_LIFETIME_X = 3600;
-    uint64 internal constant LAUNCH_PROOF_LIFETIME_GITHUB = 3600;
-    uint64 internal constant LAUNCH_MAX_FUTURE_ATTESTATION_SKEW = 300;
 }

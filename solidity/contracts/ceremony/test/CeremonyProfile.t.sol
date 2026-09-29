@@ -52,10 +52,7 @@ contract CeremonyProfileTest is Test {
         return CeremonyProfile.attestationCount(platformId);
     }
 
-    function test_launchParametersMatchThePublishedValues() public pure {
-        assertEq(CeremonyProfile.LAUNCH_PROOF_LIFETIME_X, 3600);
-        assertEq(CeremonyProfile.LAUNCH_PROOF_LIFETIME_GITHUB, 3600);
-        assertEq(CeremonyProfile.LAUNCH_MAX_FUTURE_ATTESTATION_SKEW, 300);
+    function test_launchVersionMatchesThePublishedValue() public pure {
         assertEq(CeremonyProfile.LAUNCH_VERSION, 1);
     }
 
