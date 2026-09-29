@@ -37,6 +37,11 @@ library IdentityNodes {
     /// @param normalizedHandle The handle AFTER normalization. Passing a raw
     ///                         handle here writes a key no reader will find.
     function handleNode(bytes32 platformId, string memory normalizedHandle) internal pure returns (bytes32) {
-        return keccak256(abi.encode(HANDLE_NODE_V1, platformId, keccak256(bytes(normalizedHandle))));
+        return handleNodeOfHash(platformId, keccak256(bytes(normalizedHandle)));
+    }
+
+    /// @notice `handleNode` from the handle's hash, `keccak256(normalized)`.
+    function handleNodeOfHash(bytes32 platformId, bytes32 handleHash) internal pure returns (bytes32) {
+        return keccak256(abi.encode(HANDLE_NODE_V1, platformId, handleHash));
     }
 }

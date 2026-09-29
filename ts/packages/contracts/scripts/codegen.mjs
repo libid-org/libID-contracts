@@ -33,6 +33,7 @@ const callsDir = join(packageDir, 'src', 'calls')
 const contracts = [
   { file: 'IdentityNames.sol', name: 'IdentityNames', exportName: 'identityNamesAbi' },
   { file: 'HandleResolver.sol', name: 'HandleResolver', exportName: 'handleResolverAbi' },
+  { file: 'HandleEscrow.sol', name: 'HandleEscrow', exportName: 'handleEscrowAbi' },
   { file: 'NotaryService.sol', name: 'NotaryService', exportName: 'notaryServiceAbi' },
   {
     file: 'CeremonyProofVerifier.sol',

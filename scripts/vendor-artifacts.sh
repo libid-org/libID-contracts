@@ -4,7 +4,9 @@
 # Runs `forge build` in solidity/ (submodules must be initialized), then copies
 # the artifact JSONs the crate needs from solidity/out into
 # rust/contracts/artifacts/<File>.sol/<Name>.json, pruned to the fields the
-# crate reads: bytecode.object, bytecode.linkReferences, methodIdentifiers.
+# crate reads: bytecode.object, bytecode.linkReferences and methodIdentifiers.
+# No abi: the binding drift tests (rust/contracts/src/bindings/mod.rs) read it
+# from solidity/out, so the published crate carries none.
 # Libraries referenced through linkReferences are followed transitively and
 # vendored too: the two Honk verifiers link RelationsLib and ZKTranscriptLib,
 # and both are listed below as well so the list and the crate's COVERED agree
@@ -55,6 +57,8 @@ ARTIFACTS=(
     # ens (deployed once per network, not CREATE3-canonical; embedded so a
     # consumer can deploy it without a checkout of this repository)
     "HandleResolver:HandleResolver"
+    # escrow: value held against a handle nobody has claimed yet
+    "HandleEscrow:HandleEscrow"
     # factory
     "LibidFactory:LibidFactory"
     "WTIA9:WTIA9"
@@ -81,6 +85,8 @@ STAGE="$(mktemp -d)"
 trap 'rm -rf "$STAGE"' EXIT
 
 # prune <src> <file> <contract>: write the pruned artifact into the stage.
+# No ABI: the crate's bindings are hand-written, and their drift tests read
+# forge's own output.
 prune() {
     local src="$1" file="$2" contract="$3"
     mkdir -p "$STAGE/$file.sol"

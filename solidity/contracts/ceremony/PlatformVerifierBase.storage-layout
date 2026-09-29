@@ -1,0 +1,9 @@
+# PlatformVerifierBase storage layout. Checked in CI by scripts/check-storage-layout.py.
+# Fields may only be APPENDED. Record an append with --update; see the script.
+root erc7201:libid.storage.PlatformVerifier 0xfd6bfa775d4a790b2a39afc6490b76805795bc7d3963618ec6b2ee0a55986900
+field slot=0 offset=0 notary: contract INotaryService
+field slot=1 offset=0 honkVerifier: contract IHonkVerifier
+field slot=1 offset=20 proofLifetime: uint64
+field slot=2 offset=0 maxFutureAttestationSkew: uint64
+field slot=2 offset=8 futureObservationAllowance: uint64
+field slot=3 offset=0 honkVerifierCodehash: bytes32

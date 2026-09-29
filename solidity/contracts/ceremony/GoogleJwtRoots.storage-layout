@@ -1,0 +1,8 @@
+# GoogleJwtRoots storage layout. Checked in CI by scripts/check-storage-layout.py.
+# Fields may only be APPENDED. Record an append with --update; see the script.
+root erc7201:libid.storage.GoogleJwtRoots 0x7f78ff13201a03086d4b08e3085224c34a9fc247d0f67d11acd0db52976eb300
+field slot=0 offset=0 notary: contract INotaryService
+field slot=1 offset=0 current: struct GoogleJwtRoots.Generation
+field slot=3 offset=0 previous: struct GoogleJwtRoots.Generation
+struct GoogleJwtRoots.Generation slot=0 offset=0 observedAt: uint64
+struct GoogleJwtRoots.Generation slot=1 offset=0 moduli: bytes32[]
