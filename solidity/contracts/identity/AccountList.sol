@@ -1,0 +1,74 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+/// @title AccountList - the account nodes a wallet holds, per platform.
+///
+/// @notice A set per `(wallet, platform)` that a reader walks by page. Adding
+///         and removing cost the same however many nodes a list holds: a
+///         node's position is kept beside the list, and a removal moves the
+///         last node into the gap rather than shifting what follows.
+///
+/// @dev A node sits in at most one list at a time, so its position is keyed by
+///      the node alone. Positions are one-based; zero means the node is in no
+///      list, which is what `contains` reads.
+///
+///      Order is arbitrary. A removal changes it, and nothing here or above
+///      reads it: a page is a slice of the current arrangement, not a history.
+library AccountList {
+    struct Data {
+        /// wallet -> platformId -> the nodes that wallet holds there.
+        mapping(address => mapping(bytes32 => bytes32[])) nodes;
+        /// node -> one-based position in the list that holds it.
+        mapping(bytes32 => uint256) position;
+    }
+
+    /// @dev Appends a node that no list holds.
+    function add(Data storage self, address wallet, bytes32 platformId, bytes32 node) internal {
+        bytes32[] storage list = self.nodes[wallet][platformId];
+        list.push(node);
+        self.position[node] = list.length;
+    }
+
+    /// @dev Removes a node from the list that holds it, by moving the last
+    ///      node into its place.
+    function remove(Data storage self, address wallet, bytes32 platformId, bytes32 node) internal {
+        bytes32[] storage list = self.nodes[wallet][platformId];
+        uint256 index = self.position[node] - 1;
+        uint256 lastIndex = list.length - 1;
+        if (index != lastIndex) {
+            bytes32 last = list[lastIndex];
+            list[index] = last;
+            self.position[last] = index + 1;
+        }
+        list.pop();
+        delete self.position[node];
+    }
+
+    function contains(Data storage self, bytes32 node) internal view returns (bool) {
+        return self.position[node] != 0;
+    }
+
+    function count(Data storage self, address wallet, bytes32 platformId) internal view returns (uint256) {
+        return self.nodes[wallet][platformId].length;
+    }
+
+    /// @dev The nodes at positions `[from, from + limit)`, clipped to the list.
+    ///      A `from` past the end answers an empty page rather than reverting,
+    ///      so a reader paging by a count it read a moment ago is not thrown by
+    ///      a removal in between.
+    function page(Data storage self, address wallet, bytes32 platformId, uint256 from, uint256 limit)
+        internal
+        view
+        returns (bytes32[] memory out)
+    {
+        bytes32[] storage list = self.nodes[wallet][platformId];
+        uint256 length = list.length;
+        if (from >= length) return out;
+        uint256 end = from + limit;
+        if (end > length || end < from) end = length;
+        out = new bytes32[](end - from);
+        for (uint256 i = from; i < end; i++) {
+            out[i - from] = list[i];
+        }
+    }
+}
