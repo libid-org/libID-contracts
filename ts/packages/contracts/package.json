@@ -47,13 +47,13 @@
     "test": "vitest run"
   },
   "peerDependencies": {
-    "viem": "^2.48.11"
+    "viem": "^2.56.9"
   },
   "devDependencies": {
-    "@types/node": "^22.0.0",
-    "tsx": "^4.20.0",
-    "typescript": "^5.9.0",
-    "viem": "^2.48.11",
-    "vitest": "^3.2.0"
+    "@types/node": "^26.6.3",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2",
+    "viem": "^2.56.9",
+    "vitest": "^5.0.2"
   }
 }
