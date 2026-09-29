@@ -144,6 +144,14 @@ contract LiveHelpers {
         CeremonyFields.requireExactForm(body, names);
     }
 
+    function exactFormValue(bytes memory body, bytes memory names, string memory name)
+        external
+        pure
+        returns (bytes memory)
+    {
+        return CeremonyFields.valueOf(CeremonyFields.requireExactForm(body, names), name);
+    }
+
     function isSerializerSafe(bytes memory value) external pure returns (bool) {
         return CeremonyFields.isSerializerSafe(value);
     }
@@ -916,8 +924,18 @@ contract TranscriptEquivalenceTest is Test {
         bytes memory body =
             r.chance(60) ? r.tokenBody(names, "5teBDl6cz4U77aFweV5PbMhBJ_lEFv6LLNKzqnDI5lo") : r.soup("ab_=&%2F+;", 30);
         string memory name = string(r.oneOf(Gen.list("client_id", "code_verifier", "grant_type", r.soup("ab_", 3))));
-        _same(address(live), address(ref), abi.encodeCall(LiveHelpers.requireExactForm, (body, names)));
+        bool exact = _same(address(live), address(ref), abi.encodeCall(LiveHelpers.requireExactForm, (body, names)));
         _same(address(live), address(ref), abi.encodeCall(LiveHelpers.formField, (body, name)));
+        // Over a body the form holds, the value read off the list is the one
+        // a scan of the body finds, and so is the error when there is none.
+        if (exact) {
+            _same(
+                address(live),
+                abi.encodeCall(LiveHelpers.exactFormValue, (body, names, name)),
+                address(ref),
+                abi.encodeCall(RefHelpers.formField, (body, name))
+            );
+        }
     }
 
     /// forge-config: default.fuzz.runs = 2000

@@ -149,7 +149,7 @@ abstract contract TlsNotaryVerifierBase is IPlatformVerifier, PlatformVerifierBa
     ///      beyond the base's own. Default: nothing. Runs after the form is
     ///      known exact and before `code_verifier` and `client_id` are read.
     ///      X compares `grant_type`; GitHub adds none.
-    function _checkTokenBody(bytes memory body) internal pure virtual {}
+    function _checkTokenBody(CeremonyFields.Form memory form) internal pure virtual {}
 
     /// @dev Which shape a platform's immutable identifier takes in its identity
     ///      response. X quotes it; GitHub sends a bare integer, whose
@@ -368,19 +368,19 @@ abstract contract TlsNotaryVerifierBase is IPlatformVerifier, PlatformVerifierBa
         // is there. A value nobody reads is held to the alphabet and to
         // nothing more -- in that alphabet it cannot become another field,
         // and no contract acts on what it decodes to.
-        CeremonyFields.requireExactForm(body, _tokenFields());
-        _checkTokenBody(body);
+        CeremonyFields.Form memory form = CeremonyFields.requireExactForm(body, _tokenFields());
+        _checkTokenBody(form);
 
         // REQ-COMMON-15A. This is the whole binding between the evidence and
         // the transaction: retargeting an attestation to another digest would
         // take a second preimage of the revealed verifier.
-        bytes memory revealedVerifier = CeremonyFields.formField(body, "code_verifier");
+        bytes memory revealedVerifier = CeremonyFields.valueOf(form, "code_verifier");
         // Under the same nonce the digest commits, so a caller has no second
         // value to move: changing it moves the digest too (REQ-COMMON-12).
         bytes memory expected = CeremonyAuthorization.codeVerifier(authorizationDigest, authorizationNonce);
         if (keccak256(revealedVerifier) != keccak256(expected)) revert CodeVerifierMismatch();
 
-        clientId = CeremonyFields.formField(body, "client_id");
+        clientId = CeremonyFields.valueOf(form, "client_id");
         if (!CeremonyFields.isSerializerSafe(clientId)) {
             revert ClientIdentifierNotSerializerSafe(clientId);
         }

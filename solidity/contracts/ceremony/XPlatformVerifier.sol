@@ -112,8 +112,8 @@ contract XPlatformVerifier is TlsNotaryVerifierBase {
     ///      The form admits the value -- `refresh_token` is in the serializer's
     ///      alphabet -- so it is this comparison, not the base's exact-form
     ///      check, that refuses it.
-    function _checkTokenBody(bytes memory body) internal pure override {
-        bytes memory grantType = CeremonyFields.formField(body, "grant_type");
+    function _checkTokenBody(CeremonyFields.Form memory form) internal pure override {
+        bytes memory grantType = CeremonyFields.valueOf(form, "grant_type");
         if (keccak256(grantType) != keccak256(GRANT_TYPE)) revert WrongGrantType(grantType);
     }
 

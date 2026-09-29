@@ -51,6 +51,16 @@ library CeremonyFields {
         Unterminated
     }
 
+    /// @notice A body `requireExactForm` accepted, as offsets: for each field
+    ///         of the list it was held to, in list order, the hash of its name
+    ///         and where its value lies in `body`.
+    struct Form {
+        bytes body;
+        bytes32[] names;
+        uint256[] starts;
+        uint256[] ends;
+    }
+
     /// @notice `jsonString`, reporting instead of reverting.
     ///
     /// @dev A caller searching several revealed ranges needs to distinguish
@@ -240,6 +250,28 @@ library CeremonyFields {
         }
     }
 
+    /// @notice The value of field `name` in a body `requireExactForm`
+    ///         accepted.
+    ///
+    /// @dev What `formField` finds by scanning the body, read off the list
+    ///      instead. An exact body carries each listed name once, at the pair
+    ///      the list puts it, and nothing else: its `&` bytes are exactly the
+    ///      pair boundaries, since no value holds one, and a name the generator
+    ///      admits holds no `=`, so `name=` at a boundary is that pair's own
+    ///      name. A name listed twice is ambiguous here as it is there, and one
+    ///      not listed is not found.
+    function valueOf(Form memory form, string memory name) internal pure returns (bytes memory) {
+        bytes32 wanted = keccak256(bytes(name));
+        uint256 found = type(uint256).max;
+        for (uint256 i = 0; i < form.names.length; ++i) {
+            if (form.names[i] != wanted) continue;
+            if (found != type(uint256).max) revert AmbiguousField(name);
+            found = i;
+        }
+        if (found == type(uint256).max) revert FieldNotFound(name);
+        return _slice(form.body, form.starts[found], form.ends[found]);
+    }
+
     /// @notice `body` is the WHATWG form serialization of exactly the fields
     ///         `names` lists, `&`-joined, in that order, each once with a
     ///         nonempty value -- and nothing else.
@@ -274,10 +306,21 @@ library CeremonyFields {
     ///      becoming a pair. What a value decodes TO is not judged: a value
     ///      in this alphabet cannot become another field, and a verifier
     ///      reads only the values it compares.
-    function requireExactForm(bytes memory body, bytes memory names) internal pure {
+    ///
+    /// @return form Where each listed field's value lies, for `valueOf`.
+    function requireExactForm(bytes memory body, bytes memory names) internal pure returns (Form memory form) {
+        uint256 fields = 1;
+        for (uint256 i = 0; i < names.length; ++i) {
+            if (names[i] == "&") ++fields;
+        }
+        form.body = body;
+        form.names = new bytes32[](fields);
+        form.starts = new uint256[](fields);
+        form.ends = new uint256[](fields);
+
         uint256 at;
         uint256 from;
-        while (true) {
+        for (uint256 field = 0;; ++field) {
             uint256 to = from;
             while (to < names.length && names[to] != "&") {
                 ++to;
@@ -298,12 +341,15 @@ library CeremonyFields {
                 at = _formValueToken(body, at);
             }
             if (at == valueStart) revert EmptyFormValue(string(_slice(names, from, to)));
+            form.names[field] = keccak256(_slice(names, from, to));
+            form.starts[field] = valueStart;
+            form.ends[field] = at;
 
             // After the last value the body ends. After any other, exactly one
             // `&` and the next pair.
             if (to == names.length) {
                 if (at != body.length) revert MalformedForm(at);
-                return;
+                return form;
             }
             if (at >= body.length) revert MalformedForm(at);
             ++at;
