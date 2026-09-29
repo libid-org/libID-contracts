@@ -1,0 +1,36 @@
+# Coverage and manual-only pins: https://github.com/libid-org/libID/blob/main/DEPENDENCIES.md
+version: 2
+updates:
+  - package-ecosystem: "cargo"
+    directory: "/rust"
+    schedule:
+      interval: "weekly"
+    allow:
+      - dependency-type: "all"
+    commit-message:
+      prefix: "chore(deps)"
+  - package-ecosystem: "npm"
+    directory: "/ts"
+    schedule:
+      interval: "weekly"
+    allow:
+      - dependency-type: "all"
+    commit-message:
+      prefix: "chore(deps)"
+  - package-ecosystem: "gitsubmodule"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    commit-message:
+      prefix: "chore(deps)"
+  - package-ecosystem: "github-actions"
+    directories:
+      - "/"
+      - "/.github/actions/forge-build"
+    schedule:
+      interval: "weekly"
+    groups:
+      github-actions:
+        patterns: ["*"]
+    commit-message:
+      prefix: "chore(deps)"
