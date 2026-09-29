@@ -129,7 +129,7 @@ contract NamesBeforeTheEscrow {
 }
 
 contract NamesWithoutNodeOfHash is NamesBeforeTheEscrow {
-    function acceptsClaims(bytes32) external pure returns (bool) {}
+    function acceptsBindings(bytes32) external pure returns (bool) {}
 }
 
 contract NamesWithAZeroFallback is NamesWithoutNodeOfHash {
@@ -366,13 +366,13 @@ contract HandleEscrowTest is Test {
     /// refuse new escrow, while a holder is still paid through and held value still refunds.
     function test_escrowNeedsAPlatformThatAcceptsClaims() public {
         vm.startPrank(sender);
-        vm.expectRevert(abi.encodeWithSelector(HandleEscrow.PlatformAcceptsNoClaims.selector, UNWIRED));
+        vm.expectRevert(abi.encodeWithSelector(HandleEscrow.PlatformAcceptsNoBindings.selector, UNWIRED));
         escrow.deposit{value: 1 ether}(UNWIRED, aliceHash, NATIVE, 1 ether, sender);
         vm.stopPrank();
         vm.prank(owner);
         names.setPlatform(GOOGLE, HandleVectors.rulesFor(GOOGLE));
         vm.prank(sender);
-        vm.expectRevert(abi.encodeWithSelector(HandleEscrow.PlatformAcceptsNoClaims.selector, GOOGLE));
+        vm.expectRevert(abi.encodeWithSelector(HandleEscrow.PlatformAcceptsNoBindings.selector, GOOGLE));
         escrow.deposit{value: 1 ether}(GOOGLE, keccak256("alice@example.com"), NATIVE, 1 ether, sender);
 
         _depositNative("bob", 1 ether);
@@ -383,7 +383,7 @@ contract HandleEscrowTest is Test {
         _depositNative("alice", 2 ether);
         assertEq(alice.balance, 2 ether, "the holder was not paid through");
         vm.prank(sender);
-        vm.expectRevert(abi.encodeWithSelector(HandleEscrow.PlatformAcceptsNoClaims.selector, X));
+        vm.expectRevert(abi.encodeWithSelector(HandleEscrow.PlatformAcceptsNoBindings.selector, X));
         escrow.deposit(X, keccak256("carol"), address(token), 1 ether, sender);
         vm.prank(sender);
         escrow.refund(IdentityNodes.handleNode(X, "bob"), NATIVE, sender);
@@ -657,8 +657,8 @@ contract HandleEscrowTest is Test {
         assertEq(address(escrow.names()), address(names));
         _assertRefused(address(0), abi.encodeWithSelector(HandleEscrow.NoNames.selector));
         _assertLacks(makeAddr("no code"), IIdentityNames.byHandle.selector);
-        _assertLacks(address(new NamesBeforeTheEscrow()), IIdentityNames.acceptsClaims.selector);
-        _assertLacks(address(new NamesWithASilentFallback()), IIdentityNames.acceptsClaims.selector);
+        _assertLacks(address(new NamesBeforeTheEscrow()), IIdentityNames.acceptsBindings.selector);
+        _assertLacks(address(new NamesWithASilentFallback()), IIdentityNames.acceptsBindings.selector);
         _assertLacks(address(new NamesWithoutNodeOfHash()), IIdentityNames.nodeOfHash.selector);
         _assertLacks(address(new NamesWithAZeroFallback()), IIdentityNames.nodeOfHash.selector);
         _assertLacks(address(new NamesWithAConstantNode()), IIdentityNames.nodeOfHash.selector);
@@ -750,7 +750,7 @@ contract HandleEscrowTest is Test {
             })
         );
         vm.prank(who);
-        names.claim(X, V1, payload, false);
+        names.bind(X, V1, payload, false);
     }
 
     /// Deposit native value for text on X, hashed by the naming system.

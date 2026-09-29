@@ -103,11 +103,11 @@ const accounts = await accountsOf(reader, wallet!, 0n, 50n)
 // [{ platformId: x, userId: '42', handle: 'alice', handleCurrent: true }, …]
 ```
 
-## Claiming a name
+## Binding a name
 
-A claim is one of the generated builders: the platform, this chain's verifier
+A binding is one of the generated builders: the platform, this chain's verifier
 version for it, the opaque payload the ceremony produced, and whether to
-publish the name. The value is what `quoteClaim` returns for the same pair.
+publish the name. The value is what `quoteBind` returns for the same pair.
 An EOA sends it directly, a smart account wraps it in its own execute:
 
 ```ts
@@ -116,10 +116,10 @@ import { calls } from '@libid/contracts/calls'
 const fee = await client.readContract({
   address: IDENTITY_NAMES,
   abi: identityNamesAbi,
-  functionName: 'quoteClaim',
+  functionName: 'quoteBind',
   args: [platformId(PLATFORM_GITHUB_DOMAIN), 1],
 })
-const call = calls.identityNames.claim(IDENTITY_NAMES, fee, platformId(PLATFORM_GITHUB_DOMAIN), 1, payload, true)
+const call = calls.identityNames.bind(IDENTITY_NAMES, fee, platformId(PLATFORM_GITHUB_DOMAIN), 1, payload, true)
 // call = { to, value, data } — sign and send from the address the payload names.
 ```
 

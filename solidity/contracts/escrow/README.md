@@ -36,14 +36,14 @@ escrow.refund(handleNode, token, recipient);   // refundTo, while unclaimed
   reverts `OverDebited`, and only an upgrade can release it. A token that
   blocklists the escrow freezes its slots; value sent outside `deposit` is
   never swept.
-- Refunds work whatever the platform's rules or `acceptsClaims` say.
+- Refunds work whatever the platform's rules or `acceptsBindings` say.
 - Indexers should allow-list tokens: anyone can emit `Deposited` for a token
   they wrote.
 
 ## Deploying
 
 - Upgrade the deployed `IdentityNames` first: `initialize` reverts `NamesLacks`
-  unless it answers `byHandle`, `acceptsClaims` and `nodeOfHash`.
+  unless it answers `byHandle`, `acceptsBindings` and `nodeOfHash`.
 - The escrow keeps that `IdentityNames` for life. There is no setter, so no
   key can point claims elsewhere; deploy the escrow once the naming system
   sits at its final address, and move it later only by upgrade.
@@ -55,7 +55,7 @@ can hash a guess. A Google recipient claims through today's Google profile,
 which puts the email on chain in plaintext.
 
 Every key that can change what `byHandle` answers can take escrowed value
-through an ordinary identity claim: the `IdentityNames`,
+through an ordinary identity binding: the `IdentityNames`,
 `CeremonyProofVerifier`, `NotaryService`, Platform Verifier and
 `GoogleJwtRoots` owners, the trusted notary keys, and the platforms
 themselves. The escrow's owner can upgrade it.

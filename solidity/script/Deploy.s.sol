@@ -60,7 +60,7 @@ contract Deploy is Script {
         );
 
         // 2. The ceremony core the Consumer dispatches through. Without it
-        //    `proofVerifier` reads zero, `quoteClaim` calls address zero and
+        //    `proofVerifier` reads zero, `quoteBind` calls address zero and
         //    every resolver reverts `UnknownPlatform` -- a deployment that can
         //    bind nothing.
         CeremonyProofVerifier pvImpl = new CeremonyProofVerifier();
@@ -68,7 +68,7 @@ contract Deploy is Script {
             address(new ERC1967Proxy(address(pvImpl), abi.encodeCall(CeremonyProofVerifier.initialize, (deployer))));
 
         // 3. The naming system: one contract holding the names, dispatching
-        //    every claim through the Proof Verifier above.
+        //    every binding through the Proof Verifier above.
         IdentityNames namesImpl = new IdentityNames();
         address identityNamesAddr =
             address(new ERC1967Proxy(address(namesImpl), abi.encodeCall(IdentityNames.initialize, (deployer))));
@@ -109,7 +109,7 @@ contract Deploy is Script {
         console.log("      circuit artifacts are released. Until then a platform");
         console.log("      owns its keyspace and can verify nothing.");
         // Nothing is trusted until a notarized reading of Google's JWKS lands.
-        // Until then every Google claim reverts `UntrustedModulus`, which reads
+        // Until then every Google binding reverts `UntrustedModulus`, which reads
         // as a bad proof rather than an unseeded list.
         console.log("NOTE: point the keeper at GOOGLE_JWT_ROOTS_ADDRESS");
         console.log("      before Google names work. The trust list starts empty.");

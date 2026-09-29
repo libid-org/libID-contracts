@@ -88,7 +88,7 @@ contract CeremonyClaimTest is Test {
 
     function _claim(bytes memory payload, uint256 value) private {
         vm.prank(WALLET);
-        names.claim{value: value}(PLATFORM, 1, payload, false);
+        names.bind{value: value}(PLATFORM, 1, payload, false);
     }
 
     function _digest(bytes memory txData, bytes32 nonce) private view returns (bytes32) {
@@ -153,7 +153,7 @@ contract CeremonyClaimTest is Test {
     }
 
     function test_quotesAndForwardsTheWholePath() public {
-        assertEq(names.quoteClaim(PLATFORM, 1), FEE);
+        assertEq(names.quoteBind(PLATFORM, 1), FEE);
         _claim(_payload(WALLET, bytes32(uint256(2))), FEE);
         assertEq(verifier.lastValue(), FEE);
     }
@@ -161,8 +161,8 @@ contract CeremonyClaimTest is Test {
     function test_rejectsAnyValueOtherThanTheQuote() public {
         bytes memory p = _payload(WALLET, bytes32(uint256(3)));
         vm.prank(WALLET);
-        vm.expectRevert(abi.encodeWithSelector(IdentityNames.WrongClaimValue.selector, FEE, FEE - 1));
-        names.claim{value: FEE - 1}(PLATFORM, 1, p, false);
+        vm.expectRevert(abi.encodeWithSelector(IdentityNames.WrongBindValue.selector, FEE, FEE - 1));
+        names.bind{value: FEE - 1}(PLATFORM, 1, p, false);
     }
 
     // ─── The digest is its own replay nullifier ─────────────────────
@@ -177,7 +177,7 @@ contract CeremonyClaimTest is Test {
 
         vm.prank(WALLET);
         vm.expectRevert(abi.encodeWithSelector(IdentityNames.DigestAlreadySpent.selector, digest));
-        names.claim{value: FEE}(PLATFORM, 1, p, false);
+        names.bind{value: FEE}(PLATFORM, 1, p, false);
     }
 
     /// @dev A fresh nonce is a fresh digest, so re-proving is always available.
@@ -199,7 +199,7 @@ contract CeremonyClaimTest is Test {
         bytes memory p = _payload(address(0xDEAD), bytes32(uint256(4)));
         vm.prank(WALLET);
         vm.expectRevert(abi.encodeWithSelector(IdentityNames.NotProofTarget.selector, address(0xDEAD), WALLET));
-        names.claim{value: FEE}(PLATFORM, 1, p, false);
+        names.bind{value: FEE}(PLATFORM, 1, p, false);
     }
 
     /// @dev REQ-COMMON-01F: one exact encoding, and trailing bytes refused.
@@ -207,7 +207,7 @@ contract CeremonyClaimTest is Test {
         bytes memory p = _payload(DOMAIN, abi.encodePacked(_free(WALLET), hex"00"), bytes32(uint256(5)));
         vm.prank(WALLET);
         vm.expectRevert(abi.encodeWithSelector(IdentityNames.BadTransactionData.selector, 97));
-        names.claim{value: FEE}(PLATFORM, 1, p, false);
+        names.bind{value: FEE}(PLATFORM, 1, p, false);
     }
 
     // ─── The operation domain ───────────────────────────────────────
@@ -220,7 +220,7 @@ contract CeremonyClaimTest is Test {
         bytes memory p = _payload(foreign, WALLET, bytes32(uint256(6)));
         vm.prank(WALLET);
         vm.expectRevert(abi.encodeWithSelector(IdentityNames.ForeignOperationDomain.selector, foreign));
-        names.claim{value: FEE}(PLATFORM, 1, p, false);
+        names.bind{value: FEE}(PLATFORM, 1, p, false);
     }
 
     // ─── The Supported Version Set ──────────────────────────────────
@@ -229,7 +229,7 @@ contract CeremonyClaimTest is Test {
         bytes memory p = _payload(WALLET, bytes32(uint256(8)));
         vm.prank(WALLET);
         vm.expectRevert(abi.encodeWithSelector(CeremonyProofVerifier.UnknownVersion.selector, PLATFORM, uint16(2)));
-        names.claim{value: FEE}(PLATFORM, 2, p, false);
+        names.bind{value: FEE}(PLATFORM, 2, p, false);
     }
 
     /// @dev REQ-COMMON-05B: more than one verifier version of one platform at
@@ -242,7 +242,7 @@ contract CeremonyClaimTest is Test {
 
         _claim(_payload(WALLET, bytes32(uint256(10))), FEE);
         vm.prank(WALLET);
-        names.claim{value: FEE}(PLATFORM, 2, _payload(WALLET, bytes32(uint256(11))), false);
+        names.bind{value: FEE}(PLATFORM, 2, _payload(WALLET, bytes32(uint256(11))), false);
 
         assertEq(names.resolveHandle(PLATFORM, "alice"), WALLET);
         assertEq(names.resolveHandle(PLATFORM, "bob"), WALLET);
@@ -302,7 +302,7 @@ contract CeremonyClaimTest is Test {
         bytes memory p = _payload(WALLET, bytes32(uint256(13)));
         vm.prank(WALLET);
         vm.expectRevert(IdentityNames.NoUserId.selector);
-        names.claim{value: FEE}(PLATFORM, 1, p, false);
+        names.bind{value: FEE}(PLATFORM, 1, p, false);
     }
 
     function test_rejectsANoncanonicalAddressEncoding() public {
@@ -311,21 +311,21 @@ contract CeremonyClaimTest is Test {
         bytes memory p = _payload(DOMAIN, bad, bytes32(uint256(20)));
         vm.prank(WALLET);
         vm.expectRevert(); // abi.decode's own check
-        names.claim{value: FEE}(PLATFORM, 1, p, false);
+        names.bind{value: FEE}(PLATFORM, 1, p, false);
     }
 
     function test_rejectsShortTransactionData() public {
         bytes memory p = _payload(DOMAIN, abi.encodePacked(WALLET), bytes32(uint256(21)));
         vm.prank(WALLET);
         vm.expectRevert(abi.encodeWithSelector(IdentityNames.BadTransactionData.selector, 20));
-        names.claim{value: FEE}(PLATFORM, 1, p, false);
+        names.bind{value: FEE}(PLATFORM, 1, p, false);
     }
 
     function test_rejectsEmptyTransactionData() public {
         bytes memory p = _payload(DOMAIN, hex"", bytes32(uint256(22)));
         vm.prank(WALLET);
         vm.expectRevert(abi.encodeWithSelector(IdentityNames.BadTransactionData.selector, 0));
-        names.claim{value: FEE}(PLATFORM, 1, p, false);
+        names.bind{value: FEE}(PLATFORM, 1, p, false);
     }
 
     /// @dev A wei short of the verification path is caught before the payload
@@ -333,8 +333,8 @@ contract CeremonyClaimTest is Test {
     function test_rejectsOneWeiLessThanTheQuote() public {
         bytes memory p = _payload(WALLET, bytes32(uint256(23)));
         vm.prank(WALLET);
-        vm.expectRevert(abi.encodeWithSelector(IdentityNames.WrongClaimValue.selector, FEE, FEE - 1));
-        names.claim{value: FEE - 1}(PLATFORM, 1, p, false);
+        vm.expectRevert(abi.encodeWithSelector(IdentityNames.WrongBindValue.selector, FEE, FEE - 1));
+        names.bind{value: FEE - 1}(PLATFORM, 1, p, false);
     }
 
     /// @dev A wei more is caught after: everything above the quote is the fee,
@@ -344,7 +344,7 @@ contract CeremonyClaimTest is Test {
         bytes memory p = _payload(WALLET, bytes32(uint256(24)));
         vm.prank(WALLET);
         vm.expectRevert(abi.encodeWithSelector(IdentityNames.WrongFeeValue.selector, 0, 1));
-        names.claim{value: FEE + 1}(PLATFORM, 1, p, false);
+        names.bind{value: FEE + 1}(PLATFORM, 1, p, false);
     }
 
     function test_setProofVerifierIsOwnerOnlyAndNonZero() public {
@@ -360,7 +360,7 @@ contract CeremonyClaimTest is Test {
         bytes memory p = _payload(WALLET, bytes32(uint256(30)));
         vm.prank(WALLET);
         vm.expectRevert(IdentityNames.NoObservationTime.selector);
-        names.claim{value: FEE}(PLATFORM, 1, p, false);
+        names.bind{value: FEE}(PLATFORM, 1, p, false);
         assertFalse(names.digestSpent(_digest(WALLET, bytes32(uint256(30)))));
     }
 
@@ -368,7 +368,7 @@ contract CeremonyClaimTest is Test {
         bytes memory p = _payload(keccak256("other"), hex"00", bytes32(uint256(40)));
         vm.prank(WALLET);
         vm.expectRevert(abi.encodeWithSelector(IdentityNames.ForeignOperationDomain.selector, keccak256("other")));
-        names.claim{value: FEE}(PLATFORM, 1, p, false);
+        names.bind{value: FEE}(PLATFORM, 1, p, false);
     }
 
     function test_onePayloadIsSpentOnceAcrossTwoVerifierVersions() public {
@@ -381,7 +381,7 @@ contract CeremonyClaimTest is Test {
         vm.expectRevert(
             abi.encodeWithSelector(IdentityNames.DigestAlreadySpent.selector, _digest(WALLET, bytes32(uint256(50))))
         );
-        names.claim{value: FEE}(PLATFORM, 2, p, false);
+        names.bind{value: FEE}(PLATFORM, 2, p, false);
     }
 
     function test_namesCannotReinitialize() public {
@@ -402,7 +402,7 @@ contract CeremonyClaimTest is Test {
         uint256 walletBefore = WALLET.balance;
 
         vm.expectEmit(true, true, false, true, address(names));
-        emit IdentityNames.ClaimFeePaid(
+        emit IdentityNames.BindFeePaid(
             _digest(_txData(WALLET, SERVICE_FEE, HOST), bytes32(uint256(60))), HOST, SERVICE_FEE
         );
         _claim(p, FEE + SERVICE_FEE);
@@ -423,7 +423,7 @@ contract CeremonyClaimTest is Test {
 
         Vm.Log[] memory logs = vm.getRecordedLogs();
         for (uint256 i = 0; i < logs.length; ++i) {
-            assertTrue(logs[i].topics[0] != IdentityNames.ClaimFeePaid.selector, "a free claim paid something");
+            assertTrue(logs[i].topics[0] != IdentityNames.BindFeePaid.selector, "a free claim paid something");
         }
         assertEq(HOST.balance, hostBefore);
         assertEq(names.resolveHandle(PLATFORM, "alice"), WALLET);
@@ -433,7 +433,7 @@ contract CeremonyClaimTest is Test {
         bytes memory p = _payload(DOMAIN, _txData(WALLET, SERVICE_FEE, HOST), bytes32(uint256(62)));
         vm.prank(WALLET);
         vm.expectRevert(abi.encodeWithSelector(IdentityNames.WrongFeeValue.selector, SERVICE_FEE, 0));
-        names.claim{value: FEE}(PLATFORM, 1, p, false);
+        names.bind{value: FEE}(PLATFORM, 1, p, false);
     }
 
     /// @dev Over is refused as firmly as under. Nobody consented to more, and
@@ -442,7 +442,7 @@ contract CeremonyClaimTest is Test {
         bytes memory p = _payload(DOMAIN, _txData(WALLET, SERVICE_FEE, HOST), bytes32(uint256(63)));
         vm.prank(WALLET);
         vm.expectRevert(abi.encodeWithSelector(IdentityNames.WrongFeeValue.selector, SERVICE_FEE, SERVICE_FEE + 1));
-        names.claim{value: FEE + SERVICE_FEE + 1}(PLATFORM, 1, p, false);
+        names.bind{value: FEE + SERVICE_FEE + 1}(PLATFORM, 1, p, false);
     }
 
     /// @dev REQ-COMMON-01F: one encoding per intent. A free claim is
@@ -452,7 +452,7 @@ contract CeremonyClaimTest is Test {
         bytes memory p = _payload(DOMAIN, _txData(WALLET, 0, HOST), bytes32(uint256(64)));
         vm.prank(WALLET);
         vm.expectRevert(abi.encodeWithSelector(IdentityNames.NoncanonicalFee.selector, 0, HOST));
-        names.claim{value: FEE}(PLATFORM, 1, p, false);
+        names.bind{value: FEE}(PLATFORM, 1, p, false);
     }
 
     /// @dev The other half of the same rule. Paying a fee to nobody would burn
@@ -462,7 +462,7 @@ contract CeremonyClaimTest is Test {
         bytes memory p = _payload(DOMAIN, _txData(WALLET, SERVICE_FEE, address(0)), bytes32(uint256(65)));
         vm.prank(WALLET);
         vm.expectRevert(abi.encodeWithSelector(IdentityNames.NoncanonicalFee.selector, SERVICE_FEE, address(0)));
-        names.claim{value: FEE + SERVICE_FEE}(PLATFORM, 1, p, false);
+        names.bind{value: FEE + SERVICE_FEE}(PLATFORM, 1, p, false);
     }
 
     /// @dev What makes the fee unforgeable: it is a digest input. Change the
@@ -485,7 +485,7 @@ contract CeremonyClaimTest is Test {
         bytes memory p = _payload(DOMAIN, _txData(WALLET, SERVICE_FEE, address(bad)), bytes32(uint256(67)));
         vm.prank(WALLET);
         vm.expectRevert(abi.encodeWithSelector(IdentityNames.FeeTransferFailed.selector, address(bad), SERVICE_FEE));
-        names.claim{value: FEE + SERVICE_FEE}(PLATFORM, 1, p, false);
+        names.bind{value: FEE + SERVICE_FEE}(PLATFORM, 1, p, false);
 
         assertEq(names.resolveHandle(PLATFORM, "alice"), address(0));
         assertFalse(names.digestSpent(_digest(_txData(WALLET, SERVICE_FEE, address(bad)), bytes32(uint256(67)))));
@@ -515,7 +515,7 @@ contract CeremonyClaimTest is Test {
         evil.setInner(_payload(address(evil), bytes32(uint256(2))));
         vm.prank(WALLET);
         vm.expectRevert(ReentrancyGuardUpgradeable.ReentrancyGuardReentrantCall.selector);
-        names.claim(PLATFORM, 1, p, false);
+        names.bind(PLATFORM, 1, p, false);
         assertFalse(names.digestSpent(_digest(WALLET, bytes32(uint256(1)))));
         assertFalse(names.digestSpent(_digest(address(evil), bytes32(uint256(2)))));
     }
@@ -550,7 +550,7 @@ contract ReenteringVerifier is IPlatformVerifier {
         if (armed) {
             armed = false;
             (bool ok, bytes memory ret) =
-                address(NAMES).call(abi.encodeCall(IdentityNames.claim, (PLATFORM, 1, innerPayload, false)));
+                address(NAMES).call(abi.encodeCall(IdentityNames.bind, (PLATFORM, 1, innerPayload, false)));
             if (!ok) assembly { revert(add(ret, 32), mload(ret)) }
         }
         return c;
@@ -578,7 +578,7 @@ contract ReenteringReceiver {
     }
 
     receive() external payable {
-        (bool ok,) = address(NAMES).call(abi.encodeCall(IdentityNames.claim, (PLATFORM, 1, payload, false)));
+        (bool ok,) = address(NAMES).call(abi.encodeCall(IdentityNames.bind, (PLATFORM, 1, payload, false)));
         reentryReverted = !ok;
     }
 }
