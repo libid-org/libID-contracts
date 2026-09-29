@@ -206,10 +206,14 @@ library CeremonyAttestation {
             if (range.end != at) continue;
             bytes memory normalized = CeremonyFields.normalizeJsonBytes(range.value);
             if (normalized.length < prefix.length) return false;
-            for (uint256 j = 0; j < prefix.length; ++j) {
-                if (normalized[normalized.length - prefix.length + j] != prefix[j]) return false;
+            bytes32 tail;
+            // The last `prefix.length` bytes, which the line above keeps inside
+            // `normalized`.
+            assembly ("memory-safe") {
+                let size := mload(prefix)
+                tail := keccak256(add(add(normalized, 0x20), sub(mload(normalized), size)), size)
             }
-            return true;
+            return tail == keccak256(prefix);
         }
         return false;
     }
@@ -314,23 +318,39 @@ library CeremonyAttestation {
     ///      One pass. A fold is reported before any bare byte, wherever each
     ///      lies, so the first bare byte waits for the end of the pass.
     function requireCrlfLineEndings(bytes memory revealed) internal pure {
+        uint256 fold = type(uint256).max;
         uint256 bare = type(uint256).max;
         bool bareLineFeed;
-        for (uint256 i = 0; i < revealed.length; ++i) {
-            bytes1 c = revealed[i];
-            if (c == 0x0d) {
-                if (i + 1 < revealed.length && revealed[i + 1] == 0x0a) {
-                    if (i + 2 < revealed.length && (revealed[i + 2] == 0x20 || revealed[i + 2] == 0x09)) {
-                        revert ObsoleteLineFold(i);
+        // Reads `revealed[i]` for `i` below the length, and the bytes either
+        // side of it only once their offsets are known to be inside too.
+        assembly ("memory-safe") {
+            let p := add(revealed, 0x20)
+            let len := mload(revealed)
+            for { let i := 0 } lt(i, len) { i := add(i, 1) } {
+                let c := byte(0, mload(add(p, i)))
+                if eq(c, 0x0d) {
+                    let crlf := 0
+                    if lt(add(i, 1), len) { crlf := eq(byte(0, mload(add(p, add(i, 1)))), 0x0a) }
+                    if and(crlf, lt(add(i, 2), len)) {
+                        let d := byte(0, mload(add(p, add(i, 2))))
+                        if or(eq(d, 0x20), eq(d, 0x09)) {
+                            fold := i
+                            break
+                        }
                     }
-                } else if (bare == type(uint256).max) {
-                    bare = i;
+                    if and(iszero(crlf), eq(bare, not(0))) { bare := i }
                 }
-            } else if (c == 0x0a && (i == 0 || revealed[i - 1] != 0x0d) && bare == type(uint256).max) {
-                bare = i;
-                bareLineFeed = true;
+                if eq(c, 0x0a) {
+                    let afterCr := 0
+                    if i { afterCr := eq(byte(0, mload(add(p, sub(i, 1)))), 0x0d) }
+                    if and(iszero(afterCr), eq(bare, not(0))) {
+                        bare := i
+                        bareLineFeed := 1
+                    }
+                }
             }
         }
+        if (fold != type(uint256).max) revert ObsoleteLineFold(fold);
         if (bare == type(uint256).max) return;
         if (bareLineFeed) revert BareLineFeed(bare);
         revert BareCarriageReturn(bare);
@@ -373,18 +393,27 @@ library CeremonyAttestation {
     ///      two matches never overlap.
     function _countNeedle(bytes memory raw) private pure returns (uint256 count) {
         bytes memory needle = AUTHORIZATION_NEEDLE;
-        uint256 matched;
-        for (uint256 i = 0; i < raw.length; ++i) {
-            bytes1 c = raw[i];
-            if (c == 0x20 || c == 0x09) continue;
-            if (c >= 0x41 && c <= 0x5a) c = bytes1(uint8(c) + 0x20);
-            if (c == needle[matched]) {
-                if (++matched == needle.length) {
-                    ++count;
-                    matched = 0;
+        // Reads `raw[i]` only below its length. The needle is sixteen bytes,
+        // so one word holds it and byte `k` of that word is `needle[k]`.
+        assembly ("memory-safe") {
+            let want := mload(add(needle, 0x20))
+            let size := mload(needle)
+            let p := add(raw, 0x20)
+            let len := mload(raw)
+            let matched := 0
+            for { let i := 0 } lt(i, len) { i := add(i, 1) } {
+                let c := byte(0, mload(add(p, i)))
+                if or(eq(c, 0x20), eq(c, 0x09)) { continue }
+                if and(gt(c, 0x40), lt(c, 0x5b)) { c := add(c, 0x20) }
+                switch eq(c, byte(matched, want))
+                case 1 {
+                    matched := add(matched, 1)
+                    if eq(matched, size) {
+                        count := add(count, 1)
+                        matched := 0
+                    }
                 }
-            } else {
-                matched = c == needle[0] ? 1 : 0;
+                default { matched := eq(c, byte(0, want)) }
             }
         }
     }
