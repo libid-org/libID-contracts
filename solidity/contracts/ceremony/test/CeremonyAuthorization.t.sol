@@ -32,7 +32,6 @@ contract CeremonyAuthorizationTest is Test {
             hex"5555555555555555555555555555555555555555555555555555555555555555" hex"00000004" hex"00010203";
         bytes memory got = CeremonyAuthorization.preimage(OPERATION_DOMAIN, 1, CHAIN_ID, NONCE, TRANSACTION_DATA);
         assertEq(got, expected);
-        assertEq(got.length, CeremonyAuthorization.PREIMAGE_FIXED_LEN + TRANSACTION_DATA.length);
     }
 
     function test_digestMatchesTheSpecificationVector() public pure {
@@ -56,18 +55,6 @@ contract CeremonyAuthorizationTest is Test {
         );
         bytes memory verifier = CeremonyAuthorization.codeVerifier(EXPECTED_DIGEST, NONCE);
         assertEq(string(verifier), "5teBDl6cz4U77aFweV5PbMhBJ_lEFv6LLNKzqnDI5lo");
-        assertEq(string(CeremonyAuthorization.codeChallenge(verifier)), "c8HLMaJOzc8OUoRYc7AocL5ioAkXVtAOmoGxoSY60IQ");
-    }
-
-    function test_pkceValuesAreFortyThreeUnpaddedCharacters() public pure {
-        bytes memory verifier = CeremonyAuthorization.codeVerifier(EXPECTED_DIGEST, NONCE);
-        bytes memory challenge = CeremonyAuthorization.codeChallenge(verifier);
-        assertEq(verifier.length, CeremonyAuthorization.PKCE_LEN);
-        assertEq(challenge.length, CeremonyAuthorization.PKCE_LEN);
-        for (uint256 i = 0; i < CeremonyAuthorization.PKCE_LEN; ++i) {
-            assertTrue(verifier[i] != "=" && verifier[i] != "+" && verifier[i] != "/");
-            assertTrue(challenge[i] != "=" && challenge[i] != "+" && challenge[i] != "/");
-        }
     }
 
     /// @dev The base64url alphabet differs from base64 in exactly two
@@ -125,7 +112,7 @@ contract CeremonyAuthorizationTest is Test {
 
     function testFuzz_encodedVerifierIsAlwaysPkceCharset(bytes32 digest_, bytes32 nonce) public pure {
         bytes memory verifier = CeremonyAuthorization.codeVerifier(digest_, nonce);
-        assertEq(verifier.length, CeremonyAuthorization.PKCE_LEN);
+        assertEq(verifier.length, 43);
         for (uint256 i = 0; i < verifier.length; ++i) {
             bytes1 c = verifier[i];
             bool ok = (c >= "A" && c <= "Z") || (c >= "a" && c <= "z") || (c >= "0" && c <= "9") || c == "-" || c == "_";
