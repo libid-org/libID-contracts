@@ -10,8 +10,8 @@ pragma solidity ^0.8.20;
 ///
 /// @dev A node sits in at most one list at a time, so its position is keyed by
 ///      the node alone. Positions are one-based, so that zero means the node
-///      is in no list, which is what `contains` reads. A page is addressed by
-///      index, counted from zero, like the array it is cut from.
+///      is in no list. A page is addressed by index, counted from zero, like
+///      the array it is cut from.
 ///
 ///      Order is arbitrary. A removal changes it, and nothing here or above
 ///      reads it: a page is a slice of the current arrangement, not a history.
@@ -45,10 +45,6 @@ library AccountList {
         }
         list.pop();
         delete self.position[node];
-    }
-
-    function contains(Data storage self, bytes32 node) internal view returns (bool) {
-        return self.position[node] != 0;
     }
 
     function count(Data storage self, address wallet, bytes32 platformId) internal view returns (uint256) {

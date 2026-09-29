@@ -73,11 +73,6 @@ mod names_inner {
             /// a reader that needs every account reads `accountCount` and
             /// the pages in one block.
             function accountsOf(address wallet, bytes32 platformId, uint256 from, uint256 limit) external view returns (Account[] memory);
-            /// List a binding made before the contract kept lists. Anyone
-            /// may call it, for any account: the two strings are checked
-            /// against the nodes the binding was written under, and the
-            /// binding itself is not touched.
-            function listAccount(bytes32 platformId, string calldata userId, string calldata handle) external;
 
             /// Carries the ceremony version that proved the binding -- logged,
             /// never stored, because nothing on chain acts on it and an

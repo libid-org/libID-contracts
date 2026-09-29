@@ -87,17 +87,16 @@ import {IdentityNodes} from "./IdentityNodes.sol";
 ///      predicted ahead of its deployment.
 ///
 ///      **A wallet's accounts can be walked, and the walk is paid for by the
-///      walker.** Every account proved since the lists exist sits in its
-///      wallet's list for the platform, with the account id and the handle it
-///      holds, so a contract can enumerate what a wallet is without an
-///      indexer. A binding older than the lists enters through `listAccount`
-///      or its own next proof. The list is kept by the account rather than by
-///      the handle: a rename moves one pointer, a handle passing to somebody
-///      else changes nothing in it, and only an account proved from a new
-///      wallet moves between two lists. Each of those costs the same whether
-///      the list holds four accounts or four thousand. What grows with the
-///      list is reading it, which is why it is read by page and why a
-///      contract should never walk a list it did not choose the size of.
+///      walker.** Every account a wallet proved sits in that wallet's list
+///      for the platform, with the account id and the handle it holds, so a
+///      contract can enumerate what a wallet is without an indexer. The list
+///      is kept by the account rather than by the handle: a rename moves one
+///      pointer, a handle passing to somebody else changes nothing in it, and
+///      only an account proved from a new wallet moves between two lists.
+///      Each of those costs the same whether the list holds four accounts or
+///      four thousand. What grows with the list is reading it, which is why
+///      it is read by page and why a contract should never walk a list it did
+///      not choose the size of.
 contract IdentityNames is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, ReentrancyGuardUpgradeable {
     using AccountList for AccountList.Data;
 
@@ -235,9 +234,7 @@ contract IdentityNames is Initializable, UUPSUpgradeable, Ownable2StepUpgradeabl
         /// first, consume the digest, and leave this contract nothing to apply
         /// -- a denial of service costing the attacker only a fee.
         mapping(bytes32 => bool) spentDigests;
-        // ── The account lists, appended after everything above. A binding
-        //    written before they existed is listed by `listAccount`, or by
-        //    the account's next proof.
+        // ── The account lists, appended after everything above.
         /// wallet -> platformId -> the account nodes that wallet holds.
         AccountList.Data accounts;
         /// idNode -> the account id, byte for byte as the platform issued it.
@@ -410,12 +407,6 @@ contract IdentityNames is Initializable, UUPSUpgradeable, Ownable2StepUpgradeabl
     error FeeTransferFailed(address receiver, uint256 amount);
     /// The proof names a different address than the caller.
     error NotProofTarget(address proved, address caller);
-    /// Nobody has proved this account, so there is nothing to list.
-    error UnboundAccount(bytes32 idNode);
-    /// This account already sits in its wallet's list.
-    error AccountAlreadyListed(bytes32 idNode);
-    /// The handle given is not the one this account holds.
-    error HandleNotHeld(bytes32 idNode, bytes32 handleNode);
     /// The proof carries no observation time, so it cannot be ordered.
     error NoObservationTime();
     /// The proof names no account id. A binding is anchored on the id.
@@ -695,11 +686,11 @@ contract IdentityNames is Initializable, UUPSUpgradeable, Ownable2StepUpgradeabl
     /// @dev Put the account just bound in the caller's list, and keep the
     ///      plaintext behind its nodes.
     ///
-    ///      An account enters a list once and leaves it only for another
-    ///      list: `byId` never forgets an owner, so a node with an owner and
-    ///      no position is a binding older than the lists, and its next proof
-    ///      lists it. The strings are written once per node; they are the
-    ///      preimages of the nodes, so a later write could only repeat them.
+    ///      An account enters a list on its first proof and leaves it only
+    ///      for another list, so `byId` says which case this is: no owner
+    ///      yet, a first proof; another owner, a move. The strings are the
+    ///      preimages of the nodes, so each is written once. A handle's may
+    ///      already be there from an earlier holder.
     function _list(
         bytes32 platformId,
         bytes32 idKey,
@@ -709,45 +700,14 @@ contract IdentityNames is Initializable, UUPSUpgradeable, Ownable2StepUpgradeabl
         address heldBy
     ) private {
         IdentityNamesStorage storage $ = _s();
-        if (!$.accounts.contains(idKey)) {
+        if (heldBy == address(0)) {
             $.accounts.add(msg.sender, platformId, idKey);
+            $.userIdOf[idKey] = userId;
         } else if (heldBy != msg.sender) {
             $.accounts.remove(heldBy, platformId, idKey);
             $.accounts.add(msg.sender, platformId, idKey);
         }
-        if (bytes($.userIdOf[idKey]).length == 0) $.userIdOf[idKey] = userId;
         if (bytes($.handleOf[handleKey]).length == 0) $.handleOf[handleKey] = handle;
-    }
-
-    /// @notice List a binding made before this contract kept lists.
-    ///
-    /// @dev Anyone may call it, for any account: everything it writes follows
-    ///      from the binding already on chain, and the two strings it takes are
-    ///      checked against the nodes the binding was written under. An
-    ///      account nobody proved, a handle other than the one the account
-    ///      holds, and an account already listed are each refused. The binding
-    ///      itself is not touched.
-    ///
-    ///      The handle is normalized under the platform's current rules, the
-    ///      way the resolvers read it. A binding whose handle the rules no
-    ///      longer admit cannot be listed, just as it no longer resolves.
-    function listAccount(bytes32 platformId, string calldata userId, string calldata handle) external {
-        Platform memory platform = _requireConfigured(platformId);
-        IdentityNamesStorage storage $ = _s();
-
-        bytes32 idKey = IdentityNodes.idNode(platformId, userId);
-        address holder = $.byId[idKey].owner;
-        if (holder == address(0)) revert UnboundAccount(idKey);
-        if ($.accounts.contains(idKey)) revert AccountAlreadyListed(idKey);
-
-        (bool ok, bytes32 handleKey) = _handleKey(platformId, handle, platform.rules);
-        if (!ok || $.handleOfId[idKey] != handleKey) revert HandleNotHeld(idKey, handleKey);
-
-        $.accounts.add(holder, platformId, idKey);
-        $.userIdOf[idKey] = userId;
-        if (bytes($.handleOf[handleKey]).length == 0) {
-            $.handleOf[handleKey] = HandleNormalizer.normalize(handle, platform.rules);
-        }
     }
 
     /// @dev Stop resolving the handle this account used to hold.

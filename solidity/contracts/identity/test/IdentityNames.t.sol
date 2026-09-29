@@ -614,19 +614,6 @@ contract IdentityNamesTest is Test {
         names.accountsOf(alice, nowhere, 0, 1);
     }
 
-    function test_aListedAccountCannotBeListedAgain() public {
-        _bind(alice, "123", "alice", 100);
-        bytes32 idKey = IdentityNodes.idNode(X, "123");
-        vm.expectRevert(abi.encodeWithSelector(IdentityNames.AccountAlreadyListed.selector, idKey));
-        names.listAccount(X, "123", "alice");
-    }
-
-    function test_listingRefusesAnAccountNobodyProved() public {
-        bytes32 idKey = IdentityNodes.idNode(X, "999");
-        vm.expectRevert(abi.encodeWithSelector(IdentityNames.UnboundAccount.selector, idKey));
-        names.listAccount(X, "999", "ghost");
-    }
-
     // ─── Reading is total in the handle ─────────────────────────────
 
     /// A contract resolving whatever a user typed must not have its whole

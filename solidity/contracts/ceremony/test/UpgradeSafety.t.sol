@@ -461,6 +461,8 @@ contract UpgradeSafetyTest is Test {
 
     /// `Binding` once carried a `version` (uint32 at byte offset 28). Stale bits
     /// in that word are ignored by the current reads, and a fresh write leaves them as-is.
+    /// The word is planted under the wallet that then proves it: a binding the
+    /// write path never made has no list entry for another wallet to take over.
     function test_bindingStaleVersionWordIsIgnored() public {
         _names();
         vm.prank(OWNER);
@@ -474,11 +476,11 @@ contract UpgradeSafetyTest is Test {
         assertEq(o, bob);
         assertEq(at, 1_900_000_000);
         stub.setObservedAt(1_950_000_000);
-        _claimAs(alice, 1);
+        _claimAs(bob, 1);
         bytes32 afterWord = vm.load(address(names), slot);
         emit log_named_bytes32("byId word after fresh write", afterWord);
         (o, at) = names.byId(idNode);
-        assertEq(o, alice);
+        assertEq(o, bob);
         assertEq(at, 1_950_000_000);
         // stale version bits (byte 28..31) survive a member-wise struct write?
         emit log_named_uint("stale version bits after write", uint256(afterWord) >> 224);
