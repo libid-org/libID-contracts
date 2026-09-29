@@ -23,18 +23,11 @@ import {IIdentityNames} from "../identity/IIdentityNames.sol";
 ///        round's refunds. Refunds have no delay and no pause gates them.
 ///      - Each token is one pool across all nodes; a payout that debits it by
 ///        more than it books reverts `OverDebited`.
-///      - `round` in the events is the round the value was booked in: a
-///        deposit's current round, the round a claim closes, the round a
-///        refund draws from.
 contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, ReentrancyGuardUpgradeable {
     using SafeERC20 for IERC20;
 
-    /// @notice The native token of the chain, as a token address (EIP-7528).
-    address public constant NATIVE = 0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE;
-
-    /// @notice `expectedHolder` meaning: the node must have no holder, so the
-    ///         deposit escrows and never pays through.
-    address public constant UNHELD = address(1);
+    /// @notice The native token of the chain, as a token address.
+    address public constant NATIVE = address(0);
 
     /// @custom:storage-location erc7201:libid.storage.HandleEscrow
     struct HandleEscrowStorage {
@@ -47,8 +40,6 @@ contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable
         /// handle node -> token -> round -> refundTo -> refundable amount. In
         /// the current round these sum to `held`.
         mapping(bytes32 => mapping(address => mapping(uint256 => mapping(address => uint256)))) contributions;
-        /// handle node -> its platform, written on the node's first escrow.
-        mapping(bytes32 => bytes32) platformOf;
     }
 
     // keccak256(abi.encode(uint256(keccak256("libid.storage.HandleEscrow")) - 1)) & ~bytes32(uint256(0xff))
@@ -71,7 +62,6 @@ contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable
         address indexed refundTo,
         address depositor,
         bytes32 platformId,
-        uint256 round,
         uint256 amount
     );
 
@@ -94,8 +84,6 @@ contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable
         address indexed token,
         address indexed claimer,
         address recipient,
-        bytes32 platformId,
-        uint256 round,
         uint256 released,
         uint256 received
     );
@@ -107,8 +95,6 @@ contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable
         address indexed token,
         address indexed refundTo,
         address recipient,
-        bytes32 platformId,
-        uint256 round,
         uint256 released,
         uint256 received
     );
@@ -134,10 +120,6 @@ contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable
     error BadRecipient(address recipient);
     /// Nobody holds the node and nothing new can bind on this platform.
     error PlatformAcceptsNoClaims(bytes32 platformId);
-    /// The node's holder is not the one the depositor expected.
-    error UnexpectedHolder(address expected, address actual);
-    /// The zero address is not a token; native value is `NATIVE`.
-    error BadToken(address token);
     /// A payout took more of this contract's balance than it booked.
     error OverDebited(address token, uint256 booked, uint256 debited);
     /// The recipient refused the transfer.
@@ -181,23 +163,15 @@ contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable
     ///      claim, which `refundTo` can refund. Both branches book what
     ///      arrived, so fee-on-transfer tokens work; nothing arriving reverts
     ///      `ZeroAmount`.
-    /// @param token          An ERC-20, or `NATIVE`, when `amount` must equal `msg.value`.
-    /// @param refundTo       Who may refund an escrowed deposit; never zero or this contract.
-    /// @param expectedHolder The holder the depositor saw: zero accepts any
-    ///                       outcome, `UNHELD` requires no holder (escrow only),
-    ///                       any other address requires exactly that holder
-    ///                       (pay-through only). Otherwise `UnexpectedHolder`.
-    function deposit(
-        bytes32 platformId,
-        bytes32 handleHash,
-        address token,
-        uint256 amount,
-        address refundTo,
-        address expectedHolder
-    ) external payable nonReentrant {
+    /// @param token    An ERC-20, or `NATIVE`, when `amount` must equal `msg.value`.
+    /// @param refundTo Who may refund an escrowed deposit; never zero or this contract.
+    function deposit(bytes32 platformId, bytes32 handleHash, address token, uint256 amount, address refundTo)
+        external
+        payable
+        nonReentrant
+    {
         if (amount == 0) revert ZeroAmount();
         if (refundTo == address(0) || refundTo == address(this)) revert BadRefundTo(refundTo);
-        if (token == address(0)) revert BadToken(token);
 
         if (token == NATIVE) {
             if (msg.value != amount) revert ValueMismatch(amount, msg.value);
@@ -208,9 +182,6 @@ contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable
         HandleEscrowStorage storage $ = _s();
         bytes32 node = $.names.nodeOfHash(platformId, handleHash);
         (address holder,) = $.names.byHandle(node);
-        if (expectedHolder != address(0) && expectedHolder != (holder == address(0) ? UNHELD : holder)) {
-            revert UnexpectedHolder(expectedHolder, holder);
-        }
         if (holder != address(0)) {
             if (holder == msg.sender) revert PayingYourself(holder);
             uint256 received = _move(token, msg.sender, holder, amount);
@@ -224,11 +195,9 @@ contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable
         uint256 credited = _move(token, msg.sender, address(this), amount);
         if (credited == 0) revert ZeroAmount();
 
-        uint256 round = $.round[node][token];
         $.held[node][token] += credited;
-        $.contributions[node][token][round][refundTo] += credited;
-        if ($.platformOf[node] == 0) $.platformOf[node] = platformId;
-        emit Deposited(node, token, refundTo, msg.sender, platformId, round, credited);
+        $.contributions[node][token][$.round[node][token]][refundTo] += credited;
+        emit Deposited(node, token, refundTo, msg.sender, platformId, credited);
     }
 
     // ─── Claiming ───────────────────────────────────────────────────
@@ -252,17 +221,10 @@ contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable
             uint256 amount = $.held[handleNode][token];
             if (amount == 0) continue;
             $.held[handleNode][token] = 0;
-            uint256 round = $.round[handleNode][token]++;
+            ++$.round[handleNode][token];
             paid = true;
             emit Claimed(
-                handleNode,
-                token,
-                msg.sender,
-                recipient,
-                $.platformOf[handleNode],
-                round,
-                amount,
-                _move(token, address(this), recipient, amount)
+                handleNode, token, msg.sender, recipient, amount, _move(token, address(this), recipient, amount)
             );
         }
         if (!paid) revert NothingHeld(handleNode);
@@ -276,23 +238,13 @@ contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable
         if (recipient == address(0) || recipient == address(this)) revert BadRecipient(recipient);
 
         HandleEscrowStorage storage $ = _s();
-        uint256 round = $.round[handleNode][token];
-        mapping(address => uint256) storage current = $.contributions[handleNode][token][round];
+        mapping(address => uint256) storage current = $.contributions[handleNode][token][$.round[handleNode][token]];
         uint256 amount = current[msg.sender];
         if (amount == 0) revert NothingToRefund(handleNode, token, msg.sender);
         current[msg.sender] = 0;
         $.held[handleNode][token] -= amount;
 
-        emit Refunded(
-            handleNode,
-            token,
-            msg.sender,
-            recipient,
-            $.platformOf[handleNode],
-            round,
-            amount,
-            _move(token, address(this), recipient, amount)
-        );
+        emit Refunded(handleNode, token, msg.sender, recipient, amount, _move(token, address(this), recipient, amount));
     }
 
     // ─── Reading ────────────────────────────────────────────────────

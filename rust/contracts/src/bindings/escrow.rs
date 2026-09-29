@@ -18,15 +18,12 @@ mod escrow_inner {
             /// (`Forwarded`); otherwise the value is escrowed (`Deposited`) and
             /// `refundTo` can `refund` it until the holder claims. An unchecked
             /// wrong hash funds a slot only `refund` recovers.
-            /// `expectedHolder`: zero accepts either branch, `UNHELD` only
-            /// escrows, an address only pays that holder.
             function deposit(
                 bytes32 platformId,
                 bytes32 handleHash,
                 address token,
                 uint256 amount,
-                address refundTo,
-                address expectedHolder
+                address refundTo
             ) external payable;
 
             /// Take everything held for a node in each of `tokens`; holder
@@ -42,10 +39,7 @@ mod escrow_inner {
             /// What `refund` would pay `refundTo` now.
             function refundable(bytes32 handleNode, address token, address refundTo) external view returns (uint256);
             function names() external view returns (address);
-            /// The native token, EIP-7528's `0xEeee…EEeE`.
             function NATIVE() external view returns (address);
-            /// `expectedHolder` meaning "the node must have no holder".
-            function UNHELD() external view returns (address);
 
             function owner() external view returns (address);
             function pendingOwner() external view returns (address);
@@ -54,16 +48,13 @@ mod escrow_inner {
             /// Always reverts `RenounceDisabled`.
             function renounceOwnership() external pure;
 
-            /// Value escrowed for a node nobody holds, booked under `refundTo`
-            /// in `round` (here and in `Claimed`/`Refunded`: the round the
-            /// value was booked in).
+            /// Value escrowed for a node nobody holds, booked under `refundTo`.
             event Deposited(
                 bytes32 indexed handleNode,
                 address indexed token,
                 address indexed refundTo,
                 address depositor,
                 bytes32 platformId,
-                uint256 round,
                 uint256 amount
             );
             /// A deposit paid straight to the node's holder; `received` is
@@ -84,8 +75,6 @@ mod escrow_inner {
                 address indexed token,
                 address indexed claimer,
                 address recipient,
-                bytes32 platformId,
-                uint256 round,
                 uint256 released,
                 uint256 received
             );
@@ -96,8 +85,6 @@ mod escrow_inner {
                 address indexed token,
                 address indexed refundTo,
                 address recipient,
-                bytes32 platformId,
-                uint256 round,
                 uint256 released,
                 uint256 received
             );
@@ -116,10 +103,6 @@ mod escrow_inner {
             error BadRecipient(address recipient);
             /// Nobody holds the node and nothing new can bind on the platform.
             error PlatformAcceptsNoClaims(bytes32 platformId);
-            /// The node's holder is not the one `expectedHolder` named.
-            error UnexpectedHolder(address expected, address actual);
-            /// The zero address as a token; native value is `NATIVE`.
-            error BadToken(address token);
             error NativeTransferFailed(address recipient, uint256 amount);
             /// A payout took more of the escrow's balance than it booked.
             error OverDebited(address token, uint256 booked, uint256 debited);

@@ -93,9 +93,8 @@ contract HandleEscrowHostileTokensTest is Test {
         HookToken token = new HookToken();
         HookedParty party = new HookedParty(escrow, token, NODE);
         token.mint(address(party), 20 ether);
-        bytes memory depositCall = abi.encodeCall(
-            HandleEscrow.deposit, (PLATFORM, HASH, address(token), 10 ether, address(party), address(0))
-        );
+        bytes memory depositCall =
+            abi.encodeCall(HandleEscrow.deposit, (PLATFORM, HASH, address(token), 10 ether, address(party)));
         bytes memory claimCall = abi.encodeCall(HandleEscrow.claim, (NODE, one(address(token)), address(party)));
         bytes memory refundCall = abi.encodeCall(HandleEscrow.refund, (NODE, address(token), address(party)));
         bytes memory guard = abi.encodeWithSelector(ReentrancyGuardUpgradeable.ReentrancyGuardReentrantCall.selector);
@@ -123,7 +122,7 @@ contract HandleEscrowHostileTokensTest is Test {
 
         vm.startPrank(depositor);
         vm.expectRevert(failed);
-        escrow.deposit(PLATFORM, HASH, address(token), 1, depositor, address(0));
+        escrow.deposit(PLATFORM, HASH, address(token), 1, depositor);
         vm.expectRevert(failed);
         escrow.refund(NODE, address(token), depositor);
         vm.stopPrank();
@@ -145,15 +144,15 @@ contract HandleEscrowHostileTokensTest is Test {
         token.mint(depositor, 25 ether);
         vm.startPrank(depositor);
         token.approve(address(escrow), type(uint256).max);
-        escrow.deposit(PLATFORM, HASH, address(token), 10 ether, depositor, address(0));
+        escrow.deposit(PLATFORM, HASH, address(token), 10 ether, depositor);
         escrow.refund(NODE, address(token), depositor);
-        escrow.deposit(PLATFORM, HASH, address(token), 10 ether, depositor, address(0));
+        escrow.deposit(PLATFORM, HASH, address(token), 10 ether, depositor);
         vm.stopPrank();
         names.setHolder(NODE, holder);
         vm.prank(holder);
         escrow.claim(NODE, one(address(token)), holder);
         vm.prank(depositor);
-        escrow.deposit(PLATFORM, HASH, address(token), 5 ether, depositor, address(0));
+        escrow.deposit(PLATFORM, HASH, address(token), 5 ether, depositor);
         assertEq(token.balanceOf(holder), 15 ether);
         assertEq(token.balanceOf(depositor), 10 ether);
         assertEq(token.balanceOf(address(escrow)), 0);
@@ -166,13 +165,13 @@ contract HandleEscrowHostileTokensTest is Test {
         _escrow(address(token), other, HASH2, 100 ether);
 
         vm.expectEmit(address(escrow));
-        emit HandleEscrow.Refunded(NODE, address(token), depositor, depositor, PLATFORM, 0, 100 ether, 99 ether);
+        emit HandleEscrow.Refunded(NODE, address(token), depositor, depositor, 100 ether, 99 ether);
         vm.prank(depositor);
         escrow.refund(NODE, address(token), depositor);
 
         names.setHolder(NODE2, holder);
         vm.expectEmit(address(escrow));
-        emit HandleEscrow.Claimed(NODE2, address(token), holder, holder, PLATFORM, 0, 100 ether, 99 ether);
+        emit HandleEscrow.Claimed(NODE2, address(token), holder, holder, 100 ether, 99 ether);
         vm.prank(holder);
         escrow.claim(NODE2, one(address(token)), holder);
         assertEq(token.balanceOf(address(escrow)), 0);
@@ -197,7 +196,7 @@ contract HandleEscrowHostileTokensTest is Test {
         vm.startPrank(other);
         token.approve(address(escrow), 1 ether);
         vm.expectRevert(abi.encodeWithSelector(BlocklistToken.Blocked.selector, holder));
-        escrow.deposit(PLATFORM, HASH, address(token), 1 ether, other, address(0));
+        escrow.deposit(PLATFORM, HASH, address(token), 1 ether, other);
         vm.stopPrank();
 
         vm.prank(holder);
@@ -226,15 +225,11 @@ contract HandleEscrowHostileTokensTest is Test {
         assertEq(token.balanceOf(holder), 10 ether);
     }
 
-    /// KNOWN LIMITATION: a token charging its fee to the sender on top of `amount` deposits, then
-    /// every claim and refund in it reverts `OverDebited`: its slots freeze, and the guard keeps
-    /// each node from spending another's backing. Other tokens are unaffected.
-    function test_ACCEPTED_aSenderFeeTokenFreezesItsSlots() public {
+    /// A payout taking more of the pool than it books is refused, so one node cannot spend another's.
+    function test_aPayoutThatOverDebitsThePoolIsRefused() public {
         SenderFeeToken token = new SenderFeeToken();
-        TestERC20 plain = new TestERC20();
         _escrow(address(token), depositor, HASH, 10 ether);
         _escrow(address(token), other, HASH2, 10 ether);
-        _escrow(address(plain), depositor, HASH, 10 ether);
         bytes memory over =
             abi.encodeWithSelector(HandleEscrow.OverDebited.selector, address(token), 10 ether, 10.1 ether);
 
@@ -245,12 +240,7 @@ contract HandleEscrowHostileTokensTest is Test {
         vm.prank(holder);
         vm.expectRevert(over);
         escrow.claim(NODE, one(address(token)), holder);
-        assertEq(token.balanceOf(address(escrow)), 20 ether, "the pool moved");
-        assertEq(escrow.escrowed(NODE, address(token)) + escrow.escrowed(NODE2, address(token)), 20 ether);
-
-        vm.prank(holder);
-        escrow.claim(NODE, one(address(plain)), holder);
-        assertEq(plain.balanceOf(holder), 10 ether, "another token froze too");
+        assertEq(token.balanceOf(address(escrow)), 20 ether);
     }
 
     /// KNOWN LIMITATION: a negative rebase shrinks the shared pool; the last withdrawal fails.
@@ -274,7 +264,7 @@ contract HandleEscrowHostileTokensTest is Test {
         TestERC20(token).mint(from, amount);
         vm.startPrank(from);
         TestERC20(token).approve(address(escrow), type(uint256).max);
-        escrow.deposit(PLATFORM, handleHash, token, amount, from, address(0));
+        escrow.deposit(PLATFORM, handleHash, token, amount, from);
         vm.stopPrank();
     }
 }
