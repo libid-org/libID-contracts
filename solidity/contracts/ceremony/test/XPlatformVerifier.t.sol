@@ -398,8 +398,7 @@ contract XPlatformVerifierTest is Test {
     }
 
     /// @dev A sixth pair is refused at the `&` that begins it. X is a public
-    ///      client and its profile lists no `client_secret`; under `formField`
-    ///      alone one was merely uncompared.
+    ///      client and its profile lists no `client_secret`.
     function test_rejectsATokenBodyCarryingAClientSecret() public {
         bytes memory honest = _honestTokenBody();
         TlsNotaryVerifierBase.TlsNotaryProof memory s =
@@ -409,7 +408,7 @@ contract XPlatformVerifierTest is Test {
     }
 
     /// @dev A duplicate in an ENCODED spelling. `code%5Fverifier` is
-    ///      `code_verifier` to a form parser and no match to `formField`,
+    ///      `code_verifier` to a form parser but no literal match for it,
     ///      which is the case ASM-PROV-07 covers for the specification. It is
     ///      a sixth pair here, refused like any other.
     function test_rejectsATokenBodyWithAnEncodedDuplicateName() public {
@@ -432,9 +431,9 @@ contract XPlatformVerifierTest is Test {
     }
 
     /// @dev A raw `;` inside the redirect. Some form parsers split pairs on
-    ///      it, so to them this body carries a second `code_verifier`;
-    ///      `formField` would have read the redirect to the next `&` and
-    ///      counted one. The serializer never emits a raw `;`, so the byte
+    ///      it, so to them this body carries a second `code_verifier`, while
+    ///      a reader splitting only on `&` counts one. The serializer never
+    ///      emits a raw `;`, so the byte
     ///      itself is refused.
     function test_rejectsATokenBodyWithARawSemicolonInTheRedirect() public {
         bytes memory body = _honestTokenBody(

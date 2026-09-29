@@ -279,7 +279,6 @@ contract TranscriptWordEdgesTest is Test {
         bool exact = _same(address(live), address(ref), abi.encodeCall(LiveHelpers.requireExactForm, (body, names)));
         string[7] memory read = ["client_id", "code_verifier", "grant_type", "code", "id", "verifier", "type"];
         for (uint256 i = 0; i < read.length; ++i) {
-            _same(address(live), address(ref), abi.encodeCall(LiveHelpers.formField, (body, read[i])));
             if (exact) {
                 _same(
                     address(live),

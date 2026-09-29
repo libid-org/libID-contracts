@@ -124,7 +124,7 @@ contract LiveHelpers {
         pure
         returns (CeremonyFields.Found, bytes memory)
     {
-        return CeremonyFields.tryJsonString(data, name);
+        return CeremonyFields.tryNormalizedJsonString(CeremonyFields.normalizeJsonBytes(data), name);
     }
 
     function tryJsonInteger(bytes memory data, string memory name)
@@ -132,11 +132,7 @@ contract LiveHelpers {
         pure
         returns (CeremonyFields.Found, bytes memory)
     {
-        return CeremonyFields.tryJsonInteger(data, name);
-    }
-
-    function formField(bytes memory data, string memory name) external pure returns (bytes memory) {
-        return CeremonyFields.formField(data, name);
+        return CeremonyFields.tryNormalizedJsonInteger(CeremonyFields.normalizeJsonBytes(data), name);
     }
 
     function requireExactForm(bytes memory body, bytes memory names) external pure {
@@ -931,8 +927,8 @@ contract TranscriptEquivalenceTest is Test {
             r.chance(60) ? r.tokenBody(names, "5teBDl6cz4U77aFweV5PbMhBJ_lEFv6LLNKzqnDI5lo") : r.soup("ab_=&%2F+;", 30);
         string memory name = string(r.oneOf(Gen.list("client_id", "code_verifier", "grant_type", r.soup("ab_", 3))));
         bool exact = _same(address(live), address(ref), abi.encodeCall(LiveHelpers.requireExactForm, (body, names)));
-        _same(address(live), address(ref), abi.encodeCall(LiveHelpers.formField, (body, name)));
-        // On an exact body, `valueOf` answers as `formField` does, errors included.
+        // On an exact body, `valueOf` answers as the reference's `formField`
+        // does, errors included.
         if (exact) {
             _same(
                 address(live),

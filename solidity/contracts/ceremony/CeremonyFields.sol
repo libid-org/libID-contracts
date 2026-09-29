@@ -73,20 +73,12 @@ library CeremonyFields {
     uint256 private constant SERIALIZER_SAFE = (((1 << 26) - 1) << 0x41) | (((1 << 26) - 1) << 0x61)
         | (((1 << 10) - 1) << 0x30) | (1 << 0x2a) | (1 << 0x2e) | (1 << 0x5f) | (1 << 0x2d);
 
-    /// @notice `jsonString`, reporting instead of reverting.
+    /// @notice The string value of member `name` in bytes `normalizeJsonBytes`
+    ///         returned, reporting instead of reverting.
     ///
     /// @dev A caller searching several revealed ranges needs to distinguish
     ///      "not in this range" from "malformed", because a field legitimately
     ///      lives in exactly one of them.
-    function tryJsonString(bytes memory data, string memory name)
-        internal
-        pure
-        returns (Found found, bytes memory value)
-    {
-        return tryNormalizedJsonString(normalizeJsonBytes(data), name);
-    }
-
-    /// @notice `tryJsonString` over bytes `normalizeJsonBytes` returned.
     function tryNormalizedJsonString(bytes memory data, string memory name)
         internal
         pure
@@ -107,25 +99,17 @@ library CeremonyFields {
         return (Found.One, _slice(data, at, end));
     }
 
-    /// @notice `jsonInteger`, reporting ABSENCE and still refusing malformation.
+    /// @notice The integer member `name` in bytes `normalizeJsonBytes`
+    ///         returned, reporting absence and refusing malformation.
     ///
-    /// @dev Not symmetric with [`tryJsonString`], deliberately. Absence is
-    ///      reported, because a field lives in exactly one revealed range and
-    ///      the others must be able to say "not here". A malformed match still
-    ///      reverts, because the needle `"id":` is the full delimiter -- it
-    ///      cannot match inside a neighbouring member such as `"node_id":"`,
-    ///      whose `i` is preceded by `_` rather than a quote -- so a second
-    ///      occurrence is a duplicate delimiter, which REQ-COMMON-19A wants
-    ///      rejected rather than skipped past to whichever copy parses.
-    function tryJsonInteger(bytes memory data, string memory name)
-        internal
-        pure
-        returns (Found found, bytes memory digits)
-    {
-        return tryNormalizedJsonInteger(normalizeJsonBytes(data), name);
-    }
-
-    /// @notice `tryJsonInteger` over bytes `normalizeJsonBytes` returned.
+    /// @dev Absence is reported, because a field lives in exactly one revealed
+    ///      range and the others must be able to say "not here". Unlike the
+    ///      string reader, a malformed match reverts: the needle `"id":` is the
+    ///      full delimiter -- it cannot match inside a neighbouring member such
+    ///      as `"node_id":"`, whose `i` is preceded by `_` rather than a quote --
+    ///      so a second occurrence is a duplicate delimiter, which
+    ///      REQ-COMMON-19A wants rejected rather than skipped past to whichever
+    ///      copy parses.
     function tryNormalizedJsonInteger(bytes memory data, string memory name)
         internal
         pure
@@ -345,34 +329,6 @@ library CeremonyFields {
         }
     }
 
-    /// @notice The value of `name=value` in an `application/x-www-form-urlencoded`
-    ///         body.
-    ///
-    /// @dev The match must begin at byte zero or immediately after `&`, and the
-    ///      value must end at `&` or the end of the revealed bytes. Without the
-    ///      leading boundary, `client_id=` would also match inside
-    ///      `evil_client_id=`.
-    function formField(bytes memory data, string memory name) internal pure returns (bytes memory value) {
-        bytes memory needle = abi.encodePacked(name, "=");
-        uint256 found = type(uint256).max;
-
-        for (uint256 i = 0; i + needle.length <= data.length; ++i) {
-            if (i != 0 && data[i - 1] != "&") continue;
-            if (!_matchesAt(data, needle, i)) continue;
-            if (found != type(uint256).max) revert AmbiguousField(name);
-            found = i;
-        }
-        if (found == type(uint256).max) revert FieldNotFound(name);
-
-        uint256 at = found + needle.length;
-        uint256 end = at;
-        while (end < data.length && data[end] != "&") {
-            ++end;
-        }
-
-        value = _slice(data, at, end);
-    }
-
     /// @notice The value of field `name` in a body `requireExactForm` accepted.
     ///
     /// @dev Listed names carry no form delimiter (the generator refuses one),
@@ -393,14 +349,13 @@ library CeremonyFields {
     ///         `names` lists, `&`-joined, in that order, each once with a
     ///         nonempty value -- and nothing else.
     ///
-    /// @dev REQ-PLAT-61. `formField` answers "what is `code_verifier` here" and
-    ///      cannot answer "what else is here": it matches a literal name, so an
-    ///      encoded spelling (`code%5Fverifier=`) is invisible to it, and it
-    ///      reads a value to the next `&`, so a raw `;` or `=` inside one is a
-    ///      pair to some parsers and a value to this one. A verifier that
-    ///      accepts a body on `formField` alone therefore rests on the platform
-    ///      refusing what it did not count (ASM-PROV-07). This is the check
-    ///      that removes the assumption: one cursor walks the body once, and
+    /// @dev REQ-PLAT-61. Reading one field by its literal name cannot answer
+    ///      "what else is here": an encoded spelling (`code%5Fverifier=`) is
+    ///      invisible to a literal match, and a value read to the next `&` lets
+    ///      a raw `;` or `=` be a pair to some parsers and a value to others.
+    ///      Resting on that alone rests on the platform refusing what was not
+    ///      counted (ASM-PROV-07). This check removes the assumption: one
+    ///      cursor walks the body once, and
     ///      every byte of it is accounted for -- a literal name, `=`, a value
     ///      in the serializer's output alphabet, `&` between pairs, the end
     ///      of the body after the last. A sixth pair, a duplicate, a reordering,
@@ -609,13 +564,6 @@ library CeremonyFields {
             uint256 escaped = serializerUnsafeBytes(_word(value, i));
             if (i + 32 > value.length) escaped &= _leading(value.length - i);
             if (escaped != 0) return false;
-        }
-        return true;
-    }
-
-    function _matchesAt(bytes memory data, bytes memory needle, uint256 at) private pure returns (bool) {
-        for (uint256 j = 0; j < needle.length; ++j) {
-            if (data[at + j] != needle[j]) return false;
         }
         return true;
     }
