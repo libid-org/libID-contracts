@@ -3,13 +3,48 @@ pragma solidity ^0.8.24;
 
 import {Test} from "forge-std/Test.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
+import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 
 import {HandleVectors} from "../HandleVectors.sol";
 import {IdentityNames} from "../IdentityNames.sol";
 import {CeremonyProofVerifier} from "../../ceremony/CeremonyProofVerifier.sol";
 import {IPlatformVerifier} from "../../ceremony/IPlatformVerifier.sol";
 import {IProofVerifier} from "../../ceremony/IProofVerifier.sol";
+import {LegacyIdentityNames} from "./LegacyIdentityNames.sol";
 import {StubPlatformVerifier} from "./StubPlatformVerifier.sol";
+
+/// @notice Account ids and handles of one width each, so a claim's hashing
+///         and normalization cost the same whichever account it names.
+///
+/// @dev A tag tells one wallet's names from another's. Ten digits is the width
+///      of an X account id in the fixtures, fifteen characters the most X
+///      allows in a handle.
+abstract contract FixedWidthNames is Test {
+    uint256 internal constant FEW = 4;
+    uint256 internal constant MANY = 1000;
+
+    function _id(uint256 tag, uint256 k) internal pure returns (string memory) {
+        return string(abi.encodePacked("17", _digits(tag, 2), _digits(k, 6)));
+    }
+
+    function _handle(uint256 tag, uint256 k) internal pure returns (string memory) {
+        return string(abi.encodePacked("u", _digits(tag, 2), "_", _digits(k, 6), "_abcd"));
+    }
+
+    function _digits(uint256 value, uint256 width) internal pure returns (string memory) {
+        bytes memory digits = "0123456789";
+        bytes memory out = new bytes(width);
+        for (uint256 i = width; i > 0; i--) {
+            out[i - 1] = digits[value % 10];
+            value /= 10;
+        }
+        return string(out);
+    }
+
+    function _used() internal view returns (uint64) {
+        return vm.lastCallGas().gasTotalUsed;
+    }
+}
 
 /// @notice What a wallet pays, and what reading it costs, does not depend on
 ///         how many accounts the wallet holds.
@@ -17,21 +52,16 @@ import {StubPlatformVerifier} from "./StubPlatformVerifier.sol";
 /// @dev Two wallets on one contract, one holding four accounts and one
 ///      holding a thousand. Each operation runs for both from cold storage,
 ///      and the gas the contract used is compared exactly rather than within
-///      a tolerance: one storage read more would show as thousands.
-///
-///      Account ids and handles have one width each, so a claim's hashing
-///      and normalization cost the same whichever account it names. The
+///      a tolerance: one storage read more would show as thousands. The
 ///      measured call is the last one a helper makes, which is what
 ///      `vm.lastCallGas` reports on.
-contract IdentityNamesGasTest is Test {
+contract IdentityNamesGasTest is FixedWidthNames {
     IdentityNames internal names;
     CeremonyProofVerifier internal proofVerifier;
     StubPlatformVerifier internal xVerifier;
 
     bytes32 internal constant X = HandleVectors.PLATFORM_X;
     uint16 internal constant V1 = 1;
-    uint256 internal constant FEW = 4;
-    uint256 internal constant MANY = 1000;
 
     address internal owner = makeAddr("owner");
     address internal few = makeAddr("few");
@@ -57,37 +87,22 @@ contract IdentityNamesGasTest is Test {
         vm.warp(1_000_000);
 
         for (uint256 k = 0; k < FEW; k++) {
-            _prove(few, _id(few, k), _handle(few, k));
+            _prove(few, _id(_tag(few), k), _handle(_tag(few), k));
         }
         for (uint256 k = 0; k < MANY; k++) {
-            _prove(many, _id(many, k), _handle(many, k));
+            _prove(many, _id(_tag(many), k), _handle(_tag(many), k));
         }
     }
-
-    // ─── Fixed-width names ──────────────────────────────────────────
 
     function _tag(address wallet) internal view returns (uint256) {
         return wallet == few ? 1 : 2;
     }
 
-    /// Ten digits, the width of an X account id in the fixtures.
-    function _id(address wallet, uint256 k) internal view returns (string memory) {
-        return string(abi.encodePacked("17", _digits(_tag(wallet), 2), _digits(k, 6)));
-    }
-
-    /// Fifteen characters, the most X allows.
-    function _handle(address wallet, uint256 k) internal view returns (string memory) {
-        return string(abi.encodePacked("u", _digits(_tag(wallet), 2), "_", _digits(k, 6), "_abcd"));
-    }
-
-    function _digits(uint256 value, uint256 width) internal pure returns (string memory) {
-        bytes memory digits = "0123456789";
-        bytes memory out = new bytes(width);
-        for (uint256 i = width; i > 0; i--) {
-            out[i - 1] = digits[value % 10];
-            value /= 10;
-        }
-        return string(out);
+    /// How many accounts a wallet was given. Half of that is an account in
+    /// the middle of its list: never the last one, so a removal has to move
+    /// the last one into its place.
+    function _size(address wallet) internal view returns (uint256) {
+        return wallet == few ? FEW : MANY;
     }
 
     // ─── Operations, each ending in the call to measure ─────────────
@@ -109,10 +124,6 @@ contract IdentityNamesGasTest is Test {
         vm.cool(address(xVerifier));
     }
 
-    function _used() internal view returns (uint64) {
-        return vm.lastCallGas().gasTotalUsed;
-    }
-
     /// A claim made out to `who`, from cold storage.
     function _prove(address who, string memory userId, string memory handle) internal {
         xVerifier.set(userId, handle);
@@ -130,51 +141,44 @@ contract IdentityNamesGasTest is Test {
         names.claim(X, V1, payload, true);
     }
 
-    /// How many accounts a wallet was given. Half of that is an account in
-    /// the middle of its list: never the last one, so a removal has to move
-    /// the last one into its place.
-    function _size(address wallet) internal view returns (uint256) {
-        return wallet == few ? FEW : MANY;
-    }
-
     // ─── Writes ─────────────────────────────────────────────────────
 
     function test_aNewAccountCostsTheSame() public measured {
-        _prove(few, _id(few, 900_000), _handle(few, 900_000));
+        _prove(few, _id(1, 900_000), _handle(1, 900_000));
         uint64 atFew = _used();
-        _prove(many, _id(many, 900_000), _handle(many, 900_000));
+        _prove(many, _id(2, 900_000), _handle(2, 900_000));
         assertEq(atFew, _used(), "a new account");
     }
 
     function test_aRenameCostsTheSame() public measured {
-        _prove(few, _id(few, _size(few) / 2), _handle(few, 900_001));
+        _prove(few, _id(1, _size(few) / 2), _handle(1, 900_001));
         uint64 atFew = _used();
-        _prove(many, _id(many, _size(many) / 2), _handle(many, 900_001));
+        _prove(many, _id(2, _size(many) / 2), _handle(2, 900_001));
         assertEq(atFew, _used(), "a rename");
     }
 
     function test_provingTheSameHandleAgainCostsTheSame() public measured {
-        _prove(few, _id(few, 1), _handle(few, 1));
+        _prove(few, _id(1, 1), _handle(1, 1));
         uint64 atFew = _used();
-        _prove(many, _id(many, 1), _handle(many, 1));
+        _prove(many, _id(2, 1), _handle(2, 1));
         assertEq(atFew, _used(), "a re-proof");
     }
 
     /// Another wallet's new account takes a handle from the middle of the
     /// list. The list is not touched, and the taker pays for its own.
     function test_aHandleTakenFromTheWalletCostsTheSame() public measured {
-        _prove(makeAddr("taker of few"), _id(few, 900_002), _handle(few, _size(few) / 2));
+        _prove(makeAddr("taker of few"), _id(1, 900_002), _handle(1, _size(few) / 2));
         uint64 atFew = _used();
-        _prove(makeAddr("taker of many"), _id(many, 900_002), _handle(many, _size(many) / 2));
+        _prove(makeAddr("taker of many"), _id(2, 900_002), _handle(2, _size(many) / 2));
         assertEq(atFew, _used(), "a takeover");
     }
 
     /// An account from the middle of the list is proved from a new wallet:
     /// the one write that removes from a list.
     function test_anAccountLeavingTheMiddleCostsTheSame() public measured {
-        _prove(makeAddr("new home of few"), _id(few, _size(few) / 2), _handle(few, _size(few) / 2));
+        _prove(makeAddr("new home of few"), _id(1, _size(few) / 2), _handle(1, _size(few) / 2));
         uint64 atFew = _used();
-        _prove(makeAddr("new home of many"), _id(many, _size(many) / 2), _handle(many, _size(many) / 2));
+        _prove(makeAddr("new home of many"), _id(2, _size(many) / 2), _handle(2, _size(many) / 2));
         assertEq(atFew, _used(), "a move");
     }
 
@@ -213,24 +217,24 @@ contract IdentityNamesGasTest is Test {
 
     function test_theResolversCostTheSame() public measured {
         _cool();
-        names.resolveHandle(X, _handle(few, 0));
+        names.resolveHandle(X, _handle(1, 0));
         uint64 atFew = _used();
         _cool();
-        names.resolveHandle(X, _handle(many, 0));
+        names.resolveHandle(X, _handle(2, 0));
         assertEq(atFew, _used(), "resolveHandle");
 
         _cool();
-        names.resolveId(X, _id(few, 0));
+        names.resolveId(X, _id(1, 0));
         atFew = _used();
         _cool();
-        names.resolveId(X, _id(many, 0));
+        names.resolveId(X, _id(2, 0));
         assertEq(atFew, _used(), "resolveId");
 
         _cool();
-        names.resolvePair(X, _handle(few, 0), _id(few, 0));
+        names.resolvePair(X, _handle(1, 0), _id(1, 0));
         atFew = _used();
         _cool();
-        names.resolvePair(X, _handle(many, 0), _id(many, 0));
+        names.resolvePair(X, _handle(2, 0), _id(2, 0));
         assertEq(atFew, _used(), "resolvePair");
 
         _cool();
@@ -246,5 +250,65 @@ contract IdentityNamesGasTest is Test {
         _cool();
         names.reverseOf(many, X);
         assertEq(atFew, _used(), "reverseOf");
+    }
+}
+
+/// @notice Listing a binding older than the lists costs the same whether the
+///         wallet already has three accounts listed or nine hundred and
+///         ninety-nine.
+///
+/// @dev The proxy starts on the layout that came before the lists, with four
+///      bindings for one wallet and a thousand for another, and is upgraded
+///      onto the current implementation. Every binding but the last of each
+///      wallet is then listed, and the cost of listing that last one is
+///      compared.
+contract ListingOlderBindingsGasTest is FixedWidthNames {
+    IdentityNames internal names;
+
+    bytes32 internal constant X = HandleVectors.PLATFORM_X;
+
+    address internal owner = makeAddr("owner");
+    address internal few = makeAddr("few");
+    address internal many = makeAddr("many");
+
+    function setUp() public {
+        LegacyIdentityNames legacy = new LegacyIdentityNames();
+        address proxy =
+            address(new ERC1967Proxy(address(legacy), abi.encodeCall(LegacyIdentityNames.initialize, (owner))));
+        vm.prank(owner);
+        LegacyIdentityNames(proxy).setPlatform(X, HandleVectors.rulesFor(X));
+        for (uint64 k = 0; k < FEW; k++) {
+            vm.prank(few);
+            LegacyIdentityNames(proxy).bind(X, _id(1, k), _handle(1, k), k + 1, false);
+        }
+        for (uint64 k = 0; k < MANY; k++) {
+            vm.prank(many);
+            LegacyIdentityNames(proxy).bind(X, _id(2, k), _handle(2, k), k + 1, false);
+        }
+
+        IdentityNames impl = new IdentityNames();
+        vm.prank(owner);
+        UUPSUpgradeable(proxy).upgradeToAndCall(address(impl), "");
+        names = IdentityNames(proxy);
+
+        for (uint256 k = 0; k + 1 < FEW; k++) {
+            names.listAccount(X, _id(1, k), _handle(1, k));
+        }
+        for (uint256 k = 0; k + 1 < MANY; k++) {
+            names.listAccount(X, _id(2, k), _handle(2, k));
+        }
+    }
+
+    function test_listingAnOlderBindingCostsTheSame() public {
+        names.owner();
+        vm.cool(address(names));
+        names.listAccount(X, _id(1, FEW - 1), _handle(1, FEW - 1));
+        uint64 atFew = _used();
+        vm.cool(address(names));
+        names.listAccount(X, _id(2, MANY - 1), _handle(2, MANY - 1));
+        assertEq(atFew, _used(), "listing an older binding");
+
+        assertEq(names.accountCount(few, X), FEW);
+        assertEq(names.accountCount(many, X), MANY);
     }
 }

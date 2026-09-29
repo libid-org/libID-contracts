@@ -429,6 +429,36 @@ contract UpgradeSafetyTest is Test {
         _claimAs(who, nonce);
     }
 
+    /// The four fields the lists added sit at namespace words +9 to +12, after
+    /// `spentDigests` at +8. A field slipped in ahead of them would pass every
+    /// functional test on a fresh deployment and read a live proxy's lists out
+    /// of the wrong words.
+    function test_theListsSitAtTheWordsAfterEveryOlderField() public {
+        _names();
+        vm.prank(OWNER);
+        names.setPlatform(X, HandleVectors.rulesFor(X));
+        _claimAs(alice, 1);
+
+        uint256 root = uint256(NAMES_ROOT);
+        bytes32 idNode = IdentityNodes.idNode(X, "2244994945");
+        bytes32 handleNode = IdentityNodes.handleNode(X, "alice");
+
+        bytes32 list = keccak256(abi.encode(X, keccak256(abi.encode(alice, root + 9))));
+        assertEq(uint256(vm.load(address(names), list)), 1, "nodes: the list holds one account");
+        assertEq(vm.load(address(names), keccak256(abi.encode(list))), idNode, "nodes: and it is this one");
+        assertEq(uint256(vm.load(address(names), keccak256(abi.encode(idNode, root + 10)))), 1, "position");
+        assertEq(
+            vm.load(address(names), keccak256(abi.encode(idNode, root + 11))),
+            abi.decode(abi.encodePacked("2244994945", new bytes(21), hex"14"), (bytes32)),
+            "userIdOf: a short string, its doubled length in the low byte"
+        );
+        assertEq(
+            vm.load(address(names), keccak256(abi.encode(handleNode, root + 12))),
+            abi.decode(abi.encodePacked("alice", new bytes(26), hex"0a"), (bytes32)),
+            "handleOf"
+        );
+    }
+
     /// `Binding` once carried a `version` (uint32 at byte offset 28). Stale bits
     /// in that word are ignored by the current reads, and a fresh write leaves them as-is.
     function test_bindingStaleVersionWordIsIgnored() public {
