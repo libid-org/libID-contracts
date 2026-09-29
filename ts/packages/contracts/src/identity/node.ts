@@ -3,9 +3,9 @@
 /// This mirrors `IdentityNodes.handleNode` and `handleNodeOfHash` in
 /// `solidity/contracts/identity/IdentityNodes.sol`. `IdentityNames` binds a
 /// handle under this node and emits it as `IdentityBound.handleNode`, and
-/// `HandleEscrow` holds value against the same node. A client that pays with
-/// `depositToHandleHash` passes `handleHash` rather than putting the handle
-/// in calldata, and reads balances by `handleNode`.
+/// `HandleEscrow` holds value against the same node. A client pays with
+/// `HandleEscrow.deposit`, which takes `handleHash`, and reads balances by
+/// `handleNode`.
 
 import { encodeAbiParameters, type Hex, keccak256, toHex } from 'viem'
 
@@ -26,8 +26,8 @@ export function handleNode(platform: Hex, normalizedHandle: NormalizedHandle): H
   return handleNodeOfHash(platform, handleHash(normalizedHandle))
 }
 
-/// `keccak256` of a normalized handle: what `HandleEscrow.depositToHandleHash`
-/// takes, and the inner hash of `handleNode`. Takes only a `NormalizedHandle`,
+/// `keccak256` of a normalized handle: what `HandleEscrow.deposit` takes, and
+/// the inner hash of `handleNode`. Takes only a `NormalizedHandle`,
 /// for the reason `handleNode` does.
 export function handleHash(normalizedHandle: NormalizedHandle): Hex {
   return keccak256(toHex(normalizedHandle))
@@ -65,9 +65,9 @@ export function handleNodeOf(platform: string, rawHandle: string): Hex {
   return handleNode(platformId(platform), normalizeFor(platform, rawHandle))
 }
 
-/// The `handleHash` of a handle as a user typed it, for
-/// `depositToHandleHash`, normalized under the platform's rules from the
-/// table as `handleNodeOf` does. Throws as `handleNodeOf` does.
+/// The `handleHash` of a handle as a user typed it, for `HandleEscrow.deposit`:
+/// the off-chain equivalent of `IdentityNames.handleHashOf`, under the rules
+/// in the generated table. Throws as `handleNodeOf` does.
 export function handleHashOf(platform: string, rawHandle: string): Hex {
   return handleHash(normalizeFor(platform, rawHandle))
 }

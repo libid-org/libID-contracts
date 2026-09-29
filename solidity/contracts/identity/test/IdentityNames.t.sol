@@ -366,6 +366,54 @@ contract IdentityNamesTest is Test {
         assertEq(names.nodeOf(X, "ali-ce"), IdentityNodes.handleNode(X, "ali-ce"));
     }
 
+    // ─── The hash of a handle ───────────────────────────────────────
+
+    /// `handleHashOf` is `keccak256` of the handle normalized under the
+    /// platform's rules: the inner hash of the node a proof of it is bound
+    /// under, and the node `nodeOf` answers.
+    function test_handleHashOfIsTheHashOfTheNormalizedHandle() public {
+        bytes32 handleHash = names.handleHashOf(X, "  @Alice ");
+        assertEq(handleHash, keccak256("alice"), "not the hash of the normalized handle");
+        assertEq(IdentityNodes.handleNodeOfHash(X, handleHash), names.nodeOf(X, "  @Alice "));
+
+        _bind(alice, "123", "alice", 100);
+        (address holder,) = names.byHandle(IdentityNodes.handleNodeOfHash(X, handleHash));
+        assertEq(holder, alice, "the proof was bound under another node");
+    }
+
+    function test_handleHashOfRefusesTextTheRulesRefuseWithTheReason() public {
+        vm.expectRevert(abi.encodeWithSelector(IdentityNames.UnusableHandle.selector, HandleNormalizer.Problem.Empty));
+        names.handleHashOf(X, " @ ");
+        vm.expectRevert(abi.encodeWithSelector(IdentityNames.UnusableHandle.selector, HandleNormalizer.Problem.TooLong));
+        names.handleHashOf(X, "a123456789012345");
+        vm.expectRevert(abi.encodeWithSelector(IdentityNames.UnusableHandle.selector, HandleNormalizer.Problem.BadChar));
+        names.handleHashOf(X, "ali-ce");
+        vm.expectRevert(abi.encodeWithSelector(IdentityNames.UnusableHandle.selector, HandleNormalizer.Problem.Shape));
+        names.handleHashOf(GITHUB, "-alice");
+    }
+
+    function test_handleHashOfNeedsAKeyspaceAndNothingMore() public {
+        bytes32 fresh = keccak256("fresh");
+        vm.expectRevert(abi.encodeWithSelector(IIdentityNames.UnknownPlatform.selector, fresh));
+        names.handleHashOf(fresh, "alice");
+
+        vm.prank(owner);
+        names.setPlatform(fresh, HandleVectors.rulesFor(X));
+        assertFalse(names.acceptsClaims(fresh), "the staging is wrong");
+        assertEq(names.handleHashOf(fresh, "Alice"), keccak256("alice"));
+    }
+
+    function test_handleHashOfFollowsSetPlatform() public {
+        assertEq(names.handleHashOf(X, "alice_1"), keccak256("alice_1"));
+
+        vm.prank(owner);
+        names.setPlatform(X, HandleVectors.rulesFor(GITHUB));
+
+        vm.expectRevert(abi.encodeWithSelector(IdentityNames.UnusableHandle.selector, HandleNormalizer.Problem.BadChar));
+        names.handleHashOf(X, "alice_1");
+        assertEq(names.handleHashOf(X, "ali-ce"), keccak256("ali-ce"));
+    }
+
     function test_resolvePairAgreesWhileOneAccountHoldsBoth() public {
         _bind(alice, "123", "alice", 100);
 

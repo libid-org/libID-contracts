@@ -19,6 +19,12 @@ interface IIdentityNames {
     ///      because the account that held it renamed away.
     function byHandle(bytes32 handleNode) external view returns (address owner, uint64 observedAt);
 
+    /// @notice `keccak256` of a handle normalized under the platform's current
+    ///         rules: the `handleHash` `HandleEscrow.deposit` takes.
+    /// @dev Reverts `UnknownPlatform` for a platform with no keyspace, and
+    ///      `IdentityNames.UnusableHandle` for text the rules refuse.
+    function handleHashOf(bytes32 platformId, string calldata handle) external view returns (bytes32 handleHash);
+
     /// @notice The node a handle keys to under the platform's current rules.
     /// @dev Reverts `UnknownPlatform` for a platform with no
     ///      keyspace, and `IdentityNames.UnusableHandle` for text the rules

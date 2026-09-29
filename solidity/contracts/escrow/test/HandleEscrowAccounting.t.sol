@@ -16,8 +16,9 @@ import {BlocklistToken, NoReturnToken} from "./HostileTokens.sol";
 
 /// @notice A naming system whose holders are set directly.
 ///
-/// @dev The escrow reads `byHandle`, `acceptsClaims` and `nodeOf` and nothing
-///      else. The accounting under test depends only on whether `byHandle`
+/// @dev The escrow reads `byHandle` and `acceptsClaims` when it deposits,
+///      and `nodeOf` when `initialize` probes it; this also answers
+///      `handleHashOf` to satisfy the interface. The accounting under test depends only on whether `byHandle`
 ///      names a holder, so the handler flips that directly instead of
 ///      staging identity claims; `HandleEscrow.t.sol` runs the real naming
 ///      system.
@@ -38,6 +39,11 @@ contract SettableNames is IIdentityNames {
     function nodeOf(bytes32 platformId, string calldata handle) external pure returns (bytes32) {
         if (platformId == bytes32(0)) revert UnknownPlatform(platformId);
         return IdentityNodes.handleNode(platformId, handle);
+    }
+
+    function handleHashOf(bytes32 platformId, string calldata handle) external pure returns (bytes32) {
+        if (platformId == bytes32(0)) revert UnknownPlatform(platformId);
+        return keccak256(bytes(handle));
     }
 
     function acceptsClaims(bytes32 platformId) external pure returns (bool) {
@@ -116,14 +122,14 @@ contract EscrowHandler is CommonBase, StdCheats, StdUtils {
         if (token == address(0)) {
             vm.deal(depositor, amount);
             vm.prank(depositor);
-            ESCROW.depositToHandleHash{value: amount}(PLATFORM, handleHash, token, amount, refundTo);
+            ESCROW.deposit{value: amount}(PLATFORM, handleHash, token, amount, refundTo);
         } else {
             _fund(token, depositor, amount);
             if (token == tokens[2]) delivered = amount - (amount * FeeToken(token).FEE_BPS()) / 10_000;
             // The pull is from the depositor, to the holder or to the escrow.
             bool refused = _expectBlocked(token, depositor, holder == address(0) ? address(ESCROW) : holder);
             vm.prank(depositor);
-            ESCROW.depositToHandleHash(PLATFORM, handleHash, token, amount, refundTo);
+            ESCROW.deposit(PLATFORM, handleHash, token, amount, refundTo);
             if (refused) return;
         }
         if (holder == address(0)) modelContribution[node][token][refundTo] += delivered;
@@ -147,7 +153,7 @@ contract EscrowHandler is CommonBase, StdCheats, StdUtils {
 
         vm.expectRevert(abi.encodeWithSelector(HandleEscrow.PayingYourself.selector, holder));
         vm.prank(holder);
-        ESCROW.depositToHandleHash{value: value}(PLATFORM, handleHash, token, amount, holder);
+        ESCROW.deposit{value: value}(PLATFORM, handleHash, token, amount, holder);
         ++selfPayRefusals;
     }
 
@@ -434,7 +440,7 @@ contract HandleEscrowAmountsTest is Test {
         fee.mint(alice, amount);
         vm.startPrank(alice);
         fee.approve(address(escrow), amount);
-        escrow.depositToHandleHash(PLATFORM, HASH, address(fee), amount, alice);
+        escrow.deposit(PLATFORM, HASH, address(fee), amount, alice);
         vm.stopPrank();
 
         assertEq(escrow.escrowed(NODE, address(fee)), arrived);
@@ -458,13 +464,13 @@ contract HandleEscrowAmountsTest is Test {
         if (native) {
             vm.deal(who, amount);
             vm.prank(who);
-            escrow.depositToHandleHash{value: amount}(PLATFORM, HASH, address(0), amount, who);
+            escrow.deposit{value: amount}(PLATFORM, HASH, address(0), amount, who);
             return address(0);
         }
         token.mint(who, amount);
         vm.startPrank(who);
         token.approve(address(escrow), amount);
-        escrow.depositToHandleHash(PLATFORM, HASH, address(token), amount, who);
+        escrow.deposit(PLATFORM, HASH, address(token), amount, who);
         vm.stopPrank();
         return address(token);
     }

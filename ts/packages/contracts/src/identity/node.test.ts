@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 
 import { HandleError, type NormalizedHandle, normalize, RULES_GITHUB, RULES_X } from './handle.js'
 import { handleHash, handleHashOf, handleNode, handleNodeOf, handleNodeOfHash } from './node.js'
+import { HANDLE_VECTORS } from './handleVectors.js'
 import { platformId } from './resolve.js'
 
 /// `test_theNodeDerivationIsPinned` in HandleEscrow.t.sol pins this literal
@@ -61,8 +62,8 @@ describe('handleNodeOf', () => {
 })
 
 describe('handle hash', () => {
-  /// `depositToHandleHash` keys the hash under the platform itself; the node
-  /// it reaches is the one `handleNode` gives for the same handle.
+  /// `deposit` keys the hash under the platform itself; the node it reaches
+  /// is the one `handleNode` gives for the same handle.
   it('keys to the node of the same handle', () => {
     expect(handleHash(normalize(' Alice_1 ', RULES_X))).toBe(keccak256(toHex('alice_1')))
     expect(handleNodeOfHash(platformId('x'), handleHashOf('x', ' @Alice_1 '))).toBe(ALICE_1_ON_X)
@@ -71,5 +72,15 @@ describe('handle hash', () => {
   it('throws as handleNodeOf does', () => {
     expect(() => handleHashOf('google', 'alice')).toThrow(HandleError)
     expect(() => handleHashOf('mastodon', 'alice')).toThrow(/no handle rules/)
+  })
+
+  /// The Solidity suite pins `IdentityNames.handleHashOf` to `keccak256` of
+  /// each accepted row's output over this same table, so the two agree.
+  it('is keccak256 of the normalized output on every accepted vector', () => {
+    const accepted = HANDLE_VECTORS.filter((v) => v.accepted)
+    expect(accepted.length).toBeGreaterThan(0)
+    for (const [i, v] of accepted.entries()) {
+      expect(handleHashOf(v.platform, v.input), `vector ${i}`).toBe(keccak256(toHex(v.output)))
+    }
   })
 })

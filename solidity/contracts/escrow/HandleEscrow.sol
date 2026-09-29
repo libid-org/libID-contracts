@@ -98,20 +98,19 @@ import {IdentityNodes} from "../identity/IdentityNodes.sol";
 ///      platform where a new claim can bind a holder (`acceptsClaims`):
 ///      anywhere else nothing could ever take what it would hold.
 ///
-///      **Two ways in.** `depositToHandle` takes the handle as text, has
-///      the naming system turn it into its node under the platform's current
-///      rules, and is refused for text those rules do not accept.
-///      `depositToHandleHash` takes `keccak256` of the normalized handle and
-///      keys it here with `IdentityNodes.handleNodeOfHash`, so the platform
-///      is part of the node by construction; the hash itself can be
-///      validated against nothing. It exists so a payee whose handle must
-///      not appear in calldata — a private, digest-profile binding — can
-///      still be paid.
+///      **One way in, by hash.** `deposit` takes `keccak256` of the
+///      normalized handle and keys it here with
+///      `IdentityNodes.handleNodeOfHash`, so the platform is part of the node
+///      by construction; the hash itself can be validated against nothing.
+///      The handle's text never has to appear in calldata, so a payee under
+///      a digest profile, whose handle the chain only ever sees hashed, is
+///      paid the same way as any other. A caller holding text asks
+///      `IdentityNames.handleHashOf` for the hash first.
 ///
 ///      **The platform's rules decide where text goes, not who holds a
 ///      node.** Normalization runs once, on the way in, under the rules of
-///      the moment, in the naming system itself (`IdentityNames.nodeOf`), so
-///      the two contracts cannot derive different nodes from one text. A
+///      the moment, in the naming system itself (`IdentityNames.handleHashOf`),
+///      so a caller that asks it cannot derive a different node from one text. A
 ///      later `setPlatform` changes which node the same text reaches for both
 ///      contracts alike; value already held stays on its node and remains
 ///      claimable by whoever `byHandle` names there.
@@ -320,7 +319,7 @@ contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable
     /// in this token: no deposit named it as `refundTo`, it took the value
     /// back already, or a claim took it.
     error NothingToRefund(bytes32 handleNode, address token, address refundTo);
-    /// A deposit must name who may refund it; see `depositToHandleHash`.
+    /// A deposit must name who may refund it; see `deposit`.
     error NoRefundTo();
     /// A payout to the zero address burns it; one to this contract strands it.
     error BadRecipient(address recipient);
@@ -363,51 +362,6 @@ contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable
 
     // ─── Depositing ─────────────────────────────────────────────────
 
-    /// @notice Put `amount` of `token` against a handle, given as text.
-    ///
-    /// @dev The naming system turns the text into the node,
-    ///      `IdentityNames.nodeOf`, normalizing it once under the platform's
-    ///      current rules. Text those rules refuse — a space, a character the
-    ///      platform forbids, a handle past its length — reverts
-    ///      `UnusableHandle` there. That is all the check can do: text the
-    ///      rules accept is not thereby a handle any proof will bind. On
-    ///      Google a proof binds the exact address Google signs, so a spelling
-    ///      the rules accept but no Google account has — a Gmail address with
-    ///      dots added to its local part, or a `+tag` — normalizes to a node
-    ///      of its own that no proof ever binds, and so does a typo that
-    ///      happens to be valid text on any platform. Such a deposit waits on
-    ///      a node nobody will hold, and its `refundTo` takes it back with
-    ///      `refund`. A platform with no keyspace reverts `UnknownPlatform`
-    ///      there. One with a keyspace and
-    ///      no way yet to bind a holder is refused `PlatformAcceptsNoClaims`
-    ///      here, as it is by hash. All of it happens before anything moves.
-    ///
-    ///      The text is in this call's calldata for anybody to read. A payee
-    ///      whose handle must stay out of it is paid with `depositToHandleHash`.
-    ///
-    ///      Otherwise the same as `depositToHandleHash`: see it for pay-through, the
-    ///      accepted race, `refundTo`, and how a fee-on-transfer token is
-    ///      booked.
-    ///
-    /// @param platformId Which platform the handle belongs to.
-    /// @param handle     The handle, as written. Whatever the platform's
-    ///                   normalization folds — case, surrounding spaces, a
-    ///                   leading at-sign where the platform strips one — does
-    ///                   not matter.
-    /// @param token      The ERC-20, or `NATIVE` for the chain's own token.
-    /// @param amount     How much. For `NATIVE` it must equal `msg.value`.
-    /// @param refundTo   Who may take the deposit back if it is held; see
-    ///                   `depositToHandleHash`. Never zero.
-    function depositToHandle(
-        bytes32 platformId,
-        string calldata handle,
-        address token,
-        uint256 amount,
-        address refundTo
-    ) external payable nonReentrant {
-        _deposit(platformId, _s().names.nodeOf(platformId, handle), token, amount, refundTo);
-    }
-
     /// @notice Put `amount` of `token` against a handle, given as the hash
     ///         of its normalized form.
     ///
@@ -424,9 +378,18 @@ contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable
     ///      platform's normalization, never the raw text:
     ///      `keccak256(bytes(normalized))`.
     ///
-    ///      It exists so a payee whose handle must not reach calldata — a
-    ///      private binding under a digest profile, whose handle the chain only
-    ///      ever sees hashed — can still be paid.
+    ///      A caller holding text gets the hash from
+    ///      `IdentityNames.handleHashOf`, which normalizes it under the
+    ///      platform's current rules and reverts `UnusableHandle` for text they
+    ///      refuse. Text the rules accept is not thereby a handle any proof
+    ///      will bind: on Google a proof binds the exact address Google signs,
+    ///      so a spelling the rules accept but no Google account has (dots
+    ///      added to a Gmail local part, a `+tag`) keys a node of its own that
+    ///      no proof binds, and so does a typo that happens to be valid text.
+    ///      Such a deposit waits on a node nobody will hold, and its `refundTo`
+    ///      takes it back with `refund`. Asking `handleHashOf` puts the text
+    ///      in calldata when it is part of a transaction; an off-chain caller
+    ///      normalizes and hashes it locally instead.
     ///
     ///      **A node somebody holds is paid straight through.** The escrow
     ///      exists for the window before a handle is claimed. Once it is
@@ -487,13 +450,11 @@ contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable
     /// @param amount     How much. For `NATIVE` it must equal `msg.value`.
     /// @param refundTo   Who may take the deposit back while it is held: the
     ///                   address its contribution is booked under. Never zero.
-    function depositToHandleHash(
-        bytes32 platformId,
-        bytes32 handleHash,
-        address token,
-        uint256 amount,
-        address refundTo
-    ) external payable nonReentrant {
+    function deposit(bytes32 platformId, bytes32 handleHash, address token, uint256 amount, address refundTo)
+        external
+        payable
+        nonReentrant
+    {
         _deposit(platformId, IdentityNodes.handleNodeOfHash(platformId, handleHash), token, amount, refundTo);
     }
 
@@ -644,9 +605,10 @@ contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable
 
     /// @notice The node a handle keys to under the platform's current rules.
     ///
-    /// @dev `IdentityNames.nodeOf`, asked through this contract: the node
-    ///      `depositToHandle` would fund and a proof of the handle would be
-    ///      bound under, so a client can read a balance or check two spellings
+    /// @dev `IdentityNames.nodeOf`, asked through this contract: the node a
+    ///      `deposit` of the text's `handleHash` funds, which `claim`,
+    ///      `refund`, `escrowed` and `refundable` take, and which a proof of
+    ///      the handle would be bound under, so a client can read a balance or check two spellings
     ///      land together before it sends anything. Reverts as the naming
     ///      system does: `UnusableHandle` for text the platform's rules refuse,
     ///      `UnknownPlatform` for a platform with no keyspace.

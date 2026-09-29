@@ -62,7 +62,7 @@ contract HookedParty is ITransferHooks {
     }
 
     function deposit(uint256 amount) external {
-        ESCROW.depositToHandleHash(PLATFORM, HASH, address(TOKEN), amount, address(this));
+        ESCROW.deposit(PLATFORM, HASH, address(TOKEN), amount, address(this));
     }
 
     function claim() external {
@@ -87,7 +87,7 @@ contract HookedParty is ITransferHooks {
         ++attempts;
         bytes memory call;
         if (reentry == Reentry.Deposit) {
-            call = abi.encodeCall(HandleEscrow.depositToHandleHash, (PLATFORM, HASH, address(TOKEN), 1, address(this)));
+            call = abi.encodeCall(HandleEscrow.deposit, (PLATFORM, HASH, address(TOKEN), 1, address(this)));
         } else if (reentry == Reentry.Claim) {
             call = abi.encodeCall(HandleEscrow.claim, (NODE, address(TOKEN), address(this)));
         } else {
@@ -217,14 +217,14 @@ contract HandleEscrowHostileTokensTest is Test {
         vm.startPrank(depositor);
         token.approve(address(escrow), type(uint256).max);
         vm.expectRevert(HandleEscrow.ZeroAmount.selector);
-        escrow.depositToHandleHash(PLATFORM, HASH, address(token), 10 ether, depositor);
+        escrow.deposit(PLATFORM, HASH, address(token), 10 ether, depositor);
         vm.stopPrank();
         assertEq(token.balanceOf(depositor), 10 ether, "the refused deposit moved tokens");
         assertEq(token.balanceOf(elsewhere), 0);
 
         vm.deal(depositor, 1 ether);
         vm.prank(depositor);
-        escrow.depositToHandleHash{value: 1 ether}(PLATFORM, HASH, address(0), 1 ether, depositor);
+        escrow.deposit{value: 1 ether}(PLATFORM, HASH, address(0), 1 ether, depositor);
         assertEq(address(sweeper).balance, 1 ether, "native value did not reach the holder");
     }
 
@@ -241,7 +241,7 @@ contract HandleEscrowHostileTokensTest is Test {
 
         vm.prank(depositor);
         vm.expectRevert(abi.encodeWithSelector(SafeERC20.SafeERC20FailedOperation.selector, address(token)));
-        escrow.depositToHandleHash(PLATFORM, HASH, address(token), 10 ether, depositor);
+        escrow.deposit(PLATFORM, HASH, address(token), 10 ether, depositor);
         assertEq(escrow.escrowed(NODE, address(token)), 0);
     }
 
@@ -253,7 +253,7 @@ contract HandleEscrowHostileTokensTest is Test {
         token.mint(depositor, 10 ether);
         vm.startPrank(depositor);
         token.approve(address(escrow), type(uint256).max);
-        escrow.depositToHandleHash(PLATFORM, HASH, address(token), 10 ether, depositor);
+        escrow.deposit(PLATFORM, HASH, address(token), 10 ether, depositor);
         vm.stopPrank();
         token.setFailing(true);
 
@@ -283,9 +283,9 @@ contract HandleEscrowHostileTokensTest is Test {
         token.mint(depositor, 30 ether);
         vm.startPrank(depositor);
         token.approve(address(escrow), type(uint256).max);
-        escrow.depositToHandleHash(PLATFORM, HASH, address(token), 10 ether, depositor);
+        escrow.deposit(PLATFORM, HASH, address(token), 10 ether, depositor);
         escrow.refund(NODE, address(token), depositor);
-        escrow.depositToHandleHash(PLATFORM, HASH, address(token), 10 ether, depositor);
+        escrow.deposit(PLATFORM, HASH, address(token), 10 ether, depositor);
         vm.stopPrank();
         assertEq(token.balanceOf(depositor), 20 ether, "the refund did not return the deposit");
 
@@ -295,7 +295,7 @@ contract HandleEscrowHostileTokensTest is Test {
         assertEq(token.balanceOf(holder), 10 ether, "the claim did not pay");
 
         vm.prank(depositor);
-        escrow.depositToHandleHash(PLATFORM, HASH, address(token), 5 ether, depositor);
+        escrow.deposit(PLATFORM, HASH, address(token), 5 ether, depositor);
         assertEq(token.balanceOf(holder), 15 ether, "the pay-through did not pay");
         assertEq(token.balanceOf(address(escrow)), 0);
     }
@@ -311,13 +311,13 @@ contract HandleEscrowHostileTokensTest is Test {
         token.mint(depositor, 20 ether);
         vm.startPrank(depositor);
         token.approve(address(escrow), type(uint256).max);
-        escrow.depositToHandleHash(PLATFORM, HASH, address(token), 10 ether, depositor);
+        escrow.deposit(PLATFORM, HASH, address(token), 10 ether, depositor);
         vm.stopPrank();
         token.setShrinking(true);
 
         vm.prank(depositor);
         vm.expectRevert(HandleEscrow.ZeroAmount.selector);
-        escrow.depositToHandleHash(PLATFORM, HASH, address(token), 1 ether, depositor);
+        escrow.deposit(PLATFORM, HASH, address(token), 1 ether, depositor);
 
         assertEq(escrow.escrowed(NODE, address(token)), 10 ether, "the refused deposit moved the books");
         assertEq(escrow.refundable(NODE, address(token), depositor), 10 ether);
@@ -404,7 +404,7 @@ contract HandleEscrowHostileTokensTest is Test {
 
         vm.prank(depositor);
         vm.expectRevert(abi.encodeWithSelector(BlocklistToken.Blocked.selector, holder));
-        escrow.depositToHandleHash(PLATFORM, HASH, address(token), 10 ether, depositor);
+        escrow.deposit(PLATFORM, HASH, address(token), 10 ether, depositor);
         assertEq(token.balanceOf(depositor), 10 ether);
     }
 
@@ -418,7 +418,7 @@ contract HandleEscrowHostileTokensTest is Test {
 
         vm.startPrank(depositor);
         vm.expectRevert(abi.encodeWithSelector(BlocklistToken.Blocked.selector, address(escrow)));
-        escrow.depositToHandleHash(PLATFORM, HASH, address(token), 1 ether, depositor);
+        escrow.deposit(PLATFORM, HASH, address(token), 1 ether, depositor);
         vm.expectRevert(abi.encodeWithSelector(BlocklistToken.Blocked.selector, address(escrow)));
         escrow.refund(NODE, address(token), depositor);
         vm.stopPrank();
@@ -447,7 +447,7 @@ contract HandleEscrowHostileTokensTest is Test {
         token.mint(depositor, amount);
         vm.startPrank(depositor);
         token.approve(address(escrow), amount);
-        escrow.depositToHandleHash(PLATFORM, HASH, address(token), amount, depositor);
+        escrow.deposit(PLATFORM, HASH, address(token), amount, depositor);
         vm.stopPrank();
     }
 
@@ -456,7 +456,7 @@ contract HandleEscrowHostileTokensTest is Test {
         token.mint(depositor, amount);
         vm.startPrank(depositor);
         token.approve(address(escrow), type(uint256).max);
-        escrow.depositToHandleHash(PLATFORM, HASH, address(token), amount, depositor);
+        escrow.deposit(PLATFORM, HASH, address(token), amount, depositor);
         vm.stopPrank();
         assertEq(escrow.escrowed(NODE, address(token)), amount, "the deposit did not arrive whole");
     }
@@ -466,7 +466,7 @@ contract HandleEscrowHostileTokensTest is Test {
         token.mint(depositor, amount);
         vm.startPrank(depositor);
         token.approve(address(escrow), type(uint256).max);
-        escrow.depositToHandleHash(PLATFORM, HASH, address(token), amount, depositor);
+        escrow.deposit(PLATFORM, HASH, address(token), amount, depositor);
         vm.stopPrank();
     }
 

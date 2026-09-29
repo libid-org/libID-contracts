@@ -126,16 +126,17 @@ normalize(' @Alice_1 ', RULES_X) // 'alice_1'
 ## Deriving a handle node
 
 `IdentityNames.byHandle` and `HandleEscrow`'s reads take a handle node, not
-text; `HandleEscrow.depositToHandleHash` takes the hash of the normalized
-handle. `handleNodeOf` and `handleHashOf` normalize what a user typed under the
-platform's rules and key or hash the result, so a Gmail address can be paid
-without putting it in calldata:
+text; `HandleEscrow.deposit` takes the hash of the normalized handle.
+`handleNodeOf` and `handleHashOf` normalize what a user typed under the
+platform's rules and key or hash the result, so a handle is paid without
+putting it in calldata (`IdentityNames.handleHashOf` is the on-chain
+equivalent):
 
 ```ts
 import { handleHashOf, handleNodeOf } from '@libid/contracts/identity'
 
 handleNodeOf('google', 'Alice@Gmail.com') === handleNodeOf('google', 'alice@gmail.com') // true
-handleHashOf('google', 'Alice@Gmail.com') // the handleHash depositToHandleHash takes
+handleHashOf('google', 'Alice@Gmail.com') // the handleHash HandleEscrow.deposit takes
 ```
 
 `handleNode(platformId, normalized)` and `handleHash(normalized)` are the steps

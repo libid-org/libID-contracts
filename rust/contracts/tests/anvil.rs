@@ -738,14 +738,14 @@ async fn deploys_and_initializes_every_platform_verifier() {
 }
 
 /// (e2) The handle escrow against a real chain: deploy it over the identity
-/// stack, pay a handle nobody has claimed by text and by node, and watch both
-/// land in one slot — the naming system's handle node, computed here from the
-/// normalized handle. Then the depositor takes its value back, which nobody
+/// stack, pay a handle nobody has claimed by its hash, and watch the value
+/// land in the naming system's handle node, computed here from the normalized
+/// handle. Then the depositor takes its value back, which nobody
 /// else can.
 ///
 /// The platform is made usable the way a deployment makes it: a keyspace, and
 /// a real Platform Verifier registered with the Proof Verifier. Nothing here
-/// calls that verifier — the escrow only reads `nodeOf`, `acceptsClaims` and
+/// calls that verifier — the escrow only reads `acceptsClaims` and
 /// `byHandle`, and `acceptsClaims` answers once the Proof Verifier
 /// `verifiesPlatform`.
 ///
@@ -939,33 +939,30 @@ async fn escrows_value_against_an_unclaimed_handle() {
         "Rust and the contract derive different nodes"
     );
 
-    // Paid before anybody holds it: once by text, once by the handle's hash
-    // alone.
+    // The naming system hashes text the way a client does locally.
+    assert_eq!(
+        names
+            .handleHashOf(platform_id, " Alice-1 ".into())
+            .call()
+            .await
+            .unwrap(),
+        handle_hash,
+        "Rust and the contract hash the handle differently"
+    );
+
+    // Paid before anybody holds it, twice, by the handle's hash.
     let amount = U256::from(1_000_000_000_000_000_000u64);
-    escrow
-        .depositToHandle(
-            platform_id,
-            " Alice-1 ".into(),
-            Address::ZERO,
-            amount,
-            deployer,
-        )
-        .value(amount)
-        .send()
-        .await
-        .unwrap()
-        .get_receipt()
-        .await
-        .unwrap();
-    escrow
-        .depositToHandleHash(platform_id, handle_hash, Address::ZERO, amount, deployer)
-        .value(amount)
-        .send()
-        .await
-        .unwrap()
-        .get_receipt()
-        .await
-        .unwrap();
+    for _ in 0..2 {
+        escrow
+            .deposit(platform_id, handle_hash, Address::ZERO, amount, deployer)
+            .value(amount)
+            .send()
+            .await
+            .unwrap()
+            .get_receipt()
+            .await
+            .unwrap();
+    }
     assert_eq!(
         escrow
             .escrowed(computed, Address::ZERO)
@@ -973,7 +970,7 @@ async fn escrows_value_against_an_unclaimed_handle() {
             .await
             .unwrap(),
         amount * U256::from(2),
-        "the text and the hash did not land in one slot"
+        "the deposits did not land in the node the contract keys on"
     );
 
     // Nobody holds the node, so nobody can take it. The AUTHORIZATION

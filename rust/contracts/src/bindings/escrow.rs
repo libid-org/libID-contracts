@@ -9,11 +9,9 @@
 //! The escrow keys on the naming system's handle node,
 //! `keccak256(abi.encode(keccak256("libid.identity.handle-node.v1"), platformId,
 //! keccak256(normalized)))`, the node `IdentityNames` binds and emits as
-//! `IdentityBound.handleNode`. `nodeOf` derives it from text under the
-//! platform's current rules, by asking `IdentityNames.nodeOf`; a client that
-//! must keep a handle out of calldata hashes the normalized handle itself,
-//! `keccak256(normalized)`, and pays with `depositToHandleHash`, which keys
-//! that hash under the platform it names.
+//! `IdentityBound.handleNode`. `deposit` takes the inner hash,
+//! `keccak256(normalized)`: from `IdentityNames.handleHashOf`, or computed
+//! locally from the normalized handle.
 
 /// Bindings for `escrow/HandleEscrow.sol`.
 #[allow(clippy::too_many_arguments, unused_attributes)]
@@ -25,32 +23,18 @@ mod escrow_inner {
         interface HandleEscrow {
             function initialize(address owner_, address names_) external;
 
-            /// Put `amount` of `token` against a handle, given as text.
-            /// `address(0)` is the chain's own token, and then `amount` must
-            /// equal the value sent. The text is normalized under the
-            /// platform's current rules; text no rules accept is refused.
+            /// Put `amount` of `token` against `keccak256` of the normalized
+            /// handle. `address(0)` is the chain's own token, and then `amount`
+            /// must equal the value sent. Nothing about the hash can be
+            /// checked: a wrong hash funds a slot nothing can claim, and only
+            /// its `refundTo`'s `refund` recovers it.
             ///
-            /// A handle somebody holds is paid STRAIGHT THROUGH to its holder —
-            /// the escrow is for the window before a handle is claimed. Only an
-            /// unheld handle escrows, only on a platform that accepts claims,
-            /// and then `refundTo` — never zero — can `refund` it until the
-            /// holder claims it. Pass the address that should get it back, not
-            /// a router's: a contribution booked to a contract anybody can
-            /// drive is anybody's refund. Watch `Deposited` against
-            /// `Forwarded` to tell the two apart.
-            function depositToHandle(
-                bytes32 platformId,
-                string calldata handle,
-                address token,
-                uint256 amount,
-                address refundTo
-            ) external payable;
-
-            /// The same, against `keccak256` of the normalized handle. The
-            /// escrow keys the hash under `platformId` itself. Nothing about
-            /// the hash can be checked: a wrong hash funds a slot nothing can
-            /// claim, and only its `refundTo`'s `refund` recovers it.
-            function depositToHandleHash(
+            /// A handle somebody holds is paid STRAIGHT THROUGH to its holder.
+            /// Only an unheld handle escrows, only on a platform that accepts
+            /// claims, and then `refundTo` (never zero) can `refund` it until
+            /// the holder claims it. `Deposited` and `Forwarded` tell the two
+            /// apart.
+            function deposit(
                 bytes32 platformId,
                 bytes32 handleHash,
                 address token,
@@ -75,8 +59,7 @@ mod escrow_inner {
             function refundable(bytes32 handleNode, address token, address refundTo) external view returns (uint256);
             /// The node a handle keys to under the platform's current rules:
             /// `IdentityNames.nodeOf`, asked through the escrow. Reverts with
-            /// the naming system's `UnknownPlatform` or `UnusableHandle`,
-            /// which `depositToHandle` bubbles up too.
+            /// the naming system's `UnknownPlatform` or `UnusableHandle`.
             function nodeOf(bytes32 platformId, string calldata handle) external view returns (bytes32);
             function names() external view returns (address);
             function NATIVE() external view returns (address);
