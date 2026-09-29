@@ -650,13 +650,8 @@ abstract contract TlsNotaryVerifierBase is IPlatformVerifier, PlatformVerifierBa
     {
         // The line lies inside `data`, so every read below does.
         assert(from <= to && to <= data.length);
-        uint256 colon = from;
-        assembly ("memory-safe") {
-            let p := add(data, 0x20)
-            for {} lt(colon, to) { colon := add(colon, 1) } {
-                if eq(byte(0, mload(add(p, colon))), 0x3a) { break }
-            }
-        }
+        uint256 colon = CeremonyFields.indexOfByte(data, from, ":");
+        if (colon > to) colon = to;
         if (colon == to) return (false, name, 0, 0);
         uint256 nameEnd = colon;
         while (nameEnd > from && (data[nameEnd - 1] == " " || data[nameEnd - 1] == "\t")) {
@@ -713,20 +708,15 @@ abstract contract TlsNotaryVerifierBase is IPlatformVerifier, PlatformVerifierBa
     /// @dev The offset of the CRLF that ends the line beginning at `from`, or
     ///      the end of `data` for the last line -- the head is sliced at the
     ///      blank line, so its final header carries no CRLF of its own.
-    function _lineEnd(bytes memory data, uint256 from) private pure returns (uint256 end) {
-        // Reads `data[i]` and `data[i + 1]` only while `i + 1` is below the
-        // length.
-        assembly ("memory-safe") {
-            let p := add(data, 0x20)
-            let len := mload(data)
-            end := len
-            for { let i := from } lt(add(i, 1), len) { i := add(i, 1) } {
-                if and(eq(byte(0, mload(add(p, i))), 0x0d), eq(byte(0, mload(add(p, add(i, 1)))), 0x0a)) {
-                    end := i
-                    break
-                }
-            }
+    function _lineEnd(bytes memory data, uint256 from) private pure returns (uint256) {
+        for (
+            uint256 cr = CeremonyFields.indexOfByte(data, from, 0x0d);
+            cr + 1 < data.length;
+            cr = CeremonyFields.indexOfByte(data, cr + 1, 0x0d)
+        ) {
+            if (data[cr + 1] == 0x0a) return cr;
         }
+        return data.length;
     }
 
     function _countLines(bytes memory block_) private pure returns (uint256 count) {
@@ -778,16 +768,21 @@ abstract contract TlsNotaryVerifierBase is IPlatformVerifier, PlatformVerifierBa
         // it removes any question of which run of bytes the body is.
         uint256 at = type(uint256).max;
         uint256 seen;
-        // Reads the four bytes at `i` only while `i + 4` is within the
-        // length; `shr(224, ...)` keeps those four and nothing past them.
-        assembly ("memory-safe") {
-            let p := add(whole, 0x20)
-            let len := mload(whole)
-            for { let i := 0 } iszero(gt(add(i, 4), len)) { i := add(i, 1) } {
-                if eq(shr(224, mload(add(p, i))), 0x0d0a0d0a) {
-                    seen := add(seen, 1)
-                    if eq(at, not(0)) { at := i }
-                }
+        // Every boundary begins with a CR, so only those offsets are tried.
+        for (
+            uint256 cr = CeremonyFields.indexOfByte(whole, 0, 0x0d);
+            cr + 4 <= whole.length;
+            cr = CeremonyFields.indexOfByte(whole, cr + 1, 0x0d)
+        ) {
+            uint256 four;
+            // The four bytes at `cr`, inside `whole` by the loop condition;
+            // the shift drops what the word holds past them.
+            assembly ("memory-safe") {
+                four := shr(224, mload(add(add(whole, 0x20), cr)))
+            }
+            if (four == 0x0d0a0d0a) {
+                ++seen;
+                if (at == type(uint256).max) at = cr;
             }
         }
         if (seen != 1) revert NoHeadBoundary(seen);

@@ -101,7 +101,7 @@ library CeremonyFields {
         if (found != Found.One) return (found, "");
 
         at += needle.length;
-        uint256 end = _indexOfByte(data, at, '"');
+        uint256 end = indexOfByte(data, at, '"');
         // A value with no closing quote inside THIS range has no established
         // extent, and splicing the rest from a neighbouring range is exactly
         // what these reads must not do.
@@ -276,18 +276,46 @@ library CeremonyFields {
         }
     }
 
-    /// @dev The first offset at or after `from` holding `b`, or
-    ///      `data.length`.
-    function _indexOfByte(bytes memory data, uint256 from, bytes1 b) private pure returns (uint256 at) {
-        // Reads `data[i]` only below `data.length`.
+    /// @notice The first offset at or after `from` holding byte `b`, or
+    ///         `data.length` when none does.
+    ///
+    /// @dev Thirty-two bytes a step. XOR with `b` in every byte zeroes the
+    ///      bytes equal to it, and a byte `x` is zero exactly when neither
+    ///      `(x & 0x7f) + 0x7f` nor `x` sets its top bit -- the sum stays
+    ///      below 0x100, so nothing carries into the next byte. `hits` holds
+    ///      0x80 in each such byte, and the first of them, the word's highest
+    ///      set bit, is found by halving. A word may read past `data.length`;
+    ///      a hit there is not an answer, and no later word is read.
+    function indexOfByte(bytes memory data, uint256 from, bytes1 b) internal pure returns (uint256 at) {
         assembly ("memory-safe") {
+            let low7 := 0x7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f
+            let pattern := mul(byte(0, b), 0x0101010101010101010101010101010101010101010101010101010101010101)
             let p := add(data, 0x20)
             let len := mload(data)
-            let want := byte(0, b)
             at := len
-            for { let i := from } lt(i, len) { i := add(i, 1) } {
-                if eq(byte(0, mload(add(p, i))), want) {
-                    at := i
+            for { let i := from } lt(i, len) { i := add(i, 32) } {
+                let x := xor(mload(add(p, i)), pattern)
+                let hits := not(or(or(add(and(x, low7), low7), x), low7))
+                if hits {
+                    let j := 0
+                    if iszero(shr(128, hits)) {
+                        j := 16
+                        hits := shl(128, hits)
+                    }
+                    if iszero(shr(192, hits)) {
+                        j := add(j, 8)
+                        hits := shl(64, hits)
+                    }
+                    if iszero(shr(224, hits)) {
+                        j := add(j, 4)
+                        hits := shl(32, hits)
+                    }
+                    if iszero(shr(240, hits)) {
+                        j := add(j, 2)
+                        hits := shl(16, hits)
+                    }
+                    if iszero(shr(248, hits)) { j := add(j, 1) }
+                    if lt(add(i, j), len) { at := add(i, j) }
                     break
                 }
             }
@@ -382,7 +410,7 @@ library CeremonyFields {
     /// @return form Where each listed field's value lies, for `valueOf`.
     function requireExactForm(bytes memory body, bytes memory names) internal pure returns (Form memory form) {
         uint256 fields = 1;
-        for (uint256 i = _indexOfByte(names, 0, "&"); i < names.length; i = _indexOfByte(names, i + 1, "&")) {
+        for (uint256 i = indexOfByte(names, 0, "&"); i < names.length; i = indexOfByte(names, i + 1, "&")) {
             ++fields;
         }
         form.body = body;
@@ -393,7 +421,7 @@ library CeremonyFields {
         uint256 at;
         uint256 from;
         for (uint256 field = 0;; ++field) {
-            uint256 to = _indexOfByte(names, from, "&");
+            uint256 to = indexOfByte(names, from, "&");
 
             // The pair begins with the literal name and `=`, or it is not the
             // pair expected here: a reordering, a duplicate, another spelling.
@@ -443,6 +471,12 @@ library CeremonyFields {
             let len := mload(body)
             for {} lt(at, len) {} {
                 let c := byte(0, mload(add(p, at)))
+                // The common case first: none of `&`, `%` and `+` passes
+                // through, so the order of these tests changes no answer.
+                if and(shr(c, safe), 1) {
+                    at := add(at, 1)
+                    continue
+                }
                 if eq(c, 0x26) { break }
                 if eq(c, 0x25) {
                     if iszero(lt(add(at, 2), len)) {
@@ -463,7 +497,7 @@ library CeremonyFields {
                     at := add(at, 3)
                     continue
                 }
-                if iszero(or(eq(c, 0x2b), and(shr(c, safe), 1))) {
+                if iszero(eq(c, 0x2b)) {
                     malformed := 1
                     break
                 }

@@ -1012,6 +1012,52 @@ contract TranscriptEquivalenceTest is Test {
         );
     }
 
+    // ─── The byte search ────────────────────────────────────────────
+
+    /// @dev `indexOfByte` against the loop it replaces, over every
+    ///      alignment: the answer is the first offset at or after `from`
+    ///      holding `b`, or the length.
+    /// forge-config: default.fuzz.runs = 5000
+    function testFuzz_indexOfByteMatchesAByteLoop(uint256 seed, bytes memory data, uint256 from) public pure {
+        Gen.Rng memory r = Gen.Rng(seed);
+        if (r.chance(50)) data = r.soup("ab\r\n\x00\xff", 100);
+        from = bound(from, 0, data.length + 40);
+        bytes1 b = data.length != 0 && r.chance(70) ? data[r.pick(data.length)] : bytes1(uint8(r.pick(256)));
+        uint256 expected = data.length;
+        for (uint256 i = from; i < data.length; ++i) {
+            if (data[i] == b) {
+                expected = i;
+                break;
+            }
+        }
+        assertEq(CeremonyFields.indexOfByte(data, from, b), expected);
+    }
+
+    /// @dev And a byte equal to `b` just past the end, in the same word the
+    ///      search reads, is not an answer.
+    /// forge-config: default.fuzz.runs = 5000
+    function testFuzz_indexOfByteIgnoresBytesPastTheEnd(uint256 seed, uint256 length, uint256 from) public pure {
+        Gen.Rng memory r = Gen.Rng(seed);
+        length = bound(length, 0, 70);
+        from = bound(from, 0, length + 1);
+        bytes1 b = bytes1(uint8(r.pick(256)));
+        bytes memory data = new bytes(length + 40);
+        for (uint256 i = 0; i < data.length; ++i) {
+            data[i] = i < length && r.chance(90) ? bytes1(uint8(b) ^ 0x01) : b;
+        }
+        assembly ("memory-safe") {
+            mstore(data, length)
+        }
+        uint256 expected = length;
+        for (uint256 i = from; i < length; ++i) {
+            if (data[i] == b) {
+                expected = i;
+                break;
+            }
+        }
+        assertEq(CeremonyFields.indexOfByte(data, from, b), expected);
+    }
+
     // ─── The real sessions ──────────────────────────────────────────
 
     /// @dev The two ceremonies the real-session suites verify, stage by

@@ -318,39 +318,30 @@ library CeremonyAttestation {
     ///      One pass. A fold is reported before any bare byte, wherever each
     ///      lies, so the first bare byte waits for the end of the pass.
     function requireCrlfLineEndings(bytes memory revealed) internal pure {
-        uint256 fold = type(uint256).max;
         uint256 bare = type(uint256).max;
         bool bareLineFeed;
-        // Reads `revealed[i]` for `i` below the length, and the bytes either
-        // side of it only once their offsets are known to be inside too.
-        assembly ("memory-safe") {
-            let p := add(revealed, 0x20)
-            let len := mload(revealed)
-            for { let i := 0 } lt(i, len) { i := add(i, 1) } {
-                let c := byte(0, mload(add(p, i)))
-                if eq(c, 0x0d) {
-                    let crlf := 0
-                    if lt(add(i, 1), len) { crlf := eq(byte(0, mload(add(p, add(i, 1)))), 0x0a) }
-                    if and(crlf, lt(add(i, 2), len)) {
-                        let d := byte(0, mload(add(p, add(i, 2))))
-                        if or(eq(d, 0x20), eq(d, 0x09)) {
-                            fold := i
-                            break
-                        }
+        // Only CR and LF bytes decide anything, so the pass visits those
+        // alone, in offset order: `cr` and `lf` are the next of each.
+        uint256 cr = CeremonyFields.indexOfByte(revealed, 0, 0x0d);
+        uint256 lf = CeremonyFields.indexOfByte(revealed, 0, 0x0a);
+        while (cr < revealed.length || lf < revealed.length) {
+            if (cr < lf) {
+                if (cr + 1 < revealed.length && revealed[cr + 1] == 0x0a) {
+                    if (cr + 2 < revealed.length && (revealed[cr + 2] == 0x20 || revealed[cr + 2] == 0x09)) {
+                        revert ObsoleteLineFold(cr);
                     }
-                    if and(iszero(crlf), eq(bare, not(0))) { bare := i }
+                } else if (bare == type(uint256).max) {
+                    bare = cr;
                 }
-                if eq(c, 0x0a) {
-                    let afterCr := 0
-                    if i { afterCr := eq(byte(0, mload(add(p, sub(i, 1)))), 0x0d) }
-                    if and(iszero(afterCr), eq(bare, not(0))) {
-                        bare := i
-                        bareLineFeed := 1
-                    }
+                cr = CeremonyFields.indexOfByte(revealed, cr + 1, 0x0d);
+            } else {
+                if ((lf == 0 || revealed[lf - 1] != 0x0d) && bare == type(uint256).max) {
+                    bare = lf;
+                    bareLineFeed = true;
                 }
+                lf = CeremonyFields.indexOfByte(revealed, lf + 1, 0x0a);
             }
         }
-        if (fold != type(uint256).max) revert ObsoleteLineFold(fold);
         if (bare == type(uint256).max) return;
         if (bareLineFeed) revert BareLineFeed(bare);
         revert BareCarriageReturn(bare);
