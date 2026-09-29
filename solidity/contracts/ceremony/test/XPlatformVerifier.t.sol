@@ -1466,7 +1466,7 @@ contract XPlatformVerifierTest is Test {
     }
 
     /// @dev A required header has to be there. Without the media type nothing
-    ///      says X read the bytes `formField` reads as a form at all; without
+    ///      says X read the bytes the verifier reads as a form at all; without
     ///      `host` nothing says which server the prover meant.
     function test_rejectsATokenRequestMissingARequiredHeader() public {
         TlsNotaryVerifierBase.TlsNotaryProof memory s =
