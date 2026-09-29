@@ -87,16 +87,17 @@ import {IdentityNodes} from "./IdentityNodes.sol";
 ///      predicted ahead of its deployment.
 ///
 ///      **A wallet's accounts can be walked, and the walk is paid for by the
-///      walker.** Every account a wallet proved sits in that wallet's list for
-///      the platform, with the account id and the handle it holds, so a
-///      contract can enumerate what a wallet is without an indexer. The list
-///      is kept by the account rather than by the handle: a rename rewrites
-///      one string, a handle passing to somebody else changes nothing in it,
-///      and only an account proved from a new wallet moves between two lists.
-///      Each of those costs the same whether the list holds four accounts or
-///      four thousand. What grows with the list is reading it, which is why it
-///      is read by page and why a contract should never walk a list it did not
-///      choose the size of.
+///      walker.** Every account proved since the lists exist sits in its
+///      wallet's list for the platform, with the account id and the handle it
+///      holds, so a contract can enumerate what a wallet is without an
+///      indexer. A binding older than the lists enters through `listAccount`
+///      or its own next proof. The list is kept by the account rather than by
+///      the handle: a rename moves one pointer, a handle passing to somebody
+///      else changes nothing in it, and only an account proved from a new
+///      wallet moves between two lists. Each of those costs the same whether
+///      the list holds four accounts or four thousand. What grows with the
+///      list is reading it, which is why it is read by page and why a
+///      contract should never walk a list it did not choose the size of.
 contract IdentityNames is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, ReentrancyGuardUpgradeable {
     using AccountList for AccountList.Data;
 
@@ -118,10 +119,13 @@ contract IdentityNames is Initializable, UUPSUpgradeable, Ownable2StepUpgradeabl
     /// @notice One account a wallet proved, as its list reports it.
     ///
     /// @dev `handle` is the one the account proved most recently, and
-    ///      `handleCurrent` says whether that handle still resolves to this
-    ///      account. It stops doing so when another account proves the same
-    ///      handle: the string stays here as the last thing this account was
-    ///      known as, and the flag says not to route by it.
+    ///      `handleCurrent` says whether the handle node still points back at
+    ///      this account, which is what `claim` writes and what any other
+    ///      account proving the same handle overwrites. Once it is false the
+    ///      string stays as the last thing this account was known as, and the
+    ///      flag says not to route by it. The flag reads the nodes, so a
+    ///      change to the platform's rules, which re-keys handles, is seen by
+    ///      `resolveHandle` before it is seen here.
     struct Account {
         string userId;
         string handle;
@@ -908,8 +912,9 @@ contract IdentityNames is Initializable, UUPSUpgradeable, Ownable2StepUpgradeabl
 
     /// @notice A page of the accounts a wallet holds on a platform.
     ///
-    /// @dev The page is the positions `[from, from + limit)`, clipped to the
-    ///      list; a `from` past the end answers an empty page. Reading costs
+    /// @dev The page is the indices `[from, from + limit)`, counted from
+    ///      zero and clipped to the list. A `from` past the end answers an
+    ///      empty page. Reading costs
     ///      about five storage loads per account returned, so the whole of a
     ///      list is only for a caller that chose the list, and a contract
     ///      reading a wallet it did not choose keeps `limit` small.

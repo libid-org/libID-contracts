@@ -9,8 +9,9 @@ pragma solidity ^0.8.20;
 ///         last node into the gap rather than shifting what follows.
 ///
 /// @dev A node sits in at most one list at a time, so its position is keyed by
-///      the node alone. Positions are one-based; zero means the node is in no
-///      list, which is what `contains` reads.
+///      the node alone. Positions are one-based, so that zero means the node
+///      is in no list, which is what `contains` reads. A page is addressed by
+///      index, counted from zero, like the array it is cut from.
 ///
 ///      Order is arbitrary. A removal changes it, and nothing here or above
 ///      reads it: a page is a slice of the current arrangement, not a history.
@@ -29,8 +30,10 @@ library AccountList {
         self.position[node] = list.length;
     }
 
-    /// @dev Removes a node from the list that holds it, by moving the last
-    ///      node into its place.
+    /// @dev Removes a node by moving the last node into its place. The list
+    ///      named must be the one holding the node: the position says where
+    ///      in a list the node sits, not which list, and a caller naming the
+    ///      wrong one would overwrite a stranger's entry.
     function remove(Data storage self, address wallet, bytes32 platformId, bytes32 node) internal {
         bytes32[] storage list = self.nodes[wallet][platformId];
         uint256 index = self.position[node] - 1;
@@ -52,7 +55,7 @@ library AccountList {
         return self.nodes[wallet][platformId].length;
     }
 
-    /// @dev The nodes at positions `[from, from + limit)`, clipped to the list.
+    /// @dev The nodes at indices `[from, from + limit)`, clipped to the list.
     ///      A `from` past the end answers an empty page rather than reverting,
     ///      so a reader paging by a count it read a moment ago is not thrown by
     ///      a removal in between.
