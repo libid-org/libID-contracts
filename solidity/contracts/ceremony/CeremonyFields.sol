@@ -456,55 +456,111 @@ library CeremonyFields {
     ///      one token at a time -- a pass-through byte, a `+`, or a `%XX`
     ///      escape in uppercase of a byte the serializer escapes -- and where
     ///      it ends; or the offset of the first token that is none of those.
+    ///      A run of pass-through bytes is crossed a word at a time.
     function _formValue(bytes memory body, uint256 at) private pure returns (uint256, bool malformed) {
-        uint256 safe = SERIALIZER_SAFE;
-        // Reads `body[at]` only below `body.length`, and an escape's two
-        // digits only once `at + 2` is below it.
-        assembly ("memory-safe") {
-            // An uppercase hex digit's value, or 16 for any other byte.
-            function hexDigit(c) -> v {
-                v := 16
-                if and(gt(c, 0x2f), lt(c, 0x3a)) { v := sub(c, 0x30) }
-                if and(gt(c, 0x40), lt(c, 0x47)) { v := sub(c, 0x37) }
+        while (at < body.length) {
+            uint256 escaped = serializerUnsafeBytes(_word(body, at));
+            if (at + 32 > body.length) escaped &= _leading(body.length - at);
+            if (escaped == 0) {
+                at = at + 32 < body.length ? at + 32 : body.length;
+                continue;
             }
-            let p := add(body, 0x20)
-            let len := mload(body)
-            for {} lt(at, len) {} {
-                let c := byte(0, mload(add(p, at)))
-                // The common case first: none of `&`, `%` and `+` passes
-                // through, so the order of these tests changes no answer.
-                if and(shr(c, safe), 1) {
-                    at := add(at, 1)
-                    continue
-                }
-                if eq(c, 0x26) { break }
-                if eq(c, 0x25) {
-                    if iszero(lt(add(at, 2), len)) {
-                        malformed := 1
-                        break
-                    }
-                    let hi := hexDigit(byte(0, mload(add(p, add(at, 1)))))
-                    let lo := hexDigit(byte(0, mload(add(p, add(at, 2)))))
-                    if or(gt(hi, 15), gt(lo, 15)) {
-                        malformed := 1
-                        break
-                    }
-                    let decoded := or(shl(4, hi), lo)
-                    if or(eq(decoded, 0x20), and(shr(decoded, safe), 1)) {
-                        malformed := 1
-                        break
-                    }
-                    at := add(at, 3)
-                    continue
-                }
-                if iszero(eq(c, 0x2b)) {
-                    malformed := 1
-                    break
-                }
-                at := add(at, 1)
+            at += _firstMarked(escaped);
+            bytes1 c = body[at];
+            if (c == "&") break;
+            if (c == "+") {
+                ++at;
+                continue;
             }
+            if (c != "%" || at + 2 >= body.length) return (at, true);
+            (bool hiOk, uint8 hi) = _hexDigit(body[at + 1]);
+            (bool loOk, uint8 lo) = _hexDigit(body[at + 2]);
+            if (!hiOk || !loOk) return (at, true);
+            uint8 decoded = (hi << 4) | lo;
+            if (decoded == 0x20 || (SERIALIZER_SAFE >> decoded) & 1 == 1) return (at, true);
+            at += 3;
         }
-        return (at, malformed);
+        return (at, false);
+    }
+
+    /// @dev The value of an UPPERCASE hex digit, and whether `c` is one.
+    function _hexDigit(bytes1 c) private pure returns (bool, uint8) {
+        if (c >= "0" && c <= "9") return (true, uint8(c) - 0x30);
+        if (c >= "A" && c <= "F") return (true, uint8(c) - 0x37);
+        return (false, 0);
+    }
+
+    /// @notice 0x80 in every byte of `word` outside the serializer's
+    ///         pass-through set `[A-Za-z0-9*._-]`, and 0 in every byte in it.
+    ///
+    /// @dev The set as ranges, each tested in all 32 bytes at once. For a byte
+    ///      `x` below 0x80, with `t = x & 0x7f`, `t + (0x7f - m)` sets the top
+    ///      bit exactly when `x > m`, and `(0x7f + n) - t` exactly when
+    ///      `x < n`; neither leaves the byte, so no byte disturbs its
+    ///      neighbour, and `~x` rules out a byte at or above 0x80. One byte
+    ///      value is a zero after XOR, marked as `indexOfByte` marks one.
+    function serializerUnsafeBytes(uint256 word) internal pure returns (uint256 escaped) {
+        assembly ("memory-safe") {
+            // Bytes `x` with `m < x < n`, for `m < n <= 0x80`.
+            function between(w, m, n) -> f {
+                let ones := 0x0101010101010101010101010101010101010101010101010101010101010101
+                let t := and(w, mul(ones, 0x7f))
+                let above := add(t, mul(ones, sub(0x7f, m)))
+                let below := sub(mul(ones, add(0x7f, n)), t)
+                f := and(and(above, below), and(not(w), mul(ones, 0x80)))
+            }
+            // Bytes equal to `v`.
+            function equal(w, v) -> f {
+                let ones := 0x0101010101010101010101010101010101010101010101010101010101010101
+                let low7 := mul(ones, 0x7f)
+                let x := xor(w, mul(ones, v))
+                f := not(or(or(add(and(x, low7), low7), x), low7))
+            }
+            let digits := between(word, 0x2f, 0x3a)
+            let letters := or(between(word, 0x40, 0x5b), between(word, 0x60, 0x7b))
+            let marks := or(or(between(word, 0x2c, 0x2f), equal(word, 0x2a)), equal(word, 0x5f))
+            escaped := and(
+                not(or(or(digits, letters), marks)),
+                0x8080808080808080808080808080808080808080808080808080808080808080
+            )
+        }
+    }
+
+    /// @dev The 32 bytes of `data` from `at`. Only the ones below
+    ///      `data.length` are the data's; a caller masks the rest.
+    function _word(bytes memory data, uint256 at) private pure returns (uint256 w) {
+        assembly ("memory-safe") {
+            w := mload(add(add(data, 0x20), at))
+        }
+    }
+
+    /// @dev A mask of the first `count` bytes of a word, `count` below 32.
+    function _leading(uint256 count) private pure returns (uint256) {
+        return ~(type(uint256).max >> (count * 8));
+    }
+
+    /// @dev The index of the first byte of `marked` with its top bit set,
+    ///      reading from the most significant; `marked` is not zero.
+    function _firstMarked(uint256 marked) private pure returns (uint256 j) {
+        assembly ("memory-safe") {
+            if iszero(shr(128, marked)) {
+                j := 16
+                marked := shl(128, marked)
+            }
+            if iszero(shr(192, marked)) {
+                j := add(j, 8)
+                marked := shl(64, marked)
+            }
+            if iszero(shr(224, marked)) {
+                j := add(j, 4)
+                marked := shl(32, marked)
+            }
+            if iszero(shr(240, marked)) {
+                j := add(j, 2)
+                marked := shl(16, marked)
+            }
+            if iszero(shr(248, marked)) { j := add(j, 1) }
+        }
     }
 
     /// @dev `data[from:to]`, copied.
@@ -534,21 +590,14 @@ library CeremonyFields {
     ///      outside it are the SERIALIZATION rather than the identifier.
     ///      Returning those would hand a Consumer `my%2Bapp` where the client is
     ///      `my+app`.
-    function isSerializerSafe(bytes memory value) internal pure returns (bool isSafe) {
+    function isSerializerSafe(bytes memory value) internal pure returns (bool) {
         if (value.length == 0) return false;
-        uint256 safe = SERIALIZER_SAFE;
-        // Reads `value[i]` only below `value.length`.
-        assembly ("memory-safe") {
-            isSafe := 1
-            let p := add(value, 0x20)
-            let len := mload(value)
-            for { let i := 0 } lt(i, len) { i := add(i, 1) } {
-                if iszero(and(shr(byte(0, mload(add(p, i))), safe), 1)) {
-                    isSafe := 0
-                    break
-                }
-            }
+        for (uint256 i = 0; i < value.length; i += 32) {
+            uint256 escaped = serializerUnsafeBytes(_word(value, i));
+            if (i + 32 > value.length) escaped &= _leading(value.length - i);
+            if (escaped != 0) return false;
         }
+        return true;
     }
 
     function _matchesAt(bytes memory data, bytes memory needle, uint256 at) private pure returns (bool) {

@@ -1058,6 +1058,42 @@ contract TranscriptEquivalenceTest is Test {
         assertEq(CeremonyFields.indexOfByte(data, from, b), expected);
     }
 
+    // ─── The form alphabet, a word at a time ────────────────────────
+
+    function _passesThrough(uint256 b) private pure returns (bool) {
+        return (b >= 0x30 && b <= 0x39) || (b >= 0x41 && b <= 0x5a) || (b >= 0x61 && b <= 0x7a) || b == 0x2a
+            || b == 0x2d || b == 0x2e || b == 0x5f;
+    }
+
+    /// @dev What `serializerUnsafeBytes` should mark in `word`: 0x80 in
+    ///      each byte outside the set, byte by byte.
+    function _escapedBytes(uint256 word) private pure returns (uint256 marked) {
+        for (uint256 k = 0; k < 32; ++k) {
+            if (!_passesThrough(uint8(bytes32(word)[k]))) marked |= uint256(0x80) << (8 * (31 - k));
+        }
+    }
+
+    /// @dev Every byte value in every position, beside neighbours in the set
+    ///      and outside it: no byte's answer leaks into the next.
+    function test_serializerUnsafeBytesMarksExactlyTheBytesOutsideTheSet() public pure {
+        uint8[4] memory fillers = [0x61, 0x3b, 0x00, 0xff];
+        for (uint256 f = 0; f < fillers.length; ++f) {
+            uint256 filler = uint256(fillers[f]) * (type(uint256).max / 0xff);
+            for (uint256 v = 0; v < 256; ++v) {
+                for (uint256 k = 0; k < 32; ++k) {
+                    uint256 shift = 8 * (31 - k);
+                    uint256 word = (filler & ~(uint256(0xff) << shift)) | (v << shift);
+                    assertEq(CeremonyFields.serializerUnsafeBytes(word), _escapedBytes(word));
+                }
+            }
+        }
+    }
+
+    /// forge-config: default.fuzz.runs = 5000
+    function testFuzz_serializerUnsafeBytesMatchesAByteTest(uint256 word) public pure {
+        assertEq(CeremonyFields.serializerUnsafeBytes(word), _escapedBytes(word));
+    }
+
     // ─── The real sessions ──────────────────────────────────────────
 
     /// @dev The two ceremonies the real-session suites verify, stage by
