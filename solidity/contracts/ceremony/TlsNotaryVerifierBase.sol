@@ -590,8 +590,7 @@ abstract contract TlsNotaryVerifierBase is IPlatformVerifier, PlatformVerifierBa
     {
         // The line lies inside `data`, so every read below does.
         assert(from <= to && to <= data.length);
-        uint256 colon = CeremonyFields.indexOfByte(data, from, ":");
-        if (colon > to) colon = to;
+        uint256 colon = CeremonyFields.indexOfByte(data, from, to, ":");
         if (colon == to) return (false, name, 0, 0);
         uint256 nameEnd = _trimEnd(data, from, colon);
         if (nameEnd == from) return (false, name, 0, 0);

@@ -1002,6 +1002,69 @@ contract TranscriptEquivalenceTest is Test {
 
     // ─── The byte search ────────────────────────────────────────────
 
+    /// @dev The bounded `indexOfByte` against a byte loop over `[from, end)`.
+    /// forge-config: default.fuzz.runs = 3000
+    function testFuzz_boundedIndexOfByteMatchesAByteLoop(uint256 seed, bytes memory data, uint256 from, uint256 end)
+        public
+        pure
+    {
+        Gen.Rng memory r = Gen.Rng(seed);
+        if (r.chance(50)) data = r.soup("ab\r\n\x00\xff", 100);
+        end = bound(end, 0, data.length);
+        from = bound(from, 0, end + 40);
+        bytes1 b = data.length != 0 && r.chance(70) ? data[r.pick(data.length)] : bytes1(uint8(r.pick(256)));
+        uint256 expected = end;
+        for (uint256 i = from; i < end; ++i) {
+            if (data[i] == b) {
+                expected = i;
+                break;
+            }
+        }
+        assertEq(CeremonyFields.indexOfByte(data, from, end, b), expected);
+    }
+
+    /// @dev A byte at or past `end` is never found, even inside the array.
+    /// forge-config: default.fuzz.runs = 3000
+    function testFuzz_boundedIndexOfByteStopsAtEnd(uint256 seed, uint256 length, uint256 end) public pure {
+        Gen.Rng memory r = Gen.Rng(seed);
+        length = bound(length, 0, 100);
+        end = bound(end, 0, length);
+        bytes1 b = bytes1(uint8(r.pick(256)));
+        bytes memory data = new bytes(length);
+        for (uint256 i = 0; i < length; ++i) {
+            data[i] = i < end ? bytes1(uint8(b) ^ 0x01) : b;
+        }
+        assertEq(CeremonyFields.indexOfByte(data, 0, end, b), end);
+    }
+
+    /// @dev Lines without a colon each cost the same, however many follow.
+    function test_colonlessHeaderLinesCostLinearGas() public {
+        uint256 few = _identityHeadGas(200);
+        uint256 many = _identityHeadGas(800);
+        assertLt(many, few * 5, "four times the lines must cost under five times the gas");
+    }
+
+    function _identityHeadGas(uint256 lines) private returns (uint256 used) {
+        Gen.Rng memory r = Gen.Rng(uint256(keccak256("colonless")));
+        RefTranscript.Profile memory p = RefTranscript.x();
+        bytes memory head = bytes.concat(p.identityRequestLine, "HTTP/1.1");
+        for (uint256 i = 0; i < lines; ++i) {
+            head = bytes.concat(head, "\r\nx");
+        }
+        head = bytes.concat(head, "\r\nauthorization: Bearer ");
+        bytes memory t = bytes.concat(head, "TOKENTOKENTOKEN", "\r\naccept: application/json\r\n\r\n");
+        CeremonyAttestation.AttestedData memory data;
+        data.sent =
+            r.split(t, Gen.marks(head.length, head.length + 15), Gen.kinds(Gen.REVEAL, Gen.COMMIT, Gen.REVEAL), 0);
+        data.sentTranscriptLength = uint32(t.length);
+        (data.received, data.recvTranscriptLength) = r.identityResponse(p.idIsInteger, bytes(p.handleField));
+        bytes memory call = abi.encodeCall(XTranscripts.identityTranscript, (data));
+        uint256 before = gasleft();
+        (bool ok,) = address(x).call{gas: 30_000_000}(call);
+        used = before - gasleft();
+        ok;
+    }
+
     /// @dev `indexOfByte` against a byte loop, at every alignment.
     /// forge-config: default.fuzz.runs = 5000
     function testFuzz_indexOfByteMatchesAByteLoop(uint256 seed, bytes memory data, uint256 from) public pure {

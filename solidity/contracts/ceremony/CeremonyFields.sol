@@ -294,17 +294,27 @@ library CeremonyFields {
 
     /// @notice The first offset at or after `from` holding byte `b`, or
     ///         `data.length` when none does.
-    ///
-    /// @dev After XOR with `b` in every byte, a byte `x` is zero iff neither
-    ///      `(x & 0x7f) + 0x7f` nor `x` sets its top bit; the sum stays below
-    ///      0x100, so no byte carries into the next. A word may extend past
-    ///      `data.length`; a hit there returns `data.length`.
-    function indexOfByte(bytes memory data, uint256 from, bytes1 b) internal pure returns (uint256 at) {
+    function indexOfByte(bytes memory data, uint256 from, bytes1 b) internal pure returns (uint256) {
+        return _indexOfByte(data, from, data.length, b);
+    }
+
+    /// @notice The first offset in `[from, end)` holding byte `b`, or `end`
+    ///         when none does.
+    function indexOfByte(bytes memory data, uint256 from, uint256 end, bytes1 b) internal pure returns (uint256) {
+        assert(end <= data.length);
+        return _indexOfByte(data, from, end, b);
+    }
+
+    /// @dev `end <= data.length`. After XOR with `b` in every byte, a byte `x`
+    ///      is zero iff neither `(x & 0x7f) + 0x7f` nor `x` sets its top bit;
+    ///      the sum stays below 0x100, so no byte carries into the next. A word
+    ///      may extend past `end`; a hit there returns `end`.
+    function _indexOfByte(bytes memory data, uint256 from, uint256 end, bytes1 b) private pure returns (uint256 at) {
         assembly ("memory-safe") {
             let low7 := 0x7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f
             let pattern := mul(byte(0, b), 0x0101010101010101010101010101010101010101010101010101010101010101)
             let p := add(data, 0x20)
-            let len := mload(data)
+            let len := end
             at := len
             for { let i := from } lt(i, len) { i := add(i, 32) } {
                 let x := xor(mload(add(p, i)), pattern)
