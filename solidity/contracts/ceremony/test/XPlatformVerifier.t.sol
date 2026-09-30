@@ -622,6 +622,70 @@ contract XPlatformVerifierTest is Test {
         assertEq(f.sessionId, digest);
     }
 
+    string constant RUST_SESSION_PROOF = "contracts/ceremony/test/fixtures/x-ceremony-session-proof.json";
+
+    /// The error the bearer-link verifier raises for a sumcheck round that
+    /// does not hold. That verifier never returns false: it refuses by
+    /// reverting, and `verify` passes the revert through.
+    error SumcheckFailed();
+
+    /// The low byte of proof word 29, the first sumcheck coefficient in bb's
+    /// ZK layout. Flipping its low bit leaves a field element, which the
+    /// sumcheck refuses. A flipped curve point would instead make the
+    /// verifier's precompile call burn all the gas it is given.
+    uint256 constant FLIPPED_PROOF_BYTE = 29 * 32 + 31;
+
+    /// `RUST_SESSION`'s records with the proof of the bearer they commit, and
+    /// the circuit's own verifier wired in place of the stub. Returns that
+    /// verifier and the public inputs bb proved.
+    function _realProofPayload()
+        private
+        returns (TlsNotaryVerifierBase.TlsNotaryProof memory s, address circuit, bytes32[] memory proved)
+    {
+        circuit = vm.deployCode("BearerLinkHonkVerifier.sol:BearerLinkHonkVerifier");
+        vm.prank(OWNER);
+        verifier.setTrustRoots(INotaryService(address(notary)), IHonkVerifier(circuit), circuit.codehash);
+
+        string memory session = vm.readFile(RUST_SESSION);
+        string memory proof = vm.readFile(RUST_SESSION_PROOF);
+        s = _payload();
+        s.tokenSession = ICeremony.Attestation({
+            attestedData: vm.parseJsonBytes(session, ".token.attested_data"),
+            proof: vm.parseJsonBytes(session, ".token.notary_signature")
+        });
+        s.identitySession = ICeremony.Attestation({
+            attestedData: vm.parseJsonBytes(session, ".identity.attested_data"),
+            proof: vm.parseJsonBytes(session, ".identity.notary_signature")
+        });
+        s.proof = vm.parseJsonBytes(proof, ".proof");
+        proved = vm.parseJsonBytes32Array(proof, ".public_inputs");
+    }
+
+    /// @dev The stub accepts any public inputs, so only the circuit's own
+    ///      verifier can say the inputs this verifier builds from the two
+    ///      sessions are the ones the circuit proves. bb proved the bearer
+    ///      these records commit, from their openings.
+    function test_verifiesARealProofOfTheRecordsLibidRsProduces() public {
+        (TlsNotaryVerifierBase.TlsNotaryProof memory s, address circuit, bytes32[] memory proved) = _realProofPayload();
+        vm.expectCall(circuit, abi.encodeCall(IHonkVerifier.verify, (s.proof, proved)));
+        ICeremony.VerifiedClaim memory f = this.run{value: quote}(s);
+        assertEq(f.userId, "2244994945");
+        assertEq(f.handle, "alice");
+        assertEq(string(f.clientIdentifier), "myClient-1");
+        assertEq(f.sessionId, digest);
+        assertEq(f.operationDomain, DOMAIN);
+        assertEq(f.transactionData, _txData());
+        assertEq(f.ceremonyVersion, 1);
+        assertEq(f.metadataObservedAt, T0 - SKEW);
+    }
+
+    function test_refusesARealProofWithOneByteFlipped() public {
+        (TlsNotaryVerifierBase.TlsNotaryProof memory s,,) = _realProofPayload();
+        s.proof[FLIPPED_PROOF_BYTE] ^= 0x01;
+        vm.expectRevert(SumcheckFailed.selector);
+        this.run{value: quote}(s);
+    }
+
     string constant REAL_SESSION = "contracts/ceremony/test/fixtures/x-ceremony-real.json";
 
     /// @dev A ceremony that actually ran: two MPC-TLS sessions against
