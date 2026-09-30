@@ -19,11 +19,11 @@
 # it must name the same version and the same tarball digests — and then to
 # check every file inside a tarball the pin has already vouched for.
 #
-# What ships is bb's output plus exactly two rewrites libid-circuits makes
-# (`assembly ("memory-safe")` on every assembly block, for via_ir, and the
-# rename off bb's fixed `HonkVerifier`); `forge fmt` is deliberately left to
-# the consumer, because libid-circuits carries no Foundry toolchain. So the
-# written file is fmt(shipped) plus the banner below.
+# What ships is bb's optimized zero-knowledge verifier plus the one rewrite
+# libid-circuits makes, the rename off bb's fixed `HonkVerifier`; `forge fmt`
+# is the consumer's. So the written file is fmt(shipped) plus the banner
+# below. solidity/foundry.toml compiles it on the legacy pipeline: solc
+# cannot compile it via IR.
 #
 # The sources are NOT committed: they are gitignored like the forge
 # artifacts and the npm ABIs, because they are another repository's release
@@ -112,24 +112,29 @@ while IFS=$'\t' read -r circuit contract want; do
     src="$WORK/$circuit/$contract.sol"
     [[ -f "$src" ]] || { echo "$tarball: no $contract.sol inside" >&2; exit 1; }
     # The interchange format, as libid-circuits' scripts/gen-verifier.sh
-    # promises it: one concrete contract under the pinned name, every
-    # assembly block annotated. A file that breaks either would compile to
-    # something the crate looks up under the wrong name, or not at all.
-    concrete="$(grep -c '^contract .* is BaseZKHonkVerifier' "$src" || true)"
-    [[ "$concrete" == 1 ]] && grep -q "^contract $contract is BaseZKHonkVerifier" "$src" ||
-        { echo "$contract.sol: expected exactly one 'contract $contract is BaseZKHonkVerifier', found $concrete" >&2; exit 1; }
-    if grep -qE 'assembly[[:space:]]*\{' "$src"; then
-        echo "$contract.sol: an assembly block is not annotated memory-safe" >&2
+    # promises it: one contract, under the pinned name, linking no library.
+    # A file that breaks it would compile to something the crate looks up
+    # under the wrong name, or cannot deploy without linking.
+    contracts="$(grep -c '^contract ' "$src" || true)"
+    [[ "$contracts" == 1 ]] ||
+        { echo "$contract.sol: expected one contract, found $contracts" >&2; exit 1; }
+    grep -q "^contract $contract is IVerifier" "$src" ||
+        { echo "$contract.sol: its contract is not '$contract is IVerifier'" >&2; exit 1; }
+    if grep -q '^library ' "$src"; then
+        echo "$contract.sol: declares a library; the crate deploys verifiers unlinked" >&2
         exit 1
     fi
 
     # The banner goes after bb's license header, before the first pragma.
     # Then forge fmt under this project's foundry.toml, which is the one
-    # step libid-circuits leaves to the consumer.
+    # step libid-circuits leaves to the consumer. Twice: forge fmt settles
+    # the long Yul `for` headers of bb's optimized verifier only on its
+    # second pass, and CI's `forge fmt --check` holds the file to the
+    # settled form.
     awk -v banner="// Vendored from libid-circuits $TAG ($tarball) by scripts/vendor-circuit-verifiers.sh. Do not edit.\n// The pin is $DEST_REL/circuits.json; \`forge fmt\` is the only change to what shipped." '
         !done && /^pragma / { print banner; done = 1 }
         { print }
-    ' "$src" | (cd "$SOLIDITY" && forge fmt --raw -) > "$STAGE/$contract.sol"
+    ' "$src" | (cd "$SOLIDITY" && forge fmt --raw - | forge fmt --raw -) > "$STAGE/$contract.sol"
     echo "==> $circuit -> $DEST_REL/$contract.sol"
 done < <(jq -r '.circuits | to_entries[] | "\(.key)\t\(.value.contract)\t\(.value.sha256)"' "$PIN")
 

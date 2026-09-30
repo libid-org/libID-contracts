@@ -398,8 +398,7 @@ contract XPlatformVerifierTest is Test {
     }
 
     /// @dev A sixth pair is refused at the `&` that begins it. X is a public
-    ///      client and its profile lists no `client_secret`; under `formField`
-    ///      alone one was merely uncompared.
+    ///      client and its profile lists no `client_secret`.
     function test_rejectsATokenBodyCarryingAClientSecret() public {
         bytes memory honest = _honestTokenBody();
         TlsNotaryVerifierBase.TlsNotaryProof memory s =
@@ -409,7 +408,7 @@ contract XPlatformVerifierTest is Test {
     }
 
     /// @dev A duplicate in an ENCODED spelling. `code%5Fverifier` is
-    ///      `code_verifier` to a form parser and no match to `formField`,
+    ///      `code_verifier` to a form parser but no literal match for it,
     ///      which is the case ASM-PROV-07 covers for the specification. It is
     ///      a sixth pair here, refused like any other.
     function test_rejectsATokenBodyWithAnEncodedDuplicateName() public {
@@ -432,9 +431,9 @@ contract XPlatformVerifierTest is Test {
     }
 
     /// @dev A raw `;` inside the redirect. Some form parsers split pairs on
-    ///      it, so to them this body carries a second `code_verifier`;
-    ///      `formField` would have read the redirect to the next `&` and
-    ///      counted one. The serializer never emits a raw `;`, so the byte
+    ///      it, so to them this body carries a second `code_verifier`, while
+    ///      a reader splitting only on `&` counts one. The serializer never
+    ///      emits a raw `;`, so the byte
     ///      itself is refused.
     function test_rejectsATokenBodyWithARawSemicolonInTheRedirect() public {
         bytes memory body = _honestTokenBody(
@@ -688,6 +687,19 @@ contract XPlatformVerifierTest is Test {
     function test_rejectsACookieOnTheIdentityRequest() public {
         TlsNotaryVerifierBase.TlsNotaryProof memory s = _payload();
         s.identitySession = _identityAttestation("2244994945", "alice", "Cookie: auth_token=stolen\r\n");
+        vm.expectRevert(abi.encodeWithSelector(TlsNotaryVerifierBase.ForbiddenRequestHeader.selector, bytes("cookie")));
+        this.run{value: quote}(s);
+    }
+
+    /// @dev A space or a tab inside the name does not hide it: names are
+    ///      compared with every space and tab removed (REQ-COMMON-39B).
+    function test_rejectsACookieWithWhitespaceInsideItsName() public {
+        TlsNotaryVerifierBase.TlsNotaryProof memory s = _payload();
+        s.identitySession = _identityAttestation("2244994945", "alice", "Coo kie: auth_token=stolen\r\n");
+        vm.expectRevert(abi.encodeWithSelector(TlsNotaryVerifierBase.ForbiddenRequestHeader.selector, bytes("cookie")));
+        this.run{value: quote}(s);
+
+        s.identitySession = _identityAttestation("2244994945", "alice", "Co\tokie: auth_token=stolen\r\n");
         vm.expectRevert(abi.encodeWithSelector(TlsNotaryVerifierBase.ForbiddenRequestHeader.selector, bytes("cookie")));
         this.run{value: quote}(s);
     }
@@ -1422,6 +1434,28 @@ contract XPlatformVerifierTest is Test {
         this.run{value: quote}(s);
     }
 
+    /// @dev A forbidden name with a space or a tab inside it is still the
+    ///      forbidden name (REQ-PLAT-56A).
+    function test_rejectsAForbiddenHeaderWithWhitespaceInsideItsName() public {
+        TlsNotaryVerifierBase.TlsNotaryProof memory s = _payloadWithHeaders(
+            "host: api.x.com\r\ncontent-type: application/x-www-form-urlencoded\r\naccept: application/json\r\n"
+            "author ization: Basic bXlDbGllbnQtMTpzM2NyZXQ=\r\nconnection: close\r\n"
+        );
+        vm.expectRevert(
+            abi.encodeWithSelector(TlsNotaryVerifierBase.ForbiddenRequestHeader.selector, bytes("authorization"))
+        );
+        this.run{value: quote}(s);
+
+        s = _payloadWithHeaders(
+            "host: api.x.com\r\ncontent-type: application/x-www-form-urlencoded\r\naccept: application/json\r\n"
+            "Transfer\t-Encoding: chunked\r\nconnection: close\r\n"
+        );
+        vm.expectRevert(
+            abi.encodeWithSelector(TlsNotaryVerifierBase.ForbiddenRequestHeader.selector, bytes("transfer-encoding"))
+        );
+        this.run{value: quote}(s);
+    }
+
     /// @dev Every forbidden name, each in a spelling the platform would read
     ///      as the same header: another case, no space after the colon, a
     ///      space before it, an underscore where a CGI-style stack folds it
@@ -1466,7 +1500,7 @@ contract XPlatformVerifierTest is Test {
     }
 
     /// @dev A required header has to be there. Without the media type nothing
-    ///      says X read the bytes `formField` reads as a form at all; without
+    ///      says X read the bytes the verifier reads as a form at all; without
     ///      `host` nothing says which server the prover meant.
     function test_rejectsATokenRequestMissingARequiredHeader() public {
         TlsNotaryVerifierBase.TlsNotaryProof memory s =

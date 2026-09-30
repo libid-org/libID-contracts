@@ -38,12 +38,11 @@ import {TlsNotaryVerifierBase} from "./TlsNotaryVerifierBase.sol";
 ///                         the open and the request has no hidden suffix.
 ///
 ///                         And the decoded form is settled on chain. Revealed
-///                         bytes alone are not: `formField` refuses a name at
-///                         two `&`-anchored positions, but a value carrying a
-///                         raw `;` or `=`, or a name in an encoded spelling,
-///                         would decode as fields nobody counted, and only
-///                         GitHub's own refusal (ASM-PROV-07) would stand
-///                         between that and a verified claim. The base holds
+///                         bytes alone are not: a value carrying a raw `;` or
+///                         `=`, or a name in an encoded spelling, would decode
+///                         as fields nobody counted, and only GitHub's own
+///                         refusal (ASM-PROV-07) would stand between that and
+///                         a verified claim. The base holds
 ///                         the whole body to `GITHUB_TOKEN_FIELDS`
 ///                         (REQ-PLAT-61), as it holds X's to its list, so
 ///                         acceptance here does not depend on GitHub

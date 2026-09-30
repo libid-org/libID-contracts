@@ -4,8 +4,6 @@ pragma solidity ^0.8.24;
 import {Test} from "forge-std/Test.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
-import {BearerLinkHonkVerifier} from "../BearerLinkHonkVerifier.sol";
-import {OidcGoogleHonkVerifier} from "../OidcGoogleHonkVerifier.sol";
 import {GooglePlatformVerifier, IGoogleJwtRoots} from "../../ceremony/GooglePlatformVerifier.sol";
 import {INotaryService} from "../../ceremony/INotaryService.sol";
 import {IHonkVerifier} from "../../ceremony/PlatformVerifierBase.sol";
@@ -19,9 +17,13 @@ import {XPlatformVerifier} from "../../ceremony/XPlatformVerifier.sol";
 ///      the two circuits differ in it: that is the check that would catch a
 ///      release whose tarballs were swapped, or a vendor run that wrote one
 ///      circuit's verifier under the other's name.
+///
+///      The verifiers are deployed from their artifacts, not imported: they
+///      compile on the legacy pipeline (see foundry.toml), and a test that
+///      imported one would compile the Platform Verifiers beside it on that
+///      pipeline too, which is not what ships.
 contract HonkVerifiersTest is Test {
-    /// `Errors.ProofLengthWrongWithLogN` from the generated sources, which
-    /// only a Honk verifier raises.
+    /// The error a Honk verifier raises for a proof of the wrong length.
     error ProofLengthWrongWithLogN(uint256 logN, uint256 actualLength, uint256 expectedLength);
 
     address constant OWNER = address(0xA11CE);
@@ -32,8 +34,8 @@ contract HonkVerifiersTest is Test {
     IHonkVerifier oidcGoogle;
 
     function setUp() public {
-        bearerLink = IHonkVerifier(address(new BearerLinkHonkVerifier()));
-        oidcGoogle = IHonkVerifier(address(new OidcGoogleHonkVerifier()));
+        bearerLink = IHonkVerifier(vm.deployCode("BearerLinkHonkVerifier.sol:BearerLinkHonkVerifier"));
+        oidcGoogle = IHonkVerifier(vm.deployCode("OidcGoogleHonkVerifier.sol:OidcGoogleHonkVerifier"));
     }
 
     /// The `logN` a verifier reports for its own circuit, read by handing

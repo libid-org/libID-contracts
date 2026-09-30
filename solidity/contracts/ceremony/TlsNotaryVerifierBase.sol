@@ -43,8 +43,8 @@ abstract contract TlsNotaryVerifierBase is IPlatformVerifier, PlatformVerifierBa
     /// @dev HTTP framing owns this one, not the profile: the client appends
     ///      it and its value is the body's own count, so the head carries it
     ///      and no profile lists it.
-    bytes private constant LENGTH_HEADER = "content-length";
-    bytes private constant AUTHORIZATION = "authorization";
+    bytes32 private constant LENGTH_HEADER = keccak256("content-length");
+    bytes32 private constant AUTHORIZATION = keccak256("authorization");
 
     bytes internal constant ACCESS_TOKEN_PREFIX = '"access_token":"';
     bytes internal constant ACCESS_TOKEN_SUFFIX = '"';
@@ -134,7 +134,7 @@ abstract contract TlsNotaryVerifierBase is IPlatformVerifier, PlatformVerifierBa
     function _tokenRequiredHeaders() internal pure virtual returns (bytes memory);
 
     /// @dev The form fields the token request's body carries, `&`-joined in
-    ///      the order the prover serializes them. `_tokenSession` holds the
+    ///      the order the prover serializes them. `_tokenTranscript` holds the
     ///      WHOLE body to this list (`requireExactForm`): exactly these names
     ///      in this order, each once with a nonempty value in the serializer's
     ///      one spelling, and nothing after the last. Every profile is held
@@ -149,7 +149,7 @@ abstract contract TlsNotaryVerifierBase is IPlatformVerifier, PlatformVerifierBa
     ///      beyond the base's own. Default: nothing. Runs after the form is
     ///      known exact and before `code_verifier` and `client_id` are read.
     ///      X compares `grant_type`; GitHub adds none.
-    function _checkTokenBody(bytes memory body) internal pure virtual {}
+    function _checkTokenBody(CeremonyFields.Form memory form) internal pure virtual {}
 
     /// @dev Which shape a platform's immutable identifier takes in its identity
     ///      response. X quotes it; GitHub sends a bare integer, whose
@@ -180,31 +180,6 @@ abstract contract TlsNotaryVerifierBase is IPlatformVerifier, PlatformVerifierBa
         virtual
         returns (string memory idField, IdShape idShape, string memory handleField);
 
-    /// @dev How many times a field's full delimiter appears across the whole
-    ///      revealed set, seams included.
-    ///
-    ///      Counting and reading want opposite things. A READ must stay inside
-    ///      one authenticated range, or a prover splices a document that never
-    ///      crossed the wire. A COUNT must not miss, or a prover cuts a range
-    ///      through a second delimiter and the duplicate REQ-COMMON-19A exists
-    ///      to reject becomes invisible to it. So the value is read per range
-    ///      and the occurrences are counted over the concatenation -- where a
-    ///      seam can only over-count, which fails closed. Both read bytes with
-    ///      the JSON whitespace removed, so a copy spelled with spaces is a
-    ///      copy.
-    function _delimiterCount(bytes memory joined, bytes memory delimiter) private pure returns (uint256 count) {
-        for (uint256 i = 0; i + delimiter.length <= joined.length; ++i) {
-            bool hit = true;
-            for (uint256 j = 0; j < delimiter.length; ++j) {
-                if (joined[i + j] != delimiter[j]) {
-                    hit = false;
-                    break;
-                }
-            }
-            if (hit) ++count;
-        }
-    }
-
     /// @dev Find a JSON string field in exactly one revealed range.
     ///
     ///      Reading from a concatenation of the revealed ranges is what this
@@ -218,14 +193,18 @@ abstract contract TlsNotaryVerifierBase is IPlatformVerifier, PlatformVerifierBa
     ///      Requiring the whole match to sit inside one authenticated range
     ///      means every byte of it came from one contiguous run the notary
     ///      signed, at the offsets it signed them at.
-    function _uniqueJsonString(
-        CeremonyAttestation.DirectionBlock memory block_,
-        bytes memory joined,
-        string memory name
-    ) private pure returns (bytes memory value) {
+    ///
+    ///      `ranges` holds each revealed range and `joined` their concatenation,
+    ///      each normalized whole by `normalizeJsonBytes`. The count over
+    ///      `joined` can only over-count at a seam, which fails closed.
+    function _uniqueJsonString(bytes[] memory ranges, bytes memory joined, string memory name)
+        private
+        pure
+        returns (bytes memory value)
+    {
         uint256 matches;
-        for (uint256 i = 0; i < block_.revealed.length; ++i) {
-            (CeremonyFields.Found found, bytes memory v) = CeremonyFields.tryJsonString(block_.revealed[i].value, name);
+        for (uint256 i = 0; i < ranges.length; ++i) {
+            (CeremonyFields.Found found, bytes memory v) = CeremonyFields.tryNormalizedJsonString(ranges[i], name);
             if (found == CeremonyFields.Found.Several) revert FieldNotUnique(name, 2);
             if (found == CeremonyFields.Found.One) {
                 ++matches;
@@ -235,19 +214,19 @@ abstract contract TlsNotaryVerifierBase is IPlatformVerifier, PlatformVerifierBa
         if (matches != 1) revert FieldNotUnique(name, matches);
         // And the delimiter appears once across the whole revealed set, so a
         // second copy cannot hide under a range boundary.
-        uint256 seen = _delimiterCount(CeremonyFields.normalizeJsonBytes(joined), abi.encodePacked('"', name, '":"'));
+        uint256 seen = CeremonyFields.occurrences(joined, abi.encodePacked('"', name, '":"'));
         if (seen != 1) revert FieldNotUnique(name, seen);
     }
 
     /// @dev The same, for a bare JSON integer.
-    function _uniqueJsonInteger(
-        CeremonyAttestation.DirectionBlock memory block_,
-        bytes memory joined,
-        string memory name
-    ) private pure returns (bytes memory digits) {
+    function _uniqueJsonInteger(bytes[] memory ranges, bytes memory joined, string memory name)
+        private
+        pure
+        returns (bytes memory digits)
+    {
         uint256 matches;
-        for (uint256 i = 0; i < block_.revealed.length; ++i) {
-            (CeremonyFields.Found found, bytes memory v) = CeremonyFields.tryJsonInteger(block_.revealed[i].value, name);
+        for (uint256 i = 0; i < ranges.length; ++i) {
+            (CeremonyFields.Found found, bytes memory v) = CeremonyFields.tryNormalizedJsonInteger(ranges[i], name);
             if (found == CeremonyFields.Found.Several) revert FieldNotUnique(name, 2);
             if (found == CeremonyFields.Found.One) {
                 ++matches;
@@ -255,7 +234,7 @@ abstract contract TlsNotaryVerifierBase is IPlatformVerifier, PlatformVerifierBa
             }
         }
         if (matches != 1) revert FieldNotUnique(name, matches);
-        uint256 seen = _delimiterCount(CeremonyFields.normalizeJsonBytes(joined), abi.encodePacked('"', name, '":'));
+        uint256 seen = CeremonyFields.occurrences(joined, abi.encodePacked('"', name, '":'));
         if (seen != 1) revert FieldNotUnique(name, seen);
     }
 
@@ -319,7 +298,21 @@ abstract contract TlsNotaryVerifierBase is IPlatformVerifier, PlatformVerifierBa
         VerifiedClaim memory fields
     ) private returns (uint64 observedAt, bytes32 tokenCommitment) {
         CeremonyAttestation.AttestedData memory data = _authenticate(p.tokenSession, _tokenAuthority(), fee);
+        (fields.clientIdentifier, tokenCommitment) = _tokenTranscript(data, authorizationDigest, p.authorizationNonce);
 
+        // The token attestation is the one-time PKCE and digest binding, so it
+        // alone supplies evidence time (section 2.2).
+        observedAt = _requireFresh(data.createdAt);
+    }
+
+    /// @dev Every transcript check of the token session, request then
+    ///      response; `data` must come from `_authenticate`. Returns the client
+    ///      identifier and the committed bearer.
+    function _tokenTranscript(
+        CeremonyAttestation.AttestedData memory data,
+        bytes32 authorizationDigest,
+        bytes32 authorizationNonce
+    ) internal pure returns (bytes memory clientId, bytes32 tokenCommitment) {
         // REQ-COMMON-18A applies to THIS direction too. Without tiling, a
         // prover reveals two header values it composed itself and this verifier
         // reads them as the request line and the body -- every field below then
@@ -336,12 +329,10 @@ abstract contract TlsNotaryVerifierBase is IPlatformVerifier, PlatformVerifierBa
         if (data.sent.revealed[0].start != 0) {
             revert RequestLineNotAtOrigin(data.sent.revealed[0].start);
         }
+        // The one comparison of the method and path (REQ-COMMON-21A): the head
+        // check below starts past the request line.
         if (!_startsWith(data.sent.revealed[0].value, _tokenRequestLine())) revert WrongRequestLine();
 
-        // The head is pinned whole below, which subsumes the line just checked.
-        // Both stay: REQ-COMMON-21A is about the method and the path, and a
-        // deployment pointed at the wrong endpoint should hear that rather than
-        // that some byte of its request differs.
         bytes memory body = _tokenBody(data.sent);
 
         // The shape first, then the values a verifier compares: a read below
@@ -349,23 +340,22 @@ abstract contract TlsNotaryVerifierBase is IPlatformVerifier, PlatformVerifierBa
         // is there. A value nobody reads is held to the alphabet and to
         // nothing more -- in that alphabet it cannot become another field,
         // and no contract acts on what it decodes to.
-        CeremonyFields.requireExactForm(body, _tokenFields());
-        _checkTokenBody(body);
+        CeremonyFields.Form memory form = CeremonyFields.requireExactForm(body, _tokenFields());
+        _checkTokenBody(form);
 
         // REQ-COMMON-15A. This is the whole binding between the evidence and
         // the transaction: retargeting an attestation to another digest would
         // take a second preimage of the revealed verifier.
-        bytes memory revealedVerifier = CeremonyFields.formField(body, "code_verifier");
+        bytes memory revealedVerifier = CeremonyFields.valueOf(form, "code_verifier");
         // Under the same nonce the digest commits, so a caller has no second
         // value to move: changing it moves the digest too (REQ-COMMON-12).
-        bytes memory expected = CeremonyAuthorization.codeVerifier(authorizationDigest, p.authorizationNonce);
+        bytes memory expected = CeremonyAuthorization.codeVerifier(authorizationDigest, authorizationNonce);
         if (keccak256(revealedVerifier) != keccak256(expected)) revert CodeVerifierMismatch();
 
-        bytes memory clientId = CeremonyFields.formField(body, "client_id");
+        clientId = CeremonyFields.valueOf(form, "client_id");
         if (!CeremonyFields.isSerializerSafe(clientId)) {
             revert ClientIdentifierNotSerializerSafe(clientId);
         }
-        fields.clientIdentifier = clientId;
 
         // Tiled, like every other direction. The profile says every byte
         // outside the anchors is committed; this is what makes that true rather
@@ -379,10 +369,6 @@ abstract contract TlsNotaryVerifierBase is IPlatformVerifier, PlatformVerifierBa
         CeremonyAttestation.RangeCommitment memory bearer =
             CeremonyAttestation.requireFramedCommitment(data.received, ACCESS_TOKEN_PREFIX, ACCESS_TOKEN_SUFFIX);
         tokenCommitment = bearer.commitment;
-
-        // The token attestation is the one-time PKCE and digest binding, so it
-        // alone supplies evidence time (section 2.2).
-        observedAt = _requireFresh(data.createdAt);
     }
 
     function _identitySession(TlsNotaryProof memory p, uint256 fee, VerifiedClaim memory fields)
@@ -390,7 +376,17 @@ abstract contract TlsNotaryVerifierBase is IPlatformVerifier, PlatformVerifierBa
         returns (bytes32 identityCommitment)
     {
         CeremonyAttestation.AttestedData memory data = _authenticate(p.identitySession, _identityAuthority(), fee);
+        (identityCommitment, fields.userId, fields.handle) = _identityTranscript(data);
+    }
 
+    /// @dev Every transcript check of the identity session, request then
+    ///      response; `data` must come from `_authenticate`. Returns the
+    ///      committed bearer, the user id and the raw handle.
+    function _identityTranscript(CeremonyAttestation.AttestedData memory data)
+        internal
+        pure
+        returns (bytes32 identityCommitment, string memory userId, string memory handle)
+    {
         // REQ-COMMON-21A: the path separates operations on the same server.
         // Anchored at the origin for the same reason as the token request --
         // the lowest-offset revealed range is wherever the prover put it.
@@ -407,10 +403,10 @@ abstract contract TlsNotaryVerifierBase is IPlatformVerifier, PlatformVerifierBa
         // together. They are one property: the scan reads only revealed bytes,
         // so without coverage a prover hides a second authorization header in a
         // gap and the count still says one.
-        CeremonyAttestation.RangeCommitment memory bearer =
+        (CeremonyAttestation.RangeCommitment memory bearer, bytes memory revealed) =
             CeremonyAttestation.requireBearerHeaderRequest(data.sent, data.sentTranscriptLength);
         identityCommitment = bearer.commitment;
-        _checkIdentityHead(CeremonyAttestation.concatRevealed(data.sent));
+        _checkIdentityHead(revealed);
 
         // Tiled, not revealed whole. The response may hide bytes, which is
         // what keeps a platform's account metadata off chain when the profile's
@@ -431,16 +427,20 @@ abstract contract TlsNotaryVerifierBase is IPlatformVerifier, PlatformVerifierBa
         // that reaches the REVEALED bytes is still caught, in either range
         // layout; only one hidden behind a commitment is not.
         CeremonyAttestation.requireExactCoverage(data.received, data.recvTranscriptLength);
-        // Joined once, for both readers. The join is what a cross-range COUNT
-        // reads; the per-range values are what a READ reads.
-        bytes memory joined = CeremonyAttestation.concatRevealed(data.received);
+        // The join is normalized whole, not assembled from the normalized
+        // ranges: whitespace at a seam goes or stays by the bytes on both sides.
+        bytes[] memory ranges = new bytes[](data.received.revealed.length);
+        for (uint256 i = 0; i < ranges.length; ++i) {
+            ranges[i] = CeremonyFields.normalizeJsonBytes(data.received.revealed[i].value);
+        }
+        bytes memory joined = CeremonyFields.normalizeJsonBytes(CeremonyAttestation.concatRevealed(data.received));
         (string memory idField, IdShape idShape, string memory handleField) = _identityFields();
-        fields.userId = string(
+        userId = string(
             idShape == IdShape.JsonString
-                ? _uniqueJsonString(data.received, joined, idField)
-                : _uniqueJsonInteger(data.received, joined, idField)
+                ? _uniqueJsonString(ranges, joined, idField)
+                : _uniqueJsonInteger(ranges, joined, idField)
         );
-        fields.handle = string(_uniqueJsonString(data.received, joined, handleField));
+        handle = string(_uniqueJsonString(ranges, joined, handleField));
     }
 
     // ─── Helpers ────────────────────────────────────────────────────
@@ -475,40 +475,6 @@ abstract contract TlsNotaryVerifierBase is IPlatformVerifier, PlatformVerifierBa
         }
     }
 
-    /// @dev The HTTP message body of the token request.
-    ///
-    ///      Located by the framing the SERVER parsed -- the `\r\n\r\n` that ends
-    ///      the head -- and not by a position in the range list. That
-    ///      distinction is the whole point: a prover who can choose which run
-    ///      counts as "the body" simply reveals a decoy after committing the
-    ///      real one, and every field below is then read from bytes the
-    ///      platform never saw while the platform executed something else.
-    ///
-    ///      So the shape is fixed exactly: ONE revealed run beginning at
-    ///      offset 0 and no commitment at all, so the run covers the request
-    ///      through to its signed length and no body byte is hidden.
-    ///
-    ///      AND THE HEAD ITSELF, byte for byte. Revealing the headers is not
-    ///      checking them: they were public and unconstrained here, while
-    ///      `formField` below reads the body under a form-encoding assumption
-    ///      that only `content-type` makes true of the platform as well.
-    ///      REQ-COMMON-21B fixes the media type in the deployment profile
-    ///      because it selects the platform's request parser, and a pinned
-    ///      value nothing compares is a pin in name only. The same holds of
-    ///      any other header that changes what the platform does with these
-    ///      bytes, so the profile fixes the whole run rather than one field.
-    ///
-    ///      One comparison against fixed bytes, not a header parser. A header
-    ///      added, removed, reordered or given another value all move the same
-    ///      bytes, so all four fail here; a parser would have to catch each of
-    ///      them, and its own leniencies are what the CRLF rules on the
-    ///      identity request exist to close.
-    ///
-    ///      `content-length` is the one value the profile cannot fix, because
-    ///      it is the body's own length -- so it is read, and matched against
-    ///      the length the NOTARY signed. Without that the platform could frame
-    ///      a shorter body than the one read below, and parse a form this
-    ///      verifier never saw.
     /// @dev The head's header lines: each required one exactly once with its
     ///      value, none of the forbidden names, one `content-length`, and
     ///      anything else ignored. Returns the declared length.
@@ -537,110 +503,140 @@ abstract contract TlsNotaryVerifierBase is IPlatformVerifier, PlatformVerifierBa
     function _checkTokenHead(bytes memory head) private pure returns (uint256 declared) {
         CeremonyAttestation.requireCrlfLineEndings(head);
 
-        bytes memory required = _tokenRequiredHeaders();
-        // One bit per required line. A profile with more than 256 headers is
-        // not a profile, and `validate` in the generator refuses one long
-        // before this could matter.
-        uint256 found;
-        bool lengths;
+        TokenHead memory state;
+        (state.requiredNames, state.requiredValues) = _requiredHeaders();
 
-        // Past the request line, which `_tokenSession` has already compared.
+        // Past the request line, which `_tokenTranscript` has already compared.
         uint256 from = _lineEnd(head, 0) + 2;
         while (from < head.length) {
             uint256 to = _lineEnd(head, from);
-            (found, lengths, declared) = _tokenHeaderLine(_slice(head, from, to), required, found, lengths, declared);
+            _tokenHeaderLine(head, from, to, state);
             from = to + 2;
         }
 
-        if (!lengths) revert WrongTokenRequestHead();
+        if (!state.lengths) revert WrongTokenRequestHead();
         // Every required line seen: the low bits all set.
-        if (found != (1 << _countLines(required)) - 1) revert WrongTokenRequestHead();
+        if (state.found != (1 << state.requiredNames.length) - 1) revert WrongTokenRequestHead();
+        return state.declared;
     }
 
-    /// @dev One line of the token head against the rule, returning the
-    ///      bookkeeping it advanced: which required lines have been seen,
-    ///      whether the length has, and what it declared. A function of its
-    ///      own so the loop above keeps a stack the compiler can lay out.
+    /// @dev `_checkTokenHead`'s state. `found` holds a bit per required line,
+    ///      capping a profile at 255 of them (the generator allows two).
+    ///      `lengths` records a `content-length` line, `declared` its value.
+    struct TokenHead {
+        bytes32[] requiredNames;
+        bytes32[] requiredValues;
+        uint256 found;
+        bool lengths;
+        uint256 declared;
+    }
+
+    /// @dev Checks token-head line `head[from:to]` and records it in `state`.
     // forge-lint: disable-next-item(incorrect-shift)
-    function _tokenHeaderLine(bytes memory line, bytes memory required, uint256 found, bool lengths, uint256 declared)
-        private
-        pure
-        returns (uint256, bool, uint256)
-    {
-        (bool isHeader, bytes memory name, bytes memory value) = _field(line);
+    function _tokenHeaderLine(bytes memory head, uint256 from, uint256 to, TokenHead memory state) private pure {
+        (bool isHeader, bytes memory name, uint256 valueStart, uint256 valueEnd) = _field(head, from, to);
         if (!isHeader) revert WrongTokenRequestHead();
 
-        if (_indexOfLine(CeremonyProfile.FORBIDDEN_REQUEST_HEADERS, name) != type(uint256).max) {
-            revert ForbiddenRequestHeader(name);
+        bytes32 nameHash = keccak256(name);
+        if (CeremonyProfile.isForbiddenRequestHeader(nameHash)) revert ForbiddenRequestHeader(name);
+        if (nameHash == LENGTH_HEADER) {
+            if (state.lengths) revert WrongTokenRequestHead();
+            state.lengths = true;
+            state.declared = _decimal(head, valueStart, valueEnd);
+            return;
         }
-        if (_equal(name, LENGTH_HEADER)) {
-            if (lengths) revert WrongTokenRequestHead();
-            return (found, true, _decimal(value, 0));
-        }
-        uint256 i = _indexOfName(required, name);
-        if (i == type(uint256).max) return (found, lengths, declared);
-        if (!_equal(value, _valueOf(required, i))) revert WrongTokenRequestHead();
-        if (found & (1 << i) != 0) revert WrongTokenRequestHead();
-        return (found | (1 << i), lengths, declared);
+        uint256 i = _indexOf(state.requiredNames, nameHash);
+        if (i == type(uint256).max) return;
+        if (_hash(head, valueStart, valueEnd) != state.requiredValues[i]) revert WrongTokenRequestHead();
+        if (state.found & (1 << i) != 0) revert WrongTokenRequestHead();
+        state.found |= 1 << i;
     }
 
-    /// @dev A header line as the platform reads it: the name before the first
-    ///      colon, lowercased, with any whitespace before the colon removed --
-    ///      the normalization common REQ-COMMON-39 gives the identity request
-    ///      -- and with `_` read as `-`, since a CGI-style stack maps both to
-    ///      one key; then the value after the colon with the optional
-    ///      whitespace on either side removed. A line with no colon, or
-    ///      nothing before it, is not a header, and says so rather than
-    ///      reverting: the token head refuses one, the identity head leaves it
-    ///      to the platform.
-    function _field(bytes memory line) private pure returns (bool isHeader, bytes memory name, bytes memory value) {
-        uint256 colon;
-        while (colon < line.length && line[colon] != ":") {
-            ++colon;
-        }
-        if (colon == line.length) return (false, name, value);
-        uint256 nameEnd = colon;
-        while (nameEnd > 0 && (line[nameEnd - 1] == " " || line[nameEnd - 1] == "\t")) {
-            --nameEnd;
-        }
-        if (nameEnd == 0) return (false, name, value);
-        name = _slice(line, 0, nameEnd);
-        for (uint256 i = 0; i < name.length; ++i) {
-            if (name[i] >= "A" && name[i] <= "Z") name[i] = bytes1(uint8(name[i]) + 32);
-            if (name[i] == "_") name[i] = "-";
-        }
-        isHeader = true;
-        uint256 start = colon + 1;
-        uint256 end = line.length;
-        while (start < end && (line[start] == " " || line[start] == "\t")) {
-            ++start;
-        }
-        while (end > start && (line[end - 1] == " " || line[end - 1] == "\t")) {
-            --end;
-        }
-        value = _slice(line, start, end);
-    }
-
-    /// @dev Which line of the CRLF-joined `block_` names `name`, or `max`.
-    function _indexOfName(bytes memory block_, bytes memory name) private pure returns (uint256 index) {
+    /// @dev The name and value hashes of each `_tokenRequiredHeaders()` line.
+    ///      A line `_field` rejects hashes as the empty name, which no header
+    ///      line has, so no head satisfies it.
+    function _requiredHeaders() private pure returns (bytes32[] memory names, bytes32[] memory values) {
+        bytes memory block_ = _tokenRequiredHeaders();
+        names = new bytes32[](_countLines(block_));
+        values = new bytes32[](names.length);
         uint256 from;
-        while (from <= block_.length) {
+        for (uint256 i = 0; i < names.length; ++i) {
             uint256 to = _lineEnd(block_, from);
-            (, bytes memory lineName,) = _field(_slice(block_, from, to));
-            if (_equal(lineName, name)) return index;
-            ++index;
+            (, bytes memory name, uint256 valueStart, uint256 valueEnd) = _field(block_, from, to);
+            names[i] = keccak256(name);
+            values[i] = _hash(block_, valueStart, valueEnd);
             from = to + 2;
+        }
+    }
+
+    /// @dev The first index of `hash` in `hashes`, or `max`.
+    function _indexOf(bytes32[] memory hashes, bytes32 hash) private pure returns (uint256) {
+        for (uint256 i = 0; i < hashes.length; ++i) {
+            if (hashes[i] == hash) return i;
         }
         return type(uint256).max;
     }
 
-    /// @dev The value of line `index` of the CRLF-joined `block_`.
-    function _valueOf(bytes memory block_, uint256 index) private pure returns (bytes memory value) {
-        uint256 from;
-        for (uint256 i = 0; i < index; ++i) {
-            from = _lineEnd(block_, from) + 2;
+    /// @dev Header line `data[from:to]` as the platform reads it: the name
+    ///      before the first colon, lowercased, whitespace before the colon
+    ///      dropped (REQ-COMMON-39), `_` read as `-` since a CGI-style stack
+    ///      maps both to one key; the value as offsets, optional whitespace
+    ///      trimmed. No colon or an empty name returns `isHeader` false: the
+    ///      token head refuses it; the identity head leaves it to the platform.
+    function _field(bytes memory data, uint256 from, uint256 to)
+        private
+        pure
+        returns (bool isHeader, bytes memory name, uint256 valueStart, uint256 valueEnd)
+    {
+        // The line lies inside `data`, so every read below does.
+        assert(from <= to && to <= data.length);
+        uint256 colon = CeremonyFields.indexOfByte(data, from, to, ":");
+        if (colon == to) return (false, name, 0, 0);
+        name = _slice(data, from, colon);
+        // The name lowercased, `_` read as `-`, every space and tab dropped
+        // (REQ-PLAT-56A, REQ-COMMON-39B). In place: the write index never
+        // passes the read index, which stays below `name.length`.
+        assembly ("memory-safe") {
+            let p := add(name, 0x20)
+            let len := mload(name)
+            let kept := 0
+            for { let i := 0 } lt(i, len) { i := add(i, 1) } {
+                let c := byte(0, mload(add(p, i)))
+                if iszero(or(eq(c, 0x20), eq(c, 0x09))) {
+                    if and(gt(c, 0x40), lt(c, 0x5b)) { c := add(c, 0x20) }
+                    if eq(c, 0x5f) { c := 0x2d }
+                    mstore8(add(p, kept), c)
+                    kept := add(kept, 1)
+                }
+            }
+            mstore(name, kept)
         }
-        (,, value) = _field(_slice(block_, from, _lineEnd(block_, from)));
+        if (name.length == 0) return (false, name, 0, 0);
+        isHeader = true;
+        valueStart = colon + 1;
+        // Skips the value's leading spaces and tabs, reading only below `to`.
+        assembly ("memory-safe") {
+            let p := add(data, 0x20)
+            for {} lt(valueStart, to) { valueStart := add(valueStart, 1) } {
+                let c := byte(0, mload(add(p, valueStart)))
+                if iszero(or(eq(c, 0x20), eq(c, 0x09))) { break }
+            }
+        }
+        valueEnd = _trimEnd(data, valueStart, to);
+    }
+
+    /// @dev `to`, moved back over the spaces and tabs ending `data[from:to]`.
+    function _trimEnd(bytes memory data, uint256 from, uint256 to) private pure returns (uint256 end) {
+        end = to;
+        // Reads `data[end - 1]` only for `from < end <= to`, and every caller
+        // keeps `to <= data.length`.
+        assembly ("memory-safe") {
+            let p := add(data, 0x20)
+            for {} gt(end, from) { end := sub(end, 1) } {
+                let c := byte(0, mload(add(p, sub(end, 1))))
+                if iszero(or(eq(c, 0x20), eq(c, 0x09))) { break }
+            }
+        }
     }
 
     /// @dev Every revealed line of the identity request carries none of the
@@ -656,12 +652,12 @@ abstract contract TlsNotaryVerifierBase is IPlatformVerifier, PlatformVerifierBa
         while (from < revealed.length) {
             uint256 to = _lineEnd(revealed, from);
             if (to > from) {
-                (bool isHeader, bytes memory name,) = _field(_slice(revealed, from, to));
-                if (
-                    isHeader && !_equal(name, AUTHORIZATION)
-                        && _indexOfLine(CeremonyProfile.FORBIDDEN_REQUEST_HEADERS, name) != type(uint256).max
-                ) {
-                    revert ForbiddenRequestHeader(name);
+                (bool isHeader, bytes memory name,,) = _field(revealed, from, to);
+                if (isHeader) {
+                    bytes32 nameHash = keccak256(name);
+                    if (nameHash != AUTHORIZATION && CeremonyProfile.isForbiddenRequestHeader(nameHash)) {
+                        revert ForbiddenRequestHeader(name);
+                    }
                 }
             }
             from = to + 2;
@@ -672,59 +668,61 @@ abstract contract TlsNotaryVerifierBase is IPlatformVerifier, PlatformVerifierBa
     ///      the end of `data` for the last line -- the head is sliced at the
     ///      blank line, so its final header carries no CRLF of its own.
     function _lineEnd(bytes memory data, uint256 from) private pure returns (uint256) {
-        for (uint256 i = from; i + 1 < data.length; ++i) {
-            if (data[i] == 0x0d && data[i + 1] == 0x0a) return i;
+        for (
+            uint256 cr = CeremonyFields.indexOfByte(data, from, 0x0d);
+            cr + 1 < data.length;
+            cr = CeremonyFields.indexOfByte(data, cr + 1, 0x0d)
+        ) {
+            if (data[cr + 1] == 0x0a) return cr;
         }
         return data.length;
     }
 
     function _countLines(bytes memory block_) private pure returns (uint256 count) {
         count = 1;
-        for (uint256 i = 0; i + 1 < block_.length; ++i) {
-            if (block_[i] == 0x0d && block_[i + 1] == 0x0a) ++count;
+        for (uint256 end = _lineEnd(block_, 0); end < block_.length; end = _lineEnd(block_, end + 2)) {
+            ++count;
         }
     }
 
-    /// @dev Which line of the CRLF-joined `block_` equals `line`, or `max`.
-    function _indexOfLine(bytes memory block_, bytes memory line) private pure returns (uint256) {
-        uint256 index;
-        uint256 from;
-        while (from <= block_.length) {
-            uint256 to = from;
-            while (to + 1 < block_.length && !(block_[to] == 0x0d && block_[to + 1] == 0x0a)) {
-                ++to;
-            }
-            if (to + 1 >= block_.length) to = block_.length;
-            if (_equal(_slice(block_, from, to), line)) return index;
-            ++index;
-            from = to + 2;
-        }
-        return type(uint256).max;
-    }
-
-    /// @dev Canonical decimal, at most `uint32`'s ten digits. A leading zero is
-    ///      a second spelling of a length this compares one spelling of.
-    function _decimal(bytes memory line, uint256 from) private pure returns (uint256 value) {
-        uint256 width = line.length - from;
+    /// @dev `data[from:to]` as canonical decimal, at most `uint32`'s ten
+    ///      digits. A leading zero is a second spelling of a length this
+    ///      compares one spelling of.
+    function _decimal(bytes memory data, uint256 from, uint256 to) private pure returns (uint256 value) {
+        uint256 width = to - from;
         if (width == 0 || width > 10) revert WrongTokenRequestHead();
-        if (width > 1 && line[from] == "0") revert WrongTokenRequestHead();
-        for (uint256 i = from; i < line.length; ++i) {
-            if (line[i] < "0" || line[i] > "9") revert WrongTokenRequestHead();
-            value = value * 10 + (uint8(line[i]) - 0x30);
+        if (width > 1 && data[from] == "0") revert WrongTokenRequestHead();
+        for (uint256 i = from; i < to; ++i) {
+            if (data[i] < "0" || data[i] > "9") revert WrongTokenRequestHead();
+            value = value * 10 + (uint8(data[i]) - 0x30);
         }
     }
 
+    /// @dev `data[from:to]`, copied.
     function _slice(bytes memory data, uint256 from, uint256 to) private pure returns (bytes memory out) {
+        // In bounds, so the copy reads only bytes `data` holds.
+        assert(from <= to && to <= data.length);
         out = new bytes(to - from);
-        for (uint256 i = 0; i < out.length; ++i) {
-            out[i] = data[from + i];
+        assembly ("memory-safe") {
+            mcopy(add(out, 0x20), add(add(data, 0x20), from), sub(to, from))
         }
     }
 
-    function _equal(bytes memory a, bytes memory b) private pure returns (bool) {
-        return a.length == b.length && keccak256(a) == keccak256(b);
+    /// @dev keccak256 of `data[from:to]`, read in place.
+    function _hash(bytes memory data, uint256 from, uint256 to) private pure returns (bytes32 hash) {
+        // In bounds, so the hash reads only bytes `data` holds.
+        assert(from <= to && to <= data.length);
+        assembly ("memory-safe") {
+            hash := keccak256(add(add(data, 0x20), from), sub(to, from))
+        }
     }
 
+    /// @dev The token request's body: the bytes after its one `\r\n\r\n`. The
+    ///      request must be one revealed range with no commitment, which the
+    ///      caller's exact coverage makes the whole request: the body is the one
+    ///      the platform framed, not a decoy beside a committed original. Its
+    ///      `content-length` must equal the signed body length, or the platform
+    ///      could parse a shorter form than the one read here.
     function _tokenBody(CeremonyAttestation.DirectionBlock memory block_) internal pure returns (bytes memory body) {
         if (block_.revealed.length != 1 || block_.commitments.length != 0) {
             revert WrongTokenRequestLayout(block_.revealed.length, block_.commitments.length);
@@ -735,10 +733,21 @@ abstract contract TlsNotaryVerifierBase is IPlatformVerifier, PlatformVerifierBa
         // it removes any question of which run of bytes the body is.
         uint256 at = type(uint256).max;
         uint256 seen;
-        for (uint256 i = 0; i + 4 <= whole.length; ++i) {
-            if (whole[i] == 0x0d && whole[i + 1] == 0x0a && whole[i + 2] == 0x0d && whole[i + 3] == 0x0a) {
+        // Every boundary begins with a CR, so only those offsets are tried.
+        for (
+            uint256 cr = CeremonyFields.indexOfByte(whole, 0, 0x0d);
+            cr + 4 <= whole.length;
+            cr = CeremonyFields.indexOfByte(whole, cr + 1, 0x0d)
+        ) {
+            uint256 four;
+            // The four bytes at `cr`, inside `whole` by the loop condition;
+            // the shift drops what the word holds past them.
+            assembly ("memory-safe") {
+                four := shr(224, mload(add(add(whole, 0x20), cr)))
+            }
+            if (four == 0x0d0a0d0a) {
                 ++seen;
-                if (at == type(uint256).max) at = i;
+                if (at == type(uint256).max) at = cr;
             }
         }
         if (seen != 1) revert NoHeadBoundary(seen);
@@ -750,17 +759,11 @@ abstract contract TlsNotaryVerifierBase is IPlatformVerifier, PlatformVerifierBa
         // remainder is the body the platform parsed.
         if (declared != whole.length - at) revert WrongDeclaredBodyLength(declared, whole.length - at);
 
-        body = new bytes(whole.length - at);
-        for (uint256 i = 0; i < body.length; ++i) {
-            body[i] = whole[at + i];
-        }
+        body = _slice(whole, at, whole.length);
     }
 
     function _startsWith(bytes memory data, bytes memory prefix) internal pure returns (bool) {
         if (data.length < prefix.length) return false;
-        for (uint256 i = 0; i < prefix.length; ++i) {
-            if (data[i] != prefix[i]) return false;
-        }
-        return true;
+        return _hash(data, 0, prefix.length) == keccak256(prefix);
     }
 }

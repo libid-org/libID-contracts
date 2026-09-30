@@ -18,13 +18,6 @@ import {Base64} from "@openzeppelin/contracts/utils/Base64.sol";
 ///      make every proof replayable across chains -- or derive it differently
 ///      from the builders, which would reject every genuine proof.
 library CeremonyAuthorization {
-    /// @dev Fixed part of the preimage: 32 + 2 + 32 + 32 + 4.
-    uint256 internal constant PREIMAGE_FIXED_LEN = 102;
-
-    /// @dev Both the verifier and the challenge are this many unpadded
-    ///      base64url characters.
-    uint256 internal constant PKCE_LEN = 43;
-
     /// @dev Raised when the Authorized Transaction Data cannot be described by
     ///      the layout's four-byte length field.
     error TransactionDataTooLong(uint256 length);
@@ -104,19 +97,9 @@ library CeremonyAuthorization {
         return _base64UrlNoPad32(verifierHash(authorizationDigest, authorizationNonce));
     }
 
-    /// @notice `BASE64URL_NOPAD(SHA256(ASCII(codeVerifier)))`.
-    function codeChallenge(bytes memory verifier) internal pure returns (bytes memory) {
-        return _base64UrlNoPad32(sha256(verifier));
-    }
-
     /// @dev Encode 32 bytes as 43 unpadded base64url characters.
-    ///
-    /// 32 bytes are ten whole three-byte groups plus a two-byte tail, so the
-    /// output length is fixed and there is no padding branch. The tail emits
-    /// three characters, never four, and never an `=`.
-    /// @dev `Base64.encodeURL` is the section 7 encoder exactly: the URL
+    ///      `Base64.encodeURL` is the section 7 encoder exactly: the URL
     ///      alphabet, and no `=` padding, which is what RFC 4648 §5 asks for.
-    ///      32 bytes encode to `PKCE_LEN` characters.
     function _base64UrlNoPad32(bytes32 value) private pure returns (bytes memory) {
         return bytes(Base64.encodeURL(bytes.concat(value)));
     }
