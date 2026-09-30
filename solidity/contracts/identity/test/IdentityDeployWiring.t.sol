@@ -10,7 +10,6 @@ import {IdentityNames} from "../IdentityNames.sol";
 import {IPlatformVerifier} from "../../ceremony/IPlatformVerifier.sol";
 import {IProofVerifier} from "../../ceremony/IProofVerifier.sol";
 import {CeremonyProofVerifier} from "../../ceremony/CeremonyProofVerifier.sol";
-import {GooglePlatformVerifier} from "../../ceremony/GooglePlatformVerifier.sol";
 import {StubPlatformVerifier} from "./StubPlatformVerifier.sol";
 
 /// The deploy wires three platforms into one registry. A wrong rule set there
@@ -90,29 +89,6 @@ contract IdentityDeployWiringTest is Test {
         assertEq(names.resolveHandle(HandleVectors.PLATFORM_X, "nobody"), address(0));
         assertEq(names.resolveHandle(HandleVectors.PLATFORM_GITHUB, "nobody"), address(0));
         assertEq(names.resolveHandle(HandleVectors.PLATFORM_GOOGLE, "nobody@example.com"), address(0));
-    }
-
-    /// The generated allowance is what a Platform Verifier must be initialized
-    /// with, and nothing else derives it. Without a reader the table drifts
-    /// silently: a verifier accepts any value up to its cap, so a
-    /// mis-typed allowance is taken without complaint and mis-orders every
-    /// cross-platform watermark from then on.
-    function test_everyGeneratedAllowanceIsOneAVerifierWillAccept() public {
-        // Read off a real verifier, not restated: a second copy of the cap
-        // is the drift this test exists to catch.
-        uint64 cap = new GooglePlatformVerifier().MAX_FUTURE_OBSERVATION_ALLOWANCE();
-        assertLe(HandleVectors.futureAllowanceFor(HandleVectors.PLATFORM_X), cap, "X");
-        assertLe(HandleVectors.futureAllowanceFor(HandleVectors.PLATFORM_GITHUB), cap, "GitHub");
-        assertLe(HandleVectors.futureAllowanceFor(HandleVectors.PLATFORM_GOOGLE), cap, "Google");
-
-        // And the ordering the numbers exist for: an OIDC claim carries the
-        // token's `exp` and reads about an hour ahead, a notarized observation
-        // is wall-clock and never is.
-        assertGt(
-            HandleVectors.futureAllowanceFor(HandleVectors.PLATFORM_GOOGLE),
-            HandleVectors.futureAllowanceFor(HandleVectors.PLATFORM_X),
-            "an OIDC claim is dated ahead, a notarized one is not"
-        );
     }
 
     /// The deploy script's wiring, mirrored. Both sides call one helper so this
