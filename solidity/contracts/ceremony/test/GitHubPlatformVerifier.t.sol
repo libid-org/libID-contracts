@@ -310,9 +310,9 @@ contract GitHubPlatformVerifierTest is Test {
         this.run{value: quote}(s);
     }
 
-    /// @dev REQ-PLAT-61, TEST-PLAT-12: no `grant_type` is admitted. Under
-    ///      `formField` alone it was merely uncompared; held to the exact form
-    ///      it is a sixth pair, refused at the `&` that begins it.
+    /// @dev REQ-PLAT-61, TEST-PLAT-12: no `grant_type` is admitted. Held to
+    ///      the exact form it is a sixth pair, refused at the `&` that begins
+    ///      it.
     function test_rejectsAnExchangeCarryingAGrantType() public {
         bytes memory honest = _exchangeBody();
         TlsNotaryVerifierBase.TlsNotaryProof memory s =
@@ -364,9 +364,8 @@ contract GitHubPlatformVerifierTest is Test {
         this.run{value: quote}(s);
     }
 
-    /// @dev REQ-PLAT-61, TEST-PLAT-12: a duplicate in the literal spelling.
-    ///      `formField` would have refused this one too; the exact form
-    ///      refuses it where the second `client_id=` stands in place of `code=`.
+    /// @dev REQ-PLAT-61, TEST-PLAT-12: a duplicate in the literal spelling,
+    ///      refused where the second `client_id=` stands in place of `code=`.
     function test_rejectsAnExchangeWithADuplicateField() public {
         bytes memory first = "client_id=Iv1.8a61f9b3a7aba766&";
         TlsNotaryVerifierBase.TlsNotaryProof memory s = _withExchangeBody(abi.encodePacked(first, _exchangeBody()));
@@ -375,9 +374,9 @@ contract GitHubPlatformVerifierTest is Test {
     }
 
     /// @dev REQ-PLAT-61, TEST-PLAT-12: a duplicate in an ENCODED spelling.
-    ///      `code%5Fverifier` is `code_verifier` to a form parser and no
-    ///      match to `formField`, which is the case ASM-PROV-07 used to
-    ///      cover. It is a sixth pair here, refused like any other.
+    ///      `code%5Fverifier` is `code_verifier` to a form parser but no
+    ///      literal match for it, the case ASM-PROV-07 describes. It is a
+    ///      sixth pair here, refused like any other.
     function test_rejectsAnExchangeWithAnEncodedDuplicateName() public {
         bytes memory honest = _exchangeBody();
         TlsNotaryVerifierBase.TlsNotaryProof memory s =
@@ -417,9 +416,9 @@ contract GitHubPlatformVerifierTest is Test {
 
     /// @dev REQ-PLAT-61, TEST-PLAT-12: a raw `;` inside the credential. Some
     ///      form parsers split pairs on it, so to them this body carries a
-    ///      second `code_verifier`; `formField` would have read the credential
-    ///      to the next `&` and counted one. The serializer never emits a raw
-    ///      `;`, so the byte itself is refused.
+    ///      second `code_verifier`, while a reader splitting only on `&`
+    ///      counts one. The serializer never emits a raw `;`, so the byte
+    ///      itself is refused.
     function test_rejectsAnExchangeWithARawSemicolonInAValue() public {
         bytes memory body = _exchangeBody(
             "abc", "https%3A%2F%2Fa.example", "0123456789abcdef;code_verifier=EVILEVILEVILEVILEVILEVILEVILEVILEVILEVIL0"
@@ -946,8 +945,8 @@ contract GitHubPlatformVerifierTest is Test {
     ///      not compose: `github/v1` pins its OWN head, so a prover sending a
     ///      request X's constant would have accepted is still refused here.
     ///      The media type is the header the requirement names, because it is
-    ///      what decides whether GitHub reads the bytes `formField` reads as a
-    ///      form at all.
+    ///      what decides whether GitHub reads the bytes the verifier reads as
+    ///      a form at all.
     function test_rejectsAnotherMediaTypeOnTheExchange() public {
         bytes memory body = _exchangeBody();
         bytes memory head = _exchangeHead(

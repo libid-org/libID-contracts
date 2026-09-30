@@ -397,6 +397,16 @@ def gen_sol(spec: dict[str, Any]) -> str:
     lines.append(
         f'    bytes internal constant FORBIDDEN_REQUEST_HEADERS = "{escaped(crlf(forbidden_headers(spec)))}";'
     )
+    lines += [
+        "",
+        "    /// @dev Whether `nameHash` is the keccak256 of a name",
+        "    ///      `FORBIDDEN_REQUEST_HEADERS` lists.",
+        "    function isForbiddenRequestHeader(bytes32 nameHash) internal pure returns (bool) {",
+        "        return "
+        + " || ".join(f'nameHash == keccak256("{name}")' for name in forbidden_headers(spec))
+        + ";",
+        "    }",
+    ]
 
     lines += [
         "",
@@ -439,23 +449,9 @@ def gen_sol(spec: dict[str, Any]) -> str:
         "    }",
         "",
         "    error UnknownPlatform(bytes32 platformId);",
-        "",
-        "    // --- Protocol parameters -------------------------------------------------",
+        "}",
         "",
     ]
-    lines += sol_doc(spec["parameters"].get("note"))
-    for profile in profiles:
-        if "proofLifetimeSeconds" not in profile:
-            continue
-        lines.append(
-            f"    uint64 internal constant LAUNCH_PROOF_LIFETIME_{upper(profile['platform'])} = "
-            f"{profile['proofLifetimeSeconds']};"
-        )
-    lines.append(
-        "    uint64 internal constant LAUNCH_MAX_FUTURE_ATTESTATION_SKEW = "
-        f"{spec['parameters']['maxFutureAttestationSkewSeconds']};"
-    )
-    lines += ["}", ""]
     return "\n".join(lines)
 
 

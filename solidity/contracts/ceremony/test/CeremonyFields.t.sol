@@ -11,7 +11,8 @@ contract CeremonyFieldsTest is Test {
     error Refused(CeremonyFields.Found found, string name);
 
     function jsonString(bytes calldata d, string calldata n) external pure returns (bytes memory) {
-        (CeremonyFields.Found found, bytes memory v) = CeremonyFields.tryJsonString(d, n);
+        (CeremonyFields.Found found, bytes memory v) =
+            CeremonyFields.tryNormalizedJsonString(CeremonyFields.normalizeJsonBytes(d), n);
         if (found == CeremonyFields.Found.None) revert CeremonyFields.FieldNotFound(n);
         if (found == CeremonyFields.Found.Several) revert CeremonyFields.AmbiguousField(n);
         if (found != CeremonyFields.Found.One) revert Refused(found, n);
@@ -19,15 +20,20 @@ contract CeremonyFieldsTest is Test {
     }
 
     function jsonInteger(bytes calldata d, string calldata n) external pure returns (bytes memory) {
-        (CeremonyFields.Found found, bytes memory v) = CeremonyFields.tryJsonInteger(d, n);
+        (CeremonyFields.Found found, bytes memory v) =
+            CeremonyFields.tryNormalizedJsonInteger(CeremonyFields.normalizeJsonBytes(d), n);
         if (found == CeremonyFields.Found.None) revert CeremonyFields.FieldNotFound(n);
         if (found == CeremonyFields.Found.Several) revert CeremonyFields.AmbiguousField(n);
         if (found != CeremonyFields.Found.One) revert Refused(found, n);
         return v;
     }
 
-    function formField(bytes calldata d, string calldata n) external pure returns (bytes memory) {
-        return CeremonyFields.formField(d, n);
+    function valueOf(bytes calldata body, bytes calldata names, string calldata n)
+        external
+        pure
+        returns (bytes memory)
+    {
+        return CeremonyFields.valueOf(CeremonyFields.requireExactForm(body, names), n);
     }
 
     function requireExactForm(bytes calldata body, bytes calldata names) external pure {
@@ -132,31 +138,23 @@ contract CeremonyFieldsTest is Test {
         bytes memory body = bytes(
             "grant_type=authorization_code&client_id=abc123&code=xyz&redirect_uri=https%3A%2F%2Fa.example&code_verifier=5teBDl6cz4U77aFweV5PbMhBJ_lEFv6LLNKzqnDI5lo"
         );
-        assertEq(string(this.formField(body, "grant_type")), "authorization_code");
-        assertEq(string(this.formField(body, "client_id")), "abc123");
-        assertEq(string(this.formField(body, "code_verifier")), "5teBDl6cz4U77aFweV5PbMhBJ_lEFv6LLNKzqnDI5lo");
+        bytes memory names = "grant_type&client_id&code&redirect_uri&code_verifier";
+        assertEq(string(this.valueOf(body, names, "grant_type")), "authorization_code");
+        assertEq(string(this.valueOf(body, names, "client_id")), "abc123");
+        assertEq(string(this.valueOf(body, names, "code_verifier")), "5teBDl6cz4U77aFweV5PbMhBJ_lEFv6LLNKzqnDI5lo");
     }
 
-    /// @dev Without the leading boundary, `client_id=` matches inside
-    ///      `evil_client_id=` and the attacker's value answers.
+    /// @dev A name is matched whole at its own pair, never as the tail of a
+    ///      longer one: `client_id` does not answer from `evil_client_id=`.
     function test_aFieldNameMustStartAtABoundary() public view {
         bytes memory body = bytes("evil_client_id=attacker&client_id=real");
-        assertEq(string(this.formField(body, "client_id")), "real");
-    }
-
-    /// @dev The duplicate-field case ASM-PROV-07 leaves open in HIDDEN ranges is
-    ///      closed here for revealed ones: two `code_verifier` fields make the
-    ///      read ambiguous rather than letting the first or last answer.
-    function test_refusesADuplicateFormField() public {
-        bytes memory body = bytes("code_verifier=GOOD&code_verifier=EVIL");
-        vm.expectRevert(abi.encodeWithSelector(CeremonyFields.AmbiguousField.selector, "code_verifier"));
-        this.formField(body, "code_verifier");
+        assertEq(string(this.valueOf(body, "evil_client_id&client_id", "client_id")), "real");
     }
 
     function test_readsTheFirstAndLastFieldOfABody() public view {
         bytes memory body = bytes("a=1&b=2&c=3");
-        assertEq(string(this.formField(body, "a")), "1");
-        assertEq(string(this.formField(body, "c")), "3");
+        assertEq(string(this.valueOf(body, ABC, "a")), "1");
+        assertEq(string(this.valueOf(body, ABC, "c")), "3");
     }
 
     // ─── The exact form (REQ-PLAT-61) ───────────────────────────────
