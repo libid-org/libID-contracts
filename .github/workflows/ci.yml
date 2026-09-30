@@ -103,6 +103,54 @@ jobs:
         run: forge fmt --check
 
   # ---------------------------------------------------------------------------
+  # Gas: what verifying a claim costs. The numbers are committed in
+  # solidity/snapshots/, so a PR that moves one shows it in its diff. This job
+  # measures them again under eden-testnet's rules (the `gas` profile in
+  # solidity/foundry.toml), writes the change against the base to the job
+  # summary, and fails when the committed numbers are not what the code
+  # measures.
+  # ---------------------------------------------------------------------------
+  gas:
+    name: Gas
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          submodules: recursive
+          # The base is the first parent: the base branch of a PR's merge
+          # commit, the previous commit of a push.
+          fetch-depth: 2
+
+      - name: Build contracts
+        uses: ./.github/actions/forge-build
+        with:
+          foundry-version: ${{ env.FOUNDRY_VERSION }}
+          profile: gas
+
+      # From an empty directory, so a file the run does not write again shows
+      # as deleted below rather than passing unchanged.
+      - name: Measure
+        working-directory: solidity
+        env:
+          FOUNDRY_PROFILE: gas
+        run: |
+          rm -rf snapshots
+          forge test
+
+      - name: Summary
+        run: ./scripts/compare-gas-snapshots.py HEAD^1 >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Committed numbers are current
+        run: |
+          if [ -n "$(git status --porcelain -- solidity/snapshots)" ]; then
+            git status --short -- solidity/snapshots
+            git diff -- solidity/snapshots
+            echo "::error::solidity/snapshots is not what the code measures. Run 'FOUNDRY_PROFILE=gas forge test' in solidity/ and commit the result."
+            exit 1
+          fi
+
+  # ---------------------------------------------------------------------------
   # Generated files match their source. handles.json generates the platform
   # constants and the handle vector table for every language; a drift between
   # the source and a committed output leaves every per-language test green
