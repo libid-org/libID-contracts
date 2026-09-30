@@ -10,7 +10,7 @@ import {HandleNormalizer} from "./HandleNormalizer.sol";
 ///
 /// @dev The vectors are here rather than in the test file because Rust and
 ///      TypeScript run the same table. A normalizer that disagrees with
-///      another language fails a test instead of writing a different key.
+///      another language fails a test instead of writing a different node.
 library HandleVectors {
     /// keccak256(bytes("x"))
     bytes32 internal constant PLATFORM_X = keccak256(bytes("x"));
@@ -29,7 +29,7 @@ library HandleVectors {
     /// @dev Generated so a deploy, a test and a consumer cannot each
     ///      keep their own copy. Reverts on an unknown platform rather
     ///      than returning a permissive default, because a wrong rule
-    ///      set writes wrong keys.
+    ///      set writes wrong nodes.
     function rulesFor(bytes32 platformId) internal pure returns (HandleNormalizer.Rules memory) {
         if (platformId == PLATFORM_X) {
             return HandleNormalizer.Rules({
