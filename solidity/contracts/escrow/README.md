@@ -1,13 +1,13 @@
 # HandleEscrow
 
-Send value to an X or GitHub handle or a Gmail address before any wallet has
-proved it in `IdentityNames`. The wallet that proves the handle claims it;
+Send value to an X or GitHub handle or a Gmail address before its holder has
+proved it in `IdentityNames`. The address that proves the handle claims it;
 until then each deposit's `refundTo` can take its own contribution back. A
-handle already bound to a wallet is paid straight through.
+handle somebody already holds is paid straight through.
 
 ```solidity
 escrow.deposit{value: amount}(platformId, handleHash, escrow.NATIVE(), amount, refundTo);
-escrow.claim(handleNode, tokens, recipient);   // the wallet bound to the handle
+escrow.claim(handleNode, tokens, recipient);   // the handle's holder
 escrow.refund(handleNode, token, recipient);   // refundTo, while unclaimed
 ```
 
@@ -27,10 +27,10 @@ escrow.refund(handleNode, token, recipient);   // refundTo, while unclaimed
   to the `Deposited` of its round and a `Claimed` took what that round still
   held. `Claimed` and `Refunded` name no platform: join on the node with
   `Deposited` or `IdentityNames.IdentityBound`.
-- Pay-through goes to the wallet bound to the handle when the transaction
-  lands, recycled handles included. Show `handleBinding(node).observedAt`
-  first. A bound wallet that rejects ETH cannot be paid in ETH; a bound
-  contract can burn its payers' gas.
+- Pay-through goes to whoever holds the handle when the transaction lands,
+  recycled handles included. Show `handleBinding(node).observedAt` first. A
+  holder that rejects ETH cannot be paid in ETH; a holder contract can burn
+  its payers' gas.
 - Each token is one pool. Rebasing tokens are unsupported: after a negative
   rebase the last withdrawal in that token fails. A token that charges its
   sender on `transfer` deposits but never pays out: every claim and refund

@@ -12,16 +12,16 @@ function one(address token) pure returns (address[] memory tokens) {
     tokens[0] = token;
 }
 
-/// @notice A registry whose bound wallets are set directly; deposits go by hash.
+/// @notice A registry whose holders are set directly; deposits go by hash.
 contract SettableRegistry is IIdentityNames {
-    mapping(bytes32 => address) public walletOf;
+    mapping(bytes32 => address) public holderOf;
 
-    function setWallet(bytes32 handleNode, address wallet) external {
-        walletOf[handleNode] = wallet;
+    function setHolder(bytes32 handleNode, address holder) external {
+        holderOf[handleNode] = holder;
     }
 
-    function handleBinding(bytes32 handleNode) external view returns (address wallet, uint64 observedAt) {
-        return (walletOf[handleNode], 0);
+    function handleBinding(bytes32 handleNode) external view returns (address holder, uint64 observedAt) {
+        return (holderOf[handleNode], 0);
     }
 
     function handleNodeOf(bytes32 platformId, string calldata handle) external pure returns (bytes32) {

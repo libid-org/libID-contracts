@@ -218,7 +218,7 @@ contract IdentityNamesTest is Test {
     /// A rename keeps the id and takes a new handle. A rename is invisible to
     /// the chain until somebody proves the new state, and this second bind is
     /// that proof — so the handle the identity left has to stop resolving, or a
-    /// payment meant for whoever has it now goes to the wallet that renamed
+    /// payment meant for whoever has it now goes to the holder that renamed
     /// away from it.
     function test_aRenameRetiresTheHandleTheIdentityLeft() public {
         _bind(alice, "123", "alice", 100);
@@ -229,12 +229,12 @@ contract IdentityNamesTest is Test {
         assertEq(names.resolveHandle(X, "alice"), address(0), "the handle it left no longer resolves");
     }
 
-    /// Only the entry this identity itself wrote. One wallet may have two
+    /// Only the entry this identity itself wrote. One holder may have two
     /// identities on a platform, and the second may have taken the handle the
     /// first released — retiring that would delete a binding nobody renamed.
     function test_aRetirementSkipsAHandleAnotherIdentityHasSinceTaken() public {
         _bind(alice, "123", "shared", 100);
-        // A second identity, same wallet, takes the handle the first had.
+        // A second identity, same holder, takes the handle the first had.
         _bind(alice, "456", "shared", 200);
         // Now the first identity renames. Its own record still names "shared".
         _bind(alice, "123", "renamed", 300);
@@ -243,7 +243,7 @@ contract IdentityNamesTest is Test {
         assertEq(names.resolveHandle(X, "renamed"), alice);
     }
 
-    /// Retiring clears the wallet and keeps the watermark. Deleting the whole
+    /// Retiring clears the holder and keeps the watermark. Deleting the whole
     /// record would return the node to `observedAt == 0` and let a proof older
     /// than the retired one take it.
     function test_aRetiredHandleStillOutranksAnOlderProof() public {
@@ -324,8 +324,8 @@ contract IdentityNamesTest is Test {
         assertEq(names.handleNodeOfHash(X, handleHash), IdentityNodes.handleNode(X, "alice"));
 
         _bind(alice, "123", "alice", 100);
-        (address wallet,) = names.handleBinding(names.handleNodeOfHash(X, handleHash));
-        assertEq(wallet, alice);
+        (address holder,) = names.handleBinding(names.handleNodeOfHash(X, handleHash));
+        assertEq(holder, alice);
     }
 
     /// Text the rules of the moment refuse reverts with the normalizer's reason, where
@@ -350,8 +350,8 @@ contract IdentityNamesTest is Test {
     function test_resolveHandleAndIdAgreesWhileOneIdentityHasBoth() public {
         _bind(alice, "123", "alice", 100);
 
-        (address wallet, bool agrees) = names.resolveHandleAndId(X, "alice", "123");
-        assertEq(wallet, alice);
+        (address holder, bool agrees) = names.resolveHandleAndId(X, "alice", "123");
+        assertEq(holder, alice);
         assertTrue(agrees, "one identity has both, so they must agree");
     }
 
@@ -361,9 +361,9 @@ contract IdentityNamesTest is Test {
         _bind(alice, "123", "shared", 100);
         _bind(bob, "456", "shared", 200);
 
-        (address wallet, bool agrees) = names.resolveHandleAndId(X, "shared", "123");
-        assertEq(wallet, bob, "the handle routes to whoever proved it last");
-        assertFalse(agrees, "the caller's id belongs to a different wallet now");
+        (address holder, bool agrees) = names.resolveHandleAndId(X, "shared", "123");
+        assertEq(holder, bob, "the handle routes to whoever proved it last");
+        assertFalse(agrees, "the caller's id belongs to a different holder now");
     }
 
     /// An id the chain has never seen leaves a caller exactly as uninformed as
@@ -371,8 +371,8 @@ contract IdentityNamesTest is Test {
     function test_resolveHandleAndIdDoesNotAgreeOnAnUnknownId() public {
         _bind(alice, "123", "alice", 100);
 
-        (address wallet, bool agrees) = names.resolveHandleAndId(X, "alice", "999");
-        assertEq(wallet, alice);
+        (address holder, bool agrees) = names.resolveHandleAndId(X, "alice", "999");
+        assertEq(holder, alice);
         assertFalse(agrees);
     }
 
@@ -388,7 +388,7 @@ contract IdentityNamesTest is Test {
         assertEq(names.publishedHandleOf(alice, X), "alice");
     }
 
-    /// Publishing is the one thing here a wallet can undo, and it must not
+    /// Publishing is the one thing here a holder can undo, and it must not
     /// depend on being able to log in again: for Google the published handle is
     /// an email address, and withdrawing it should not require a fresh proof.
     function test_aPublishedHandleCanBeWithdrawn() public {
@@ -403,7 +403,7 @@ contract IdentityNamesTest is Test {
     }
 
     /// The binding survives. This withdraws a displayed string, not the proof
-    /// of which wallet the identity is bound to.
+    /// that binds the identity to its holder.
     function test_withdrawingAPublishedHandleKeepsTheBinding() public {
         _stage("123", "alice", alice, 100);
         vm.prank(alice);
@@ -419,7 +419,7 @@ contract IdentityNamesTest is Test {
     /// Binding again with `publish: false` must NOT withdraw an earlier
     /// publish — a caller re-proving after a rename should not silently drop a
     /// handle because a flag defaulted, and withdrawing has its own door. It
-    /// must not leave the OLD handle on display either: the wallet just proved
+    /// must not leave the OLD handle on display either: the holder just proved
     /// it has a different one.
     function test_bindingAgainRefreshesAPublishedHandleRatherThanWithdrawingIt() public {
         _stage("123", "alice", alice, 100);
@@ -433,7 +433,7 @@ contract IdentityNamesTest is Test {
         assertEq(names.publishedHandleOf(alice, X), "alice2", "the display follows the handle it has");
     }
 
-    /// The complement: a wallet that never published does not start now.
+    /// The complement: a holder that never published does not start now.
     function test_bindingWithoutPublishingStillPublishesNothing() public {
         _bind(alice, "123", "alice", 100);
         _bind(alice, "123", "alice2", 200);
@@ -459,7 +459,7 @@ contract IdentityNamesTest is Test {
     }
 
     /// The refresh is observable too, or an indexer would still show the
-    /// handle the wallet renamed away from.
+    /// handle the holder renamed away from.
     function test_theLogSaysPublishedWhenARefreshKeepsTheHandleOnDisplay() public {
         _stage("123", "alice", alice, 100);
         vm.prank(alice);
@@ -491,7 +491,7 @@ contract IdentityNamesTest is Test {
         (published,) = _lastBind();
     }
 
-    /// One wallet's withdrawal is its own. There is no path to another's.
+    /// One holder's withdrawal is its own. There is no path to another's.
     function test_withdrawingTouchesOnlyTheCallersRecord() public {
         _stage("123", "alice", alice, 100);
         vm.prank(alice);
@@ -511,8 +511,8 @@ contract IdentityNamesTest is Test {
         _claim(X, true);
         assertEq(names.publishedHandleOf(alice, X), "shared", "it resolves back, so it stands");
 
-        // Bob proves the same handle. Alice's published handle is now bound to
-        // somebody else, though nothing rewrote her record.
+        // Bob proves the same handle. Alice's published handle now has another
+        // holder, though nothing rewrote her record.
         _bind(bob, "456", "shared", 200);
         assertEq(names.publishedHandleOf(alice, X), "", "it no longer resolves back");
 
@@ -523,11 +523,11 @@ contract IdentityNamesTest is Test {
         assertEq(names.publishedHandleOf(alice, X), "shared", "the record was untouched");
     }
 
-    // ─── A wallet's identities ──────────────────────────────────────
+    // ─── A holder's identities ──────────────────────────────────────
 
-    /// Every identity bound to a wallet, in one read.
-    function _identities(address wallet) internal view returns (IdentityNames.Identity[] memory) {
-        return names.identitiesOf(wallet, 0, names.identityCount(wallet));
+    /// Every identity of a holder, in one read.
+    function _identities(address holder) internal view returns (IdentityNames.Identity[] memory) {
+        return names.identitiesOf(holder, 0, names.identityCount(holder));
     }
 
     function _is(IdentityNames.Identity memory a, bytes32 platformId, string memory id) internal pure returns (bool) {
@@ -548,12 +548,12 @@ contract IdentityNamesTest is Test {
 
     /// The listed identity. Order is arbitrary, so a test that wants one
     /// identity finds it by what identifies it.
-    function _identity(address wallet, bytes32 platformId, string memory id)
+    function _identity(address holder, bytes32 platformId, string memory id)
         internal
         view
         returns (IdentityNames.Identity memory)
     {
-        IdentityNames.Identity[] memory all = _identities(wallet);
+        IdentityNames.Identity[] memory all = _identities(holder);
         for (uint256 i = 0; i < all.length; i++) {
             if (_is(all[i], platformId, id)) return all[i];
         }
@@ -567,7 +567,7 @@ contract IdentityNamesTest is Test {
         IdentityNames.Identity memory a = _identity(alice, X, "123");
         assertEq(a.handle, "alice");
         assertTrue(a.handleCurrent);
-        assertEq(names.identityCount(bob), 0, "each wallet keeps its own list");
+        assertEq(names.identityCount(bob), 0, "each holder keeps its own list");
     }
 
     function test_identitiesOnEveryPlatformShareOneList() public {
@@ -586,7 +586,7 @@ contract IdentityNamesTest is Test {
         assertEq(_identity(alice, X, "123").handle, "alice");
     }
 
-    function test_aWalletMayHaveSeveralIdentitiesOnOnePlatform() public {
+    function test_aHolderMayHaveSeveralIdentitiesOnOnePlatform() public {
         _bind(alice, "123", "alice", 100);
         _bind(alice, "456", "alicia", 200);
 
@@ -625,9 +625,9 @@ contract IdentityNamesTest is Test {
         assertTrue(_identity(bob, X, "456").handleCurrent);
     }
 
-    /// The handle node is still bound to the wallet, through the other
-    /// identity. A wallet check alone would call both identities current.
-    function test_aSecondIdentityOfTheSameWalletTakingTheHandleIsToldApart() public {
+    /// The holder still holds the handle node, through the other identity. A
+    /// holder check alone would call both identities current.
+    function test_aSecondIdentityOfTheSameHolderTakingTheHandleIsToldApart() public {
         _bind(alice, "123", "first", 100);
         _bind(alice, "456", "second", 200);
         _bind(alice, "456", "first", 300);
@@ -639,7 +639,7 @@ contract IdentityNamesTest is Test {
         assertTrue(second.handleCurrent);
     }
 
-    function test_anIdentityProvedFromANewWalletMovesBetweenLists() public {
+    function test_anIdentityProvedByANewHolderMovesBetweenLists() public {
         _bind(alice, "123", "alice", 100);
         _bind(bob, "123", "alice", 200);
 
@@ -702,10 +702,10 @@ contract IdentityNamesTest is Test {
 
     /// After any sequence of claims: an identity nobody proved is in no
     /// list, an identity somebody proved is in exactly one, the list of the
-    /// wallet whose proof of it is newest, and a handle reported current
-    /// resolves to that wallet and is current for no second identity.
+    /// holder whose proof of it is newest, and a handle reported current
+    /// resolves to that holder and is current for no second identity.
     function testFuzz_everyProvedIdentitySitsInExactlyOneList(bytes memory script) public {
-        address[3] memory wallets = [alice, bob, mallory];
+        address[3] memory holders = [alice, bob, mallory];
         bytes32[2] memory platforms = [X, GITHUB];
         string[4] memory ids = ["1", "2", "3", "4"];
         string[4] memory handles = ["one", "two", "three", "four"];
@@ -714,26 +714,26 @@ contract IdentityNamesTest is Test {
         for (uint256 i = 0; i + 1 < script.length && i < 64; i += 2) {
             uint256 a = uint8(script[i]);
             uint256 b = uint8(script[i + 1]);
-            address who = wallets[a % 3];
+            address who = holders[a % 3];
             _stage(ids[b % 4], handles[(b / 4) % 4], who, ++at);
             vm.prank(who);
             _claim(platforms[(a / 3) % 2], false);
         }
 
         uint256 listed;
-        IdentityNames.Identity[] memory current = new IdentityNames.Identity[](wallets.length * ids.length * 2);
+        IdentityNames.Identity[] memory current = new IdentityNames.Identity[](holders.length * ids.length * 2);
         uint256 currents;
-        for (uint256 w = 0; w < wallets.length; w++) {
-            IdentityNames.Identity[] memory page = _identities(wallets[w]);
+        for (uint256 w = 0; w < holders.length; w++) {
+            IdentityNames.Identity[] memory page = _identities(holders[w]);
             listed += page.length;
             for (uint256 i = 0; i < page.length; i++) {
-                assertEq(names.resolveId(page[i].platformId, page[i].id), wallets[w], "listed under its prover");
+                assertEq(names.resolveId(page[i].platformId, page[i].id), holders[w], "listed under its prover");
                 for (uint256 j = 0; j < i; j++) {
                     assertFalse(_is(page[j], page[i].platformId, page[i].id), "listed once");
                 }
                 if (page[i].handleCurrent) {
                     assertEq(
-                        names.resolveHandle(page[i].platformId, page[i].handle), wallets[w], "current, so it resolves"
+                        names.resolveHandle(page[i].platformId, page[i].handle), holders[w], "current, so it resolves"
                     );
                     current[currents++] = page[i];
                 }
@@ -773,8 +773,8 @@ contract IdentityNamesTest is Test {
     /// `resolveHandleAndId` matters more: its documented job is to let a
     /// caller decide what to tell whoever is paying, not to refuse.
     function test_resolveHandleAndIdAnswersRatherThanRevertingOnAMalformedHandle() public view {
-        (address wallet, bool idAgrees) = names.resolveHandleAndId(X, "ali ce", "123");
-        assertEq(wallet, address(0));
+        (address holder, bool idAgrees) = names.resolveHandleAndId(X, "ali ce", "123");
+        assertEq(holder, address(0));
         assertFalse(idAgrees);
     }
 
@@ -874,7 +874,7 @@ contract IdentityNamesTest is Test {
     /// Which ceremony version proved a binding is logged and never stored.
     /// By the time anybody asks, the proof has happened and the effect has
     /// been applied; the question is an operator's, and the log answers it.
-    /// The binding itself is a wallet and a watermark, nothing more.
+    /// The binding itself is a holder and a watermark, nothing more.
     function test_theLogRecordsWhichCeremonyVersionProvedIt() public {
         StubPlatformVerifier v2 = new StubPlatformVerifier(X, 0);
         vm.prank(owner);
@@ -889,10 +889,10 @@ contract IdentityNamesTest is Test {
         vm.prank(bob);
         names.bind(X, 2, payload, false);
 
-        (address idWallet, uint64 idAt) = names.idBinding(IdentityNodes.idNode(X, "456"));
-        (address handleWallet, uint64 handleAt) = names.handleBinding(IdentityNodes.handleNode(X, "bob"));
-        assertEq(idWallet, bob, "the id node");
-        assertEq(handleWallet, bob, "the handle node");
+        (address idHolder, uint64 idAt) = names.idBinding(IdentityNodes.idNode(X, "456"));
+        (address handleHolder, uint64 handleAt) = names.handleBinding(IdentityNodes.handleNode(X, "bob"));
+        assertEq(idHolder, bob, "the id node");
+        assertEq(handleHolder, bob, "the handle node");
         assertEq(idAt, 100);
         assertEq(handleAt, 100);
 
@@ -984,14 +984,14 @@ contract IdentityNamesTest is Test {
         assertEq(names.resolveHandle(X, "alice"), alice);
     }
 
-    /// A retired handle has no wallet and keeps its watermark, so a proof
+    /// A retired handle has no holder and keeps its watermark, so a proof
     /// older than the one that retired it cannot take the node back.
-    function test_aRetiredHandleHasNoWalletAndKeepsItsWatermark() public {
+    function test_aRetiredHandleHasNoHolderAndKeepsItsWatermark() public {
         _bind(alice, "123", "alice", 100);
         _bind(alice, "123", "alice2", 200);
 
-        (address wallet, uint64 at) = names.handleBinding(IdentityNodes.handleNode(X, "alice"));
-        assertEq(wallet, address(0), "the handle was retired");
+        (address holder, uint64 at) = names.handleBinding(IdentityNodes.handleNode(X, "alice"));
+        assertEq(holder, address(0), "the handle was retired");
         assertEq(at, 100, "the watermark stays");
     }
 

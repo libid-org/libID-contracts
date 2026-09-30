@@ -15,8 +15,8 @@ import {IdentityNodes} from "./IdentityNodes.sol";
 
 /// @title IdentityNames - proof-derived identities for any wallet.
 ///
-/// @notice Binds an identity to a wallet address: its immutable id on a
-///         platform, and its mutable handle. Anyone may resolve either.
+/// @notice Binds two things to a holder address: an identity's immutable id
+///         on a platform, and its mutable handle. Anyone may resolve either.
 ///
 /// @dev The contract never calls the address it binds, so a target may be an
 ///      EOA, a Safe, an ERC-4337 smart wallet or a managed wallet. It knows
@@ -87,14 +87,14 @@ import {IdentityNodes} from "./IdentityNodes.sol";
 ///      and nothing here needs one: no funds are held, and no address is
 ///      predicted ahead of its deployment.
 ///
-///      **A wallet's identities can be walked, and the walk is paid for by the
-///      walker.** Every identity a wallet proved sits in that wallet's list,
+///      **A holder's identities can be walked, and the walk is paid for by the
+///      walker.** Every identity a holder proved sits in that holder's list,
 ///      whatever the platform, with the platform, the id and the handle it
-///      has, so a contract can enumerate what a wallet is without an indexer
+///      has, so a contract can enumerate what a holder is without an indexer
 ///      and without knowing which platforms exist. The list is kept by the id
 ///      rather than by the handle: a rename moves one pointer, a handle
 ///      passing to somebody else changes nothing in it, and only an identity
-///      proved from a new wallet moves between two lists. Each of those costs
+///      proved by a new holder moves between two lists. Each of those costs
 ///      the same whether the list holds four identities or four thousand. What
 ///      grows with the list is reading it, which is why it is read by page and
 ///      why a contract should never walk a list it did not choose the size of.
@@ -107,8 +107,7 @@ contract IdentityNames is
 {
     using IdentityList for IdentityList.Data;
 
-    /// @notice The wallet a node is bound to, and the moment the platform
-    ///         stated it.
+    /// @notice A node's holder, and the moment the platform stated it.
     ///
     /// @dev `observedAt` is a provider timestamp, never a chain timestamp. Two
     ///      proofs of one handle are ordered by when the platform said it, not
@@ -119,11 +118,11 @@ contract IdentityNames is
     ///      returns, because profiles disagree about what "now" is. Raw values
     ///      would compare two clocks and the looser one would always win.
     struct Binding {
-        address wallet;
+        address holder;
         uint64 observedAt;
     }
 
-    /// @notice One identity a wallet proved, as its list reports it.
+    /// @notice One identity a holder proved, as its list reports it.
     ///
     /// @dev `handle` is the one the identity proved most recently, and
     ///      `handleCurrent` says whether the handle node still points back at
@@ -203,11 +202,11 @@ contract IdentityNames is
 
     /// @custom:storage-location erc7201:libid.storage.IdentityNames
     struct IdentityNamesStorage {
-        /// idNode -> the wallet that proved that id.
+        /// idNode -> the holder that proved that id.
         mapping(bytes32 => Binding) idBindings;
-        /// handleNode -> the wallet that last proved that handle.
+        /// handleNode -> the holder that last proved that handle.
         mapping(bytes32 => Binding) handleBindings;
-        /// wallet -> platformId -> the handle it published, if it chose to.
+        /// holder -> platformId -> the handle it published, if it chose to.
         ///
         /// A node cannot be turned back into a string, so the reverse direction
         /// needs the string itself. Publishing is optional: the event carries
@@ -220,7 +219,7 @@ contract IdentityNames is
         ///
         /// An identity has one handle at a time. When it proves a new one the
         /// old one has to stop resolving, or a payment meant for whoever has
-        /// that handle now would keep going to the wallet that renamed away
+        /// that handle now would keep going to the holder that renamed away
         /// from it. The reverse map answers "is this node still the one this
         /// identity wrote", so a second identity that took the handle in the
         /// meantime keeps it.
@@ -250,8 +249,8 @@ contract IdentityNames is
         /// -- a denial of service costing the attacker only a fee.
         mapping(bytes32 => bool) spentDigests;
         // ── The identity lists, appended after everything above.
-        /// wallet -> the id nodes bound to it, on every platform.
-        IdentityList.Data walletIdentities;
+        /// holder -> its id nodes, on every platform.
+        IdentityList.Data holderIdentities;
         /// idNode -> its platform, and the id byte for byte as the platform
         /// issued it.
         ///
@@ -292,29 +291,29 @@ contract IdentityNames is
 
     // ─── Storage reads (the ABI the public variables gave) ─────────
 
-    /// @notice The wallet that proved this id, and when it proved it.
-    function idBinding(bytes32 idNode) external view returns (address wallet, uint64 observedAt) {
+    /// @notice The holder that proved this id, and when it proved it.
+    function idBinding(bytes32 idNode) external view returns (address holder, uint64 observedAt) {
         Binding storage b = _s().idBindings[idNode];
-        return (b.wallet, b.observedAt);
+        return (b.holder, b.observedAt);
     }
 
     /// @notice The same for a handle node.
-    function handleBinding(bytes32 handleNode) external view returns (address wallet, uint64 observedAt) {
+    function handleBinding(bytes32 handleNode) external view returns (address holder, uint64 observedAt) {
         Binding storage b = _s().handleBindings[handleNode];
-        return (b.wallet, b.observedAt);
+        return (b.holder, b.observedAt);
     }
 
     // ─── Events ─────────────────────────────────────────────────────
 
-    /// @notice A wallet proved an identity.
+    /// @notice A holder proved an identity.
     ///
     /// @dev The plaintext rides along so an indexer or a browser can build
     ///      reverse resolution without the on-chain string.
     ///
-    ///      `published` says whether the handle is the wallet's published
+    ///      `published` says whether the handle is the holder's published
     ///      handle after this bind. Without it the log cannot reconstruct
     ///      `published` at all: only `unpublish` would be observable, so an
-    ///      indexer would have to guess which bindings a wallet chose to show.
+    ///      indexer would have to guess which bindings a holder chose to show.
     ///      `ceremonyVersion` names the protocol revision that proved the
     ///      binding, as the verifier reported it. It lives in the log and not
     ///      in storage: nothing on chain acts on it, and what an operator needs
@@ -322,7 +321,7 @@ contract IdentityNames is
     ///      touched, whether anybody still depends on one before retiring it --
     ///      is answered by reading the log.
     event IdentityBound(
-        address indexed wallet,
+        address indexed holder,
         bytes32 indexed idNode,
         bytes32 indexed handleNode,
         bytes32 platformId,
@@ -347,7 +346,7 @@ contract IdentityNames is
     ///      binding. The digest keys it, because the digest is what identifies
     ///      one ceremony.
     event CeremonyBound(
-        bytes32 indexed authorizationDigest, address indexed wallet, bytes32 indexed platformId, bytes clientIdentifier
+        bytes32 indexed authorizationDigest, address indexed holder, bytes32 indexed platformId, bytes clientIdentifier
     );
 
     /// @notice The service fee named by a binding's own Authorized Transaction
@@ -363,7 +362,7 @@ contract IdentityNames is
     /// @notice A handle stopped resolving because the identity that had it
     ///         proved a different one.
     /// @dev Nobody else's entry can be retired this way. See `bind`.
-    event HandleRetired(bytes32 indexed platformId, bytes32 indexed handleNode, address indexed wallet);
+    event HandleRetired(bytes32 indexed platformId, bytes32 indexed handleNode, address indexed holder);
 
     /// @notice A platform's keyspace was configured or reconfigured.
     /// @dev Reconfiguring `rules` moves every handle already written to
@@ -373,10 +372,10 @@ contract IdentityNames is
     /// @notice This Consumer was pointed at a Proof Verifier.
     event ProofVerifierConfigured(address verifier);
 
-    /// @notice A wallet withdrew its published handle.
+    /// @notice A holder withdrew its published handle.
     /// @dev An indexer that mirrors the published handles needs this to stop
     ///      showing one.
-    event HandleUnpublished(address indexed wallet, bytes32 indexed platformId);
+    event HandleUnpublished(address indexed holder, bytes32 indexed platformId);
 
     // ─── Errors ─────────────────────────────────────────────────────
 
@@ -538,7 +537,7 @@ contract IdentityNames is
         // ── The authorization predicate ───────────────────────────────
         //
         // The Authorized Transaction Data of this operation is a triple: the
-        // wallet the identity binds to, and the service fee that wallet
+        // holder the identity binds to, and the service fee that holder
         // approved. Requiring the target to be the authenticated caller is what
         // keeps consent-phishing out of identity theft -- binding to a
         // submitter-supplied address instead would let anyone spend a genuine
@@ -677,16 +676,16 @@ contract IdentityNames is
         _requireNewer(observedAt, bound.observedAt);
         _requireNewer(observedAt, _s().handleBindings[handleNode].observedAt);
 
-        _s().idBindings[idNode] = Binding({wallet: msg.sender, observedAt: observedAt});
-        _s().handleBindings[handleNode] = Binding({wallet: msg.sender, observedAt: observedAt});
+        _s().idBindings[idNode] = Binding({holder: msg.sender, observedAt: observedAt});
+        _s().handleBindings[handleNode] = Binding({holder: msg.sender, observedAt: observedAt});
 
         _retirePreviousHandle(platformId, idNode, handleNode);
         _s().handleNodeById[idNode] = handleNode;
         _s().idNodeByHandle[handleNode] = idNode;
 
-        _list(platformId, idNode, handleNode, id, handle, bound.wallet);
+        _list(platformId, idNode, handleNode, id, handle, bound.holder);
 
-        // Publishing follows the wallet's own handle, rather than the flag's
+        // Publishing follows the holder's own handle, rather than the flag's
         // default. A caller that re-proves after a rename must not keep
         // displaying the handle it no longer has, and `publish: false` must
         // not silently withdraw the display either — so an existing
@@ -706,24 +705,24 @@ contract IdentityNames is
     ///
     ///      An identity enters a list on its first proof and leaves it only
     ///      for another list, so `idBindings` says which case this is: no
-    ///      wallet yet, a first proof; another wallet, a move. Each node's
+    ///      holder yet, a first proof; another holder, a move. Each node's
     ///      preimage is written once, and a handle's may already be there from
-    ///      an earlier wallet.
+    ///      an earlier holder.
     function _list(
         bytes32 platformId,
         bytes32 idNode,
         bytes32 handleNode,
         string memory id,
         string memory handle,
-        address boundTo
+        address previousHolder
     ) private {
         IdentityNamesStorage storage $ = _s();
-        if (boundTo == address(0)) {
-            $.walletIdentities.add(msg.sender, idNode);
+        if (previousHolder == address(0)) {
+            $.holderIdentities.add(msg.sender, idNode);
             $.idPreimages[idNode] = IdentityPreimage({platformId: platformId, id: id});
-        } else if (boundTo != msg.sender) {
-            $.walletIdentities.remove(boundTo, idNode);
-            $.walletIdentities.add(msg.sender, idNode);
+        } else if (previousHolder != msg.sender) {
+            $.holderIdentities.remove(previousHolder, idNode);
+            $.holderIdentities.add(msg.sender, idNode);
         }
         if (bytes($.handlePreimages[handleNode]).length == 0) $.handlePreimages[handleNode] = handle;
     }
@@ -733,16 +732,16 @@ contract IdentityNames is
     ///      A rename is invisible to the chain until somebody proves the new
     ///      state, and this bind is that proof: the identity states it has a
     ///      different handle now, so the old one must stop routing to this
-    ///      wallet. Leaving it would send a payment meant for whoever has that
-    ///      handle today to the wallet that renamed away from it.
+    ///      holder. Leaving it would send a payment meant for whoever has that
+    ///      handle today to the holder that renamed away from it.
     ///
     ///      Only the entry this identity itself wrote is retired. If somebody
     ///      else has since proved that handle, `idNodeByHandle` names their
     ///      identity and the entry is left alone — which also covers one
-    ///      wallet with two identities on a platform, where the second may
+    ///      holder with two identities on a platform, where the second may
     ///      have taken the handle the first released.
     ///
-    ///      The wallet is cleared, the watermark is kept. Deleting the whole
+    ///      The holder is cleared, the watermark is kept. Deleting the whole
     ///      record would drop the node back to `observedAt == 0` and let a
     ///      proof older than the one just retired take it — the exact ordering
     ///      `_requireNewer` exists to enforce.
@@ -751,13 +750,13 @@ contract IdentityNames is
         if (previous == bytes32(0) || previous == handleNode) return;
         if (_s().idNodeByHandle[previous] != idNode) return;
 
-        _s().handleBindings[previous].wallet = address(0);
+        _s().handleBindings[previous].holder = address(0);
         emit HandleRetired(platformId, previous, msg.sender);
     }
 
     /// @notice Withdraw a published handle. Affects the caller's record only.
     ///
-    /// @dev Publishing is the one thing here a wallet can undo, and it needs
+    /// @dev Publishing is the one thing here a holder can undo, and it needs
     ///      its own door. Passing `publish: false` to `bind` does NOT clear an
     ///      earlier publish — a caller that binds again after a rename should
     ///      not silently withdraw a handle because a flag defaulted; it
@@ -766,7 +765,7 @@ contract IdentityNames is
     ///      to log in again.
     ///
     ///      The binding itself stays. This clears the on-chain string, not the
-    ///      proof of which wallet the identity is bound to, and the
+    ///      proof that binds the identity to its holder, and the
     ///      `IdentityBound` event that carried the plaintext is already public
     ///      and always will be. Read this as "stop displaying it here", not as
     ///      erasure.
@@ -848,7 +847,7 @@ contract IdentityNames is
         return IdentityNodes.handleNodeOfHash(platformId, handleHash);
     }
 
-    /// @notice Whether `bind` can bind a wallet on this platform now: a
+    /// @notice Whether `bind` can bind a holder on this platform now: a
     ///         keyspace, and a Proof Verifier that verifies it. Unlike the
     ///         resolvers, false after every version is retired.
     function acceptsBindings(bytes32 platformId) external view returns (bool) {
@@ -857,7 +856,7 @@ contract IdentityNames is
         return address(pv) != address(0) && pv.verifiesPlatform(platformId);
     }
 
-    /// @notice The wallet that proved this id, or the zero address.
+    /// @notice The holder that proved this id, or the zero address.
     ///
     /// @dev Reverts for a platform with no verifier, like the other two
     ///      resolvers. Returning the zero address there would answer "nobody
@@ -865,10 +864,10 @@ contract IdentityNames is
     ///      not wired — and a caller cannot tell the two apart from a zero.
     function resolveId(bytes32 platformId, string calldata id) external view returns (address) {
         _requireUsable(platformId);
-        return _s().idBindings[IdentityNodes.idNode(platformId, id)].wallet;
+        return _s().idBindings[IdentityNodes.idNode(platformId, id)].holder;
     }
 
-    /// @notice The wallet that last proved this handle, or the zero address.
+    /// @notice The holder that last proved this handle, or the zero address.
     ///
     /// @dev Takes the handle as written. Normalization happens here, so a
     ///      caller cannot reach a node by hashing the handle its own way.
@@ -882,7 +881,7 @@ contract IdentityNames is
     function resolveHandle(bytes32 platformId, string calldata handle) external view returns (address) {
         Platform memory platform = _requireUsable(platformId);
         (HandleNormalizer.Problem problem, bytes32 handleNode) = _handleNode(platformId, handle, platform.rules);
-        return problem == HandleNormalizer.Problem.None ? _s().handleBindings[handleNode].wallet : address(0);
+        return problem == HandleNormalizer.Problem.None ? _s().handleBindings[handleNode].holder : address(0);
     }
 
     /// @dev The node a handle hashes to under the given rules, or the problem
@@ -897,43 +896,41 @@ contract IdentityNames is
         if (problem == HandleNormalizer.Problem.None) handleNode = IdentityNodes.handleNode(platformId, normalized);
     }
 
-    /// @notice The handle a wallet published, but only while it still resolves
-    ///         back to that wallet. Empty otherwise.
+    /// @notice The handle a holder published, but only while it still resolves
+    ///         back to that holder. Empty otherwise.
     ///
     /// @dev This is the forward check ENS requires of its integrators, done
     ///      here so an integrator cannot skip it. Their reverse records can lie,
     ///      because anyone may set their own; ours cannot, because a proof
     ///      wrote it. Ours can still go stale, which needs the same check: after
-    ///      a rename, a wallet's published handle may belong to somebody else.
+    ///      a rename, a holder's published handle may belong to somebody else.
     ///      The stored string is re-normalized rather than hashed as it stands.
     ///      It was normalized when it was written, but under the rules of that
     ///      moment: after the owner narrows a platform's rules, hashing it
     ///      as-is would reach a node the forward resolver can no longer name,
     ///      and this would keep handing out a handle `resolveHandle` refuses.
-    function publishedHandleOf(address wallet, bytes32 platformId) external view returns (string memory) {
-        string memory published = _s().published[wallet][platformId];
+    function publishedHandleOf(address holder, bytes32 platformId) external view returns (string memory) {
+        string memory published = _s().published[holder][platformId];
         if (bytes(published).length == 0) return "";
         (HandleNormalizer.Problem problem, bytes32 handleNode) =
             _handleNode(platformId, published, _s().platforms[platformId].rules);
         if (problem != HandleNormalizer.Problem.None) return "";
-        if (_s().handleBindings[handleNode].wallet != wallet) return "";
+        if (_s().handleBindings[handleNode].holder != holder) return "";
         return published;
     }
 
-    /// @notice How many identities are bound to a wallet, on every platform
-    ///         together.
-    function identityCount(address wallet) external view returns (uint256) {
-        return _s().walletIdentities.count(wallet);
+    /// @notice How many identities a holder has, on every platform together.
+    function identityCount(address holder) external view returns (uint256) {
+        return _s().holderIdentities.count(holder);
     }
 
-    /// @notice A page of the identities bound to a wallet, on every platform
-    ///         together.
+    /// @notice A page of a holder's identities, on every platform together.
     ///
     /// @dev The page is the indices `[from, from + limit)`, counted from
     ///      zero and clipped to the list. A `from` past the end answers an
     ///      empty page. Reading costs about six storage loads per identity
     ///      returned, so the whole of a list is only for a caller that chose
-    ///      the list, and a contract reading a wallet it did not choose keeps
+    ///      the list, and a contract reading a holder it did not choose keeps
     ///      `limit` small. A reader that wants one platform filters a page by
     ///      `platformId`, which keeps a read bounded by the page and never by
     ///      the list.
@@ -946,11 +943,11 @@ contract IdentityNames is
     ///      `handleCurrent` is decided by the handle node pointing back at
     ///      this identity, which is what `bind` writes and what a takeover by
     ///      any other identity overwrites -- including a second identity of the
-    ///      same wallet, where the handle node is still bound to the wallet and
-    ///      a wallet check alone would report both identities as having it.
-    function identitiesOf(address wallet, uint256 from, uint256 limit) external view returns (Identity[] memory out) {
+    ///      same holder, where the holder still holds the handle node and a
+    ///      holder check alone would report both identities as holding it.
+    function identitiesOf(address holder, uint256 from, uint256 limit) external view returns (Identity[] memory out) {
         IdentityNamesStorage storage $ = _s();
-        bytes32[] memory nodes = $.walletIdentities.page(wallet, from, limit);
+        bytes32[] memory nodes = $.holderIdentities.page(holder, from, limit);
         out = new Identity[](nodes.length);
         for (uint256 i = 0; i < nodes.length; i++) {
             bytes32 idNode = nodes[i];
@@ -972,27 +969,27 @@ contract IdentityNames is
     ///      whether the chain still puts them together.
     ///
     ///      Disagreement is not corruption. It means somebody proved the handle
-    ///      after the caller learned which wallet it was bound to. It is also
-    ///      NOT a reason to refuse a transfer: a handle that will not route is
-    ///      not a handle. The caller reads this before it signs and decides
-    ///      what to tell whoever is paying.
+    ///      after the caller learned who held it. It is also NOT a reason to
+    ///      refuse a transfer: a handle that will not route is not a handle.
+    ///      The caller reads this before it signs and decides what to tell
+    ///      whoever is paying.
     ///
-    /// @return wallet    The wallet the handle is bound to, or the zero address.
-    /// @return idAgrees  True only when the id resolves to that same wallet.
+    /// @return holder    The handle's holder, or the zero address.
+    /// @return idAgrees  True only when the id resolves to that same holder.
     function resolveHandleAndId(bytes32 platformId, string calldata handle, string calldata id)
         external
         view
-        returns (address wallet, bool idAgrees)
+        returns (address holder, bool idAgrees)
     {
         Platform memory platform = _requireUsable(platformId);
 
         (HandleNormalizer.Problem problem, bytes32 handleNode) = _handleNode(platformId, handle, platform.rules);
-        wallet = problem == HandleNormalizer.Problem.None ? _s().handleBindings[handleNode].wallet : address(0);
+        holder = problem == HandleNormalizer.Problem.None ? _s().handleBindings[handleNode].holder : address(0);
 
-        address idWallet = _s().idBindings[IdentityNodes.idNode(platformId, id)].wallet;
+        address idHolder = _s().idBindings[IdentityNodes.idNode(platformId, id)].holder;
         // An unknown id does not agree either. A caller with an id the chain
         // has never seen is exactly as uninformed as one with a stale id.
-        idAgrees = wallet != address(0) && idWallet == wallet;
+        idAgrees = holder != address(0) && idHolder == holder;
     }
 
     // ─── Upgrade ────────────────────────────────────────────────────

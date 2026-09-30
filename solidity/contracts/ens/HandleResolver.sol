@@ -86,7 +86,7 @@ contract HandleResolver is IExtendedResolver, IERC165, Ownable2Step {
     /// `expires` is chosen entirely by the gateway, so without a ceiling a
     /// compromised or careless signing key mints answers valid until the heat
     /// death: capture one blob, replay it after the binding moves, and the
-    /// chain returns the wallet the ENS name USED to resolve to. An hour is
+    /// chain returns the holder the ENS name USED to resolve to. An hour is
     /// already generous for a value a payment is routed by.
     ///
     /// A constant rather than owner state, on purpose: it bounds what the

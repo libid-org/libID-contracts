@@ -171,7 +171,7 @@ contract HandleResolverTest is Test {
 
     /// `expires` is the gateway's to choose, so the contract bounds it. Without
     /// this a captured blob stays valid past any rename, and replaying it
-    /// returns the wallet the ENS name USED to resolve to.
+    /// returns the holder the ENS name USED to resolve to.
     function test_anAnswerCannotClaimAnUnboundedLifetime() public {
         bytes memory request = abi.encodeWithSelector(IExtendedResolver.resolve.selector, ensName, data);
         bytes memory result = abi.encode(address(0xBEEF));

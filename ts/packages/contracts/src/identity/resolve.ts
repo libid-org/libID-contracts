@@ -70,17 +70,17 @@ export async function rulesOf<K extends string>(
   }
 }
 
-/// The wallet that proved this id, or `null`.
+/// The holder that proved this id, or `null`.
 export async function resolveId(
   reader: RegistryReader,
   platformId: `0x${string}`,
   id: string,
 ): Promise<Address | null> {
-  const wallet = await read<Address>(reader, 'resolveId', [platformId, id])
-  return wallet === zeroAddress ? null : wallet
+  const holder = await read<Address>(reader, 'resolveId', [platformId, id])
+  return holder === zeroAddress ? null : holder
 }
 
-/// The wallet that last proved this handle, or `null`.
+/// The holder that last proved this handle, or `null`.
 ///
 /// The handle is normalized on chain before it is looked up, so a caller may
 /// pass what was typed — including something that is not a handle at all.
@@ -96,11 +96,11 @@ export async function resolveHandle(
   platformId: `0x${string}`,
   handle: string,
 ): Promise<Address | null> {
-  const wallet = await read<Address>(reader, 'resolveHandle', [platformId, handle])
-  return wallet === zeroAddress ? null : wallet
+  const holder = await read<Address>(reader, 'resolveHandle', [platformId, handle])
+  return holder === zeroAddress ? null : holder
 }
 
-/// The handle to show for a wallet, or `null`.
+/// The handle to show for a holder, or `null`.
 ///
 /// Forward-checked on chain: empty once the stored handle resolves somewhere
 /// else. ENS asks integrators to perform that check themselves and warns that
@@ -108,21 +108,21 @@ export async function resolveHandle(
 /// it cannot be skipped, because the contract does it.
 export async function publishedHandleOf(
   reader: RegistryReader,
-  wallet: Address,
+  holder: Address,
   platformId: `0x${string}`,
 ): Promise<string | null> {
-  const handle = await read<string>(reader, 'publishedHandleOf', [wallet, platformId])
+  const handle = await read<string>(reader, 'publishedHandleOf', [holder, platformId])
   return handle.length === 0 ? null : handle
 }
 
 export interface HandleAndIdResolution {
-  /// The wallet the handle is bound to, or `null`.
-  wallet: Address | null
-  /// True only when the id resolves to that same wallet.
+  /// The handle's holder, or `null`.
+  holder: Address | null
+  /// True only when the id resolves to that same holder.
   ///
   /// False means the caller's `(handle, id)` pair comes from two moments:
-  /// somebody proved the handle after the caller learned which wallet it was
-  /// bound to. That is staleness, not corruption.
+  /// somebody proved the handle after the caller learned who held it. That is
+  /// staleness, not corruption.
   idAgrees: boolean
 }
 
@@ -137,7 +137,7 @@ export interface HandleAndIdResolution {
 ///
 /// Both halves are needed. A handle on its own has nothing to disagree with.
 ///
-/// A handle the platform's rules reject resolves to `{wallet: null, idAgrees:
+/// A handle the platform's rules reject resolves to `{holder: null, idAgrees:
 /// false}`, the same as one nobody has proved — see `resolveHandle`.
 export async function resolveHandleAndId(
   reader: RegistryReader,
@@ -145,16 +145,16 @@ export async function resolveHandleAndId(
   handle: string,
   id: string,
 ): Promise<HandleAndIdResolution> {
-  const [wallet, idAgrees] = await read<[Address, boolean]>(reader, 'resolveHandleAndId', [
+  const [holder, idAgrees] = await read<[Address, boolean]>(reader, 'resolveHandleAndId', [
     platformId,
     handle,
     id,
   ])
 
-  return { wallet: wallet === zeroAddress ? null : wallet, idAgrees }
+  return { holder: holder === zeroAddress ? null : holder, idAgrees }
 }
 
-/// One identity a wallet proved, as the wallet's list reports it.
+/// One identity a holder proved, as the holder's list reports it.
 export interface Identity {
   /// The platform the identity is on, as `platformId` derives it.
   platformId: `0x${string}`
@@ -170,12 +170,12 @@ export interface Identity {
   handleCurrent: boolean
 }
 
-/// How many identities are bound to a wallet, on every platform together.
-export async function identityCount(reader: RegistryReader, wallet: Address): Promise<bigint> {
-  return read<bigint>(reader, 'identityCount', [wallet])
+/// How many identities a holder has, on every platform together.
+export async function identityCount(reader: RegistryReader, holder: Address): Promise<bigint> {
+  return read<bigint>(reader, 'identityCount', [holder])
 }
 
-/// A page of the identities bound to a wallet, on every platform together:
+/// A page of a holder's identities, on every platform together:
 /// the indices `[from, from + limit)` of its list, counted from zero and
 /// clipped to the list. A `from` past the end answers an empty page. A reader
 /// that wants one platform filters a page by `platformId`.
@@ -184,15 +184,15 @@ export async function identityCount(reader: RegistryReader, wallet: Address): Pr
 /// pages read across a removal may overlap or skip. A reader that needs every
 /// identity reads `identityCount` and the pages against one block.
 ///
-/// A list is as long as its wallet made it, and a call's gas is not. A caller
-/// enumerating a wallet it did not choose keeps `limit` small and pages.
+/// A list is as long as its holder made it, and a call's gas is not. A caller
+/// enumerating a holder it did not choose keeps `limit` small and pages.
 export async function identitiesOf(
   reader: RegistryReader,
-  wallet: Address,
+  holder: Address,
   from: bigint,
   limit: bigint,
 ): Promise<Identity[]> {
-  const page = await read<readonly Identity[]>(reader, 'identitiesOf', [wallet, from, limit])
+  const page = await read<readonly Identity[]>(reader, 'identitiesOf', [holder, from, limit])
   return page.map(({ platformId, id, handle, handleCurrent }) => ({
     platformId,
     id,

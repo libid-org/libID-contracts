@@ -68,11 +68,11 @@ library HandleNormalizer {
 
     /// @notice The same transform, reporting instead of reverting.
     ///
-    /// @dev The read path. A resolver is asked "which wallet proved this
-    ///      text", and text no handle could be answers "none". A caller
-    ///      resolving whatever was typed must be able to tell that from a
-    ///      platform it cannot reach, and a stray space in a recipient field
-    ///      must not revert the transaction around it.
+    /// @dev The read path. A resolver is asked "who holds this text", and text
+    ///      nobody could hold answers "nobody". A caller resolving whatever
+    ///      was typed must be able to tell that from a platform it cannot
+    ///      reach, and a stray space in a recipient field must not revert the
+    ///      transaction around it.
     function tryNormalize(string memory raw, Rules memory rules)
         internal
         pure

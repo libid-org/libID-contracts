@@ -12,10 +12,10 @@ import {IPlatformVerifier} from "../../ceremony/IPlatformVerifier.sol";
 import {IProofVerifier} from "../../ceremony/IProofVerifier.sol";
 import {StubPlatformVerifier} from "./StubPlatformVerifier.sol";
 
-/// @notice What a wallet pays, and what reading it costs, does not depend on
-///         how many identities are bound to the wallet.
+/// @notice What a holder pays, and what reading it costs, does not depend on
+///         how many identities the holder has.
 ///
-/// @dev Two wallets on one contract, one with four identities and one with a
+/// @dev Two holders on one contract, one with four identities and one with a
 ///      thousand. Each operation runs for both from cold storage, and the gas
 ///      the contract used is compared exactly rather than within a tolerance:
 ///      one storage read more would show as thousands. The measured call is
@@ -66,7 +66,7 @@ contract IdentityNamesGasTest is Test {
 
     /// Ids and handles of one width each, so a claim's hashing and
     /// normalization cost the same whichever identity it names. A tag tells
-    /// one wallet's identities from another's. Ten digits is the width of an
+    /// one holder's identities from another's. Ten digits is the width of an
     /// X id in the fixtures, fifteen characters the most X allows.
     function _id(uint256 tag, uint256 k) internal pure returns (string memory) {
         return string(abi.encodePacked("17", _digits(tag, 2), _digits(k, 6)));
@@ -86,15 +86,15 @@ contract IdentityNamesGasTest is Test {
         return string(out);
     }
 
-    function _tag(address wallet) internal view returns (uint256) {
-        return wallet == few ? 1 : 2;
+    function _tag(address holder) internal view returns (uint256) {
+        return holder == few ? 1 : 2;
     }
 
-    /// How many identities a wallet was given. Half of that is an identity
+    /// How many identities a holder was given. Half of that is an identity
     /// in the middle of its list: never the last one, so a removal has to move
     /// the last one into its place.
-    function _size(address wallet) internal view returns (uint256) {
-        return wallet == few ? FEW : MANY;
+    function _size(address holder) internal view returns (uint256) {
+        return holder == few ? FEW : MANY;
     }
 
     // ─── Operations, each ending in the call to measure ─────────────
@@ -160,16 +160,16 @@ contract IdentityNamesGasTest is Test {
         assertEq(atFew, _used(), "a re-proof");
     }
 
-    /// Another wallet's new identity takes a handle from the middle of the
+    /// Another holder's new identity takes a handle from the middle of the
     /// list. The list is not touched, and the taker pays for its own.
-    function test_aHandleTakenFromTheWalletCostsTheSame() public measured {
+    function test_aHandleTakenFromTheHolderCostsTheSame() public measured {
         _prove(makeAddr("taker of few"), _id(1, 900_002), _handle(1, _size(few) / 2));
         uint64 atFew = _used();
         _prove(makeAddr("taker of many"), _id(2, 900_002), _handle(2, _size(many) / 2));
         assertEq(atFew, _used(), "a takeover");
     }
 
-    /// An identity from the middle of the list is proved from a new wallet:
+    /// An identity from the middle of the list is proved by a new holder:
     /// the one write that removes from a list.
     function test_anIdentityLeavingTheMiddleCostsTheSame() public measured {
         _prove(makeAddr("new home of few"), _id(1, _size(few) / 2), _handle(1, _size(few) / 2));

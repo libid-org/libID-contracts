@@ -28,7 +28,7 @@ contract EscrowHandler is CommonBase, StdCheats, StdUtils {
     address[TOKENS] public tokens;
     bytes32[2] public hashes;
     bytes32[2] public nodes;
-    address[2] public wallets;
+    address[2] public holders;
 
     /// node -> token -> refundTo -> refundable, as modelled.
     mapping(bytes32 => mapping(address => mapping(address => uint256))) public modelled;
@@ -40,7 +40,7 @@ contract EscrowHandler is CommonBase, StdCheats, StdUtils {
         hashes = [keccak256("node a"), keccak256("node b")];
         nodes =
             [IdentityNodes.handleNodeOfHash(PLATFORM, hashes[0]), IdentityNodes.handleNodeOfHash(PLATFORM, hashes[1])];
-        wallets = [makeAddr("wallet 1"), makeAddr("wallet 2")];
+        holders = [makeAddr("holder 1"), makeAddr("holder 2")];
     }
 
     function deposit(uint256 fromSeed, uint256 refundToSeed, uint256 tokenSeed, uint256 nodeSeed, uint256 amount)
@@ -63,7 +63,7 @@ contract EscrowHandler is CommonBase, StdCheats, StdUtils {
         }
         vm.prank(from);
         ESCROW.deposit{value: token == NATIVE ? amount : 0}(PLATFORM, hashes[nodeSeed % 2], token, amount, refundTo);
-        if (REGISTRY.walletOf(node) == address(0)) modelled[node][token][refundTo] += delivered;
+        if (REGISTRY.holderOf(node) == address(0)) modelled[node][token][refundTo] += delivered;
     }
 
     function refund(uint256 refundToSeed, uint256 tokenSeed, uint256 nodeSeed) external {
@@ -82,25 +82,25 @@ contract EscrowHandler is CommonBase, StdCheats, StdUtils {
         modelled[node][token][refundTo] = 0;
     }
 
-    function join(uint256 nodeSeed, uint256 walletSeed) external {
-        REGISTRY.setWallet(nodes[nodeSeed % 2], wallets[walletSeed % 2]);
+    function join(uint256 nodeSeed, uint256 holderSeed) external {
+        REGISTRY.setHolder(nodes[nodeSeed % 2], holders[holderSeed % 2]);
     }
 
     function retire(uint256 nodeSeed) external {
-        REGISTRY.setWallet(nodes[nodeSeed % 2], address(0));
+        REGISTRY.setHolder(nodes[nodeSeed % 2], address(0));
     }
 
     function claim(uint256 tokenSeed, uint256 nodeSeed) external {
         address token = tokens[tokenSeed % TOKENS];
         bytes32 node = nodes[nodeSeed % 2];
-        address wallet = REGISTRY.walletOf(node);
+        address holder = REGISTRY.holderOf(node);
         uint256 held = ESCROW.escrowed(node, token);
-        if (wallet == address(0) || held == 0) return;
-        uint256 before = _balanceOf(token, wallet);
+        if (holder == address(0) || held == 0) return;
+        uint256 before = _balanceOf(token, holder);
 
-        vm.prank(wallet);
-        ESCROW.claim(node, one(token), wallet);
-        require(_balanceOf(token, wallet) - before == held, "the claim paid other than what was held");
+        vm.prank(holder);
+        ESCROW.claim(node, one(token), holder);
+        require(_balanceOf(token, holder) - before == held, "the claim paid other than what was held");
         for (uint256 i = 0; i < 3; i++) {
             modelled[node][token][depositors[i]] = 0;
         }

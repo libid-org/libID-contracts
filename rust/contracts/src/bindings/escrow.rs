@@ -1,6 +1,6 @@
 //! Bindings for the handle escrow (`solidity/contracts/escrow/`): value held
-//! against a handle node until the wallet `IdentityNames` binds to it claims
-//! it, and refundable to each deposit's `refundTo` until then. `deposit` takes
+//! against a handle node until its holder in `IdentityNames` claims it, and
+//! refundable to each deposit's `refundTo` until then. `deposit` takes
 //! `keccak256(normalized handle)`, from `IdentityNames.handleHashOf` or
 //! computed locally.
 
@@ -14,10 +14,10 @@ mod escrow_inner {
         interface HandleEscrow {
             function initialize(address owner_, address registry_) external;
 
-            /// Pay a handle by its hash. A bound node is paid straight through
+            /// Pay a handle by its hash. A held node is paid straight through
             /// (`Forwarded`); otherwise the value is escrowed (`Deposited`) and
-            /// `refundTo` can `refund` it until the bound wallet claims. An
-            /// unchecked wrong hash funds a slot only `refund` recovers.
+            /// `refundTo` can `refund` it until the holder claims. An unchecked
+            /// wrong hash funds a slot only `refund` recovers.
             function deposit(
                 bytes32 platformId,
                 bytes32 handleHash,
@@ -26,13 +26,13 @@ mod escrow_inner {
                 address refundTo
             ) external payable;
 
-            /// Take everything held for a node in each of `tokens`; the
-            /// bound wallet only. Tokens with nothing held are skipped;
-            /// reverts `NothingHeld` when none paid.
+            /// Take everything held for a node in each of `tokens`; holder
+            /// only. Tokens with nothing held are skipped; reverts
+            /// `NothingHeld` when none paid.
             function claim(bytes32 handleNode, address[] calldata tokens, address recipient) external;
 
             /// Take back the caller's contribution to a node in the current
-            /// round, until the bound wallet claims.
+            /// round, until the holder claims.
             function refund(bytes32 handleNode, address token, address recipient) external;
 
             function escrowed(bytes32 handleNode, address token) external view returns (uint256);
@@ -50,8 +50,8 @@ mod escrow_inner {
             /// Always reverts `RenounceDisabled`.
             function renounceOwnership() external pure;
 
-            /// Value escrowed for a node no wallet is bound to, booked under
-            /// `refundTo` in `round`, which the next `Claimed` closes.
+            /// Value escrowed for a node nobody holds, booked under `refundTo`
+            /// in `round`, which the next `Claimed` closes.
             event Deposited(
                 bytes32 indexed handleNode,
                 address indexed token,
@@ -61,13 +61,13 @@ mod escrow_inner {
                 uint256 round,
                 uint256 amount
             );
-            /// A deposit paid straight to the node's bound wallet; `received`
-            /// is what the wallet gained.
+            /// A deposit paid straight to the node's holder; `received` is
+            /// what the holder gained.
             event Forwarded(
                 bytes32 indexed handleNode,
                 address indexed token,
                 address indexed depositor,
-                address wallet,
+                address holder,
                 bytes32 platformId,
                 uint256 amount,
                 uint256 received
@@ -96,19 +96,18 @@ mod escrow_inner {
             );
 
             error ZeroAmount();
-            /// The caller is the wallet bound to the node it is paying.
-            error PayingYourself(address wallet);
+            /// The caller holds the node it is paying.
+            error PayingYourself(address holder);
             error ValueMismatch(uint256 expected, uint256 provided);
             error NothingHeld(bytes32 handleNode);
-            /// The caller is not the wallet bound to the node.
-            error NotBoundWallet(address wallet, address caller);
+            /// The caller is not the node's holder.
+            error NotTheHolder(address holder, address caller);
             /// Nothing refundable is booked under `refundTo`.
             error NothingToRefund(bytes32 handleNode, address token, address refundTo);
             /// `refundTo` is zero or the escrow: nobody could refund.
             error BadRefundTo(address refundTo);
             error BadRecipient(address recipient);
-            /// No wallet is bound to the node and nothing new can bind on the
-            /// platform.
+            /// Nobody holds the node and nothing new can bind on the platform.
             error PlatformAcceptsNoBindings(bytes32 platformId);
             error NativeTransferFailed(address recipient, uint256 amount);
             /// A payout took more of the escrow's balance than it booked.

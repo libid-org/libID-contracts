@@ -10,12 +10,12 @@ field slot=5 offset=0 idNodeByHandle: mapping(bytes32 => bytes32)
 field slot=6 offset=0 proofVerifier: contract IProofVerifier
 field slot=7 offset=0 everBound: mapping(bytes32 => bool)
 field slot=8 offset=0 spentDigests: mapping(bytes32 => bool)
-field slot=9 offset=0 walletIdentities: struct IdentityList.Data
+field slot=9 offset=0 holderIdentities: struct IdentityList.Data
 field slot=11 offset=0 idPreimages: mapping(bytes32 => struct IdentityNames.IdentityPreimage)
 field slot=12 offset=0 handlePreimages: mapping(bytes32 => string)
 struct IdentityList.Data slot=0 offset=0 nodes: mapping(address => bytes32[])
 struct IdentityList.Data slot=1 offset=0 position: mapping(bytes32 => uint256)
-struct IdentityNames.Binding slot=0 offset=0 wallet: address
+struct IdentityNames.Binding slot=0 offset=0 holder: address
 struct IdentityNames.Binding slot=0 offset=20 observedAt: uint64
 struct IdentityNames.Platform slot=0 offset=0 rules: struct HandleNormalizer.Rules
 struct IdentityNames.Platform slot=1 offset=0 configured: bool

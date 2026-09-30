@@ -41,7 +41,7 @@ describe('resolving a handle', () => {
     expect(platformId('dyaka.identity.platform.github')).not.toBe(X)
   })
 
-  it('reads the wallet that proved an id', async () => {
+  it('reads the holder that proved an id', async () => {
     const readContract = vi.fn().mockResolvedValue(ALICE)
     expect(await resolveId(reader(readContract), X, '42')).toBe(ALICE)
 
@@ -52,7 +52,7 @@ describe('resolving a handle', () => {
     })
   })
 
-  it('reads the wallet that last proved a handle', async () => {
+  it('reads the holder that last proved a handle', async () => {
     const readContract = vi.fn().mockResolvedValue(ALICE)
     expect(await resolveHandle(reader(readContract), X, 'alice')).toBe(ALICE)
   })
@@ -76,7 +76,7 @@ describe('resolving a handle', () => {
   })
 })
 
-describe('resolving a wallet back to a handle', () => {
+describe('resolving a holder back to a handle', () => {
   it('reads the published handle', async () => {
     const readContract = vi.fn().mockResolvedValue('alice')
     expect(await publishedHandleOf(reader(readContract), ALICE, X)).toBe('alice')
@@ -98,11 +98,11 @@ describe('resolving a wallet back to a handle', () => {
 })
 
 describe('checking a handle against an id', () => {
-  it('agrees when both point at one wallet', async () => {
+  it('agrees when both point at one holder', async () => {
     const readContract = vi.fn().mockResolvedValue([ALICE, true])
 
     expect(await resolveHandleAndId(reader(readContract), X, 'alice', '42')).toEqual({
-      wallet: ALICE,
+      holder: ALICE,
       idAgrees: true,
     })
   })
@@ -115,15 +115,15 @@ describe('checking a handle against an id', () => {
     const readContract = vi.fn().mockResolvedValue([ALICE, false])
     const resolution = await resolveHandleAndId(reader(readContract), X, 'alice', '42')
 
-    expect(resolution.wallet).toBe(ALICE)
+    expect(resolution.holder).toBe(ALICE)
     expect(resolution.idAgrees).toBe(false)
   })
 
-  it('reports no wallet for a handle nobody has proved', async () => {
+  it('reports no holder for a handle nobody has proved', async () => {
     const readContract = vi.fn().mockResolvedValue([zeroAddress, false])
     const resolution = await resolveHandleAndId(reader(readContract), X, 'nobody', '42')
 
-    expect(resolution.wallet).toBeNull()
+    expect(resolution.holder).toBeNull()
     expect(resolution.idAgrees).toBe(false)
   })
 
@@ -134,14 +134,14 @@ describe('checking a handle against an id', () => {
     const readContract = vi.fn().mockResolvedValue([zeroAddress, false])
 
     expect(await resolveHandleAndId(reader(readContract), X, 'not a handle', '42')).toEqual({
-      wallet: null,
+      holder: null,
       idAgrees: false,
     })
   })
 })
 
-describe('listing the identities a wallet proved', () => {
-  it('reads how many identities are bound to a wallet', async () => {
+describe('listing the identities a holder proved', () => {
+  it('reads how many identities a holder has', async () => {
     const readContract = vi.fn().mockResolvedValue(2n)
     expect(await identityCount(reader(readContract), ALICE)).toBe(2n)
 
@@ -194,10 +194,10 @@ function revertingWith(errorName: string): BaseError {
 }
 
 describe('a handle that cannot be normalized', () => {
-  /// No wallet is bound to a string that is not a handle on that platform,
-  /// and the contract says so with a zero address rather than a revert — which
-  /// is what a search box needs, since the alternative is a rejected promise on
-  /// every keystroke that has not finished being typed.
+  /// Nobody holds a string that is not a handle on that platform, and the
+  /// contract says so with a zero address rather than a revert — which is what
+  /// a search box needs, since the alternative is a rejected promise on every
+  /// keystroke that has not finished being typed.
   it('reads as unbound', async () => {
     const readContract = vi.fn().mockResolvedValue(zeroAddress)
 

@@ -293,8 +293,8 @@ contract CeremonyClaimTest is Test {
         verifier.set("2244994945", " @Alice_1 ");
         _claim(_payload(WALLET, bytes32(uint256(12))), FEE);
         assertEq(names.resolveHandle(PLATFORM, "alice_1"), WALLET);
-        (address wallet,) = names.handleBinding(IdentityNodes.handleNode(PLATFORM, "alice_1"));
-        assertEq(wallet, WALLET);
+        (address holder,) = names.handleBinding(IdentityNodes.handleNode(PLATFORM, "alice_1"));
+        assertEq(holder, WALLET);
     }
 
     function test_rejectsAnEmptyId() public {

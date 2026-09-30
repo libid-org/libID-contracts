@@ -28,7 +28,7 @@ import { googleJwtRootsAbi, identityNamesAbi } from '@libid/contracts/abis'
 const client = createPublicClient({ transport: http(RPC_URL) })
 
 // Fully typed: viem infers the argument and return types from the ABI.
-const wallet = await client.readContract({
+const holder = await client.readContract({
   address: IDENTITY_NAMES,
   abi: identityNamesAbi,
   functionName: 'resolveHandle',
@@ -85,21 +85,21 @@ import {
 const reader = { client, address: IDENTITY_NAMES }
 const x = platformId(PLATFORM_X_KEY)
 
-// The wallet that last proved a handle, or null. Pass what was typed —
+// The holder that last proved a handle, or null. Pass what was typed —
 // normalization happens on chain.
-const bound = await resolveHandle(reader, x, '@Alice')
+const holder = await resolveHandle(reader, x, '@Alice')
 
 // Before sending funds: does the id still agree with the handle?
-const { wallet, idAgrees } = await resolveHandleAndId(reader, x, 'alice', '42')
+const { idAgrees } = await resolveHandleAndId(reader, x, 'alice', '42')
 
-// The handle a wallet displays, forward-checked on chain.
-const handle = await publishedHandleOf(reader, wallet!, x)
+// The handle a holder displays, forward-checked on chain.
+const handle = await publishedHandleOf(reader, holder!, x)
 
-// Every identity the wallet proved, on every platform, a page at a time.
+// Every identity the holder proved, on every platform, a page at a time.
 // Order is arbitrary, and a page read across a removal may overlap or skip:
 // read the count and the pages against one block when every identity matters.
-const total = await identityCount(reader, wallet!)
-const identities = await identitiesOf(reader, wallet!, 0n, 50n)
+const total = await identityCount(reader, holder!)
+const identities = await identitiesOf(reader, holder!, 0n, 50n)
 // [{ platformId: x, id: '42', handle: 'alice', handleCurrent: true }, …]
 ```
 

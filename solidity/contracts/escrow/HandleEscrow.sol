@@ -16,11 +16,11 @@ address constant NATIVE_TOKEN = 0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE;
 /// @title HandleEscrow - send to a platform handle before anybody claims it.
 ///
 /// @notice Holds value against the handle node `IdentityNames` binds. The
-///         wallet bound to the node claims it; until then each deposit's
-///         `refundTo` can take its own contribution back. Integrator notes,
-///         privacy and trust: `README.md` beside this file.
+///         node's holder claims it; until then each deposit's `refundTo`
+///         can take its own contribution back. Integrator notes, privacy and
+///         trust: `README.md` beside this file.
 ///
-/// @dev - A bound node is paid straight through; only an unbound node on a
+/// @dev - A held node is paid straight through; only an unheld node on a
 ///        platform that `acceptsBindings` escrows.
 ///      - A claim empties the slot and opens a new round, ending the old
 ///        round's refunds. Refunds have no delay and no pause gates them.
@@ -58,9 +58,9 @@ contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable
 
     // ─── Events ─────────────────────────────────────────────────────
 
-    /// @notice Value was escrowed for a node no wallet is bound to, under
-    ///         `round`. `amount` is what arrived; `depositor` paid, `refundTo`
-    ///         may refund until the round's claim.
+    /// @notice Value was escrowed for a node nobody holds, under `round`.
+    ///         `amount` is what arrived; `depositor` paid, `refundTo` may
+    ///         refund until the round's claim.
     event Deposited(
         bytes32 indexed handleNode,
         address indexed token,
@@ -71,21 +71,21 @@ contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable
         uint256 amount
     );
 
-    /// @notice A deposit for a bound node was paid straight to `wallet`.
-    ///         `amount` was asked for; `received` is what the wallet gained.
+    /// @notice A deposit for a held node was paid straight to `holder`.
+    ///         `amount` was asked for; `received` is what the holder gained.
     event Forwarded(
         bytes32 indexed handleNode,
         address indexed token,
         address indexed depositor,
-        address wallet,
+        address holder,
         bytes32 platformId,
         uint256 amount,
         uint256 received
     );
 
-    /// @notice The bound wallet took what was held in one token, closing
-    ///         `round`. `released` left the books; `received` is what
-    ///         `recipient` gained.
+    /// @notice The holder took what was held in one token, closing `round`.
+    ///         `released` left the books; `received` is what `recipient`
+    ///         gained.
     event Claimed(
         bytes32 indexed handleNode,
         address indexed token,
@@ -112,14 +112,14 @@ contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable
 
     /// Nothing was asked for, or nothing arrived.
     error ZeroAmount();
-    /// The caller is the wallet bound to the node it is paying.
-    error PayingYourself(address wallet);
+    /// The caller holds the node it is paying.
+    error PayingYourself(address holder);
     /// Native value must equal the amount, and a token deposit carries none.
     error ValueMismatch(uint256 expected, uint256 provided);
     /// Nothing is held for this handle node in any of the tokens asked for.
     error NothingHeld(bytes32 handleNode);
-    /// The caller is not the wallet bound to this handle node.
-    error NotBoundWallet(address wallet, address caller);
+    /// The caller does not hold this handle node.
+    error NotTheHolder(address holder, address caller);
     /// Nothing refundable is booked under this address in the current round.
     error NothingToRefund(bytes32 handleNode, address token, address refundTo);
     /// `refundTo` must be an address that can call `refund`: not zero, not
@@ -127,8 +127,7 @@ contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable
     error BadRefundTo(address refundTo);
     /// A payout may not go to the zero address or this contract.
     error BadRecipient(address recipient);
-    /// No wallet is bound to the node and nothing new can bind on this
-    /// platform.
+    /// Nobody holds the node and nothing new can bind on this platform.
     error PlatformAcceptsNoBindings(bytes32 platformId);
     /// A payout took more of this contract's balance than it booked.
     error OverDebited(address token, uint256 booked, uint256 debited);
@@ -192,12 +191,12 @@ contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable
 
         HandleEscrowStorage storage $ = _s();
         bytes32 node = $.registry.handleNodeOfHash(platformId, handleHash);
-        (address wallet,) = $.registry.handleBinding(node);
-        if (wallet != address(0)) {
-            if (wallet == msg.sender) revert PayingYourself(wallet);
-            uint256 received = _move(token, msg.sender, wallet, amount);
+        (address holder,) = $.registry.handleBinding(node);
+        if (holder != address(0)) {
+            if (holder == msg.sender) revert PayingYourself(holder);
+            uint256 received = _move(token, msg.sender, holder, amount);
             if (received == 0) revert ZeroAmount();
-            emit Forwarded(node, token, msg.sender, wallet, platformId, amount, received);
+            emit Forwarded(node, token, msg.sender, holder, platformId, amount, received);
             return;
         }
 
@@ -215,7 +214,7 @@ contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable
     // ─── Claiming ───────────────────────────────────────────────────
 
     /// @notice Take everything held for a node in each of `tokens`. The caller
-    ///         must be `handleBinding(handleNode).wallet`; `recipient` is its
+    ///         must be `handleBinding(handleNode).holder`; `recipient` is its
     ///         choice.
     /// @dev Tokens with nothing held are skipped, so a list read from an
     ///      indexer survives a refund landing first; a repeated token pays
@@ -224,8 +223,8 @@ contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable
     function claim(bytes32 handleNode, address[] calldata tokens, address recipient) external nonReentrant {
         if (recipient == address(0) || recipient == address(this)) revert BadRecipient(recipient);
 
-        (address wallet,) = _s().registry.handleBinding(handleNode);
-        if (wallet != msg.sender) revert NotBoundWallet(wallet, msg.sender);
+        (address holder,) = _s().registry.handleBinding(handleNode);
+        if (holder != msg.sender) revert NotTheHolder(holder, msg.sender);
 
         HandleEscrowStorage storage $ = _s();
         bool paid;
@@ -246,7 +245,7 @@ contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable
     // ─── Refunding ──────────────────────────────────────────────────
 
     /// @notice Take back what is booked under the caller for a node in the
-    ///         current round, whether or not a wallet is bound to the node.
+    ///         current round, whether or not the node has a holder.
     function refund(bytes32 handleNode, address token, address recipient) external nonReentrant {
         if (recipient == address(0) || recipient == address(this)) revert BadRecipient(recipient);
 

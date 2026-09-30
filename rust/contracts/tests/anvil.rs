@@ -894,7 +894,7 @@ async fn escrows_value_against_an_unclaimed_handle() {
         b256!("2e2bee956f308d03271ce24b26e5aa20103b41841ddee3c96a94d2449902f710")
     );
 
-    // Escrowed for nobody; an unbound node refuses a claim with the bound error.
+    // Escrowed for nobody; an unheld node refuses a claim with the bound error.
     let amount = U256::from(1_000_000_000_000_000_000u64);
     escrow
         .deposit(platform_id, handle_hash, native, amount, deployer)
@@ -912,10 +912,10 @@ async fn escrows_value_against_an_unclaimed_handle() {
         .call()
         .await
         .err()
-        .expect("an unbound handle was claimable")
+        .expect("an unheld handle was claimable")
         .to_string();
     assert!(
-        err.contains(&hex::encode(HandleEscrow::NotBoundWallet::SELECTOR)),
+        err.contains(&hex::encode(HandleEscrow::NotTheHolder::SELECTOR)),
         "{err}"
     );
 

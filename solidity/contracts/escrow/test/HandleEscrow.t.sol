@@ -263,7 +263,7 @@ contract HandleEscrowTest is Test {
         _claimNative(alice, alice);
         assertEq(alice.balance, 6 ether);
         vm.prank(alice);
-        vm.expectRevert(abi.encodeWithSelector(HandleEscrow.NotBoundWallet.selector, address(0), alice));
+        vm.expectRevert(abi.encodeWithSelector(HandleEscrow.NotTheHolder.selector, address(0), alice));
         escrow.claim(IdentityNodes.handleNode(GITHUB, "alice"), one(NATIVE), alice);
     }
 
@@ -290,9 +290,9 @@ contract HandleEscrowTest is Test {
 
     // ─── Depositing ─────────────────────────────────────────────────
 
-    /// Unbound: held and announced. Bound: paid straight through and announced, the earlier deposit
+    /// Unheld: held and announced. Held: paid straight through and announced, the earlier deposit
     /// still waiting for its claim.
-    function test_anUnboundHandleEscrowsAndABoundOnePaysThrough() public {
+    function test_anUnheldHandleEscrowsAndAHeldOnePaysThrough() public {
         vm.expectEmit(address(escrow));
         emit HandleEscrow.Deposited(aliceNode, address(token), sender, sender, X, 0, 10 ether);
         vm.prank(sender);
@@ -347,8 +347,8 @@ contract HandleEscrowTest is Test {
         escrow.deposit(X, aliceHash, address(inert), 10 ether, sender);
     }
 
-    /// A bound wallet paying its own node is refused before anything moves or is announced.
-    function test_aBoundWalletPayingItselfIsRefused() public {
+    /// A holder paying its own node is refused before anything moves or is announced.
+    function test_aHolderPayingItselfIsRefused() public {
         _bind(alice, "1", "alice", 100);
         vm.deal(alice, 10 ether);
         token.mint(alice, 10 ether);
@@ -365,7 +365,7 @@ contract HandleEscrowTest is Test {
     }
 
     /// Escrow needs a platform a claim could bind on: unwired, not verifying yet, or retired all
-    /// refuse new escrow, while a bound wallet is still paid through and held value still refunds.
+    /// refuse new escrow, while a holder is still paid through and held value still refunds.
     function test_escrowNeedsAPlatformThatAcceptsClaims() public {
         vm.startPrank(sender);
         vm.expectRevert(abi.encodeWithSelector(HandleEscrow.PlatformAcceptsNoBindings.selector, UNWIRED));
@@ -383,7 +383,7 @@ contract HandleEscrowTest is Test {
         proofVerifier.setVerifier(X, V1, IPlatformVerifier(address(0)));
 
         _depositNative("alice", 2 ether);
-        assertEq(alice.balance, 2 ether, "the bound wallet was not paid through");
+        assertEq(alice.balance, 2 ether, "the holder was not paid through");
         vm.prank(sender);
         vm.expectRevert(abi.encodeWithSelector(HandleEscrow.PlatformAcceptsNoBindings.selector, X));
         escrow.deposit(X, keccak256("carol"), address(token), 1 ether, sender);
@@ -394,8 +394,8 @@ contract HandleEscrowTest is Test {
 
     // ─── Claiming ───────────────────────────────────────────────────
 
-    /// One claim takes every listed token to the recipient the bound wallet names, one `Claimed`
-    /// each, closing each round; unlisted tokens stay.
+    /// One claim takes every listed token to the recipient the holder names, one `Claimed` each,
+    /// closing each round; unlisted tokens stay.
     function test_oneClaimTakesTheListedTokens() public {
         _depositNative("alice", 1 ether);
         TestERC20 second = new TestERC20();
@@ -438,19 +438,19 @@ contract HandleEscrowTest is Test {
         vm.stopPrank();
     }
 
-    /// Only the wallet bound to the node claims: not a stranger, not the depositor, not the owner,
-    /// and nobody while the node is unbound.
-    function test_onlyTheBoundWalletClaims() public {
+    /// Only the node's holder claims: not a stranger, not the depositor, not the owner, and nobody
+    /// while the node is unheld.
+    function test_onlyTheHolderClaims() public {
         _depositNative("alice", 1 ether);
         address[3] memory callers = [bob, sender, owner];
         for (uint256 i = 0; i < 3; i++) {
             vm.prank(callers[i]);
-            vm.expectRevert(abi.encodeWithSelector(HandleEscrow.NotBoundWallet.selector, address(0), callers[i]));
+            vm.expectRevert(abi.encodeWithSelector(HandleEscrow.NotTheHolder.selector, address(0), callers[i]));
             escrow.claim(aliceNode, one(NATIVE), callers[i]);
         }
         _bind(alice, "1", "alice", 100);
         vm.prank(bob);
-        vm.expectRevert(abi.encodeWithSelector(HandleEscrow.NotBoundWallet.selector, alice, bob));
+        vm.expectRevert(abi.encodeWithSelector(HandleEscrow.NotTheHolder.selector, alice, bob));
         escrow.claim(aliceNode, one(NATIVE), bob);
         assertEq(escrow.escrowed(aliceNode, NATIVE), 1 ether);
     }
@@ -532,7 +532,7 @@ contract HandleEscrowTest is Test {
         assertEq(address(escrow).balance, 0);
     }
 
-    /// There is no default `refundTo`, and it cannot be the escrow, bound node or not.
+    /// There is no default `refundTo`, and it cannot be the escrow, whether the node is held or not.
     function test_aDepositMustNameWhoCanRefundIt() public {
         for (uint256 i = 0; i < 2; i++) {
             if (i == 1) _bind(alice, "1", "alice", 100);
@@ -598,13 +598,13 @@ contract HandleEscrowTest is Test {
     // ─── Consequences accepted on purpose ───────────────────────────
 
     /// NOT a vulnerability. An unclaimed slot follows the handle, not the id: renamed away, the
-    /// identity cannot claim, the depositor can still refund, and the handle's next wallet claims.
-    function test_ACCEPTED_aRecycledHandlePaysTheNewWallet() public {
+    /// identity cannot claim, the depositor can still refund, and the handle's next holder claims.
+    function test_ACCEPTED_aRecycledHandlePaysTheNewHolder() public {
         _depositNative("alice", 2 ether);
         _bind(alice, "1", "alice", 100);
         _bind(alice, "1", "alice2", 200);
         vm.prank(alice);
-        vm.expectRevert(abi.encodeWithSelector(HandleEscrow.NotBoundWallet.selector, address(0), alice));
+        vm.expectRevert(abi.encodeWithSelector(HandleEscrow.NotTheHolder.selector, address(0), alice));
         escrow.claim(aliceNode, one(NATIVE), alice);
         assertEq(escrow.refundable(aliceNode, NATIVE, sender), 2 ether);
 
@@ -613,8 +613,8 @@ contract HandleEscrowTest is Test {
         assertEq(bob.balance, 2 ether);
     }
 
-    /// A claim reads the bound wallet only, so narrowing the platform's rules does not stop it.
-    function test_aRulesChangeDoesNotStopTheBoundWalletClaiming() public {
+    /// A claim reads the holder only, so narrowing the platform's rules does not stop it.
+    function test_aRulesChangeDoesNotStopTheHolderClaiming() public {
         _depositNative("alice_9", 1 ether);
         _bind(alice, "1", "alice_9", 100);
         HandleNormalizer.Rules memory narrowed = HandleVectors.rulesFor(X);
@@ -762,8 +762,8 @@ contract HandleEscrowTest is Test {
         escrow.deposit{value: amount}(X, handleHash, NATIVE, amount, sender);
     }
 
-    function _claimNative(address wallet, address recipient) internal {
-        vm.prank(wallet);
+    function _claimNative(address holder, address recipient) internal {
+        vm.prank(holder);
         escrow.claim(aliceNode, one(NATIVE), recipient);
     }
 }
