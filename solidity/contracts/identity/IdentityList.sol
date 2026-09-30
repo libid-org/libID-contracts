@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-/// @title AccountList - the account nodes a wallet holds.
+/// @title IdentityList - the id nodes of the identities bound to a wallet.
 ///
 /// @notice A set per wallet that a reader walks by page. Adding and removing
 ///         cost the same however many nodes a list holds: a node's position is
@@ -15,9 +15,9 @@ pragma solidity ^0.8.20;
 ///
 ///      Order is arbitrary. A removal changes it, and nothing here or above
 ///      reads it: a page is a slice of the current arrangement, not a history.
-library AccountList {
+library IdentityList {
     struct Data {
-        /// wallet -> the nodes it holds.
+        /// wallet -> the nodes in its list.
         mapping(address => bytes32[]) nodes;
         /// node -> one-based position in the list that holds it.
         mapping(bytes32 => uint256) position;
@@ -31,9 +31,9 @@ library AccountList {
     }
 
     /// @dev Removes a node by moving the last node into its place. The wallet
-    ///      named must be the one holding the node: the position says where
-    ///      in a list the node sits, not which list, and a caller naming the
-    ///      wrong one would overwrite a stranger's entry.
+    ///      named must be the one whose list has the node: the position says
+    ///      where in a list the node sits, not which list, and a caller naming
+    ///      the wrong one would overwrite a stranger's entry.
     function remove(Data storage self, address wallet, bytes32 node) internal {
         bytes32[] storage list = self.nodes[wallet];
         uint256 index = self.position[node] - 1;

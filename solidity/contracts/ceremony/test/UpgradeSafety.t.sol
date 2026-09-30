@@ -412,16 +412,16 @@ contract UpgradeSafetyTest is Test {
 
         assertEq(names.resolveId(X, "2244994945"), alice);
         assertEq(names.resolveHandle(X, "alice"), alice);
-        assertEq(names.primaryOf(alice, X), "alice");
-        assertEq(names.accountCount(alice), 1);
-        assertEq(names.accountsOf(alice, 0, 1)[0].handle, "alice");
+        assertEq(names.publishedHandleOf(alice, X), "alice");
+        assertEq(names.identityCount(alice), 1);
+        assertEq(names.identitiesOf(alice, 0, 1)[0].handle, "alice");
         assertTrue(names.digestSpent(digest));
         assertEq(address(names.proofVerifier()), address(proofVerifier));
         assertEq(names.owner(), OWNER);
         // and the contract still works after the upgrade (newer watermark)
         stub.setObservedAt(1_780_000_000);
         _claimAs(alice, 2);
-        (, uint64 at) = names.byId(IdentityNodes.idNode(X, "2244994945"));
+        (, uint64 at) = names.idBinding(IdentityNodes.idNode(X, "2244994945"));
         assertEq(at, 1_780_000_000);
     }
 
@@ -444,20 +444,20 @@ contract UpgradeSafetyTest is Test {
         bytes32 handleNode = IdentityNodes.handleNode(X, "alice");
 
         bytes32 list = keccak256(abi.encode(alice, root + 9));
-        assertEq(uint256(vm.load(address(names), list)), 1, "nodes: the list holds one account");
+        assertEq(uint256(vm.load(address(names), list)), 1, "nodes: the list holds one identity");
         assertEq(vm.load(address(names), keccak256(abi.encode(list))), idNode, "nodes: and it is this one");
         assertEq(uint256(vm.load(address(names), keccak256(abi.encode(idNode, root + 10)))), 1, "position");
         bytes32 key = keccak256(abi.encode(idNode, root + 11));
-        assertEq(vm.load(address(names), key), X, "accountOf: the platform");
+        assertEq(vm.load(address(names), key), X, "idPreimages: the platform");
         assertEq(
             vm.load(address(names), bytes32(uint256(key) + 1)),
             abi.decode(abi.encodePacked("2244994945", new bytes(21), hex"14"), (bytes32)),
-            "accountOf: the account id, a short string with its doubled length in the low byte"
+            "idPreimages: the id, a short string with its doubled length in the low byte"
         );
         assertEq(
             vm.load(address(names), keccak256(abi.encode(handleNode, root + 12))),
             abi.decode(abi.encodePacked("alice", new bytes(26), hex"0a"), (bytes32)),
-            "handleOf"
+            "handlePreimages"
         );
     }
 
@@ -474,14 +474,14 @@ contract UpgradeSafetyTest is Test {
         address bob = address(0xB0B);
         uint256 word = uint256(uint160(bob)) | (uint256(1_900_000_000) << 160) | (uint256(7) << 224);
         vm.store(address(names), slot, bytes32(word));
-        (address o, uint64 at) = names.byId(idNode);
+        (address o, uint64 at) = names.idBinding(idNode);
         assertEq(o, bob);
         assertEq(at, 1_900_000_000);
         stub.setObservedAt(1_950_000_000);
         _claimAs(bob, 1);
         bytes32 afterWord = vm.load(address(names), slot);
-        emit log_named_bytes32("byId word after fresh write", afterWord);
-        (o, at) = names.byId(idNode);
+        emit log_named_bytes32("idBindings word after fresh write", afterWord);
+        (o, at) = names.idBinding(idNode);
         assertEq(o, bob);
         assertEq(at, 1_950_000_000);
         // stale version bits (byte 28..31) survive a member-wise struct write?

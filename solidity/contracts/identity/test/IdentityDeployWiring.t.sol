@@ -13,8 +13,8 @@ import {CeremonyProofVerifier} from "../../ceremony/CeremonyProofVerifier.sol";
 import {GooglePlatformVerifier} from "../../ceremony/GooglePlatformVerifier.sol";
 import {StubPlatformVerifier} from "./StubPlatformVerifier.sol";
 
-/// The deploy wires three platforms into one naming contract. A wrong rule set
-/// there writes wrong keys for every name on that platform, and nothing later
+/// The deploy wires three platforms into one registry. A wrong rule set there
+/// writes wrong nodes for every handle on that platform, and nothing later
 /// would notice: the handle would simply resolve to nothing.
 ///
 /// So the wiring is asserted rather than assumed — that the rules the deploy

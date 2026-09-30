@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-/// @notice Turns a platform handle into the one form the identity system keys.
+/// @notice Turns a platform handle into the one form the identity system
+///         hashes into a node.
 ///
 /// @dev The transform is closed. It reads bytes, it does not fold Unicode, and
 ///      it never consults a table outside this file. Handles on the supported
@@ -9,8 +10,8 @@ pragma solidity ^0.8.20;
 ///      TypeScript the same answer with no shared library between them.
 ///
 ///      Normalization runs on the write path, not only in a client. The handle
-///      arrives inside a proof, so the contract must derive the key itself. A
-///      caller that supplied a pre-hashed key could name any handle it liked.
+///      arrives inside a proof, so the contract must derive the node itself. A
+///      caller that supplied a pre-hashed node could name any handle it liked.
 ///
 ///      Every rule below is exercised by the vector table in
 ///      `contracts/identity/handles.json`, which Rust and TypeScript run too.
@@ -67,11 +68,11 @@ library HandleNormalizer {
 
     /// @notice The same transform, reporting instead of reverting.
     ///
-    /// @dev The read path. A resolver is asked "who holds this text", and text
-    ///      nobody could hold answers "nobody". A caller resolving whatever a
-    ///      user typed must be able to tell that from a platform it cannot
-    ///      reach, and a stray space in a recipient field must not revert the
-    ///      transaction around it.
+    /// @dev The read path. A resolver is asked "which wallet proved this
+    ///      text", and text no handle could be answers "none". A caller
+    ///      resolving whatever was typed must be able to tell that from a
+    ///      platform it cannot reach, and a stray space in a recipient field
+    ///      must not revert the transaction around it.
     function tryNormalize(string memory raw, Rules memory rules)
         internal
         pure
@@ -122,7 +123,7 @@ library HandleNormalizer {
 
     /// @dev One byte, after folding. Anything outside the platform's set is a
     ///      `BadCharacter`, including every byte above 0x7f, so a multi-byte
-    ///      character can never reach the key.
+    ///      character can never reach a node.
     function _allowed(bytes1 c, Rules memory rules) private pure returns (bool) {
         if (c >= 0x61 && c <= 0x7A) return true; // a-z
         if (c >= 0x30 && c <= 0x39) return true; // 0-9

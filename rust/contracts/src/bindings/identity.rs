@@ -1,11 +1,11 @@
-//! Bindings for the identity-names stack (`solidity/contracts/identity/`):
+//! Bindings for the identity registry (`solidity/contracts/identity/`):
 //! `IdentityNames`.
 
 /// Bindings for `identity/IdentityNames.sol`.
 ///
 /// `Rules` mirrors `HandleNormalizer.Rules` — the normalization rules the
 /// contract stores per platform. Platform ids are `keccak256` of the
-/// platform's domain string.
+/// platform key.
 #[allow(clippy::too_many_arguments, unused_attributes)]
 mod names_inner {
     use alloy::sol;
@@ -22,29 +22,29 @@ mod names_inner {
                 bool allowHyphen;
             }
 
-            /// One account a wallet proved, as its list reports it. `handle`
-            /// is the one the account proved most recently, and
+            /// One identity a wallet proved, as its list reports it. `handle`
+            /// is the one the identity proved most recently, and
             /// `handleCurrent` says whether the handle node still points back
-            /// at this account: it stops doing so when another account proves
-            /// the same handle, and the string stays as the last thing the
-            /// account was known as.
+            /// at this identity: it stops doing so when another identity
+            /// proves the same handle, and the string stays as the last thing
+            /// the identity was known as.
             #[derive(Debug, serde::Serialize, serde::Deserialize)]
-            struct Account {
+            struct Identity {
                 bytes32 platformId;
-                string userId;
+                string id;
                 string handle;
                 bool handleCurrent;
             }
 
             function initialize(address owner_) external;
 
-            /// The wallet that proved an account id, and when.
-            function byId(bytes32 idNode) external view returns (address owner, uint64 observedAt);
+            /// The wallet that proved an id, and when.
+            function idBinding(bytes32 idNode) external view returns (address wallet, uint64 observedAt);
             /// The wallet that last proved a handle node, and when. A zero
-            /// owner: nobody holds it.
-            function byHandle(bytes32 handleNode) external view returns (address owner, uint64 observedAt);
+            /// wallet: nobody proved it, or it was retired.
+            function handleBinding(bytes32 handleNode) external view returns (address wallet, uint64 observedAt);
             /// The operation domain a claim's authorization names.
-            function CLAIM_IDENTITY_DOMAIN() external view returns (bytes32);
+            function OPERATION_DOMAIN() external view returns (bytes32);
 
             function owner() external view returns (address);
             function pendingOwner() external view returns (address);
@@ -68,39 +68,40 @@ mod names_inner {
             /// and the Proof Verifier routes the bytes to the one contract
             /// that decodes them. The value attached must equal `quoteBind`
             /// for the same pair exactly.
-            function bind(bytes32 platformId, uint16 verifierVersion, bytes calldata payload, bool publishName) external payable;
+            function bind(bytes32 platformId, uint16 verifierVersion, bytes calldata payload, bool publish) external payable;
             function quoteBind(bytes32 platformId, uint16 verifierVersion) external view returns (uint256);
             function digestSpent(bytes32 digest) external view returns (bool);
             function unpublish(bytes32 platformId) external;
-            function resolveId(bytes32 platformId, string calldata userId) external view returns (address);
+            function resolveId(bytes32 platformId, string calldata id) external view returns (address);
             function resolveHandle(bytes32 platformId, string calldata handle) external view returns (address);
-            /// The handle's current owner, and whether `userId` resolves to
+            /// The wallet the handle is bound to, and whether `id` resolves to
             /// that same wallet.
-            function resolvePair(bytes32 platformId, string calldata handle, string calldata userId) external view returns (address wallet, bool idAgrees);
-            function reverseOf(address wallet, bytes32 platformId) external view returns (string memory);
-            function primaryOf(address wallet, bytes32 platformId) external view returns (string memory);
+            function resolveHandleAndId(bytes32 platformId, string calldata handle, string calldata id) external view returns (address wallet, bool idAgrees);
+            /// The handle a wallet published, while it still resolves back to
+            /// that wallet; empty otherwise.
+            function publishedHandleOf(address wallet, bytes32 platformId) external view returns (string memory);
             /// The platform's rules as configured now, for local normalization.
             function rulesOf(bytes32 platformId) external view returns (Rules memory);
-            /// Whether `bind` can bind a holder on this platform
+            /// Whether `bind` can bind a wallet on this platform
             /// now: a keyspace, and a Proof Verifier that verifies it.
             function acceptsBindings(bytes32 platformId) external view returns (bool);
             /// `keccak256` of the normalized handle: what `HandleEscrow.deposit`
             /// takes. Reverts `UnknownPlatform` or `UnusableHandle`.
             function handleHashOf(bytes32 platformId, string calldata handle) external view returns (bytes32 handleHash);
-            /// The node a handle keys to now; reverts as `handleHashOf` does.
-            function nodeOf(bytes32 platformId, string calldata handle) external view returns (bytes32 handleNode);
+            /// The node a handle hashes to now; reverts as `handleHashOf` does.
+            function handleNodeOf(bytes32 platformId, string calldata handle) external view returns (bytes32 handleNode);
             /// The node of a handle given as its hash, as `bind` binds it.
-            function nodeOfHash(bytes32 platformId, bytes32 handleHash) external pure returns (bytes32);
+            function handleNodeOfHash(bytes32 platformId, bytes32 handleHash) external pure returns (bytes32);
 
-            /// How many accounts a wallet holds, on every platform together.
-            function accountCount(address wallet) external view returns (uint256);
-            /// A page of the accounts a wallet holds, on every platform
+            /// How many identities are bound to a wallet, on every platform
+            /// together.
+            function identityCount(address wallet) external view returns (uint256);
+            /// A page of the identities bound to a wallet, on every platform
             /// together: the indices `[from, from + limit)`, counted from
-            /// zero and clipped to the list. Order
-            /// is arbitrary and changes when an account leaves the list, so
-            /// a reader that needs every account reads `accountCount` and
-            /// the pages in one block.
-            function accountsOf(address wallet, uint256 from, uint256 limit) external view returns (Account[] memory);
+            /// zero and clipped to the list. Order is arbitrary and changes
+            /// when an identity leaves the list, so a reader that needs every
+            /// identity reads `identityCount` and the pages in one block.
+            function identitiesOf(address wallet, uint256 from, uint256 limit) external view returns (Identity[] memory);
 
             /// Carries the ceremony version that proved the binding -- logged,
             /// never stored, because nothing on chain acts on it and an
@@ -108,11 +109,11 @@ mod names_inner {
             /// What the ceremony authenticated beyond the binding rides on
             /// `CeremonyBound` instead.
             event IdentityBound(
-                address indexed owner,
+                address indexed wallet,
                 bytes32 indexed idNode,
                 bytes32 indexed handleNode,
                 bytes32 platformId,
-                string userId,
+                string id,
                 string handle,
                 uint64 observedAt,
                 bool published,
@@ -140,7 +141,7 @@ mod names_inner {
             error FeeTransferFailed(address receiver, uint256 amount);
             error NotProofTarget(address proved, address caller);
             error NoObservationTime();
-            error NoUserId();
+            error NoId();
             error StaleProof(uint64 observedAt, uint64 known);
             error EmptyHandle();
             error HandleTooLong();
@@ -150,19 +151,19 @@ mod names_inner {
             error OwnableInvalidOwner(address owner);
             error ReentrancyGuardReentrantCall();
 
-            event HandleRetired(bytes32 indexed platformId, bytes32 indexed handleNode, address indexed owner);
+            event HandleRetired(bytes32 indexed platformId, bytes32 indexed handleNode, address indexed wallet);
             event PlatformConfigured(bytes32 indexed platformId);
             event ProofVerifierConfigured(address verifier);
             /// The service fee a binding's own Authorized Transaction Data named
             /// was delivered. Emitted only when there is one.
             event BindFeePaid(bytes32 indexed authorizationDigest, address indexed receiver, uint256 amount);
-            event NameUnpublished(address indexed owner, bytes32 indexed platformId);
+            event HandleUnpublished(address indexed wallet, bytes32 indexed platformId);
             /// The OAuth client a ceremony authenticated. Nothing stores it, so
             /// "which application produced these bindings" is answerable only
             /// from this log.
             event CeremonyBound(
                 bytes32 indexed authorizationDigest,
-                address indexed owner,
+                address indexed wallet,
                 bytes32 indexed platformId,
                 bytes clientIdentifier
             );

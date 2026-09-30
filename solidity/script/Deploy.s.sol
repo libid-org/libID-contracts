@@ -14,8 +14,8 @@ import {GoogleJwtRoots} from "../contracts/ceremony/GoogleJwtRoots.sol";
 /// @notice Deploy the identity stack to any EVM chain.
 ///
 /// Four UUPS proxies, in dependency order: the Notary Service every notarized
-/// session is verified through, the Proof Verifier the naming system
-/// dispatches claims through, the naming system itself with a keyspace per
+/// session is verified through, the Proof Verifier the identity registry
+/// dispatches claims through, the registry itself with a keyspace per
 /// platform, and the Google JWT root list that pays the Notary Service for
 /// each rotation. No Platform Verifier is registered here -- that needs the
 /// ceremony circuit artifacts, which arrive with their own release.
@@ -67,8 +67,8 @@ contract Deploy is Script {
         address proofVerifierAddr =
             address(new ERC1967Proxy(address(pvImpl), abi.encodeCall(CeremonyProofVerifier.initialize, (deployer))));
 
-        // 3. The naming system: one contract holding the names, dispatching
-        //    every binding through the Proof Verifier above.
+        // 3. The identity registry: one contract holding the bindings,
+        //    dispatching every one through the Proof Verifier above.
         IdentityNames namesImpl = new IdentityNames();
         address identityNamesAddr =
             address(new ERC1967Proxy(address(namesImpl), abi.encodeCall(IdentityNames.initialize, (deployer))));
@@ -107,12 +107,12 @@ contract Deploy is Script {
         console.log("NOTE: no Platform Verifier is registered yet. Add one with");
         console.log("      CeremonyProofVerifier.setVerifier once the ceremony");
         console.log("      circuit artifacts are released. Until then a platform");
-        console.log("      owns its keyspace and can verify nothing.");
+        console.log("      has its keyspace and can verify nothing.");
         // Nothing is trusted until a notarized reading of Google's JWKS lands.
         // Until then every Google binding reverts `UntrustedModulus`, which reads
         // as a bad proof rather than an unseeded list.
         console.log("NOTE: point the keeper at GOOGLE_JWT_ROOTS_ADDRESS");
-        console.log("      before Google names work. The trust list starts empty.");
+        console.log("      before Google bindings work. The trust list starts empty.");
     }
 
     /// @dev Give a platform its keyspace.

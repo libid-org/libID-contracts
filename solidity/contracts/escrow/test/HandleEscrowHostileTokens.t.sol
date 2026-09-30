@@ -19,12 +19,13 @@ import {
     PayoutFeeToken,
     RebasingToken,
     SenderFeeToken,
-    SettableNames,
+    SettableRegistry,
     TestERC20,
     one
 } from "./EscrowMocks.sol";
 
-/// @notice Depositor and holder in one, re-entering the escrow from the hook token's callbacks.
+/// @notice Depositor and bound wallet in one, re-entering the escrow from the hook token's
+///         callbacks.
 contract HookedParty is ITransferHooks {
     HandleEscrow private immutable ESCROW;
     address private immutable TOKEN;
@@ -71,18 +72,18 @@ contract HandleEscrowHostileTokensTest is Test {
     bytes32 internal immutable NODE2 = IdentityNodes.handleNodeOfHash(PLATFORM, HASH2);
 
     HandleEscrow internal escrow;
-    SettableNames internal names;
+    SettableRegistry internal registry;
     address internal depositor = makeAddr("depositor");
-    address internal holder = makeAddr("holder");
+    address internal wallet = makeAddr("wallet");
     address internal other = makeAddr("other");
 
     function setUp() public {
-        names = new SettableNames();
+        registry = new SettableRegistry();
         escrow = HandleEscrow(
             address(
                 new ERC1967Proxy(
                     address(new HandleEscrow()),
-                    abi.encodeCall(HandleEscrow.initialize, (address(this), IIdentityNames(address(names))))
+                    abi.encodeCall(HandleEscrow.initialize, (address(this), IIdentityNames(address(registry))))
                 )
             )
         );
@@ -106,7 +107,7 @@ contract HandleEscrowHostileTokensTest is Test {
         assertEq(token.balanceOf(address(party)), 20 ether, "refunded other than once");
 
         party.act(depositCall, "");
-        names.setHolder(NODE, address(party));
+        registry.setWallet(NODE, address(party));
         party.act(claimCall, claimCall);
         assertEq(party.refusal(), guard);
         assertEq(token.balanceOf(address(party)), 20 ether, "claimed other than once");
@@ -126,16 +127,16 @@ contract HandleEscrowHostileTokensTest is Test {
         vm.expectRevert(failed);
         escrow.refund(NODE, address(token), depositor);
         vm.stopPrank();
-        names.setHolder(NODE, holder);
-        vm.prank(holder);
+        registry.setWallet(NODE, wallet);
+        vm.prank(wallet);
         vm.expectRevert(failed);
-        escrow.claim(NODE, one(address(token)), holder);
+        escrow.claim(NODE, one(address(token)), wallet);
         assertEq(escrow.refundable(NODE, address(token), depositor), 10 ether);
 
         token.setFailing(false);
-        vm.prank(holder);
-        escrow.claim(NODE, one(address(token)), holder);
-        assertEq(token.balanceOf(holder), 10 ether);
+        vm.prank(wallet);
+        escrow.claim(NODE, one(address(token)), wallet);
+        assertEq(token.balanceOf(wallet), 10 ether);
     }
 
     /// USDT's shape, no return value, works on every path.
@@ -148,12 +149,12 @@ contract HandleEscrowHostileTokensTest is Test {
         escrow.refund(NODE, address(token), depositor);
         escrow.deposit(PLATFORM, HASH, address(token), 10 ether, depositor);
         vm.stopPrank();
-        names.setHolder(NODE, holder);
-        vm.prank(holder);
-        escrow.claim(NODE, one(address(token)), holder);
+        registry.setWallet(NODE, wallet);
+        vm.prank(wallet);
+        escrow.claim(NODE, one(address(token)), wallet);
         vm.prank(depositor);
         escrow.deposit(PLATFORM, HASH, address(token), 5 ether, depositor);
-        assertEq(token.balanceOf(holder), 15 ether);
+        assertEq(token.balanceOf(wallet), 15 ether);
         assertEq(token.balanceOf(depositor), 10 ether);
         assertEq(token.balanceOf(address(escrow)), 0);
     }
@@ -169,37 +170,37 @@ contract HandleEscrowHostileTokensTest is Test {
         vm.prank(depositor);
         escrow.refund(NODE, address(token), depositor);
 
-        names.setHolder(NODE2, holder);
+        registry.setWallet(NODE2, wallet);
         vm.expectEmit(address(escrow));
-        emit HandleEscrow.Claimed(NODE2, address(token), holder, holder, 0, 100 ether, 99 ether);
-        vm.prank(holder);
-        escrow.claim(NODE2, one(address(token)), holder);
+        emit HandleEscrow.Claimed(NODE2, address(token), wallet, wallet, 0, 100 ether, 99 ether);
+        vm.prank(wallet);
+        escrow.claim(NODE2, one(address(token)), wallet);
         assertEq(token.balanceOf(address(escrow)), 0);
     }
 
-    /// A blocked recipient or holder fails the call whole; another recipient works.
+    /// A blocked recipient or bound wallet fails the call whole; another recipient works.
     function test_aBlockedPartyFailsTheCallAndLeavesTheBooks() public {
         BlocklistToken token = new BlocklistToken();
         _escrow(address(token), depositor, HASH, 10 ether);
-        token.setBlocked(holder, true);
+        token.setBlocked(wallet, true);
         token.setBlocked(depositor, true);
 
         vm.prank(depositor);
         vm.expectRevert(abi.encodeWithSelector(BlocklistToken.Blocked.selector, depositor));
         escrow.refund(NODE, address(token), depositor);
-        names.setHolder(NODE, holder);
-        vm.prank(holder);
-        vm.expectRevert(abi.encodeWithSelector(BlocklistToken.Blocked.selector, holder));
-        escrow.claim(NODE, one(address(token)), holder);
+        registry.setWallet(NODE, wallet);
+        vm.prank(wallet);
+        vm.expectRevert(abi.encodeWithSelector(BlocklistToken.Blocked.selector, wallet));
+        escrow.claim(NODE, one(address(token)), wallet);
 
         token.mint(other, 1 ether);
         vm.startPrank(other);
         token.approve(address(escrow), 1 ether);
-        vm.expectRevert(abi.encodeWithSelector(BlocklistToken.Blocked.selector, holder));
+        vm.expectRevert(abi.encodeWithSelector(BlocklistToken.Blocked.selector, wallet));
         escrow.deposit(PLATFORM, HASH, address(token), 1 ether, other);
         vm.stopPrank();
 
-        vm.prank(holder);
+        vm.prank(wallet);
         escrow.claim(NODE, one(address(token)), other);
         assertEq(token.balanceOf(other), 11 ether);
     }
@@ -214,15 +215,15 @@ contract HandleEscrowHostileTokensTest is Test {
         vm.prank(depositor);
         vm.expectRevert(blocked);
         escrow.refund(NODE, address(token), depositor);
-        names.setHolder(NODE, holder);
-        vm.prank(holder);
+        registry.setWallet(NODE, wallet);
+        vm.prank(wallet);
         vm.expectRevert(blocked);
-        escrow.claim(NODE, one(address(token)), holder);
+        escrow.claim(NODE, one(address(token)), wallet);
 
         token.setBlocked(address(escrow), false);
-        vm.prank(holder);
-        escrow.claim(NODE, one(address(token)), holder);
-        assertEq(token.balanceOf(holder), 10 ether);
+        vm.prank(wallet);
+        escrow.claim(NODE, one(address(token)), wallet);
+        assertEq(token.balanceOf(wallet), 10 ether);
     }
 
     /// KNOWN LIMITATION: a token charging its sender on `transfer` deposits but never pays out. Every
@@ -238,10 +239,10 @@ contract HandleEscrowHostileTokensTest is Test {
         vm.prank(depositor);
         vm.expectRevert(over);
         escrow.refund(NODE, address(token), depositor);
-        names.setHolder(NODE, holder);
-        vm.prank(holder);
+        registry.setWallet(NODE, wallet);
+        vm.prank(wallet);
         vm.expectRevert(over);
-        escrow.claim(NODE, one(address(token)), holder);
+        escrow.claim(NODE, one(address(token)), wallet);
         assertEq(token.balanceOf(address(escrow)), 20 ether);
         assertEq(escrow.escrowed(NODE, address(token)), 10 ether);
         assertEq(escrow.refundable(NODE, address(token), depositor), 10 ether);

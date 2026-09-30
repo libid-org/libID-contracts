@@ -12,19 +12,19 @@ function one(address token) pure returns (address[] memory tokens) {
     tokens[0] = token;
 }
 
-/// @notice A naming system whose holders are set directly; deposits go by hash.
-contract SettableNames is IIdentityNames {
-    mapping(bytes32 => address) public holderOf;
+/// @notice A registry whose bound wallets are set directly; deposits go by hash.
+contract SettableRegistry is IIdentityNames {
+    mapping(bytes32 => address) public walletOf;
 
-    function setHolder(bytes32 handleNode, address holder) external {
-        holderOf[handleNode] = holder;
+    function setWallet(bytes32 handleNode, address wallet) external {
+        walletOf[handleNode] = wallet;
     }
 
-    function byHandle(bytes32 handleNode) external view returns (address owner, uint64 observedAt) {
-        return (holderOf[handleNode], 0);
+    function handleBinding(bytes32 handleNode) external view returns (address wallet, uint64 observedAt) {
+        return (walletOf[handleNode], 0);
     }
 
-    function nodeOf(bytes32 platformId, string calldata handle) external pure returns (bytes32) {
+    function handleNodeOf(bytes32 platformId, string calldata handle) external pure returns (bytes32) {
         return IdentityNodes.handleNode(platformId, handle);
     }
 
@@ -32,7 +32,7 @@ contract SettableNames is IIdentityNames {
         return keccak256(bytes(handle));
     }
 
-    function nodeOfHash(bytes32 platformId, bytes32 handleHash) external pure returns (bytes32) {
+    function handleNodeOfHash(bytes32 platformId, bytes32 handleHash) external pure returns (bytes32) {
         return IdentityNodes.handleNodeOfHash(platformId, handleHash);
     }
 

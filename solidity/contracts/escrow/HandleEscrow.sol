@@ -16,11 +16,11 @@ address constant NATIVE_TOKEN = 0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE;
 /// @title HandleEscrow - send to a platform handle before anybody claims it.
 ///
 /// @notice Holds value against the handle node `IdentityNames` binds. The
-///         node's holder claims it; until then each deposit's `refundTo`
-///         can take its own contribution back. Integrator notes, privacy and
-///         trust: `README.md` beside this file.
+///         wallet bound to the node claims it; until then each deposit's
+///         `refundTo` can take its own contribution back. Integrator notes,
+///         privacy and trust: `README.md` beside this file.
 ///
-/// @dev - A held node is paid straight through; only an unheld node on a
+/// @dev - A bound node is paid straight through; only an unbound node on a
 ///        platform that `acceptsBindings` escrows.
 ///      - A claim empties the slot and opens a new round, ending the old
 ///        round's refunds. Refunds have no delay and no pause gates them.
@@ -37,7 +37,7 @@ contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable
     struct HandleEscrowStorage {
         /// handle node -> token -> amount held.
         mapping(bytes32 => mapping(address => uint256)) held;
-        IIdentityNames names;
+        IIdentityNames registry;
         /// handle node -> token -> claims so far; contributions are booked
         /// under the current round.
         mapping(bytes32 => mapping(address => uint256)) round;
@@ -58,9 +58,9 @@ contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable
 
     // ─── Events ─────────────────────────────────────────────────────
 
-    /// @notice Value was escrowed for a node nobody holds, under `round`.
-    ///         `amount` is what arrived; `depositor` paid, `refundTo` may
-    ///         refund until the round's claim.
+    /// @notice Value was escrowed for a node no wallet is bound to, under
+    ///         `round`. `amount` is what arrived; `depositor` paid, `refundTo`
+    ///         may refund until the round's claim.
     event Deposited(
         bytes32 indexed handleNode,
         address indexed token,
@@ -71,21 +71,21 @@ contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable
         uint256 amount
     );
 
-    /// @notice A deposit for a held node was paid straight to `holder`.
-    ///         `amount` was asked for; `received` is what the holder gained.
+    /// @notice A deposit for a bound node was paid straight to `wallet`.
+    ///         `amount` was asked for; `received` is what the wallet gained.
     event Forwarded(
         bytes32 indexed handleNode,
         address indexed token,
         address indexed depositor,
-        address holder,
+        address wallet,
         bytes32 platformId,
         uint256 amount,
         uint256 received
     );
 
-    /// @notice The holder took what was held in one token, closing `round`.
-    ///         `released` left the books; `received` is what `recipient`
-    ///         gained.
+    /// @notice The bound wallet took what was held in one token, closing
+    ///         `round`. `released` left the books; `received` is what
+    ///         `recipient` gained.
     event Claimed(
         bytes32 indexed handleNode,
         address indexed token,
@@ -112,14 +112,14 @@ contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable
 
     /// Nothing was asked for, or nothing arrived.
     error ZeroAmount();
-    /// The caller holds the node it is paying.
-    error PayingYourself(address holder);
+    /// The caller is the wallet bound to the node it is paying.
+    error PayingYourself(address wallet);
     /// Native value must equal the amount, and a token deposit carries none.
     error ValueMismatch(uint256 expected, uint256 provided);
     /// Nothing is held for this handle node in any of the tokens asked for.
     error NothingHeld(bytes32 handleNode);
-    /// The caller does not hold this handle node.
-    error NotTheHolder(address holder, address caller);
+    /// The caller is not the wallet bound to this handle node.
+    error NotBoundWallet(address wallet, address caller);
     /// Nothing refundable is booked under this address in the current round.
     error NothingToRefund(bytes32 handleNode, address token, address refundTo);
     /// `refundTo` must be an address that can call `refund`: not zero, not
@@ -127,16 +127,17 @@ contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable
     error BadRefundTo(address refundTo);
     /// A payout may not go to the zero address or this contract.
     error BadRecipient(address recipient);
-    /// Nobody holds the node and nothing new can bind on this platform.
+    /// No wallet is bound to the node and nothing new can bind on this
+    /// platform.
     error PlatformAcceptsNoBindings(bytes32 platformId);
     /// A payout took more of this contract's balance than it booked.
     error OverDebited(address token, uint256 booked, uint256 debited);
     /// The recipient refused the transfer.
     error NativeTransferFailed(address recipient, uint256 amount);
-    /// The escrow needs a naming system to resolve through.
-    error NoNames();
-    /// The naming contract does not answer this function as expected.
-    error NamesLacks(address names, bytes4 selector);
+    /// The escrow needs an identity registry to resolve through.
+    error NoRegistry();
+    /// The registry does not answer this function as expected.
+    error RegistryLacks(address registry, bytes4 selector);
     /// Ownership cannot be renounced; see `renounceOwnership`.
     error RenounceDisabled();
 
@@ -147,20 +148,21 @@ contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable
         _disableInitializers();
     }
 
-    /// @dev Reverts `NamesLacks` unless `names_` answers like `IdentityNames`.
-    function initialize(address owner_, IIdentityNames names_) external initializer {
-        if (address(names_) == address(0)) revert NoNames();
-        _requireAnswers(names_);
+    /// @dev Reverts `RegistryLacks` unless `registry_` answers like
+    ///      `IdentityNames`.
+    function initialize(address owner_, IIdentityNames registry_) external initializer {
+        if (address(registry_) == address(0)) revert NoRegistry();
+        _requireAnswers(registry_);
         __Ownable_init(owner_);
         __Ownable2Step_init();
         __UUPSUpgradeable_init();
         __ReentrancyGuard_init();
-        _s().names = names_;
+        _s().registry = registry_;
     }
 
-    /// @notice The naming system this escrow resolves through.
-    function names() external view returns (IIdentityNames) {
-        return _s().names;
+    /// @notice The identity registry this escrow resolves through.
+    function registry() external view returns (IIdentityNames) {
+        return _s().registry;
     }
 
     // ─── Depositing ─────────────────────────────────────────────────
@@ -189,17 +191,17 @@ contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable
         }
 
         HandleEscrowStorage storage $ = _s();
-        bytes32 node = $.names.nodeOfHash(platformId, handleHash);
-        (address holder,) = $.names.byHandle(node);
-        if (holder != address(0)) {
-            if (holder == msg.sender) revert PayingYourself(holder);
-            uint256 received = _move(token, msg.sender, holder, amount);
+        bytes32 node = $.registry.handleNodeOfHash(platformId, handleHash);
+        (address wallet,) = $.registry.handleBinding(node);
+        if (wallet != address(0)) {
+            if (wallet == msg.sender) revert PayingYourself(wallet);
+            uint256 received = _move(token, msg.sender, wallet, amount);
             if (received == 0) revert ZeroAmount();
-            emit Forwarded(node, token, msg.sender, holder, platformId, amount, received);
+            emit Forwarded(node, token, msg.sender, wallet, platformId, amount, received);
             return;
         }
 
-        if (!$.names.acceptsBindings(platformId)) revert PlatformAcceptsNoBindings(platformId);
+        if (!$.registry.acceptsBindings(platformId)) revert PlatformAcceptsNoBindings(platformId);
 
         uint256 credited = _move(token, msg.sender, address(this), amount);
         if (credited == 0) revert ZeroAmount();
@@ -213,7 +215,8 @@ contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable
     // ─── Claiming ───────────────────────────────────────────────────
 
     /// @notice Take everything held for a node in each of `tokens`. The caller
-    ///         must be `byHandle(handleNode).owner`; `recipient` is its choice.
+    ///         must be `handleBinding(handleNode).wallet`; `recipient` is its
+    ///         choice.
     /// @dev Tokens with nothing held are skipped, so a list read from an
     ///      indexer survives a refund landing first; a repeated token pays
     ///      once. Reverts `NothingHeld` only when no token paid. One `Claimed`
@@ -221,8 +224,8 @@ contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable
     function claim(bytes32 handleNode, address[] calldata tokens, address recipient) external nonReentrant {
         if (recipient == address(0) || recipient == address(this)) revert BadRecipient(recipient);
 
-        (address holder,) = _s().names.byHandle(handleNode);
-        if (holder != msg.sender) revert NotTheHolder(holder, msg.sender);
+        (address wallet,) = _s().registry.handleBinding(handleNode);
+        if (wallet != msg.sender) revert NotBoundWallet(wallet, msg.sender);
 
         HandleEscrowStorage storage $ = _s();
         bool paid;
@@ -243,7 +246,7 @@ contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable
     // ─── Refunding ──────────────────────────────────────────────────
 
     /// @notice Take back what is booked under the caller for a node in the
-    ///         current round, whether or not the node has a holder.
+    ///         current round, whether or not a wallet is bound to the node.
     function refund(bytes32 handleNode, address token, address recipient) external nonReentrant {
         if (recipient == address(0) || recipient == address(this)) revert BadRecipient(recipient);
 
@@ -302,27 +305,31 @@ contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable
         if (!ok) revert NativeTransferFailed(to, amount);
     }
 
-    /// @dev Refuses a naming contract that does not answer the three calls the
+    /// @dev Refuses a registry that does not answer the three calls the
     ///      escrow makes in their shape: a two-word binding, a boolean, and a
     ///      nonzero node that depends on the hash.
-    function _requireAnswers(IIdentityNames names_) private view {
+    function _requireAnswers(IIdentityNames registry_) private view {
         (bool ok, bytes memory result) =
-            address(names_).staticcall(abi.encodeCall(IIdentityNames.byHandle, (bytes32(0))));
-        if (!ok || result.length != 64) revert NamesLacks(address(names_), IIdentityNames.byHandle.selector);
-
-        (ok, result) = address(names_).staticcall(abi.encodeCall(IIdentityNames.acceptsBindings, (bytes32(0))));
-        if (!ok || result.length != 32 || abi.decode(result, (uint256)) > 1) {
-            revert NamesLacks(address(names_), IIdentityNames.acceptsBindings.selector);
+            address(registry_).staticcall(abi.encodeCall(IIdentityNames.handleBinding, (bytes32(0))));
+        if (!ok || result.length != 64) {
+            revert RegistryLacks(address(registry_), IIdentityNames.handleBinding.selector);
         }
 
-        bytes32 a = _nodeOfHashAnswer(names_, bytes32(0));
-        bytes32 b = _nodeOfHashAnswer(names_, bytes32(uint256(1)));
-        if (a == 0 || b == 0 || a == b) revert NamesLacks(address(names_), IIdentityNames.nodeOfHash.selector);
+        (ok, result) = address(registry_).staticcall(abi.encodeCall(IIdentityNames.acceptsBindings, (bytes32(0))));
+        if (!ok || result.length != 32 || abi.decode(result, (uint256)) > 1) {
+            revert RegistryLacks(address(registry_), IIdentityNames.acceptsBindings.selector);
+        }
+
+        bytes32 a = _handleNodeOfHashAnswer(registry_, bytes32(0));
+        bytes32 b = _handleNodeOfHashAnswer(registry_, bytes32(uint256(1)));
+        if (a == 0 || b == 0 || a == b) {
+            revert RegistryLacks(address(registry_), IIdentityNames.handleNodeOfHash.selector);
+        }
     }
 
-    function _nodeOfHashAnswer(IIdentityNames names_, bytes32 handleHash) private view returns (bytes32) {
+    function _handleNodeOfHashAnswer(IIdentityNames registry_, bytes32 handleHash) private view returns (bytes32) {
         (bool ok, bytes memory result) =
-            address(names_).staticcall(abi.encodeCall(IIdentityNames.nodeOfHash, (bytes32(0), handleHash)));
+            address(registry_).staticcall(abi.encodeCall(IIdentityNames.handleNodeOfHash, (bytes32(0), handleHash)));
         return ok && result.length == 32 ? abi.decode(result, (bytes32)) : bytes32(0);
     }
 

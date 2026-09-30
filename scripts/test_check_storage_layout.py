@@ -80,8 +80,8 @@ class Classify(unittest.TestCase):
         self.assertEqual(classify(old, ["contract A slot=0 offset=0 a: uint256"]), "incompatible")
 
     def test_a_field_renamed_in_place_is_a_rename(self) -> None:
-        old = [ROOT, "field slot=0 offset=0 byId: uint256", "field slot=1 offset=0 b: address"]
-        new = [ROOT, "field slot=0 offset=0 idBindings: uint256", "field slot=1 offset=0 b: address"]
+        old = [ROOT, "field slot=0 offset=0 before: uint256", "field slot=1 offset=0 b: address"]
+        new = [ROOT, "field slot=0 offset=0 after: uint256", "field slot=1 offset=0 b: address"]
         self.assertEqual(classify(old, new), "rename")
 
     def test_a_struct_and_its_member_renamed_in_place_are_a_rename(self) -> None:

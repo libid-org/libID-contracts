@@ -13,14 +13,14 @@ import {IProofVerifier} from "../../ceremony/IProofVerifier.sol";
 import {StubPlatformVerifier} from "./StubPlatformVerifier.sol";
 
 /// @notice What a wallet pays, and what reading it costs, does not depend on
-///         how many accounts the wallet holds.
+///         how many identities are bound to the wallet.
 ///
-/// @dev Two wallets on one contract, one holding four accounts and one
-///      holding a thousand. Each operation runs for both from cold storage,
-///      and the gas the contract used is compared exactly rather than within
-///      a tolerance: one storage read more would show as thousands. The
-///      measured call is the last one a helper makes, which is what
-///      `vm.lastCallGas` reports on.
+/// @dev Two wallets on one contract, one with four identities and one with a
+///      thousand. Each operation runs for both from cold storage, and the gas
+///      the contract used is compared exactly rather than within a tolerance:
+///      one storage read more would show as thousands. The measured call is
+///      the last one a helper makes, which is what `vm.lastCallGas` reports
+///      on.
 contract IdentityNamesGasTest is Test {
     IdentityNames internal names;
     CeremonyProofVerifier internal proofVerifier;
@@ -62,12 +62,12 @@ contract IdentityNamesGasTest is Test {
         }
     }
 
-    // ─── Fixed-width names ──────────────────────────────────────────
+    // ─── Fixed-width ids and handles ────────────────────────────────
 
-    /// Account ids and handles of one width each, so a claim's hashing and
-    /// normalization cost the same whichever account it names. A tag tells
-    /// one wallet's names from another's. Ten digits is the width of an X
-    /// account id in the fixtures, fifteen characters the most X allows.
+    /// Ids and handles of one width each, so a claim's hashing and
+    /// normalization cost the same whichever identity it names. A tag tells
+    /// one wallet's identities from another's. Ten digits is the width of an
+    /// X id in the fixtures, fifteen characters the most X allows.
     function _id(uint256 tag, uint256 k) internal pure returns (string memory) {
         return string(abi.encodePacked("17", _digits(tag, 2), _digits(k, 6)));
     }
@@ -90,8 +90,8 @@ contract IdentityNamesGasTest is Test {
         return wallet == few ? 1 : 2;
     }
 
-    /// How many accounts a wallet was given. Half of that is an account in
-    /// the middle of its list: never the last one, so a removal has to move
+    /// How many identities a wallet was given. Half of that is an identity
+    /// in the middle of its list: never the last one, so a removal has to move
     /// the last one into its place.
     function _size(address wallet) internal view returns (uint256) {
         return wallet == few ? FEW : MANY;
@@ -101,7 +101,7 @@ contract IdentityNamesGasTest is Test {
 
     /// Every measurement starts from the same footing: the contracts are
     /// warm, because a test begins with them cold and the first call would
-    /// otherwise pay the account accesses the second does not, and their
+    /// otherwise pay the address accesses the second does not, and their
     /// storage is cold, so what a call reads is paid for in full both times.
     modifier measured() {
         names.owner();
@@ -121,8 +121,8 @@ contract IdentityNamesGasTest is Test {
     }
 
     /// A claim made out to `who`, from cold storage.
-    function _prove(address who, string memory userId, string memory handle) internal {
-        xVerifier.set(userId, handle);
+    function _prove(address who, string memory id, string memory handle) internal {
+        xVerifier.set(id, handle);
         xVerifier.setObservedAt(++clock);
         bytes memory payload = abi.encode(
             StubPlatformVerifier.StubPayload({
@@ -139,11 +139,11 @@ contract IdentityNamesGasTest is Test {
 
     // ─── Writes ─────────────────────────────────────────────────────
 
-    function test_aNewAccountCostsTheSame() public measured {
+    function test_aNewIdentityCostsTheSame() public measured {
         _prove(few, _id(1, 900_000), _handle(1, 900_000));
         uint64 atFew = _used();
         _prove(many, _id(2, 900_000), _handle(2, 900_000));
-        assertEq(atFew, _used(), "a new account");
+        assertEq(atFew, _used(), "a new identity");
     }
 
     function test_aRenameCostsTheSame() public measured {
@@ -160,7 +160,7 @@ contract IdentityNamesGasTest is Test {
         assertEq(atFew, _used(), "a re-proof");
     }
 
-    /// Another wallet's new account takes a handle from the middle of the
+    /// Another wallet's new identity takes a handle from the middle of the
     /// list. The list is not touched, and the taker pays for its own.
     function test_aHandleTakenFromTheWalletCostsTheSame() public measured {
         _prove(makeAddr("taker of few"), _id(1, 900_002), _handle(1, _size(few) / 2));
@@ -169,9 +169,9 @@ contract IdentityNamesGasTest is Test {
         assertEq(atFew, _used(), "a takeover");
     }
 
-    /// An account from the middle of the list is proved from a new wallet:
+    /// An identity from the middle of the list is proved from a new wallet:
     /// the one write that removes from a list.
-    function test_anAccountLeavingTheMiddleCostsTheSame() public measured {
+    function test_anIdentityLeavingTheMiddleCostsTheSame() public measured {
         _prove(makeAddr("new home of few"), _id(1, _size(few) / 2), _handle(1, _size(few) / 2));
         uint64 atFew = _used();
         _prove(makeAddr("new home of many"), _id(2, _size(many) / 2), _handle(2, _size(many) / 2));
@@ -195,37 +195,37 @@ contract IdentityNamesGasTest is Test {
     /// take the same path through the paging.
     function test_aPageCostsTheSame() public measured {
         _cool();
-        names.accountsOf(few, 0, FEW - 1);
+        names.identitiesOf(few, 0, FEW - 1);
         uint64 atFew = _used();
         _cool();
-        names.accountsOf(many, 0, FEW - 1);
+        names.identitiesOf(many, 0, FEW - 1);
         assertEq(atFew, _used(), "a page of three");
     }
 
     function test_countingCostsTheSame() public measured {
         _cool();
-        names.accountCount(few);
+        names.identityCount(few);
         uint64 atFew = _used();
         _cool();
-        names.accountCount(many);
+        names.identityCount(many);
         assertEq(atFew, _used(), "the count");
     }
 
     /// The reads under the resolvers: a binding by its node, and a digest.
     function test_theRawReadsCostTheSame() public measured {
         _cool();
-        names.byId(IdentityNodes.idNode(X, _id(1, 0)));
+        names.idBinding(IdentityNodes.idNode(X, _id(1, 0)));
         uint64 atFew = _used();
         _cool();
-        names.byId(IdentityNodes.idNode(X, _id(2, 0)));
-        assertEq(atFew, _used(), "byId");
+        names.idBinding(IdentityNodes.idNode(X, _id(2, 0)));
+        assertEq(atFew, _used(), "idBinding");
 
         _cool();
-        names.byHandle(IdentityNodes.handleNode(X, _handle(1, 0)));
+        names.handleBinding(IdentityNodes.handleNode(X, _handle(1, 0)));
         atFew = _used();
         _cool();
-        names.byHandle(IdentityNodes.handleNode(X, _handle(2, 0)));
-        assertEq(atFew, _used(), "byHandle");
+        names.handleBinding(IdentityNodes.handleNode(X, _handle(2, 0)));
+        assertEq(atFew, _used(), "handleBinding");
 
         _prove(few, _id(1, 900_003), _handle(1, 900_003));
         bytes32 spentByFew = xVerifier.lastDigest();
@@ -255,24 +255,17 @@ contract IdentityNamesGasTest is Test {
         assertEq(atFew, _used(), "resolveId");
 
         _cool();
-        names.resolvePair(X, _handle(1, 0), _id(1, 0));
+        names.resolveHandleAndId(X, _handle(1, 0), _id(1, 0));
         atFew = _used();
         _cool();
-        names.resolvePair(X, _handle(2, 0), _id(2, 0));
-        assertEq(atFew, _used(), "resolvePair");
+        names.resolveHandleAndId(X, _handle(2, 0), _id(2, 0));
+        assertEq(atFew, _used(), "resolveHandleAndId");
 
         _cool();
-        names.primaryOf(few, X);
+        names.publishedHandleOf(few, X);
         atFew = _used();
         _cool();
-        names.primaryOf(many, X);
-        assertEq(atFew, _used(), "primaryOf");
-
-        _cool();
-        names.reverseOf(few, X);
-        atFew = _used();
-        _cool();
-        names.reverseOf(many, X);
-        assertEq(atFew, _used(), "reverseOf");
+        names.publishedHandleOf(many, X);
+        assertEq(atFew, _used(), "publishedHandleOf");
     }
 }

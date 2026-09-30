@@ -868,7 +868,7 @@ async fn escrows_value_against_an_unclaimed_handle() {
         "HandleEscrow",
         &HandleEscrow::initializeCall {
             owner_: deployer,
-            names_: names_proxy,
+            registry_: names_proxy,
         },
         None,
     )
@@ -877,7 +877,7 @@ async fn escrows_value_against_an_unclaimed_handle() {
     let escrow = HandleEscrow::new(escrow_proxy, &provider);
     let native = escrow.NATIVE().call().await.unwrap();
 
-    // The naming system hashes and keys the text; the node is pinned with `cast`.
+    // The registry hashes the text into a node; the node is pinned with `cast`.
     let handle_hash = names
         .handleHashOf(platform_id, " Alice-1 ".into())
         .call()
@@ -885,7 +885,7 @@ async fn escrows_value_against_an_unclaimed_handle() {
         .unwrap();
     assert_eq!(handle_hash, keccak256("alice-1"));
     let node = names
-        .nodeOfHash(platform_id, handle_hash)
+        .handleNodeOfHash(platform_id, handle_hash)
         .call()
         .await
         .unwrap();
@@ -894,7 +894,7 @@ async fn escrows_value_against_an_unclaimed_handle() {
         b256!("2e2bee956f308d03271ce24b26e5aa20103b41841ddee3c96a94d2449902f710")
     );
 
-    // Escrowed for nobody; an unheld node refuses a claim with the bound error.
+    // Escrowed for nobody; an unbound node refuses a claim with the bound error.
     let amount = U256::from(1_000_000_000_000_000_000u64);
     escrow
         .deposit(platform_id, handle_hash, native, amount, deployer)
@@ -912,10 +912,10 @@ async fn escrows_value_against_an_unclaimed_handle() {
         .call()
         .await
         .err()
-        .expect("an unheld handle was claimable")
+        .expect("an unbound handle was claimable")
         .to_string();
     assert!(
-        err.contains(&hex::encode(HandleEscrow::NotTheHolder::SELECTOR)),
+        err.contains(&hex::encode(HandleEscrow::NotBoundWallet::SELECTOR)),
         "{err}"
     );
 

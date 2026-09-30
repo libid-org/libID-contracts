@@ -251,10 +251,10 @@ contract CeremonyClaimTest is Test {
     /// @dev CeremonyProofVerifier's own doc says removing a version "strands no
     ///      name already bound under it". Routing resolution through the
     ///      Supported Version Set made that false: retiring the last version
-    ///      stopped every bound name on the platform from resolving, for names
-    ///      that were bound and still owned. A name does not belong to the
-    ///      proof that established it.
-    function test_aBoundNameOutlivesTheVersionThatEstablishedIt() public {
+    ///      stopped every binding on the platform from resolving, for
+    ///      identities that were bound and still current. A binding does not
+    ///      belong to the proof that established it.
+    function test_aBindingOutlivesTheVersionThatEstablishedIt() public {
         _claim(_payload(WALLET, bytes32(uint256(77))), FEE);
         assertEq(names.resolveId(PLATFORM, "2244994945"), WALLET);
 
@@ -286,22 +286,22 @@ contract CeremonyClaimTest is Test {
 
     // ─── The handle is normalized here, not by the verifier ─────────
 
-    /// @dev REQ-PLAT-08B: the Consumer derives the key from the raw bytes on
+    /// @dev REQ-PLAT-08B: the Consumer derives the node from the raw bytes on
     ///      its own write path, so a verifier returning a padded, at-prefixed,
     ///      mixed-case handle lands on the same node as the normalized one.
     function test_normalizesTheHandleItself() public {
         verifier.set("2244994945", " @Alice_1 ");
         _claim(_payload(WALLET, bytes32(uint256(12))), FEE);
         assertEq(names.resolveHandle(PLATFORM, "alice_1"), WALLET);
-        (address owner,) = names.byHandle(IdentityNodes.handleNode(PLATFORM, "alice_1"));
-        assertEq(owner, WALLET);
+        (address wallet,) = names.handleBinding(IdentityNodes.handleNode(PLATFORM, "alice_1"));
+        assertEq(wallet, WALLET);
     }
 
-    function test_rejectsAnEmptyUserId() public {
+    function test_rejectsAnEmptyId() public {
         verifier.set("", "alice");
         bytes memory p = _payload(WALLET, bytes32(uint256(13)));
         vm.prank(WALLET);
-        vm.expectRevert(IdentityNames.NoUserId.selector);
+        vm.expectRevert(IdentityNames.NoId.selector);
         names.bind{value: FEE}(PLATFORM, 1, p, false);
     }
 
@@ -392,7 +392,7 @@ contract CeremonyClaimTest is Test {
     // ─── The service fee ────────────────────────────────────────────
 
     /// @dev The whole point of carrying the fee in the Authorized Transaction
-    ///      Data: the user approved this number at consent time, because it is
+    ///      Data: this number was approved at consent time, because it is
     ///      inside the digest the proof opens against. A hosted application
     ///      cannot raise it afterwards, and it is paid to the address the
     ///      ceremony named -- not to the caller, who is the target.
@@ -415,7 +415,7 @@ contract CeremonyClaimTest is Test {
 
     /// @dev Anyone who composes their own ceremony names no fee and pays only
     ///      the verification path. Nothing on this chain knows who is hosted
-    ///      and who is not; the difference is entirely in what the user signed.
+    ///      and who is not; the difference is entirely in what was consented to.
     function test_aFreeClaimPaysOnlyTheVerificationPath() public {
         uint256 hostBefore = HOST.balance;
         vm.recordLogs();
@@ -456,8 +456,7 @@ contract CeremonyClaimTest is Test {
     }
 
     /// @dev The other half of the same rule. Paying a fee to nobody would burn
-    ///      value the user did consent to part with, which is worse than
-    ///      refusing.
+    ///      value that was consented to, which is worse than refusing.
     function test_rejectsAFeeBesideNoReceiver() public {
         bytes memory p = _payload(DOMAIN, _txData(WALLET, SERVICE_FEE, address(0)), bytes32(uint256(65)));
         vm.prank(WALLET);
@@ -466,8 +465,8 @@ contract CeremonyClaimTest is Test {
     }
 
     /// @dev What makes the fee unforgeable: it is a digest input. Change the
-    ///      amount or the receiver and the digest moves, so the proof the user
-    ///      authorized no longer opens against it.
+    ///      amount or the receiver and the digest moves, so the authorized
+    ///      proof no longer opens against it.
     function test_theFeeIsInsideTheDigest() public view {
         bytes32 n = bytes32(uint256(66));
         bytes32 asAgreed = _digest(_txData(WALLET, SERVICE_FEE, HOST), n);
@@ -477,7 +476,7 @@ contract CeremonyClaimTest is Test {
     }
 
     /// @dev The receiver is an address the ceremony named, so it can be
-    ///      hostile or simply broken. It cannot take the name without paying
+    ///      hostile or simply broken. It cannot take the handle without paying
     ///      for it: the claim is one transaction, and a fee that cannot be
     ///      delivered undoes the write with it.
     function test_aReceiverThatRefusesTheFeeUndoesTheWholeClaim() public {
