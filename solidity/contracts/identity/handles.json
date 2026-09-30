@@ -29,9 +29,7 @@
       "shape": "handle",
       "allowUnderscore": true,
       "allowHyphen": false,
-      "note": "X allows letters, digits and underscore, up to 15 characters.",
-      "futureAllowanceSeconds": 300,
-      "allowanceNote": "A notary states wall-clock time as it observes it, so the observation is never ahead. Five minutes covers clock skew between the notary and the chain."
+      "note": "X allows letters, digits and underscore, up to 15 characters."
     },
     {
       "key": "github",
@@ -44,9 +42,7 @@
       "note": [
         "GitHub allows letters, digits and hyphen, up to 39 characters. A hyphen",
         "may not start or end the handle, and two hyphens may not touch."
-      ],
-      "futureAllowanceSeconds": 300,
-      "allowanceNote": "Same as X: notary wall-clock, five minutes for skew."
+      ]
     },
     {
       "key": "google",
@@ -67,9 +63,7 @@
         "allowUnderscore and allowHyphen are stated for completeness and",
         "are never read: the email shape supersedes both, and the address",
         "set already carries the underscore and the hyphen."
-      ],
-      "futureAllowanceSeconds": 7200,
-      "allowanceNote": "The OIDC circuit exposes no `iat`, so the observation is the token's `exp` \u2014 Google issues about an hour of life, and the claim therefore reads roughly an hour ahead of the moment it describes."
+      ]
     }
   ],
   "errors": [

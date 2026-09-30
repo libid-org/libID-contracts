@@ -51,17 +51,6 @@ export const ALLOW_UNDERSCORE_GOOGLE = false
 /** Allow `-`, but not leading, trailing or doubled. */
 export const ALLOW_HYPHEN_GOOGLE = false
 
-/// A notary states wall-clock time as it observes it, so the
-/// observation is never ahead. Five minutes covers clock skew between
-/// the notary and the chain.
-export const FUTURE_ALLOWANCE_X = 300
-/// Same as X: notary wall-clock, five minutes for skew.
-export const FUTURE_ALLOWANCE_GITHUB = 300
-/// The OIDC circuit exposes no `iat`, so the observation is the token's
-/// `exp` — Google issues about an hour of life, and the claim therefore
-/// reads roughly an hour ahead of the moment it describes.
-export const FUTURE_ALLOWANCE_GOOGLE = 7200
-
 export const ERROR_EMPTY = 0
 export const ERROR_TOOLONG = 1
 export const ERROR_BADCHARACTER = 2

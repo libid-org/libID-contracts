@@ -27,8 +27,6 @@ contract HonkVerifiersTest is Test {
     error ProofLengthWrongWithLogN(uint256 logN, uint256 actualLength, uint256 expectedLength);
 
     address constant OWNER = address(0xA11CE);
-    uint64 constant LIFETIME = 3600;
-    uint64 constant SKEW = 300;
 
     IHonkVerifier bearerLink;
     IHonkVerifier oidcGoogle;
@@ -83,15 +81,7 @@ contract HonkVerifiersTest is Test {
                     address(xImpl),
                     abi.encodeCall(
                         XPlatformVerifier.initialize,
-                        (
-                            OWNER,
-                            INotaryService(address(0x0707)),
-                            bearerLink,
-                            address(bearerLink).codehash,
-                            LIFETIME,
-                            SKEW,
-                            SKEW
-                        )
+                        (OWNER, INotaryService(address(0x0707)), bearerLink, address(bearerLink).codehash)
                     )
                 )
             )
@@ -111,7 +101,6 @@ contract HonkVerifiersTest is Test {
                             INotaryService(address(0)),
                             oidcGoogle,
                             address(oidcGoogle).codehash,
-                            SKEW,
                             IGoogleJwtRoots(address(0x2007))
                         )
                     )
