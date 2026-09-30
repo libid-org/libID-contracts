@@ -4,9 +4,11 @@
 # Runs `forge build` in solidity/ (submodules must be initialized), then copies
 # the artifact JSONs the crate needs from solidity/out into
 # rust/contracts/artifacts/<File>.sol/<Name>.json, pruned to the fields the
-# crate reads: bytecode.object, methodIdentifiers. The circuits pin rides
-# along as circuits.json, so the crate can say which libid-circuits release
-# its verifiers came from.
+# crate reads: bytecode.object and methodIdentifiers. No abi: the binding
+# drift tests (rust/contracts/src/bindings/mod.rs) read it from solidity/out,
+# so the published crate carries none. The circuits pin rides along as
+# circuits.json, so the crate can say which libid-circuits release its
+# verifiers came from.
 #
 # The result is NOT committed: rust/contracts/artifacts is gitignored and
 # regenerated on demand. Run this before any cargo command in rust/ — the
@@ -46,6 +48,8 @@ ARTIFACTS=(
     # ens (deployed once per network, not CREATE3-canonical; embedded so a
     # consumer can deploy it without a checkout of this repository)
     "HandleResolver:HandleResolver"
+    # escrow: value held against a handle nobody has claimed yet
+    "HandleEscrow:HandleEscrow"
     # factory
     "LibidFactory:LibidFactory"
     "WTIA9:WTIA9"

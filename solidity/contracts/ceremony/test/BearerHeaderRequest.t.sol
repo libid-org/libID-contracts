@@ -13,9 +13,9 @@ contract BearerHeaderRequestTest is Test {
     function run(CeremonyAttestation.DirectionBlock memory block_, uint32 length)
         external
         pure
-        returns (CeremonyAttestation.RangeCommitment memory)
+        returns (CeremonyAttestation.RangeCommitment memory commitment)
     {
-        return CeremonyAttestation.requireBearerHeaderRequest(block_, length);
+        (commitment,) = CeremonyAttestation.requireBearerHeaderRequest(block_, length);
     }
 
     /// A real `/2/users/me` request: the bearer committed, every other byte

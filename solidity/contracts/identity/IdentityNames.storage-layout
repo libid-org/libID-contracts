@@ -1,0 +1,28 @@
+# IdentityNames storage layout. Checked in CI by scripts/check-storage-layout.py.
+# Fields may only be APPENDED. Record an append with --update; see the script.
+root erc7201:libid.storage.IdentityNames 0x064503501234cc9c6e116cf4a84c07475158dabb6a3dcee437a89227e23bf200
+field slot=0 offset=0 byId: mapping(bytes32 => struct IdentityNames.Binding)
+field slot=1 offset=0 byHandle: mapping(bytes32 => struct IdentityNames.Binding)
+field slot=2 offset=0 published: mapping(address => mapping(bytes32 => string))
+field slot=3 offset=0 platforms: mapping(bytes32 => struct IdentityNames.Platform)
+field slot=4 offset=0 handleOfId: mapping(bytes32 => bytes32)
+field slot=5 offset=0 idOfHandle: mapping(bytes32 => bytes32)
+field slot=6 offset=0 proofVerifier: contract IProofVerifier
+field slot=7 offset=0 everBound: mapping(bytes32 => bool)
+field slot=8 offset=0 spentDigests: mapping(bytes32 => bool)
+field slot=9 offset=0 accounts: struct AccountList.Data
+field slot=11 offset=0 accountOf: mapping(bytes32 => struct IdentityNames.AccountKey)
+field slot=12 offset=0 handleOf: mapping(bytes32 => string)
+struct AccountList.Data slot=0 offset=0 nodes: mapping(address => bytes32[])
+struct AccountList.Data slot=1 offset=0 position: mapping(bytes32 => uint256)
+struct IdentityNames.Binding slot=0 offset=0 owner: address
+struct IdentityNames.Binding slot=0 offset=20 observedAt: uint64
+struct IdentityNames.Platform slot=0 offset=0 rules: struct HandleNormalizer.Rules
+struct IdentityNames.Platform slot=1 offset=0 configured: bool
+struct IdentityNames.AccountKey slot=0 offset=0 platformId: bytes32
+struct IdentityNames.AccountKey slot=1 offset=0 userId: string
+struct HandleNormalizer.Rules slot=0 offset=0 maxLength: uint16
+struct HandleNormalizer.Rules slot=0 offset=2 stripLeadingAt: bool
+struct HandleNormalizer.Rules slot=0 offset=3 isEmail: bool
+struct HandleNormalizer.Rules slot=0 offset=4 allowUnderscore: bool
+struct HandleNormalizer.Rules slot=0 offset=5 allowHyphen: bool

@@ -175,7 +175,7 @@ library CeremonyAttestation {
         // The prefix at most once across everything revealed, JSON whitespace
         // removed: a second one, in any spelling, is a second place the framing
         // could point, whether or not a commitment sits behind it.
-        if (_occurrences(CeremonyFields.normalizeJsonBytes(concatRevealed(block_)), prefix) > 1) {
+        if (CeremonyFields.occurrences(CeremonyFields.normalizeJsonBytes(concatRevealed(block_)), prefix) > 1) {
             revert AmbiguousFraming();
         }
 
@@ -206,25 +206,15 @@ library CeremonyAttestation {
             if (range.end != at) continue;
             bytes memory normalized = CeremonyFields.normalizeJsonBytes(range.value);
             if (normalized.length < prefix.length) return false;
-            for (uint256 j = 0; j < prefix.length; ++j) {
-                if (normalized[normalized.length - prefix.length + j] != prefix[j]) return false;
+            bytes32 tail;
+            // The last `prefix.length` bytes, in bounds by the length check above.
+            assembly ("memory-safe") {
+                let size := mload(prefix)
+                tail := keccak256(add(add(normalized, 0x20), sub(mload(normalized), size)), size)
             }
-            return true;
+            return tail == keccak256(prefix);
         }
         return false;
-    }
-
-    function _occurrences(bytes memory haystack, bytes memory needle) private pure returns (uint256 count) {
-        for (uint256 i = 0; i + needle.length <= haystack.length; ++i) {
-            bool hit = true;
-            for (uint256 j = 0; j < needle.length; ++j) {
-                if (haystack[i + j] != needle[j]) {
-                    hit = false;
-                    break;
-                }
-            }
-            if (hit) ++count;
-        }
     }
 
     /// @notice Every check REQ-COMMON-35, -39 and -40 require of an
@@ -245,10 +235,11 @@ library CeremonyAttestation {
     ///
     /// @return commitment The committed bearer range, which the caller then
     ///         matches against the circuit's identity-bearer public input.
+    /// @return revealed   `concatRevealed(block_)`, the bytes the count read.
     function requireBearerHeaderRequest(DirectionBlock memory block_, uint32 length)
         internal
         pure
-        returns (RangeCommitment memory commitment)
+        returns (RangeCommitment memory commitment, bytes memory revealed)
     {
         // One committed range, so the range REQ-COMMON-40 frames and the
         // commitment the circuit opens are the same object. The layout permits
@@ -258,7 +249,7 @@ library CeremonyAttestation {
 
         requireExactCoverage(block_, length);
 
-        bytes memory revealed = concatRevealed(block_);
+        revealed = concatRevealed(block_);
         requireCrlfLineEndings(revealed);
 
         // Counted over the CONCATENATION, not per range.
@@ -277,10 +268,10 @@ library CeremonyAttestation {
         // and reading want opposite things: a count must not miss, a read must
         // not splice.
         // Counted once. Filling the error argument with a second call would
-        // copy the whole revealed transcript again and rescan it, so every
-        // rejected submission would pay twice for the check that rejected it --
-        // on a buffer the prover sizes.
-        uint256 headers = _countNeedle(normalizeHeaderBytes(revealed));
+        // rescan the whole revealed transcript, so every rejected submission
+        // would pay twice for the check that rejected it -- on a buffer the
+        // prover sizes.
+        uint256 headers = _countNeedle(revealed);
         if (headers != 1) revert NotOneAuthorizationHeader(headers);
 
         // Framing, on RAW bytes at known offsets. Two fixed comparisons make
@@ -321,21 +312,36 @@ library CeremonyAttestation {
     ///
     ///      Runs BEFORE the count, over the raw bytes: normalization keeps CR
     ///      and LF, so the offsets it reports are transcript offsets.
+    ///
+    ///      A fold anywhere is reported before the first bare CR or LF.
     function requireCrlfLineEndings(bytes memory revealed) internal pure {
-        for (uint256 i = 0; i + 2 < revealed.length; ++i) {
-            if (revealed[i] == 0x0d && revealed[i + 1] == 0x0a && (revealed[i + 2] == 0x20 || revealed[i + 2] == 0x09))
-            {
-                revert ObsoleteLineFold(i);
+        uint256 bare = type(uint256).max;
+        bool bareLineFeed;
+        // Only CR and LF bytes decide anything, so the pass visits those
+        // alone, in offset order: `cr` and `lf` are the next of each.
+        uint256 cr = CeremonyFields.indexOfByte(revealed, 0, 0x0d);
+        uint256 lf = CeremonyFields.indexOfByte(revealed, 0, 0x0a);
+        while (cr < revealed.length || lf < revealed.length) {
+            if (cr < lf) {
+                if (cr + 1 < revealed.length && revealed[cr + 1] == 0x0a) {
+                    if (cr + 2 < revealed.length && (revealed[cr + 2] == 0x20 || revealed[cr + 2] == 0x09)) {
+                        revert ObsoleteLineFold(cr);
+                    }
+                } else if (bare == type(uint256).max) {
+                    bare = cr;
+                }
+                cr = CeremonyFields.indexOfByte(revealed, cr + 1, 0x0d);
+            } else {
+                if ((lf == 0 || revealed[lf - 1] != 0x0d) && bare == type(uint256).max) {
+                    bare = lf;
+                    bareLineFeed = true;
+                }
+                lf = CeremonyFields.indexOfByte(revealed, lf + 1, 0x0a);
             }
         }
-        for (uint256 i = 0; i < revealed.length; ++i) {
-            if (revealed[i] == 0x0a && (i == 0 || revealed[i - 1] != 0x0d)) {
-                revert BareLineFeed(i);
-            }
-            if (revealed[i] == 0x0d && (i + 1 == revealed.length || revealed[i + 1] != 0x0a)) {
-                revert BareCarriageReturn(i);
-            }
-        }
+        if (bare == type(uint256).max) return;
+        if (bareLineFeed) revert BareLineFeed(bare);
+        revert BareCarriageReturn(bare);
     }
 
     /// @notice Lowercase ASCII and drop every space and horizontal tab, keeping
@@ -347,10 +353,10 @@ library CeremonyAttestation {
     ///      spurious match, which over-rejects and is safe, but can never hide
     ///      a real one.
     ///
-    ///      `internal` for the same reason `concatRevealed` is: a header
-    ///      COUNT reads this, and what it strips decides what a count can
-    ///      miss -- so one implementation of it, shared with the JWKS root
-    ///      list's `Host` scan, rather than two.
+    ///      `internal` because a header COUNT reads this -- the JWKS root
+    ///      list's `Host` scan -- and what it strips decides what a count can
+    ///      miss. `_countNeedle` strips the same bytes inline, so the two must
+    ///      change together.
     function normalizeHeaderBytes(bytes memory raw) internal pure returns (bytes memory out) {
         out = new bytes(raw.length);
         uint256 n;
@@ -365,18 +371,34 @@ library CeremonyAttestation {
         }
     }
 
-    function _countNeedle(bytes memory haystack) private pure returns (uint256 count) {
+    /// @dev How often `AUTHORIZATION_NEEDLE` occurs in `normalizeHeaderBytes(raw)`.
+    ///      Relies on the needle's first byte, CR, occurring nowhere else in it:
+    ///      after a mismatch the only match left open starts at the current
+    ///      byte, and matches never overlap.
+    function _countNeedle(bytes memory raw) private pure returns (uint256 count) {
         bytes memory needle = AUTHORIZATION_NEEDLE;
-        if (haystack.length < needle.length) return 0;
-        for (uint256 i = 0; i + needle.length <= haystack.length; ++i) {
-            bool hit = true;
-            for (uint256 j = 0; j < needle.length; ++j) {
-                if (haystack[i + j] != needle[j]) {
-                    hit = false;
-                    break;
+        // Reads `raw[i]` only below its length. The needle is sixteen bytes,
+        // so one word holds it and byte `k` of that word is `needle[k]`.
+        assembly ("memory-safe") {
+            let want := mload(add(needle, 0x20))
+            let size := mload(needle)
+            let p := add(raw, 0x20)
+            let len := mload(raw)
+            let matched := 0
+            for { let i := 0 } lt(i, len) { i := add(i, 1) } {
+                let c := byte(0, mload(add(p, i)))
+                if or(eq(c, 0x20), eq(c, 0x09)) { continue }
+                if and(gt(c, 0x40), lt(c, 0x5b)) { c := add(c, 0x20) }
+                switch eq(c, byte(matched, want))
+                case 1 {
+                    matched := add(matched, 1)
+                    if eq(matched, size) {
+                        count := add(count, 1)
+                        matched := 0
+                    }
                 }
+                default { matched := eq(c, byte(0, want)) }
             }
-            if (hit) ++count;
         }
     }
 
@@ -395,9 +417,11 @@ library CeremonyAttestation {
         uint256 n;
         for (uint256 i = 0; i < block_.revealed.length; ++i) {
             bytes memory v = block_.revealed[i].value;
-            for (uint256 j = 0; j < v.length; ++j) {
-                out[n++] = v[j];
+            // In bounds: `n + v.length` never exceeds `total`, `out`'s length.
+            assembly ("memory-safe") {
+                mcopy(add(add(out, 0x20), n), add(v, 0x20), mload(v))
             }
+            n += v.length;
         }
     }
 
@@ -421,9 +445,13 @@ library CeremonyAttestation {
                     uint256 offset = at - r.start;
                     uint256 take = r.value.length - offset;
                     if (take > to - at) take = to - at;
-                    for (uint256 j = 0; j < take; ++j) {
-                        out[n++] = r.value[offset + j];
+                    bytes memory v = r.value;
+                    // Reads stay in `v`: `take <= v.length - offset`. Writes
+                    // stay in `out`: `n == at - from` and `take <= to - at`.
+                    assembly ("memory-safe") {
+                        mcopy(add(add(out, 0x20), n), add(add(v, 0x20), offset), take)
                     }
+                    n += take;
                     // Casting to uint32 is safe: `take` is clamped to `to - at`
                     // above, and both of those are uint32.
                     // forge-lint: disable-next-line(unsafe-typecast)

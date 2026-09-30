@@ -1,11 +1,12 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.20;
+pragma solidity ^0.8.24;
 
 import {Test, Vm} from "forge-std/Test.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
 import {HandleNormalizer} from "../HandleNormalizer.sol";
 import {HandleVectors} from "../HandleVectors.sol";
+import {IIdentityNames} from "../IIdentityNames.sol";
 import {IdentityNames} from "../IdentityNames.sol";
 import {IdentityNodes} from "../IdentityNodes.sol";
 import {CeremonyProofVerifier} from "../../ceremony/CeremonyProofVerifier.sol";
@@ -152,7 +153,7 @@ contract IdentityNamesTest is Test {
         _stage("123", "alice", alice, 100);
 
         vm.prank(alice);
-        vm.expectRevert(abi.encodeWithSelector(IdentityNames.UnknownPlatform.selector, unknown));
+        vm.expectRevert(abi.encodeWithSelector(IIdentityNames.UnknownPlatform.selector, unknown));
         _claim(unknown, false);
     }
 
@@ -277,14 +278,54 @@ contract IdentityNamesTest is Test {
     function test_everyResolverRefusesAnUnknownPlatform() public {
         bytes32 unwired = keccak256("nowhere");
 
-        vm.expectRevert(abi.encodeWithSelector(IdentityNames.UnknownPlatform.selector, unwired));
+        vm.expectRevert(abi.encodeWithSelector(IIdentityNames.UnknownPlatform.selector, unwired));
         names.resolveId(unwired, "123");
 
-        vm.expectRevert(abi.encodeWithSelector(IdentityNames.UnknownPlatform.selector, unwired));
+        vm.expectRevert(abi.encodeWithSelector(IIdentityNames.UnknownPlatform.selector, unwired));
         names.resolveHandle(unwired, "alice");
 
-        vm.expectRevert(abi.encodeWithSelector(IdentityNames.UnknownPlatform.selector, unwired));
+        vm.expectRevert(abi.encodeWithSelector(IIdentityNames.UnknownPlatform.selector, unwired));
         names.resolvePair(unwired, "alice", "123");
+
+        vm.expectRevert(abi.encodeWithSelector(IIdentityNames.UnknownPlatform.selector, unwired));
+        names.rulesOf(unwired);
+        vm.expectRevert(abi.encodeWithSelector(IIdentityNames.UnknownPlatform.selector, unwired));
+        names.handleHashOf(unwired, "alice");
+        vm.expectRevert(abi.encodeWithSelector(IIdentityNames.UnknownPlatform.selector, unwired));
+        names.nodeOf(unwired, "alice");
+    }
+
+    /// `rulesOf` reports the rules as set now, `handleHashOf` is `keccak256` of the handle
+    /// normalized under them, and `nodeOf`/`nodeOfHash` name the node a proof of it binds.
+    function test_theKeyspaceViewsAgreeWithWhatAClaimBinds() public {
+        assertEq(names.rulesOf(X).maxLength, HandleVectors.rulesFor(X).maxLength);
+        bytes32 handleHash = names.handleHashOf(X, "  @Alice ");
+        assertEq(handleHash, keccak256("alice"));
+        assertEq(names.nodeOf(X, "  @Alice "), names.nodeOfHash(X, handleHash));
+        assertEq(names.nodeOfHash(X, handleHash), IdentityNodes.handleNode(X, "alice"));
+
+        _bind(alice, "123", "alice", 100);
+        (address holder,) = names.byHandle(names.nodeOfHash(X, handleHash));
+        assertEq(holder, alice);
+    }
+
+    /// Text the rules of the moment refuse reverts with the normalizer's reason, where
+    /// `resolveHandle` answers nobody.
+    function test_theKeyspaceViewsRefuseWhatTheCurrentRulesRefuse() public {
+        bytes memory badChar =
+            abi.encodeWithSelector(IIdentityNames.UnusableHandle.selector, HandleNormalizer.Problem.BadChar);
+        vm.expectRevert(badChar);
+        names.handleHashOf(X, "ali-ce");
+        vm.expectRevert(badChar);
+        names.nodeOf(X, "ali-ce");
+        assertEq(names.resolveHandle(X, "ali-ce"), address(0));
+
+        vm.prank(owner);
+        names.setPlatform(X, HandleVectors.rulesFor(GITHUB));
+        assertTrue(names.rulesOf(X).allowHyphen);
+        assertEq(names.handleHashOf(X, "ali-ce"), keccak256("ali-ce"));
+        vm.expectRevert(badChar);
+        names.nodeOf(X, "alice_1");
     }
 
     function test_resolvePairAgreesWhileOneAccountHoldsBoth() public {
@@ -461,6 +502,242 @@ contract IdentityNamesTest is Test {
         assertEq(names.primaryOf(alice, X), "", "but it no longer resolves back");
     }
 
+    // ─── A wallet's accounts ────────────────────────────────────────
+
+    /// Every account a wallet holds, in one read.
+    function _accounts(address wallet) internal view returns (IdentityNames.Account[] memory) {
+        return names.accountsOf(wallet, 0, names.accountCount(wallet));
+    }
+
+    function _is(IdentityNames.Account memory a, bytes32 platformId, string memory userId)
+        internal
+        pure
+        returns (bool)
+    {
+        return a.platformId == platformId && keccak256(bytes(a.userId)) == keccak256(bytes(userId));
+    }
+
+    /// Whether a page carries this account.
+    function _holds(IdentityNames.Account[] memory page, bytes32 platformId, string memory userId)
+        internal
+        pure
+        returns (bool)
+    {
+        for (uint256 i = 0; i < page.length; i++) {
+            if (_is(page[i], platformId, userId)) return true;
+        }
+        return false;
+    }
+
+    /// The listed account. Order is arbitrary, so a test that wants one
+    /// account finds it by what identifies it.
+    function _account(address wallet, bytes32 platformId, string memory userId)
+        internal
+        view
+        returns (IdentityNames.Account memory)
+    {
+        IdentityNames.Account[] memory all = _accounts(wallet);
+        for (uint256 i = 0; i < all.length; i++) {
+            if (_is(all[i], platformId, userId)) return all[i];
+        }
+        revert("not listed");
+    }
+
+    function test_aClaimListsTheAccountWithItsPlatformIdAndHandle() public {
+        _bind(alice, "123", "alice", 100);
+
+        assertEq(names.accountCount(alice), 1);
+        IdentityNames.Account memory a = _account(alice, X, "123");
+        assertEq(a.handle, "alice");
+        assertTrue(a.handleCurrent);
+        assertEq(names.accountCount(bob), 0, "each wallet keeps its own list");
+    }
+
+    function test_accountsOnEveryPlatformShareOneList() public {
+        _bind(alice, "123", "alice", 100);
+        _stage("123", "alice", alice, 200);
+        vm.prank(alice);
+        _claim(GITHUB, false);
+
+        assertEq(names.accountCount(alice), 2);
+        assertTrue(_account(alice, X, "123").handleCurrent);
+        assertTrue(_account(alice, GITHUB, "123").handleCurrent);
+    }
+
+    function test_theListedHandleIsTheNormalizedOne() public {
+        _bind(alice, "123", "@Alice", 100);
+        assertEq(_account(alice, X, "123").handle, "alice");
+    }
+
+    function test_aWalletMayHoldSeveralAccountsOnOnePlatform() public {
+        _bind(alice, "123", "alice", 100);
+        _bind(alice, "456", "alicia", 200);
+
+        assertEq(names.accountCount(alice), 2);
+        assertEq(_account(alice, X, "123").handle, "alice");
+        assertEq(_account(alice, X, "456").handle, "alicia");
+    }
+
+    function test_aRenameMovesTheHandleAndKeepsOneEntry() public {
+        _bind(alice, "123", "alice", 100);
+        _bind(alice, "123", "alicia", 200);
+
+        assertEq(names.accountCount(alice), 1);
+        IdentityNames.Account memory a = _account(alice, X, "123");
+        assertEq(a.handle, "alicia");
+        assertTrue(a.handleCurrent);
+    }
+
+    function test_provingTheSameHandleAgainListsNothingTwice() public {
+        _bind(alice, "123", "alice", 100);
+        _bind(alice, "123", "alice", 200);
+        assertEq(names.accountCount(alice), 1);
+    }
+
+    /// The list is alice's: bob taking her handle changes what it resolves
+    /// to, and the entry says so, but the entry is still there with the name
+    /// her account was last known by.
+    function test_aHandleTakenElsewhereStaysListedAsStale() public {
+        _bind(alice, "123", "shared", 100);
+        _bind(bob, "456", "shared", 200);
+
+        assertEq(names.accountCount(alice), 1);
+        IdentityNames.Account memory a = _account(alice, X, "123");
+        assertEq(a.handle, "shared");
+        assertFalse(a.handleCurrent, "the handle resolves to bob now");
+        assertTrue(_account(bob, X, "456").handleCurrent);
+    }
+
+    /// The wallet still owns the handle node, through the other account. An
+    /// owner check alone would call both accounts current.
+    function test_aSecondAccountOfTheSameWalletTakingTheHandleIsToldApart() public {
+        _bind(alice, "123", "first", 100);
+        _bind(alice, "456", "second", 200);
+        _bind(alice, "456", "first", 300);
+
+        assertEq(names.accountCount(alice), 2);
+        assertFalse(_account(alice, X, "123").handleCurrent);
+        IdentityNames.Account memory second = _account(alice, X, "456");
+        assertEq(second.handle, "first");
+        assertTrue(second.handleCurrent);
+    }
+
+    function test_anAccountProvedFromANewWalletMovesBetweenLists() public {
+        _bind(alice, "123", "alice", 100);
+        _bind(bob, "123", "alice", 200);
+
+        assertEq(names.accountCount(alice), 0);
+        assertEq(names.accountCount(bob), 1);
+        assertTrue(_account(bob, X, "123").handleCurrent);
+    }
+
+    function test_leavingFromTheMiddleKeepsTheOthersListed() public {
+        _bind(alice, "1", "one", 100);
+        _bind(alice, "2", "two", 200);
+        _bind(alice, "3", "three", 300);
+        _bind(bob, "2", "two", 400);
+
+        assertEq(names.accountCount(alice), 2);
+        assertEq(_account(alice, X, "1").handle, "one");
+        assertEq(_account(alice, X, "3").handle, "three");
+        assertEq(_account(bob, X, "2").handle, "two");
+
+        // And back: an account returns to a list it left.
+        _bind(alice, "2", "two", 500);
+        assertEq(names.accountCount(alice), 3);
+        assertEq(names.accountCount(bob), 0);
+        assertEq(_account(alice, X, "2").handle, "two");
+    }
+
+    function test_pagesClipToTheList() public {
+        _bind(alice, "1", "one", 100);
+        _bind(alice, "2", "two", 200);
+        _bind(alice, "3", "three", 300);
+
+        assertEq(names.accountsOf(alice, 0, 2).length, 2);
+        assertEq(names.accountsOf(alice, 2, 5).length, 1, "clipped at the end");
+        assertEq(names.accountsOf(alice, 3, 1).length, 0, "past the end is empty, not a revert");
+        assertEq(names.accountsOf(alice, 0, 0).length, 0);
+        assertEq(names.accountsOf(alice, 1, type(uint256).max).length, 2, "a limit past the end is clipped too");
+
+        // Two pages cover the list once each.
+        IdentityNames.Account[] memory first = names.accountsOf(alice, 0, 2);
+        IdentityNames.Account[] memory second = names.accountsOf(alice, 2, 2);
+        assertEq(second.length, 1);
+        assertTrue(_holds(first, X, "1") != _holds(second, X, "1"));
+        assertTrue(_holds(first, X, "2") != _holds(second, X, "2"));
+        assertTrue(_holds(first, X, "3") != _holds(second, X, "3"));
+    }
+
+    /// The flag reads the nodes. Narrowing a platform's rules re-keys its
+    /// handles, which `resolveHandle` sees at once and the list does not.
+    function test_handleCurrentReadsTheNodesNotTheRules() public {
+        _bind(alice, "123", "with_score", 100);
+        HandleNormalizer.Rules memory rules = HandleVectors.rulesFor(X);
+        rules.allowUnderscore = false;
+        vm.prank(owner);
+        names.setPlatform(X, rules);
+
+        assertEq(names.resolveHandle(X, "with_score"), address(0));
+        assertTrue(_account(alice, X, "123").handleCurrent);
+    }
+
+    /// After any sequence of claims: an account nobody proved is in no
+    /// list, an account somebody proved is in exactly one, the list of the
+    /// wallet whose proof of it is newest, and a handle reported current
+    /// resolves to that wallet and is current for no second account.
+    function testFuzz_everyProvedAccountSitsInExactlyOneList(bytes memory script) public {
+        address[3] memory wallets = [alice, bob, mallory];
+        bytes32[2] memory platforms = [X, GITHUB];
+        string[4] memory ids = ["1", "2", "3", "4"];
+        string[4] memory handles = ["one", "two", "three", "four"];
+
+        uint64 at = 100;
+        for (uint256 i = 0; i + 1 < script.length && i < 64; i += 2) {
+            uint256 a = uint8(script[i]);
+            uint256 b = uint8(script[i + 1]);
+            address who = wallets[a % 3];
+            _stage(ids[b % 4], handles[(b / 4) % 4], who, ++at);
+            vm.prank(who);
+            _claim(platforms[(a / 3) % 2], false);
+        }
+
+        uint256 listed;
+        IdentityNames.Account[] memory current = new IdentityNames.Account[](wallets.length * ids.length * 2);
+        uint256 currents;
+        for (uint256 w = 0; w < wallets.length; w++) {
+            IdentityNames.Account[] memory page = _accounts(wallets[w]);
+            listed += page.length;
+            for (uint256 i = 0; i < page.length; i++) {
+                assertEq(names.resolveId(page[i].platformId, page[i].userId), wallets[w], "listed under its prover");
+                for (uint256 j = 0; j < i; j++) {
+                    assertFalse(_is(page[j], page[i].platformId, page[i].userId), "listed once");
+                }
+                if (page[i].handleCurrent) {
+                    assertEq(
+                        names.resolveHandle(page[i].platformId, page[i].handle), wallets[w], "current, so it resolves"
+                    );
+                    current[currents++] = page[i];
+                }
+            }
+        }
+        for (uint256 i = 0; i < currents; i++) {
+            for (uint256 j = 0; j < i; j++) {
+                bool sameHandle = current[i].platformId == current[j].platformId
+                    && keccak256(bytes(current[i].handle)) == keccak256(bytes(current[j].handle));
+                assertFalse(sameHandle, "a handle is current for one account");
+            }
+        }
+
+        uint256 proved;
+        for (uint256 p = 0; p < platforms.length; p++) {
+            for (uint256 i = 0; i < ids.length; i++) {
+                if (names.resolveId(platforms[p], ids[i]) != address(0)) proved++;
+            }
+        }
+        assertEq(listed, proved, "every proved account is listed, and nothing else");
+    }
+
     // ─── Reading is total in the handle ─────────────────────────────
 
     /// A contract resolving whatever a user typed must not have its whole
@@ -488,7 +765,7 @@ contract IdentityNamesTest is Test {
     /// apart from an address.
     function test_anUnwiredPlatformStillReverts() public {
         bytes32 unknown = keccak256("nowhere");
-        vm.expectRevert(abi.encodeWithSelector(IdentityNames.UnknownPlatform.selector, unknown));
+        vm.expectRevert(abi.encodeWithSelector(IIdentityNames.UnknownPlatform.selector, unknown));
         names.resolveHandle(unknown, "alice");
     }
 
@@ -611,14 +888,20 @@ contract IdentityNamesTest is Test {
         vm.prank(owner);
         names.setPlatform(fresh, HandleVectors.rulesFor(X));
 
-        vm.expectRevert(abi.encodeWithSelector(IdentityNames.UnknownPlatform.selector, fresh));
+        vm.expectRevert(abi.encodeWithSelector(IIdentityNames.UnknownPlatform.selector, fresh));
         names.resolveId(fresh, "123");
 
-        vm.expectRevert(abi.encodeWithSelector(IdentityNames.UnknownPlatform.selector, fresh));
+        vm.expectRevert(abi.encodeWithSelector(IIdentityNames.UnknownPlatform.selector, fresh));
         names.resolveHandle(fresh, "alice");
 
-        vm.expectRevert(abi.encodeWithSelector(IdentityNames.UnknownPlatform.selector, fresh));
+        vm.expectRevert(abi.encodeWithSelector(IIdentityNames.UnknownPlatform.selector, fresh));
         names.resolvePair(fresh, "alice", "123");
+
+        // The keyspace questions answer, and agree with each other: a client
+        // normalizing under `rulesOf` reaches the node `nodeOf` names.
+        assertEq(names.rulesOf(fresh).maxLength, HandleVectors.rulesFor(X).maxLength);
+        assertEq(names.handleHashOf(fresh, "Alice"), keccak256("alice"));
+        assertEq(names.nodeOf(fresh, "Alice"), names.nodeOfHash(fresh, keccak256("alice")));
     }
 
     /// And claiming says the same thing, rather than naming a version the
@@ -634,6 +917,34 @@ contract IdentityNamesTest is Test {
         vm.prank(alice);
         vm.expectRevert(abi.encodeWithSelector(CeremonyProofVerifier.UnknownVersion.selector, fresh, V1));
         _claim(fresh, false);
+    }
+
+    /// A new claim can bind only with a keyspace and a verifier the Proof Verifier answers for;
+    /// retiring the last version stops new claims while bound names keep resolving.
+    function test_acceptsClaimsNeedsAKeyspaceAndAVerifier() public {
+        assertTrue(names.acceptsClaims(X));
+        (bytes32 noKeyspace, bytes32 noVerifier) = (keccak256("no keyspace"), keccak256("no verifier"));
+        StubPlatformVerifier verifier = new StubPlatformVerifier(noKeyspace, 0);
+        vm.startPrank(owner);
+        proofVerifier.setVerifier(noKeyspace, V1, IPlatformVerifier(address(verifier)));
+        names.setPlatform(noVerifier, HandleVectors.rulesFor(X));
+        vm.stopPrank();
+        assertFalse(names.acceptsClaims(noKeyspace));
+        assertFalse(names.acceptsClaims(noVerifier));
+
+        IdentityNames bare = IdentityNames(
+            address(new ERC1967Proxy(address(new IdentityNames()), abi.encodeCall(IdentityNames.initialize, (owner))))
+        );
+        vm.prank(owner);
+        bare.setPlatform(X, HandleVectors.rulesFor(X));
+        assertEq(address(bare.proofVerifier()), address(0));
+        assertFalse(bare.acceptsClaims(X), "no Proof Verifier");
+
+        _bind(alice, "123", "alice", 100);
+        vm.prank(owner);
+        proofVerifier.setVerifier(X, V1, IPlatformVerifier(address(0)));
+        assertFalse(names.acceptsClaims(X));
+        assertEq(names.resolveHandle(X, "alice"), alice);
     }
 
     /// `setPlatform` writes field-wise now, so a rules change must leave the

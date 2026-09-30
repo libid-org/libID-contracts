@@ -52,11 +52,33 @@ contract CeremonyProfileTest is Test {
         return CeremonyProfile.attestationCount(platformId);
     }
 
-    function test_launchParametersMatchThePublishedValues() public pure {
-        assertEq(CeremonyProfile.LAUNCH_PROOF_LIFETIME_X, 3600);
-        assertEq(CeremonyProfile.LAUNCH_PROOF_LIFETIME_GITHUB, 3600);
-        assertEq(CeremonyProfile.LAUNCH_MAX_FUTURE_ATTESTATION_SKEW, 300);
+    function test_launchVersionMatchesThePublishedValue() public pure {
         assertEq(CeremonyProfile.LAUNCH_VERSION, 1);
+    }
+
+    /// @dev `isForbiddenRequestHeader` is true for every listed name and false
+    ///      for near misses: a header the verifier reads, another case, a
+    ///      trailing space, the empty name, two names joined.
+    function test_theForbiddenNamesAreTheListedOnes() public pure {
+        bytes memory list = CeremonyProfile.FORBIDDEN_REQUEST_HEADERS;
+        uint256 listed;
+        uint256 from;
+        for (uint256 i = 0; i <= list.length; ++i) {
+            if (i < list.length && list[i] != "\r") continue;
+            bytes memory name = new bytes(i - from);
+            for (uint256 j = 0; j < name.length; ++j) {
+                name[j] = list[from + j];
+            }
+            assertTrue(CeremonyProfile.isForbiddenRequestHeader(keccak256(name)), string(name));
+            ++listed;
+            from = i + 2;
+        }
+        assertEq(listed, 7);
+
+        string[6] memory others = ["host", "content-length", "Cookie", "cookie ", "", "cookie\r\nauthorization"];
+        for (uint256 i = 0; i < others.length; ++i) {
+            assertFalse(CeremonyProfile.isForbiddenRequestHeader(keccak256(bytes(others[i]))), others[i]);
+        }
     }
 
     /// @dev The pinned fixture in CeremonyAttestation.t.sol opens with the

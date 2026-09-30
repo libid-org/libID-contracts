@@ -1,0 +1,4 @@
+# GooglePlatformVerifier storage layout. Checked in CI by scripts/check-storage-layout.py.
+# Fields may only be APPENDED. Record an append with --update; see the script.
+root erc7201:libid.storage.GooglePlatformVerifier 0x92a7c997eeb454ceeeb8ef2d99ba7d4b830287ff966f129f9049c466a8342400
+field slot=0 offset=0 jwtRoots: contract IGoogleJwtRoots
