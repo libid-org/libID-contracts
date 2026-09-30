@@ -22,13 +22,14 @@ import {XPlatformVerifier} from "../XPlatformVerifier.sol";
 ///      records them under Osaka, the rules eden-testnet executes. A default
 ///      run makes the same calls under cancun and leaves the file as it is.
 ///
-///      The X and GitHub sessions are captured ceremonies, and they carry no
-///      proof: proving their bearer takes the bearer itself. So each session's
-///      bearer commitment is swapped for the one the bearer-link fixture
-///      proves, and the attestation signed again with the key the capture
-///      used. The real Honk verifier then checks a valid proof inside the
-///      call. Every other check reads the session as captured, since none of
-///      them reads a commitment's value.
+///      The X and GitHub sessions are captured ceremonies, the exchanges the
+///      platforms actually serve, which the generated session fixtures only
+///      imitate. They carry no proof: proving their bearer takes the bearer
+///      itself. So each session's bearer commitment is swapped for the one the
+///      bearer-link fixture proves, and the attestation signed again with the
+///      key the capture used. The real Honk verifier then checks a valid proof
+///      inside the call. Every other check reads the session as captured,
+///      since none of them reads a commitment's value.
 ///
 ///      Wired as eden-testnet runs them: Platform Verifiers behind proxies and
 ///      no Notary Fee. `quote` runs right before `verify`, as the Proof
