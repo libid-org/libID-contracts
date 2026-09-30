@@ -28,7 +28,6 @@ interface IIdentityNames {
     ///         binds, for any platform id.
     function nodeOfHash(bytes32 platformId, bytes32 handleHash) external view returns (bytes32 handleNode);
 
-    /// @notice Whether a new identity claim can bind a holder on this platform
-    ///         now.
-    function acceptsClaims(bytes32 platformId) external view returns (bool);
+    /// @notice Whether `bind` can bind a holder on this platform now.
+    function acceptsBindings(bytes32 platformId) external view returns (bool);
 }

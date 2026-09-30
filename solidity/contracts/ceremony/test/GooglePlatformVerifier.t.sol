@@ -58,7 +58,12 @@ contract GooglePlatformVerifierTest is Test {
     bytes32 digest;
     bytes constant CLIENT_ID = "123456789-abcdef.apps.googleusercontent.com";
     string constant SUB = "123456789012345678901";
+    /// The `userId` platform-ceremonies section 2.1 publishes for `SUB`:
+    /// `SHA256("libid.google-user-id" || sub)`, computed outside Solidity.
+    string constant USER_ID = "0x20078023c9d4bf6bffc2580ec36446075d10c8453cecbe4f1cb3d326b2b35560";
     string constant EMAIL = "a.b+tag@example.com";
+    /// The signed `exp` of the real proof's token.
+    uint64 constant REAL_EXP = 1_893_456_000;
 
     function setUp() public {
         digest = CeremonyAuthorization.digestFor(DOMAIN, 1, AUTH_NONCE, _txData());
@@ -128,20 +133,22 @@ contract GooglePlatformVerifierTest is Test {
     }
 
     function _inputs(bytes32 digest_, bytes memory clientId, uint64 exp) private pure returns (bytes32[] memory pi) {
-        pi = new bytes32[](56);
+        pi = new bytes32[](57);
         for (uint256 i = 0; i < 32; ++i) {
             pi[i] = bytes32(uint256(uint8(digest_[i])));
         }
         bytes32 aud = sha256(clientId);
         pi[32] = bytes32(uint256(aud) >> 128);
         pi[33] = bytes32(uint256(aud) & type(uint128).max);
-        pi[34] = _pack31(bytes(SUB));
+        bytes32 userId = sha256(bytes.concat("libid.google-user-id", bytes(SUB)));
+        pi[34] = bytes32(uint256(userId) >> 128);
+        pi[35] = bytes32(uint256(userId) & type(uint128).max);
         bytes32[] memory email = _packMulti(bytes(EMAIL), 2);
-        pi[35] = email[0];
-        pi[36] = email[1];
-        pi[37] = bytes32(uint256(exp));
+        pi[36] = email[0];
+        pi[37] = email[1];
+        pi[38] = bytes32(uint256(exp));
         for (uint256 i = 0; i < 18; ++i) {
-            pi[38 + i] = _modulusLimb(i);
+            pi[39 + i] = _modulusLimb(i);
         }
     }
 
@@ -185,9 +192,64 @@ contract GooglePlatformVerifierTest is Test {
         this.run(s);
     }
 
+    /// @dev libid-circuits v0.5.0's oidc-google, proved over a token signed by
+    ///      a synthetic key whose nonce is this chain's digest for `_payload`,
+    ///      and checked by the verifier the pin ships.
+    function _realProof() private returns (GooglePlatformVerifier real, GooglePlatformVerifier.GoogleProof memory s) {
+        string memory json = vm.readFile("contracts/ceremony/test/fixtures/google-ceremony-proof.json");
+        address honkVerifier = vm.deployCode("OidcGoogleHonkVerifier.sol:OidcGoogleHonkVerifier");
+        real = GooglePlatformVerifier(
+            address(
+                new ERC1967Proxy(
+                    address(new GooglePlatformVerifier()),
+                    abi.encodeCall(
+                        GooglePlatformVerifier.initialize,
+                        (
+                            OWNER,
+                            INotaryService(address(0)),
+                            IHonkVerifier(honkVerifier),
+                            honkVerifier.codehash,
+                            GOOGLE_ALLOWANCE,
+                            IGoogleJwtRoots(address(roots))
+                        )
+                    )
+                )
+            )
+        );
+        s = _payload();
+        s.clientIdentifier = bytes(vm.parseJsonString(json, ".client_identifier"));
+        s.publicInputs = vm.parseJsonBytes32Array(json, ".public_inputs");
+        s.proof = vm.parseJsonBytes(json, ".proof");
+
+        bytes memory modulus = new bytes(18 * 32);
+        for (uint256 i = 0; i < 18; ++i) {
+            bytes32 limb = s.publicInputs[39 + i];
+            assembly {
+                mstore(add(add(modulus, 32), mul(i, 32)), limb)
+            }
+        }
+        roots.trust(keccak256(modulus), REAL_EXP + 86400);
+        vm.warp(REAL_EXP - 3600);
+    }
+
+    function test_verifiesARealProof() public {
+        (GooglePlatformVerifier real, GooglePlatformVerifier.GoogleProof memory s) = _realProof();
+        ICeremony.VerifiedClaim memory f = real.verify(abi.encode(s));
+        assertEq(f.userId, "0x121c75456ead3d5fa8f601dbd629bddb84dcdb4934b2a6b6d2e46b5661c6d35b");
+        assertEq(f.handle, "fixture@example.com");
+    }
+
+    /// @dev The proof binds the digest: one changed bit is another account.
+    function test_refusesARealProofUnderAnotherUserId() public {
+        (GooglePlatformVerifier real, GooglePlatformVerifier.GoogleProof memory s) = _realProof();
+        s.publicInputs[35] ^= bytes32(uint256(1));
+        vm.expectRevert();
+        real.verify{gas: 5_000_000}(abi.encode(s));
+    }
+
     function test_verifiesAWholeGoogleCeremony() public {
         ICeremony.VerifiedClaim memory f = this.run(_payload());
-        assertEq(f.userId, SUB);
+        assertEq(f.userId, USER_ID);
         assertEq(f.handle, EMAIL);
         assertEq(string(f.clientIdentifier), string(CLIENT_ID));
         // Section 2.2: the signed `exp` supplies BOTH the watermark and the
@@ -319,23 +381,47 @@ contract GooglePlatformVerifierTest is Test {
         this.run(s);
     }
 
-    // ─── The packed identity fields ─────────────────────────────────
+    // ─── The user id ────────────────────────────────────────────────
 
-    /// @dev `_unpack` reads 31 bytes of a field element and drops whatever
-    ///      sits above them in silence. Dropped, the `sub` this returns is not
-    ///      the one the circuit proved -- so a binding would be anchored on an
-    ///      id nothing attested.
-    function test_rejectsAnOverwideUserIdField() public {
+    /// @dev One spelling per digest: `0x`, then 64 lowercase hex digits with
+    ///      the leading zeros kept, so an id never has two encodings.
+    function test_writesTheUserIdAsSixtyFourLowercaseHexDigits() public {
         GooglePlatformVerifier.GoogleProof memory s = _payload();
-        s.publicInputs[34] = bytes32(uint256(s.publicInputs[34]) | (uint256(1) << 248));
-        vm.expectPartialRevert(GooglePlatformVerifier.PublicInputOverwide.selector);
+        s.publicInputs[34] = bytes32(0);
+        s.publicInputs[35] = bytes32(uint256(0xabcdef));
+        assertEq(this.run(s).userId, "0x0000000000000000000000000000000000000000000000000000000000abcdef");
+    }
+
+    /// @dev The user id is a digest in two halves, like the audience, and the
+    ///      same over-wide low half would name any account at all.
+    function test_rejectsAnOverwideLowUserIdHalf() public {
+        GooglePlatformVerifier.GoogleProof memory s = _payload();
+        s.publicInputs[34] = bytes32(0);
+        s.publicInputs[35] = sha256(bytes.concat("libid.google-user-id", bytes(SUB)));
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                GooglePlatformVerifier.PublicInputOverwide.selector, 35, uint256(s.publicInputs[35]), 128
+            )
+        );
         this.run(s);
     }
 
-    /// @dev The email is two such elements, and the same silence covers both.
+    function test_rejectsAnOverwideHighUserIdHalf() public {
+        GooglePlatformVerifier.GoogleProof memory s = _payload();
+        uint256 widened = uint256(s.publicInputs[34]) | (uint256(1) << 128);
+        s.publicInputs[34] = bytes32(widened);
+        vm.expectRevert(abi.encodeWithSelector(GooglePlatformVerifier.PublicInputOverwide.selector, 34, widened, 128));
+        this.run(s);
+    }
+
+    // ─── The packed email ───────────────────────────────────────────
+
+    /// @dev `_unpack` reads 31 bytes of each of the email's two field elements
+    ///      and drops whatever sits above them in silence. Dropped, the handle
+    ///      this returns is not the one the circuit proved.
     function test_rejectsAnOverwideEmailField() public {
         GooglePlatformVerifier.GoogleProof memory s = _payload();
-        s.publicInputs[36] = bytes32(uint256(s.publicInputs[36]) | (uint256(1) << 248));
+        s.publicInputs[37] = bytes32(uint256(s.publicInputs[37]) | (uint256(1) << 248));
         vm.expectPartialRevert(GooglePlatformVerifier.PublicInputOverwide.selector);
         this.run(s);
     }
@@ -388,10 +474,12 @@ contract GooglePlatformVerifierTest is Test {
         this.run(s);
     }
 
+    /// @dev 56 is the count of the circuit that published the `sub`, so this
+    ///      is also its proofs being refused.
     function test_rejectsTheWrongPublicInputCount() public {
         GooglePlatformVerifier.GoogleProof memory s = _payload();
-        s.publicInputs = new bytes32[](55);
-        vm.expectRevert(abi.encodeWithSelector(GooglePlatformVerifier.WrongPublicInputCount.selector, 56, 55));
+        s.publicInputs = new bytes32[](56);
+        vm.expectRevert(abi.encodeWithSelector(GooglePlatformVerifier.WrongPublicInputCount.selector, 57, 56));
         this.run(s);
     }
 
@@ -404,7 +492,7 @@ contract GooglePlatformVerifierTest is Test {
 
     function test_rejectsAnExpiryWiderThanUint64() public {
         GooglePlatformVerifier.GoogleProof memory s = _payload();
-        s.publicInputs[37] = bytes32(uint256(type(uint64).max) + 1);
+        s.publicInputs[38] = bytes32(uint256(type(uint64).max) + 1);
         vm.expectPartialRevert(GooglePlatformVerifier.ExpiryNotAUint64.selector);
         this.run(s);
     }
@@ -416,17 +504,10 @@ contract GooglePlatformVerifierTest is Test {
         this.run(s);
     }
 
-    function test_rejectsAnEmptySub() public {
+    function test_rejectsFiftyEightPublicInputs() public {
         GooglePlatformVerifier.GoogleProof memory s = _payload();
-        s.publicInputs[34] = bytes32(0);
-        vm.expectRevert(GooglePlatformVerifier.EmptyUserId.selector);
-        this.run(s);
-    }
-
-    function test_rejectsFiftySevenPublicInputs() public {
-        GooglePlatformVerifier.GoogleProof memory s = _payload();
-        s.publicInputs = new bytes32[](57);
-        vm.expectRevert(abi.encodeWithSelector(GooglePlatformVerifier.WrongPublicInputCount.selector, 56, 57));
+        s.publicInputs = new bytes32[](58);
+        vm.expectRevert(abi.encodeWithSelector(GooglePlatformVerifier.WrongPublicInputCount.selector, 57, 58));
         this.run(s);
     }
 

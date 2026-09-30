@@ -393,7 +393,7 @@ contract UpgradeSafetyTest is Test {
             })
         );
         vm.prank(who);
-        names.claim(X, 1, payload, true);
+        names.bind(X, 1, payload, true);
     }
 
     function test_upgrade_IdentityNames() public {

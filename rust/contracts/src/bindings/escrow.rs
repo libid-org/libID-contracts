@@ -107,7 +107,7 @@ mod escrow_inner {
             error BadRefundTo(address refundTo);
             error BadRecipient(address recipient);
             /// Nobody holds the node and nothing new can bind on the platform.
-            error PlatformAcceptsNoClaims(bytes32 platformId);
+            error PlatformAcceptsNoBindings(bytes32 platformId);
             error NativeTransferFailed(address recipient, uint256 amount);
             /// A payout took more of the escrow's balance than it booked.
             error OverDebited(address token, uint256 booked, uint256 debited);

@@ -134,7 +134,7 @@ contract IdentityNamesGasTest is Test {
         );
         _cool();
         vm.prank(who);
-        names.claim(X, V1, payload, true);
+        names.bind(X, V1, payload, true);
     }
 
     // ─── Writes ─────────────────────────────────────────────────────

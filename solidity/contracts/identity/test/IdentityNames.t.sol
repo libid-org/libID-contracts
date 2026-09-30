@@ -108,7 +108,7 @@ contract IdentityNamesTest is Test {
     /// wallet supplies `msg.sender`.
     function _claim(bytes32 platformId, bool publishName) internal {
         bytes memory payload = _payload(V1);
-        names.claim(platformId, V1, payload, publishName);
+        names.bind(platformId, V1, payload, publishName);
     }
 
     /// Stage a claim and bind it as `who`.
@@ -125,6 +125,24 @@ contract IdentityNamesTest is Test {
 
         assertEq(names.resolveId(X, "123"), alice, "the id does not resolve");
         assertEq(names.resolveHandle(X, "alice"), alice, "the handle does not resolve");
+    }
+
+    /// The write entry point is `bind`. The old `claim` selector reaches no
+    /// function, since there is no fallback, so a caller built against the old
+    /// ABI reverts; the payload it sent stays unspent and binds through `bind`.
+    function test_theClaimSelectorIsGone() public {
+        _stage("123", "alice", alice, 100);
+        bytes memory payload = _payload(V1);
+
+        vm.prank(alice);
+        (bool ok,) =
+            address(names).call(abi.encodeWithSignature("claim(bytes32,uint16,bytes,bool)", X, V1, payload, false));
+        assertFalse(ok, "the claim selector still answers");
+        assertEq(names.resolveHandle(X, "alice"), address(0));
+
+        vm.prank(alice);
+        names.bind(X, V1, payload, false);
+        assertEq(names.resolveHandle(X, "alice"), alice, "the unspent payload does not bind");
     }
 
     /// The one authorization rule. A proof read from the mempool is useless to
@@ -769,7 +787,7 @@ contract IdentityNamesTest is Test {
         names.resolveHandle(unknown, "alice");
     }
 
-    /// `claim` keeps reverting. A handle that arrives inside a proof and does
+    /// `bind` keeps reverting. A handle that arrives inside a proof and does
     /// not normalize is a broken proof, and failing loudly is right.
     function test_claimStillRefusesAHandleThatDoesNotNormalize() public {
         _stage("123", "ali ce", alice, 100);
@@ -865,7 +883,7 @@ contract IdentityNamesTest is Test {
 
         bytes memory payload = _payload(2);
         vm.prank(bob);
-        names.claim(X, 2, payload, false);
+        names.bind(X, 2, payload, false);
 
         (address idOwner, uint64 idAt) = names.byId(IdentityNodes.idNode(X, "456"));
         (address handleOwner, uint64 handleAt) = names.byHandle(IdentityNodes.handleNode(X, "bob"));
@@ -921,16 +939,16 @@ contract IdentityNamesTest is Test {
 
     /// A new claim can bind only with a keyspace and a verifier the Proof Verifier answers for;
     /// retiring the last version stops new claims while bound names keep resolving.
-    function test_acceptsClaimsNeedsAKeyspaceAndAVerifier() public {
-        assertTrue(names.acceptsClaims(X));
+    function test_acceptsBindingsNeedsAKeyspaceAndAVerifier() public {
+        assertTrue(names.acceptsBindings(X));
         (bytes32 noKeyspace, bytes32 noVerifier) = (keccak256("no keyspace"), keccak256("no verifier"));
         StubPlatformVerifier verifier = new StubPlatformVerifier(noKeyspace, 0);
         vm.startPrank(owner);
         proofVerifier.setVerifier(noKeyspace, V1, IPlatformVerifier(address(verifier)));
         names.setPlatform(noVerifier, HandleVectors.rulesFor(X));
         vm.stopPrank();
-        assertFalse(names.acceptsClaims(noKeyspace));
-        assertFalse(names.acceptsClaims(noVerifier));
+        assertFalse(names.acceptsBindings(noKeyspace));
+        assertFalse(names.acceptsBindings(noVerifier));
 
         IdentityNames bare = IdentityNames(
             address(new ERC1967Proxy(address(new IdentityNames()), abi.encodeCall(IdentityNames.initialize, (owner))))
@@ -938,12 +956,12 @@ contract IdentityNamesTest is Test {
         vm.prank(owner);
         bare.setPlatform(X, HandleVectors.rulesFor(X));
         assertEq(address(bare.proofVerifier()), address(0));
-        assertFalse(bare.acceptsClaims(X), "no Proof Verifier");
+        assertFalse(bare.acceptsBindings(X), "no Proof Verifier");
 
         _bind(alice, "123", "alice", 100);
         vm.prank(owner);
         proofVerifier.setVerifier(X, V1, IPlatformVerifier(address(0)));
-        assertFalse(names.acceptsClaims(X));
+        assertFalse(names.acceptsBindings(X));
         assertEq(names.resolveHandle(X, "alice"), alice);
     }
 

@@ -860,7 +860,7 @@ async fn escrows_value_against_an_unclaimed_handle() {
         .get_receipt()
         .await
         .unwrap();
-    assert!(names.acceptsClaims(platform_id).call().await.unwrap());
+    assert!(names.acceptsBindings(platform_id).call().await.unwrap());
 
     let escrow_proxy = deploy_behind_proxy(
         &provider,

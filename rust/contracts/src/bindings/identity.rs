@@ -66,10 +66,10 @@ mod names_inner {
             /// The one write. The contract does not know what `payload` is:
             /// it names a platform and this chain's verifier version for it,
             /// and the Proof Verifier routes the bytes to the one contract
-            /// that decodes them. The value attached must equal `quoteClaim`
+            /// that decodes them. The value attached must equal `quoteBind`
             /// for the same pair exactly.
-            function claim(bytes32 platformId, uint16 verifierVersion, bytes calldata payload, bool publishName) external payable;
-            function quoteClaim(bytes32 platformId, uint16 verifierVersion) external view returns (uint256);
+            function bind(bytes32 platformId, uint16 verifierVersion, bytes calldata payload, bool publishName) external payable;
+            function quoteBind(bytes32 platformId, uint16 verifierVersion) external view returns (uint256);
             function digestSpent(bytes32 digest) external view returns (bool);
             function unpublish(bytes32 platformId) external;
             function resolveId(bytes32 platformId, string calldata userId) external view returns (address);
@@ -81,15 +81,15 @@ mod names_inner {
             function primaryOf(address wallet, bytes32 platformId) external view returns (string memory);
             /// The platform's rules as configured now, for local normalization.
             function rulesOf(bytes32 platformId) external view returns (Rules memory);
-            /// Whether a new identity claim can bind a holder on this platform
+            /// Whether `bind` can bind a holder on this platform
             /// now: a keyspace, and a Proof Verifier that verifies it.
-            function acceptsClaims(bytes32 platformId) external view returns (bool);
+            function acceptsBindings(bytes32 platformId) external view returns (bool);
             /// `keccak256` of the normalized handle: what `HandleEscrow.deposit`
             /// takes. Reverts `UnknownPlatform` or `UnusableHandle`.
             function handleHashOf(bytes32 platformId, string calldata handle) external view returns (bytes32 handleHash);
             /// The node a handle keys to now; reverts as `handleHashOf` does.
             function nodeOf(bytes32 platformId, string calldata handle) external view returns (bytes32 handleNode);
-            /// The node of a handle given as its hash, as `claim` binds it.
+            /// The node of a handle given as its hash, as `bind` binds it.
             function nodeOfHash(bytes32 platformId, bytes32 handleHash) external pure returns (bytes32);
 
             /// How many accounts a wallet holds, on every platform together.
@@ -128,13 +128,13 @@ mod names_inner {
             event OwnershipTransferStarted(address indexed previousOwner, address indexed newOwner);
             event OwnershipTransferred(address indexed previousOwner, address indexed newOwner);
 
-            // What `claim` can revert with: its own refusals, and the
+            // What `bind` can revert with: its own refusals, and the
             // normalizer's, for a proved handle the rules refuse.
             error ZeroAddress();
             error ForeignOperationDomain(bytes32 operationDomain);
             error DigestAlreadySpent(bytes32 digest);
             error BadTransactionData(uint256 length);
-            error WrongClaimValue(uint256 required, uint256 provided);
+            error WrongBindValue(uint256 required, uint256 provided);
             error WrongFeeValue(uint256 required, uint256 provided);
             error NoncanonicalFee(uint256 amount, address receiver);
             error FeeTransferFailed(address receiver, uint256 amount);
@@ -153,9 +153,9 @@ mod names_inner {
             event HandleRetired(bytes32 indexed platformId, bytes32 indexed handleNode, address indexed owner);
             event PlatformConfigured(bytes32 indexed platformId);
             event ProofVerifierConfigured(address verifier);
-            /// The service fee a claim's own Authorized Transaction Data named
+            /// The service fee a binding's own Authorized Transaction Data named
             /// was delivered. Emitted only when there is one.
-            event ClaimFeePaid(bytes32 indexed authorizationDigest, address indexed receiver, uint256 amount);
+            event BindFeePaid(bytes32 indexed authorizationDigest, address indexed receiver, uint256 amount);
             event NameUnpublished(address indexed owner, bytes32 indexed platformId);
             /// The OAuth client a ceremony authenticated. Nothing stores it, so
             /// "which application produced these bindings" is answerable only

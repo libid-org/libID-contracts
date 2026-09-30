@@ -36,7 +36,7 @@ contract SettableNames is IIdentityNames {
         return IdentityNodes.handleNodeOfHash(platformId, handleHash);
     }
 
-    function acceptsClaims(bytes32 platformId) external pure returns (bool) {
+    function acceptsBindings(bytes32 platformId) external pure returns (bool) {
         return platformId != bytes32(0);
     }
 }

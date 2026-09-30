@@ -21,7 +21,7 @@ address constant NATIVE_TOKEN = 0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE;
 ///         trust: `README.md` beside this file.
 ///
 /// @dev - A held node is paid straight through; only an unheld node on a
-///        platform that `acceptsClaims` escrows.
+///        platform that `acceptsBindings` escrows.
 ///      - A claim empties the slot and opens a new round, ending the old
 ///        round's refunds. Refunds have no delay and no pause gates them.
 ///      - Each token is one pool across all nodes; a payout that debits it by
@@ -128,7 +128,7 @@ contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable
     /// A payout may not go to the zero address or this contract.
     error BadRecipient(address recipient);
     /// Nobody holds the node and nothing new can bind on this platform.
-    error PlatformAcceptsNoClaims(bytes32 platformId);
+    error PlatformAcceptsNoBindings(bytes32 platformId);
     /// A payout took more of this contract's balance than it booked.
     error OverDebited(address token, uint256 booked, uint256 debited);
     /// The recipient refused the transfer.
@@ -199,7 +199,7 @@ contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable
             return;
         }
 
-        if (!$.names.acceptsClaims(platformId)) revert PlatformAcceptsNoClaims(platformId);
+        if (!$.names.acceptsBindings(platformId)) revert PlatformAcceptsNoBindings(platformId);
 
         uint256 credited = _move(token, msg.sender, address(this), amount);
         if (credited == 0) revert ZeroAmount();
@@ -310,9 +310,9 @@ contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable
             address(names_).staticcall(abi.encodeCall(IIdentityNames.byHandle, (bytes32(0))));
         if (!ok || result.length != 64) revert NamesLacks(address(names_), IIdentityNames.byHandle.selector);
 
-        (ok, result) = address(names_).staticcall(abi.encodeCall(IIdentityNames.acceptsClaims, (bytes32(0))));
+        (ok, result) = address(names_).staticcall(abi.encodeCall(IIdentityNames.acceptsBindings, (bytes32(0))));
         if (!ok || result.length != 32 || abi.decode(result, (uint256)) > 1) {
-            revert NamesLacks(address(names_), IIdentityNames.acceptsClaims.selector);
+            revert NamesLacks(address(names_), IIdentityNames.acceptsBindings.selector);
         }
 
         bytes32 a = _nodeOfHashAnswer(names_, bytes32(0));

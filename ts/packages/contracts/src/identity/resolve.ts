@@ -1,6 +1,6 @@
 /// Reading names from the chain.
 ///
-/// Everything here is a view call. Claiming a name needs a ceremony payload and a
+/// Everything here is a view call. Binding a name needs a ceremony payload and a
 /// wallet; reading one needs neither, which is the point — any product can
 /// resolve a name without touching the ceremony that created it.
 ///

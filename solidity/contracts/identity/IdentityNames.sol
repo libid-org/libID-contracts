@@ -27,12 +27,12 @@ import {IdentityNodes} from "./IdentityNodes.sol";
 ///      to, and that address has to be the caller. Nothing else grants a
 ///      binding: there is no owner function that writes, moves or deletes an
 ///      entry in either mapping. An account's own fresh proof retires the
-///      handle that account used to hold, and nobody else's — see `claim`.
+///      handle that account used to hold, and nobody else's — see `bind`.
 ///
-///      **Claiming can cost more than the verification path, and the user set
+///      **Binding can cost more than the verification path, and the user set
 ///      the price.** A proof also states a service fee and the address to pay
 ///      it to, both inside the digest it opens against. Composing a ceremony
-///      by hand names no fee, so a claim made that way costs only the Notary
+///      by hand names no fee, so a binding made that way costs only the Notary
 ///      Fees; a ceremony composed by a hosted application names what that
 ///      application charges, and the user saw that number when they consented,
 ///      because changing it after the fact changes the digest. This contract
@@ -43,7 +43,7 @@ import {IdentityNodes} from "./IdentityNodes.sol";
 ///      **What the owner can still do, stated plainly.** It configures which
 ///      verifiers a platform uses, and a verifier is trusted to report what a
 ///      proof says — so an owner that installs a dishonest verifier can mint
-///      any claim. It can also change a platform's normalization rules, which
+///      any binding. It can also change a platform's normalization rules, which
 ///      re-keys every handle already written: the old entries survive but no
 ///      longer answer the public resolvers. And the contract is UUPS, so the
 ///      owner can replace all of this. Read the guarantee above as "under
@@ -66,7 +66,7 @@ import {IdentityNodes} from "./IdentityNodes.sol";
 ///      has been applied by the time anybody asks, so the answer is for an
 ///      operator reading `IdentityBound`, and nothing on chain reads it.
 ///
-///      **This contract does not know what a proof looks like.** `claim` takes
+///      **This contract does not know what a proof looks like.** `bind` takes
 ///      a platform, a verifier version and opaque bytes, and hands all three to
 ///      the Proof Verifier, which routes them to the one contract that does
 ///      know. What comes back is trusted the way that contract is trusted: it
@@ -127,7 +127,7 @@ contract IdentityNames is
     ///
     /// @dev `handle` is the one the account proved most recently, and
     ///      `handleCurrent` says whether the handle node still points back at
-    ///      this account, which is what `claim` writes and what any other
+    ///      this account, which is what `bind` writes and what any other
     ///      account proving the same handle overwrites. Once it is false the
     ///      string stays as the last thing this account was known as, and the
     ///      flag says not to route by it. The flag reads the nodes, so a
@@ -158,7 +158,7 @@ contract IdentityNames is
     ///      **The account id follows from what a version is.** A version is
     ///      another way to prove the SAME account — a notarized session, an
     ///      OIDC token — not another account space. The account did not change,
-    ///      so its id did not change, and `claim` keys every version on the same
+    ///      so its id did not change, and `bind` keys every version on the same
     ///      `idNode(platformId, attested.userId)`.
     ///
     ///      Read that as a test, not as a rule to remember: a proof format that
@@ -350,7 +350,7 @@ contract IdentityNames is
         bytes32 indexed authorizationDigest, address indexed owner, bytes32 indexed platformId, bytes clientIdentifier
     );
 
-    /// @notice The service fee named by a claim's own Authorized Transaction
+    /// @notice The service fee named by a binding's own Authorized Transaction
     ///         Data was delivered.
     ///
     /// @dev Emitted only when there is one. A ceremony composed by hand names
@@ -358,11 +358,11 @@ contract IdentityNames is
     ///      hosted application names what that application charges, and the
     ///      user approved that number at consent time, because it is inside
     ///      the digest the proof opens against.
-    event ClaimFeePaid(bytes32 indexed authorizationDigest, address indexed receiver, uint256 amount);
+    event BindFeePaid(bytes32 indexed authorizationDigest, address indexed receiver, uint256 amount);
 
     /// @notice A handle stopped resolving because the account that held it
     ///         proved a different one.
-    /// @dev Nobody else's entry can be retired this way. See `claim`.
+    /// @dev Nobody else's entry can be retired this way. See `bind`.
     event HandleRetired(bytes32 indexed platformId, bytes32 indexed handleNode, address indexed owner);
 
     /// @notice A platform's keyspace was configured or reconfigured.
@@ -406,19 +406,19 @@ contract IdentityNames is
     ///      trailing bytes and other shapes are refused (REQ-COMMON-01F).
     error BadTransactionData(uint256 length);
     /// @dev Less was delivered than the verification path alone costs.
-    error WrongClaimValue(uint256 required, uint256 provided);
+    error WrongBindValue(uint256 required, uint256 provided);
     /// @dev What was delivered above the verification path is not the fee the
     ///      digest authorized. Over and under are both refused: there is no
     ///      refund path, and a caller who could overpay would be funding an
     ///      address the ceremony named, beyond what it consented to.
     error WrongFeeValue(uint256 required, uint256 provided);
-    /// @dev A free claim is `(0, address(0))` and nothing else. A receiver
+    /// @dev A free binding is `(0, address(0))` and nothing else. A receiver
     ///      beside a zero amount is a second encoding of one intent, and an
     ///      amount beside no receiver would burn it.
     error NoncanonicalFee(uint256 amount, address receiver);
     /// @dev The receiver the ceremony named refused the value or ran out of
     ///      gas taking it. Nothing is written: the fee was authorized as part
-    ///      of this claim, so a claim that cannot pay it did not happen.
+    ///      of this binding, so a binding that cannot pay it did not happen.
     error FeeTransferFailed(address receiver, uint256 amount);
     /// The proof names a different address than the caller.
     error NotProofTarget(address proved, address caller);
@@ -478,12 +478,12 @@ contract IdentityNames is
     ///      platform, not the ceremony version inside the proof -- and passes
     ///      the bytes through.
     ///
-    ///      The value attached is `quoteClaim` for the same pair plus the
+    ///      The value attached is `quoteBind` for the same pair plus the
     ///      service fee the submission's own Authorized Transaction Data
     ///      names, which is zero for a ceremony composed by hand. Exact value
     ///      at every hop needs no refund path, so no partial-failure rule is
     ///      required and nothing can be captured in transit.
-    function claim(bytes32 platformId, uint16 verifierVersion, bytes calldata payload, bool publishName)
+    function bind(bytes32 platformId, uint16 verifierVersion, bytes calldata payload, bool publishName)
         external
         payable
         nonReentrant
@@ -496,7 +496,7 @@ contract IdentityNames is
         // is the Platform Verifier's to decode. A shortfall would otherwise
         // surface as an out-of-funds revert from the call below, with nothing
         // for an operator to read.
-        if (msg.value < required) revert WrongClaimValue(required, msg.value);
+        if (msg.value < required) revert WrongBindValue(required, msg.value);
 
         ICeremony.VerifiedClaim memory claimed = pv.verify{value: required}(platformId, verifierVersion, payload);
 
@@ -547,7 +547,7 @@ contract IdentityNames is
             abi.decode(claimed.transactionData, (address, uint256, address));
         if (target != msg.sender) revert NotProofTarget(target, msg.sender);
 
-        // One encoding per intent (REQ-COMMON-01F): a free claim is
+        // One encoding per intent (REQ-COMMON-01F): a free binding is
         // `(0, address(0))`. The two halves stand or fall together, so a
         // receiver beside a zero amount and an amount beside no receiver are
         // both refused rather than silently normalized.
@@ -590,11 +590,11 @@ contract IdentityNames is
         if (feeAmount != 0) {
             (bool paid,) = feeReceiver.call{value: feeAmount}("");
             if (!paid) revert FeeTransferFailed(feeReceiver, feeAmount);
-            emit ClaimFeePaid(claimed.sessionId, feeReceiver, feeAmount);
+            emit BindFeePaid(claimed.sessionId, feeReceiver, feeAmount);
         }
     }
 
-    /// @notice What `claim` requires to be delivered for this pair.
+    /// @notice What `bind` requires to be delivered for this pair.
     ///
     /// @dev Asked of the Proof Verifier rather than worked out here: quoting
     ///      covers the whole path -- two Notary Fees on X and GitHub, zero on
@@ -605,7 +605,7 @@ contract IdentityNames is
     ///      named by its own submission, which no quotation could know: it is
     ///      chosen per ceremony by whoever composed it, and authorized by the
     ///      digest rather than by anything on this chain.
-    function quoteClaim(bytes32 platformId, uint16 verifierVersion) external view returns (uint256) {
+    function quoteBind(bytes32 platformId, uint16 verifierVersion) external view returns (uint256) {
         return _s().proofVerifier.quote(platformId, verifierVersion);
     }
 
@@ -632,7 +632,7 @@ contract IdentityNames is
     }
 
     /// @dev Everything after authentication. Which proof established a name
-    ///      is `claim`'s business; the keyspace, the ordering and the display
+    ///      is `bind`'s business; the keyspace, the ordering and the display
     ///      are decided here.
     function _write(
         bytes32 platformId,
@@ -755,7 +755,7 @@ contract IdentityNames is
     /// @notice Withdraw a published handle. Affects the caller's record only.
     ///
     /// @dev Publishing is the one thing here a user can undo, and it needs its
-    ///      own door. Passing `publishName: false` to `claim` does NOT clear an
+    ///      own door. Passing `publishName: false` to `bind` does NOT clear an
     ///      earlier publish — a caller that binds again after a rename should
     ///      not silently withdraw a name because a flag defaulted; it refreshes
     ///      the published string to the handle just proved. Withdrawing what
@@ -836,16 +836,16 @@ contract IdentityNames is
         return nodeOfHash(platformId, handleHashOf(platformId, handle));
     }
 
-    /// @notice The node of a handle given as its hash: what `claim` binds and
+    /// @notice The node of a handle given as its hash: what `bind` binds and
     ///         `byHandle` reads. Unchecked; any hash has a node.
     function nodeOfHash(bytes32 platformId, bytes32 handleHash) public pure returns (bytes32) {
         return IdentityNodes.handleNodeOfHash(platformId, handleHash);
     }
 
-    /// @notice Whether a new identity claim can bind a holder on this platform
-    ///         now: a keyspace, and a Proof Verifier that verifies it. Unlike
-    ///         the resolvers, false after every version is retired.
-    function acceptsClaims(bytes32 platformId) external view returns (bool) {
+    /// @notice Whether `bind` can bind a holder on this platform now: a
+    ///         keyspace, and a Proof Verifier that verifies it. Unlike the
+    ///         resolvers, false after every version is retired.
+    function acceptsBindings(bytes32 platformId) external view returns (bool) {
         if (!_s().platforms[platformId].configured) return false;
         IProofVerifier pv = _s().proofVerifier;
         return address(pv) != address(0) && pv.verifiesPlatform(platformId);
@@ -944,7 +944,7 @@ contract IdentityNames is
     ///      block.
     ///
     ///      `handleCurrent` is decided by the handle node pointing back at
-    ///      this account, which is what `claim` writes and what a takeover by
+    ///      this account, which is what `bind` writes and what a takeover by
     ///      any other account overwrites -- including a second account of the
     ///      same wallet, where the wallet still owns the handle node and an
     ///      owner check alone would report both accounts as holding it.
