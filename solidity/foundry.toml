@@ -29,8 +29,7 @@ fs_permissions = [
     # notarized session of it, signature included, so the real path is tested
     # end to end (see GoogleJwtRootsRealSession.t.sol).
     { access = "read", path = "contracts/ceremony/test/fixtures" },
-    # Real proofs of each circuit, for the Honk verifiers (see HonkVerifierProofs.t.sol)
-    # and the inputs the Google verifier reads (see GooglePlatformVerifier.t.sol).
+    # Real proofs of each circuit, for the Honk verifiers (see HonkVerifierProofs.t.sol).
     { access = "read", path = "contracts/circuits/test/fixtures" },
     { access = "read", path = "out" }, # the factory tests read creation code from the artifacts
 ]

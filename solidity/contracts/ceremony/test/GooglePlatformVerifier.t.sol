@@ -62,6 +62,8 @@ contract GooglePlatformVerifierTest is Test {
     /// `SHA256("libid.google-user-id" || sub)`, computed outside Solidity.
     string constant USER_ID = "0x20078023c9d4bf6bffc2580ec36446075d10c8453cecbe4f1cb3d326b2b35560";
     string constant EMAIL = "a.b+tag@example.com";
+    /// The signed `exp` of the real proof's token.
+    uint64 constant REAL_EXP = 1_893_456_000;
 
     function setUp() public {
         digest = CeremonyAuthorization.digestFor(DOMAIN, 1, AUTH_NONCE, _txData());
@@ -190,33 +192,59 @@ contract GooglePlatformVerifierTest is Test {
         this.run(s);
     }
 
-    /// @dev The public inputs of a real proof of libid-circuits' committed
-    ///      witness (HonkVerifierProofs.t.sol checks the proof itself). Its
-    ///      digest binds the spec's example chain, `example:1`, so this chain's
-    ///      replaces it; every other input is the circuit's own.
-    function test_readsTheRealCircuitsPublicInputs() public {
-        string memory json = vm.readFile("contracts/circuits/test/fixtures/oidc-google-proof.json");
-        bytes32[] memory pi = vm.parseJsonBytes32Array(json, ".public_inputs");
-        for (uint256 i = 0; i < 32; ++i) {
-            pi[i] = bytes32(uint256(uint8(digest[i])));
-        }
+    /// @dev libid-circuits v0.5.0's oidc-google, proved over a token signed by
+    ///      a synthetic key whose nonce is this chain's digest for `_payload`,
+    ///      and checked by the verifier the pin ships.
+    function _realProof() private returns (GooglePlatformVerifier real, GooglePlatformVerifier.GoogleProof memory s) {
+        string memory json = vm.readFile("contracts/ceremony/test/fixtures/google-ceremony-proof.json");
+        address honkVerifier = vm.deployCode("OidcGoogleHonkVerifier.sol:OidcGoogleHonkVerifier");
+        real = GooglePlatformVerifier(
+            address(
+                new ERC1967Proxy(
+                    address(new GooglePlatformVerifier()),
+                    abi.encodeCall(
+                        GooglePlatformVerifier.initialize,
+                        (
+                            OWNER,
+                            INotaryService(address(0)),
+                            IHonkVerifier(honkVerifier),
+                            honkVerifier.codehash,
+                            GOOGLE_ALLOWANCE,
+                            IGoogleJwtRoots(address(roots))
+                        )
+                    )
+                )
+            )
+        );
+        s = _payload();
+        s.clientIdentifier = bytes(vm.parseJsonString(json, ".client_identifier"));
+        s.publicInputs = vm.parseJsonBytes32Array(json, ".public_inputs");
+        s.proof = vm.parseJsonBytes(json, ".proof");
+
         bytes memory modulus = new bytes(18 * 32);
         for (uint256 i = 0; i < 18; ++i) {
-            bytes32 limb = pi[39 + i];
+            bytes32 limb = s.publicInputs[39 + i];
             assembly {
                 mstore(add(add(modulus, 32), mul(i, 32)), limb)
             }
         }
-        uint64 exp = 1_893_456_000;
-        roots.trust(keccak256(modulus), exp + 86400);
-        vm.warp(exp - 3600);
+        roots.trust(keccak256(modulus), REAL_EXP + 86400);
+        vm.warp(REAL_EXP - 3600);
+    }
 
-        GooglePlatformVerifier.GoogleProof memory s = _payload();
-        s.clientIdentifier = "000000000000-libidfixture.apps.googleusercontent.com";
-        s.publicInputs = pi;
-        ICeremony.VerifiedClaim memory f = this.run(s);
+    function test_verifiesARealProof() public {
+        (GooglePlatformVerifier real, GooglePlatformVerifier.GoogleProof memory s) = _realProof();
+        ICeremony.VerifiedClaim memory f = real.verify(abi.encode(s));
         assertEq(f.userId, "0x121c75456ead3d5fa8f601dbd629bddb84dcdb4934b2a6b6d2e46b5661c6d35b");
         assertEq(f.handle, "fixture@example.com");
+    }
+
+    /// @dev The proof binds the digest: one changed bit is another account.
+    function test_refusesARealProofUnderAnotherUserId() public {
+        (GooglePlatformVerifier real, GooglePlatformVerifier.GoogleProof memory s) = _realProof();
+        s.publicInputs[35] ^= bytes32(uint256(1));
+        vm.expectRevert();
+        real.verify{gas: 5_000_000}(abi.encode(s));
     }
 
     function test_verifiesAWholeGoogleCeremony() public {
