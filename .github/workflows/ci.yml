@@ -77,9 +77,9 @@ jobs:
       # A UUPS upgrade keeps the proxy's storage, so every upgradeable
       # contract's storage may only grow at the end. The script compares each
       # layout built from source with the snapshot committed beside the
-      # contract and fails on any difference, naming a pure append (record it
-      # with --update) apart from a reorder, removal or retype (undo it). See
-      # the script's header.
+      # contract and fails on any difference, naming a pure append or rename
+      # (record it with --update) apart from a reorder, removal or retype
+      # (undo it). See the script's header.
       - name: Storage layout
         run: |
           python3 scripts/test_check_storage_layout.py
