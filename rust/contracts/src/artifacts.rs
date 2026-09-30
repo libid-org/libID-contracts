@@ -15,7 +15,6 @@ use std::{
 use alloy::{
     hex,
     primitives::Bytes,
-    providers::Provider,
 };
 use include_dir::{
     include_dir,
@@ -44,13 +43,9 @@ pub const COVERED: &[(&str, &str)] = &[
     ("GitHubPlatformVerifier", "GitHubPlatformVerifier"),
     ("GooglePlatformVerifier", "GooglePlatformVerifier"),
     // circuits: the UltraHonk verifiers the Platform Verifiers pin, vendored
-    // from the libid-circuits release, each with the two libraries it links
+    // from the libid-circuits release
     ("BearerLinkHonkVerifier", "BearerLinkHonkVerifier"),
-    ("BearerLinkHonkVerifier", "RelationsLib"),
-    ("BearerLinkHonkVerifier", "ZKTranscriptLib"),
     ("OidcGoogleHonkVerifier", "OidcGoogleHonkVerifier"),
-    ("OidcGoogleHonkVerifier", "RelationsLib"),
-    ("OidcGoogleHonkVerifier", "ZKTranscriptLib"),
     // identity
     ("IdentityNames", "IdentityNames"),
     // ens (deployed once per network, not CREATE3-canonical)
@@ -118,8 +113,7 @@ impl Artifacts {
     }
 
     /// Creation bytecode of a contract whose `.sol` file name matches the
-    /// contract name. Fails on artifacts with unresolved link references —
-    /// deploy those through [`Self::linked_bytecode`].
+    /// contract name.
     pub fn bytecode(&self, contract: &str) -> Result<Bytes> {
         self.bytecode_named(contract, contract)
     }
@@ -128,41 +122,10 @@ impl Artifacts {
     /// (a bb-generated `Verifier.sol` holding `HonkVerifier`, say).
     pub fn bytecode_named(&self, file: &str, contract: &str) -> Result<Bytes> {
         let hex_str = self.bytecode_hex(file, contract)?;
-        if hex_str.contains("__$") {
-            return Err(Error::Artifact {
-                detail: format!(
-                    "{file}.sol:{contract} has unresolved link references; deploy it \
-                     via linked_bytecode"
-                ),
-            });
-        }
         let bytes = hex::decode(&hex_str).map_err(|e| Error::Artifact {
             detail: format!("invalid bytecode hex for {file}.sol:{contract}: {e}"),
         })?;
         Ok(Bytes::from(bytes))
-    }
-
-    /// Creation bytecode with every external library it references deployed
-    /// (recursively) through `provider` and linked in: a
-    /// [`Libraries`](crate::deploy::Libraries) over this one contract. A
-    /// library already at its bytecode-derived address is linked, not
-    /// deployed again. The two UltraHonk verifiers are what links a library
-    /// today — `RelationsLib` and `ZKTranscriptLib`, vendored beside each —
-    /// and [`deploy_honk_verifiers`](crate::circuits::deploy_honk_verifiers)
-    /// deploys them as a set so the copies are shared. For artifacts with no
-    /// link references this behaves like [`Self::bytecode_named`] (no
-    /// transaction is sent).
-    ///
-    /// `sender` opts into explicit nonce management (see
-    /// [`deploy_contract_from`](crate::deploy::deploy_contract_from)).
-    pub async fn linked_bytecode<P: Provider>(
-        &self,
-        provider: &P,
-        file: &str,
-        contract: &str,
-        sender: Option<alloy::primitives::Address>,
-    ) -> Result<Bytes> {
-        crate::deploy::load_linked_bytecode(provider, self, file, contract, sender).await
     }
 
     /// The artifact's `methodIdentifiers`: `"sig(args)" -> 4-byte selector`
@@ -188,7 +151,7 @@ impl Artifacts {
             .collect()
     }
 
-    /// The raw `bytecode.object` hex (no `0x`), link placeholders intact.
+    /// The raw `bytecode.object` hex, without `0x`.
     pub(crate) fn bytecode_hex(&self, file: &str, contract: &str) -> Result<String> {
         let json = self.raw(file, contract)?;
         let raw = json["bytecode"]["object"]
@@ -197,19 +160,6 @@ impl Artifacts {
                 detail: format!("no bytecode.object in {file}.sol/{contract}.json"),
             })?;
         Ok(raw.strip_prefix("0x").unwrap_or(raw).to_owned())
-    }
-
-    /// The artifact's `bytecode.linkReferences` object, empty when absent.
-    pub(crate) fn link_references(
-        &self,
-        file: &str,
-        contract: &str,
-    ) -> Result<serde_json::Map<String, serde_json::Value>> {
-        let json = self.raw(file, contract)?;
-        Ok(json["bytecode"]["linkReferences"]
-            .as_object()
-            .cloned()
-            .unwrap_or_default())
     }
 }
 
@@ -223,67 +173,20 @@ impl Default for Artifacts {
 mod tests {
     use super::*;
 
-    /// Every covered contract's creation bytecode is present and non-empty.
-    /// Only the hex is checked here so the artifacts with link placeholders
-    /// (the Honk verifiers) pass too; linking is the anvil tests' business.
+    /// Every covered contract's creation bytecode decodes as it is embedded
+    /// and is not empty: the crate links no libraries, so a contract that
+    /// needed one would carry a placeholder here and fail to decode.
     #[test]
-    fn every_covered_contract_has_bytecode() {
+    fn every_covered_contract_has_deployable_bytecode() {
         let artifacts = Artifacts::embedded();
         for &(file, contract) in COVERED {
-            let hex_str = artifacts
-                .bytecode_hex(file, contract)
+            let bytecode = artifacts
+                .bytecode_named(file, contract)
                 .unwrap_or_else(|e| panic!("{file}.sol:{contract}: {e}"));
             assert!(
-                !hex_str.is_empty(),
+                !bytecode.is_empty(),
                 "{file}.sol:{contract} has empty bytecode"
             );
         }
-    }
-
-    /// Contracts without link references decode straight to bytes, and the
-    /// ones with them are exactly the two Honk verifiers — so this doubles
-    /// as the check that nothing else silently grew a library dependency,
-    /// and that every library a linked contract names is covered under its
-    /// own file, where the vendor script and the linker look for it.
-    #[test]
-    fn unlinked_contracts_decode_and_linked_ones_are_the_honk_verifiers() {
-        let artifacts = Artifacts::embedded();
-        let mut linked = Vec::new();
-        for &(file, contract) in COVERED {
-            let refs = artifacts.link_references(file, contract).unwrap();
-            if refs.is_empty() {
-                let bytecode = artifacts
-                    .bytecode_named(file, contract)
-                    .unwrap_or_else(|e| panic!("{file}.sol:{contract}: {e}"));
-                assert!(!bytecode.is_empty());
-                continue;
-            }
-            linked.push((file, contract));
-            let err = artifacts.bytecode_named(file, contract).unwrap_err();
-            assert!(
-                err.to_string().contains("unresolved link references"),
-                "{file}.sol:{contract}: {err}"
-            );
-            for (path, libs) in &refs {
-                let stem = std::path::Path::new(path)
-                    .file_stem()
-                    .and_then(|s| s.to_str())
-                    .unwrap();
-                for library in libs.as_object().unwrap().keys() {
-                    assert!(
-                        COVERED.contains(&(stem, library.as_str())),
-                        "{file}.sol:{contract} links {stem}.sol:{library}, which is not covered"
-                    );
-                }
-            }
-        }
-        linked.sort_unstable();
-        assert_eq!(
-            linked,
-            [
-                ("BearerLinkHonkVerifier", "BearerLinkHonkVerifier"),
-                ("OidcGoogleHonkVerifier", "OidcGoogleHonkVerifier"),
-            ]
-        );
     }
 }

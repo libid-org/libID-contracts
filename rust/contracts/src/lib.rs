@@ -11,14 +11,14 @@
 //!   deterministic factory, and the UltraHonk verifiers the Platform
 //!   Verifiers pin. Kept in lockstep with the Solidity sources in
 //!   `solidity/contracts`.
-//! - [`artifacts`] — the compiled creation bytecode, link references, and
-//!   method identifiers of every deployable contract, embedded at compile time
+//! - [`artifacts`] — the compiled creation bytecode and method identifiers
+//!   of every deployable contract, embedded at compile time
 //!   ([`Artifacts::embedded`]) so deployment needs no filesystem at runtime. A
 //!   directory-backed variant ([`Artifacts::from_dir`]) reads a forge `out/`
 //!   tree instead.
 //! - [`deploy`] — generic deploy and upgrade primitives over any alloy
 //!   [`Provider`](alloy::providers::Provider): plain deploys, constructor
-//!   args, ERC1967 proxies, library linking, and UUPS upgrades.
+//!   args, ERC1967 proxies, and UUPS upgrades.
 //! - [`factory`] — the deterministic-factory bootstrap: predict the canonical
 //!   cross-network factory address, install it (and the keyless CREATE2
 //!   deployer it hangs off) where missing, and deploy protocol proxies
@@ -29,8 +29,7 @@
 //!   `PlatformVerifierBase` enforces checked first.
 //! - [`circuits`] — the ceremony circuits' UltraHonk verifiers, vendored
 //!   from the pinned `libid-circuits` release: which circuit a platform
-//!   proves under, and a deploy that links the libraries a bb verifier
-//!   needs, one deployment per distinct bytecode across the set.
+//!   proves under, and the deploy of its verifier.
 //!
 //! Signing is the consumer's concern: every helper takes a provider you have
 //! already wired with a wallet.

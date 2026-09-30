@@ -15,8 +15,8 @@
 //!
 //! The Honk verifier a Platform Verifier pins is vendored here too
 //! ([`circuits`](crate::circuits)): bb-generated in `libid-circuits` from
-//! the circuit's verification key, deployed with its libraries linked by
-//! [`deploy_honk_verifiers`](crate::circuits::deploy_honk_verifiers). Which
+//! the circuit's verification key, deployed by
+//! [`deploy_honk_verifier`](crate::circuits::deploy_honk_verifier). Which
 //! circuit a platform proves under is [`PlatformVerifier::circuit`]; the
 //! contract pins whichever address governance names, by address AND by
 //! code hash.

@@ -9,6 +9,11 @@ test = "contracts"
 solc = "0.8.33"
 evm_version = "cancun"
 via_ir = true
+# The vendored Honk verifiers compile on the legacy pipeline: solc cannot lay
+# out the stack of bb's optimized assembly via IR ("Could not create stack
+# layout after 1000 iterations"). Everything else needs IR to fit EIP-170.
+additional_compiler_profiles = [{ name = "verifiers", via_ir = false }]
+compilation_restrictions = [{ paths = "contracts/circuits/*HonkVerifier.sol", via_ir = false }]
 optimizer = true
 optimizer_runs = 200
 # No CBOR metadata / ipfs hash in bytecode: via_ir compiles the tree as one
@@ -24,6 +29,8 @@ fs_permissions = [
     # notarized session of it, signature included, so the real path is tested
     # end to end (see GoogleJwtRootsRealSession.t.sol).
     { access = "read", path = "contracts/ceremony/test/fixtures" },
+    # Real proofs of each circuit, for the Honk verifiers (see HonkVerifierProofs.t.sol).
+    { access = "read", path = "contracts/circuits/test/fixtures" },
     { access = "read", path = "out" }, # the factory tests read creation code from the artifacts
 ]
 

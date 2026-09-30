@@ -84,7 +84,9 @@ ships the Solidity in its release tarballs. `scripts/vendor-circuit-verifiers.sh
 downloads it into `solidity/contracts/circuits/`, formatted, where `forge
 build` compiles it and the crate embeds it, so no consumer runs `bb`. The
 files are gitignored: they are another repository's release asset, and the
-pin says which bytes they must be.
+pin says which bytes they must be. `solidity/foundry.toml` compiles them on
+the legacy pipeline and everything else via IR: solc cannot compile bb's
+optimized verifier via IR.
 
 `solidity/contracts/circuits/circuits.json` is the pin — the release version
 and each tarball's sha256, committed here and checked against every download.

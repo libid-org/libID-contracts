@@ -85,14 +85,9 @@ knows those rules: it reads the code hash off the chain, refuses what the
 contract would refuse, and builds the exact `initialize` call.
 
 The Honk verifier is vendored here too, from the pinned `libid-circuits`
-release. `circuits::deploy_honk_verifiers` deploys the libraries a set of
-circuits link (`RelationsLib`, `ZKTranscriptLib`) once per distinct
-bytecode, links each verifier against them and deploys it — four
-transactions for both launch circuits, not six — and returns the addresses
-the initializers pin. A library lands at an address derived from its
-bytecode, so `circuits::deploy_honk_verifier` for one circuit finds a
-library another deploy already put there and links it instead of deploying
-a copy.
+release: bb's optimized verifier, one contract per circuit.
+`circuits::deploy_honk_verifier` deploys a circuit's verifier in one
+transaction and returns the address the initializer pins.
 
 ```rust,no_run
 use alloy::{primitives::Address, providers::ProviderBuilder};
@@ -112,7 +107,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let (owner, notary, proof_verifier): (Address, Address, Address) = todo!();
 
     // The circuit `x/v1` proves under is `bearer-link`; `PlatformVerifier::circuit`
-    // says so, and this deploys its verifier with the libraries linked.
+    // says so, and this deploys its verifier.
     let honk_verifier =
         deploy_honk_verifier(&provider, &artifacts, PlatformVerifier::X.circuit(), None).await?;
 
@@ -156,12 +151,6 @@ Other entry points:
 - `factory::ensure_factory` / `factory::factory_deploy` — install the
   canonical cross-network factory where missing and deploy protocol proxies
   through it at name-derived CREATE3 addresses.
-- `deploy::Libraries` — deploys the external libraries a set of contracts
-  link, once per distinct bytecode (`Libraries::deploy`), and substitutes
-  their addresses into a contract's creation bytecode (`Libraries::link`)
-  without deploying it — for a verifier that goes through the factory.
-  `deploy::load_linked_bytecode` (or `Artifacts::linked_bytecode`) is the
-  same over one contract.
 - `circuits::version` — the `libid-circuits` release the vendored verifiers
   came from, for a consumer that names a deployment after its artifact.
 - `platform_verifier::codehash_at` — the code hash `setTrustRoots` wants
