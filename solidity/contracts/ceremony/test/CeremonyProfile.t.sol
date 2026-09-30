@@ -56,6 +56,35 @@ contract CeremonyProfileTest is Test {
         assertEq(CeremonyProfile.LAUNCH_VERSION, 1);
     }
 
+    /// @dev A browser derives a proof's expiry from the version it ran, so a
+    ///      launch window is part of `v1` like its request lines: a different
+    ///      value is a new ceremonyVersion, not an edit (REQ-PARAM-01).
+    function test_launchValidityWindowsArePinned() public pure {
+        assertEq(CeremonyProfile.PROOF_LIFETIME_SECONDS_X, 3600);
+        assertEq(CeremonyProfile.MAX_FUTURE_ATTESTATION_SKEW_SECONDS_X, 300);
+        assertEq(CeremonyProfile.FUTURE_OBSERVATION_ALLOWANCE_SECONDS_X, 300);
+        assertEq(CeremonyProfile.PROOF_LIFETIME_SECONDS_GITHUB, 3600);
+        assertEq(CeremonyProfile.MAX_FUTURE_ATTESTATION_SKEW_SECONDS_GITHUB, 300);
+        assertEq(CeremonyProfile.FUTURE_OBSERVATION_ALLOWANCE_SECONDS_GITHUB, 300);
+        assertEq(CeremonyProfile.FUTURE_OBSERVATION_ALLOWANCE_SECONDS_GOOGLE, 7200);
+    }
+
+    /// @dev The ordering the allowances exist for: an OIDC claim carries the
+    ///      token's `exp` and reads about an hour ahead, a notarized
+    ///      observation is wall-clock and never is.
+    function test_anOidcClaimIsAllowedFurtherAheadThanANotarizedOne() public pure {
+        assertGt(
+            CeremonyProfile.FUTURE_OBSERVATION_ALLOWANCE_SECONDS_GOOGLE,
+            CeremonyProfile.FUTURE_OBSERVATION_ALLOWANCE_SECONDS_X,
+            "X"
+        );
+        assertGt(
+            CeremonyProfile.FUTURE_OBSERVATION_ALLOWANCE_SECONDS_GOOGLE,
+            CeremonyProfile.FUTURE_OBSERVATION_ALLOWANCE_SECONDS_GITHUB,
+            "GitHub"
+        );
+    }
+
     /// @dev `isForbiddenRequestHeader` is true for every listed name and false
     ///      for near misses: a header the verifier reads, another case, a
     ///      trailing space, the empty name, two names joined.

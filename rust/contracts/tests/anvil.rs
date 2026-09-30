@@ -470,9 +470,6 @@ async fn deploys_and_initializes_every_platform_verifier() {
             Initializer,
             PlatformVerifier,
             TlsNotaryRoots,
-            MAX_FUTURE_ATTESTATION_SKEW,
-            MAX_FUTURE_OBSERVATION_ALLOWANCE,
-            MAX_PROOF_LIFETIME,
         },
         Error,
     };
@@ -544,14 +541,10 @@ async fn deploys_and_initializes_every_platform_verifier() {
         owner: deployer,
         notary_service: notary_proxy,
         honk_verifier: bearer_link,
-        proof_lifetime: libid_profiles::PROOF_LIFETIME_SECONDS_X,
-        max_future_attestation_skew: libid_profiles::MAX_FUTURE_ATTESTATION_SKEW_SECONDS,
-        future_observation_allowance: 300,
     };
     let google = GoogleRoots {
         owner: deployer,
         honk_verifier: oidc_google,
-        future_observation_allowance: 7200,
         jwt_roots: roots_proxy,
     };
     let proof_verifier = CeremonyProofVerifier::new(proof_verifier_proxy, &provider);
@@ -594,27 +587,30 @@ async fn deploys_and_initializes_every_platform_verifier() {
                     v.honkVerifierCodehash().call().await.unwrap(),
                     honk_codehash
                 );
+                // The window is compiled into the contract from the same
+                // profile table the generated constants come from.
+                let window = if verifier == PlatformVerifier::X {
+                    (
+                        libid_profiles::PROOF_LIFETIME_SECONDS_X,
+                        libid_profiles::MAX_FUTURE_ATTESTATION_SKEW_SECONDS_X,
+                        libid_profiles::FUTURE_OBSERVATION_ALLOWANCE_SECONDS_X,
+                    )
+                } else {
+                    (
+                        libid_profiles::PROOF_LIFETIME_SECONDS_GITHUB,
+                        libid_profiles::MAX_FUTURE_ATTESTATION_SKEW_SECONDS_GITHUB,
+                        libid_profiles::FUTURE_OBSERVATION_ALLOWANCE_SECONDS_GITHUB,
+                    )
+                };
                 let params = v.protocolParameters().call().await.unwrap();
-                assert_eq!(params.proofLifetime, tls.proof_lifetime);
                 assert_eq!(
-                    params.maxFutureAttestationSkew,
-                    tls.max_future_attestation_skew
-                );
-                assert_eq!(
-                    params.futureObservationAllowance,
-                    tls.future_observation_allowance
-                );
-                assert_eq!(
-                    v.MAX_PROOF_LIFETIME().call().await.unwrap(),
-                    MAX_PROOF_LIFETIME
-                );
-                assert_eq!(
-                    v.MAX_FUTURE_ATTESTATION_SKEW().call().await.unwrap(),
-                    MAX_FUTURE_ATTESTATION_SKEW
-                );
-                assert_eq!(
-                    v.MAX_FUTURE_OBSERVATION_ALLOWANCE().call().await.unwrap(),
-                    MAX_FUTURE_OBSERVATION_ALLOWANCE
+                    (
+                        params.proofLifetime,
+                        params.maxFutureAttestationSkew,
+                        params.futureObservationAllowance
+                    ),
+                    window,
+                    "{verifier:?}"
                 );
                 let quote = v.quote().call().await.unwrap();
                 assert_eq!(quote, fee * U256::from(2));
@@ -635,7 +631,7 @@ async fn deploys_and_initializes_every_platform_verifier() {
                 assert_eq!(params.maxFutureAttestationSkew, 0);
                 assert_eq!(
                     params.futureObservationAllowance,
-                    google.future_observation_allowance
+                    libid_profiles::FUTURE_OBSERVATION_ALLOWANCE_SECONDS_GOOGLE
                 );
                 let quote = v.quote().call().await.unwrap();
                 assert_eq!(quote, U256::ZERO);
@@ -697,7 +693,6 @@ async fn deploys_and_initializes_every_platform_verifier() {
         notary_: notary_proxy,
         honkVerifier_: honk,
         honkVerifierCodehash_: honk_codehash,
-        futureObservationAllowance_: 7200,
         jwtRoots_: roots_proxy,
     };
     let err = deploy_behind_proxy(
@@ -720,9 +715,6 @@ async fn deploys_and_initializes_every_platform_verifier() {
         notary_: notary_proxy,
         honkVerifier_: honk,
         honkVerifierCodehash_: keccak256("some other artifact"),
-        proofLifetime_: 3600,
-        maxFutureAttestationSkew_: 300,
-        futureObservationAllowance_: 300,
     };
     let err = deploy_behind_proxy(
         &provider,
@@ -845,9 +837,6 @@ async fn escrows_value_against_an_unclaimed_handle() {
         owner: deployer,
         notary_service: notary_proxy,
         honk_verifier: honk,
-        proof_lifetime: libid_profiles::PROOF_LIFETIME_SECONDS_GITHUB,
-        max_future_attestation_skew: libid_profiles::MAX_FUTURE_ATTESTATION_SKEW_SECONDS,
-        future_observation_allowance: 300,
     });
     let github_proxy = deploy_platform_verifier(&provider, &artifacts, &github, None)
         .await

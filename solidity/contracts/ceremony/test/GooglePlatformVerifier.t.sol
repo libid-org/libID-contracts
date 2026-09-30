@@ -5,6 +5,7 @@ import {Test} from "forge-std/Test.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
 import {CeremonyAuthorization} from "../CeremonyAuthorization.sol";
+import {CeremonyProfile} from "../CeremonyProfile.sol";
 import {GooglePlatformVerifier, IGoogleJwtRoots} from "../GooglePlatformVerifier.sol";
 import {ICeremony} from "../ICeremony.sol";
 import {INotaryService} from "../INotaryService.sol";
@@ -48,7 +49,7 @@ contract GooglePlatformVerifierTest is Test {
     uint64 constant T0 = 1_770_000_000;
     /// @dev Google id_tokens live an hour; two gives room without letting a
     ///      claim lock a name for longer than the token itself was valid.
-    uint64 constant GOOGLE_ALLOWANCE = 7200;
+    uint64 constant GOOGLE_ALLOWANCE = CeremonyProfile.FUTURE_OBSERVATION_ALLOWANCE_SECONDS_GOOGLE;
     uint64 constant EXP = T0 + 3600;
 
     bytes32 constant DOMAIN = keccak256(bytes("libid.claim-identity"));
@@ -82,7 +83,6 @@ contract GooglePlatformVerifierTest is Test {
                             INotaryService(address(0)),
                             IHonkVerifier(address(honk)),
                             address(honk).codehash,
-                            GOOGLE_ALLOWANCE,
                             IGoogleJwtRoots(address(roots))
                         )
                     )
@@ -209,7 +209,6 @@ contract GooglePlatformVerifierTest is Test {
                             INotaryService(address(0)),
                             IHonkVerifier(honkVerifier),
                             honkVerifier.codehash,
-                            GOOGLE_ALLOWANCE,
                             IGoogleJwtRoots(address(roots))
                         )
                     )
@@ -285,7 +284,6 @@ contract GooglePlatformVerifierTest is Test {
                     INotaryService(address(0xDEAD)),
                     IHonkVerifier(address(honk)),
                     address(honk).codehash,
-                    GOOGLE_ALLOWANCE,
                     IGoogleJwtRoots(address(roots))
                 )
             )

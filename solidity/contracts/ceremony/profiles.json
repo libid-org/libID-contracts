@@ -21,15 +21,6 @@
     "Changing a value here changes what a deployed verifier accepts. That is a",
     "new ceremonyVersion, not an edit."
   ],
-  "parameters": {
-    "maxFutureAttestationSkewSeconds": 300,
-    "note": [
-      "Governance-owned seconds, read where they are enforced. A Platform",
-      "Verifier reads the current value when it verifies and MUST NOT accept a",
-      "caller-supplied substitute (REQ-PARAM-02). These are the launch values;",
-      "a deployment stores and updates them."
-    ]
-  },
   "requests": {
     "forbiddenHeaders": [
       "authorization",
@@ -65,16 +56,36 @@
         "keys, so the profile notarizes nothing: no session, no attestation,",
         "and no Notary Fee."
       ],
+      "validity": {
+        "futureObservationAllowanceSeconds": 7200,
+        "note": [
+          "The signed `exp` bounds validity, so the profile fixes no lifetime",
+          "and no attestation skew. The OIDC circuit exposes no `iat`, so the",
+          "observation is the token's `exp`: Google issues about an hour of",
+          "life, and the claim reads roughly an hour ahead of the moment it",
+          "describes."
+        ]
+      },
       "sessions": {}
     },
     {
       "platform": "x",
       "ceremonyVersion": 1,
-      "proofLifetimeSeconds": 3600,
       "note": [
         "A public client with S256 PKCE and two browser-owned sessions, both",
         "served by the same host."
       ],
+      "validity": {
+        "proofLifetimeSeconds": 3600,
+        "maxFutureAttestationSkewSeconds": 300,
+        "futureObservationAllowanceSeconds": 300,
+        "note": [
+          "The token attestation's creation time is the evidence time. A",
+          "notary states wall-clock time as it observes it, so the observation",
+          "is never ahead: five minutes covers clock skew between the notary",
+          "and the chain."
+        ]
+      },
       "sessions": {
         "token": {
           "authority": "api.x.com",
@@ -145,13 +156,18 @@
     {
       "platform": "github",
       "ceremonyVersion": 1,
-      "proofLifetimeSeconds": 3600,
       "note": [
         "The credential GitHub calls `client_secret` is sent and revealed, so",
         "an attestation publishes it and nothing here is confidential. The two",
         "sessions are served by DIFFERENT hosts -- which is why one pinned",
         "authority per profile would be wrong."
       ],
+      "validity": {
+        "proofLifetimeSeconds": 3600,
+        "maxFutureAttestationSkewSeconds": 300,
+        "futureObservationAllowanceSeconds": 300,
+        "note": "Same as X: notary wall-clock, five minutes for skew."
+      },
       "sessions": {
         "token": {
           "authority": "github.com",

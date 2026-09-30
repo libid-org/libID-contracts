@@ -44,20 +44,9 @@ contract XPlatformVerifier is TlsNotaryVerifierBase {
         address owner_,
         INotaryService notary_,
         IHonkVerifier honkVerifier_,
-        bytes32 honkVerifierCodehash_,
-        uint64 proofLifetime_,
-        uint64 maxFutureAttestationSkew_,
-        uint64 futureObservationAllowance_
+        bytes32 honkVerifierCodehash_
     ) external initializer {
-        __PlatformVerifierBase_init(
-            owner_,
-            notary_,
-            honkVerifier_,
-            honkVerifierCodehash_,
-            proofLifetime_,
-            maxFutureAttestationSkew_,
-            futureObservationAllowance_
-        );
+        __PlatformVerifierBase_init(owner_, notary_, honkVerifier_, honkVerifierCodehash_);
     }
 
     function _platform() internal pure override returns (bytes32) {
@@ -68,6 +57,18 @@ contract XPlatformVerifier is TlsNotaryVerifierBase {
     ///      a payload claiming another is refused before any fee moves.
     function _ceremonyVersion() internal pure override returns (uint16) {
         return CeremonyProfile.LAUNCH_VERSION;
+    }
+
+    function _proofLifetime() internal pure override returns (uint64) {
+        return CeremonyProfile.PROOF_LIFETIME_SECONDS_X;
+    }
+
+    function _maxFutureAttestationSkew() internal pure override returns (uint64) {
+        return CeremonyProfile.MAX_FUTURE_ATTESTATION_SKEW_SECONDS_X;
+    }
+
+    function _futureObservationAllowance() internal pure override returns (uint64) {
+        return CeremonyProfile.FUTURE_OBSERVATION_ALLOWANCE_SECONDS_X;
     }
 
     /// @dev Both X sessions are served by the same host.

@@ -137,17 +137,9 @@ contract GooglePlatformVerifier is IPlatformVerifier, PlatformVerifierBase {
         INotaryService notary_,
         IHonkVerifier honkVerifier_,
         bytes32 honkVerifierCodehash_,
-        uint64 futureObservationAllowance_,
         IGoogleJwtRoots jwtRoots_
     ) external initializer {
-        // No attestation, so no lifetime and no attestation skew: the signed
-        // `exp` is the whole validity ceiling. The allowance is real though --
-        // `exp` runs an hour ahead of Block Time, and a Consumer comparing it
-        // raw against a TLSNotary profile's near-now evidence would let Google
-        // win every race.
-        __PlatformVerifierBase_init(
-            owner_, notary_, honkVerifier_, honkVerifierCodehash_, 0, 0, futureObservationAllowance_
-        );
+        __PlatformVerifierBase_init(owner_, notary_, honkVerifier_, honkVerifierCodehash_);
         _setJwtRoots(jwtRoots_);
     }
 
@@ -173,6 +165,23 @@ contract GooglePlatformVerifier is IPlatformVerifier, PlatformVerifierBase {
 
     function _ceremonyVersion() internal pure override returns (uint16) {
         return CeremonyProfile.LAUNCH_VERSION;
+    }
+
+    /// @dev No attestation, so no lifetime and no attestation skew: the signed
+    ///      `exp` is the whole validity ceiling.
+    function _proofLifetime() internal pure override returns (uint64) {
+        return 0;
+    }
+
+    function _maxFutureAttestationSkew() internal pure override returns (uint64) {
+        return 0;
+    }
+
+    /// @dev The allowance is real: `exp` runs an hour ahead of Block Time, and
+    ///      a Consumer comparing it raw against a TLSNotary profile's near-now
+    ///      evidence would let Google win every race.
+    function _futureObservationAllowance() internal pure override returns (uint64) {
+        return CeremonyProfile.FUTURE_OBSERVATION_ALLOWANCE_SECONDS_GOOGLE;
     }
 
     /// @inheritdoc IPlatformVerifier
@@ -243,7 +252,7 @@ contract GooglePlatformVerifier is IPlatformVerifier, PlatformVerifierBase {
         // RAW bytes. Normalization is the Consumer's derivation on its own
         // write path (REQ-PLAT-16B).
         claimed.handle = string(_unpack(p.publicInputs, OFF_EMAIL, 2));
-        claimed.metadataObservedAt = _onSharedScale(exp, _base().futureObservationAllowance);
+        claimed.metadataObservedAt = _onSharedScale(exp, _futureObservationAllowance());
         claimed.clientIdentifier = p.clientIdentifier;
         claimed.sessionId = digest;
         claimed.operationDomain = p.operationDomain;

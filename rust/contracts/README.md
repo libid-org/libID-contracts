@@ -79,8 +79,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 ## Example: deploy a Platform Verifier on its circuit's Honk verifier
 
 A Platform Verifier pins the bb-generated UltraHonk verifier for its circuit
-by address and by code hash, holds a Notary Service only if its profile
-notarizes anything, and caps its parameters. `platform_verifier::Initializer`
+by address and by code hash, and holds a Notary Service only if its profile
+notarizes anything. Its validity window is its profile's, compiled in, so the
+initializer takes none. `platform_verifier::Initializer`
 knows those rules: it reads the code hash off the chain, refuses what the
 contract would refuse, and builds the exact `initialize` call.
 
@@ -121,9 +122,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             owner,
             notary_service: notary,
             honk_verifier,
-            proof_lifetime: 3600,
-            max_future_attestation_skew: 300,
-            future_observation_allowance: 300,
         }),
         None,
     )

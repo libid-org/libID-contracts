@@ -210,40 +210,6 @@ def gen_sol(spec: dict[str, Any]) -> str:
     lines.append("    }")
     lines.append("")
 
-    lines.append(
-        "    /// How far ahead of the chain this platform's observations may be"
-    )
-    lines.append("    /// dated, in seconds.")
-    lines.append("    ///")
-    lines.append(
-        "    /// @dev `IdentityNames` supersedes a binding only on a strictly newer"
-    )
-    lines.append(
-        "    ///      `observedAt`, so an allowance too generous lets a proof dated"
-    )
-    lines.append(
-        "    ///      ahead hold a name until the clock catches up — and proving"
-    )
-    lines.append(
-        "    ///      again is the whole remedy the design relies on. Unknown"
-    )
-    lines.append("    ///      platforms revert, like `rulesFor`.")
-    lines.append(
-        "    function futureAllowanceFor(bytes32 platformId) internal pure"
-        " returns (uint64) {"
-    )
-    for p_ in platforms:
-        name = p_["key"].upper()
-        for line in as_lines(p_.get("allowanceNote", "")):
-            lines.append(f"        // {line}")
-        lines.append(
-            f"        if (platformId == PLATFORM_{name})"
-            f" return {p_['futureAllowanceSeconds']};"
-        )
-    lines.append('        revert("unknown platform");')
-    lines.append("    }")
-    lines.append("")
-
     lines.append("    /// One case from the shared table.")
     lines.append("    struct Vector {")
     lines.append("        string platform;")
@@ -331,15 +297,6 @@ def gen_rust(spec: dict[str, Any]) -> str:
             )
     lines.append("")
 
-    for p in platforms:
-        for line in as_lines(p.get("allowanceNote", "")):
-            lines.append(f"/// {line}")
-        lines.append(
-            f"pub const FUTURE_ALLOWANCE_{p['key'].upper()}: u64 ="
-            f" {p['futureAllowanceSeconds']};"
-        )
-    lines.append("")
-
     for i, err in enumerate(errors):
         lines.append(f"/// {err['note']}")
         lines.append(f"pub const ERROR_{err['key'].upper()}: u8 = {i};")
@@ -412,15 +369,6 @@ def gen_ts(spec: dict[str, Any]) -> str:
             lines.append(
                 f"export const {flag}_{name} = {'true' if value else 'false'}"
             )
-    lines.append("")
-
-    for p in platforms:
-        for line in as_lines(p.get("allowanceNote", "")):
-            lines.append(f"/// {line}")
-        lines.append(
-            f"export const FUTURE_ALLOWANCE_{p['key'].upper()} ="
-            f" {p['futureAllowanceSeconds']}"
-        )
     lines.append("")
 
     for i, err in enumerate(errors):
