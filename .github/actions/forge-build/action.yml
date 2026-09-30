@@ -7,12 +7,12 @@
 # this composite. Repeating the install + vendor + cache + build stanza in each
 # job is how the copies drift, so the sequence lives here once.
 #
-# The cache key is the SAME in every job that uses this action — it is derived
-# only from inputs.foundry-version and the checked-out sources — so whichever
-# job saves first warms all the others: on the next run `forge build` restores
-# a fully built `out/` and is a near no-op, because forge's own cache is
-# content-addressed over the sources and the solc version and rebuilds nothing
-# that did not change.
+# The cache key is the SAME in every job that builds the same profile — it is
+# derived only from inputs.foundry-version, inputs.profile and the checked-out
+# sources — so whichever job saves first warms all the others: on the next run
+# `forge build` restores a fully built `out/` and is a near no-op, because
+# forge's own cache is content-addressed over the sources and the solc version
+# and rebuilds nothing that did not change.
 name: forge-build
 description: Install Foundry, restore the shared forge cache, and run `forge build` in solidity/.
 
@@ -20,6 +20,13 @@ inputs:
   foundry-version:
     description: Foundry release to install (the workflow's FOUNDRY_VERSION).
     required: true
+  profile:
+    description: >-
+      Foundry profile to build (FOUNDRY_PROFILE). Part of the cache key: each
+      profile compiles under its own settings, and restoring another's `out/`
+      would only make forge rebuild it.
+    required: false
+    default: default
 
 runs:
   using: composite
@@ -51,9 +58,9 @@ runs:
         path: |
           solidity/out
           solidity/cache
-        key: forge-${{ runner.os }}-${{ inputs.foundry-version }}-${{ hashFiles('solidity/**/*.sol', 'solidity/foundry.toml', 'solidity/remappings.txt', 'solidity/lib/**') }}
+        key: forge-${{ runner.os }}-${{ inputs.foundry-version }}-${{ inputs.profile }}-${{ hashFiles('solidity/**/*.sol', 'solidity/foundry.toml', 'solidity/remappings.txt', 'solidity/lib/**') }}
         restore-keys: |
-          forge-${{ runner.os }}-${{ inputs.foundry-version }}-
+          forge-${{ runner.os }}-${{ inputs.foundry-version }}-${{ inputs.profile }}-
 
     # Deliberately not `--force`: forge's cache is content-addressed, so a
     # stale artifact cannot outlive a source change, and on a warm cache this
@@ -61,4 +68,6 @@ runs:
     - name: Build contracts
       shell: bash
       working-directory: solidity
+      env:
+        FOUNDRY_PROFILE: ${{ inputs.profile }}
       run: forge build
