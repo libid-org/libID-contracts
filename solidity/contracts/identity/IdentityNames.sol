@@ -13,7 +13,7 @@ import {IIdentityNames} from "./IIdentityNames.sol";
 import {IdentityList} from "./IdentityList.sol";
 import {IdentityNodes} from "./IdentityNodes.sol";
 
-/// @title IdentityNames - proof-derived identities for any wallet.
+/// @title IdentityNames - proof-derived identities for any address.
 ///
 /// @notice Binds two things to a holder address: an identity's immutable id
 ///         on a platform, and its mutable handle. Anyone may resolve either.
@@ -50,8 +50,8 @@ import {IdentityNodes} from "./IdentityNodes.sol";
 ///      "under honest configuration"; the trust boundary is the owner key, and
 ///      it is the same one every upgradeable contract here has.
 ///
-///      **A platform has verifier versions, and a keyspace it keeps across all
-///      of them.** A platform's proof can change shape without the identity
+///      **A platform has verifier versions, and handle rules it keeps across
+///      all of them.** A platform's proof can change shape without the identity
 ///      behind it changing — X gaining OIDC, say — so verifiers are keyed by
 ///      version and several are live at once during a migration. What does
 ///      NOT vary by version is `rules`: it decides the node a handle hashes to,
@@ -145,7 +145,8 @@ contract IdentityNames is
         string id;
     }
 
-    /// @notice A platform this contract accepts proofs for: its keyspace.
+    /// @notice A platform this contract accepts proofs for: its handle rules,
+    ///         and whether it is configured.
     ///
     /// @dev What lives here is what every version of a platform's proof must
     ///      agree on. `rules` decides the node a handle hashes to, so it CANNOT
@@ -158,12 +159,12 @@ contract IdentityNames is
     ///      way to prove the SAME identity — a notarized session, an OIDC token
     ///      — not another id space. The identity did not change, so its id did
     ///      not change, and `bind` puts every version on the same
-    ///      `idNode(platformId, attested.userId)`.
+    ///      `idNode(platformId, id)`, with the id the verifier reports.
     ///
     ///      Read that as a test, not as a rule to remember: a proof format that
     ///      reports a different id is not proving the same identity, so it is
     ///      not a version of this platform. It is a second platform, and it
-    ///      wants its own `platformId` and its own keyspace.
+    ///      wants its own `platformId` and its own rules.
     ///
     ///      **The id reaches the node verbatim.** A handle passes through
     ///      `rules` on the way in; an id does not, and must not — any
@@ -190,9 +191,9 @@ contract IdentityNames is
     ///
     /// @param rules      How this platform's handles normalize.
     /// @param configured Whether the platform exists at all. A platform whose
-    ///                   every version has been retired still has its
-    ///                   keyspace, so "is it wired" cannot be read off the
-    ///                   Supported Version Set.
+    ///                   every version has been retired still has its rules,
+    ///                   so "is it wired" cannot be read off the Supported
+    ///                   Version Set.
     struct Platform {
         HandleNormalizer.Rules rules;
         bool configured;
@@ -213,7 +214,7 @@ contract IdentityNames is
         /// the plaintext either way, so an indexer never needs this, and only a
         /// contract that must display a handle does.
         mapping(address => mapping(bytes32 => string)) published;
-        /// platformId -> its keyspace: handle rules, and whether it is configured.
+        /// platformId -> its handle rules, and whether it is configured.
         mapping(bytes32 => Platform) platforms;
         /// idNode -> the handle node that identity last proved, and back.
         ///
@@ -364,7 +365,7 @@ contract IdentityNames is
     /// @dev Nobody else's entry can be retired this way. See `bind`.
     event HandleRetired(bytes32 indexed platformId, bytes32 indexed handleNode, address indexed holder);
 
-    /// @notice A platform's keyspace was configured or reconfigured.
+    /// @notice A platform's handle rules were configured or reconfigured.
     /// @dev Reconfiguring `rules` moves every handle already written to
     ///      another node.
     event PlatformConfigured(bytes32 indexed platformId);
@@ -446,7 +447,7 @@ contract IdentityNames is
 
     /// @notice Add a platform or change how its handles normalize.
     ///
-    /// @dev Owner-managed, and this is the keyspace half: it says what a handle
+    /// @dev Owner-managed, and this is the rules half: it says what a handle
     ///      on this platform means, not how a proof of one is read. See the
     ///      contract comment for the whole of what the owner's power is — in
     ///      particular, changing `rules` moves handles already written to
@@ -537,8 +538,9 @@ contract IdentityNames is
         // ── The authorization predicate ───────────────────────────────
         //
         // The Authorized Transaction Data of this operation is a triple: the
-        // holder the identity binds to, and the service fee that holder
-        // approved. Requiring the target to be the authenticated caller is what
+        // target the identity binds to, its holder once bound, and the service
+        // fee that target approved. Requiring the target to be the
+        // authenticated caller is what
         // keeps consent-phishing out of identity theft -- binding to a
         // submitter-supplied address instead would let anyone spend a genuine
         // proof at an address of their choosing.
@@ -634,7 +636,7 @@ contract IdentityNames is
     }
 
     /// @dev Everything after authentication. Which proof established a
-    ///      binding is `bind`'s business; the keyspace, the ordering and the
+    ///      binding is `bind`'s business; the rules, the ordering and the
     ///      display are decided here.
     function _write(
         bytes32 platformId,
@@ -774,18 +776,18 @@ contract IdentityNames is
         emit HandleUnpublished(msg.sender, platformId);
     }
 
-    /// @dev The write path's gate: the keyspace exists, and nothing more. What
-    ///      may be claimed against it is the Proof Verifier's question, and it
-    ///      is asked there.
+    /// @dev The write path's gate: the platform is configured, and nothing
+    ///      more. What may be bound on it is the Proof Verifier's question, and
+    ///      it is asked there.
     function _requireConfigured(bytes32 platformId) private view returns (Platform memory platform) {
         platform = _s().platforms[platformId];
         if (!platform.configured) revert UnknownPlatform(platformId);
     }
 
-    /// @dev A resolver answers once the platform has both halves: a keyspace,
-    ///      and a way to verify. `configured` alone is not enough — between
-    ///      `setPlatform` and the first registered version a platform has a
-    ///      keyspace and can verify nothing, and answering `address(0)` there
+    /// @dev A resolver answers once the platform has both halves: rules, and
+    ///      a way to verify. `configured` alone is not enough — between
+    ///      `setPlatform` and the first registered version a platform has rules
+    ///      and can verify nothing, and answering `address(0)` there
     ///      would tell a caller "nobody proved this" about a platform that is
     ///      not wired yet.
     function _requireUsable(bytes32 platformId) private view returns (Platform memory platform) {
@@ -813,10 +815,10 @@ contract IdentityNames is
 
     // ─── Reading ────────────────────────────────────────────────────
 
-    // `rulesOf`, `handleHashOf` and `handleNodeOf` answer keyspace questions,
-    // so they need a keyspace and nothing more: they agree with each other,
-    // and keep answering before a platform's first verifier and after its
-    // last.
+    // `rulesOf`, `handleHashOf` and `handleNodeOf` answer from the rules, so
+    // they need a configured platform and nothing more: they agree with each
+    // other, and keep answering before a platform's first verifier and after
+    // its last.
 
     /// @notice The platform's normalization rules as configured now, for a
     ///         client that normalizes locally. Reverts `UnknownPlatform`.
@@ -847,9 +849,9 @@ contract IdentityNames is
         return IdentityNodes.handleNodeOfHash(platformId, handleHash);
     }
 
-    /// @notice Whether `bind` can bind a holder on this platform now: a
-    ///         keyspace, and a Proof Verifier that verifies it. Unlike the
-    ///         resolvers, false after every version is retired.
+    /// @notice Whether `bind` can bind a holder on this platform now: rules,
+    ///         and a Proof Verifier that verifies it. Unlike the resolvers,
+    ///         false after every version is retired.
     function acceptsBindings(bytes32 platformId) external view returns (bool) {
         if (!_s().platforms[platformId].configured) return false;
         IProofVerifier pv = _s().proofVerifier;

@@ -379,7 +379,7 @@ contract UpgradeSafetyTest is Test {
         vm.warp(2_000_000_000);
     }
 
-    function _claimAs(address who, uint256 nonce) internal {
+    function _bindAs(address who, uint256 nonce) internal {
         bytes memory payload = abi.encode(
             StubPlatformVerifier.StubPayload({
                 ceremonyVersion: 1,
@@ -396,7 +396,7 @@ contract UpgradeSafetyTest is Test {
         _names();
         vm.prank(OWNER);
         names.setPlatform(X, HandleVectors.rulesFor(X));
-        _claimAs(alice, 1);
+        _bindAs(alice, 1);
         bytes32 digest = stub.lastDigest();
 
         IdentityNames impl2 = new IdentityNames();
@@ -416,13 +416,13 @@ contract UpgradeSafetyTest is Test {
         assertEq(names.owner(), OWNER);
         // and the contract still works after the upgrade (newer watermark)
         stub.setObservedAt(1_780_000_000);
-        _claimAs(alice, 2);
+        _bindAs(alice, 2);
         (, uint64 at) = names.idBinding(IdentityNodes.idNode(X, "2244994945"));
         assertEq(at, 1_780_000_000);
     }
 
     function _claimExternal(address who, uint256 nonce) external {
-        _claimAs(who, nonce);
+        _bindAs(who, nonce);
     }
 
     /// The four fields the lists added sit at namespace words +9 to +12, after
@@ -433,7 +433,7 @@ contract UpgradeSafetyTest is Test {
         _names();
         vm.prank(OWNER);
         names.setPlatform(X, HandleVectors.rulesFor(X));
-        _claimAs(alice, 1);
+        _bindAs(alice, 1);
 
         uint256 root = uint256(NAMES_ROOT);
         bytes32 idNode = IdentityNodes.idNode(X, "2244994945");
@@ -474,7 +474,7 @@ contract UpgradeSafetyTest is Test {
         assertEq(o, bob);
         assertEq(at, 1_900_000_000);
         stub.setObservedAt(1_950_000_000);
-        _claimAs(bob, 1);
+        _bindAs(bob, 1);
         bytes32 afterWord = vm.load(address(names), slot);
         emit log_named_bytes32("idBindings word after fresh write", afterWord);
         (o, at) = names.idBinding(idNode);

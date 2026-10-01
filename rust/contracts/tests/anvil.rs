@@ -39,8 +39,8 @@ async fn default_signer(provider: &impl Provider) -> Address {
 }
 
 /// (a) The identity stack in the order `script/Deploy.s.sol` uses: the
-/// Notary Service first, then the Proof Verifier, the naming system given a
-/// keyspace and pointed at the Proof Verifier, and the Google JWT root list
+/// Notary Service first, then the Proof Verifier, the registry given its
+/// platform rules and pointed at the Proof Verifier, and the Google JWT root list
 /// pointed at the Notary Service — every one behind an ERC1967 proxy. Then the views
 /// that prove the wiring took.
 #[tokio::test]
@@ -98,9 +98,9 @@ async fn deploys_the_identity_stack_behind_proxies() {
     .await
     .unwrap();
 
-    // Wire the naming system: the Proof Verifier it dispatches through, and
-    // a keyspace. The platform id is the platform's own bare name: libID
-    // namespaces only its own strings.
+    // Wire the registry: the Proof Verifier it dispatches through, and the
+    // platform's rules. The platform id is keccak256 of the platform key:
+    // libID namespaces only its own strings.
     let names = IdentityNames::new(names_proxy, &provider);
     names
         .setProofVerifier(verifier_proxy)
@@ -144,9 +144,9 @@ async fn deploys_the_identity_stack_behind_proxies() {
     );
 
     assert_eq!(names.proofVerifier().call().await.unwrap(), verifier_proxy);
-    // A platform that owns a keyspace and can verify nothing says so:
-    // answering `address(0)` would tell the caller "nobody holds this name"
-    // about a platform that is not wired yet.
+    // A platform that has rules and can verify nothing says so: answering
+    // `address(0)` would tell the caller "nobody holds this handle" about a
+    // platform that is not wired yet.
     let unwired = names.resolveId(platform_id, "12345".into()).call().await;
     assert!(
         unwired.is_err(),
@@ -734,7 +734,7 @@ async fn deploys_and_initializes_every_platform_verifier() {
 }
 
 /// (e2) The handle escrow against a real chain: pay an unclaimed handle by its
-/// hash, check the value lands on the naming system's node, and refund it. The
+/// hash, check the value lands on the registry's node, and refund it. The
 /// payout path needs a stub Platform Verifier, which is kept out of this
 /// crate's artifacts; the Solidity suite covers it.
 #[tokio::test]

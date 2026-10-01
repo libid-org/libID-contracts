@@ -13,7 +13,7 @@ import {IIdentityNames} from "../identity/IIdentityNames.sol";
 // The EIP-7528 address that stands for the chain's native token.
 address constant NATIVE_TOKEN = 0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE;
 
-/// @title HandleEscrow - send to a platform handle before anybody claims it.
+/// @title HandleEscrow - send to a platform handle before anybody holds it.
 ///
 /// @notice Holds value against the handle node `IdentityNames` binds. The
 ///         node's holder claims it; until then each deposit's `refundTo`

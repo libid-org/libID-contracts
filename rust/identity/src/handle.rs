@@ -268,7 +268,7 @@ mod tests {
     }
 
     /// Case folding is the only change to an accepted handle. Anything else
-    /// could map two platform accounts onto one identity.
+    /// could map the handles of two identities onto one node.
     #[test]
     fn folding_is_the_only_change() {
         assert_eq!(

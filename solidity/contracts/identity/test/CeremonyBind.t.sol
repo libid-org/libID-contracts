@@ -19,7 +19,7 @@ import {ReentrancyGuardUpgradeable} from "@openzeppelin/contracts-upgradeable/ut
 
 /// @notice IdentityNames wearing the Consumer role, over a real Proof Verifier
 ///         and a stubbed Platform Verifier.
-contract CeremonyClaimTest is Test {
+contract CeremonyBindTest is Test {
     IdentityNames names;
     CeremonyProofVerifier proofVerifier;
     StubPlatformVerifier verifier;
@@ -86,7 +86,7 @@ contract CeremonyClaimTest is Test {
         return _payload(DOMAIN, _free(target), nonce);
     }
 
-    function _claim(bytes memory payload, uint256 value) private {
+    function _bind(bytes memory payload, uint256 value) private {
         vm.prank(WALLET);
         names.bind{value: value}(PLATFORM, 1, payload, false);
     }
@@ -102,7 +102,7 @@ contract CeremonyClaimTest is Test {
     // ─── The happy path ─────────────────────────────────────────────
 
     function test_bindsAnIdentityFromACeremony() public {
-        _claim(_payload(WALLET, bytes32(uint256(1))), FEE);
+        _bind(_payload(WALLET, bytes32(uint256(1))), FEE);
         assertEq(names.resolveHandle(PLATFORM, "alice"), WALLET);
         assertEq(names.resolveId(PLATFORM, "2244994945"), WALLET);
     }
@@ -110,7 +110,7 @@ contract CeremonyClaimTest is Test {
     /// @dev The Consumer hands the payload through as opaque bytes. What the
     ///      Platform Verifier decoded and digested is what it acted on.
     function test_recordsTheDigestTheVerifierBuilt() public {
-        _claim(_payload(WALLET, bytes32(uint256(7))), FEE);
+        _bind(_payload(WALLET, bytes32(uint256(7))), FEE);
         assertEq(verifier.lastDigest(), _digest(WALLET, bytes32(uint256(7))));
         assertTrue(names.digestSpent(verifier.lastDigest()));
     }
@@ -122,7 +122,7 @@ contract CeremonyClaimTest is Test {
     ///      ceremony.
     function test_logsTheAuthenticatedClientIdentifier() public {
         vm.recordLogs();
-        _claim(_payload(WALLET, bytes32(uint256(11))), FEE);
+        _bind(_payload(WALLET, bytes32(uint256(11))), FEE);
 
         Vm.Log[] memory logs = vm.getRecordedLogs();
         bytes32 topic = keccak256("CeremonyBound(bytes32,address,bytes32,bytes)");
@@ -139,7 +139,7 @@ contract CeremonyClaimTest is Test {
     ///      touched reads `IdentityBound`.
     function test_logsTheCeremonyVersionAndStoresNothingOfIt() public {
         vm.recordLogs();
-        _claim(_payload(WALLET, bytes32(uint256(88))), FEE);
+        _bind(_payload(WALLET, bytes32(uint256(88))), FEE);
 
         Vm.Log[] memory logs = vm.getRecordedLogs();
         bytes32 topic = keccak256("IdentityBound(address,bytes32,bytes32,bytes32,string,string,uint64,bool,uint16)");
@@ -154,7 +154,7 @@ contract CeremonyClaimTest is Test {
 
     function test_quotesAndForwardsTheWholePath() public {
         assertEq(names.quoteBind(PLATFORM, 1), FEE);
-        _claim(_payload(WALLET, bytes32(uint256(2))), FEE);
+        _bind(_payload(WALLET, bytes32(uint256(2))), FEE);
         assertEq(verifier.lastValue(), FEE);
     }
 
@@ -171,7 +171,7 @@ contract CeremonyClaimTest is Test {
     ///      exists; without it the drop would have opened a replay.
     function test_aDigestIsSpendableOnce() public {
         bytes memory p = _payload(WALLET, bytes32(uint256(9)));
-        _claim(p, FEE);
+        _bind(p, FEE);
         bytes32 digest = _digest(WALLET, bytes32(uint256(9)));
         assertTrue(names.digestSpent(digest));
 
@@ -183,9 +183,9 @@ contract CeremonyClaimTest is Test {
     /// @dev A fresh nonce is a fresh digest, so re-proving is always available.
     function test_aFreshNonceIsAFreshDigest() public {
         verifier.setObservedAt(T0);
-        _claim(_payload(WALLET, bytes32(uint256(1))), FEE);
+        _bind(_payload(WALLET, bytes32(uint256(1))), FEE);
         verifier.setObservedAt(T0 + 1);
-        _claim(_payload(WALLET, bytes32(uint256(2))), FEE);
+        _bind(_payload(WALLET, bytes32(uint256(2))), FEE);
         assertEq(names.resolveHandle(PLATFORM, "alice"), WALLET);
     }
 
@@ -240,7 +240,7 @@ contract CeremonyClaimTest is Test {
         vm.prank(OWNER);
         proofVerifier.setVerifier(PLATFORM, 2, IPlatformVerifier(address(second)));
 
-        _claim(_payload(WALLET, bytes32(uint256(10))), FEE);
+        _bind(_payload(WALLET, bytes32(uint256(10))), FEE);
         vm.prank(WALLET);
         names.bind{value: FEE}(PLATFORM, 2, _payload(WALLET, bytes32(uint256(11))), false);
 
@@ -255,7 +255,7 @@ contract CeremonyClaimTest is Test {
     ///      identities that were bound and still current. A binding does not
     ///      belong to the proof that established it.
     function test_aBindingOutlivesTheVersionThatEstablishedIt() public {
-        _claim(_payload(WALLET, bytes32(uint256(77))), FEE);
+        _bind(_payload(WALLET, bytes32(uint256(77))), FEE);
         assertEq(names.resolveId(PLATFORM, "2244994945"), WALLET);
 
         vm.prank(OWNER);
@@ -291,7 +291,7 @@ contract CeremonyClaimTest is Test {
     ///      mixed-case handle lands on the same node as the normalized one.
     function test_normalizesTheHandleItself() public {
         verifier.set("2244994945", " @Alice_1 ");
-        _claim(_payload(WALLET, bytes32(uint256(12))), FEE);
+        _bind(_payload(WALLET, bytes32(uint256(12))), FEE);
         assertEq(names.resolveHandle(PLATFORM, "alice_1"), WALLET);
         (address holder,) = names.handleBinding(IdentityNodes.handleNode(PLATFORM, "alice_1"));
         assertEq(holder, WALLET);
@@ -340,7 +340,7 @@ contract CeremonyClaimTest is Test {
     /// @dev A wei more is caught after: everything above the quote is the fee,
     ///      and this ceremony authorized none. There is no refund path, so
     ///      overpayment is refused rather than kept or forwarded.
-    function test_rejectsOneWeiMoreThanTheClaimCosts() public {
+    function test_rejectsOneWeiMoreThanTheBindCosts() public {
         bytes memory p = _payload(WALLET, bytes32(uint256(24)));
         vm.prank(WALLET);
         vm.expectRevert(abi.encodeWithSelector(IdentityNames.WrongFeeValue.selector, 0, 1));
@@ -355,7 +355,7 @@ contract CeremonyClaimTest is Test {
         names.setProofVerifier(IProofVerifier(address(0)));
     }
 
-    function test_aRejectedClaimSpendsNoDigest() public {
+    function test_aRejectedBindSpendsNoDigest() public {
         verifier.setObservedAt(0);
         bytes memory p = _payload(WALLET, bytes32(uint256(30)));
         vm.prank(WALLET);
@@ -376,7 +376,7 @@ contract CeremonyClaimTest is Test {
         vm.prank(OWNER);
         proofVerifier.setVerifier(PLATFORM, 2, IPlatformVerifier(address(second)));
         bytes memory p = _payload(WALLET, bytes32(uint256(50)));
-        _claim(p, FEE);
+        _bind(p, FEE);
         vm.prank(WALLET);
         vm.expectRevert(
             abi.encodeWithSelector(IdentityNames.DigestAlreadySpent.selector, _digest(WALLET, bytes32(uint256(50))))
@@ -405,7 +405,7 @@ contract CeremonyClaimTest is Test {
         emit IdentityNames.BindFeePaid(
             _digest(_txData(WALLET, SERVICE_FEE, HOST), bytes32(uint256(60))), HOST, SERVICE_FEE
         );
-        _claim(p, FEE + SERVICE_FEE);
+        _bind(p, FEE + SERVICE_FEE);
 
         assertEq(HOST.balance - hostBefore, SERVICE_FEE);
         assertEq(walletBefore - WALLET.balance, FEE + SERVICE_FEE);
@@ -416,14 +416,14 @@ contract CeremonyClaimTest is Test {
     /// @dev Anyone who composes their own ceremony names no fee and pays only
     ///      the verification path. Nothing on this chain knows who is hosted
     ///      and who is not; the difference is entirely in what was consented to.
-    function test_aFreeClaimPaysOnlyTheVerificationPath() public {
+    function test_aFreeBindPaysOnlyTheVerificationPath() public {
         uint256 hostBefore = HOST.balance;
         vm.recordLogs();
-        _claim(_payload(WALLET, bytes32(uint256(61))), FEE);
+        _bind(_payload(WALLET, bytes32(uint256(61))), FEE);
 
         Vm.Log[] memory logs = vm.getRecordedLogs();
         for (uint256 i = 0; i < logs.length; ++i) {
-            assertTrue(logs[i].topics[0] != IdentityNames.BindFeePaid.selector, "a free claim paid something");
+            assertTrue(logs[i].topics[0] != IdentityNames.BindFeePaid.selector, "a free bind paid something");
         }
         assertEq(HOST.balance, hostBefore);
         assertEq(names.resolveHandle(PLATFORM, "alice"), WALLET);
@@ -445,7 +445,7 @@ contract CeremonyClaimTest is Test {
         names.bind{value: FEE + SERVICE_FEE + 1}(PLATFORM, 1, p, false);
     }
 
-    /// @dev REQ-COMMON-01F: one encoding per intent. A free claim is
+    /// @dev REQ-COMMON-01F: one encoding per intent. A free bind is
     ///      `(0, address(0))`, so a receiver left beside a zero amount is a
     ///      second spelling of it and is refused rather than normalized.
     function test_rejectsAReceiverBesideAZeroFee() public {
@@ -472,14 +472,14 @@ contract CeremonyClaimTest is Test {
         bytes32 asAgreed = _digest(_txData(WALLET, SERVICE_FEE, HOST), n);
         assertTrue(asAgreed != _digest(_txData(WALLET, SERVICE_FEE * 2, HOST), n), "the amount does not bind");
         assertTrue(asAgreed != _digest(_txData(WALLET, SERVICE_FEE, address(0xF00)), n), "the receiver does not bind");
-        assertTrue(asAgreed != _digest(_free(WALLET), n), "a free claim is not a distinct digest");
+        assertTrue(asAgreed != _digest(_free(WALLET), n), "a free bind is not a distinct digest");
     }
 
     /// @dev The receiver is an address the ceremony named, so it can be
     ///      hostile or simply broken. It cannot take the handle without paying
-    ///      for it: the claim is one transaction, and a fee that cannot be
+    ///      for it: the bind is one transaction, and a fee that cannot be
     ///      delivered undoes the write with it.
-    function test_aReceiverThatRefusesTheFeeUndoesTheWholeClaim() public {
+    function test_aReceiverThatRefusesTheFeeUndoesTheWholeBind() public {
         RejectingReceiver bad = new RejectingReceiver();
         bytes memory p = _payload(DOMAIN, _txData(WALLET, SERVICE_FEE, address(bad)), bytes32(uint256(67)));
         vm.prank(WALLET);
@@ -492,11 +492,11 @@ contract CeremonyClaimTest is Test {
 
     /// @dev The fee is the one call out of this contract, and it happens after
     ///      every write. A receiver that calls back in finds the guard closed;
-    ///      it may still take the value, and the claim it re-entered stands.
-    function test_aFeeReceiverCannotReenterTheClaim() public {
+    ///      it may still take the value, and the bind it re-entered stands.
+    function test_aFeeReceiverCannotReenterTheBind() public {
         ReenteringReceiver host = new ReenteringReceiver(names, PLATFORM, _payload(WALLET, bytes32(uint256(69))));
         bytes memory p = _payload(DOMAIN, _txData(WALLET, SERVICE_FEE, address(host)), bytes32(uint256(68)));
-        _claim(p, FEE + SERVICE_FEE);
+        _bind(p, FEE + SERVICE_FEE);
 
         assertTrue(host.reentryReverted(), "the guard let a fee receiver back in");
         assertEq(address(host).balance, SERVICE_FEE);
@@ -544,7 +544,7 @@ contract ReenteringVerifier is IPlatformVerifier {
         return 0;
     }
 
-    /// @dev The claim it returns is zeroed; the reentry is the whole point.
+    /// @dev The `VerifiedClaim` it returns is zeroed; the reentry is the whole point.
     function verify(bytes calldata) external payable returns (VerifiedClaim memory c) {
         if (armed) {
             armed = false;
@@ -563,7 +563,7 @@ contract RejectingReceiver {
     }
 }
 
-/// @notice A fee receiver that tries to claim again while being paid.
+/// @notice A fee receiver that tries to bind again while being paid.
 contract ReenteringReceiver {
     IdentityNames immutable NAMES;
     bytes32 immutable PLATFORM;

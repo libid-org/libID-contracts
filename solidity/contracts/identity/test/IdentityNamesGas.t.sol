@@ -64,7 +64,7 @@ contract IdentityNamesGasTest is Test {
 
     // ─── Fixed-width ids and handles ────────────────────────────────
 
-    /// Ids and handles of one width each, so a claim's hashing and
+    /// Ids and handles of one width each, so a bind's hashing and
     /// normalization cost the same whichever identity it names. A tag tells
     /// one holder's identities from another's. Ten digits is the width of an
     /// X id in the fixtures, fifteen characters the most X allows.
@@ -120,7 +120,7 @@ contract IdentityNamesGasTest is Test {
         return vm.lastCallGas().gasTotalUsed;
     }
 
-    /// A claim made out to `who`, from cold storage.
+    /// A bind made out to `who`, from cold storage.
     function _prove(address who, string memory id, string memory handle) internal {
         xVerifier.set(id, handle);
         xVerifier.setObservedAt(++clock);

@@ -43,7 +43,7 @@ mod names_inner {
             /// The holder that last proved a handle node, and when. A zero
             /// holder: nobody proved it, or it was retired.
             function handleBinding(bytes32 handleNode) external view returns (address holder, uint64 observedAt);
-            /// The operation domain a claim's authorization names.
+            /// The operation domain a binding's authorization names.
             function OPERATION_DOMAIN() external view returns (bytes32);
 
             function owner() external view returns (address);
@@ -53,7 +53,7 @@ mod names_inner {
             /// Always reverts; the contract declares it `pure`.
             function renounceOwnership() external pure;
 
-            /// The keyspace half: what a handle on this platform means. It
+            /// The rules half: what a handle on this platform means. It
             /// does not vary by proof version — two versions normalizing
             /// differently would put one handle on two nodes.
             function setPlatform(bytes32 platformId, Rules calldata rules) external;
@@ -83,7 +83,7 @@ mod names_inner {
             /// The platform's rules as configured now, for local normalization.
             function rulesOf(bytes32 platformId) external view returns (Rules memory);
             /// Whether `bind` can bind a holder on this platform
-            /// now: a keyspace, and a Proof Verifier that verifies it.
+            /// now: rules, and a Proof Verifier that verifies it.
             function acceptsBindings(bytes32 platformId) external view returns (bool);
             /// `keccak256` of the normalized handle: what `HandleEscrow.deposit`
             /// takes. Reverts `UnknownPlatform` or `UnusableHandle`.
@@ -118,7 +118,7 @@ mod names_inner {
                 bool published,
                 uint16 ceremonyVersion
             );
-            /// A platform with no keyspace, or one nothing verifies and on
+            /// A platform not configured, or one nothing verifies and on
             /// which nothing was ever bound.
             error UnknownPlatform(bytes32 platformId);
             /// Text the platform's rules refuse; `problem` is a

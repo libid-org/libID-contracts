@@ -64,7 +64,7 @@ pub use notary_service_inner::NotaryService;
 ///
 /// The Supported Version Set: which Platform Verifier answers for a
 /// `(platformId, verifierVersion)` pair. Governance registers one with
-/// `setVerifier`; `IdentityNames.claim` dispatches through `verify`, which is
+/// `setVerifier`; `IdentityNames.bind` dispatches through `verify`, which is
 /// not on this interface for the same reason `NotaryService.verify` is not —
 /// it is called by the consumer contract with the fee attached.
 #[allow(clippy::too_many_arguments, unused_attributes)]

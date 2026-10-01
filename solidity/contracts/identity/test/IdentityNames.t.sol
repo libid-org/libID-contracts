@@ -60,7 +60,7 @@ contract IdentityNamesTest is Test {
     /// The version every platform's first verifier lands on.
     uint16 internal constant V1 = 1;
 
-    /// Configure a platform's keyspace and its first verifier, the way a
+    /// Configure a platform's rules and its first verifier, the way a
     /// deployment does. Caller supplies the prank.
     function _wire(bytes32 platformId, address verifierAddr) internal {
         names.setPlatform(platformId, HandleVectors.rulesFor(platformId));
@@ -70,15 +70,15 @@ contract IdentityNamesTest is Test {
     /// Who the next submission's Authorized Transaction Data names.
     address private stagedTarget;
 
-    /// A digest is spendable once, so every claim needs a nonce of its own.
+    /// A digest is spendable once, so every bind needs a nonce of its own.
     uint256 private nonce;
 
     /// Stage what the Platform Verifier reports, and who the submission names.
     ///
-    /// @dev The stubs are written HERE rather than in `_claim`, because a test
+    /// @dev The stubs are written HERE rather than in `_submit`, because a test
     ///      pranks between the two and `vm.prank` is spent on the next external
     ///      call. Writing them later would spend it on the stub and send the
-    ///      claim from the test contract.
+    ///      bind from the test contract.
     function _stage(string memory id, string memory handle, address target, uint64 at) internal {
         stagedTarget = target;
         xVerifier.set(id, handle);
@@ -104,18 +104,18 @@ contract IdentityNamesTest is Test {
         );
     }
 
-    /// Submit the staged claim. The caller supplies the prank, the way a
+    /// Submit the staged bind. The caller supplies the prank, the way a
     /// wallet supplies `msg.sender`.
-    function _claim(bytes32 platformId, bool publish) internal {
+    function _submit(bytes32 platformId, bool publish) internal {
         bytes memory payload = _payload(V1);
         names.bind(platformId, V1, payload, publish);
     }
 
-    /// Stage a claim and bind it as `who`.
+    /// Stage and bind as `who`.
     function _bind(address who, string memory id, string memory handle, uint64 at) internal {
         _stage(id, handle, who, at);
         vm.prank(who);
-        _claim(X, false);
+        _submit(X, false);
     }
 
     // ─── Binding ────────────────────────────────────────────────────
@@ -152,18 +152,18 @@ contract IdentityNamesTest is Test {
 
         vm.prank(bob);
         vm.expectRevert(abi.encodeWithSelector(IdentityNames.NotProofTarget.selector, alice, bob));
-        _claim(X, false);
+        _submit(X, false);
     }
 
     /// Authorized Transaction Data naming nobody is data anybody could redirect
     /// at themselves. It is refused the same way any other address that is not
     /// the caller is.
-    function test_aClaimWithNoTargetIsRefused() public {
+    function test_aBindWithNoTargetIsRefused() public {
         _stage("123", "alice", address(0), 100);
 
         vm.prank(alice);
         vm.expectRevert(abi.encodeWithSelector(IdentityNames.NotProofTarget.selector, address(0), alice));
-        _claim(X, false);
+        _submit(X, false);
     }
 
     function test_anUnconfiguredPlatformIsRefused() public {
@@ -172,7 +172,7 @@ contract IdentityNamesTest is Test {
 
         vm.prank(alice);
         vm.expectRevert(abi.encodeWithSelector(IIdentityNames.UnknownPlatform.selector, unknown));
-        _claim(unknown, false);
+        _submit(unknown, false);
     }
 
     /// The handle is normalized on the way in, so the node comes from the same
@@ -199,7 +199,7 @@ contract IdentityNamesTest is Test {
         _stage("123", "shared", alice, 150);
         vm.prank(alice);
         vm.expectRevert(abi.encodeWithSelector(IdentityNames.StaleProof.selector, uint64(150), uint64(200)));
-        _claim(X, false);
+        _submit(X, false);
 
         assertEq(names.resolveHandle(X, "shared"), bob, "the handle moved back");
     }
@@ -212,7 +212,7 @@ contract IdentityNamesTest is Test {
         _stage("123", "alice", alice, 100);
         vm.prank(alice);
         vm.expectRevert(abi.encodeWithSelector(IdentityNames.StaleProof.selector, uint64(100), uint64(100)));
-        _claim(X, false);
+        _submit(X, false);
     }
 
     /// A rename keeps the id and takes a new handle. A rename is invisible to
@@ -253,7 +253,7 @@ contract IdentityNamesTest is Test {
         _stage("456", "alice", bob, 100);
         vm.prank(bob);
         vm.expectRevert(abi.encodeWithSelector(IdentityNames.StaleProof.selector, uint64(100), uint64(200)));
-        _claim(X, false);
+        _submit(X, false);
     }
 
     /// And a newer proof takes it as usual, so retiring frees the handle rather
@@ -272,18 +272,18 @@ contract IdentityNamesTest is Test {
         _stage("123", "alice", alice, 0);
         vm.prank(alice);
         vm.expectRevert(IdentityNames.NoObservationTime.selector);
-        _claim(X, false);
+        _submit(X, false);
     }
 
     /// Every shipped verifier refuses an empty id already. This is what keeps
     /// that true for a verifier written later: without it, every identity such a
     /// verifier reported would land on the single node `idNode(platformId, "")`
     /// and each would take it from the one before.
-    function test_aClaimWithNoIdIsRefused() public {
+    function test_aBindWithNoIdIsRefused() public {
         _stage("", "alice", alice, 100);
         vm.prank(alice);
         vm.expectRevert(IdentityNames.NoId.selector);
-        _claim(X, false);
+        _submit(X, false);
     }
 
     // ─── Platform configuration ─────────────────────────────────────
@@ -316,7 +316,7 @@ contract IdentityNamesTest is Test {
     /// `rulesOf` reports the rules as set now, `handleHashOf` is `keccak256` of the handle
     /// normalized under them, and `handleNodeOf`/`handleNodeOfHash` name the node a proof of it
     /// binds.
-    function test_theKeyspaceViewsAgreeWithWhatAClaimBinds() public {
+    function test_theHashingViewsAgreeWithWhatABindWrites() public {
         assertEq(names.rulesOf(X).maxLength, HandleVectors.rulesFor(X).maxLength);
         bytes32 handleHash = names.handleHashOf(X, "  @Alice ");
         assertEq(handleHash, keccak256("alice"));
@@ -330,7 +330,7 @@ contract IdentityNamesTest is Test {
 
     /// Text the rules of the moment refuse reverts with the normalizer's reason, where
     /// `resolveHandle` answers nobody.
-    function test_theKeyspaceViewsRefuseWhatTheCurrentRulesRefuse() public {
+    function test_theHashingViewsRefuseWhatTheCurrentRulesRefuse() public {
         bytes memory badChar =
             abi.encodeWithSelector(IIdentityNames.UnusableHandle.selector, HandleNormalizer.Problem.BadChar);
         vm.expectRevert(badChar);
@@ -384,7 +384,7 @@ contract IdentityNamesTest is Test {
 
         _stage("123", "alice", alice, 200);
         vm.prank(alice);
-        _claim(X, true);
+        _submit(X, true);
         assertEq(names.publishedHandleOf(alice, X), "alice");
     }
 
@@ -394,7 +394,7 @@ contract IdentityNamesTest is Test {
     function test_aPublishedHandleCanBeWithdrawn() public {
         _stage("123", "alice", alice, 100);
         vm.prank(alice);
-        _claim(X, true);
+        _submit(X, true);
         assertEq(names.publishedHandleOf(alice, X), "alice");
 
         vm.prank(alice);
@@ -407,7 +407,7 @@ contract IdentityNamesTest is Test {
     function test_withdrawingAPublishedHandleKeepsTheBinding() public {
         _stage("123", "alice", alice, 100);
         vm.prank(alice);
-        _claim(X, true);
+        _submit(X, true);
 
         vm.prank(alice);
         names.unpublish(X);
@@ -424,11 +424,11 @@ contract IdentityNamesTest is Test {
     function test_bindingAgainRefreshesAPublishedHandleRatherThanWithdrawingIt() public {
         _stage("123", "alice", alice, 100);
         vm.prank(alice);
-        _claim(X, true);
+        _submit(X, true);
 
         _stage("123", "alice2", alice, 200);
         vm.prank(alice);
-        _claim(X, false);
+        _submit(X, false);
 
         assertEq(names.publishedHandleOf(alice, X), "alice2", "the display follows the handle it has");
     }
@@ -448,13 +448,13 @@ contract IdentityNamesTest is Test {
         _stage("123", "alice", alice, 100);
         vm.recordLogs();
         vm.prank(alice);
-        _claim(X, true);
+        _submit(X, true);
         assertTrue(_lastBindPublished(), "published");
 
         _stage("456", "bob", bob, 100);
         vm.recordLogs();
         vm.prank(bob);
-        _claim(X, false);
+        _submit(X, false);
         assertFalse(_lastBindPublished(), "not published");
     }
 
@@ -463,12 +463,12 @@ contract IdentityNamesTest is Test {
     function test_theLogSaysPublishedWhenARefreshKeepsTheHandleOnDisplay() public {
         _stage("123", "alice", alice, 100);
         vm.prank(alice);
-        _claim(X, true);
+        _submit(X, true);
 
         _stage("123", "alice2", alice, 200);
         vm.recordLogs();
         vm.prank(alice);
-        _claim(X, false);
+        _submit(X, false);
 
         assertTrue(_lastBindPublished(), "the flag was false, the handle is still on display");
     }
@@ -495,7 +495,7 @@ contract IdentityNamesTest is Test {
     function test_withdrawingTouchesOnlyTheCallersRecord() public {
         _stage("123", "alice", alice, 100);
         vm.prank(alice);
-        _claim(X, true);
+        _submit(X, true);
 
         vm.prank(mallory);
         names.unpublish(X);
@@ -508,7 +508,7 @@ contract IdentityNamesTest is Test {
     function test_publishedHandleOfGoesEmptyOnceTheHandleMovesOn() public {
         _stage("123", "shared", alice, 100);
         vm.prank(alice);
-        _claim(X, true);
+        _submit(X, true);
         assertEq(names.publishedHandleOf(alice, X), "shared", "it resolves back, so it stands");
 
         // Bob proves the same handle. Alice's published handle now has another
@@ -519,7 +519,7 @@ contract IdentityNamesTest is Test {
         // Proving it back without publishing finds the record still set.
         _stage("123", "shared", alice, 300);
         vm.prank(alice);
-        _claim(X, false);
+        _submit(X, false);
         assertEq(names.publishedHandleOf(alice, X), "shared", "the record was untouched");
     }
 
@@ -560,7 +560,7 @@ contract IdentityNamesTest is Test {
         revert("not listed");
     }
 
-    function test_aClaimListsTheIdentityWithItsPlatformIdAndHandle() public {
+    function test_aBindListsTheIdentityWithItsPlatformIdAndHandle() public {
         _bind(alice, "123", "alice", 100);
 
         assertEq(names.identityCount(alice), 1);
@@ -574,7 +574,7 @@ contract IdentityNamesTest is Test {
         _bind(alice, "123", "alice", 100);
         _stage("123", "alice", alice, 200);
         vm.prank(alice);
-        _claim(GITHUB, false);
+        _submit(GITHUB, false);
 
         assertEq(names.identityCount(alice), 2);
         assertTrue(_identity(alice, X, "123").handleCurrent);
@@ -700,7 +700,7 @@ contract IdentityNamesTest is Test {
         assertTrue(_identity(alice, X, "123").handleCurrent);
     }
 
-    /// After any sequence of claims: an identity nobody proved is in no
+    /// After any sequence of binds: an identity nobody proved is in no
     /// list, an identity somebody proved is in exactly one, the list of the
     /// holder whose proof of it is newest, and a handle reported current
     /// resolves to that holder and is current for no second identity.
@@ -717,7 +717,7 @@ contract IdentityNamesTest is Test {
             address who = holders[a % 3];
             _stage(ids[b % 4], handles[(b / 4) % 4], who, ++at);
             vm.prank(who);
-            _claim(platforms[(a / 3) % 2], false);
+            _submit(platforms[(a / 3) % 2], false);
         }
 
         uint256 listed;
@@ -789,11 +789,11 @@ contract IdentityNamesTest is Test {
 
     /// `bind` keeps reverting. A handle that arrives inside a proof and does
     /// not normalize is a broken proof, and failing loudly is right.
-    function test_claimStillRefusesAHandleThatDoesNotNormalize() public {
+    function test_bindStillRefusesAHandleThatDoesNotNormalize() public {
         _stage("123", "ali ce", alice, 100);
         vm.prank(alice);
         vm.expectRevert(HandleNormalizer.BadCharacter.selector);
-        _claim(X, false);
+        _submit(X, false);
     }
 
     /// After the owner narrows a platform's rules, an already-written handle
@@ -805,7 +805,7 @@ contract IdentityNamesTest is Test {
     function test_publishedHandleOfGoesEmptyWhenTheRulesNoLongerAllowTheHandle() public {
         _stage("123", "octo-cat", alice, 100);
         vm.prank(alice);
-        _claim(GITHUB, true);
+        _submit(GITHUB, true);
         assertEq(names.publishedHandleOf(alice, GITHUB), "octo-cat");
 
         HandleNormalizer.Rules memory narrowed = HandleVectors.rulesFor(GITHUB);
@@ -840,12 +840,12 @@ contract IdentityNamesTest is Test {
     }
 
     /// The same text on two platforms is two identities.
-    function test_platformsDoNotShareAKeyspace() public {
+    function test_platformsDoNotShareNodes() public {
         _bind(alice, "123", "alice", 100);
 
         _stage("123", "alice", bob, 100);
         vm.prank(bob);
-        _claim(GITHUB, false);
+        _submit(GITHUB, false);
 
         assertEq(names.resolveHandle(X, "alice"), alice);
         assertEq(names.resolveHandle(GITHUB, "alice"), bob);
@@ -856,7 +856,7 @@ contract IdentityNamesTest is Test {
     // A platform's proof can change shape without the identity behind it
     // changing — X gaining OIDC, say. Both formats have to be accepted during
     // a migration, so the Proof Verifier keys its verifiers by version and
-    // the keyspace is not keyed at all.
+    // the rules are not keyed at all.
 
     /// A binding belongs to the identity that proved it, not to the format the
     /// proof was written in. Removing a version from the Supported Version Set
@@ -902,7 +902,7 @@ contract IdentityNamesTest is Test {
 
     // ─── A platform is not usable until it can verify ───────────────
 
-    /// Between `setPlatform` and `setVerifier` a platform has a keyspace and
+    /// Between `setPlatform` and `setVerifier` a platform has rules and
     /// can verify nothing. Answering `address(0)` there would tell a caller
     /// "nobody proved this" about a platform that is not wired yet.
     function test_aPlatformWithoutAVerifierDoesNotResolve() public {
@@ -919,18 +919,18 @@ contract IdentityNamesTest is Test {
         vm.expectRevert(abi.encodeWithSelector(IIdentityNames.UnknownPlatform.selector, fresh));
         names.resolveHandleAndId(fresh, "alice", "123");
 
-        // The keyspace questions answer, and agree with each other: a client
+        // The hashing views answer, and agree with each other: a client
         // normalizing under `rulesOf` reaches the node `handleNodeOf` names.
         assertEq(names.rulesOf(fresh).maxLength, HandleVectors.rulesFor(X).maxLength);
         assertEq(names.handleHashOf(fresh, "Alice"), keccak256("alice"));
         assertEq(names.handleNodeOf(fresh, "Alice"), names.handleNodeOfHash(fresh, keccak256("alice")));
     }
 
-    /// And claiming says the same thing, rather than naming a version the
-    /// caller never chose. The keyspace exists here, so the Consumer lets the
-    /// claim through and the Proof Verifier is the one with nothing to
-    /// dispatch to.
-    function test_claimingAPlatformWithoutAVerifierIsRefused() public {
+    /// And binding says the same thing, rather than naming a version the
+    /// caller never chose. The platform is configured here, so the Consumer
+    /// lets the bind through and the Proof Verifier is the one with nothing
+    /// to dispatch to.
+    function test_bindingOnAPlatformWithoutAVerifierIsRefused() public {
         bytes32 fresh = keccak256("fresh");
         vm.prank(owner);
         names.setPlatform(fresh, HandleVectors.rulesFor(X));
@@ -938,20 +938,20 @@ contract IdentityNamesTest is Test {
         _stage("123", "alice", alice, 100);
         vm.prank(alice);
         vm.expectRevert(abi.encodeWithSelector(CeremonyProofVerifier.UnknownVersion.selector, fresh, V1));
-        _claim(fresh, false);
+        _submit(fresh, false);
     }
 
-    /// A new claim can bind only with a keyspace and a verifier the Proof Verifier answers for;
-    /// retiring the last version stops new claims while bound identities keep resolving.
-    function test_acceptsBindingsNeedsAKeyspaceAndAVerifier() public {
+    /// A new bind needs rules and a verifier the Proof Verifier answers for; retiring the
+    /// last version stops new binds while bound identities keep resolving.
+    function test_acceptsBindingsNeedsRulesAndAVerifier() public {
         assertTrue(names.acceptsBindings(X));
-        (bytes32 noKeyspace, bytes32 noVerifier) = (keccak256("no keyspace"), keccak256("no verifier"));
-        StubPlatformVerifier verifier = new StubPlatformVerifier(noKeyspace, 0);
+        (bytes32 noRules, bytes32 noVerifier) = (keccak256("no rules"), keccak256("no verifier"));
+        StubPlatformVerifier verifier = new StubPlatformVerifier(noRules, 0);
         vm.startPrank(owner);
-        proofVerifier.setVerifier(noKeyspace, V1, IPlatformVerifier(address(verifier)));
+        proofVerifier.setVerifier(noRules, V1, IPlatformVerifier(address(verifier)));
         names.setPlatform(noVerifier, HandleVectors.rulesFor(X));
         vm.stopPrank();
-        assertFalse(names.acceptsBindings(noKeyspace));
+        assertFalse(names.acceptsBindings(noRules));
         assertFalse(names.acceptsBindings(noVerifier));
 
         IdentityNames bare = IdentityNames(
@@ -980,7 +980,7 @@ contract IdentityNamesTest is Test {
 
         _stage("123", "alice", alice, 100);
         vm.prank(alice);
-        _claim(X, false);
+        _submit(X, false);
         assertEq(names.resolveHandle(X, "alice"), alice);
     }
 
@@ -1006,7 +1006,7 @@ contract IdentityNamesTest is Test {
         _stage("123", "alice", alice, 200);
         vm.prank(owner);
         vm.expectRevert(abi.encodeWithSelector(IdentityNames.NotProofTarget.selector, alice, owner));
-        _claim(X, false);
+        _submit(X, false);
 
         assertEq(names.resolveId(X, "123"), alice, "the binding moved");
     }

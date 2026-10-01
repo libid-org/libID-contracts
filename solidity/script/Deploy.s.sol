@@ -15,7 +15,7 @@ import {GoogleJwtRoots} from "../contracts/ceremony/GoogleJwtRoots.sol";
 ///
 /// Four UUPS proxies, in dependency order: the Notary Service every notarized
 /// session is verified through, the Proof Verifier the identity registry
-/// dispatches claims through, the registry itself with a keyspace per
+/// dispatches bindings through, the registry itself with handle rules per
 /// platform, and the Google JWT root list that pays the Notary Service for
 /// each rotation. No Platform Verifier is registered here -- that needs the
 /// ceremony circuit artifacts, which arrive with their own release.
@@ -75,7 +75,7 @@ contract Deploy is Script {
         IdentityNames names = IdentityNames(identityNamesAddr);
         names.setProofVerifier(IProofVerifier(proofVerifierAddr));
 
-        // A keyspace per platform. Registering a Platform Verifier against a
+        // Handle rules per platform. Registering a Platform Verifier against a
         // version is `CeremonyProofVerifier.setVerifier`, and one needs the
         // ceremony circuit's artifact and its code hash -- neither of which
         // this script has until that release lands.
@@ -107,7 +107,7 @@ contract Deploy is Script {
         console.log("NOTE: no Platform Verifier is registered yet. Add one with");
         console.log("      CeremonyProofVerifier.setVerifier once the ceremony");
         console.log("      circuit artifacts are released. Until then a platform");
-        console.log("      has its keyspace and can verify nothing.");
+        console.log("      has its rules and can verify nothing.");
         // Nothing is trusted until a notarized reading of Google's JWKS lands.
         // Until then every Google binding reverts `UntrustedModulus`, which reads
         // as a bad proof rather than an unseeded list.
@@ -115,7 +115,7 @@ contract Deploy is Script {
         console.log("      before Google bindings work. The trust list starts empty.");
     }
 
-    /// @dev Give a platform its keyspace.
+    /// @dev Give a platform its handle rules.
     ///
     ///      One helper rather than the call spelled out per platform: the rules
     ///      come from the generated table keyed by platform id, so a new

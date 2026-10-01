@@ -155,10 +155,10 @@ def gen_sol(spec: dict[str, Any]) -> str:
 
     for p in platforms:
         name = p["key"].upper()
-        lines.append(f'    /// keccak256(bytes("{p["domain"]}"))')
+        lines.append(f'    /// keccak256(bytes("{p["key"]}"))')
         lines.append(
             f"    bytes32 internal constant PLATFORM_{name} ="
-            f' keccak256(bytes("{p["domain"]}"));'
+            f' keccak256(bytes("{p["key"]}"));'
         )
     lines.append("")
 
@@ -274,7 +274,7 @@ def gen_rust(spec: dict[str, Any]) -> str:
     for p in platforms:
         lines.append("/// keccak256 of this string is the platform id.")
         lines.append(
-            f'pub const PLATFORM_{p["key"].upper()}_KEY: &str = "{p["domain"]}";'
+            f'pub const PLATFORM_{p["key"].upper()}_KEY: &str = "{p["key"]}";'
         )
     lines.append("")
 
@@ -345,7 +345,7 @@ def gen_ts(spec: dict[str, Any]) -> str:
             f"/** keccak256 of this string is the platform id. */"
         )
         lines.append(
-            f"export const PLATFORM_{p['key'].upper()}_KEY = '{p['domain']}'"
+            f"export const PLATFORM_{p['key'].upper()}_KEY = '{p['key']}'"
         )
     lines.append("")
 

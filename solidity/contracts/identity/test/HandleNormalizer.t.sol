@@ -93,7 +93,7 @@ contract HandleNormalizerTest is Test {
     }
 
     /// Case folding is the only change to an accepted handle. Anything else
-    /// could map two platform accounts onto one identity.
+    /// could map the handles of two identities onto one node.
     function test_foldingIsTheOnlyChange() public view {
         assertEq(this.normalize("A.B+tag@Example.COM", "google"), "a.b+tag@example.com");
         assertEq(this.normalize("Alice_1", "x"), "alice_1");
