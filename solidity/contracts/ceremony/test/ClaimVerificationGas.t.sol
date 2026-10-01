@@ -42,8 +42,6 @@ contract ClaimVerificationGasTest is Test {
     address constant OWNER = address(0xA11CE);
     /// The notary key the ceremonies were captured with.
     uint256 constant NOTARY_KEY = 0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80;
-    uint64 constant LIFETIME = 3600;
-    uint64 constant SKEW = 300;
 
     string constant X_CEREMONY = "contracts/ceremony/test/fixtures/x-ceremony-real.json";
     string constant GITHUB_CEREMONY = "contracts/ceremony/test/fixtures/github-ceremony-real.json";
@@ -72,8 +70,7 @@ contract ClaimVerificationGasTest is Test {
                 new ERC1967Proxy(
                     address(new XPlatformVerifier()),
                     abi.encodeCall(
-                        XPlatformVerifier.initialize,
-                        (OWNER, notary, bearerLink, address(bearerLink).codehash, LIFETIME, SKEW, SKEW)
+                        XPlatformVerifier.initialize, (OWNER, notary, bearerLink, address(bearerLink).codehash)
                     )
                 )
             )
@@ -83,8 +80,7 @@ contract ClaimVerificationGasTest is Test {
                 new ERC1967Proxy(
                     address(new GitHubPlatformVerifier()),
                     abi.encodeCall(
-                        GitHubPlatformVerifier.initialize,
-                        (OWNER, notary, bearerLink, address(bearerLink).codehash, LIFETIME, SKEW, SKEW)
+                        GitHubPlatformVerifier.initialize, (OWNER, notary, bearerLink, address(bearerLink).codehash)
                     )
                 )
             )
