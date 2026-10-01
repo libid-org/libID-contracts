@@ -1,8 +1,8 @@
-/// Reading names from the chain.
+/// Reading identities from the chain.
 ///
-/// Everything here is a view call. Binding a name needs a ceremony payload and a
-/// wallet; reading one needs neither, which is the point — any product can
-/// resolve a name without touching the ceremony that created it.
+/// Everything here is a view call. Binding an identity needs a ceremony payload
+/// and a wallet; reading one needs neither, which is the point — any product
+/// can resolve a handle without touching the ceremony that bound it.
 ///
 /// The client and the contract address are arguments rather than imports. This
 /// package ships separately from the repository it currently lives in, so it
@@ -10,23 +10,23 @@
 
 import { type Address, keccak256, type PublicClient, toHex, zeroAddress } from 'viem'
 
-import { identityNamesAbi } from '../abis/identityNames.js'
+import { identityRegistryAbi } from '../abis/identityRegistry.js'
 import type { Rules } from './handle.js'
 
-/// A platform's domain (`'x'`, `'github'`, ...), refusing at compile time a
-/// value typed as hex: an id passed where a domain belongs would be hashed
-/// again into a platform nothing binds.
-export type PlatformDomain<D extends string> = D extends `0x${string}` ? never : D
+/// A platform key (`'x'`, `'github'`, ...), refusing at compile time a value
+/// typed as hex: an id passed where a key belongs would be hashed again into a
+/// platform nothing binds.
+export type PlatformKey<K extends string> = K extends `0x${string}` ? never : K
 
-/// A platform id is `keccak256` of its domain string. The domains are generated
+/// A platform id is `keccak256` of its platform key. The keys are generated
 /// from `handles.json`, so this and the contract agree by construction.
-export function platformId<D extends string>(domain: PlatformDomain<D>): `0x${string}` {
-  return keccak256(toHex(domain))
+export function platformId<K extends string>(platformKey: PlatformKey<K>): `0x${string}` {
+  return keccak256(toHex(platformKey))
 }
 
-export interface NamesReader {
+export interface RegistryReader {
   client: PublicClient
-  /// The deployed `IdentityNames` contract.
+  /// The deployed `IdentityRegistry` contract.
   address: Address
 }
 
@@ -36,7 +36,11 @@ export interface NamesReader {
 /// viem's `PublicClient`, without its chain type parameters, types
 /// `authorizationList` as required even for a read. The alternative is to
 /// spread that noise across every call site here.
-function read<T>(reader: NamesReader, functionName: string, args: readonly unknown[]): Promise<T> {
+function read<T>(
+  reader: RegistryReader,
+  functionName: string,
+  args: readonly unknown[],
+): Promise<T> {
   return (
     reader.client as unknown as {
       readContract: (request: Record<string, unknown>) => Promise<T>
@@ -44,19 +48,16 @@ function read<T>(reader: NamesReader, functionName: string, args: readonly unkno
   ).readContract({
     authorizationList: undefined,
     address: reader.address,
-    abi: identityNamesAbi,
+    abi: identityRegistryAbi,
     functionName,
     args,
   })
 }
 
 /// The platform's normalization rules as configured on chain now
-/// (`IdentityNames.rulesOf`); only the platform id is sent.
-export async function rulesOnChain<D extends string>(
-  reader: NamesReader,
-  domain: PlatformDomain<D>,
-): Promise<Rules> {
-  const rules = await read<Rules>(reader, 'rulesOf', [platformId(domain)])
+/// (`IdentityRegistry.rulesOf`).
+export async function rulesOf(reader: RegistryReader, platformId: `0x${string}`): Promise<Rules> {
+  const rules = await read<Rules>(reader, 'rulesOf', [platformId])
   return {
     maxLength: Number(rules.maxLength),
     stripLeadingAt: rules.stripLeadingAt,
@@ -66,68 +67,55 @@ export async function rulesOnChain<D extends string>(
   }
 }
 
-/// The wallet that proved this account id, or `null`.
+/// The holder that proved this id, or `null`.
 export async function resolveId(
-  reader: NamesReader,
-  platform: `0x${string}`,
-  userId: string,
+  reader: RegistryReader,
+  platformId: `0x${string}`,
+  id: string,
 ): Promise<Address | null> {
-  const owner = await read<Address>(reader, 'resolveId', [platform, userId])
-  return owner === zeroAddress ? null : owner
+  const holder = await read<Address>(reader, 'resolveId', [platformId, id])
+  return holder === zeroAddress ? null : holder
 }
 
-/// The wallet that last proved this handle, or `null`.
+/// The holder that last proved this handle, or `null`.
 ///
 /// The handle is normalized on chain before it is looked up, so a caller may
-/// pass what a user typed — including something that is not a handle at all.
-/// The contract is total in the handle: a string no platform could hold answers
-/// the zero address, which is the same answer as a handle nobody has proved,
-/// and the one a search box wants.
+/// pass what was typed — including something that is not a handle at all.
+/// The contract is total in the handle: a string the platform's rules refuse
+/// answers the zero address, which is the same answer as a handle nobody has
+/// proved, and the one a search box wants.
 ///
 /// A revert propagates. `UnknownPlatform` in particular means the platform is
-/// not configured, and answering "unowned" would bury a deployment mistake
+/// not configured, and answering "unbound" would bury a deployment mistake
 /// under a plausible result.
 export async function resolveHandle(
-  reader: NamesReader,
-  platform: `0x${string}`,
+  reader: RegistryReader,
+  platformId: `0x${string}`,
   handle: string,
 ): Promise<Address | null> {
-  const owner = await read<Address>(reader, 'resolveHandle', [platform, handle])
-  return owner === zeroAddress ? null : owner
+  const holder = await read<Address>(reader, 'resolveHandle', [platformId, handle])
+  return holder === zeroAddress ? null : holder
 }
 
-/// The handle a wallet published, exactly as stored.
-///
-/// It may be stale: it says what the wallet proved once, not what the handle
-/// resolves to now. Use `primaryName` to display one.
-export async function reverseOf(
-  reader: NamesReader,
-  wallet: Address,
-  platform: `0x${string}`,
-): Promise<string | null> {
-  const name = await read<string>(reader, 'reverseOf', [wallet, platform])
-  return name.length === 0 ? null : name
-}
-
-/// The handle to show for a wallet, or `null`.
+/// The handle to show for a holder, or `null`.
 ///
 /// Forward-checked on chain: empty once the stored handle resolves somewhere
 /// else. ENS asks integrators to perform that check themselves and warns that
-/// skipping it displays a name its holder no longer owns; here it cannot be
-/// skipped, because the contract does it.
-export async function primaryName(
-  reader: NamesReader,
-  wallet: Address,
-  platform: `0x${string}`,
+/// skipping it displays an ENS primary name that no longer resolves back; here
+/// it cannot be skipped, because the contract does it.
+export async function publishedHandleOf(
+  reader: RegistryReader,
+  holder: Address,
+  platformId: `0x${string}`,
 ): Promise<string | null> {
-  const name = await read<string>(reader, 'primaryOf', [wallet, platform])
-  return name.length === 0 ? null : name
+  const handle = await read<string>(reader, 'publishedHandleOf', [holder, platformId])
+  return handle.length === 0 ? null : handle
 }
 
-export interface PairResolution {
-  /// The current owner of the handle, or `null`.
-  wallet: Address | null
-  /// True only when the account id resolves to that same wallet.
+export interface HandleAndIdResolution {
+  /// The handle's holder, or `null`.
+  holder: Address | null
+  /// True only when the id resolves to that same holder.
   ///
   /// False means the caller's `(handle, id)` pair comes from two moments:
   /// somebody proved the handle after the caller learned who held it. That is
@@ -135,75 +123,76 @@ export interface PairResolution {
   idAgrees: boolean
 }
 
-/// Resolve a handle and report whether an account id still agrees with it.
+/// Resolve a handle and report whether an id still agrees with it.
 ///
-/// **Read this before signing, and do not let it block a transfer.** A name
-/// that will not route is not a name: sending to a handle means sending to
+/// **Read this before signing, and do not let it block a transfer.** A handle
+/// that will not route is not a handle: sending to a handle means sending to
 /// whoever proved it last, which is what the handle now means. What the flag is
-/// for is telling a user that the account they think they are paying is not the
-/// one that holds the name today — a decision they can only make beforehand.
+/// for is telling whoever is paying that the identity they think they are
+/// paying is not the one that has the handle today — a decision they can only
+/// make beforehand.
 ///
 /// Both halves are needed. A handle on its own has nothing to disagree with.
 ///
-/// A handle the platform's rules reject resolves to `{wallet: null, idAgrees:
+/// A handle the platform's rules reject resolves to `{holder: null, idAgrees:
 /// false}`, the same as one nobody has proved — see `resolveHandle`.
-export async function resolvePair(
-  reader: NamesReader,
-  platform: `0x${string}`,
+export async function resolveHandleAndId(
+  reader: RegistryReader,
+  platformId: `0x${string}`,
   handle: string,
-  userId: string,
-): Promise<PairResolution> {
-  const [wallet, idAgrees] = await read<[Address, boolean]>(reader, 'resolvePair', [
-    platform,
+  id: string,
+): Promise<HandleAndIdResolution> {
+  const [holder, idAgrees] = await read<[Address, boolean]>(reader, 'resolveHandleAndId', [
+    platformId,
     handle,
-    userId,
+    id,
   ])
 
-  return { wallet: wallet === zeroAddress ? null : wallet, idAgrees }
+  return { holder: holder === zeroAddress ? null : holder, idAgrees }
 }
 
-/// One account a wallet proved, as the wallet's list reports it.
-export interface Account {
-  /// The platform the account is on, as `platformId` derives it.
+/// One identity a holder proved, as the holder's list reports it.
+export interface Identity {
+  /// The platform the identity is on, as `platformId` derives it.
   platformId: `0x${string}`
-  /// The account id, byte for byte as the platform issued it.
-  userId: string
-  /// The handle this account proved most recently, as normalized on chain.
+  /// The id, byte for byte as the platform issued it.
+  id: string
+  /// The handle this identity proved most recently, as normalized on chain.
   handle: string
-  /// True while the handle node still points back at this account.
+  /// True while the handle node still points back at this identity.
   ///
-  /// False once another account proves the same handle: the string stays as
-  /// the last thing this account was known as, and the flag says not to route
+  /// False once another identity proves the same handle: the string stays as
+  /// the last thing this identity was known as, and the flag says not to route
   /// by it.
   handleCurrent: boolean
 }
 
-/// How many accounts a wallet holds, on every platform together.
-export async function accountCount(reader: NamesReader, wallet: Address): Promise<bigint> {
-  return read<bigint>(reader, 'accountCount', [wallet])
+/// How many identities a holder has, on every platform together.
+export async function identityCount(reader: RegistryReader, holder: Address): Promise<bigint> {
+  return read<bigint>(reader, 'identityCount', [holder])
 }
 
-/// A page of the accounts a wallet holds, on every platform together: the
-/// indices `[from, from + limit)` of its list, counted from zero and clipped
-/// to the list. A `from` past the end answers an empty page. A reader that
-/// wants one platform filters a page by `platformId`.
+/// A page of a holder's identities, on every platform together:
+/// the indices `[from, from + limit)` of its list, counted from zero and
+/// clipped to the list. A `from` past the end answers an empty page. A reader
+/// that wants one platform filters a page by `platformId`.
 ///
-/// Order is arbitrary and changes when an account leaves the list, so two
+/// Order is arbitrary and changes when an identity leaves the list, so two
 /// pages read across a removal may overlap or skip. A reader that needs every
-/// account reads `accountCount` and the pages against one block.
+/// identity reads `identityCount` and the pages against one block.
 ///
-/// A list is as long as its wallet made it, and a call's gas is not. A caller
-/// enumerating a wallet it did not choose keeps `limit` small and pages.
-export async function accountsOf(
-  reader: NamesReader,
-  wallet: Address,
+/// A list is as long as its holder made it, and a call's gas is not. A caller
+/// enumerating a holder it did not choose keeps `limit` small and pages.
+export async function identitiesOf(
+  reader: RegistryReader,
+  holder: Address,
   from: bigint,
   limit: bigint,
-): Promise<Account[]> {
-  const page = await read<readonly Account[]>(reader, 'accountsOf', [wallet, from, limit])
-  return page.map(({ platformId, userId, handle, handleCurrent }) => ({
+): Promise<Identity[]> {
+  const page = await read<readonly Identity[]>(reader, 'identitiesOf', [holder, from, limit])
+  return page.map(({ platformId, id, handle, handleCurrent }) => ({
     platformId,
-    userId,
+    id,
     handle,
     handleCurrent,
   }))

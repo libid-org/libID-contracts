@@ -9,9 +9,9 @@ import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/Own
 
 import {HandleNormalizer} from "../../identity/HandleNormalizer.sol";
 import {HandleVectors} from "../../identity/HandleVectors.sol";
-import {IdentityNames} from "../../identity/IdentityNames.sol";
+import {IdentityRegistry} from "../../identity/IdentityRegistry.sol";
 import {IdentityNodes} from "../../identity/IdentityNodes.sol";
-import {IIdentityNames} from "../../identity/IIdentityNames.sol";
+import {IIdentityRegistry} from "../../identity/IIdentityRegistry.sol";
 import {StubPlatformVerifier} from "../../identity/test/StubPlatformVerifier.sol";
 import {CeremonyProofVerifier} from "../../ceremony/CeremonyProofVerifier.sol";
 import {IPlatformVerifier} from "../../ceremony/IPlatformVerifier.sol";
@@ -27,7 +27,7 @@ contract HandleEscrowV2 is HandleEscrow {
     /// @custom:storage-location erc7201:libid.storage.HandleEscrow
     struct V2Storage {
         mapping(bytes32 => mapping(address => uint256)) held;
-        IIdentityNames names;
+        IIdentityRegistry registry;
         mapping(bytes32 => mapping(address => uint256)) round;
         mapping(bytes32 => mapping(address => mapping(uint256 => mapping(address => uint256)))) contributions;
         uint256 appended;
@@ -46,12 +46,12 @@ contract HandleEscrowV2 is HandleEscrow {
     function read(bytes32 node, address token, uint256 round_, address refundTo)
         external
         view
-        returns (uint256 held, address names_, uint256 round, uint256 contribution, uint256 appended)
+        returns (uint256 held, address registry_, uint256 round, uint256 contribution, uint256 appended)
     {
         V2Storage storage $ = _v2();
         return (
             $.held[node][token],
-            address($.names),
+            address($.registry),
             $.round[node][token],
             $.contributions[node][token][round_][refundTo],
             $.appended
@@ -62,15 +62,15 @@ contract HandleEscrowV2 is HandleEscrow {
 /// @notice A router paying a handle given as text; its caller is `refundTo`.
 contract TextPayer {
     HandleEscrow private immutable ESCROW;
-    IdentityNames private immutable NAMES;
+    IdentityRegistry private immutable REGISTRY;
 
-    constructor(HandleEscrow escrow_, IdentityNames names_) {
-        (ESCROW, NAMES) = (escrow_, names_);
+    constructor(HandleEscrow escrow_, IdentityRegistry registry_) {
+        (ESCROW, REGISTRY) = (escrow_, registry_);
     }
 
     function pay(bytes32 platformId, string calldata handle) external payable {
         ESCROW.deposit{value: msg.value}(
-            platformId, NAMES.handleHashOf(platformId, handle), NATIVE, msg.value, msg.sender
+            platformId, REGISTRY.handleHashOf(platformId, handle), NATIVE, msg.value, msg.sender
         );
     }
 }
@@ -123,16 +123,16 @@ contract ObservingPayee {
     }
 }
 
-/// @notice Naming contracts `initialize` must refuse or accept.
-contract NamesBeforeTheEscrow {
-    function byHandle(bytes32) external pure returns (address, uint64) {}
+/// @notice Registries `initialize` must refuse or accept.
+contract RegistryBeforeTheEscrow {
+    function handleBinding(bytes32) external pure returns (address, uint64) {}
 }
 
-contract NamesWithoutNodeOfHash is NamesBeforeTheEscrow {
+contract RegistryWithoutHandleNodeOfHash is RegistryBeforeTheEscrow {
     function acceptsBindings(bytes32) external pure returns (bool) {}
 }
 
-contract NamesWithAZeroFallback is NamesWithoutNodeOfHash {
+contract RegistryWithAZeroFallback is RegistryWithoutHandleNodeOfHash {
     fallback() external {
         assembly {
             mstore(0, 0)
@@ -141,25 +141,25 @@ contract NamesWithAZeroFallback is NamesWithoutNodeOfHash {
     }
 }
 
-contract NamesWithAConstantNode is NamesWithoutNodeOfHash {
-    function nodeOfHash(bytes32, bytes32) external pure returns (bytes32) {
+contract RegistryWithAConstantNode is RegistryWithoutHandleNodeOfHash {
+    function handleNodeOfHash(bytes32, bytes32) external pure returns (bytes32) {
         return bytes32(uint256(1));
     }
 }
 
-contract NamesWithAnotherNodeDerivation is NamesWithoutNodeOfHash {
-    function nodeOfHash(bytes32 platformId, bytes32 handleHash) external pure returns (bytes32) {
+contract RegistryWithAnotherNodeDerivation is RegistryWithoutHandleNodeOfHash {
+    function handleNodeOfHash(bytes32 platformId, bytes32 handleHash) external pure returns (bytes32) {
         return keccak256(abi.encode(platformId, handleHash));
     }
 }
 
-contract NamesWithASilentFallback is NamesBeforeTheEscrow {
+contract RegistryWithASilentFallback is RegistryBeforeTheEscrow {
     fallback() external {}
 }
 
-/// @notice The handle-keyed escrow, against the real naming system.
+/// @notice The handle node escrow, against the real registry.
 contract HandleEscrowTest is Test {
-    IdentityNames internal names;
+    IdentityRegistry internal registry;
     CeremonyProofVerifier internal proofVerifier;
     StubPlatformVerifier internal xVerifier;
     HandleEscrow internal escrow;
@@ -181,8 +181,10 @@ contract HandleEscrowTest is Test {
     uint256 private nonce;
 
     function setUp() public {
-        names = IdentityNames(
-            address(new ERC1967Proxy(address(new IdentityNames()), abi.encodeCall(IdentityNames.initialize, (owner))))
+        registry = IdentityRegistry(
+            address(
+                new ERC1967Proxy(address(new IdentityRegistry()), abi.encodeCall(IdentityRegistry.initialize, (owner)))
+            )
         );
         proofVerifier = CeremonyProofVerifier(
             address(
@@ -193,14 +195,14 @@ contract HandleEscrowTest is Test {
         );
         xVerifier = new StubPlatformVerifier(X, 0);
         vm.startPrank(owner);
-        names.setProofVerifier(IProofVerifier(address(proofVerifier)));
-        names.setPlatform(X, HandleVectors.rulesFor(X));
+        registry.setProofVerifier(IProofVerifier(address(proofVerifier)));
+        registry.setPlatform(X, HandleVectors.rulesFor(X));
         proofVerifier.setVerifier(X, V1, IPlatformVerifier(address(xVerifier)));
-        names.setPlatform(GITHUB, HandleVectors.rulesFor(GITHUB));
+        registry.setPlatform(GITHUB, HandleVectors.rulesFor(GITHUB));
         proofVerifier.setVerifier(GITHUB, V1, IPlatformVerifier(address(new StubPlatformVerifier(GITHUB, 0))));
         vm.stopPrank();
 
-        escrow = _deploy(address(names));
+        escrow = _deploy(address(registry));
         token = new TestERC20();
         token.mint(sender, 1_000 ether);
         vm.prank(sender);
@@ -209,12 +211,12 @@ contract HandleEscrowTest is Test {
         vm.warp(1_000_000);
     }
 
-    // ─── The key ────────────────────────────────────────────────────
+    // ─── The node ───────────────────────────────────────────────────
 
-    /// Every row of the shared handle table keys where the naming system binds it, or is refused.
-    function test_everyVectorRowKeysOnTheNamingSystemsNode() public {
+    /// Every row of the shared handle table lands on the node the registry binds, or is refused.
+    function test_everyVectorRowLandsOnTheNodeTheRegistryBinds() public {
         vm.startPrank(owner);
-        names.setPlatform(GOOGLE, HandleVectors.rulesFor(GOOGLE));
+        registry.setPlatform(GOOGLE, HandleVectors.rulesFor(GOOGLE));
         proofVerifier.setVerifier(GOOGLE, V1, IPlatformVerifier(address(new StubPlatformVerifier(GOOGLE, 0))));
         vm.stopPrank();
 
@@ -223,17 +225,19 @@ contract HandleEscrowTest is Test {
             HandleVectors.Vector memory v = vectors[i];
             bytes32 platformId = keccak256(bytes(v.platform));
             if (v.accepted) {
-                assertEq(names.handleHashOf(platformId, v.input), keccak256(bytes(v.output)), vm.toString(i));
+                assertEq(registry.handleHashOf(platformId, v.input), keccak256(bytes(v.output)), vm.toString(i));
                 assertEq(
-                    names.nodeOf(platformId, v.input), IdentityNodes.handleNode(platformId, v.output), vm.toString(i)
+                    registry.handleNodeOf(platformId, v.input),
+                    IdentityNodes.handleNode(platformId, v.output),
+                    vm.toString(i)
                 );
             } else {
                 vm.expectRevert(
                     abi.encodeWithSelector(
-                        IIdentityNames.UnusableHandle.selector, HandleNormalizer.Problem(v.errorKind + 1)
+                        IIdentityRegistry.UnusableHandle.selector, HandleNormalizer.Problem(v.errorKind + 1)
                     )
                 );
-                names.handleHashOf(platformId, v.input);
+                registry.handleHashOf(platformId, v.input);
             }
         }
     }
@@ -241,7 +245,7 @@ contract HandleEscrowTest is Test {
     /// A `cast` literal, so the TypeScript derivation cannot drift and still pass its own tests.
     function test_theNodeDerivationIsPinned() public view {
         bytes32 pinned = 0x1c43d5d3cf3d99e9d5b6e8c74c23d14bcbb6a743712cf7fa7c15750c4fc2150d;
-        assertEq(names.nodeOf(X, " Alice_1 "), pinned);
+        assertEq(registry.handleNodeOf(X, " Alice_1 "), pinned);
         assertEq(IdentityNodes.handleNode(X, "alice_1"), pinned);
     }
 
@@ -267,11 +271,11 @@ contract HandleEscrowTest is Test {
 
     /// Text goes through `handleHashOf`: refused where the rules refuse it, and otherwise landing on
     /// the node a proof binds, refundable by the router's caller.
-    function test_textHashedByTheNamingSystemLandsOnTheProvedNode() public {
-        TextPayer payer = new TextPayer(escrow, names);
+    function test_textHashedByTheRegistryLandsOnTheProvedNode() public {
+        TextPayer payer = new TextPayer(escrow, registry);
         vm.startPrank(sender);
         vm.expectRevert(
-            abi.encodeWithSelector(IIdentityNames.UnusableHandle.selector, HandleNormalizer.Problem.BadChar)
+            abi.encodeWithSelector(IIdentityRegistry.UnusableHandle.selector, HandleNormalizer.Problem.BadChar)
         );
         payer.pay{value: 1 ether}(X, "ali-ce");
         payer.pay{value: 1 ether}(X, "  @Alice ");
@@ -370,7 +374,7 @@ contract HandleEscrowTest is Test {
         escrow.deposit{value: 1 ether}(UNWIRED, aliceHash, NATIVE, 1 ether, sender);
         vm.stopPrank();
         vm.prank(owner);
-        names.setPlatform(GOOGLE, HandleVectors.rulesFor(GOOGLE));
+        registry.setPlatform(GOOGLE, HandleVectors.rulesFor(GOOGLE));
         vm.prank(sender);
         vm.expectRevert(abi.encodeWithSelector(HandleEscrow.PlatformAcceptsNoBindings.selector, GOOGLE));
         escrow.deposit{value: 1 ether}(GOOGLE, keccak256("alice@example.com"), NATIVE, 1 ether, sender);
@@ -595,8 +599,8 @@ contract HandleEscrowTest is Test {
 
     // ─── Consequences accepted on purpose ───────────────────────────
 
-    /// NOT a vulnerability. An unclaimed slot follows the handle, not the account: renamed away, the
-    /// account cannot claim, the depositor can still refund, and the handle's next holder claims.
+    /// NOT a vulnerability. An unclaimed slot follows the handle, not the id: renamed away, the
+    /// identity cannot claim, the depositor can still refund, and the handle's next holder claims.
     function test_ACCEPTED_aRecycledHandlePaysTheNewHolder() public {
         _depositNative("alice", 2 ether);
         _bind(alice, "1", "alice", 100);
@@ -618,12 +622,12 @@ contract HandleEscrowTest is Test {
         HandleNormalizer.Rules memory narrowed = HandleVectors.rulesFor(X);
         narrowed.allowUnderscore = false;
         vm.prank(owner);
-        names.setPlatform(X, narrowed);
+        registry.setPlatform(X, narrowed);
 
         vm.expectRevert(
-            abi.encodeWithSelector(IIdentityNames.UnusableHandle.selector, HandleNormalizer.Problem.BadChar)
+            abi.encodeWithSelector(IIdentityRegistry.UnusableHandle.selector, HandleNormalizer.Problem.BadChar)
         );
-        names.handleHashOf(X, "alice_9");
+        registry.handleHashOf(X, "alice_9");
         vm.prank(alice);
         escrow.claim(IdentityNodes.handleNode(X, "alice_9"), one(NATIVE), alice);
         assertEq(alice.balance, 1 ether);
@@ -651,22 +655,22 @@ contract HandleEscrowTest is Test {
 
     // ─── Wiring and upgrades ────────────────────────────────────────
 
-    /// `initialize` refuses a naming contract that does not answer the three calls in shape, names
-    /// the first one missing, and accepts any node derivation that depends on the hash.
-    function test_initializeChecksTheNamingContract() public {
-        assertEq(address(escrow.names()), address(names));
-        _assertRefused(address(0), abi.encodeWithSelector(HandleEscrow.NoNames.selector));
-        _assertLacks(makeAddr("no code"), IIdentityNames.byHandle.selector);
-        _assertLacks(address(new NamesBeforeTheEscrow()), IIdentityNames.acceptsBindings.selector);
-        _assertLacks(address(new NamesWithASilentFallback()), IIdentityNames.acceptsBindings.selector);
-        _assertLacks(address(new NamesWithoutNodeOfHash()), IIdentityNames.nodeOfHash.selector);
-        _assertLacks(address(new NamesWithAZeroFallback()), IIdentityNames.nodeOfHash.selector);
-        _assertLacks(address(new NamesWithAConstantNode()), IIdentityNames.nodeOfHash.selector);
-        _deploy(address(new NamesWithAnotherNodeDerivation()));
+    /// `initialize` refuses a registry that does not answer the three calls in shape, names the
+    /// first one missing, and accepts any node derivation that depends on the hash.
+    function test_initializeChecksTheRegistry() public {
+        assertEq(address(escrow.registry()), address(registry));
+        _assertRefused(address(0), abi.encodeWithSelector(HandleEscrow.NoRegistry.selector));
+        _assertLacks(makeAddr("no code"), IIdentityRegistry.handleBinding.selector);
+        _assertLacks(address(new RegistryBeforeTheEscrow()), IIdentityRegistry.acceptsBindings.selector);
+        _assertLacks(address(new RegistryWithASilentFallback()), IIdentityRegistry.acceptsBindings.selector);
+        _assertLacks(address(new RegistryWithoutHandleNodeOfHash()), IIdentityRegistry.handleNodeOfHash.selector);
+        _assertLacks(address(new RegistryWithAZeroFallback()), IIdentityRegistry.handleNodeOfHash.selector);
+        _assertLacks(address(new RegistryWithAConstantNode()), IIdentityRegistry.handleNodeOfHash.selector);
+        _deploy(address(new RegistryWithAnotherNodeDerivation()));
 
         HandleEscrow impl = new HandleEscrow();
         vm.expectRevert(Initializable.InvalidInitialization.selector);
-        impl.initialize(owner, IIdentityNames(address(names)));
+        impl.initialize(owner, IIdentityRegistry(address(registry)));
     }
 
     /// `initialize` arms the guard, and a guarded call leaves it armed.
@@ -701,11 +705,11 @@ contract HandleEscrowTest is Test {
         vm.prank(owner);
         escrow.upgradeToAndCall(address(next), "");
         HandleEscrowV2 upgraded = HandleEscrowV2(payable(address(escrow)));
-        (uint256 held, address names_, uint256 round, uint256 open, uint256 appended) =
+        (uint256 held, address registry_, uint256 round, uint256 open, uint256 appended) =
             upgraded.read(aliceNode, NATIVE, 1, sender);
         (,,, uint256 closed,) = upgraded.read(aliceNode, NATIVE, 0, sender);
         assertEq(held, 1 ether);
-        assertEq(names_, address(names));
+        assertEq(registry_, address(registry));
         assertEq(round, 1);
         assertEq(open, 1 ether);
         assertEq(closed, 1 ether);
@@ -716,30 +720,30 @@ contract HandleEscrowTest is Test {
 
     // ─── Helpers ────────────────────────────────────────────────────
 
-    function _deploy(address names_) internal returns (HandleEscrow) {
+    function _deploy(address registry_) internal returns (HandleEscrow) {
         return HandleEscrow(
             address(
                 new ERC1967Proxy(
                     address(new HandleEscrow()),
-                    abi.encodeCall(HandleEscrow.initialize, (owner, IIdentityNames(names_)))
+                    abi.encodeCall(HandleEscrow.initialize, (owner, IIdentityRegistry(registry_)))
                 )
             )
         );
     }
 
-    function _assertLacks(address names_, bytes4 selector) internal {
-        _assertRefused(names_, abi.encodeWithSelector(HandleEscrow.NamesLacks.selector, names_, selector));
+    function _assertLacks(address registry_, bytes4 selector) internal {
+        _assertRefused(registry_, abi.encodeWithSelector(HandleEscrow.RegistryLacks.selector, registry_, selector));
     }
 
-    function _assertRefused(address names_, bytes memory reason) internal {
+    function _assertRefused(address registry_, bytes memory reason) internal {
         HandleEscrow impl = new HandleEscrow();
         vm.expectRevert(reason);
-        new ERC1967Proxy(address(impl), abi.encodeCall(HandleEscrow.initialize, (owner, IIdentityNames(names_))));
+        new ERC1967Proxy(address(impl), abi.encodeCall(HandleEscrow.initialize, (owner, IIdentityRegistry(registry_))));
     }
 
     /// Prove `handle` on X for `who`.
-    function _bind(address who, string memory userId, string memory handle, uint64 at) internal {
-        xVerifier.set(userId, handle);
+    function _bind(address who, string memory id, string memory handle, uint64 at) internal {
+        xVerifier.set(id, handle);
         xVerifier.setObservedAt(at);
         bytes memory payload = abi.encode(
             StubPlatformVerifier.StubPayload({
@@ -750,12 +754,12 @@ contract HandleEscrowTest is Test {
             })
         );
         vm.prank(who);
-        names.bind(X, V1, payload, false);
+        registry.bind(X, V1, payload, false);
     }
 
-    /// Deposit native value for text on X, hashed by the naming system.
+    /// Deposit native value for text on X, hashed by the registry.
     function _depositNative(string memory handle, uint256 amount) internal {
-        bytes32 handleHash = names.handleHashOf(X, handle);
+        bytes32 handleHash = registry.handleHashOf(X, handle);
         vm.prank(sender);
         escrow.deposit{value: amount}(X, handleHash, NATIVE, amount, sender);
     }

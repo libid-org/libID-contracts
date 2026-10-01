@@ -1,9 +1,10 @@
-//! Turns a platform handle into the one form the identity system keys.
+//! Turns a platform handle into the one form the identity system hashes into
+//! a node.
 //!
 //! This mirrors `contracts/identity/HandleNormalizer.sol` byte for byte. The
 //! two are hand written and share nothing but the vector table in
 //! `contracts/identity/handles.json`, so a difference between them fails a test
-//! instead of looking up a key the chain never wrote.
+//! instead of looking up a node the chain never wrote.
 
 /// Why a handle was refused. The kinds match the Solidity errors and the
 /// TypeScript ones, because the vector table names which refusal it expects.
@@ -72,8 +73,9 @@ impl Rules {
     ///
     /// Every field comes from the generated table rather than being restated
     /// here. A deploy writes these rules on chain, so a value that drifted from
-    /// the Solidity side would key every handle on the platform differently —
-    /// and the vector table cannot catch a difference no vector exercises.
+    /// the Solidity side would put every handle on the platform on another
+    /// node — and the vector table cannot catch a difference no vector
+    /// exercises.
     pub const X: Self = Self {
         max_length: v::MAX_LENGTH_X,
         strip_leading_at: v::STRIP_LEADING_AT_X,
@@ -99,15 +101,18 @@ impl Rules {
         allow_underscore: v::ALLOW_UNDERSCORE_GOOGLE,
         allow_hyphen: v::ALLOW_HYPHEN_GOOGLE,
     };
+}
 
-    /// The rules for a platform key from the vector table.
-    pub fn for_platform(key: &str) -> Option<Self> {
-        match key {
-            "x" => Some(Self::X),
-            "github" => Some(Self::GITHUB),
-            "google" => Some(Self::GOOGLE),
-            _ => None,
-        }
+/// The rules for a platform key (`"x"`, `"github"`, ...) from the generated
+/// table: what the contracts were released with. The chain's owner can change
+/// a platform's rules, so a hash for a deposit should use the rules
+/// `IdentityRegistry.rulesOf` returns.
+pub fn rules_for(platform_key: &str) -> Option<Rules> {
+    match platform_key {
+        v::PLATFORM_X_KEY => Some(Rules::X),
+        v::PLATFORM_GITHUB_KEY => Some(Rules::GITHUB),
+        v::PLATFORM_GOOGLE_KEY => Some(Rules::GOOGLE),
+        _ => None,
     }
 }
 
@@ -167,7 +172,7 @@ pub fn normalize(raw: &str, rules: Rules) -> Result<String, HandleError> {
 
 /// One byte, after folding. Anything outside the platform's set is refused,
 /// including every byte above 0x7f, so a multi-byte character never reaches a
-/// key.
+/// node.
 fn allowed(c: u8, rules: Rules) -> bool {
     if c.is_ascii_lowercase() || c.is_ascii_digit() {
         return true;
@@ -229,7 +234,7 @@ mod tests {
     #[test]
     fn every_vector_matches_the_shared_table() {
         for (i, v) in VECTORS.iter().enumerate() {
-            let rules = Rules::for_platform(v.platform)
+            let rules = rules_for(v.platform)
                 .unwrap_or_else(|| panic!("vector {i}: unknown platform {}", v.platform));
             match normalize(v.input, rules) {
                 Ok(got) => {
@@ -263,7 +268,7 @@ mod tests {
     }
 
     /// Case folding is the only change to an accepted handle. Anything else
-    /// could map two platform accounts onto one identity.
+    /// could map the handles of two identities onto one node.
     #[test]
     fn folding_is_the_only_change() {
         assert_eq!(

@@ -20,7 +20,7 @@ use libid_contracts::{
             GoogleJwtRoots,
             NotaryService,
         },
-        identity::IdentityNames,
+        identity::IdentityRegistry,
     },
     deploy::{
         deploy_behind_proxy,
@@ -39,8 +39,8 @@ async fn default_signer(provider: &impl Provider) -> Address {
 }
 
 /// (a) The identity stack in the order `script/Deploy.s.sol` uses: the
-/// Notary Service first, then the Proof Verifier, the naming system given a
-/// keyspace and pointed at the Proof Verifier, and the Google JWT root list
+/// Notary Service first, then the Proof Verifier, the registry given its
+/// platform rules and pointed at the Proof Verifier, and the Google JWT root list
 /// pointed at the Notary Service — every one behind an ERC1967 proxy. Then the views
 /// that prove the wiring took.
 #[tokio::test]
@@ -75,11 +75,11 @@ async fn deploys_the_identity_stack_behind_proxies() {
     .await
     .unwrap();
 
-    let names_proxy = deploy_behind_proxy(
+    let registry_proxy = deploy_behind_proxy(
         &provider,
         &artifacts,
-        "IdentityNames",
-        &IdentityNames::initializeCall { owner_: deployer },
+        "IdentityRegistry",
+        &IdentityRegistry::initializeCall { owner_: deployer },
         None,
     )
     .await
@@ -98,11 +98,11 @@ async fn deploys_the_identity_stack_behind_proxies() {
     .await
     .unwrap();
 
-    // Wire the naming system: the Proof Verifier it dispatches through, and
-    // a keyspace. The platform id is the platform's own bare name: libID
-    // namespaces only its own strings.
-    let names = IdentityNames::new(names_proxy, &provider);
-    names
+    // Wire the registry: the Proof Verifier it dispatches through, and the
+    // platform's rules. The platform id is keccak256 of the platform key:
+    // libID namespaces only its own strings.
+    let registry = IdentityRegistry::new(registry_proxy, &provider);
+    registry
         .setProofVerifier(verifier_proxy)
         .send()
         .await
@@ -111,10 +111,10 @@ async fn deploys_the_identity_stack_behind_proxies() {
         .await
         .unwrap();
     let platform_id = keccak256(b"github");
-    names
+    registry
         .setPlatform(
             platform_id,
-            IdentityNames::Rules {
+            IdentityRegistry::Rules {
                 maxLength: 39,
                 stripLeadingAt: true,
                 isEmail: false,
@@ -143,11 +143,14 @@ async fn deploys_the_identity_stack_behind_proxies() {
         Address::ZERO
     );
 
-    assert_eq!(names.proofVerifier().call().await.unwrap(), verifier_proxy);
-    // A platform that owns a keyspace and can verify nothing says so:
-    // answering `address(0)` would tell the caller "nobody holds this name"
-    // about a platform that is not wired yet.
-    let unwired = names.resolveId(platform_id, "12345".into()).call().await;
+    assert_eq!(
+        registry.proofVerifier().call().await.unwrap(),
+        verifier_proxy
+    );
+    // A platform that has rules and can verify nothing says so: answering
+    // `address(0)` would tell the caller "nobody holds this handle" about a
+    // platform that is not wired yet.
+    let unwired = registry.resolveId(platform_id, "12345".into()).call().await;
     assert!(
         unwired.is_err(),
         "an unwired platform answered instead of reverting UnknownPlatform"
@@ -470,9 +473,6 @@ async fn deploys_and_initializes_every_platform_verifier() {
             Initializer,
             PlatformVerifier,
             TlsNotaryRoots,
-            MAX_FUTURE_ATTESTATION_SKEW,
-            MAX_FUTURE_OBSERVATION_ALLOWANCE,
-            MAX_PROOF_LIFETIME,
         },
         Error,
     };
@@ -544,14 +544,10 @@ async fn deploys_and_initializes_every_platform_verifier() {
         owner: deployer,
         notary_service: notary_proxy,
         honk_verifier: bearer_link,
-        proof_lifetime: libid_profiles::PROOF_LIFETIME_SECONDS_X,
-        max_future_attestation_skew: libid_profiles::MAX_FUTURE_ATTESTATION_SKEW_SECONDS,
-        future_observation_allowance: 300,
     };
     let google = GoogleRoots {
         owner: deployer,
         honk_verifier: oidc_google,
-        future_observation_allowance: 7200,
         jwt_roots: roots_proxy,
     };
     let proof_verifier = CeremonyProofVerifier::new(proof_verifier_proxy, &provider);
@@ -594,27 +590,30 @@ async fn deploys_and_initializes_every_platform_verifier() {
                     v.honkVerifierCodehash().call().await.unwrap(),
                     honk_codehash
                 );
+                // The window is compiled into the contract from the same
+                // profile table the generated constants come from.
+                let window = if verifier == PlatformVerifier::X {
+                    (
+                        libid_profiles::PROOF_LIFETIME_SECONDS_X,
+                        libid_profiles::MAX_FUTURE_ATTESTATION_SKEW_SECONDS_X,
+                        libid_profiles::FUTURE_OBSERVATION_ALLOWANCE_SECONDS_X,
+                    )
+                } else {
+                    (
+                        libid_profiles::PROOF_LIFETIME_SECONDS_GITHUB,
+                        libid_profiles::MAX_FUTURE_ATTESTATION_SKEW_SECONDS_GITHUB,
+                        libid_profiles::FUTURE_OBSERVATION_ALLOWANCE_SECONDS_GITHUB,
+                    )
+                };
                 let params = v.protocolParameters().call().await.unwrap();
-                assert_eq!(params.proofLifetime, tls.proof_lifetime);
                 assert_eq!(
-                    params.maxFutureAttestationSkew,
-                    tls.max_future_attestation_skew
-                );
-                assert_eq!(
-                    params.futureObservationAllowance,
-                    tls.future_observation_allowance
-                );
-                assert_eq!(
-                    v.MAX_PROOF_LIFETIME().call().await.unwrap(),
-                    MAX_PROOF_LIFETIME
-                );
-                assert_eq!(
-                    v.MAX_FUTURE_ATTESTATION_SKEW().call().await.unwrap(),
-                    MAX_FUTURE_ATTESTATION_SKEW
-                );
-                assert_eq!(
-                    v.MAX_FUTURE_OBSERVATION_ALLOWANCE().call().await.unwrap(),
-                    MAX_FUTURE_OBSERVATION_ALLOWANCE
+                    (
+                        params.proofLifetime,
+                        params.maxFutureAttestationSkew,
+                        params.futureObservationAllowance
+                    ),
+                    window,
+                    "{verifier:?}"
                 );
                 let quote = v.quote().call().await.unwrap();
                 assert_eq!(quote, fee * U256::from(2));
@@ -635,7 +634,7 @@ async fn deploys_and_initializes_every_platform_verifier() {
                 assert_eq!(params.maxFutureAttestationSkew, 0);
                 assert_eq!(
                     params.futureObservationAllowance,
-                    google.future_observation_allowance
+                    libid_profiles::FUTURE_OBSERVATION_ALLOWANCE_SECONDS_GOOGLE
                 );
                 let quote = v.quote().call().await.unwrap();
                 assert_eq!(quote, U256::ZERO);
@@ -697,7 +696,6 @@ async fn deploys_and_initializes_every_platform_verifier() {
         notary_: notary_proxy,
         honkVerifier_: honk,
         honkVerifierCodehash_: honk_codehash,
-        futureObservationAllowance_: 7200,
         jwtRoots_: roots_proxy,
     };
     let err = deploy_behind_proxy(
@@ -720,9 +718,6 @@ async fn deploys_and_initializes_every_platform_verifier() {
         notary_: notary_proxy,
         honkVerifier_: honk,
         honkVerifierCodehash_: keccak256("some other artifact"),
-        proofLifetime_: 3600,
-        maxFutureAttestationSkew_: 300,
-        futureObservationAllowance_: 300,
     };
     let err = deploy_behind_proxy(
         &provider,
@@ -742,7 +737,7 @@ async fn deploys_and_initializes_every_platform_verifier() {
 }
 
 /// (e2) The handle escrow against a real chain: pay an unclaimed handle by its
-/// hash, check the value lands on the naming system's node, and refund it. The
+/// hash, check the value lands on the registry's node, and refund it. The
 /// payout path needs a stub Platform Verifier, which is kept out of this
 /// crate's artifacts; the Solidity suite covers it.
 #[tokio::test]
@@ -793,11 +788,11 @@ async fn escrows_value_against_an_unclaimed_handle() {
     )
     .await
     .unwrap();
-    let names_proxy = deploy_behind_proxy(
+    let registry_proxy = deploy_behind_proxy(
         &provider,
         &artifacts,
-        "IdentityNames",
-        &IdentityNames::initializeCall { owner_: deployer },
+        "IdentityRegistry",
+        &IdentityRegistry::initializeCall { owner_: deployer },
         None,
     )
     .await
@@ -809,8 +804,8 @@ async fn escrows_value_against_an_unclaimed_handle() {
         PlatformVerifier::GitHub.platform_id(),
         "the test and the crate name GitHub differently"
     );
-    let names = IdentityNames::new(names_proxy, &provider);
-    names
+    let registry = IdentityRegistry::new(registry_proxy, &provider);
+    registry
         .setProofVerifier(proof_verifier_proxy)
         .send()
         .await
@@ -818,10 +813,10 @@ async fn escrows_value_against_an_unclaimed_handle() {
         .get_receipt()
         .await
         .unwrap();
-    names
+    registry
         .setPlatform(
             platform_id,
-            IdentityNames::Rules {
+            IdentityRegistry::Rules {
                 maxLength: 39,
                 stripLeadingAt: true,
                 isEmail: false,
@@ -845,9 +840,6 @@ async fn escrows_value_against_an_unclaimed_handle() {
         owner: deployer,
         notary_service: notary_proxy,
         honk_verifier: honk,
-        proof_lifetime: libid_profiles::PROOF_LIFETIME_SECONDS_GITHUB,
-        max_future_attestation_skew: libid_profiles::MAX_FUTURE_ATTESTATION_SKEW_SECONDS,
-        future_observation_allowance: 300,
     });
     let github_proxy = deploy_platform_verifier(&provider, &artifacts, &github, None)
         .await
@@ -860,7 +852,7 @@ async fn escrows_value_against_an_unclaimed_handle() {
         .get_receipt()
         .await
         .unwrap();
-    assert!(names.acceptsBindings(platform_id).call().await.unwrap());
+    assert!(registry.acceptsBindings(platform_id).call().await.unwrap());
 
     let escrow_proxy = deploy_behind_proxy(
         &provider,
@@ -868,7 +860,7 @@ async fn escrows_value_against_an_unclaimed_handle() {
         "HandleEscrow",
         &HandleEscrow::initializeCall {
             owner_: deployer,
-            names_: names_proxy,
+            registry_: registry_proxy,
         },
         None,
     )
@@ -877,15 +869,15 @@ async fn escrows_value_against_an_unclaimed_handle() {
     let escrow = HandleEscrow::new(escrow_proxy, &provider);
     let native = escrow.NATIVE().call().await.unwrap();
 
-    // The naming system hashes and keys the text; the node is pinned with `cast`.
-    let handle_hash = names
+    // The registry hashes the text into a node; the node is pinned with `cast`.
+    let handle_hash = registry
         .handleHashOf(platform_id, " Alice-1 ".into())
         .call()
         .await
         .unwrap();
     assert_eq!(handle_hash, keccak256("alice-1"));
-    let node = names
-        .nodeOfHash(platform_id, handle_hash)
+    let node = registry
+        .handleNodeOfHash(platform_id, handle_hash)
         .call()
         .await
         .unwrap();

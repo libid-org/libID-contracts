@@ -2,13 +2,14 @@
 //! platform, what it initializes with, and the rules its `initialize`
 //! enforces — checked here, off chain, before a transaction is built.
 //!
-//! `PlatformVerifierBase.__PlatformVerifierBase_init` refuses four things a
+//! `PlatformVerifierBase.__PlatformVerifierBase_init` refuses three things a
 //! deployer would otherwise rediscover at the proxy's constructor revert:
 //! a Notary Service that does not match what the profile notarizes (a
 //! TLSNotary profile must hold one, Google must hold none), a code hash
 //! that is zero, `keccak256("")` or not the hash of the code at the Honk
-//! verifier's address, a parameter over its ceiling, and a zero owner or
-//! root list. [`Initializer::call`] reads the code hash off the chain, checks
+//! verifier's address, and a zero owner or root list. The validity window is
+//! not among them: each verifier reads its profile's from `CeremonyProfile`,
+//! so a deployment supplies none. [`Initializer::call`] reads the code hash off the chain, checks
 //! the rest, and builds the exact `initialize` call;
 //! [`deploy_platform_verifier`] puts the implementation behind a fresh
 //! ERC1967 proxy with it.
@@ -44,15 +45,6 @@ use crate::{
         Result,
     },
 };
-
-/// Ceiling on `proofLifetime`, in seconds: `PlatformVerifierBase.MAX_PROOF_LIFETIME`.
-pub const MAX_PROOF_LIFETIME: u64 = 30 * 24 * 60 * 60;
-/// Ceiling on `maxFutureAttestationSkew`, in seconds:
-/// `PlatformVerifierBase.MAX_FUTURE_ATTESTATION_SKEW`.
-pub const MAX_FUTURE_ATTESTATION_SKEW: u64 = 24 * 60 * 60;
-/// Ceiling on `futureObservationAllowance`, in seconds:
-/// `PlatformVerifierBase.MAX_FUTURE_OBSERVATION_ALLOWANCE`.
-pub const MAX_FUTURE_OBSERVATION_ALLOWANCE: u64 = 24 * 60 * 60;
 
 /// One of the three launch Platform Verifiers.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -119,10 +111,10 @@ impl PlatformVerifier {
 }
 
 /// What a TLSNotary Platform Verifier (`x/v1`, `github/v1`) initializes
-/// with: its trust roots and governance parameters.
+/// with: its owner and trust roots.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct TlsNotaryRoots {
-    /// Governance. Rotates the roots, moves the parameters, upgrades.
+    /// Governance. Rotates the roots, upgrades.
     pub owner: Address,
     /// The Notary Service both attestations are authenticated through.
     /// Required: the profile pins one (REQ-COMMON-18).
@@ -130,30 +122,16 @@ pub struct TlsNotaryRoots {
     /// The bb-generated UltraHonk verifier for this platform's circuit. Its
     /// code hash is read off chain and pinned beside it.
     pub honk_verifier: Address,
-    /// Maximum age of the token attestation, in seconds; at most
-    /// [`MAX_PROOF_LIFETIME`].
-    pub proof_lifetime: u64,
-    /// Maximum lead over block time an attestation may carry, in seconds;
-    /// at most [`MAX_FUTURE_ATTESTATION_SKEW`].
-    pub max_future_attestation_skew: u64,
-    /// How far ahead of block time the evidence time may run, in seconds;
-    /// at most [`MAX_FUTURE_OBSERVATION_ALLOWANCE`].
-    pub future_observation_allowance: u64,
 }
 
 /// What the Google Platform Verifier initializes with. No Notary Service:
-/// the profile notarizes nothing, and the base refuses one. No lifetime and
-/// no skew: the signed `exp` is the whole validity ceiling.
+/// the profile notarizes nothing, and the base refuses one.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct GoogleRoots {
     /// Governance.
     pub owner: Address,
     /// The bb-generated UltraHonk verifier for the Google OIDC circuit.
     pub honk_verifier: Address,
-    /// How far ahead of block time the signed `exp` may run, in seconds; at
-    /// most [`MAX_FUTURE_OBSERVATION_ALLOWANCE`]. Google's runs about an
-    /// hour ahead.
-    pub future_observation_allowance: u64,
     /// The `GoogleJwtRoots` proxy the trusted moduli are read through.
     pub jwt_roots: Address,
 }
@@ -217,9 +195,9 @@ impl Initializer {
 
     /// The rules `initialize` enforces that need no chain: a nonzero owner,
     /// a nonzero Honk verifier, a Notary Service where the profile notarizes
-    /// (the Google shape cannot carry one at all), a nonzero root list for
-    /// Google, and every parameter under its ceiling. The code hash is the
-    /// one rule left to [`call`](Self::call).
+    /// (the Google shape cannot carry one at all), and a nonzero root list
+    /// for Google. The code hash is the one rule left to
+    /// [`call`](Self::call).
     pub fn check(&self) -> Result<()> {
         let contract = self.verifier().contract();
         let refuse = |detail: String| Error::Initializer {
@@ -228,14 +206,6 @@ impl Initializer {
         let nonzero = |what: &str, address: Address| {
             if address == Address::ZERO {
                 return Err(refuse(format!("{what} is the zero address")));
-            }
-            Ok(())
-        };
-        let capped = |what: &str, value: u64, limit: u64| {
-            if value > limit {
-                return Err(refuse(format!(
-                    "{what} {value}s exceeds the ceiling {limit}s"
-                )));
             }
             Ok(())
         };
@@ -251,27 +221,12 @@ impl Initializer {
                             .into(),
                     ));
                 }
-                capped("proof lifetime", roots.proof_lifetime, MAX_PROOF_LIFETIME)?;
-                capped(
-                    "max future attestation skew",
-                    roots.max_future_attestation_skew,
-                    MAX_FUTURE_ATTESTATION_SKEW,
-                )?;
-                capped(
-                    "future observation allowance",
-                    roots.future_observation_allowance,
-                    MAX_FUTURE_OBSERVATION_ALLOWANCE,
-                )
+                Ok(())
             }
             Self::Google(roots) => {
                 nonzero("owner", roots.owner)?;
                 nonzero("honk verifier", roots.honk_verifier)?;
-                nonzero("jwt roots", roots.jwt_roots)?;
-                capped(
-                    "future observation allowance",
-                    roots.future_observation_allowance,
-                    MAX_FUTURE_OBSERVATION_ALLOWANCE,
-                )
+                nonzero("jwt roots", roots.jwt_roots)
             }
         }
     }
@@ -296,9 +251,6 @@ impl Initializer {
                     notary_: roots.notary_service,
                     honkVerifier_: roots.honk_verifier,
                     honkVerifierCodehash_: codehash,
-                    proofLifetime_: roots.proof_lifetime,
-                    maxFutureAttestationSkew_: roots.max_future_attestation_skew,
-                    futureObservationAllowance_: roots.future_observation_allowance,
                 })
             }
             Self::Google(roots) => {
@@ -310,7 +262,6 @@ impl Initializer {
                     notary_: Address::ZERO,
                     honkVerifier_: roots.honk_verifier,
                     honkVerifierCodehash_: codehash,
-                    futureObservationAllowance_: roots.future_observation_allowance,
                     jwtRoots_: roots.jwt_roots,
                 })
             }
@@ -372,9 +323,6 @@ mod tests {
             owner: Address::repeat_byte(0x01),
             notary_service: Address::repeat_byte(0x02),
             honk_verifier: Address::repeat_byte(0x03),
-            proof_lifetime: 3600,
-            max_future_attestation_skew: 300,
-            future_observation_allowance: 300,
         }
     }
 
@@ -382,7 +330,6 @@ mod tests {
         GoogleRoots {
             owner: Address::repeat_byte(0x01),
             honk_verifier: Address::repeat_byte(0x03),
-            future_observation_allowance: 7200,
             jwt_roots: Address::repeat_byte(0x04),
         }
     }
@@ -449,41 +396,6 @@ mod tests {
         assert!(matches!(err, Error::Initializer { .. }), "{err}");
         assert!(err.to_string().contains("notary service"), "{err}");
         assert!(err.to_string().contains("GitHubPlatformVerifier"), "{err}");
-    }
-
-    #[test]
-    fn parameters_over_their_ceilings_are_refused() {
-        let over = [
-            Initializer::X(TlsNotaryRoots {
-                proof_lifetime: MAX_PROOF_LIFETIME + 1,
-                ..tls()
-            }),
-            Initializer::X(TlsNotaryRoots {
-                max_future_attestation_skew: MAX_FUTURE_ATTESTATION_SKEW + 1,
-                ..tls()
-            }),
-            Initializer::X(TlsNotaryRoots {
-                future_observation_allowance: MAX_FUTURE_OBSERVATION_ALLOWANCE + 1,
-                ..tls()
-            }),
-            Initializer::Google(GoogleRoots {
-                future_observation_allowance: MAX_FUTURE_OBSERVATION_ALLOWANCE + 1,
-                ..google()
-            }),
-        ];
-        for init in over {
-            let err = init.check().unwrap_err();
-            assert!(err.to_string().contains("exceeds the ceiling"), "{err}");
-        }
-        // At the ceiling is allowed.
-        Initializer::X(TlsNotaryRoots {
-            proof_lifetime: MAX_PROOF_LIFETIME,
-            max_future_attestation_skew: MAX_FUTURE_ATTESTATION_SKEW,
-            future_observation_allowance: MAX_FUTURE_OBSERVATION_ALLOWANCE,
-            ..tls()
-        })
-        .check()
-        .unwrap();
     }
 
     #[test]

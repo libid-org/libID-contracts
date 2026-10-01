@@ -34,8 +34,7 @@ contract GitHubPlatformVerifierTest is Test {
     address constant OWNER = address(0xA11CE);
     uint256 constant NOTARY_KEY = 0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80;
     uint256 constant FEE = 0.001 ether;
-    uint64 constant LIFETIME = 3600;
-    uint64 constant SKEW = 300;
+    uint64 constant ALLOWANCE = CeremonyProfile.FUTURE_OBSERVATION_ALLOWANCE_SECONDS_GITHUB;
     uint64 constant T0 = 1_770_000_000;
 
     bytes32 constant DOMAIN = keccak256(bytes("libid.claim-identity"));
@@ -65,15 +64,7 @@ contract GitHubPlatformVerifierTest is Test {
                     address(vImpl),
                     abi.encodeCall(
                         GitHubPlatformVerifier.initialize,
-                        (
-                            OWNER,
-                            INotaryService(address(notary)),
-                            IHonkVerifier(honkAddr),
-                            honkAddr.codehash,
-                            LIFETIME,
-                            SKEW,
-                            SKEW
-                        )
+                        (OWNER, INotaryService(address(notary)), IHonkVerifier(honkAddr), honkAddr.codehash)
                     )
                 )
             )
@@ -264,7 +255,7 @@ contract GitHubPlatformVerifierTest is Test {
         // one's evidence time is an attestation creation time, Google's is a
         // signed expiry an hour ahead -- so each verifier subtracts its own
         // allowance and a Consumer can compare the two.
-        assertEq(f.metadataObservedAt, T0 - SKEW);
+        assertEq(f.metadataObservedAt, T0 - ALLOWANCE);
     }
 
     /// @dev The `Iv1.` prefix is why the serializer-safe set includes the dot.
@@ -828,7 +819,7 @@ contract GitHubPlatformVerifierTest is Test {
         assertEq(f.operationDomain, DOMAIN);
         assertEq(f.transactionData, _txData());
         assertEq(f.ceremonyVersion, 1);
-        assertEq(f.metadataObservedAt, T0 - SKEW);
+        assertEq(f.metadataObservedAt, T0 - ALLOWANCE);
     }
 
     function test_refusesARealProofWithOneByteFlipped() public {

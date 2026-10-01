@@ -1,7 +1,7 @@
 //! Bindings for the handle escrow (`solidity/contracts/escrow/`): value held
-//! against a handle node until its holder in `IdentityNames` claims it, and
+//! against a handle node until its holder in `IdentityRegistry` claims it, and
 //! refundable to each deposit's `refundTo` until then. `deposit` takes
-//! `keccak256(normalized handle)`, from `IdentityNames.handleHashOf` or
+//! `keccak256(normalized handle)`, from `IdentityRegistry.handleHashOf` or
 //! computed locally.
 
 /// Bindings for `escrow/HandleEscrow.sol`.
@@ -12,7 +12,7 @@ mod escrow_inner {
     sol! {
         #[sol(rpc, abi)]
         interface HandleEscrow {
-            function initialize(address owner_, address names_) external;
+            function initialize(address owner_, address registry_) external;
 
             /// Pay a handle by its hash. A held node is paid straight through
             /// (`Forwarded`); otherwise the value is escrowed (`Deposited`) and
@@ -38,7 +38,8 @@ mod escrow_inner {
             function escrowed(bytes32 handleNode, address token) external view returns (uint256);
             /// What `refund` would pay `refundTo` now.
             function refundable(bytes32 handleNode, address token, address refundTo) external view returns (uint256);
-            function names() external view returns (address);
+            /// The identity registry the escrow resolves through.
+            function registry() external view returns (address);
             /// The EIP-7528 native-token address, `0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE`.
             function NATIVE() external view returns (address);
 
@@ -111,9 +112,9 @@ mod escrow_inner {
             error NativeTransferFailed(address recipient, uint256 amount);
             /// A payout took more of the escrow's balance than it booked.
             error OverDebited(address token, uint256 booked, uint256 debited);
-            error NoNames();
-            /// `initialize`: the naming contract does not answer `selector`.
-            error NamesLacks(address names, bytes4 selector);
+            error NoRegistry();
+            /// `initialize`: the registry does not answer `selector`.
+            error RegistryLacks(address registry, bytes4 selector);
             error RenounceDisabled();
             error OwnableUnauthorizedAccount(address account);
             error OwnableInvalidOwner(address owner);

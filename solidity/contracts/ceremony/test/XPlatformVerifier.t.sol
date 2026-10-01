@@ -29,6 +29,35 @@ contract AcceptingHonk is IHonkVerifier {
     }
 }
 
+/// @notice A profile no launch profile is: its allowance sits below its skew.
+contract SkewPastAllowance is PlatformVerifierBase {
+    uint64 public constant SKEW = 300;
+
+    function requireFresh(uint64 createdAt) external view returns (uint64) {
+        return _requireFresh(createdAt);
+    }
+
+    function _platform() internal pure override returns (bytes32) {
+        return CeremonyProfile.PLATFORM_X;
+    }
+
+    function _ceremonyVersion() internal pure override returns (uint16) {
+        return CeremonyProfile.LAUNCH_VERSION;
+    }
+
+    function _proofLifetime() internal pure override returns (uint64) {
+        return 3600;
+    }
+
+    function _maxFutureAttestationSkew() internal pure override returns (uint64) {
+        return SKEW;
+    }
+
+    function _futureObservationAllowance() internal pure override returns (uint64) {
+        return 0;
+    }
+}
+
 /// @notice The `x/v1` path end to end: two attestations, a real notary
 ///         signature over each, and every check the profile assigns here.
 contract XPlatformVerifierTest is Test {
@@ -44,8 +73,9 @@ contract XPlatformVerifierTest is Test {
     address constant OWNER = address(0xA11CE);
     uint256 constant NOTARY_KEY = 0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80;
     uint256 constant FEE = 0.001 ether;
-    uint64 constant LIFETIME = 3600;
-    uint64 constant SKEW = 300;
+    uint64 constant LIFETIME = CeremonyProfile.PROOF_LIFETIME_SECONDS_X;
+    uint64 constant SKEW = CeremonyProfile.MAX_FUTURE_ATTESTATION_SKEW_SECONDS_X;
+    uint64 constant ALLOWANCE = CeremonyProfile.FUTURE_OBSERVATION_ALLOWANCE_SECONDS_X;
     uint64 constant T0 = 1_770_000_000;
 
     bytes32 constant DOMAIN = keccak256(bytes("libid.claim-identity"));
@@ -79,15 +109,7 @@ contract XPlatformVerifierTest is Test {
                     address(vImpl),
                     abi.encodeCall(
                         XPlatformVerifier.initialize,
-                        (
-                            OWNER,
-                            INotaryService(address(notary)),
-                            IHonkVerifier(address(honk)),
-                            address(honk).codehash,
-                            LIFETIME,
-                            SKEW,
-                            SKEW
-                        )
+                        (OWNER, INotaryService(address(notary)), IHonkVerifier(address(honk)), address(honk).codehash)
                     )
                 )
             )
@@ -301,7 +323,7 @@ contract XPlatformVerifierTest is Test {
         // one's evidence time is an attestation creation time, Google's is a
         // signed expiry an hour ahead -- so each verifier subtracts its own
         // allowance and a Consumer can compare the two.
-        assertEq(f.metadataObservedAt, T0 - SKEW);
+        assertEq(f.metadataObservedAt, T0 - ALLOWANCE);
     }
 
     function test_quotesTwoNotaryFees() public view {
@@ -676,7 +698,7 @@ contract XPlatformVerifierTest is Test {
         assertEq(f.operationDomain, DOMAIN);
         assertEq(f.transactionData, _txData());
         assertEq(f.ceremonyVersion, 1);
-        assertEq(f.metadataObservedAt, T0 - SKEW);
+        assertEq(f.metadataObservedAt, T0 - ALLOWANCE);
     }
 
     function test_refusesARealProofWithOneByteFlipped() public {
@@ -814,77 +836,39 @@ contract XPlatformVerifierTest is Test {
         this.run{value: quote}(s);
     }
 
-    /// @dev Each parameter is capped, and the cap is not cosmetic.
-    ///      `blockTime + skew` and `blockTime + allowance` are checked sums, so
-    ///      a value near `type(uint64).max` panics EVERY verification through
-    ///      this contract rather than widening its window -- and a governance
-    ///      typo that only an upgrade can undo is the worst shape a parameter
-    ///      can take.
-    function test_refusesAnUnusableSkew() public {
-        vm.prank(OWNER);
-        vm.expectPartialRevert(PlatformVerifierBase.ParameterTooLarge.selector);
-        verifier.setProtocolParameters(LIFETIME, type(uint64).max, SKEW);
-    }
-
-    function test_refusesAnUnusableObservationAllowance() public {
-        vm.prank(OWNER);
-        vm.expectPartialRevert(PlatformVerifierBase.ParameterTooLarge.selector);
-        verifier.setProtocolParameters(LIFETIME, SKEW, type(uint64).max);
-    }
-
-    /// @dev A lifetime past the cap does not panic; it keeps a proof spendable
-    ///      long after the session it attests, which the parameter exists to
-    ///      stop.
-    function test_refusesAnUnboundedLifetime() public {
-        // Read before the cheatcodes: an argument is a call of its own, and
-        // `expectRevert` would bind to it rather than to the setter.
-        uint64 tooLong = verifier.MAX_PROOF_LIFETIME() + 1;
-        vm.prank(OWNER);
-        vm.expectPartialRevert(PlatformVerifierBase.ParameterTooLarge.selector);
-        verifier.setProtocolParameters(tooLong, SKEW, SKEW);
-    }
-
-    /// @dev The caps are ceilings, not targets: the profile's own defaults sit
-    ///      far below them and stay settable.
-    function test_acceptsTheSpecifiedDefaults() public {
-        vm.prank(OWNER);
-        verifier.setProtocolParameters(3600, 300, 3600);
+    /// @dev The window is the profile's, read as constants (REQ-PARAM-01).
+    function test_theValidityIsTheProfiles() public view {
         (uint64 lifetime, uint64 skew, uint64 allowance) = verifier.protocolParameters();
-        assertEq(lifetime, 3600);
-        assertEq(skew, 300);
-        assertEq(allowance, 3600);
+        assertEq(lifetime, CeremonyProfile.PROOF_LIFETIME_SECONDS_X);
+        assertEq(skew, CeremonyProfile.MAX_FUTURE_ATTESTATION_SKEW_SECONDS_X);
+        assertEq(allowance, CeremonyProfile.FUTURE_OBSERVATION_ALLOWANCE_SECONDS_X);
     }
 
-    /// @dev Governance-owned, read at verification time, with no caller
-    ///      substitute (REQ-PARAM-02).
-    function test_loweringTheLifetimeRejectsAnOutstandingProof() public {
+    /// @dev Nothing moves the window, the owner included. A browser derives a
+    ///      proof's expiry from the version it ran, so an outstanding proof
+    ///      stays good until the expiry that version fixes.
+    function test_theOwnerCannotShortenAnOutstandingProof() public {
         vm.warp(T0 + 100);
-        this.run{value: quote}(_payload());
-
         vm.prank(OWNER);
-        verifier.setProtocolParameters(50, SKEW, SKEW);
-        TlsNotaryVerifierBase.TlsNotaryProof memory s = _payload();
-        vm.expectPartialRevert(PlatformVerifierBase.ProofExpired.selector);
-        this.run{value: quote}(s);
+        (bool moved,) = address(verifier)
+            .call(abi.encodeWithSignature("setProtocolParameters(uint64,uint64,uint64)", uint64(50), SKEW, ALLOWANCE));
+        assertFalse(moved, "the owner moved the window");
+        this.run{value: quote}(_payload());
     }
 
-    /// @dev `maxFutureAttestationSkew` and `futureObservationAllowance` are
-    ///      two numbers for two jobs -- how far ahead a notary's clock may
-    ///      read, and how far ahead the watermark may sit -- and governance
-    ///      sets them apart. Passing the first said nothing about the second,
-    ///      so an attestation inside the skew but past the allowance wrote a
+    /// @dev `maxFutureAttestationSkew` and `futureObservationAllowance` are two
+    ///      numbers for two jobs -- how far ahead a notary's clock may read,
+    ///      and how far ahead the watermark may sit. No launch profile fixes an
+    ///      allowance below its skew, so a profile made for the purpose shows
+    ///      that passing the first says nothing about the second: an
+    ///      attestation inside the skew but past the allowance would write a
     ///      watermark in the future, and every honest later proof of that name
-    ///      read as stale until the clock caught up.
+    ///      would read as stale until the clock caught up.
     function test_rejectsAnAttestationPastTheObservationAllowanceButInsideTheSkew() public {
-        vm.prank(OWNER);
-        verifier.setProtocolParameters(LIFETIME, SKEW, 0);
-
-        // T0 is SKEW ahead of the warp in setUp, so it passes the skew and not
-        // a zero allowance.
-        vm.warp(T0 - SKEW);
-        TlsNotaryVerifierBase.TlsNotaryProof memory s = _payload();
+        SkewPastAllowance window = new SkewPastAllowance();
+        vm.warp(T0 - window.SKEW());
         vm.expectPartialRevert(PlatformVerifierBase.ObservedInTheFuture.selector);
-        this.run{value: quote}(s);
+        window.requireFresh(T0);
     }
 
     // ─── The proof artifact (REQ-COMMON-45) ─────────────────────────
@@ -1262,24 +1246,14 @@ contract XPlatformVerifierTest is Test {
             address(impl),
             abi.encodeCall(
                 XPlatformVerifier.initialize,
-                (
-                    OWNER,
-                    INotaryService(address(0)),
-                    IHonkVerifier(address(honk)),
-                    address(honk).codehash,
-                    LIFETIME,
-                    SKEW,
-                    SKEW
-                )
+                (OWNER, INotaryService(address(0)), IHonkVerifier(address(honk)), address(honk).codehash)
             )
         );
     }
 
-    function test_onlyTheOwnerRotatesRootsAndParameters() public {
+    function test_onlyTheOwnerRotatesRoots() public {
         vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, address(this)));
         verifier.setTrustRoots(INotaryService(address(notary)), IHonkVerifier(address(honk)), address(honk).codehash);
-        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, address(this)));
-        verifier.setProtocolParameters(1, 1, 1);
     }
 
     function test_zeroHonkVerifierIsRefused() public {
@@ -1816,7 +1790,7 @@ contract XPlatformVerifierTest is Test {
         }
         a[39] = 0x01;
         s.identitySession = ICeremony.Attestation({attestedData: a, proof: _sign(a)});
-        assertEq(this.run{value: quote}(s).metadataObservedAt, T0 - SKEW);
+        assertEq(this.run{value: quote}(s).metadataObservedAt, T0 - ALLOWANCE);
     }
 
     function test_aMalformedPayloadRevertsWithNoData() public {

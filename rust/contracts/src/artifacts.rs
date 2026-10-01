@@ -47,10 +47,10 @@ pub const COVERED: &[(&str, &str)] = &[
     ("BearerLinkHonkVerifier", "BearerLinkHonkVerifier"),
     ("OidcGoogleHonkVerifier", "OidcGoogleHonkVerifier"),
     // identity
-    ("IdentityNames", "IdentityNames"),
+    ("IdentityRegistry", "IdentityRegistry"),
     // ens (deployed once per network, not CREATE3-canonical)
     ("HandleResolver", "HandleResolver"),
-    // escrow: value held against a handle nobody has claimed yet
+    // escrow: value held against a handle nobody holds yet
     ("HandleEscrow", "HandleEscrow"),
     // factory
     ("LibidFactory", "LibidFactory"),

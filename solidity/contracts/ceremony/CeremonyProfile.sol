@@ -5,8 +5,8 @@ pragma solidity ^0.8.24;
 // The source of truth is solidity/contracts/ceremony/profiles.json.
 
 /// @title CeremonyProfile
-/// @notice The tags a Platform Verifier pins, and the governance-owned
-///         protocol parameters it reads.
+/// @notice The tags a Platform Verifier pins, and the validity window
+///         each profile fixes.
 ///
 /// The single source of truth for the ceremony profiles. Solidity, Rust and
 /// TypeScript constants are generated from this file by
@@ -113,6 +113,37 @@ library CeremonyProfile {
     string internal constant X_HANDLE_FIELD = "username";
     string internal constant GITHUB_ID_FIELD = "id";
     string internal constant GITHUB_HANDLE_FIELD = "login";
+
+    // --- Validity -------------------------------------------------------------
+
+    /// @dev The seconds each profile fixes. A Platform Verifier reads them as
+    ///      constants: they belong to the profile like its request lines, an upgrade
+    ///      of the verifier keeps them, and a different value is a new
+    ///      ceremonyVersion (REQ-PARAM-01). A browser that knows the version it ran
+    ///      therefore knows the validity every chain enforces. `IdentityRegistry`
+    ///      supersedes a binding only on a strictly newer `observedAt`, so an
+    ///      allowance too generous lets a proof dated ahead hold a name until the
+    ///      clock catches up.
+
+    // The signed `exp` bounds validity, so the profile fixes no lifetime
+    // and no attestation skew. The OIDC circuit exposes no `iat`, so the
+    // observation is the token's `exp`: Google issues about an hour of
+    // life, and the claim reads roughly an hour ahead of the moment it
+    // describes.
+    uint64 internal constant FUTURE_OBSERVATION_ALLOWANCE_SECONDS_GOOGLE = 7200;
+
+    // The token attestation's creation time is the evidence time. A
+    // notary states wall-clock time as it observes it, so the observation
+    // is never ahead: five minutes covers clock skew between the notary
+    // and the chain.
+    uint64 internal constant PROOF_LIFETIME_SECONDS_X = 3600;
+    uint64 internal constant MAX_FUTURE_ATTESTATION_SKEW_SECONDS_X = 300;
+    uint64 internal constant FUTURE_OBSERVATION_ALLOWANCE_SECONDS_X = 300;
+
+    // Same as X: notary wall-clock, five minutes for skew.
+    uint64 internal constant PROOF_LIFETIME_SECONDS_GITHUB = 3600;
+    uint64 internal constant MAX_FUTURE_ATTESTATION_SKEW_SECONDS_GITHUB = 300;
+    uint64 internal constant FUTURE_OBSERVATION_ALLOWANCE_SECONDS_GITHUB = 300;
 
     // --- Launch profile shape ------------------------------------------------
 

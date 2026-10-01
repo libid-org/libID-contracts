@@ -7,8 +7,8 @@
 //! `verify` is on none of the Platform Verifier interfaces, for the reason it
 //! is on neither `NotaryService` nor `CeremonyProofVerifier`: a contract on
 //! the route calls it with the fee attached, and the decoded claim comes back
-//! to that contract. What an operator does from here is initialize, rotate
-//! the trust roots and move the governance parameters — see
+//! to that contract. What an operator does from here is initialize and
+//! rotate the trust roots — see
 //! [`platform_verifier`](crate::platform_verifier) for the initializer that
 //! checks the rules first.
 
@@ -64,7 +64,7 @@ pub use notary_service_inner::NotaryService;
 ///
 /// The Supported Version Set: which Platform Verifier answers for a
 /// `(platformId, verifierVersion)` pair. Governance registers one with
-/// `setVerifier`; `IdentityNames.claim` dispatches through `verify`, which is
+/// `setVerifier`; `IdentityRegistry.bind` dispatches through `verify`, which is
 /// not on this interface for the same reason `NotaryService.verify` is not —
 /// it is called by the consumer contract with the fee attached.
 #[allow(clippy::too_many_arguments, unused_attributes)]
@@ -194,8 +194,8 @@ pub use google_jwt_roots_inner::GoogleJwtRoots;
 /// address for a profile whose Attestation Count is nonzero
 /// (`WrongNotaryForProfile`). `honkVerifierCodehash_` must equal
 /// `address(honkVerifier_).codehash` and be neither zero nor `keccak256("")`
-/// (`WrongVerifierArtifact`); the three parameters are capped by the `MAX_*`
-/// constants (`ParameterTooLarge`).
+/// (`WrongVerifierArtifact`). The validity window is the profile's, fixed in
+/// the contract: `protocolParameters()` reads it, and nothing sets it.
 #[allow(clippy::too_many_arguments, unused_attributes)]
 mod tls_notary_platform_verifier_inner {
     use alloy::sol;
@@ -210,10 +210,7 @@ mod tls_notary_platform_verifier_inner {
                 address owner_,
                 address notary_,
                 address honkVerifier_,
-                bytes32 honkVerifierCodehash_,
-                uint64 proofLifetime_,
-                uint64 maxFutureAttestationSkew_,
-                uint64 futureObservationAllowance_
+                bytes32 honkVerifierCodehash_
             ) external;
 
             /// The identity platform this verifier serves: `keccak256` of the
@@ -231,22 +228,12 @@ mod tls_notary_platform_verifier_inner {
             function honkVerifierCodehash() external view returns (bytes32);
             function protocolParameters()
                 external
-                view
+                pure
                 returns (uint64 proofLifetime, uint64 maxFutureAttestationSkew, uint64 futureObservationAllowance);
             /// Rotate the trust roots. The same rules as `initialize`: the
             /// code hash names the artifact, and the call fails if the
             /// address does not hold it.
             function setTrustRoots(address notary_, address honkVerifier_, bytes32 honkVerifierCodehash_) external;
-            function setProtocolParameters(
-                uint64 proofLifetime_,
-                uint64 maxFutureAttestationSkew_,
-                uint64 futureObservationAllowance_
-            ) external;
-
-            /// Ceilings on the three parameters, in seconds.
-            function MAX_PROOF_LIFETIME() external view returns (uint64);
-            function MAX_FUTURE_ATTESTATION_SKEW() external view returns (uint64);
-            function MAX_FUTURE_OBSERVATION_ALLOWANCE() external view returns (uint64);
 
             function owner() external view returns (address);
             function pendingOwner() external view returns (address);
@@ -254,14 +241,10 @@ mod tls_notary_platform_verifier_inner {
             function acceptOwnership() external;
 
             event TrustRootsChanged(address notary, address honkVerifier, bytes32 honkVerifierCodehash);
-            event ProtocolParametersChanged(
-                uint64 proofLifetime, uint64 maxFutureAttestationSkew, uint64 futureObservationAllowance
-            );
 
             /// A profile that verifies no attestation holds a Notary Service,
             /// or one that verifies some holds none.
             error WrongNotaryForProfile(bytes32 platformId, address notary);
-            error ParameterTooLarge(uint64 provided, uint64 limit);
             error ZeroAddress();
             /// The verifier at that address is not the artifact named.
             error WrongVerifierArtifact(bytes32 expected, bytes32 found);
@@ -287,9 +270,9 @@ pub use tls_notary_platform_verifier_inner::{
 /// Service for a profile whose Attestation Count is zero
 /// (`WrongNotaryForProfile`), because `notaryService()` would otherwise
 /// report a collaborator nothing on this path calls. `jwtRoots_` must be
-/// nonzero (`ZeroAddress`). The code hash and the allowance follow the same
-/// rules as the TLSNotary verifiers'; the lifetime and skew read back as
-/// zero.
+/// nonzero (`ZeroAddress`). The code hash follows the same rules as the
+/// TLSNotary verifiers'. `protocolParameters()` reads the profile's
+/// allowance, and a lifetime and skew of zero.
 #[allow(clippy::too_many_arguments, unused_attributes)]
 mod google_platform_verifier_inner {
     use alloy::sol;
@@ -303,7 +286,6 @@ mod google_platform_verifier_inner {
                 address notary_,
                 address honkVerifier_,
                 bytes32 honkVerifierCodehash_,
-                uint64 futureObservationAllowance_,
                 address jwtRoots_
             ) external;
 
@@ -322,18 +304,9 @@ mod google_platform_verifier_inner {
             function honkVerifierCodehash() external view returns (bytes32);
             function protocolParameters()
                 external
-                view
+                pure
                 returns (uint64 proofLifetime, uint64 maxFutureAttestationSkew, uint64 futureObservationAllowance);
             function setTrustRoots(address notary_, address honkVerifier_, bytes32 honkVerifierCodehash_) external;
-            function setProtocolParameters(
-                uint64 proofLifetime_,
-                uint64 maxFutureAttestationSkew_,
-                uint64 futureObservationAllowance_
-            ) external;
-
-            function MAX_PROOF_LIFETIME() external view returns (uint64);
-            function MAX_FUTURE_ATTESTATION_SKEW() external view returns (uint64);
-            function MAX_FUTURE_OBSERVATION_ALLOWANCE() external view returns (uint64);
 
             function owner() external view returns (address);
             function pendingOwner() external view returns (address);
@@ -342,12 +315,8 @@ mod google_platform_verifier_inner {
 
             event JwtRootsChanged(address roots);
             event TrustRootsChanged(address notary, address honkVerifier, bytes32 honkVerifierCodehash);
-            event ProtocolParametersChanged(
-                uint64 proofLifetime, uint64 maxFutureAttestationSkew, uint64 futureObservationAllowance
-            );
 
             error WrongNotaryForProfile(bytes32 platformId, address notary);
-            error ParameterTooLarge(uint64 provided, uint64 limit);
             error ZeroAddress();
             error WrongVerifierArtifact(bytes32 expected, bytes32 found);
         }
@@ -398,10 +367,6 @@ mod tests {
                     honkVerifierCodehashCall,
                     protocolParametersCall,
                     setTrustRootsCall,
-                    setProtocolParametersCall,
-                    MAX_PROOF_LIFETIMECall,
-                    MAX_FUTURE_ATTESTATION_SKEWCall,
-                    MAX_FUTURE_OBSERVATION_ALLOWANCECall,
                     ownerCall,
                     pendingOwnerCall,
                     transferOwnershipCall,
@@ -423,10 +388,6 @@ mod tests {
                 honkVerifierCodehashCall,
                 protocolParametersCall,
                 setTrustRootsCall,
-                setProtocolParametersCall,
-                MAX_PROOF_LIFETIMECall,
-                MAX_FUTURE_ATTESTATION_SKEWCall,
-                MAX_FUTURE_OBSERVATION_ALLOWANCECall,
                 ownerCall,
                 pendingOwnerCall,
                 transferOwnershipCall,

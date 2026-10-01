@@ -10,7 +10,7 @@ import {HandleNormalizer} from "./HandleNormalizer.sol";
 ///
 /// @dev The vectors are here rather than in the test file because Rust and
 ///      TypeScript run the same table. A normalizer that disagrees with
-///      another language fails a test instead of writing a different key.
+///      another language fails a test instead of writing a different node.
 library HandleVectors {
     /// keccak256(bytes("x"))
     bytes32 internal constant PLATFORM_X = keccak256(bytes("x"));
@@ -29,7 +29,7 @@ library HandleVectors {
     /// @dev Generated so a deploy, a test and a consumer cannot each
     ///      keep their own copy. Reverts on an unknown platform rather
     ///      than returning a permissive default, because a wrong rule
-    ///      set writes wrong keys.
+    ///      set writes wrong nodes.
     function rulesFor(bytes32 platformId) internal pure returns (HandleNormalizer.Rules memory) {
         if (platformId == PLATFORM_X) {
             return HandleNormalizer.Rules({
@@ -46,28 +46,6 @@ library HandleVectors {
                 maxLength: 62, stripLeadingAt: false, isEmail: true, allowUnderscore: false, allowHyphen: false
             });
         }
-        revert("unknown platform");
-    }
-
-    /// How far ahead of the chain this platform's observations may be
-    /// dated, in seconds.
-    ///
-    /// @dev `IdentityNames` supersedes a binding only on a strictly newer
-    ///      `observedAt`, so an allowance too generous lets a proof dated
-    ///      ahead hold a name until the clock catches up — and proving
-    ///      again is the whole remedy the design relies on. Unknown
-    ///      platforms revert, like `rulesFor`.
-    function futureAllowanceFor(bytes32 platformId) internal pure returns (uint64) {
-        // A notary states wall-clock time as it observes it, so the
-        // observation is never ahead. Five minutes covers clock skew between
-        // the notary and the chain.
-        if (platformId == PLATFORM_X) return 300;
-        // Same as X: notary wall-clock, five minutes for skew.
-        if (platformId == PLATFORM_GITHUB) return 300;
-        // The OIDC circuit exposes no `iat`, so the observation is the token's
-        // `exp` — Google issues about an hour of life, and the claim therefore
-        // reads roughly an hour ahead of the moment it describes.
-        if (platformId == PLATFORM_GOOGLE) return 7200;
         revert("unknown platform");
     }
 

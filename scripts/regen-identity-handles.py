@@ -149,16 +149,16 @@ def gen_sol(spec: dict[str, Any]) -> str:
         "///",
         "/// @dev The vectors are here rather than in the test file because Rust and",
         "///      TypeScript run the same table. A normalizer that disagrees with",
-        "///      another language fails a test instead of writing a different key.",
+        "///      another language fails a test instead of writing a different node.",
         "library HandleVectors {",
     ]
 
     for p in platforms:
         name = p["key"].upper()
-        lines.append(f'    /// keccak256(bytes("{p["domain"]}"))')
+        lines.append(f'    /// keccak256(bytes("{p["key"]}"))')
         lines.append(
             f"    bytes32 internal constant PLATFORM_{name} ="
-            f' keccak256(bytes("{p["domain"]}"));'
+            f' keccak256(bytes("{p["key"]}"));'
         )
     lines.append("")
 
@@ -183,7 +183,7 @@ def gen_sol(spec: dict[str, Any]) -> str:
     lines.append(
         "    ///      than returning a permissive default, because a wrong rule"
     )
-    lines.append("    ///      set writes wrong keys.")
+    lines.append("    ///      set writes wrong nodes.")
     lines.append(
         "    function rulesFor(bytes32 platformId) internal pure"
         " returns (HandleNormalizer.Rules memory) {"
@@ -206,40 +206,6 @@ def gen_sol(spec: dict[str, Any]) -> str:
         )
         lines.append("            });")
         lines.append("        }")
-    lines.append('        revert("unknown platform");')
-    lines.append("    }")
-    lines.append("")
-
-    lines.append(
-        "    /// How far ahead of the chain this platform's observations may be"
-    )
-    lines.append("    /// dated, in seconds.")
-    lines.append("    ///")
-    lines.append(
-        "    /// @dev `IdentityNames` supersedes a binding only on a strictly newer"
-    )
-    lines.append(
-        "    ///      `observedAt`, so an allowance too generous lets a proof dated"
-    )
-    lines.append(
-        "    ///      ahead hold a name until the clock catches up — and proving"
-    )
-    lines.append(
-        "    ///      again is the whole remedy the design relies on. Unknown"
-    )
-    lines.append("    ///      platforms revert, like `rulesFor`.")
-    lines.append(
-        "    function futureAllowanceFor(bytes32 platformId) internal pure"
-        " returns (uint64) {"
-    )
-    for p_ in platforms:
-        name = p_["key"].upper()
-        for line in as_lines(p_.get("allowanceNote", "")):
-            lines.append(f"        // {line}")
-        lines.append(
-            f"        if (platformId == PLATFORM_{name})"
-            f" return {p_['futureAllowanceSeconds']};"
-        )
     lines.append('        revert("unknown platform");')
     lines.append("    }")
     lines.append("")
@@ -308,7 +274,7 @@ def gen_rust(spec: dict[str, Any]) -> str:
     for p in platforms:
         lines.append("/// keccak256 of this string is the platform id.")
         lines.append(
-            f'pub const PLATFORM_{p["key"].upper()}_DOMAIN: &str = "{p["domain"]}";'
+            f'pub const PLATFORM_{p["key"].upper()}_KEY: &str = "{p["key"]}";'
         )
     lines.append("")
 
@@ -329,15 +295,6 @@ def gen_rust(spec: dict[str, Any]) -> str:
             lines.append(
                 f"pub const {flag}_{name}: bool = {'true' if value else 'false'};"
             )
-    lines.append("")
-
-    for p in platforms:
-        for line in as_lines(p.get("allowanceNote", "")):
-            lines.append(f"/// {line}")
-        lines.append(
-            f"pub const FUTURE_ALLOWANCE_{p['key'].upper()}: u64 ="
-            f" {p['futureAllowanceSeconds']};"
-        )
     lines.append("")
 
     for i, err in enumerate(errors):
@@ -388,7 +345,7 @@ def gen_ts(spec: dict[str, Any]) -> str:
             f"/** keccak256 of this string is the platform id. */"
         )
         lines.append(
-            f"export const PLATFORM_{p['key'].upper()}_DOMAIN = '{p['domain']}'"
+            f"export const PLATFORM_{p['key'].upper()}_KEY = '{p['key']}'"
         )
     lines.append("")
 
@@ -412,15 +369,6 @@ def gen_ts(spec: dict[str, Any]) -> str:
             lines.append(
                 f"export const {flag}_{name} = {'true' if value else 'false'}"
             )
-    lines.append("")
-
-    for p in platforms:
-        for line in as_lines(p.get("allowanceNote", "")):
-            lines.append(f"/// {line}")
-        lines.append(
-            f"export const FUTURE_ALLOWANCE_{p['key'].upper()} ="
-            f" {p['futureAllowanceSeconds']}"
-        )
     lines.append("")
 
     for i, err in enumerate(errors):

@@ -9,7 +9,7 @@ import {ReentrancyGuardUpgradeable} from "@openzeppelin/contracts-upgradeable/ut
 
 import {HandleEscrow} from "../HandleEscrow.sol";
 import {IdentityNodes} from "../../identity/IdentityNodes.sol";
-import {IIdentityNames} from "../../identity/IIdentityNames.sol";
+import {IIdentityRegistry} from "../../identity/IIdentityRegistry.sol";
 import {
     BlocklistToken,
     FalseToken,
@@ -19,7 +19,7 @@ import {
     PayoutFeeToken,
     RebasingToken,
     SenderFeeToken,
-    SettableNames,
+    SettableRegistry,
     TestERC20,
     one
 } from "./EscrowMocks.sol";
@@ -71,18 +71,18 @@ contract HandleEscrowHostileTokensTest is Test {
     bytes32 internal immutable NODE2 = IdentityNodes.handleNodeOfHash(PLATFORM, HASH2);
 
     HandleEscrow internal escrow;
-    SettableNames internal names;
+    SettableRegistry internal registry;
     address internal depositor = makeAddr("depositor");
     address internal holder = makeAddr("holder");
     address internal other = makeAddr("other");
 
     function setUp() public {
-        names = new SettableNames();
+        registry = new SettableRegistry();
         escrow = HandleEscrow(
             address(
                 new ERC1967Proxy(
                     address(new HandleEscrow()),
-                    abi.encodeCall(HandleEscrow.initialize, (address(this), IIdentityNames(address(names))))
+                    abi.encodeCall(HandleEscrow.initialize, (address(this), IIdentityRegistry(address(registry))))
                 )
             )
         );
@@ -106,7 +106,7 @@ contract HandleEscrowHostileTokensTest is Test {
         assertEq(token.balanceOf(address(party)), 20 ether, "refunded other than once");
 
         party.act(depositCall, "");
-        names.setHolder(NODE, address(party));
+        registry.setHolder(NODE, address(party));
         party.act(claimCall, claimCall);
         assertEq(party.refusal(), guard);
         assertEq(token.balanceOf(address(party)), 20 ether, "claimed other than once");
@@ -126,7 +126,7 @@ contract HandleEscrowHostileTokensTest is Test {
         vm.expectRevert(failed);
         escrow.refund(NODE, address(token), depositor);
         vm.stopPrank();
-        names.setHolder(NODE, holder);
+        registry.setHolder(NODE, holder);
         vm.prank(holder);
         vm.expectRevert(failed);
         escrow.claim(NODE, one(address(token)), holder);
@@ -148,7 +148,7 @@ contract HandleEscrowHostileTokensTest is Test {
         escrow.refund(NODE, address(token), depositor);
         escrow.deposit(PLATFORM, HASH, address(token), 10 ether, depositor);
         vm.stopPrank();
-        names.setHolder(NODE, holder);
+        registry.setHolder(NODE, holder);
         vm.prank(holder);
         escrow.claim(NODE, one(address(token)), holder);
         vm.prank(depositor);
@@ -169,7 +169,7 @@ contract HandleEscrowHostileTokensTest is Test {
         vm.prank(depositor);
         escrow.refund(NODE, address(token), depositor);
 
-        names.setHolder(NODE2, holder);
+        registry.setHolder(NODE2, holder);
         vm.expectEmit(address(escrow));
         emit HandleEscrow.Claimed(NODE2, address(token), holder, holder, 0, 100 ether, 99 ether);
         vm.prank(holder);
@@ -187,7 +187,7 @@ contract HandleEscrowHostileTokensTest is Test {
         vm.prank(depositor);
         vm.expectRevert(abi.encodeWithSelector(BlocklistToken.Blocked.selector, depositor));
         escrow.refund(NODE, address(token), depositor);
-        names.setHolder(NODE, holder);
+        registry.setHolder(NODE, holder);
         vm.prank(holder);
         vm.expectRevert(abi.encodeWithSelector(BlocklistToken.Blocked.selector, holder));
         escrow.claim(NODE, one(address(token)), holder);
@@ -214,7 +214,7 @@ contract HandleEscrowHostileTokensTest is Test {
         vm.prank(depositor);
         vm.expectRevert(blocked);
         escrow.refund(NODE, address(token), depositor);
-        names.setHolder(NODE, holder);
+        registry.setHolder(NODE, holder);
         vm.prank(holder);
         vm.expectRevert(blocked);
         escrow.claim(NODE, one(address(token)), holder);
@@ -238,7 +238,7 @@ contract HandleEscrowHostileTokensTest is Test {
         vm.prank(depositor);
         vm.expectRevert(over);
         escrow.refund(NODE, address(token), depositor);
-        names.setHolder(NODE, holder);
+        registry.setHolder(NODE, holder);
         vm.prank(holder);
         vm.expectRevert(over);
         escrow.claim(NODE, one(address(token)), holder);

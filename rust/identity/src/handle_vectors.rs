@@ -18,11 +18,11 @@ pub struct Vector {
 }
 
 /// keccak256 of this string is the platform id.
-pub const PLATFORM_X_DOMAIN: &str = "x";
+pub const PLATFORM_X_KEY: &str = "x";
 /// keccak256 of this string is the platform id.
-pub const PLATFORM_GITHUB_DOMAIN: &str = "github";
+pub const PLATFORM_GITHUB_KEY: &str = "github";
 /// keccak256 of this string is the platform id.
-pub const PLATFORM_GOOGLE_DOMAIN: &str = "google";
+pub const PLATFORM_GOOGLE_KEY: &str = "google";
 
 /// Bytes a x handle may have after normalization.
 pub const MAX_LENGTH_X: usize = 15;
@@ -55,17 +55,6 @@ pub const IS_EMAIL_GOOGLE: bool = true;
 pub const ALLOW_UNDERSCORE_GOOGLE: bool = false;
 /// Allow `-`, but not leading, trailing or doubled.
 pub const ALLOW_HYPHEN_GOOGLE: bool = false;
-
-/// A notary states wall-clock time as it observes it, so the
-/// observation is never ahead. Five minutes covers clock skew between
-/// the notary and the chain.
-pub const FUTURE_ALLOWANCE_X: u64 = 300;
-/// Same as X: notary wall-clock, five minutes for skew.
-pub const FUTURE_ALLOWANCE_GITHUB: u64 = 300;
-/// The OIDC circuit exposes no `iat`, so the observation is the token's
-/// `exp` — Google issues about an hour of life, and the claim therefore
-/// reads roughly an hour ahead of the moment it describes.
-pub const FUTURE_ALLOWANCE_GOOGLE: u64 = 7200;
 
 /// Nothing is left after the transform.
 pub const ERROR_EMPTY: u8 = 0;

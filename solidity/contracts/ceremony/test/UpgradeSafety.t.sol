@@ -15,7 +15,7 @@ import {INotaryService} from "../INotaryService.sol";
 import {IHonkVerifier} from "../PlatformVerifierBase.sol";
 import {IPlatformVerifier} from "../IPlatformVerifier.sol";
 import {IProofVerifier} from "../IProofVerifier.sol";
-import {IdentityNames} from "../../identity/IdentityNames.sol";
+import {IdentityRegistry} from "../../identity/IdentityRegistry.sol";
 import {GoogleJwtRoots} from "../GoogleJwtRoots.sol";
 import {HandleVectors} from "../../identity/HandleVectors.sol";
 import {IdentityNodes} from "../../identity/IdentityNodes.sol";
@@ -42,7 +42,7 @@ contract UpgradeSafetyTest is Test {
     address constant NOTARY = address(0x7A0);
     bytes32 constant IMPL_SLOT = 0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc;
     bytes32 constant REENTRANCY_SLOT = 0x9b779b17422d0df92223018b32b4d1fa46e071723d6817e2486d003becc55f00;
-    bytes32 constant NAMES_ROOT = 0x064503501234cc9c6e116cf4a84c07475158dabb6a3dcee437a89227e23bf200;
+    bytes32 constant REGISTRY_ROOT = 0x3e5d6a26bfa3232a8c483e2003eb4b3008d01c0d1cf6c69b6ad133fd72694000;
     bytes32 constant ROOTS_ROOT = 0x7f78ff13201a03086d4b08e3085224c34a9fc247d0f67d11acd0db52976eb300;
     bytes32 constant X = HandleVectors.PLATFORM_X;
 
@@ -65,7 +65,7 @@ contract UpgradeSafetyTest is Test {
             _slot("libid.storage.GooglePlatformVerifier"),
             0x92a7c997eeb454ceeeb8ef2d99ba7d4b830287ff966f129f9049c466a8342400
         );
-        assertEq(_slot("libid.storage.IdentityNames"), NAMES_ROOT);
+        assertEq(_slot("libid.storage.IdentityRegistry"), REGISTRY_ROOT);
         assertEq(_slot("libid.storage.GoogleJwtRoots"), ROOTS_ROOT);
     }
 
@@ -142,19 +142,17 @@ contract UpgradeSafetyTest is Test {
         RHonk honk = new RHonk();
         XPlatformVerifier impl = new XPlatformVerifier();
         vm.expectRevert(Initializable.InvalidInitialization.selector);
-        impl.initialize(OWNER, ns, honk, address(honk).codehash, 3600, 300, 300);
+        impl.initialize(OWNER, ns, honk, address(honk).codehash);
         XPlatformVerifier v = XPlatformVerifier(
             address(
                 new ERC1967Proxy(
                     address(impl),
-                    abi.encodeCall(
-                        XPlatformVerifier.initialize, (OWNER, ns, honk, address(honk).codehash, 3600, 300, 300)
-                    )
+                    abi.encodeCall(XPlatformVerifier.initialize, (OWNER, ns, honk, address(honk).codehash))
                 )
             )
         );
         vm.expectRevert(Initializable.InvalidInitialization.selector);
-        v.initialize(OWNER, ns, honk, address(honk).codehash, 3600, 300, 300);
+        v.initialize(OWNER, ns, honk, address(honk).codehash);
 
         XPlatformVerifier impl2 = new XPlatformVerifier();
         _expectNotOwner();
@@ -178,19 +176,17 @@ contract UpgradeSafetyTest is Test {
         RHonk honk = new RHonk();
         GitHubPlatformVerifier impl = new GitHubPlatformVerifier();
         vm.expectRevert(Initializable.InvalidInitialization.selector);
-        impl.initialize(OWNER, ns, honk, address(honk).codehash, 3600, 300, 300);
+        impl.initialize(OWNER, ns, honk, address(honk).codehash);
         GitHubPlatformVerifier v = GitHubPlatformVerifier(
             address(
                 new ERC1967Proxy(
                     address(impl),
-                    abi.encodeCall(
-                        GitHubPlatformVerifier.initialize, (OWNER, ns, honk, address(honk).codehash, 3600, 300, 300)
-                    )
+                    abi.encodeCall(GitHubPlatformVerifier.initialize, (OWNER, ns, honk, address(honk).codehash))
                 )
             )
         );
         vm.expectRevert(Initializable.InvalidInitialization.selector);
-        v.initialize(OWNER, ns, honk, address(honk).codehash, 3600, 300, 300);
+        v.initialize(OWNER, ns, honk, address(honk).codehash);
 
         GitHubPlatformVerifier impl2 = new GitHubPlatformVerifier();
         _expectNotOwner();
@@ -211,20 +207,20 @@ contract UpgradeSafetyTest is Test {
         RRoots roots = new RRoots();
         GooglePlatformVerifier impl = new GooglePlatformVerifier();
         vm.expectRevert(Initializable.InvalidInitialization.selector);
-        impl.initialize(OWNER, INotaryService(address(0)), honk, address(honk).codehash, 7200, roots);
+        impl.initialize(OWNER, INotaryService(address(0)), honk, address(honk).codehash, roots);
         GooglePlatformVerifier v = GooglePlatformVerifier(
             address(
                 new ERC1967Proxy(
                     address(impl),
                     abi.encodeCall(
                         GooglePlatformVerifier.initialize,
-                        (OWNER, INotaryService(address(0)), honk, address(honk).codehash, 7200, roots)
+                        (OWNER, INotaryService(address(0)), honk, address(honk).codehash, roots)
                     )
                 )
             )
         );
         vm.expectRevert(Initializable.InvalidInitialization.selector);
-        v.initialize(OWNER, INotaryService(address(0)), honk, address(honk).codehash, 7200, roots);
+        v.initialize(OWNER, INotaryService(address(0)), honk, address(honk).codehash, roots);
 
         GooglePlatformVerifier impl2 = new GooglePlatformVerifier();
         _expectNotOwner();
@@ -356,34 +352,35 @@ contract UpgradeSafetyTest is Test {
     string internal constant JWKS_MODULUS =
         "BAsSGSAnLjU8Q0pRWF9mbXR7gomQl56lrLO6wcjP1t3k6_L5BQwTGiEoLzY9REtSWWBnbnV8g4qRmJ-mrbS7wsnQ197l7PP6Bg0UGyIpMDc-RUxTWmFob3Z9hIuSmaCnrrW8w8rR2N_m7fT7Bw4VHCMqMTg_Rk1UW2JpcHd-hYyTmqGor7a9xMvS2eDn7vUBCA8WHSQrMjlAR05VXGNqcXh_ho2Um6KpsLe-xczT2uHo7_YCCRAXHiUsMzpBSE9WXWRrcnmAh46VnKOqsbi_xs3U2-Lp8PcDChEYHyYtNDtCSVBXXmVsc3qBiI-WnaSrsrnAx87V3OPq8fgECxIZIA";
 
-    // ─── IdentityNames ──────────────────────────────────────────────
+    // ─── IdentityRegistry ──────────────────────────────────────────────
 
-    IdentityNames names;
+    IdentityRegistry registry;
     CeremonyProofVerifier proofVerifier;
     StubPlatformVerifier stub;
     address alice = makeAddr("alice");
 
-    function _names() internal {
-        IdentityNames impl = new IdentityNames();
+    function _registry() internal {
+        IdentityRegistry impl = new IdentityRegistry();
         vm.expectRevert(Initializable.InvalidInitialization.selector);
         impl.initialize(OWNER);
-        names =
-            IdentityNames(address(new ERC1967Proxy(address(impl), abi.encodeCall(IdentityNames.initialize, (OWNER)))));
+        registry = IdentityRegistry(
+            address(new ERC1967Proxy(address(impl), abi.encodeCall(IdentityRegistry.initialize, (OWNER))))
+        );
         vm.expectRevert(Initializable.InvalidInitialization.selector);
-        names.initialize(OWNER);
+        registry.initialize(OWNER);
         CeremonyProofVerifier pvImpl = new CeremonyProofVerifier();
         proofVerifier = CeremonyProofVerifier(
             address(new ERC1967Proxy(address(pvImpl), abi.encodeCall(CeremonyProofVerifier.initialize, (OWNER))))
         );
         stub = new StubPlatformVerifier(X, 0);
         vm.startPrank(OWNER);
-        names.setProofVerifier(IProofVerifier(address(proofVerifier)));
+        registry.setProofVerifier(IProofVerifier(address(proofVerifier)));
         proofVerifier.setVerifier(X, 1, IPlatformVerifier(address(stub)));
         vm.stopPrank();
         vm.warp(2_000_000_000);
     }
 
-    function _claimAs(address who, uint256 nonce) internal {
+    function _bindAs(address who, uint256 nonce) internal {
         bytes memory payload = abi.encode(
             StubPlatformVerifier.StubPayload({
                 ceremonyVersion: 1,
@@ -393,40 +390,40 @@ contract UpgradeSafetyTest is Test {
             })
         );
         vm.prank(who);
-        names.bind(X, 1, payload, true);
+        registry.bind(X, 1, payload, true);
     }
 
-    function test_upgrade_IdentityNames() public {
-        _names();
+    function test_upgrade_IdentityRegistry() public {
+        _registry();
         vm.prank(OWNER);
-        names.setPlatform(X, HandleVectors.rulesFor(X));
-        _claimAs(alice, 1);
+        registry.setPlatform(X, HandleVectors.rulesFor(X));
+        _bindAs(alice, 1);
         bytes32 digest = stub.lastDigest();
 
-        IdentityNames impl2 = new IdentityNames();
+        IdentityRegistry impl2 = new IdentityRegistry();
         _expectNotOwner();
-        names.upgradeToAndCall(address(impl2), "");
+        registry.upgradeToAndCall(address(impl2), "");
         vm.prank(OWNER);
-        names.upgradeToAndCall(address(impl2), "");
-        assertEq(_implOf(address(names)), address(impl2));
+        registry.upgradeToAndCall(address(impl2), "");
+        assertEq(_implOf(address(registry)), address(impl2));
 
-        assertEq(names.resolveId(X, "2244994945"), alice);
-        assertEq(names.resolveHandle(X, "alice"), alice);
-        assertEq(names.primaryOf(alice, X), "alice");
-        assertEq(names.accountCount(alice), 1);
-        assertEq(names.accountsOf(alice, 0, 1)[0].handle, "alice");
-        assertTrue(names.digestSpent(digest));
-        assertEq(address(names.proofVerifier()), address(proofVerifier));
-        assertEq(names.owner(), OWNER);
+        assertEq(registry.resolveId(X, "2244994945"), alice);
+        assertEq(registry.resolveHandle(X, "alice"), alice);
+        assertEq(registry.publishedHandleOf(alice, X), "alice");
+        assertEq(registry.identityCount(alice), 1);
+        assertEq(registry.identitiesOf(alice, 0, 1)[0].handle, "alice");
+        assertTrue(registry.digestSpent(digest));
+        assertEq(address(registry.proofVerifier()), address(proofVerifier));
+        assertEq(registry.owner(), OWNER);
         // and the contract still works after the upgrade (newer watermark)
         stub.setObservedAt(1_780_000_000);
-        _claimAs(alice, 2);
-        (, uint64 at) = names.byId(IdentityNodes.idNode(X, "2244994945"));
+        _bindAs(alice, 2);
+        (, uint64 at) = registry.idBinding(IdentityNodes.idNode(X, "2244994945"));
         assertEq(at, 1_780_000_000);
     }
 
     function _claimExternal(address who, uint256 nonce) external {
-        _claimAs(who, nonce);
+        _bindAs(who, nonce);
     }
 
     /// The four fields the lists added sit at namespace words +9 to +12, after
@@ -434,30 +431,30 @@ contract UpgradeSafetyTest is Test {
     /// functional test on a fresh deployment and read a live proxy's lists out
     /// of the wrong words.
     function test_theListsSitAtTheWordsAfterEveryOlderField() public {
-        _names();
+        _registry();
         vm.prank(OWNER);
-        names.setPlatform(X, HandleVectors.rulesFor(X));
-        _claimAs(alice, 1);
+        registry.setPlatform(X, HandleVectors.rulesFor(X));
+        _bindAs(alice, 1);
 
-        uint256 root = uint256(NAMES_ROOT);
+        uint256 root = uint256(REGISTRY_ROOT);
         bytes32 idNode = IdentityNodes.idNode(X, "2244994945");
         bytes32 handleNode = IdentityNodes.handleNode(X, "alice");
 
         bytes32 list = keccak256(abi.encode(alice, root + 9));
-        assertEq(uint256(vm.load(address(names), list)), 1, "nodes: the list holds one account");
-        assertEq(vm.load(address(names), keccak256(abi.encode(list))), idNode, "nodes: and it is this one");
-        assertEq(uint256(vm.load(address(names), keccak256(abi.encode(idNode, root + 10)))), 1, "position");
+        assertEq(uint256(vm.load(address(registry), list)), 1, "nodes: the list holds one identity");
+        assertEq(vm.load(address(registry), keccak256(abi.encode(list))), idNode, "nodes: and it is this one");
+        assertEq(uint256(vm.load(address(registry), keccak256(abi.encode(idNode, root + 10)))), 1, "position");
         bytes32 key = keccak256(abi.encode(idNode, root + 11));
-        assertEq(vm.load(address(names), key), X, "accountOf: the platform");
+        assertEq(vm.load(address(registry), key), X, "idPreimages: the platform");
         assertEq(
-            vm.load(address(names), bytes32(uint256(key) + 1)),
+            vm.load(address(registry), bytes32(uint256(key) + 1)),
             abi.decode(abi.encodePacked("2244994945", new bytes(21), hex"14"), (bytes32)),
-            "accountOf: the account id, a short string with its doubled length in the low byte"
+            "idPreimages: the id, a short string with its doubled length in the low byte"
         );
         assertEq(
-            vm.load(address(names), keccak256(abi.encode(handleNode, root + 12))),
+            vm.load(address(registry), keccak256(abi.encode(handleNode, root + 12))),
             abi.decode(abi.encodePacked("alice", new bytes(26), hex"0a"), (bytes32)),
-            "handleOf"
+            "handlePreimages"
         );
     }
 
@@ -466,22 +463,22 @@ contract UpgradeSafetyTest is Test {
     /// The word is planted under the wallet that then proves it: a binding the
     /// write path never made has no list entry for another wallet to take over.
     function test_bindingStaleVersionWordIsIgnored() public {
-        _names();
+        _registry();
         vm.prank(OWNER);
-        names.setPlatform(X, HandleVectors.rulesFor(X));
+        registry.setPlatform(X, HandleVectors.rulesFor(X));
         bytes32 idNode = IdentityNodes.idNode(X, "2244994945");
-        bytes32 slot = keccak256(abi.encode(idNode, uint256(NAMES_ROOT) + 0));
+        bytes32 slot = keccak256(abi.encode(idNode, uint256(REGISTRY_ROOT) + 0));
         address bob = address(0xB0B);
         uint256 word = uint256(uint160(bob)) | (uint256(1_900_000_000) << 160) | (uint256(7) << 224);
-        vm.store(address(names), slot, bytes32(word));
-        (address o, uint64 at) = names.byId(idNode);
+        vm.store(address(registry), slot, bytes32(word));
+        (address o, uint64 at) = registry.idBinding(idNode);
         assertEq(o, bob);
         assertEq(at, 1_900_000_000);
         stub.setObservedAt(1_950_000_000);
-        _claimAs(bob, 1);
-        bytes32 afterWord = vm.load(address(names), slot);
-        emit log_named_bytes32("byId word after fresh write", afterWord);
-        (o, at) = names.byId(idNode);
+        _bindAs(bob, 1);
+        bytes32 afterWord = vm.load(address(registry), slot);
+        emit log_named_bytes32("idBindings word after fresh write", afterWord);
+        (o, at) = registry.idBinding(idNode);
         assertEq(o, bob);
         assertEq(at, 1_950_000_000);
         // stale version bits (byte 28..31) survive a member-wise struct write?

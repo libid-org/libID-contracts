@@ -45,6 +45,37 @@ BANNER = [
 
 SESSIONS = ("token", "identity")
 
+# The seconds a profile fixes, in the order they are written: the JSON key, the
+# constant's stem, whether only a profile that notarizes has one, and what it
+# bounds.
+VALIDITY = (
+    ("proofLifetimeSeconds", "PROOF_LIFETIME_SECONDS", True, "maximum age of the token attestation."),
+    (
+        "maxFutureAttestationSkewSeconds",
+        "MAX_FUTURE_ATTESTATION_SKEW_SECONDS",
+        True,
+        "how far ahead of Block Time the token attestation may be dated.",
+    ),
+    (
+        "futureObservationAllowanceSeconds",
+        "FUTURE_OBSERVATION_ALLOWANCE_SECONDS",
+        False,
+        "how far ahead of Block Time the evidence time may run. The verifier "
+        "subtracts it, so every version of a platform reports time on one scale.",
+    ),
+)
+
+VALIDITY_NOTE = [
+    "The seconds each profile fixes. A Platform Verifier reads them as",
+    "constants: they belong to the profile like its request lines, an upgrade",
+    "of the verifier keeps them, and a different value is a new",
+    "ceremonyVersion (REQ-PARAM-01). A browser that knows the version it ran",
+    "therefore knows the validity every chain enforces. `IdentityRegistry`",
+    "supersedes a binding only on a strictly newer `observedAt`, so an",
+    "allowance too generous lets a proof dated ahead hold a name until the",
+    "clock catches up.",
+]
+
 # The transport's, not a platform's: TLSNotary speaks HTTP/1.1, and the length
 # header is written by the HTTP client rather than chosen by anyone.
 HTTP_VERSION = "HTTP/1.1"
@@ -278,6 +309,41 @@ def validate(spec: dict[str, Any]) -> None:
         # links them.
         if len(sessions_of(profile)) == 1:
             raise SystemExit(f"ERROR: {platform!r} has one session; expected none or both")
+        validate_validity(profile)
+
+
+def validate_validity(profile: dict[str, Any]) -> None:
+    """Refuse a validity window a verifier could not enforce as written."""
+    platform = profile["platform"]
+    validity = profile.get("validity")
+    if not isinstance(validity, dict):
+        raise SystemExit(f"ERROR: {platform!r} has no validity object")
+    unknown = set(validity) - {key for key, *_ in VALIDITY} - {"note"}
+    if unknown:
+        raise SystemExit(f"ERROR: {platform!r} validity has unknown keys {sorted(unknown)}")
+    notarizes = bool(sessions_of(profile))
+    for key, _, notarized_only, _ in VALIDITY:
+        if notarized_only and not notarizes:
+            if key in validity:
+                raise SystemExit(f"ERROR: {platform!r} notarizes nothing, so it has no {key}")
+            continue
+        value = validity.get(key)
+        # Under 2**32, so `blockTime + value` cannot overflow the uint64 a
+        # verifier checks it in.
+        if isinstance(value, bool) or not isinstance(value, int) or not 0 <= value < 2**32:
+            raise SystemExit(f"ERROR: {platform!r} {key} must be an integer in [0, 2**32)")
+    if notarizes and validity["proofLifetimeSeconds"] == 0:
+        raise SystemExit(f"ERROR: {platform!r} proofLifetimeSeconds must be positive")
+
+
+def validity_constants(profile: dict[str, Any]) -> list[tuple[str, int, str]]:
+    """The seconds a profile fixes, as (constant name, value, what it bounds)."""
+    validity = profile["validity"]
+    return [
+        (f"{stem}_{upper(profile['platform'])}", validity[key], bounds)
+        for key, stem, _, bounds in VALIDITY
+        if key in validity
+    ]
 
 
 # --------------------------------------------------------------------------
@@ -308,8 +374,8 @@ def gen_sol(spec: dict[str, Any]) -> str:
         header("//").rstrip("\n"),
         "",
         "/// @title CeremonyProfile",
-        "/// @notice The tags a Platform Verifier pins, and the governance-owned",
-        "///         protocol parameters it reads.",
+        "/// @notice The tags a Platform Verifier pins, and the validity window",
+        "///         each profile fixes.",
         "///",
     ]
     lines += [f"/// {line}" if line else "///" for line in as_lines(spec.get("note"), width=70)]
@@ -423,6 +489,18 @@ def gen_sol(spec: dict[str, Any]) -> str:
         lines.append(
             f'    string internal constant {name}_HANDLE_FIELD = "{identity["handleField"]}";'
         )
+
+    lines += [
+        "",
+        "    // --- Validity -------------------------------------------------------------",
+        "",
+    ]
+    lines += sol_doc(VALIDITY_NOTE)
+    for profile in profiles:
+        lines.append("")
+        lines += [f"    // {line}" if line else "    //" for line in as_lines(profile["validity"].get("note"))]
+        for const, value, _ in validity_constants(profile):
+            lines.append(f"    uint64 internal constant {const} = {value};")
 
     lines += [
         "",
@@ -658,19 +736,14 @@ def gen_rust(spec: dict[str, Any]) -> str:
     ]
     lines += rust_doc(spec["requests"].get("note"))
     lines += rust_array("pub const FORBIDDEN_REQUEST_HEADERS: &[&str] = ", forbidden_headers(spec), "", ";")
-    lines += [
-        "",
-        "/// Governance-owned launch parameters, in seconds.",
-        f"pub const MAX_FUTURE_ATTESTATION_SKEW_SECONDS: u64 = "
-        f"{spec['parameters']['maxFutureAttestationSkewSeconds']};",
-    ]
+    lines.append("")
+    lines += rust_doc(VALIDITY_NOTE, marker="//")
     for profile in spec["profiles"]:
-        if "proofLifetimeSeconds" not in profile:
-            continue
-        lines.append(
-            f"pub const PROOF_LIFETIME_SECONDS_{upper(profile['platform'])}: u64 = "
-            f"{profile['proofLifetimeSeconds']};"
-        )
+        lines.append("")
+        lines += rust_doc(profile["validity"].get("note"), marker="//")
+        for const, value, bounds in validity_constants(profile):
+            lines += rust_doc(f"`{profile['platform']}/v{profile['ceremonyVersion']}`: {bounds}")
+            lines.append(f"pub const {const}: u64 = {value};")
     lines.append("")
     return "\n".join(lines)
 
@@ -828,19 +901,14 @@ def gen_ts(spec: dict[str, Any]) -> str:
     lines += ts_array(
         "export const FORBIDDEN_REQUEST_HEADERS: readonly string[] = ", forbidden_headers(spec), "", ""
     )
-    lines += [
-        "",
-        "/** Governance-owned launch parameters, in seconds. */",
-        f"export const MAX_FUTURE_ATTESTATION_SKEW_SECONDS = "
-        f"{spec['parameters']['maxFutureAttestationSkewSeconds']}",
-    ]
+    lines.append("")
+    lines += rust_doc(VALIDITY_NOTE, marker="//")
     for profile in spec["profiles"]:
-        if "proofLifetimeSeconds" not in profile:
-            continue
-        lines.append(
-            f"export const PROOF_LIFETIME_SECONDS_{upper(profile['platform'])} = "
-            f"{profile['proofLifetimeSeconds']}"
-        )
+        lines.append("")
+        lines += rust_doc(profile["validity"].get("note"), marker="//")
+        for const, value, bounds in validity_constants(profile):
+            lines += ts_doc(f"`{profile['platform']}/v{profile['ceremonyVersion']}`: {bounds}")
+            lines.append(f"export const {const} = {value}")
     lines.append("")
     return "\n".join(lines)
 

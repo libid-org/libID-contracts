@@ -179,7 +179,60 @@ export const FORBIDDEN_REQUEST_HEADERS: readonly string[] = [
   'x-method-override',
 ]
 
-/** Governance-owned launch parameters, in seconds. */
-export const MAX_FUTURE_ATTESTATION_SKEW_SECONDS = 300
+// The seconds each profile fixes. A Platform Verifier reads them as
+// constants: they belong to the profile like its request lines, an upgrade
+// of the verifier keeps them, and a different value is a new
+// ceremonyVersion (REQ-PARAM-01). A browser that knows the version it ran
+// therefore knows the validity every chain enforces. `IdentityRegistry`
+// supersedes a binding only on a strictly newer `observedAt`, so an
+// allowance too generous lets a proof dated ahead hold a name until the
+// clock catches up.
+
+// The signed `exp` bounds validity, so the profile fixes no lifetime
+// and no attestation skew. The OIDC circuit exposes no `iat`, so the
+// observation is the token's `exp`: Google issues about an hour of
+// life, and the claim reads roughly an hour ahead of the moment it
+// describes.
+/**
+ * `google/v1`: how far ahead of Block Time the evidence time may run.
+ * The verifier subtracts it, so every version of a platform reports
+ * time on one scale.
+ */
+export const FUTURE_OBSERVATION_ALLOWANCE_SECONDS_GOOGLE = 7200
+
+// The token attestation's creation time is the evidence time. A
+// notary states wall-clock time as it observes it, so the observation
+// is never ahead: five minutes covers clock skew between the notary
+// and the chain.
+/**
+ * `x/v1`: maximum age of the token attestation.
+ */
 export const PROOF_LIFETIME_SECONDS_X = 3600
+/**
+ * `x/v1`: how far ahead of Block Time the token attestation may be
+ * dated.
+ */
+export const MAX_FUTURE_ATTESTATION_SKEW_SECONDS_X = 300
+/**
+ * `x/v1`: how far ahead of Block Time the evidence time may run. The
+ * verifier subtracts it, so every version of a platform reports time
+ * on one scale.
+ */
+export const FUTURE_OBSERVATION_ALLOWANCE_SECONDS_X = 300
+
+// Same as X: notary wall-clock, five minutes for skew.
+/**
+ * `github/v1`: maximum age of the token attestation.
+ */
 export const PROOF_LIFETIME_SECONDS_GITHUB = 3600
+/**
+ * `github/v1`: how far ahead of Block Time the token attestation may
+ * be dated.
+ */
+export const MAX_FUTURE_ATTESTATION_SKEW_SECONDS_GITHUB = 300
+/**
+ * `github/v1`: how far ahead of Block Time the evidence time may run.
+ * The verifier subtracts it, so every version of a platform reports
+ * time on one scale.
+ */
+export const FUTURE_OBSERVATION_ALLOWANCE_SECONDS_GITHUB = 300

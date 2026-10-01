@@ -9,20 +9,20 @@ import {IExtendedResolver} from "./IExtendedResolver.sol";
 
 /// @title HandleResolver - the ENS resolver for `handles.link`.
 ///
-/// @notice Answers every name under one domain by asking a gateway, and holds
-///         no names of its own.
+/// @notice Answers every ENS name under one domain by asking a gateway, and
+///         holds no ENS names of its own.
 ///
-/// @dev **This contract stores nothing about anybody.** `IdentityNames` already
-///      answers the question an ENS resolver asks, so a name here needs no
-///      registry entry, no NFT and no record — it is a view onto state that
+/// @dev **This contract stores nothing about anybody.** `IdentityRegistry` already
+///      answers the question an ENS resolver asks, so an ENS name here needs
+///      no registry entry, no NFT and no record — it is a view onto state that
 ///      exists on another chain. What lives here is the arrangement: where to
 ///      ask, and whose answer to believe.
 ///
 ///      **One resolver covers every depth.** ENSIP-10 has the client walk up
-///      from the full name until it finds a resolver, and hand that resolver
-///      the ORIGINAL name. Set this once on `handles.link` and
+///      from the full ENS name until it finds a resolver, and hand that
+///      resolver the ORIGINAL ENS name. Set this once on `handles.link` and
 ///      `alice.x.handles.link` and `alice.x.base.handles.link` both arrive
-///      here, with no name ever created between them.
+///      here, with no ENS name ever created between them.
 ///
 ///      **Resolution is three steps, and the address comes from the third.**
 ///      `resolve` reverts `OffchainLookup` carrying the endpoints; the client
@@ -86,8 +86,8 @@ contract HandleResolver is IExtendedResolver, IERC165, Ownable2Step {
     /// `expires` is chosen entirely by the gateway, so without a ceiling a
     /// compromised or careless signing key mints answers valid until the heat
     /// death: capture one blob, replay it after the binding moves, and the
-    /// chain returns the wallet the name USED to hold. An hour is already
-    /// generous for a value a payment is routed by.
+    /// chain returns the holder the ENS name USED to resolve to. An hour is
+    /// already generous for a value a payment is routed by.
     ///
     /// A constant rather than owner state, on purpose: it bounds what the
     /// owner's own signer set can do, and a bound the owner can widen is not
@@ -109,13 +109,13 @@ contract HandleResolver is IExtendedResolver, IERC165, Ownable2Step {
     /// @dev Always reverts. That is the protocol, not a failure: ERC-3668 uses
     ///      the revert to carry the endpoints, so the contract tells the client
     ///      where to look instead of anything being registered with a wallet.
-    function resolve(bytes calldata name, bytes calldata data) external view returns (bytes memory) {
+    function resolve(bytes calldata ensName, bytes calldata data) external view returns (bytes memory) {
         if (urls.length == 0) revert NoUrls();
 
         // What the gateway is asked, and what the signature will cover. The
-        // name AND the original call, so the gateway knows which record of
-        // which name was wanted.
-        bytes memory callData = abi.encodeWithSelector(IExtendedResolver.resolve.selector, name, data);
+        // ENS name AND the original call, so the gateway knows which record of
+        // which ENS name was wanted.
+        bytes memory callData = abi.encodeWithSelector(IExtendedResolver.resolve.selector, ensName, data);
 
         revert OffchainLookup(address(this), urls, callData, this.resolveWithProof.selector, callData);
     }
@@ -190,8 +190,8 @@ contract HandleResolver is IExtendedResolver, IERC165, Ownable2Step {
 
     // ─── Introspection ──────────────────────────────────────────────
 
-    /// @dev A client checks `0x9061b923` before it will hand this contract a
-    ///      name it did not find an exact entry for. Answer no, and wildcard
+    /// @dev A client checks `0x9061b923` before it will hand this contract an
+    ///      ENS name it did not find an exact entry for. Answer no, and wildcard
     ///      resolution never reaches here.
     ///
     ///      ERC-7996 (`0x582de3e7`) is NOT announced, and that is load-bearing.

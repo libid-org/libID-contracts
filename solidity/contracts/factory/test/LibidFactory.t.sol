@@ -96,7 +96,7 @@ contract LibidFactoryTest is Test {
     }
 
     function test_predict_matchesActualForSeveralNames() public {
-        string[3] memory names = ["libid.NotaryService", "libid.IdentityNames", "libid.GoogleJwtRoots"];
+        string[3] memory names = ["libid.NotaryService", "libid.IdentityRegistry", "libid.GoogleJwtRoots"];
         for (uint256 i = 0; i < names.length; i++) {
             address predicted = factory.predict(names[i]);
             vm.prank(owner);
