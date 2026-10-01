@@ -7,7 +7,7 @@
 //!   consumer talks to: the ceremony verification path (`NotaryService`,
 //!   `CeremonyProofVerifier`, the three launch Platform Verifiers it routes
 //!   to, and `GoogleJwtRoots`, the Google signing keys the `google/v1`
-//!   verifier trusts), the identity registry (`IdentityNames`), the
+//!   verifier trusts), the identity registry (`IdentityRegistry`), the
 //!   deterministic factory, and the UltraHonk verifiers the Platform
 //!   Verifiers pin. Kept in lockstep with the Solidity sources in
 //!   `solidity/contracts`.

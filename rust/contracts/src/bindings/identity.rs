@@ -1,18 +1,18 @@
 //! Bindings for the identity registry (`solidity/contracts/identity/`):
-//! `IdentityNames`.
+//! `IdentityRegistry`.
 
-/// Bindings for `identity/IdentityNames.sol`.
+/// Bindings for `identity/IdentityRegistry.sol`.
 ///
 /// `Rules` mirrors `HandleNormalizer.Rules` — the normalization rules the
 /// contract stores per platform. Platform ids are `keccak256` of the
 /// platform key.
 #[allow(clippy::too_many_arguments, unused_attributes)]
-mod names_inner {
+mod registry_inner {
     use alloy::sol;
 
     sol! {
         #[sol(rpc, abi)]
-        interface IdentityNames {
+        interface IdentityRegistry {
             #[derive(Debug, serde::Serialize, serde::Deserialize)]
             struct Rules {
                 uint16 maxLength;
@@ -170,11 +170,11 @@ mod names_inner {
     }
 }
 
-pub use names_inner::IdentityNames;
+pub use registry_inner::IdentityRegistry;
 
 #[cfg(test)]
 mod tests {
-    use super::names_inner::IdentityNames;
+    use super::registry_inner::IdentityRegistry;
     use crate::bindings::drift::assert_binding_matches_artifact;
 
     /// Inherited upgrade and initializer ABI, left to `proxy::IUUPSUpgradeable`.
@@ -197,9 +197,9 @@ mod tests {
     #[test]
     fn the_binding_matches_the_artifact_abi() {
         assert_binding_matches_artifact(
-            "IdentityNames",
-            "IdentityNames",
-            &IdentityNames::abi::contract(),
+            "IdentityRegistry",
+            "IdentityRegistry",
+            &IdentityRegistry::abi::contract(),
             OMITTED,
         );
     }

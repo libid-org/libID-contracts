@@ -4,7 +4,7 @@ pragma solidity ^0.8.20;
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 
 import {IdentityNodes} from "../../identity/IdentityNodes.sol";
-import {IIdentityNames} from "../../identity/IIdentityNames.sol";
+import {IIdentityRegistry} from "../../identity/IIdentityRegistry.sol";
 
 /// @notice A one-token list for `HandleEscrow.claim`.
 function one(address token) pure returns (address[] memory tokens) {
@@ -13,7 +13,7 @@ function one(address token) pure returns (address[] memory tokens) {
 }
 
 /// @notice A registry whose holders are set directly; deposits go by hash.
-contract SettableRegistry is IIdentityNames {
+contract SettableRegistry is IIdentityRegistry {
     mapping(bytes32 => address) public holderOf;
 
     function setHolder(bytes32 handleNode, address holder) external {

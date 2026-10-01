@@ -44,7 +44,7 @@ ARTIFACTS=(
     "BearerLinkHonkVerifier:BearerLinkHonkVerifier"
     "OidcGoogleHonkVerifier:OidcGoogleHonkVerifier"
     # identity
-    "IdentityNames:IdentityNames"
+    "IdentityRegistry:IdentityRegistry"
     # ens (deployed once per network, not CREATE3-canonical; embedded so a
     # consumer can deploy it without a checkout of this repository)
     "HandleResolver:HandleResolver"

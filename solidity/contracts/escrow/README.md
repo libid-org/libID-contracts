@@ -1,7 +1,7 @@
 # HandleEscrow
 
 Send value to an X or GitHub handle or a Gmail address before its holder has
-proved it in `IdentityNames`. The address that proves the handle claims it;
+proved it in `IdentityRegistry`. The address that proves the handle claims it;
 until then each deposit's `refundTo` can take its own contribution back. A
 handle somebody already holds is paid straight through.
 
@@ -18,7 +18,7 @@ escrow.refund(handleNode, token, recipient);   // refundTo, while unclaimed
 - `NATIVE`, the EIP-7528 address `0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE`,
   names the chain's own coin in `deposit`, `claim`, `refund` and every event.
 - `handleHash` is `keccak256` of the handle normalized under the chain's
-  current rules (`IdentityNames.rulesOf`). Hash locally: `handleHashOf` over
+  current rules (`IdentityRegistry.rulesOf`). Hash locally: `handleHashOf` over
   RPC sends the handle to the provider. A wrong hash funds a slot only
   `refundTo` can recover. Take `handleNode` from `Deposited`.
 - Escrowed value is refundable until claimed; a refund and a claim race.
@@ -26,7 +26,7 @@ escrow.refund(handleNode, token, recipient);   // refundTo, while unclaimed
   round it names and the next deposit opens the next, so a `Refunded` belongs
   to the `Deposited` of its round and a `Claimed` took what that round still
   held. `Claimed` and `Refunded` name no platform: join on the node with
-  `Deposited` or `IdentityNames.IdentityBound`.
+  `Deposited` or `IdentityRegistry.IdentityBound`.
 - Pay-through goes to whoever holds the handle when the transaction lands,
   recycled handles included. Show `handleBinding(node).observedAt` first. A
   holder that rejects ETH cannot be paid in ETH; a holder contract can burn
@@ -43,10 +43,10 @@ escrow.refund(handleNode, token, recipient);   // refundTo, while unclaimed
 
 ## Deploying
 
-- Upgrade the deployed `IdentityNames` first: `initialize` reverts
+- Upgrade the deployed `IdentityRegistry` first: `initialize` reverts
   `RegistryLacks` unless it answers `handleBinding`, `acceptsBindings` and
   `handleNodeOfHash`.
-- The escrow keeps that `IdentityNames` for life. There is no setter, so no
+- The escrow keeps that `IdentityRegistry` for life. There is no setter, so no
   key can point claims elsewhere; deploy the escrow once the registry sits at
   its final address, and move it later only by upgrade.
 
@@ -57,7 +57,7 @@ can hash a guess. A Google recipient claims through today's Google profile,
 which puts the email on chain in plaintext.
 
 Every key that can change what `handleBinding` answers can take escrowed value
-through an ordinary identity binding: the `IdentityNames`,
+through an ordinary identity binding: the `IdentityRegistry`,
 `CeremonyProofVerifier`, `NotaryService`, Platform Verifier and
 `GoogleJwtRoots` owners, the trusted notary keys, and the platforms
 themselves. The escrow's owner can upgrade it.

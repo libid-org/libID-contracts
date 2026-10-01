@@ -1,7 +1,7 @@
 //! Bindings for the handle escrow (`solidity/contracts/escrow/`): value held
-//! against a handle node until its holder in `IdentityNames` claims it, and
+//! against a handle node until its holder in `IdentityRegistry` claims it, and
 //! refundable to each deposit's `refundTo` until then. `deposit` takes
-//! `keccak256(normalized handle)`, from `IdentityNames.handleHashOf` or
+//! `keccak256(normalized handle)`, from `IdentityRegistry.handleHashOf` or
 //! computed locally.
 
 /// Bindings for `escrow/HandleEscrow.sol`.

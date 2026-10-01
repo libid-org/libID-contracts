@@ -8,14 +8,14 @@ import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/U
 import {Ownable2StepUpgradeable} from "@openzeppelin/contracts-upgradeable/access/Ownable2StepUpgradeable.sol";
 import {ReentrancyGuardUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardUpgradeable.sol";
 
-import {IIdentityNames} from "../identity/IIdentityNames.sol";
+import {IIdentityRegistry} from "../identity/IIdentityRegistry.sol";
 
 // The EIP-7528 address that stands for the chain's native token.
 address constant NATIVE_TOKEN = 0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE;
 
 /// @title HandleEscrow - send to a platform handle before anybody holds it.
 ///
-/// @notice Holds value against the handle node `IdentityNames` binds. The
+/// @notice Holds value against the handle node `IdentityRegistry` binds. The
 ///         node's holder claims it; until then each deposit's `refundTo`
 ///         can take its own contribution back. Integrator notes, privacy and
 ///         trust: `README.md` beside this file.
@@ -37,7 +37,7 @@ contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable
     struct HandleEscrowStorage {
         /// handle node -> token -> amount held.
         mapping(bytes32 => mapping(address => uint256)) held;
-        IIdentityNames registry;
+        IIdentityRegistry registry;
         /// handle node -> token -> claims so far; contributions are booked
         /// under the current round.
         mapping(bytes32 => mapping(address => uint256)) round;
@@ -148,8 +148,8 @@ contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable
     }
 
     /// @dev Reverts `RegistryLacks` unless `registry_` answers like
-    ///      `IdentityNames`.
-    function initialize(address owner_, IIdentityNames registry_) external initializer {
+    ///      `IdentityRegistry`.
+    function initialize(address owner_, IIdentityRegistry registry_) external initializer {
         if (address(registry_) == address(0)) revert NoRegistry();
         _requireAnswers(registry_);
         __Ownable_init(owner_);
@@ -160,14 +160,14 @@ contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable
     }
 
     /// @notice The identity registry this escrow resolves through.
-    function registry() external view returns (IIdentityNames) {
+    function registry() external view returns (IIdentityRegistry) {
         return _s().registry;
     }
 
     // ─── Depositing ─────────────────────────────────────────────────
 
     /// @notice Pay `amount` of `token` to a handle, given as `keccak256` of its
-    ///         normalized form (`IdentityNames.handleHashOf`).
+    ///         normalized form (`IdentityRegistry.handleHashOf`).
     ///
     /// @dev The hash cannot be checked: a wrong one funds a slot nobody can
     ///      claim, which `refundTo` can refund. Both branches book what
@@ -307,28 +307,28 @@ contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable
     /// @dev Refuses a registry that does not answer the three calls the
     ///      escrow makes in their shape: a two-word binding, a boolean, and a
     ///      nonzero node that depends on the hash.
-    function _requireAnswers(IIdentityNames registry_) private view {
+    function _requireAnswers(IIdentityRegistry registry_) private view {
         (bool ok, bytes memory result) =
-            address(registry_).staticcall(abi.encodeCall(IIdentityNames.handleBinding, (bytes32(0))));
+            address(registry_).staticcall(abi.encodeCall(IIdentityRegistry.handleBinding, (bytes32(0))));
         if (!ok || result.length != 64) {
-            revert RegistryLacks(address(registry_), IIdentityNames.handleBinding.selector);
+            revert RegistryLacks(address(registry_), IIdentityRegistry.handleBinding.selector);
         }
 
-        (ok, result) = address(registry_).staticcall(abi.encodeCall(IIdentityNames.acceptsBindings, (bytes32(0))));
+        (ok, result) = address(registry_).staticcall(abi.encodeCall(IIdentityRegistry.acceptsBindings, (bytes32(0))));
         if (!ok || result.length != 32 || abi.decode(result, (uint256)) > 1) {
-            revert RegistryLacks(address(registry_), IIdentityNames.acceptsBindings.selector);
+            revert RegistryLacks(address(registry_), IIdentityRegistry.acceptsBindings.selector);
         }
 
         bytes32 a = _handleNodeOfHashAnswer(registry_, bytes32(0));
         bytes32 b = _handleNodeOfHashAnswer(registry_, bytes32(uint256(1)));
         if (a == 0 || b == 0 || a == b) {
-            revert RegistryLacks(address(registry_), IIdentityNames.handleNodeOfHash.selector);
+            revert RegistryLacks(address(registry_), IIdentityRegistry.handleNodeOfHash.selector);
         }
     }
 
-    function _handleNodeOfHashAnswer(IIdentityNames registry_, bytes32 handleHash) private view returns (bytes32) {
+    function _handleNodeOfHashAnswer(IIdentityRegistry registry_, bytes32 handleHash) private view returns (bytes32) {
         (bool ok, bytes memory result) =
-            address(registry_).staticcall(abi.encodeCall(IIdentityNames.handleNodeOfHash, (bytes32(0), handleHash)));
+            address(registry_).staticcall(abi.encodeCall(IIdentityRegistry.handleNodeOfHash, (bytes32(0), handleHash)));
         return ok && result.length == 32 ? abi.decode(result, (bytes32)) : bytes32(0);
     }
 

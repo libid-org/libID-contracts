@@ -7,7 +7,7 @@ import {GooglePlatformVerifier} from "../ceremony/GooglePlatformVerifier.sol";
 import {NotaryService} from "../ceremony/NotaryService.sol";
 import {PlatformVerifierBase} from "../ceremony/PlatformVerifierBase.sol";
 import {HandleEscrow} from "../escrow/HandleEscrow.sol";
-import {IdentityNames} from "../identity/IdentityNames.sol";
+import {IdentityRegistry} from "../identity/IdentityRegistry.sol";
 
 /// @notice Holds each upgradeable contract's namespaced struct as an ordinary
 ///         state variable, so the compiler's storage layout lists its fields.
@@ -25,5 +25,5 @@ contract StorageLayoutProbe {
     NotaryService.NotaryServiceStorage internal notaryService;
     PlatformVerifierBase.PlatformVerifierStorage internal platformVerifier;
     HandleEscrow.HandleEscrowStorage internal handleEscrow;
-    IdentityNames.IdentityNamesStorage internal identityNames;
+    IdentityRegistry.IdentityRegistryStorage internal identityRegistry;
 }

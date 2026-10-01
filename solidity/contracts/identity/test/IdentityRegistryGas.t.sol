@@ -5,7 +5,7 @@ import {Test} from "forge-std/Test.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
 import {HandleVectors} from "../HandleVectors.sol";
-import {IdentityNames} from "../IdentityNames.sol";
+import {IdentityRegistry} from "../IdentityRegistry.sol";
 import {IdentityNodes} from "../IdentityNodes.sol";
 import {CeremonyProofVerifier} from "../../ceremony/CeremonyProofVerifier.sol";
 import {IPlatformVerifier} from "../../ceremony/IPlatformVerifier.sol";
@@ -21,8 +21,8 @@ import {StubPlatformVerifier} from "./StubPlatformVerifier.sol";
 ///      one storage read more would show as thousands. The measured call is
 ///      the last one a helper makes, which is what `vm.lastCallGas` reports
 ///      on.
-contract IdentityNamesGasTest is Test {
-    IdentityNames internal names;
+contract IdentityRegistryGasTest is Test {
+    IdentityRegistry internal registry;
     CeremonyProofVerifier internal proofVerifier;
     StubPlatformVerifier internal xVerifier;
 
@@ -39,17 +39,18 @@ contract IdentityNamesGasTest is Test {
     uint64 private clock = 1;
 
     function setUp() public {
-        IdentityNames impl = new IdentityNames();
-        names =
-            IdentityNames(address(new ERC1967Proxy(address(impl), abi.encodeCall(IdentityNames.initialize, (owner)))));
+        IdentityRegistry impl = new IdentityRegistry();
+        registry = IdentityRegistry(
+            address(new ERC1967Proxy(address(impl), abi.encodeCall(IdentityRegistry.initialize, (owner))))
+        );
         CeremonyProofVerifier pvImpl = new CeremonyProofVerifier();
         proofVerifier = CeremonyProofVerifier(
             address(new ERC1967Proxy(address(pvImpl), abi.encodeCall(CeremonyProofVerifier.initialize, (owner))))
         );
         xVerifier = new StubPlatformVerifier(X, 0);
         vm.startPrank(owner);
-        names.setProofVerifier(IProofVerifier(address(proofVerifier)));
-        names.setPlatform(X, HandleVectors.rulesFor(X));
+        registry.setProofVerifier(IProofVerifier(address(proofVerifier)));
+        registry.setPlatform(X, HandleVectors.rulesFor(X));
         proofVerifier.setVerifier(X, V1, IPlatformVerifier(address(xVerifier)));
         vm.stopPrank();
         vm.warp(1_000_000);
@@ -104,14 +105,14 @@ contract IdentityNamesGasTest is Test {
     /// otherwise pay the address accesses the second does not, and their
     /// storage is cold, so what a call reads is paid for in full both times.
     modifier measured() {
-        names.owner();
+        registry.owner();
         proofVerifier.owner();
         xVerifier.fee();
         _;
     }
 
     function _cool() internal {
-        vm.cool(address(names));
+        vm.cool(address(registry));
         vm.cool(address(proofVerifier));
         vm.cool(address(xVerifier));
     }
@@ -134,7 +135,7 @@ contract IdentityNamesGasTest is Test {
         );
         _cool();
         vm.prank(who);
-        names.bind(X, V1, payload, true);
+        registry.bind(X, V1, payload, true);
     }
 
     // ─── Writes ─────────────────────────────────────────────────────
@@ -181,11 +182,11 @@ contract IdentityNamesGasTest is Test {
     function test_unpublishingCostsTheSame() public measured {
         _cool();
         vm.prank(few);
-        names.unpublish(X);
+        registry.unpublish(X);
         uint64 atFew = _used();
         _cool();
         vm.prank(many);
-        names.unpublish(X);
+        registry.unpublish(X);
         assertEq(atFew, _used(), "unpublish");
     }
 
@@ -195,36 +196,36 @@ contract IdentityNamesGasTest is Test {
     /// take the same path through the paging.
     function test_aPageCostsTheSame() public measured {
         _cool();
-        names.identitiesOf(few, 0, FEW - 1);
+        registry.identitiesOf(few, 0, FEW - 1);
         uint64 atFew = _used();
         _cool();
-        names.identitiesOf(many, 0, FEW - 1);
+        registry.identitiesOf(many, 0, FEW - 1);
         assertEq(atFew, _used(), "a page of three");
     }
 
     function test_countingCostsTheSame() public measured {
         _cool();
-        names.identityCount(few);
+        registry.identityCount(few);
         uint64 atFew = _used();
         _cool();
-        names.identityCount(many);
+        registry.identityCount(many);
         assertEq(atFew, _used(), "the count");
     }
 
     /// The reads under the resolvers: a binding by its node, and a digest.
     function test_theRawReadsCostTheSame() public measured {
         _cool();
-        names.idBinding(IdentityNodes.idNode(X, _id(1, 0)));
+        registry.idBinding(IdentityNodes.idNode(X, _id(1, 0)));
         uint64 atFew = _used();
         _cool();
-        names.idBinding(IdentityNodes.idNode(X, _id(2, 0)));
+        registry.idBinding(IdentityNodes.idNode(X, _id(2, 0)));
         assertEq(atFew, _used(), "idBinding");
 
         _cool();
-        names.handleBinding(IdentityNodes.handleNode(X, _handle(1, 0)));
+        registry.handleBinding(IdentityNodes.handleNode(X, _handle(1, 0)));
         atFew = _used();
         _cool();
-        names.handleBinding(IdentityNodes.handleNode(X, _handle(2, 0)));
+        registry.handleBinding(IdentityNodes.handleNode(X, _handle(2, 0)));
         assertEq(atFew, _used(), "handleBinding");
 
         _prove(few, _id(1, 900_003), _handle(1, 900_003));
@@ -232,40 +233,40 @@ contract IdentityNamesGasTest is Test {
         _prove(many, _id(2, 900_003), _handle(2, 900_003));
         bytes32 spentByMany = xVerifier.lastDigest();
         _cool();
-        names.digestSpent(spentByFew);
+        registry.digestSpent(spentByFew);
         atFew = _used();
         _cool();
-        names.digestSpent(spentByMany);
+        registry.digestSpent(spentByMany);
         assertEq(atFew, _used(), "digestSpent");
     }
 
     function test_theResolversCostTheSame() public measured {
         _cool();
-        names.resolveHandle(X, _handle(1, 0));
+        registry.resolveHandle(X, _handle(1, 0));
         uint64 atFew = _used();
         _cool();
-        names.resolveHandle(X, _handle(2, 0));
+        registry.resolveHandle(X, _handle(2, 0));
         assertEq(atFew, _used(), "resolveHandle");
 
         _cool();
-        names.resolveId(X, _id(1, 0));
+        registry.resolveId(X, _id(1, 0));
         atFew = _used();
         _cool();
-        names.resolveId(X, _id(2, 0));
+        registry.resolveId(X, _id(2, 0));
         assertEq(atFew, _used(), "resolveId");
 
         _cool();
-        names.resolveHandleAndId(X, _handle(1, 0), _id(1, 0));
+        registry.resolveHandleAndId(X, _handle(1, 0), _id(1, 0));
         atFew = _used();
         _cool();
-        names.resolveHandleAndId(X, _handle(2, 0), _id(2, 0));
+        registry.resolveHandleAndId(X, _handle(2, 0), _id(2, 0));
         assertEq(atFew, _used(), "resolveHandleAndId");
 
         _cool();
-        names.publishedHandleOf(few, X);
+        registry.publishedHandleOf(few, X);
         atFew = _used();
         _cool();
-        names.publishedHandleOf(many, X);
+        registry.publishedHandleOf(many, X);
         assertEq(atFew, _used(), "publishedHandleOf");
     }
 }

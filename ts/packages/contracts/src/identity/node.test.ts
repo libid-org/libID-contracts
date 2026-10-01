@@ -18,7 +18,7 @@ describe('handleHash and handleNode', () => {
     expect(handleNode(github, handleHash(' Alice-1 ', RULES_GITHUB))).toBe(ALICE_1_ON_GITHUB)
   })
 
-  /// The Solidity suite pins `IdentityNames.handleHashOf` to the same values.
+  /// The Solidity suite pins `IdentityRegistry.handleHashOf` to the same values.
   it('hash every accepted vector to keccak256 of its normalized output', () => {
     const accepted = HANDLE_VECTORS.filter((v) => v.accepted)
     expect(accepted.length).toBeGreaterThan(0)

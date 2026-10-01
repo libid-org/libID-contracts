@@ -1,7 +1,7 @@
 /// The wallet-agnostic identity system, TypeScript half.
 ///
 /// Handle normalization mirrors the on-chain normalizer byte for byte, and the
-/// resolvers wrap the `IdentityNames` view calls. Everything on-chain-shaped
+/// resolvers wrap the `IdentityRegistry` view calls. Everything on-chain-shaped
 /// comes from the generated ABIs in `../abis`, so this layer and the contracts
 /// cannot drift apart silently.
 ///

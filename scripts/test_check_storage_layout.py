@@ -97,6 +97,11 @@ class Classify(unittest.TestCase):
         ]
         self.assertEqual(classify(old, new), "rename")
 
+    def test_a_field_whose_contract_type_is_renamed_is_a_rename(self) -> None:
+        old = [ROOT, "field slot=0 offset=0 registry: contract IOld"]
+        new = [ROOT, "field slot=0 offset=0 registry: contract INew"]
+        self.assertEqual(classify(old, new), "rename")
+
     def test_a_rename_that_retypes_is_incompatible(self) -> None:
         old = [ROOT, "field slot=0 offset=0 a: uint256"]
         self.assertEqual(classify(old, [ROOT, "field slot=0 offset=0 b: address"]), "incompatible")
@@ -111,7 +116,7 @@ class Coverage(unittest.TestCase):
     def test_every_upgradeable_contract_has_a_layout(self) -> None:
         covered = {contract for layout in check.LAYOUTS for contract in layout.contracts}
         found = check.upgradeable_contracts()
-        self.assertIn("IdentityNames", found)
+        self.assertIn("IdentityRegistry", found)
         self.assertIn("XPlatformVerifier", found)
         self.assertLessEqual(found, covered)
 

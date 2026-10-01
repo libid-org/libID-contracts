@@ -5,7 +5,7 @@ import {HandleNormalizer} from "./HandleNormalizer.sol";
 
 /// @notice What other contracts, `HandleEscrow` among them, ask the identity
 ///         registry.
-interface IIdentityNames {
+interface IIdentityRegistry {
     /// This platform is not configured.
     error UnknownPlatform(bytes32 platformId);
     /// Text the platform's rules refuse, with the normalizer's reason.

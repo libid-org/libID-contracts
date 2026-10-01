@@ -6,8 +6,8 @@ import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.s
 
 import {HandleNormalizer} from "../HandleNormalizer.sol";
 import {HandleVectors} from "../HandleVectors.sol";
-import {IIdentityNames} from "../IIdentityNames.sol";
-import {IdentityNames} from "../IdentityNames.sol";
+import {IIdentityRegistry} from "../IIdentityRegistry.sol";
+import {IdentityRegistry} from "../IdentityRegistry.sol";
 import {IdentityNodes} from "../IdentityNodes.sol";
 import {CeremonyProofVerifier} from "../../ceremony/CeremonyProofVerifier.sol";
 import {IPlatformVerifier} from "../../ceremony/IPlatformVerifier.sol";
@@ -21,8 +21,8 @@ import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 ///      one stub proves them for both platforms at once. What a real Platform
 ///      Verifier checks — the attestations, the proof, the freshness window —
 ///      has its own suite.
-contract IdentityNamesTest is Test {
-    IdentityNames internal names;
+contract IdentityRegistryTest is Test {
+    IdentityRegistry internal registry;
     CeremonyProofVerifier internal proofVerifier;
     StubPlatformVerifier internal xVerifier;
     StubPlatformVerifier internal githubVerifier;
@@ -36,9 +36,10 @@ contract IdentityNamesTest is Test {
     address internal mallory = makeAddr("mallory");
 
     function setUp() public {
-        IdentityNames impl = new IdentityNames();
-        names =
-            IdentityNames(address(new ERC1967Proxy(address(impl), abi.encodeCall(IdentityNames.initialize, (owner)))));
+        IdentityRegistry impl = new IdentityRegistry();
+        registry = IdentityRegistry(
+            address(new ERC1967Proxy(address(impl), abi.encodeCall(IdentityRegistry.initialize, (owner))))
+        );
         CeremonyProofVerifier pvImpl = new CeremonyProofVerifier();
         proofVerifier = CeremonyProofVerifier(
             address(new ERC1967Proxy(address(pvImpl), abi.encodeCall(CeremonyProofVerifier.initialize, (owner))))
@@ -47,7 +48,7 @@ contract IdentityNamesTest is Test {
         githubVerifier = new StubPlatformVerifier(GITHUB, 0);
 
         vm.startPrank(owner);
-        names.setProofVerifier(IProofVerifier(address(proofVerifier)));
+        registry.setProofVerifier(IProofVerifier(address(proofVerifier)));
         _wire(X, address(xVerifier));
         _wire(GITHUB, address(githubVerifier));
         vm.stopPrank();
@@ -63,7 +64,7 @@ contract IdentityNamesTest is Test {
     /// Configure a platform's rules and its first verifier, the way a
     /// deployment does. Caller supplies the prank.
     function _wire(bytes32 platformId, address verifierAddr) internal {
-        names.setPlatform(platformId, HandleVectors.rulesFor(platformId));
+        registry.setPlatform(platformId, HandleVectors.rulesFor(platformId));
         proofVerifier.setVerifier(platformId, V1, IPlatformVerifier(verifierAddr));
     }
 
@@ -93,7 +94,7 @@ contract IdentityNamesTest is Test {
         return abi.encode(
             StubPlatformVerifier.StubPayload({
                 ceremonyVersion: ceremonyVersion,
-                // A literal, not `names.OPERATION_DOMAIN()`: reading it
+                // A literal, not `registry.OPERATION_DOMAIN()`: reading it
                 // is an external call, and it would spend the caller's prank.
                 operationDomain: keccak256(bytes("libid.claim-identity")),
                 authorizationNonce: bytes32(++nonce),
@@ -108,7 +109,7 @@ contract IdentityNamesTest is Test {
     /// wallet supplies `msg.sender`.
     function _submit(bytes32 platformId, bool publish) internal {
         bytes memory payload = _payload(V1);
-        names.bind(platformId, V1, payload, publish);
+        registry.bind(platformId, V1, payload, publish);
     }
 
     /// Stage and bind as `who`.
@@ -123,8 +124,8 @@ contract IdentityNamesTest is Test {
     function test_bindWritesBothMappings() public {
         _bind(alice, "123", "alice", 100);
 
-        assertEq(names.resolveId(X, "123"), alice, "the id does not resolve");
-        assertEq(names.resolveHandle(X, "alice"), alice, "the handle does not resolve");
+        assertEq(registry.resolveId(X, "123"), alice, "the id does not resolve");
+        assertEq(registry.resolveHandle(X, "alice"), alice, "the handle does not resolve");
     }
 
     /// The write entry point is `bind`. The old `claim` selector reaches no
@@ -136,13 +137,13 @@ contract IdentityNamesTest is Test {
 
         vm.prank(alice);
         (bool ok,) =
-            address(names).call(abi.encodeWithSignature("claim(bytes32,uint16,bytes,bool)", X, V1, payload, false));
+            address(registry).call(abi.encodeWithSignature("claim(bytes32,uint16,bytes,bool)", X, V1, payload, false));
         assertFalse(ok, "the claim selector still answers");
-        assertEq(names.resolveHandle(X, "alice"), address(0));
+        assertEq(registry.resolveHandle(X, "alice"), address(0));
 
         vm.prank(alice);
-        names.bind(X, V1, payload, false);
-        assertEq(names.resolveHandle(X, "alice"), alice, "the unspent payload does not bind");
+        registry.bind(X, V1, payload, false);
+        assertEq(registry.resolveHandle(X, "alice"), alice, "the unspent payload does not bind");
     }
 
     /// The one authorization rule. A proof read from the mempool is useless to
@@ -151,7 +152,7 @@ contract IdentityNamesTest is Test {
         _stage("123", "alice", alice, 100);
 
         vm.prank(bob);
-        vm.expectRevert(abi.encodeWithSelector(IdentityNames.NotProofTarget.selector, alice, bob));
+        vm.expectRevert(abi.encodeWithSelector(IdentityRegistry.NotProofTarget.selector, alice, bob));
         _submit(X, false);
     }
 
@@ -162,7 +163,7 @@ contract IdentityNamesTest is Test {
         _stage("123", "alice", address(0), 100);
 
         vm.prank(alice);
-        vm.expectRevert(abi.encodeWithSelector(IdentityNames.NotProofTarget.selector, address(0), alice));
+        vm.expectRevert(abi.encodeWithSelector(IdentityRegistry.NotProofTarget.selector, address(0), alice));
         _submit(X, false);
     }
 
@@ -171,7 +172,7 @@ contract IdentityNamesTest is Test {
         _stage("123", "alice", alice, 100);
 
         vm.prank(alice);
-        vm.expectRevert(abi.encodeWithSelector(IIdentityNames.UnknownPlatform.selector, unknown));
+        vm.expectRevert(abi.encodeWithSelector(IIdentityRegistry.UnknownPlatform.selector, unknown));
         _submit(unknown, false);
     }
 
@@ -180,8 +181,8 @@ contract IdentityNamesTest is Test {
     function test_theHandleIsNormalizedOnTheWayIn() public {
         _bind(alice, "123", " @Alice_1 ", 100);
 
-        assertEq(names.resolveHandle(X, "alice_1"), alice);
-        assertEq(names.resolveHandle(X, "@ALICE_1"), alice, "a reader's spelling should not matter");
+        assertEq(registry.resolveHandle(X, "alice_1"), alice);
+        assertEq(registry.resolveHandle(X, "@ALICE_1"), alice, "a reader's spelling should not matter");
     }
 
     // ─── The watermark ──────────────────────────────────────────────
@@ -193,15 +194,15 @@ contract IdentityNamesTest is Test {
 
         // Bob proves the same handle later, which is a legitimate takeover.
         _bind(bob, "456", "shared", 200);
-        assertEq(names.resolveHandle(X, "shared"), bob);
+        assertEq(registry.resolveHandle(X, "shared"), bob);
 
         // Alice submits a proof she was holding from before bob's.
         _stage("123", "shared", alice, 150);
         vm.prank(alice);
-        vm.expectRevert(abi.encodeWithSelector(IdentityNames.StaleProof.selector, uint64(150), uint64(200)));
+        vm.expectRevert(abi.encodeWithSelector(IdentityRegistry.StaleProof.selector, uint64(150), uint64(200)));
         _submit(X, false);
 
-        assertEq(names.resolveHandle(X, "shared"), bob, "the handle moved back");
+        assertEq(registry.resolveHandle(X, "shared"), bob, "the handle moved back");
     }
 
     /// Replaying the exact proof is refused by the same rule, because equal is
@@ -211,7 +212,7 @@ contract IdentityNamesTest is Test {
 
         _stage("123", "alice", alice, 100);
         vm.prank(alice);
-        vm.expectRevert(abi.encodeWithSelector(IdentityNames.StaleProof.selector, uint64(100), uint64(100)));
+        vm.expectRevert(abi.encodeWithSelector(IdentityRegistry.StaleProof.selector, uint64(100), uint64(100)));
         _submit(X, false);
     }
 
@@ -224,9 +225,9 @@ contract IdentityNamesTest is Test {
         _bind(alice, "123", "alice", 100);
         _bind(alice, "123", "alice2", 200);
 
-        assertEq(names.resolveId(X, "123"), alice, "the id follows the identity");
-        assertEq(names.resolveHandle(X, "alice2"), alice);
-        assertEq(names.resolveHandle(X, "alice"), address(0), "the handle it left no longer resolves");
+        assertEq(registry.resolveId(X, "123"), alice, "the id follows the identity");
+        assertEq(registry.resolveHandle(X, "alice2"), alice);
+        assertEq(registry.resolveHandle(X, "alice"), address(0), "the handle it left no longer resolves");
     }
 
     /// Only the entry this identity itself wrote. One holder may have two
@@ -239,8 +240,8 @@ contract IdentityNamesTest is Test {
         // Now the first identity renames. Its own record still names "shared".
         _bind(alice, "123", "renamed", 300);
 
-        assertEq(names.resolveHandle(X, "shared"), alice, "the second identity keeps it");
-        assertEq(names.resolveHandle(X, "renamed"), alice);
+        assertEq(registry.resolveHandle(X, "shared"), alice, "the second identity keeps it");
+        assertEq(registry.resolveHandle(X, "renamed"), alice);
     }
 
     /// Retiring clears the holder and keeps the watermark. Deleting the whole
@@ -252,7 +253,7 @@ contract IdentityNamesTest is Test {
 
         _stage("456", "alice", bob, 100);
         vm.prank(bob);
-        vm.expectRevert(abi.encodeWithSelector(IdentityNames.StaleProof.selector, uint64(100), uint64(200)));
+        vm.expectRevert(abi.encodeWithSelector(IdentityRegistry.StaleProof.selector, uint64(100), uint64(200)));
         _submit(X, false);
     }
 
@@ -263,7 +264,7 @@ contract IdentityNamesTest is Test {
         _bind(alice, "123", "alice2", 200);
         _bind(bob, "456", "alice", 300);
 
-        assertEq(names.resolveHandle(X, "alice"), bob);
+        assertEq(registry.resolveHandle(X, "alice"), bob);
     }
 
     /// A proof with no observation time cannot be ordered against any other, so
@@ -271,7 +272,7 @@ contract IdentityNamesTest is Test {
     function test_aProofWithNoObservationTimeIsRefused() public {
         _stage("123", "alice", alice, 0);
         vm.prank(alice);
-        vm.expectRevert(IdentityNames.NoObservationTime.selector);
+        vm.expectRevert(IdentityRegistry.NoObservationTime.selector);
         _submit(X, false);
     }
 
@@ -282,7 +283,7 @@ contract IdentityNamesTest is Test {
     function test_aBindWithNoIdIsRefused() public {
         _stage("", "alice", alice, 100);
         vm.prank(alice);
-        vm.expectRevert(IdentityNames.NoId.selector);
+        vm.expectRevert(IdentityRegistry.NoId.selector);
         _submit(X, false);
     }
 
@@ -296,35 +297,35 @@ contract IdentityNamesTest is Test {
     function test_everyResolverRefusesAnUnknownPlatform() public {
         bytes32 unwired = keccak256("nowhere");
 
-        vm.expectRevert(abi.encodeWithSelector(IIdentityNames.UnknownPlatform.selector, unwired));
-        names.resolveId(unwired, "123");
+        vm.expectRevert(abi.encodeWithSelector(IIdentityRegistry.UnknownPlatform.selector, unwired));
+        registry.resolveId(unwired, "123");
 
-        vm.expectRevert(abi.encodeWithSelector(IIdentityNames.UnknownPlatform.selector, unwired));
-        names.resolveHandle(unwired, "alice");
+        vm.expectRevert(abi.encodeWithSelector(IIdentityRegistry.UnknownPlatform.selector, unwired));
+        registry.resolveHandle(unwired, "alice");
 
-        vm.expectRevert(abi.encodeWithSelector(IIdentityNames.UnknownPlatform.selector, unwired));
-        names.resolveHandleAndId(unwired, "alice", "123");
+        vm.expectRevert(abi.encodeWithSelector(IIdentityRegistry.UnknownPlatform.selector, unwired));
+        registry.resolveHandleAndId(unwired, "alice", "123");
 
-        vm.expectRevert(abi.encodeWithSelector(IIdentityNames.UnknownPlatform.selector, unwired));
-        names.rulesOf(unwired);
-        vm.expectRevert(abi.encodeWithSelector(IIdentityNames.UnknownPlatform.selector, unwired));
-        names.handleHashOf(unwired, "alice");
-        vm.expectRevert(abi.encodeWithSelector(IIdentityNames.UnknownPlatform.selector, unwired));
-        names.handleNodeOf(unwired, "alice");
+        vm.expectRevert(abi.encodeWithSelector(IIdentityRegistry.UnknownPlatform.selector, unwired));
+        registry.rulesOf(unwired);
+        vm.expectRevert(abi.encodeWithSelector(IIdentityRegistry.UnknownPlatform.selector, unwired));
+        registry.handleHashOf(unwired, "alice");
+        vm.expectRevert(abi.encodeWithSelector(IIdentityRegistry.UnknownPlatform.selector, unwired));
+        registry.handleNodeOf(unwired, "alice");
     }
 
     /// `rulesOf` reports the rules as set now, `handleHashOf` is `keccak256` of the handle
     /// normalized under them, and `handleNodeOf`/`handleNodeOfHash` name the node a proof of it
     /// binds.
     function test_theHashingViewsAgreeWithWhatABindWrites() public {
-        assertEq(names.rulesOf(X).maxLength, HandleVectors.rulesFor(X).maxLength);
-        bytes32 handleHash = names.handleHashOf(X, "  @Alice ");
+        assertEq(registry.rulesOf(X).maxLength, HandleVectors.rulesFor(X).maxLength);
+        bytes32 handleHash = registry.handleHashOf(X, "  @Alice ");
         assertEq(handleHash, keccak256("alice"));
-        assertEq(names.handleNodeOf(X, "  @Alice "), names.handleNodeOfHash(X, handleHash));
-        assertEq(names.handleNodeOfHash(X, handleHash), IdentityNodes.handleNode(X, "alice"));
+        assertEq(registry.handleNodeOf(X, "  @Alice "), registry.handleNodeOfHash(X, handleHash));
+        assertEq(registry.handleNodeOfHash(X, handleHash), IdentityNodes.handleNode(X, "alice"));
 
         _bind(alice, "123", "alice", 100);
-        (address holder,) = names.handleBinding(names.handleNodeOfHash(X, handleHash));
+        (address holder,) = registry.handleBinding(registry.handleNodeOfHash(X, handleHash));
         assertEq(holder, alice);
     }
 
@@ -332,25 +333,25 @@ contract IdentityNamesTest is Test {
     /// `resolveHandle` answers nobody.
     function test_theHashingViewsRefuseWhatTheCurrentRulesRefuse() public {
         bytes memory badChar =
-            abi.encodeWithSelector(IIdentityNames.UnusableHandle.selector, HandleNormalizer.Problem.BadChar);
+            abi.encodeWithSelector(IIdentityRegistry.UnusableHandle.selector, HandleNormalizer.Problem.BadChar);
         vm.expectRevert(badChar);
-        names.handleHashOf(X, "ali-ce");
+        registry.handleHashOf(X, "ali-ce");
         vm.expectRevert(badChar);
-        names.handleNodeOf(X, "ali-ce");
-        assertEq(names.resolveHandle(X, "ali-ce"), address(0));
+        registry.handleNodeOf(X, "ali-ce");
+        assertEq(registry.resolveHandle(X, "ali-ce"), address(0));
 
         vm.prank(owner);
-        names.setPlatform(X, HandleVectors.rulesFor(GITHUB));
-        assertTrue(names.rulesOf(X).allowHyphen);
-        assertEq(names.handleHashOf(X, "ali-ce"), keccak256("ali-ce"));
+        registry.setPlatform(X, HandleVectors.rulesFor(GITHUB));
+        assertTrue(registry.rulesOf(X).allowHyphen);
+        assertEq(registry.handleHashOf(X, "ali-ce"), keccak256("ali-ce"));
         vm.expectRevert(badChar);
-        names.handleNodeOf(X, "alice_1");
+        registry.handleNodeOf(X, "alice_1");
     }
 
     function test_resolveHandleAndIdAgreesWhileOneIdentityHasBoth() public {
         _bind(alice, "123", "alice", 100);
 
-        (address holder, bool agrees) = names.resolveHandleAndId(X, "alice", "123");
+        (address holder, bool agrees) = registry.resolveHandleAndId(X, "alice", "123");
         assertEq(holder, alice);
         assertTrue(agrees, "one identity has both, so they must agree");
     }
@@ -361,7 +362,7 @@ contract IdentityNamesTest is Test {
         _bind(alice, "123", "shared", 100);
         _bind(bob, "456", "shared", 200);
 
-        (address holder, bool agrees) = names.resolveHandleAndId(X, "shared", "123");
+        (address holder, bool agrees) = registry.resolveHandleAndId(X, "shared", "123");
         assertEq(holder, bob, "the handle routes to whoever proved it last");
         assertFalse(agrees, "the caller's id belongs to a different holder now");
     }
@@ -371,7 +372,7 @@ contract IdentityNamesTest is Test {
     function test_resolveHandleAndIdDoesNotAgreeOnAnUnknownId() public {
         _bind(alice, "123", "alice", 100);
 
-        (address holder, bool agrees) = names.resolveHandleAndId(X, "alice", "999");
+        (address holder, bool agrees) = registry.resolveHandleAndId(X, "alice", "999");
         assertEq(holder, alice);
         assertFalse(agrees);
     }
@@ -380,12 +381,12 @@ contract IdentityNamesTest is Test {
 
     function test_publishingIsOptional() public {
         _bind(alice, "123", "alice", 100);
-        assertEq(bytes(names.publishedHandleOf(alice, X)).length, 0, "nothing should be published by default");
+        assertEq(bytes(registry.publishedHandleOf(alice, X)).length, 0, "nothing should be published by default");
 
         _stage("123", "alice", alice, 200);
         vm.prank(alice);
         _submit(X, true);
-        assertEq(names.publishedHandleOf(alice, X), "alice");
+        assertEq(registry.publishedHandleOf(alice, X), "alice");
     }
 
     /// Publishing is the one thing here a holder can undo, and it must not
@@ -395,11 +396,11 @@ contract IdentityNamesTest is Test {
         _stage("123", "alice", alice, 100);
         vm.prank(alice);
         _submit(X, true);
-        assertEq(names.publishedHandleOf(alice, X), "alice");
+        assertEq(registry.publishedHandleOf(alice, X), "alice");
 
         vm.prank(alice);
-        names.unpublish(X);
-        assertEq(bytes(names.publishedHandleOf(alice, X)).length, 0);
+        registry.unpublish(X);
+        assertEq(bytes(registry.publishedHandleOf(alice, X)).length, 0);
     }
 
     /// The binding survives. This withdraws a displayed string, not the proof
@@ -410,10 +411,10 @@ contract IdentityNamesTest is Test {
         _submit(X, true);
 
         vm.prank(alice);
-        names.unpublish(X);
+        registry.unpublish(X);
 
-        assertEq(names.resolveId(X, "123"), alice);
-        assertEq(names.resolveHandle(X, "alice"), alice);
+        assertEq(registry.resolveId(X, "123"), alice);
+        assertEq(registry.resolveHandle(X, "alice"), alice);
     }
 
     /// Binding again with `publish: false` must NOT withdraw an earlier
@@ -430,7 +431,7 @@ contract IdentityNamesTest is Test {
         vm.prank(alice);
         _submit(X, false);
 
-        assertEq(names.publishedHandleOf(alice, X), "alice2", "the display follows the handle it has");
+        assertEq(registry.publishedHandleOf(alice, X), "alice2", "the display follows the handle it has");
     }
 
     /// The complement: a holder that never published does not start now.
@@ -438,7 +439,7 @@ contract IdentityNamesTest is Test {
         _bind(alice, "123", "alice", 100);
         _bind(alice, "123", "alice2", 200);
 
-        assertEq(names.publishedHandleOf(alice, X), "", "nothing was ever on display");
+        assertEq(registry.publishedHandleOf(alice, X), "", "nothing was ever on display");
     }
 
     /// An indexer mirrors the published handles from the log alone, so the log
@@ -498,9 +499,9 @@ contract IdentityNamesTest is Test {
         _submit(X, true);
 
         vm.prank(mallory);
-        names.unpublish(X);
+        registry.unpublish(X);
 
-        assertEq(names.publishedHandleOf(alice, X), "alice");
+        assertEq(registry.publishedHandleOf(alice, X), "alice");
     }
 
     /// The forward check ENS requires of its integrators, done here so an
@@ -509,33 +510,37 @@ contract IdentityNamesTest is Test {
         _stage("123", "shared", alice, 100);
         vm.prank(alice);
         _submit(X, true);
-        assertEq(names.publishedHandleOf(alice, X), "shared", "it resolves back, so it stands");
+        assertEq(registry.publishedHandleOf(alice, X), "shared", "it resolves back, so it stands");
 
         // Bob proves the same handle. Alice's published handle now has another
         // holder, though nothing rewrote her record.
         _bind(bob, "456", "shared", 200);
-        assertEq(names.publishedHandleOf(alice, X), "", "it no longer resolves back");
+        assertEq(registry.publishedHandleOf(alice, X), "", "it no longer resolves back");
 
         // Proving it back without publishing finds the record still set.
         _stage("123", "shared", alice, 300);
         vm.prank(alice);
         _submit(X, false);
-        assertEq(names.publishedHandleOf(alice, X), "shared", "the record was untouched");
+        assertEq(registry.publishedHandleOf(alice, X), "shared", "the record was untouched");
     }
 
     // ─── A holder's identities ──────────────────────────────────────
 
     /// Every identity of a holder, in one read.
-    function _identities(address holder) internal view returns (IdentityNames.Identity[] memory) {
-        return names.identitiesOf(holder, 0, names.identityCount(holder));
+    function _identities(address holder) internal view returns (IdentityRegistry.Identity[] memory) {
+        return registry.identitiesOf(holder, 0, registry.identityCount(holder));
     }
 
-    function _is(IdentityNames.Identity memory a, bytes32 platformId, string memory id) internal pure returns (bool) {
+    function _is(IdentityRegistry.Identity memory a, bytes32 platformId, string memory id)
+        internal
+        pure
+        returns (bool)
+    {
         return a.platformId == platformId && keccak256(bytes(a.id)) == keccak256(bytes(id));
     }
 
     /// Whether a page carries this identity.
-    function _carries(IdentityNames.Identity[] memory page, bytes32 platformId, string memory id)
+    function _carries(IdentityRegistry.Identity[] memory page, bytes32 platformId, string memory id)
         internal
         pure
         returns (bool)
@@ -551,9 +556,9 @@ contract IdentityNamesTest is Test {
     function _identity(address holder, bytes32 platformId, string memory id)
         internal
         view
-        returns (IdentityNames.Identity memory)
+        returns (IdentityRegistry.Identity memory)
     {
-        IdentityNames.Identity[] memory all = _identities(holder);
+        IdentityRegistry.Identity[] memory all = _identities(holder);
         for (uint256 i = 0; i < all.length; i++) {
             if (_is(all[i], platformId, id)) return all[i];
         }
@@ -563,11 +568,11 @@ contract IdentityNamesTest is Test {
     function test_aBindListsTheIdentityWithItsPlatformIdAndHandle() public {
         _bind(alice, "123", "alice", 100);
 
-        assertEq(names.identityCount(alice), 1);
-        IdentityNames.Identity memory a = _identity(alice, X, "123");
+        assertEq(registry.identityCount(alice), 1);
+        IdentityRegistry.Identity memory a = _identity(alice, X, "123");
         assertEq(a.handle, "alice");
         assertTrue(a.handleCurrent);
-        assertEq(names.identityCount(bob), 0, "each holder keeps its own list");
+        assertEq(registry.identityCount(bob), 0, "each holder keeps its own list");
     }
 
     function test_identitiesOnEveryPlatformShareOneList() public {
@@ -576,7 +581,7 @@ contract IdentityNamesTest is Test {
         vm.prank(alice);
         _submit(GITHUB, false);
 
-        assertEq(names.identityCount(alice), 2);
+        assertEq(registry.identityCount(alice), 2);
         assertTrue(_identity(alice, X, "123").handleCurrent);
         assertTrue(_identity(alice, GITHUB, "123").handleCurrent);
     }
@@ -590,7 +595,7 @@ contract IdentityNamesTest is Test {
         _bind(alice, "123", "alice", 100);
         _bind(alice, "456", "alicia", 200);
 
-        assertEq(names.identityCount(alice), 2);
+        assertEq(registry.identityCount(alice), 2);
         assertEq(_identity(alice, X, "123").handle, "alice");
         assertEq(_identity(alice, X, "456").handle, "alicia");
     }
@@ -599,8 +604,8 @@ contract IdentityNamesTest is Test {
         _bind(alice, "123", "alice", 100);
         _bind(alice, "123", "alicia", 200);
 
-        assertEq(names.identityCount(alice), 1);
-        IdentityNames.Identity memory a = _identity(alice, X, "123");
+        assertEq(registry.identityCount(alice), 1);
+        IdentityRegistry.Identity memory a = _identity(alice, X, "123");
         assertEq(a.handle, "alicia");
         assertTrue(a.handleCurrent);
     }
@@ -608,7 +613,7 @@ contract IdentityNamesTest is Test {
     function test_provingTheSameHandleAgainListsNothingTwice() public {
         _bind(alice, "123", "alice", 100);
         _bind(alice, "123", "alice", 200);
-        assertEq(names.identityCount(alice), 1);
+        assertEq(registry.identityCount(alice), 1);
     }
 
     /// The list is alice's: bob taking her handle changes what it resolves
@@ -618,8 +623,8 @@ contract IdentityNamesTest is Test {
         _bind(alice, "123", "shared", 100);
         _bind(bob, "456", "shared", 200);
 
-        assertEq(names.identityCount(alice), 1);
-        IdentityNames.Identity memory a = _identity(alice, X, "123");
+        assertEq(registry.identityCount(alice), 1);
+        IdentityRegistry.Identity memory a = _identity(alice, X, "123");
         assertEq(a.handle, "shared");
         assertFalse(a.handleCurrent, "the handle resolves to bob now");
         assertTrue(_identity(bob, X, "456").handleCurrent);
@@ -632,9 +637,9 @@ contract IdentityNamesTest is Test {
         _bind(alice, "456", "second", 200);
         _bind(alice, "456", "first", 300);
 
-        assertEq(names.identityCount(alice), 2);
+        assertEq(registry.identityCount(alice), 2);
         assertFalse(_identity(alice, X, "123").handleCurrent);
-        IdentityNames.Identity memory second = _identity(alice, X, "456");
+        IdentityRegistry.Identity memory second = _identity(alice, X, "456");
         assertEq(second.handle, "first");
         assertTrue(second.handleCurrent);
     }
@@ -643,8 +648,8 @@ contract IdentityNamesTest is Test {
         _bind(alice, "123", "alice", 100);
         _bind(bob, "123", "alice", 200);
 
-        assertEq(names.identityCount(alice), 0);
-        assertEq(names.identityCount(bob), 1);
+        assertEq(registry.identityCount(alice), 0);
+        assertEq(registry.identityCount(bob), 1);
         assertTrue(_identity(bob, X, "123").handleCurrent);
     }
 
@@ -654,15 +659,15 @@ contract IdentityNamesTest is Test {
         _bind(alice, "3", "three", 300);
         _bind(bob, "2", "two", 400);
 
-        assertEq(names.identityCount(alice), 2);
+        assertEq(registry.identityCount(alice), 2);
         assertEq(_identity(alice, X, "1").handle, "one");
         assertEq(_identity(alice, X, "3").handle, "three");
         assertEq(_identity(bob, X, "2").handle, "two");
 
         // And back: an identity returns to a list it left.
         _bind(alice, "2", "two", 500);
-        assertEq(names.identityCount(alice), 3);
-        assertEq(names.identityCount(bob), 0);
+        assertEq(registry.identityCount(alice), 3);
+        assertEq(registry.identityCount(bob), 0);
         assertEq(_identity(alice, X, "2").handle, "two");
     }
 
@@ -671,15 +676,15 @@ contract IdentityNamesTest is Test {
         _bind(alice, "2", "two", 200);
         _bind(alice, "3", "three", 300);
 
-        assertEq(names.identitiesOf(alice, 0, 2).length, 2);
-        assertEq(names.identitiesOf(alice, 2, 5).length, 1, "clipped at the end");
-        assertEq(names.identitiesOf(alice, 3, 1).length, 0, "past the end is empty, not a revert");
-        assertEq(names.identitiesOf(alice, 0, 0).length, 0);
-        assertEq(names.identitiesOf(alice, 1, type(uint256).max).length, 2, "a limit past the end is clipped too");
+        assertEq(registry.identitiesOf(alice, 0, 2).length, 2);
+        assertEq(registry.identitiesOf(alice, 2, 5).length, 1, "clipped at the end");
+        assertEq(registry.identitiesOf(alice, 3, 1).length, 0, "past the end is empty, not a revert");
+        assertEq(registry.identitiesOf(alice, 0, 0).length, 0);
+        assertEq(registry.identitiesOf(alice, 1, type(uint256).max).length, 2, "a limit past the end is clipped too");
 
         // Two pages cover the list once each.
-        IdentityNames.Identity[] memory first = names.identitiesOf(alice, 0, 2);
-        IdentityNames.Identity[] memory second = names.identitiesOf(alice, 2, 2);
+        IdentityRegistry.Identity[] memory first = registry.identitiesOf(alice, 0, 2);
+        IdentityRegistry.Identity[] memory second = registry.identitiesOf(alice, 2, 2);
         assertEq(second.length, 1);
         assertTrue(_carries(first, X, "1") != _carries(second, X, "1"));
         assertTrue(_carries(first, X, "2") != _carries(second, X, "2"));
@@ -694,9 +699,9 @@ contract IdentityNamesTest is Test {
         HandleNormalizer.Rules memory rules = HandleVectors.rulesFor(X);
         rules.allowUnderscore = false;
         vm.prank(owner);
-        names.setPlatform(X, rules);
+        registry.setPlatform(X, rules);
 
-        assertEq(names.resolveHandle(X, "with_score"), address(0));
+        assertEq(registry.resolveHandle(X, "with_score"), address(0));
         assertTrue(_identity(alice, X, "123").handleCurrent);
     }
 
@@ -721,19 +726,21 @@ contract IdentityNamesTest is Test {
         }
 
         uint256 listed;
-        IdentityNames.Identity[] memory current = new IdentityNames.Identity[](holders.length * ids.length * 2);
+        IdentityRegistry.Identity[] memory current = new IdentityRegistry.Identity[](holders.length * ids.length * 2);
         uint256 currents;
         for (uint256 w = 0; w < holders.length; w++) {
-            IdentityNames.Identity[] memory page = _identities(holders[w]);
+            IdentityRegistry.Identity[] memory page = _identities(holders[w]);
             listed += page.length;
             for (uint256 i = 0; i < page.length; i++) {
-                assertEq(names.resolveId(page[i].platformId, page[i].id), holders[w], "listed under its prover");
+                assertEq(registry.resolveId(page[i].platformId, page[i].id), holders[w], "listed under its prover");
                 for (uint256 j = 0; j < i; j++) {
                     assertFalse(_is(page[j], page[i].platformId, page[i].id), "listed once");
                 }
                 if (page[i].handleCurrent) {
                     assertEq(
-                        names.resolveHandle(page[i].platformId, page[i].handle), holders[w], "current, so it resolves"
+                        registry.resolveHandle(page[i].platformId, page[i].handle),
+                        holders[w],
+                        "current, so it resolves"
                     );
                     current[currents++] = page[i];
                 }
@@ -750,7 +757,7 @@ contract IdentityNamesTest is Test {
         uint256 proved;
         for (uint256 p = 0; p < platforms.length; p++) {
             for (uint256 i = 0; i < ids.length; i++) {
-                if (names.resolveId(platforms[p], ids[i]) != address(0)) proved++;
+                if (registry.resolveId(platforms[p], ids[i]) != address(0)) proved++;
             }
         }
         assertEq(listed, proved, "every proved identity is listed, and nothing else");
@@ -763,17 +770,17 @@ contract IdentityNamesTest is Test {
     /// tell apart from `UnknownPlatform`. Text the rules refuse answers the
     /// zero address, which is the same answer as a handle nobody proved.
     function test_resolvingTextTheRulesRefuseAnswersNobody() public view {
-        assertEq(names.resolveHandle(X, "ali ce"), address(0), "a stray space");
-        assertEq(names.resolveHandle(X, unicode"aliçe"), address(0), "a byte above 0x7f");
-        assertEq(names.resolveHandle(X, ""), address(0), "nothing at all");
-        assertEq(names.resolveHandle(X, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"), address(0), "too long");
-        assertEq(names.resolveHandle(GITHUB, "-octocat"), address(0), "an arrangement the platform refuses");
+        assertEq(registry.resolveHandle(X, "ali ce"), address(0), "a stray space");
+        assertEq(registry.resolveHandle(X, unicode"aliçe"), address(0), "a byte above 0x7f");
+        assertEq(registry.resolveHandle(X, ""), address(0), "nothing at all");
+        assertEq(registry.resolveHandle(X, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"), address(0), "too long");
+        assertEq(registry.resolveHandle(GITHUB, "-octocat"), address(0), "an arrangement the platform refuses");
     }
 
     /// `resolveHandleAndId` matters more: its documented job is to let a
     /// caller decide what to tell whoever is paying, not to refuse.
     function test_resolveHandleAndIdAnswersRatherThanRevertingOnAMalformedHandle() public view {
-        (address holder, bool idAgrees) = names.resolveHandleAndId(X, "ali ce", "123");
+        (address holder, bool idAgrees) = registry.resolveHandleAndId(X, "ali ce", "123");
         assertEq(holder, address(0));
         assertFalse(idAgrees);
     }
@@ -783,8 +790,8 @@ contract IdentityNamesTest is Test {
     /// two apart from an address.
     function test_anUnwiredPlatformStillReverts() public {
         bytes32 unknown = keccak256("nowhere");
-        vm.expectRevert(abi.encodeWithSelector(IIdentityNames.UnknownPlatform.selector, unknown));
-        names.resolveHandle(unknown, "alice");
+        vm.expectRevert(abi.encodeWithSelector(IIdentityRegistry.UnknownPlatform.selector, unknown));
+        registry.resolveHandle(unknown, "alice");
     }
 
     /// `bind` keeps reverting. A handle that arrives inside a proof and does
@@ -806,19 +813,19 @@ contract IdentityNamesTest is Test {
         _stage("123", "octo-cat", alice, 100);
         vm.prank(alice);
         _submit(GITHUB, true);
-        assertEq(names.publishedHandleOf(alice, GITHUB), "octo-cat");
+        assertEq(registry.publishedHandleOf(alice, GITHUB), "octo-cat");
 
         HandleNormalizer.Rules memory narrowed = HandleVectors.rulesFor(GITHUB);
         narrowed.allowHyphen = false;
         vm.prank(owner);
-        names.setPlatform(GITHUB, narrowed);
+        registry.setPlatform(GITHUB, narrowed);
 
-        assertEq(names.resolveHandle(GITHUB, "octo-cat"), address(0), "the forward resolver cannot name it");
-        assertEq(names.publishedHandleOf(alice, GITHUB), "", "so neither does the reverse one");
+        assertEq(registry.resolveHandle(GITHUB, "octo-cat"), address(0), "the forward resolver cannot name it");
+        assertEq(registry.publishedHandleOf(alice, GITHUB), "", "so neither does the reverse one");
 
         vm.prank(owner);
-        names.setPlatform(GITHUB, HandleVectors.rulesFor(GITHUB));
-        assertEq(names.publishedHandleOf(alice, GITHUB), "octo-cat", "the record was untouched");
+        registry.setPlatform(GITHUB, HandleVectors.rulesFor(GITHUB));
+        assertEq(registry.publishedHandleOf(alice, GITHUB), "octo-cat", "the record was untouched");
     }
 
     // ─── Node separation ────────────────────────────────────────────
@@ -835,8 +842,8 @@ contract IdentityNamesTest is Test {
         _bind(alice, "12345", "bob", 100);
         _bind(bob, "999", "12345", 100);
 
-        assertEq(names.resolveId(X, "12345"), alice, "the id belongs to alice");
-        assertEq(names.resolveHandle(X, "12345"), bob, "the handle belongs to bob");
+        assertEq(registry.resolveId(X, "12345"), alice, "the id belongs to alice");
+        assertEq(registry.resolveHandle(X, "12345"), bob, "the handle belongs to bob");
     }
 
     /// The same text on two platforms is two identities.
@@ -847,8 +854,8 @@ contract IdentityNamesTest is Test {
         vm.prank(bob);
         _submit(GITHUB, false);
 
-        assertEq(names.resolveHandle(X, "alice"), alice);
-        assertEq(names.resolveHandle(GITHUB, "alice"), bob);
+        assertEq(registry.resolveHandle(X, "alice"), alice);
+        assertEq(registry.resolveHandle(GITHUB, "alice"), bob);
     }
 
     // ─── Proof versions ─────────────────────────────────────────────
@@ -867,8 +874,8 @@ contract IdentityNamesTest is Test {
         vm.prank(owner);
         proofVerifier.setVerifier(X, V1, IPlatformVerifier(address(0)));
 
-        assertEq(names.resolveHandle(X, "alice"), alice, "the binding went with the format");
-        assertEq(names.resolveId(X, "123"), alice);
+        assertEq(registry.resolveHandle(X, "alice"), alice, "the binding went with the format");
+        assertEq(registry.resolveId(X, "123"), alice);
     }
 
     /// Which ceremony version proved a binding is logged and never stored.
@@ -887,10 +894,10 @@ contract IdentityNamesTest is Test {
 
         bytes memory payload = _payload(2);
         vm.prank(bob);
-        names.bind(X, 2, payload, false);
+        registry.bind(X, 2, payload, false);
 
-        (address idHolder, uint64 idAt) = names.idBinding(IdentityNodes.idNode(X, "456"));
-        (address handleHolder, uint64 handleAt) = names.handleBinding(IdentityNodes.handleNode(X, "bob"));
+        (address idHolder, uint64 idAt) = registry.idBinding(IdentityNodes.idNode(X, "456"));
+        (address handleHolder, uint64 handleAt) = registry.handleBinding(IdentityNodes.handleNode(X, "bob"));
         assertEq(idHolder, bob, "the id node");
         assertEq(handleHolder, bob, "the handle node");
         assertEq(idAt, 100);
@@ -908,22 +915,22 @@ contract IdentityNamesTest is Test {
     function test_aPlatformWithoutAVerifierDoesNotResolve() public {
         bytes32 fresh = keccak256("fresh");
         vm.prank(owner);
-        names.setPlatform(fresh, HandleVectors.rulesFor(X));
+        registry.setPlatform(fresh, HandleVectors.rulesFor(X));
 
-        vm.expectRevert(abi.encodeWithSelector(IIdentityNames.UnknownPlatform.selector, fresh));
-        names.resolveId(fresh, "123");
+        vm.expectRevert(abi.encodeWithSelector(IIdentityRegistry.UnknownPlatform.selector, fresh));
+        registry.resolveId(fresh, "123");
 
-        vm.expectRevert(abi.encodeWithSelector(IIdentityNames.UnknownPlatform.selector, fresh));
-        names.resolveHandle(fresh, "alice");
+        vm.expectRevert(abi.encodeWithSelector(IIdentityRegistry.UnknownPlatform.selector, fresh));
+        registry.resolveHandle(fresh, "alice");
 
-        vm.expectRevert(abi.encodeWithSelector(IIdentityNames.UnknownPlatform.selector, fresh));
-        names.resolveHandleAndId(fresh, "alice", "123");
+        vm.expectRevert(abi.encodeWithSelector(IIdentityRegistry.UnknownPlatform.selector, fresh));
+        registry.resolveHandleAndId(fresh, "alice", "123");
 
         // The hashing views answer, and agree with each other: a client
         // normalizing under `rulesOf` reaches the node `handleNodeOf` names.
-        assertEq(names.rulesOf(fresh).maxLength, HandleVectors.rulesFor(X).maxLength);
-        assertEq(names.handleHashOf(fresh, "Alice"), keccak256("alice"));
-        assertEq(names.handleNodeOf(fresh, "Alice"), names.handleNodeOfHash(fresh, keccak256("alice")));
+        assertEq(registry.rulesOf(fresh).maxLength, HandleVectors.rulesFor(X).maxLength);
+        assertEq(registry.handleHashOf(fresh, "Alice"), keccak256("alice"));
+        assertEq(registry.handleNodeOf(fresh, "Alice"), registry.handleNodeOfHash(fresh, keccak256("alice")));
     }
 
     /// And binding says the same thing, rather than naming a version the
@@ -933,7 +940,7 @@ contract IdentityNamesTest is Test {
     function test_bindingOnAPlatformWithoutAVerifierIsRefused() public {
         bytes32 fresh = keccak256("fresh");
         vm.prank(owner);
-        names.setPlatform(fresh, HandleVectors.rulesFor(X));
+        registry.setPlatform(fresh, HandleVectors.rulesFor(X));
 
         _stage("123", "alice", alice, 100);
         vm.prank(alice);
@@ -944,18 +951,20 @@ contract IdentityNamesTest is Test {
     /// A new bind needs rules and a verifier the Proof Verifier answers for; retiring the
     /// last version stops new binds while bound identities keep resolving.
     function test_acceptsBindingsNeedsRulesAndAVerifier() public {
-        assertTrue(names.acceptsBindings(X));
+        assertTrue(registry.acceptsBindings(X));
         (bytes32 noRules, bytes32 noVerifier) = (keccak256("no rules"), keccak256("no verifier"));
         StubPlatformVerifier verifier = new StubPlatformVerifier(noRules, 0);
         vm.startPrank(owner);
         proofVerifier.setVerifier(noRules, V1, IPlatformVerifier(address(verifier)));
-        names.setPlatform(noVerifier, HandleVectors.rulesFor(X));
+        registry.setPlatform(noVerifier, HandleVectors.rulesFor(X));
         vm.stopPrank();
-        assertFalse(names.acceptsBindings(noRules));
-        assertFalse(names.acceptsBindings(noVerifier));
+        assertFalse(registry.acceptsBindings(noRules));
+        assertFalse(registry.acceptsBindings(noVerifier));
 
-        IdentityNames bare = IdentityNames(
-            address(new ERC1967Proxy(address(new IdentityNames()), abi.encodeCall(IdentityNames.initialize, (owner))))
+        IdentityRegistry bare = IdentityRegistry(
+            address(
+                new ERC1967Proxy(address(new IdentityRegistry()), abi.encodeCall(IdentityRegistry.initialize, (owner)))
+            )
         );
         vm.prank(owner);
         bare.setPlatform(X, HandleVectors.rulesFor(X));
@@ -965,8 +974,8 @@ contract IdentityNamesTest is Test {
         _bind(alice, "123", "alice", 100);
         vm.prank(owner);
         proofVerifier.setVerifier(X, V1, IPlatformVerifier(address(0)));
-        assertFalse(names.acceptsBindings(X));
-        assertEq(names.resolveHandle(X, "alice"), alice);
+        assertFalse(registry.acceptsBindings(X));
+        assertEq(registry.resolveHandle(X, "alice"), alice);
     }
 
     /// `setPlatform` writes field-wise now, so a rules change must leave the
@@ -976,12 +985,12 @@ contract IdentityNamesTest is Test {
         HandleNormalizer.Rules memory narrowed = HandleVectors.rulesFor(X);
         narrowed.maxLength = 12;
         vm.prank(owner);
-        names.setPlatform(X, narrowed);
+        registry.setPlatform(X, narrowed);
 
         _stage("123", "alice", alice, 100);
         vm.prank(alice);
         _submit(X, false);
-        assertEq(names.resolveHandle(X, "alice"), alice);
+        assertEq(registry.resolveHandle(X, "alice"), alice);
     }
 
     /// A retired handle has no holder and keeps its watermark, so a proof
@@ -990,7 +999,7 @@ contract IdentityNamesTest is Test {
         _bind(alice, "123", "alice", 100);
         _bind(alice, "123", "alice2", 200);
 
-        (address holder, uint64 at) = names.handleBinding(IdentityNodes.handleNode(X, "alice"));
+        (address holder, uint64 at) = registry.handleBinding(IdentityNodes.handleNode(X, "alice"));
         assertEq(holder, address(0), "the handle was retired");
         assertEq(at, 100, "the watermark stays");
     }
@@ -1005,10 +1014,10 @@ contract IdentityNamesTest is Test {
 
         _stage("123", "alice", alice, 200);
         vm.prank(owner);
-        vm.expectRevert(abi.encodeWithSelector(IdentityNames.NotProofTarget.selector, alice, owner));
+        vm.expectRevert(abi.encodeWithSelector(IdentityRegistry.NotProofTarget.selector, alice, owner));
         _submit(X, false);
 
-        assertEq(names.resolveId(X, "123"), alice, "the binding moved");
+        assertEq(registry.resolveId(X, "123"), alice, "the binding moved");
     }
 
     /// Configuring a platform is the whole of the owner's power here, and it
@@ -1021,14 +1030,14 @@ contract IdentityNamesTest is Test {
         vm.prank(owner);
         proofVerifier.setVerifier(X, V1, IPlatformVerifier(address(replacement)));
 
-        assertEq(names.resolveId(X, "123"), alice);
-        assertEq(names.resolveHandle(X, "alice"), alice);
+        assertEq(registry.resolveId(X, "123"), alice);
+        assertEq(registry.resolveHandle(X, "alice"), alice);
         assertEq(address(proofVerifier.verifierOf(X, V1)), address(replacement));
     }
 
     function test_onlyTheOwnerConfiguresAPlatform() public {
         vm.prank(alice);
         vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, alice));
-        names.setPlatform(X, HandleVectors.rulesFor(X));
+        registry.setPlatform(X, HandleVectors.rulesFor(X));
     }
 }

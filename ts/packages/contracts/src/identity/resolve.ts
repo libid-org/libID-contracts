@@ -10,7 +10,7 @@
 
 import { type Address, keccak256, type PublicClient, toHex, zeroAddress } from 'viem'
 
-import { identityNamesAbi } from '../abis/identityNames.js'
+import { identityRegistryAbi } from '../abis/identityRegistry.js'
 import type { Rules } from './handle.js'
 
 /// A platform key (`'x'`, `'github'`, ...), refusing at compile time a value
@@ -26,7 +26,7 @@ export function platformId<K extends string>(platformKey: PlatformKey<K>): `0x${
 
 export interface RegistryReader {
   client: PublicClient
-  /// The deployed `IdentityNames` contract.
+  /// The deployed `IdentityRegistry` contract.
   address: Address
 }
 
@@ -48,14 +48,14 @@ function read<T>(
   ).readContract({
     authorizationList: undefined,
     address: reader.address,
-    abi: identityNamesAbi,
+    abi: identityRegistryAbi,
     functionName,
     args,
   })
 }
 
 /// The platform's normalization rules as configured on chain now
-/// (`IdentityNames.rulesOf`).
+/// (`IdentityRegistry.rulesOf`).
 export async function rulesOf(reader: RegistryReader, platformId: `0x${string}`): Promise<Rules> {
   const rules = await read<Rules>(reader, 'rulesOf', [platformId])
   return {

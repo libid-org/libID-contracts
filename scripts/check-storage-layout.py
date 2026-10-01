@@ -34,8 +34,8 @@ concrete UUPS contract under solidity/contracts is covered by LAYOUTS. A change
 that only appends at the end of a section (each contract's own `contract`
 lines, the `field` lines, each struct's members) is reported as an append to
 record. A change that only renames is reported as a rename to record: every
-line keeps its slot, offset and type, a renamed struct type counting as the
-same type, and no label both layouts keep has moved. Two fields of one type
+line keeps its slot, offset and type, a renamed struct or contract type
+counting as the same type, and no label both layouts keep has moved. Two fields of one type
 swapped in the source would otherwise read as a rename of both. Any other
 change is reported as INCOMPATIBLE. So is growth of a struct stored as an
 array element, or inline in one: it changes the element's size, and every
@@ -137,10 +137,10 @@ LAYOUTS = (
     ),
     Layout("factory/LibidFactory.sol", ("LibidFactory",)),
     Layout(
-        "identity/IdentityNames.sol",
-        ("IdentityNames",),
-        "IdentityNames.IdentityNamesStorage",
-        "IDENTITY_NAMES_STORAGE",
+        "identity/IdentityRegistry.sol",
+        ("IdentityRegistry",),
+        "IdentityRegistry.IdentityRegistryStorage",
+        "IDENTITY_REGISTRY_STORAGE",
     ),
 )
 
@@ -272,19 +272,20 @@ def classify(old: list[str], new: list[str], where: pathlib.Path) -> str:
 
 def shape(lines: list[str]) -> list[str]:
     """The lines with their names taken out: each field's and member's label
-    dropped, and each struct named by the order it first appears in. Two
-    layouts of one shape keep every type at the same slot and offset."""
+    dropped, and each struct or contract type named by the order it first
+    appears in. Two layouts of one shape keep every type at the same slot and
+    offset."""
     order: dict[str, str] = {}
 
     def anonymous(match: re.Match[str]) -> str:
-        return "struct #" + order.setdefault(match.group(1), str(len(order)))
+        return match.group(1) + " #" + order.setdefault(match.group(0), str(len(order)))
 
     out = []
     for line in lines:
         head, colon, kind = line.partition(": ")
         if colon:
             line = head.rsplit(" ", 1)[0] + colon + kind
-        out.append(re.sub(r"struct ([\w.]+)", anonymous, line))
+        out.append(re.sub(r"\b(struct|contract) ([\w.]+)", anonymous, line))
     return out
 
 

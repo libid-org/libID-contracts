@@ -3,7 +3,7 @@ pragma solidity ^0.8.24;
 
 import {Script, console} from "forge-std/Script.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
-import {IdentityNames} from "../contracts/identity/IdentityNames.sol";
+import {IdentityRegistry} from "../contracts/identity/IdentityRegistry.sol";
 import {NotaryService} from "../contracts/ceremony/NotaryService.sol";
 import {INotaryService} from "../contracts/ceremony/INotaryService.sol";
 import {CeremonyProofVerifier} from "../contracts/ceremony/CeremonyProofVerifier.sol";
@@ -69,19 +69,19 @@ contract Deploy is Script {
 
         // 3. The identity registry: one contract holding the bindings,
         //    dispatching every one through the Proof Verifier above.
-        IdentityNames namesImpl = new IdentityNames();
-        address identityNamesAddr =
-            address(new ERC1967Proxy(address(namesImpl), abi.encodeCall(IdentityNames.initialize, (deployer))));
-        IdentityNames names = IdentityNames(identityNamesAddr);
-        names.setProofVerifier(IProofVerifier(proofVerifierAddr));
+        IdentityRegistry registryImpl = new IdentityRegistry();
+        address identityRegistryAddr =
+            address(new ERC1967Proxy(address(registryImpl), abi.encodeCall(IdentityRegistry.initialize, (deployer))));
+        IdentityRegistry registry = IdentityRegistry(identityRegistryAddr);
+        registry.setProofVerifier(IProofVerifier(proofVerifierAddr));
 
         // Handle rules per platform. Registering a Platform Verifier against a
         // version is `CeremonyProofVerifier.setVerifier`, and one needs the
         // ceremony circuit's artifact and its code hash -- neither of which
         // this script has until that release lands.
-        _wireIdentityPlatform(names, HandleVectors.PLATFORM_X);
-        _wireIdentityPlatform(names, HandleVectors.PLATFORM_GITHUB);
-        _wireIdentityPlatform(names, HandleVectors.PLATFORM_GOOGLE);
+        _wireIdentityPlatform(registry, HandleVectors.PLATFORM_X);
+        _wireIdentityPlatform(registry, HandleVectors.PLATFORM_GITHUB);
+        _wireIdentityPlatform(registry, HandleVectors.PLATFORM_GOOGLE);
 
         // 4. The Google JWT root list, beside the Platform Verifier it serves.
         //    That verifier reads the trusted moduli through it, and nothing
@@ -102,7 +102,7 @@ contract Deploy is Script {
         console.log("Deployer:               ", deployer);
         console.log("NOTARY_SERVICE_ADDRESS= ", notaryServiceAddr);
         console.log("CEREMONY_PROOF_VERIFIER_ADDRESS= ", proofVerifierAddr);
-        console.log("IDENTITY_NAMES_ADDRESS= ", identityNamesAddr);
+        console.log("IDENTITY_REGISTRY_ADDRESS= ", identityRegistryAddr);
         console.log("GOOGLE_JWT_ROOTS_ADDRESS= ", jwtRootsAddr);
         console.log("NOTE: no Platform Verifier is registered yet. Add one with");
         console.log("      CeremonyProofVerifier.setVerifier once the ceremony");
@@ -121,7 +121,7 @@ contract Deploy is Script {
     ///      come from the generated table keyed by platform id, so a new
     ///      platform is one line here and cannot pick up a neighbour's rules by
     ///      a copy-paste slip.
-    function _wireIdentityPlatform(IdentityNames names, bytes32 platformId) internal {
-        names.setPlatform(platformId, HandleVectors.rulesFor(platformId));
+    function _wireIdentityPlatform(IdentityRegistry registry, bytes32 platformId) internal {
+        registry.setPlatform(platformId, HandleVectors.rulesFor(platformId));
     }
 }

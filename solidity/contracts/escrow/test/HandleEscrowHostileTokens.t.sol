@@ -9,7 +9,7 @@ import {ReentrancyGuardUpgradeable} from "@openzeppelin/contracts-upgradeable/ut
 
 import {HandleEscrow} from "../HandleEscrow.sol";
 import {IdentityNodes} from "../../identity/IdentityNodes.sol";
-import {IIdentityNames} from "../../identity/IIdentityNames.sol";
+import {IIdentityRegistry} from "../../identity/IIdentityRegistry.sol";
 import {
     BlocklistToken,
     FalseToken,
@@ -82,7 +82,7 @@ contract HandleEscrowHostileTokensTest is Test {
             address(
                 new ERC1967Proxy(
                     address(new HandleEscrow()),
-                    abi.encodeCall(HandleEscrow.initialize, (address(this), IIdentityNames(address(registry))))
+                    abi.encodeCall(HandleEscrow.initialize, (address(this), IIdentityRegistry(address(registry))))
                 )
             )
         );

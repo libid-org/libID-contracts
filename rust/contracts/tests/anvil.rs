@@ -20,7 +20,7 @@ use libid_contracts::{
             GoogleJwtRoots,
             NotaryService,
         },
-        identity::IdentityNames,
+        identity::IdentityRegistry,
     },
     deploy::{
         deploy_behind_proxy,
@@ -75,11 +75,11 @@ async fn deploys_the_identity_stack_behind_proxies() {
     .await
     .unwrap();
 
-    let names_proxy = deploy_behind_proxy(
+    let registry_proxy = deploy_behind_proxy(
         &provider,
         &artifacts,
-        "IdentityNames",
-        &IdentityNames::initializeCall { owner_: deployer },
+        "IdentityRegistry",
+        &IdentityRegistry::initializeCall { owner_: deployer },
         None,
     )
     .await
@@ -101,8 +101,8 @@ async fn deploys_the_identity_stack_behind_proxies() {
     // Wire the registry: the Proof Verifier it dispatches through, and the
     // platform's rules. The platform id is keccak256 of the platform key:
     // libID namespaces only its own strings.
-    let names = IdentityNames::new(names_proxy, &provider);
-    names
+    let registry = IdentityRegistry::new(registry_proxy, &provider);
+    registry
         .setProofVerifier(verifier_proxy)
         .send()
         .await
@@ -111,10 +111,10 @@ async fn deploys_the_identity_stack_behind_proxies() {
         .await
         .unwrap();
     let platform_id = keccak256(b"github");
-    names
+    registry
         .setPlatform(
             platform_id,
-            IdentityNames::Rules {
+            IdentityRegistry::Rules {
                 maxLength: 39,
                 stripLeadingAt: true,
                 isEmail: false,
@@ -143,11 +143,14 @@ async fn deploys_the_identity_stack_behind_proxies() {
         Address::ZERO
     );
 
-    assert_eq!(names.proofVerifier().call().await.unwrap(), verifier_proxy);
+    assert_eq!(
+        registry.proofVerifier().call().await.unwrap(),
+        verifier_proxy
+    );
     // A platform that has rules and can verify nothing says so: answering
     // `address(0)` would tell the caller "nobody holds this handle" about a
     // platform that is not wired yet.
-    let unwired = names.resolveId(platform_id, "12345".into()).call().await;
+    let unwired = registry.resolveId(platform_id, "12345".into()).call().await;
     assert!(
         unwired.is_err(),
         "an unwired platform answered instead of reverting UnknownPlatform"
@@ -785,11 +788,11 @@ async fn escrows_value_against_an_unclaimed_handle() {
     )
     .await
     .unwrap();
-    let names_proxy = deploy_behind_proxy(
+    let registry_proxy = deploy_behind_proxy(
         &provider,
         &artifacts,
-        "IdentityNames",
-        &IdentityNames::initializeCall { owner_: deployer },
+        "IdentityRegistry",
+        &IdentityRegistry::initializeCall { owner_: deployer },
         None,
     )
     .await
@@ -801,8 +804,8 @@ async fn escrows_value_against_an_unclaimed_handle() {
         PlatformVerifier::GitHub.platform_id(),
         "the test and the crate name GitHub differently"
     );
-    let names = IdentityNames::new(names_proxy, &provider);
-    names
+    let registry = IdentityRegistry::new(registry_proxy, &provider);
+    registry
         .setProofVerifier(proof_verifier_proxy)
         .send()
         .await
@@ -810,10 +813,10 @@ async fn escrows_value_against_an_unclaimed_handle() {
         .get_receipt()
         .await
         .unwrap();
-    names
+    registry
         .setPlatform(
             platform_id,
-            IdentityNames::Rules {
+            IdentityRegistry::Rules {
                 maxLength: 39,
                 stripLeadingAt: true,
                 isEmail: false,
@@ -849,7 +852,7 @@ async fn escrows_value_against_an_unclaimed_handle() {
         .get_receipt()
         .await
         .unwrap();
-    assert!(names.acceptsBindings(platform_id).call().await.unwrap());
+    assert!(registry.acceptsBindings(platform_id).call().await.unwrap());
 
     let escrow_proxy = deploy_behind_proxy(
         &provider,
@@ -857,7 +860,7 @@ async fn escrows_value_against_an_unclaimed_handle() {
         "HandleEscrow",
         &HandleEscrow::initializeCall {
             owner_: deployer,
-            registry_: names_proxy,
+            registry_: registry_proxy,
         },
         None,
     )
@@ -867,13 +870,13 @@ async fn escrows_value_against_an_unclaimed_handle() {
     let native = escrow.NATIVE().call().await.unwrap();
 
     // The registry hashes the text into a node; the node is pinned with `cast`.
-    let handle_hash = names
+    let handle_hash = registry
         .handleHashOf(platform_id, " Alice-1 ".into())
         .call()
         .await
         .unwrap();
     assert_eq!(handle_hash, keccak256("alice-1"));
-    let node = names
+    let node = registry
         .handleNodeOfHash(platform_id, handle_hash)
         .call()
         .await

@@ -6,7 +6,7 @@ import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.s
 
 import {HandleNormalizer} from "../HandleNormalizer.sol";
 import {HandleVectors} from "../HandleVectors.sol";
-import {IdentityNames} from "../IdentityNames.sol";
+import {IdentityRegistry} from "../IdentityRegistry.sol";
 import {IPlatformVerifier} from "../../ceremony/IPlatformVerifier.sol";
 import {IProofVerifier} from "../../ceremony/IProofVerifier.sol";
 import {CeremonyProofVerifier} from "../../ceremony/CeremonyProofVerifier.sol";
@@ -20,20 +20,21 @@ import {StubPlatformVerifier} from "./StubPlatformVerifier.sol";
 /// installs are the ones `handles.json` states, and that every platform it
 /// wires comes out resolvable.
 contract IdentityDeployWiringTest is Test {
-    IdentityNames internal names;
+    IdentityRegistry internal registry;
     CeremonyProofVerifier internal proofVerifier;
     address internal owner = makeAddr("owner");
 
     function setUp() public {
-        IdentityNames impl = new IdentityNames();
-        names =
-            IdentityNames(address(new ERC1967Proxy(address(impl), abi.encodeCall(IdentityNames.initialize, (owner)))));
+        IdentityRegistry impl = new IdentityRegistry();
+        registry = IdentityRegistry(
+            address(new ERC1967Proxy(address(impl), abi.encodeCall(IdentityRegistry.initialize, (owner))))
+        );
         CeremonyProofVerifier pvImpl = new CeremonyProofVerifier();
         proofVerifier = CeremonyProofVerifier(
             address(new ERC1967Proxy(address(pvImpl), abi.encodeCall(CeremonyProofVerifier.initialize, (owner))))
         );
         vm.prank(owner);
-        names.setProofVerifier(IProofVerifier(address(proofVerifier)));
+        registry.setProofVerifier(IProofVerifier(address(proofVerifier)));
     }
 
     /// The rules come from the generated table, so a change to `handles.json`
@@ -86,15 +87,15 @@ contract IdentityDeployWiringTest is Test {
 
         // Resolvable means the platform answers "nobody" rather than reverting
         // `UnknownPlatform`, which is what an unwired one does.
-        assertEq(names.resolveHandle(HandleVectors.PLATFORM_X, "nobody"), address(0));
-        assertEq(names.resolveHandle(HandleVectors.PLATFORM_GITHUB, "nobody"), address(0));
-        assertEq(names.resolveHandle(HandleVectors.PLATFORM_GOOGLE, "nobody@example.com"), address(0));
+        assertEq(registry.resolveHandle(HandleVectors.PLATFORM_X, "nobody"), address(0));
+        assertEq(registry.resolveHandle(HandleVectors.PLATFORM_GITHUB, "nobody"), address(0));
+        assertEq(registry.resolveHandle(HandleVectors.PLATFORM_GOOGLE, "nobody@example.com"), address(0));
     }
 
     /// The deploy script's wiring, mirrored. Both sides call one helper so this
     /// test cannot drift from the script it exists to prove.
     function _wireIdentityPlatform(bytes32 platformId) internal returns (address verifier) {
-        names.setPlatform(platformId, HandleVectors.rulesFor(platformId));
+        registry.setPlatform(platformId, HandleVectors.rulesFor(platformId));
         verifier = address(new StubPlatformVerifier(platformId, 0));
         proofVerifier.setVerifier(platformId, 1, IPlatformVerifier(verifier));
     }

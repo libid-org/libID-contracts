@@ -31,7 +31,7 @@ const callsDir = join(packageDir, 'src', 'calls')
 // solidity/out, `name` the contract inside it, `exportName` what a consumer
 // imports.
 const contracts = [
-  { file: 'IdentityNames.sol', name: 'IdentityNames', exportName: 'identityNamesAbi' },
+  { file: 'IdentityRegistry.sol', name: 'IdentityRegistry', exportName: 'identityRegistryAbi' },
   { file: 'HandleResolver.sol', name: 'HandleResolver', exportName: 'handleResolverAbi' },
   { file: 'HandleEscrow.sol', name: 'HandleEscrow', exportName: 'handleEscrowAbi' },
   { file: 'NotaryService.sol', name: 'NotaryService', exportName: 'notaryServiceAbi' },
@@ -91,7 +91,7 @@ export const ${exportName} = ${body} as const satisfies Abi
   writeFileSync(join(abisTarget, 'index.ts'), index)
 
   // Namespaced, because names collide across contracts — `initialize` and
-  // `upgradeToAndCall` are on almost every one of them. `calls.identityNames`
+  // `upgradeToAndCall` are on almost every one of them. `calls.identityRegistry`
   // reads as the contract it targets.
   const callsIndex = `${banner('*')}${callModules
     .map((m) => `export * as ${m} from './${m}.js'`)

@@ -1,7 +1,7 @@
 # @libid/contracts
 
 Typed, viem-ready ABIs for the libid identity stack (NotaryService,
-CeremonyProofVerifier, GoogleJwtRoots, IdentityNames, LibidFactory, WTIA9), a
+CeremonyProofVerifier, GoogleJwtRoots, IdentityRegistry, LibidFactory, WTIA9), a
 call builder for every state-changing function, and the identity helper layer:
 handle normalization and resolution.
 
@@ -23,14 +23,14 @@ pnpm add @libid/contracts viem
 
 ```ts
 import { createPublicClient, http } from 'viem'
-import { googleJwtRootsAbi, identityNamesAbi } from '@libid/contracts/abis'
+import { googleJwtRootsAbi, identityRegistryAbi } from '@libid/contracts/abis'
 
 const client = createPublicClient({ transport: http(RPC_URL) })
 
 // Fully typed: viem infers the argument and return types from the ABI.
 const holder = await client.readContract({
-  address: IDENTITY_NAMES,
-  abi: identityNamesAbi,
+  address: IDENTITY_REGISTRY,
+  abi: identityRegistryAbi,
   functionName: 'resolveHandle',
   args: [platformId, 'alice'],
 })
@@ -53,7 +53,7 @@ directly, batched, or through a smart wallet's `execute`.
 ```ts
 import { calls } from '@libid/contracts/calls'
 
-const call = calls.identityNames.unpublish(IDENTITY_NAMES, platformId)
+const call = calls.identityRegistry.unpublish(IDENTITY_REGISTRY, platformId)
 // { to: `0x…`, data: `0x…` }
 
 await wallet.sendTransaction(call)
@@ -82,7 +82,7 @@ import {
   PLATFORM_X_KEY,
 } from '@libid/contracts/identity'
 
-const reader = { client, address: IDENTITY_NAMES }
+const reader = { client, address: IDENTITY_REGISTRY }
 const x = platformId(PLATFORM_X_KEY)
 
 // The holder that last proved a handle, or null. Pass what was typed —
@@ -114,12 +114,12 @@ An EOA sends it directly, a smart wallet wraps it in its own execute:
 import { calls } from '@libid/contracts/calls'
 
 const fee = await client.readContract({
-  address: IDENTITY_NAMES,
-  abi: identityNamesAbi,
+  address: IDENTITY_REGISTRY,
+  abi: identityRegistryAbi,
   functionName: 'quoteBind',
   args: [platformId(PLATFORM_GITHUB_KEY), 1],
 })
-const call = calls.identityNames.bind(IDENTITY_NAMES, fee, platformId(PLATFORM_GITHUB_KEY), 1, payload, true)
+const call = calls.identityRegistry.bind(IDENTITY_REGISTRY, fee, platformId(PLATFORM_GITHUB_KEY), 1, payload, true)
 // call = { to, value, data } — sign and send from the address the payload names.
 ```
 

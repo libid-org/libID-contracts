@@ -9,11 +9,11 @@ import {ReentrancyGuardUpgradeable} from "@openzeppelin/contracts-upgradeable/ut
 import {ICeremony} from "../ceremony/ICeremony.sol";
 import {IProofVerifier} from "../ceremony/IProofVerifier.sol";
 import {HandleNormalizer} from "./HandleNormalizer.sol";
-import {IIdentityNames} from "./IIdentityNames.sol";
+import {IIdentityRegistry} from "./IIdentityRegistry.sol";
 import {IdentityList} from "./IdentityList.sol";
 import {IdentityNodes} from "./IdentityNodes.sol";
 
-/// @title IdentityNames - proof-derived identities for any address.
+/// @title IdentityRegistry - proof-derived identities for any address.
 ///
 /// @notice Binds two things to a holder address: an identity's immutable id
 ///         on a platform, and its mutable handle. Anyone may resolve either.
@@ -98,8 +98,8 @@ import {IdentityNodes} from "./IdentityNodes.sol";
 ///      the same whether the list holds four identities or four thousand. What
 ///      grows with the list is reading it, which is why it is read by page and
 ///      why a contract should never walk a list it did not choose the size of.
-contract IdentityNames is
-    IIdentityNames,
+contract IdentityRegistry is
+    IIdentityRegistry,
     Initializable,
     UUPSUpgradeable,
     Ownable2StepUpgradeable,
@@ -201,8 +201,8 @@ contract IdentityNames is
 
     // ─── State ──────────────────────────────────────────────────────
 
-    /// @custom:storage-location erc7201:libid.storage.IdentityNames
-    struct IdentityNamesStorage {
+    /// @custom:storage-location erc7201:libid.storage.IdentityRegistry
+    struct IdentityRegistryStorage {
         /// idNode -> the holder that proved that id.
         mapping(bytes32 => Binding) idBindings;
         /// handleNode -> the holder that last proved that handle.
@@ -262,9 +262,9 @@ contract IdentityNames is
         mapping(bytes32 => string) handlePreimages;
     }
 
-    // keccak256(abi.encode(uint256(keccak256("libid.storage.IdentityNames")) - 1)) & ~bytes32(uint256(0xff))
-    bytes32 private constant IDENTITY_NAMES_STORAGE =
-        0x064503501234cc9c6e116cf4a84c07475158dabb6a3dcee437a89227e23bf200;
+    // keccak256(abi.encode(uint256(keccak256("libid.storage.IdentityRegistry")) - 1)) & ~bytes32(uint256(0xff))
+    bytes32 private constant IDENTITY_REGISTRY_STORAGE =
+        0x3e5d6a26bfa3232a8c483e2003eb4b3008d01c0d1cf6c69b6ad133fd72694000;
 
     /// @dev All state of this contract sits under one namespaced root, like
     ///      every upgradeable contract in this repo. Three things follow.
@@ -284,9 +284,9 @@ contract IdentityNames is
     ///      unconfigured and every resolver reverts `UnknownPlatform`. Loud and
     ///      uniform, rather than one platform silently answering with rules
     ///      parsed out of an address.
-    function _s() private pure returns (IdentityNamesStorage storage $) {
+    function _s() private pure returns (IdentityRegistryStorage storage $) {
         assembly {
-            $.slot := IDENTITY_NAMES_STORAGE
+            $.slot := IDENTITY_REGISTRY_STORAGE
         }
     }
 
@@ -380,7 +380,7 @@ contract IdentityNames is
 
     // ─── Errors ─────────────────────────────────────────────────────
 
-    // `UnknownPlatform` and `UnusableHandle` are declared in `IIdentityNames`.
+    // `UnknownPlatform` and `UnusableHandle` are declared in `IIdentityRegistry`.
     /// @notice The one operation this Consumer owns.
     ///
     /// @dev A new operation, or a change to what its transaction data means,
@@ -718,7 +718,7 @@ contract IdentityNames is
         string memory handle,
         address previousHolder
     ) private {
-        IdentityNamesStorage storage $ = _s();
+        IdentityRegistryStorage storage $ = _s();
         if (previousHolder == address(0)) {
             $.holderIdentities.add(msg.sender, idNode);
             $.idPreimages[idNode] = IdentityPreimage({platformId: platformId, id: id});
@@ -948,7 +948,7 @@ contract IdentityNames is
     ///      same holder, where the holder still holds the handle node and a
     ///      holder check alone would report both identities as holding it.
     function identitiesOf(address holder, uint256 from, uint256 limit) external view returns (Identity[] memory out) {
-        IdentityNamesStorage storage $ = _s();
+        IdentityRegistryStorage storage $ = _s();
         bytes32[] memory nodes = $.holderIdentities.page(holder, from, limit);
         out = new Identity[](nodes.length);
         for (uint256 i = 0; i < nodes.length; i++) {

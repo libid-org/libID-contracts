@@ -10,7 +10,7 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 import {HandleEscrow, NATIVE_TOKEN} from "../HandleEscrow.sol";
 import {IdentityNodes} from "../../identity/IdentityNodes.sol";
-import {IIdentityNames} from "../../identity/IIdentityNames.sol";
+import {IIdentityRegistry} from "../../identity/IIdentityRegistry.sol";
 import {FeeToken, NoReturnToken, SettableRegistry, TestERC20, one} from "./EscrowMocks.sol";
 
 // The native token as the escrow names it.
@@ -122,7 +122,7 @@ contract HandleEscrowAccountingTest is Test {
             address(
                 new ERC1967Proxy(
                     address(new HandleEscrow()),
-                    abi.encodeCall(HandleEscrow.initialize, (address(this), IIdentityNames(address(registry))))
+                    abi.encodeCall(HandleEscrow.initialize, (address(this), IIdentityRegistry(address(registry))))
                 )
             )
         );

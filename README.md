@@ -17,7 +17,7 @@ solidity/            # Foundry project root
     circuits/        # the UltraHonk verifiers the Platform Verifiers pin:
                      # circuits.json pins a libid-circuits release, the
                      # Solidity is vendored from it and not committed
-    identity/        # IdentityNames, handle normalization
+    identity/        # IdentityRegistry, handle normalization
     factory/         # LibidFactory: deterministic CREATE3 deployment
     WTIA9.sol        # wrapped TIA
   script/Deploy.s.sol

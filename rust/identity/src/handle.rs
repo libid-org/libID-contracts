@@ -106,7 +106,7 @@ impl Rules {
 /// The rules for a platform key (`"x"`, `"github"`, ...) from the generated
 /// table: what the contracts were released with. The chain's owner can change
 /// a platform's rules, so a hash for a deposit should use the rules
-/// `IdentityNames.rulesOf` returns.
+/// `IdentityRegistry.rulesOf` returns.
 pub fn rules_for(platform_key: &str) -> Option<Rules> {
     match platform_key {
         v::PLATFORM_X_KEY => Some(Rules::X),

@@ -12,7 +12,7 @@ import {IExtendedResolver} from "./IExtendedResolver.sol";
 /// @notice Answers every ENS name under one domain by asking a gateway, and
 ///         holds no ENS names of its own.
 ///
-/// @dev **This contract stores nothing about anybody.** `IdentityNames` already
+/// @dev **This contract stores nothing about anybody.** `IdentityRegistry` already
 ///      answers the question an ENS resolver asks, so an ENS name here needs
 ///      no registry entry, no NFT and no record — it is a view onto state that
 ///      exists on another chain. What lives here is the arrangement: where to

@@ -1,26 +1,26 @@
-# IdentityNames storage layout. Checked in CI by scripts/check-storage-layout.py.
+# IdentityRegistry storage layout. Checked in CI by scripts/check-storage-layout.py.
 # Fields may only be APPENDED. Record an append with --update; see the script.
-root erc7201:libid.storage.IdentityNames 0x064503501234cc9c6e116cf4a84c07475158dabb6a3dcee437a89227e23bf200
-field slot=0 offset=0 idBindings: mapping(bytes32 => struct IdentityNames.Binding)
-field slot=1 offset=0 handleBindings: mapping(bytes32 => struct IdentityNames.Binding)
+root erc7201:libid.storage.IdentityRegistry 0x3e5d6a26bfa3232a8c483e2003eb4b3008d01c0d1cf6c69b6ad133fd72694000
+field slot=0 offset=0 idBindings: mapping(bytes32 => struct IdentityRegistry.Binding)
+field slot=1 offset=0 handleBindings: mapping(bytes32 => struct IdentityRegistry.Binding)
 field slot=2 offset=0 published: mapping(address => mapping(bytes32 => string))
-field slot=3 offset=0 platforms: mapping(bytes32 => struct IdentityNames.Platform)
+field slot=3 offset=0 platforms: mapping(bytes32 => struct IdentityRegistry.Platform)
 field slot=4 offset=0 handleNodeById: mapping(bytes32 => bytes32)
 field slot=5 offset=0 idNodeByHandle: mapping(bytes32 => bytes32)
 field slot=6 offset=0 proofVerifier: contract IProofVerifier
 field slot=7 offset=0 everBound: mapping(bytes32 => bool)
 field slot=8 offset=0 spentDigests: mapping(bytes32 => bool)
 field slot=9 offset=0 holderIdentities: struct IdentityList.Data
-field slot=11 offset=0 idPreimages: mapping(bytes32 => struct IdentityNames.IdentityPreimage)
+field slot=11 offset=0 idPreimages: mapping(bytes32 => struct IdentityRegistry.IdentityPreimage)
 field slot=12 offset=0 handlePreimages: mapping(bytes32 => string)
 struct IdentityList.Data slot=0 offset=0 nodes: mapping(address => bytes32[])
 struct IdentityList.Data slot=1 offset=0 position: mapping(bytes32 => uint256)
-struct IdentityNames.Binding slot=0 offset=0 holder: address
-struct IdentityNames.Binding slot=0 offset=20 observedAt: uint64
-struct IdentityNames.Platform slot=0 offset=0 rules: struct HandleNormalizer.Rules
-struct IdentityNames.Platform slot=1 offset=0 configured: bool
-struct IdentityNames.IdentityPreimage slot=0 offset=0 platformId: bytes32
-struct IdentityNames.IdentityPreimage slot=1 offset=0 id: string
+struct IdentityRegistry.Binding slot=0 offset=0 holder: address
+struct IdentityRegistry.Binding slot=0 offset=20 observedAt: uint64
+struct IdentityRegistry.Platform slot=0 offset=0 rules: struct HandleNormalizer.Rules
+struct IdentityRegistry.Platform slot=1 offset=0 configured: bool
+struct IdentityRegistry.IdentityPreimage slot=0 offset=0 platformId: bytes32
+struct IdentityRegistry.IdentityPreimage slot=1 offset=0 id: string
 struct HandleNormalizer.Rules slot=0 offset=0 maxLength: uint16
 struct HandleNormalizer.Rules slot=0 offset=2 stripLeadingAt: bool
 struct HandleNormalizer.Rules slot=0 offset=3 isEmail: bool
