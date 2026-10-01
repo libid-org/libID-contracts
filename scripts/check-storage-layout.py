@@ -33,19 +33,24 @@ Exit status is 0 only when every layout equals its snapshot and every
 concrete UUPS contract under solidity/contracts is covered by LAYOUTS. A change
 that only appends at the end of a section (each contract's own `contract`
 lines, the `field` lines, each struct's members) is reported as an append to
-record; any other change is reported as INCOMPATIBLE. So is growth of a struct
-stored as an array element, or inline in one: it changes the element's size,
-and every element after the first is read from the wrong slots.
+record. A change that only renames is reported as a rename to record: every
+line keeps its slot, offset and type, a renamed struct or contract type
+counting as the same type, and no label both layouts keep has moved. Two fields of one type
+swapped in the source would otherwise read as a rename of both. Any other
+change is reported as INCOMPATIBLE. So is growth of a struct stored as an
+array element, or inline in one: it changes the element's size, and every
+element after the first is read from the wrong slots.
 
-Updating it deliberately: append the new field at the END of the struct, run
+Updating it deliberately: append the new field at the END of the struct, or
+rename in place, run
 
     ./scripts/check-storage-layout.py --update
 
 and commit the snapshot with the change. `--update` refuses to record anything
-but an exact match or a pure append; a layout break is not something to
-record, it is something to undo. A new upgradeable contract gets an entry in
-LAYOUTS, a field in `StorageLayoutProbe` if it has a namespace, and a first
-snapshot from `--update`.
+but an exact match, a pure append or a pure rename; a layout break is not
+something to record, it is something to undo. A new upgradeable contract gets
+an entry in LAYOUTS, a field in `StorageLayoutProbe` if it has a namespace,
+and a first snapshot from `--update`.
 
 Needs `forge` and `cast` on PATH. It runs `forge inspect --no-cache` in
 solidity/, which compiles what it needs and leaves the build cache alone.
@@ -132,10 +137,10 @@ LAYOUTS = (
     ),
     Layout("factory/LibidFactory.sol", ("LibidFactory",)),
     Layout(
-        "identity/IdentityNames.sol",
-        ("IdentityNames",),
-        "IdentityNames.IdentityNamesStorage",
-        "IDENTITY_NAMES_STORAGE",
+        "identity/IdentityRegistry.sol",
+        ("IdentityRegistry",),
+        "IdentityRegistry.IdentityRegistryStorage",
+        "IDENTITY_REGISTRY_STORAGE",
     ),
 )
 
@@ -239,10 +244,12 @@ def sections(lines: list[str], where: pathlib.Path) -> dict[str, list[str]]:
 
 
 def classify(old: list[str], new: list[str], where: pathlib.Path) -> str:
-    """'same', 'append' or 'incompatible'."""
+    """'same', 'append', 'rename' or 'incompatible'."""
     if old == new:
         return "same"
     before, after = sections(old, where), sections(new, where)
+    if shape(old) == shape(new):
+        return "incompatible" if moved(old, new) else "rename"
     if before["root"] != after["root"]:
         return "incompatible"
     if after["field"][: len(before["field"])] != before["field"]:
@@ -261,6 +268,42 @@ def classify(old: list[str], new: list[str], where: pathlib.Path) -> str:
             if name == "struct" and owner in strided and len(now) != len(members):
                 return "incompatible"
     return "append"
+
+
+def shape(lines: list[str]) -> list[str]:
+    """The lines with their names taken out: each field's and member's label
+    dropped, and each struct or contract type named by the order it first
+    appears in. Two layouts of one shape keep every type at the same slot and
+    offset."""
+    order: dict[str, str] = {}
+
+    def anonymous(match: re.Match[str]) -> str:
+        return match.group(1) + " #" + order.setdefault(match.group(0), str(len(order)))
+
+    out = []
+    for line in lines:
+        head, colon, kind = line.partition(": ")
+        if colon:
+            line = head.rsplit(" ", 1)[0] + colon + kind
+        out.append(re.sub(r"\b(struct|contract) ([\w.]+)", anonymous, line))
+    return out
+
+
+def moved(old: list[str], new: list[str]) -> bool:
+    """Whether a label both layouts of one shape keep sits at another line in
+    `new`. A rename brings a label in and takes one out; a label that moves
+    is a reorder."""
+
+    def labels(lines: list[str]) -> list[tuple[str, str] | None]:
+        out: list[tuple[str, str] | None] = []
+        for line, anonymous in zip(lines, shape(lines)):
+            head, colon, _ = line.partition(": ")
+            out.append((anonymous.split(" slot=", 1)[0], head.rsplit(" ", 1)[1]) if colon else None)
+        return out
+
+    before, after = labels(old), labels(new)
+    kept = (set(before) & set(after)) - {None}
+    return any(a != b and (a in kept or b in kept) for a, b in zip(before, after))
 
 
 def by_owner(lines: list[str]) -> dict[str, list[str]]:
@@ -316,6 +359,12 @@ def diff(old: list[str], new: list[str]) -> str:
     return "\n".join([f"  - {line}" for line in old if line not in new] + [f"  + {line}" for line in new if line not in old])
 
 
+def renames(old: list[str], new: list[str]) -> str:
+    """Each renamed line beside the line it replaces: a rename keeps them in
+    one order."""
+    return "\n".join(f"  - {a}\n  + {b}" for a, b in zip(old, new) if a != b)
+
+
 def check(layout: Layout, probe: dict, update: bool) -> bool:
     old, new = recorded(layout), current(layout, probe)
     snapshot = layout.snapshot.relative_to(REPO_ROOT)
@@ -327,13 +376,17 @@ def check(layout: Layout, probe: dict, update: bool) -> bool:
         print("Undo the change; fields may only be appended at the end of the struct.", file=sys.stderr)
         return False
 
-    if verdict == "append":
+    if verdict in ("append", "rename"):
         if update:
             layout.snapshot.write_text("\n".join(header(layout) + new) + "\n")
             print(f"recorded {snapshot}")
             return True
-        print(f"{layout.name}'s storage layout has appended fields {snapshot} does not record:", file=sys.stderr)
-        print(diff(old or [], new), file=sys.stderr)
+        if verdict == "append":
+            print(f"{layout.name}'s storage layout has appended fields {snapshot} does not record:", file=sys.stderr)
+            print(diff(old or [], new), file=sys.stderr)
+        else:
+            print(f"{layout.name}'s storage layout renames what {snapshot} records, in place:", file=sys.stderr)
+            print(renames(old or [], new), file=sys.stderr)
         print("Record them with ./scripts/check-storage-layout.py --update and commit the snapshot.", file=sys.stderr)
         return False
 
@@ -343,7 +396,7 @@ def check(layout: Layout, probe: dict, update: bool) -> bool:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--update", action="store_true", help="record an exact match or a pure append")
+    parser.add_argument("--update", action="store_true", help="record an exact match, a pure append or a pure rename")
     args = parser.parse_args()
 
     covered = {contract for layout in LAYOUTS for contract in layout.contracts}

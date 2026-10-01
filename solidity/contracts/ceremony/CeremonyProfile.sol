@@ -120,7 +120,7 @@ library CeremonyProfile {
     ///      constants: they belong to the profile like its request lines, an upgrade
     ///      of the verifier keeps them, and a different value is a new
     ///      ceremonyVersion (REQ-PARAM-01). A browser that knows the version it ran
-    ///      therefore knows the validity every chain enforces. `IdentityNames`
+    ///      therefore knows the validity every chain enforces. `IdentityRegistry`
     ///      supersedes a binding only on a strictly newer `observedAt`, so an
     ///      allowance too generous lets a proof dated ahead hold a name until the
     ///      clock catches up.

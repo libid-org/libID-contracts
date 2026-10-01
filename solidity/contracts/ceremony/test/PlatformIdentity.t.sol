@@ -7,16 +7,16 @@ import {CeremonyProfile} from "../CeremonyProfile.sol";
 import {HandleVectors} from "../../identity/HandleVectors.sol";
 import {IdentityNodes} from "../../identity/IdentityNodes.sol";
 
-/// @notice One keyspace per platform, and libID namespaces only its own things.
+/// @notice One platform id per platform, and libID namespaces only its own things.
 ///
-/// @dev These two tables used to disagree. The naming system keyed a platform
+/// @dev These two tables used to disagree. The registry keyed a platform
 ///      by `keccak256("dyaka.identity.platform.x")` and the ceremony profile by
-///      `keccak256("x")`, so a name bound through one path was invisible to the
-///      other -- two keyspaces for one platform, with nothing to make the
+///      `keccak256("x")`, so a handle bound through one path was invisible to
+///      the other -- two ids for one platform, with nothing to make the
 ///      divergence loud. This file is what makes it loud.
 contract PlatformIdentityTest is Test {
     /// @dev `platformId` is the keccak256 of the UTF-8 bytes of the
-    ///      identity-platform NAME. The specification fixes the names -- the
+    ///      platform key. The specification fixes the keys -- the
     ///      launch profiles of REQ-PLAT-01 are `google`, `x` and `github` --
     ///      and leaves the derivation to the profile author, so this repository
     ///      pins it. Everything that derives the same value derives it this

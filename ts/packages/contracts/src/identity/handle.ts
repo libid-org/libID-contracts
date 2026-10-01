@@ -1,10 +1,11 @@
-/// Turns a platform handle into the one form the identity system keys.
+/// Turns a platform handle into the one form the identity system hashes into a
+/// node.
 ///
 /// This mirrors `solidity/contracts/identity/HandleNormalizer.sol` and
 /// `rust/identity/src/handle.rs` byte for byte. The three transforms
 /// are hand written; the rules they run and the vectors they are checked
 /// against are generated from `solidity/contracts/identity/handles.json`, so a
-/// difference between them fails a test instead of looking up a key the chain
+/// difference between them fails a test instead of looking up a node the chain
 /// never wrote.
 
 import {
@@ -24,6 +25,9 @@ import {
   MAX_LENGTH_GITHUB,
   MAX_LENGTH_GOOGLE,
   MAX_LENGTH_X,
+  PLATFORM_GITHUB_KEY,
+  PLATFORM_GOOGLE_KEY,
+  PLATFORM_X_KEY,
   STRIP_LEADING_AT_GITHUB,
   STRIP_LEADING_AT_GOOGLE,
   STRIP_LEADING_AT_X,
@@ -89,11 +93,11 @@ export const RULES_GOOGLE: Rules = {
 
 /// The rules for a platform key from the generated table: what the contracts
 /// were released with. The chain's owner can change a platform's rules, so a
-/// hash for a deposit should use `rulesOnChain`.
-export function rulesFor(platform: string): Rules | null {
-  if (platform === 'x') return RULES_X
-  if (platform === 'github') return RULES_GITHUB
-  if (platform === 'google') return RULES_GOOGLE
+/// hash for a deposit should use `rulesOf`.
+export function rulesFor(platformKey: string): Rules | null {
+  if (platformKey === PLATFORM_X_KEY) return RULES_X
+  if (platformKey === PLATFORM_GITHUB_KEY) return RULES_GITHUB
+  if (platformKey === PLATFORM_GOOGLE_KEY) return RULES_GOOGLE
   return null
 }
 
@@ -136,7 +140,7 @@ export function normalize(raw: string, rules: Rules): string {
 
 /// One byte, after folding. Anything outside the platform's set is refused,
 /// including every byte above 0x7f, so a multi-byte character never reaches a
-/// key.
+/// node.
 function allowed(c: number, rules: Rules): boolean {
   if (c >= 0x61 && c <= 0x7a) return true // a-z
   if (c >= 0x30 && c <= 0x39) return true // 0-9

@@ -44,11 +44,11 @@ ARTIFACTS=(
     "BearerLinkHonkVerifier:BearerLinkHonkVerifier"
     "OidcGoogleHonkVerifier:OidcGoogleHonkVerifier"
     # identity
-    "IdentityNames:IdentityNames"
+    "IdentityRegistry:IdentityRegistry"
     # ens (deployed once per network, not CREATE3-canonical; embedded so a
     # consumer can deploy it without a checkout of this repository)
     "HandleResolver:HandleResolver"
-    # escrow: value held against a handle nobody has claimed yet
+    # escrow: value held against a handle nobody holds yet
     "HandleEscrow:HandleEscrow"
     # factory
     "LibidFactory:LibidFactory"

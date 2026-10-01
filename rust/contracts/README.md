@@ -5,7 +5,7 @@ artifacts, and deploy/upgrade helpers for the libid identity stack: the
 ceremony verification path (`NotaryService`, `CeremonyProofVerifier`, the
 three launch Platform Verifiers it routes to, the two UltraHonk verifiers
 they pin, and `GoogleJwtRoots`, the signing keys the `google/v1` verifier
-trusts), the naming system (`IdentityNames`), and the deterministic
+trusts), the identity registry (`IdentityRegistry`), and the deterministic
 deployment factory (`LibidFactory`).
 
 The compiled artifacts are vendored into the crate, so a consumer can deploy

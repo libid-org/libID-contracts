@@ -1,9 +1,9 @@
 # @libid/contracts
 
 Typed, viem-ready ABIs for the libid identity stack (NotaryService,
-CeremonyProofVerifier, GoogleJwtRoots, IdentityNames, LibidFactory, WTIA9), a
+CeremonyProofVerifier, GoogleJwtRoots, IdentityRegistry, LibidFactory, WTIA9), a
 call builder for every state-changing function, and the identity helper layer:
-handle normalization and name resolution.
+handle normalization and resolution.
 
 Both `src/abis/` and `src/calls/` are generated from the forge artifacts
 (`solidity/out`) by `scripts/codegen.mjs`, and neither is committed — CI
@@ -23,14 +23,14 @@ pnpm add @libid/contracts viem
 
 ```ts
 import { createPublicClient, http } from 'viem'
-import { googleJwtRootsAbi, identityNamesAbi } from '@libid/contracts/abis'
+import { googleJwtRootsAbi, identityRegistryAbi } from '@libid/contracts/abis'
 
 const client = createPublicClient({ transport: http(RPC_URL) })
 
 // Fully typed: viem infers the argument and return types from the ABI.
-const owner = await client.readContract({
-  address: IDENTITY_NAMES,
-  abi: identityNamesAbi,
+const holder = await client.readContract({
+  address: IDENTITY_REGISTRY,
+  abi: identityRegistryAbi,
   functionName: 'resolveHandle',
   args: [platformId, 'alice'],
 })
@@ -45,15 +45,15 @@ const [current, previous] = await client.readContract({
 
 ## Building a call
 
-One builder per state-changing function, namespaced by contract because names
-like `initialize` are on almost all of them. A builder returns the call as
-data — no provider, no signer — so you decide how it is submitted: directly,
-batched, or through a smart account's `execute`.
+One builder per state-changing function, namespaced by contract because
+function names like `initialize` are on almost all of them. A builder returns
+the call as data — no provider, no signer — so you decide how it is submitted:
+directly, batched, or through a smart wallet's `execute`.
 
 ```ts
 import { calls } from '@libid/contracts/calls'
 
-const call = calls.identityNames.unpublish(names, platformId)
+const call = calls.identityRegistry.unpublish(IDENTITY_REGISTRY, platformId)
 // { to: `0x…`, data: `0x…` }
 
 await wallet.sendTransaction(call)
@@ -69,57 +69,57 @@ const rotate = calls.googleJwtRoots.rotate(roots, fee, attestedData, proof)
 // { to: `0x…`, value: fee, data: `0x…` }
 ```
 
-## Resolving a name
+## Resolving a handle
 
 ```ts
 import {
-  accountCount,
-  accountsOf,
+  identitiesOf,
+  identityCount,
   platformId,
+  publishedHandleOf,
   resolveHandle,
-  resolvePair,
-  primaryName,
-  PLATFORM_X_DOMAIN,
+  resolveHandleAndId,
+  PLATFORM_X_KEY,
 } from '@libid/contracts/identity'
 
-const reader = { client, address: IDENTITY_NAMES }
-const x = platformId(PLATFORM_X_DOMAIN)
+const reader = { client, address: IDENTITY_REGISTRY }
+const x = platformId(PLATFORM_X_KEY)
 
-// The wallet that last proved a handle, or null. Pass what the user typed —
+// The holder that last proved a handle, or null. Pass what was typed —
 // normalization happens on chain.
-const owner = await resolveHandle(reader, x, '@Alice')
+const holder = await resolveHandle(reader, x, '@Alice')
 
-// Before sending funds: does the account id still agree with the handle?
-const { wallet, idAgrees } = await resolvePair(reader, x, 'alice', '42')
+// Before sending funds: does the id still agree with the handle?
+const { idAgrees } = await resolveHandleAndId(reader, x, 'alice', '42')
 
-// The display name for a wallet, forward-checked on chain.
-const name = await primaryName(reader, wallet!, x)
+// The handle a holder displays, forward-checked on chain.
+const handle = await publishedHandleOf(reader, holder!, x)
 
-// Every account the wallet proved, on every platform, a page at a time.
+// Every identity the holder proved, on every platform, a page at a time.
 // Order is arbitrary, and a page read across a removal may overlap or skip:
-// read the count and the pages against one block when every account matters.
-const total = await accountCount(reader, wallet!)
-const accounts = await accountsOf(reader, wallet!, 0n, 50n)
-// [{ platformId: x, userId: '42', handle: 'alice', handleCurrent: true }, …]
+// read the count and the pages against one block when every identity matters.
+const total = await identityCount(reader, holder!)
+const identities = await identitiesOf(reader, holder!, 0n, 50n)
+// [{ platformId: x, id: '42', handle: 'alice', handleCurrent: true }, …]
 ```
 
-## Binding a name
+## Binding an identity
 
 A binding is one of the generated builders: the platform, this chain's verifier
 version for it, the opaque payload the ceremony produced, and whether to
-publish the name. The value is what `quoteBind` returns for the same pair.
-An EOA sends it directly, a smart account wraps it in its own execute:
+publish the handle. The value is what `quoteBind` returns for the same pair.
+An EOA sends it directly, a smart wallet wraps it in its own execute:
 
 ```ts
 import { calls } from '@libid/contracts/calls'
 
 const fee = await client.readContract({
-  address: IDENTITY_NAMES,
-  abi: identityNamesAbi,
+  address: IDENTITY_REGISTRY,
+  abi: identityRegistryAbi,
   functionName: 'quoteBind',
-  args: [platformId(PLATFORM_GITHUB_DOMAIN), 1],
+  args: [platformId(PLATFORM_GITHUB_KEY), 1],
 })
-const call = calls.identityNames.bind(IDENTITY_NAMES, fee, platformId(PLATFORM_GITHUB_DOMAIN), 1, payload, true)
+const call = calls.identityRegistry.bind(IDENTITY_REGISTRY, fee, platformId(PLATFORM_GITHUB_KEY), 1, payload, true)
 // call = { to, value, data } — sign and send from the address the payload names.
 ```
 
@@ -137,10 +137,11 @@ normalize(' @Alice_1 ', RULES_X) // 'alice_1'
 Hash locally, so the handle text never reaches an RPC:
 
 ```ts
-import { handleHash, handleNode, rulesOnChain } from '@libid/contracts/identity'
+import { handleHash, handleNode, platformId, PLATFORM_GOOGLE_KEY, rulesOf } from '@libid/contracts/identity'
 
-const hash = handleHash('Alice@Gmail.com', await rulesOnChain(reader, 'google')) // HandleEscrow.deposit
-const node = handleNode('google', hash) // byHandle, escrowed, claim, refund
+const google = platformId(PLATFORM_GOOGLE_KEY)
+const hash = handleHash('Alice@Gmail.com', await rulesOf(reader, google)) // HandleEscrow.deposit
+const node = handleNode(google, hash) // handleBinding, escrowed, claim, refund
 ```
 
 ## Development

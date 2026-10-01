@@ -149,16 +149,16 @@ def gen_sol(spec: dict[str, Any]) -> str:
         "///",
         "/// @dev The vectors are here rather than in the test file because Rust and",
         "///      TypeScript run the same table. A normalizer that disagrees with",
-        "///      another language fails a test instead of writing a different key.",
+        "///      another language fails a test instead of writing a different node.",
         "library HandleVectors {",
     ]
 
     for p in platforms:
         name = p["key"].upper()
-        lines.append(f'    /// keccak256(bytes("{p["domain"]}"))')
+        lines.append(f'    /// keccak256(bytes("{p["key"]}"))')
         lines.append(
             f"    bytes32 internal constant PLATFORM_{name} ="
-            f' keccak256(bytes("{p["domain"]}"));'
+            f' keccak256(bytes("{p["key"]}"));'
         )
     lines.append("")
 
@@ -183,7 +183,7 @@ def gen_sol(spec: dict[str, Any]) -> str:
     lines.append(
         "    ///      than returning a permissive default, because a wrong rule"
     )
-    lines.append("    ///      set writes wrong keys.")
+    lines.append("    ///      set writes wrong nodes.")
     lines.append(
         "    function rulesFor(bytes32 platformId) internal pure"
         " returns (HandleNormalizer.Rules memory) {"
@@ -274,7 +274,7 @@ def gen_rust(spec: dict[str, Any]) -> str:
     for p in platforms:
         lines.append("/// keccak256 of this string is the platform id.")
         lines.append(
-            f'pub const PLATFORM_{p["key"].upper()}_DOMAIN: &str = "{p["domain"]}";'
+            f'pub const PLATFORM_{p["key"].upper()}_KEY: &str = "{p["key"]}";'
         )
     lines.append("")
 
@@ -345,7 +345,7 @@ def gen_ts(spec: dict[str, Any]) -> str:
             f"/** keccak256 of this string is the platform id. */"
         )
         lines.append(
-            f"export const PLATFORM_{p['key'].upper()}_DOMAIN = '{p['domain']}'"
+            f"export const PLATFORM_{p['key'].upper()}_KEY = '{p['key']}'"
         )
     lines.append("")
 

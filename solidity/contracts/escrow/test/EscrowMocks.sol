@@ -4,7 +4,7 @@ pragma solidity ^0.8.20;
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 
 import {IdentityNodes} from "../../identity/IdentityNodes.sol";
-import {IIdentityNames} from "../../identity/IIdentityNames.sol";
+import {IIdentityRegistry} from "../../identity/IIdentityRegistry.sol";
 
 /// @notice A one-token list for `HandleEscrow.claim`.
 function one(address token) pure returns (address[] memory tokens) {
@@ -12,19 +12,19 @@ function one(address token) pure returns (address[] memory tokens) {
     tokens[0] = token;
 }
 
-/// @notice A naming system whose holders are set directly; deposits go by hash.
-contract SettableNames is IIdentityNames {
+/// @notice A registry whose holders are set directly; deposits go by hash.
+contract SettableRegistry is IIdentityRegistry {
     mapping(bytes32 => address) public holderOf;
 
     function setHolder(bytes32 handleNode, address holder) external {
         holderOf[handleNode] = holder;
     }
 
-    function byHandle(bytes32 handleNode) external view returns (address owner, uint64 observedAt) {
+    function handleBinding(bytes32 handleNode) external view returns (address holder, uint64 observedAt) {
         return (holderOf[handleNode], 0);
     }
 
-    function nodeOf(bytes32 platformId, string calldata handle) external pure returns (bytes32) {
+    function handleNodeOf(bytes32 platformId, string calldata handle) external pure returns (bytes32) {
         return IdentityNodes.handleNode(platformId, handle);
     }
 
@@ -32,7 +32,7 @@ contract SettableNames is IIdentityNames {
         return keccak256(bytes(handle));
     }
 
-    function nodeOfHash(bytes32 platformId, bytes32 handleHash) external pure returns (bytes32) {
+    function handleNodeOfHash(bytes32 platformId, bytes32 handleHash) external pure returns (bytes32) {
         return IdentityNodes.handleNodeOfHash(platformId, handleHash);
     }
 

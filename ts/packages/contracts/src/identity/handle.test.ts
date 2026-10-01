@@ -7,7 +7,7 @@ import { HANDLE_VECTORS } from './handleVectors.js'
 ///
 /// Solidity and Rust run the same table from the same JSON. That is the whole
 /// guard: three hand-written normalizers, one set of cases, so a language that
-/// disagrees fails here instead of looking up a key the chain never wrote.
+/// disagrees fails here instead of looking up a node the chain never wrote.
 describe('handle normalization', () => {
   it('matches the shared table on every vector', () => {
     for (const [i, v] of HANDLE_VECTORS.entries()) {
@@ -44,7 +44,7 @@ describe('handle normalization', () => {
   })
 
   /// Case folding is the only change to an accepted handle. Anything else could
-  /// map two platform accounts onto one identity.
+  /// map the handles of two identities onto one node.
   it('folds case and changes nothing else', () => {
     expect(normalize('A.B+tag@Example.COM', RULES_GOOGLE)).toBe('a.b+tag@example.com')
     expect(normalize('Alice_1', RULES_X)).toBe('alice_1')

@@ -10,8 +10,8 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 import {HandleEscrow, NATIVE_TOKEN} from "../HandleEscrow.sol";
 import {IdentityNodes} from "../../identity/IdentityNodes.sol";
-import {IIdentityNames} from "../../identity/IIdentityNames.sol";
-import {FeeToken, NoReturnToken, SettableNames, TestERC20, one} from "./EscrowMocks.sol";
+import {IIdentityRegistry} from "../../identity/IIdentityRegistry.sol";
+import {FeeToken, NoReturnToken, SettableRegistry, TestERC20, one} from "./EscrowMocks.sol";
 
 // The native token as the escrow names it.
 address constant NATIVE = NATIVE_TOKEN;
@@ -23,7 +23,7 @@ contract EscrowHandler is CommonBase, StdCheats, StdUtils {
     uint256 internal constant TOKENS = 4;
 
     HandleEscrow public immutable ESCROW;
-    SettableNames public immutable NAMES;
+    SettableRegistry public immutable REGISTRY;
     address[3] public depositors;
     address[TOKENS] public tokens;
     bytes32[2] public hashes;
@@ -33,8 +33,8 @@ contract EscrowHandler is CommonBase, StdCheats, StdUtils {
     /// node -> token -> refundTo -> refundable, as modelled.
     mapping(bytes32 => mapping(address => mapping(address => uint256))) public modelled;
 
-    constructor(HandleEscrow escrow_, SettableNames names_) {
-        (ESCROW, NAMES) = (escrow_, names_);
+    constructor(HandleEscrow escrow_, SettableRegistry registry_) {
+        (ESCROW, REGISTRY) = (escrow_, registry_);
         depositors = [makeAddr("depositor 1"), makeAddr("depositor 2"), makeAddr("depositor 3")];
         tokens = [NATIVE, address(new TestERC20()), address(new FeeToken()), address(new NoReturnToken())];
         hashes = [keccak256("node a"), keccak256("node b")];
@@ -63,7 +63,7 @@ contract EscrowHandler is CommonBase, StdCheats, StdUtils {
         }
         vm.prank(from);
         ESCROW.deposit{value: token == NATIVE ? amount : 0}(PLATFORM, hashes[nodeSeed % 2], token, amount, refundTo);
-        if (NAMES.holderOf(node) == address(0)) modelled[node][token][refundTo] += delivered;
+        if (REGISTRY.holderOf(node) == address(0)) modelled[node][token][refundTo] += delivered;
     }
 
     function refund(uint256 refundToSeed, uint256 tokenSeed, uint256 nodeSeed) external {
@@ -83,17 +83,17 @@ contract EscrowHandler is CommonBase, StdCheats, StdUtils {
     }
 
     function join(uint256 nodeSeed, uint256 holderSeed) external {
-        NAMES.setHolder(nodes[nodeSeed % 2], holders[holderSeed % 2]);
+        REGISTRY.setHolder(nodes[nodeSeed % 2], holders[holderSeed % 2]);
     }
 
     function retire(uint256 nodeSeed) external {
-        NAMES.setHolder(nodes[nodeSeed % 2], address(0));
+        REGISTRY.setHolder(nodes[nodeSeed % 2], address(0));
     }
 
     function claim(uint256 tokenSeed, uint256 nodeSeed) external {
         address token = tokens[tokenSeed % TOKENS];
         bytes32 node = nodes[nodeSeed % 2];
-        address holder = NAMES.holderOf(node);
+        address holder = REGISTRY.holderOf(node);
         uint256 held = ESCROW.escrowed(node, token);
         if (holder == address(0) || held == 0) return;
         uint256 before = _balanceOf(token, holder);
@@ -117,16 +117,16 @@ contract HandleEscrowAccountingTest is Test {
     EscrowHandler internal handler;
 
     function setUp() public {
-        SettableNames names = new SettableNames();
+        SettableRegistry registry = new SettableRegistry();
         escrow = HandleEscrow(
             address(
                 new ERC1967Proxy(
                     address(new HandleEscrow()),
-                    abi.encodeCall(HandleEscrow.initialize, (address(this), IIdentityNames(address(names))))
+                    abi.encodeCall(HandleEscrow.initialize, (address(this), IIdentityRegistry(address(registry))))
                 )
             )
         );
-        handler = new EscrowHandler(escrow, names);
+        handler = new EscrowHandler(escrow, registry);
         targetContract(address(handler));
     }
 

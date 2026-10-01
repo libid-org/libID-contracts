@@ -20,7 +20,7 @@ use libid_contracts::{
             GoogleJwtRoots,
             NotaryService,
         },
-        identity::IdentityNames,
+        identity::IdentityRegistry,
     },
     deploy::{
         deploy_behind_proxy,
@@ -39,8 +39,8 @@ async fn default_signer(provider: &impl Provider) -> Address {
 }
 
 /// (a) The identity stack in the order `script/Deploy.s.sol` uses: the
-/// Notary Service first, then the Proof Verifier, the naming system given a
-/// keyspace and pointed at the Proof Verifier, and the Google JWT root list
+/// Notary Service first, then the Proof Verifier, the registry given its
+/// platform rules and pointed at the Proof Verifier, and the Google JWT root list
 /// pointed at the Notary Service — every one behind an ERC1967 proxy. Then the views
 /// that prove the wiring took.
 #[tokio::test]
@@ -75,11 +75,11 @@ async fn deploys_the_identity_stack_behind_proxies() {
     .await
     .unwrap();
 
-    let names_proxy = deploy_behind_proxy(
+    let registry_proxy = deploy_behind_proxy(
         &provider,
         &artifacts,
-        "IdentityNames",
-        &IdentityNames::initializeCall { owner_: deployer },
+        "IdentityRegistry",
+        &IdentityRegistry::initializeCall { owner_: deployer },
         None,
     )
     .await
@@ -98,11 +98,11 @@ async fn deploys_the_identity_stack_behind_proxies() {
     .await
     .unwrap();
 
-    // Wire the naming system: the Proof Verifier it dispatches through, and
-    // a keyspace. The platform id is the platform's own bare name: libID
-    // namespaces only its own strings.
-    let names = IdentityNames::new(names_proxy, &provider);
-    names
+    // Wire the registry: the Proof Verifier it dispatches through, and the
+    // platform's rules. The platform id is keccak256 of the platform key:
+    // libID namespaces only its own strings.
+    let registry = IdentityRegistry::new(registry_proxy, &provider);
+    registry
         .setProofVerifier(verifier_proxy)
         .send()
         .await
@@ -111,10 +111,10 @@ async fn deploys_the_identity_stack_behind_proxies() {
         .await
         .unwrap();
     let platform_id = keccak256(b"github");
-    names
+    registry
         .setPlatform(
             platform_id,
-            IdentityNames::Rules {
+            IdentityRegistry::Rules {
                 maxLength: 39,
                 stripLeadingAt: true,
                 isEmail: false,
@@ -143,11 +143,14 @@ async fn deploys_the_identity_stack_behind_proxies() {
         Address::ZERO
     );
 
-    assert_eq!(names.proofVerifier().call().await.unwrap(), verifier_proxy);
-    // A platform that owns a keyspace and can verify nothing says so:
-    // answering `address(0)` would tell the caller "nobody holds this name"
-    // about a platform that is not wired yet.
-    let unwired = names.resolveId(platform_id, "12345".into()).call().await;
+    assert_eq!(
+        registry.proofVerifier().call().await.unwrap(),
+        verifier_proxy
+    );
+    // A platform that has rules and can verify nothing says so: answering
+    // `address(0)` would tell the caller "nobody holds this handle" about a
+    // platform that is not wired yet.
+    let unwired = registry.resolveId(platform_id, "12345".into()).call().await;
     assert!(
         unwired.is_err(),
         "an unwired platform answered instead of reverting UnknownPlatform"
@@ -734,7 +737,7 @@ async fn deploys_and_initializes_every_platform_verifier() {
 }
 
 /// (e2) The handle escrow against a real chain: pay an unclaimed handle by its
-/// hash, check the value lands on the naming system's node, and refund it. The
+/// hash, check the value lands on the registry's node, and refund it. The
 /// payout path needs a stub Platform Verifier, which is kept out of this
 /// crate's artifacts; the Solidity suite covers it.
 #[tokio::test]
@@ -785,11 +788,11 @@ async fn escrows_value_against_an_unclaimed_handle() {
     )
     .await
     .unwrap();
-    let names_proxy = deploy_behind_proxy(
+    let registry_proxy = deploy_behind_proxy(
         &provider,
         &artifacts,
-        "IdentityNames",
-        &IdentityNames::initializeCall { owner_: deployer },
+        "IdentityRegistry",
+        &IdentityRegistry::initializeCall { owner_: deployer },
         None,
     )
     .await
@@ -801,8 +804,8 @@ async fn escrows_value_against_an_unclaimed_handle() {
         PlatformVerifier::GitHub.platform_id(),
         "the test and the crate name GitHub differently"
     );
-    let names = IdentityNames::new(names_proxy, &provider);
-    names
+    let registry = IdentityRegistry::new(registry_proxy, &provider);
+    registry
         .setProofVerifier(proof_verifier_proxy)
         .send()
         .await
@@ -810,10 +813,10 @@ async fn escrows_value_against_an_unclaimed_handle() {
         .get_receipt()
         .await
         .unwrap();
-    names
+    registry
         .setPlatform(
             platform_id,
-            IdentityNames::Rules {
+            IdentityRegistry::Rules {
                 maxLength: 39,
                 stripLeadingAt: true,
                 isEmail: false,
@@ -849,7 +852,7 @@ async fn escrows_value_against_an_unclaimed_handle() {
         .get_receipt()
         .await
         .unwrap();
-    assert!(names.acceptsBindings(platform_id).call().await.unwrap());
+    assert!(registry.acceptsBindings(platform_id).call().await.unwrap());
 
     let escrow_proxy = deploy_behind_proxy(
         &provider,
@@ -857,7 +860,7 @@ async fn escrows_value_against_an_unclaimed_handle() {
         "HandleEscrow",
         &HandleEscrow::initializeCall {
             owner_: deployer,
-            names_: names_proxy,
+            registry_: registry_proxy,
         },
         None,
     )
@@ -866,15 +869,15 @@ async fn escrows_value_against_an_unclaimed_handle() {
     let escrow = HandleEscrow::new(escrow_proxy, &provider);
     let native = escrow.NATIVE().call().await.unwrap();
 
-    // The naming system hashes and keys the text; the node is pinned with `cast`.
-    let handle_hash = names
+    // The registry hashes the text into a node; the node is pinned with `cast`.
+    let handle_hash = registry
         .handleHashOf(platform_id, " Alice-1 ".into())
         .call()
         .await
         .unwrap();
     assert_eq!(handle_hash, keccak256("alice-1"));
-    let node = names
-        .nodeOfHash(platform_id, handle_hash)
+    let node = registry
+        .handleNodeOfHash(platform_id, handle_hash)
         .call()
         .await
         .unwrap();

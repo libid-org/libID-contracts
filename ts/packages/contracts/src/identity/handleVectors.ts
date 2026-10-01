@@ -13,11 +13,11 @@ export interface HandleVector {
 }
 
 /** keccak256 of this string is the platform id. */
-export const PLATFORM_X_DOMAIN = 'x'
+export const PLATFORM_X_KEY = 'x'
 /** keccak256 of this string is the platform id. */
-export const PLATFORM_GITHUB_DOMAIN = 'github'
+export const PLATFORM_GITHUB_KEY = 'github'
 /** keccak256 of this string is the platform id. */
-export const PLATFORM_GOOGLE_DOMAIN = 'google'
+export const PLATFORM_GOOGLE_KEY = 'google'
 
 /** Bytes a x handle may have after normalization. */
 export const MAX_LENGTH_X = 15

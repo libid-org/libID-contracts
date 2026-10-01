@@ -20,7 +20,7 @@ contract HandleResolverTest is Test {
     string internal constant URL = "https://gw.handles.link/{sender}/{data}.json";
 
     /// `alice.x.handles.link` in DNS wire format.
-    bytes internal name = hex"05616c69636501780768616e646c6573046c696e6b00";
+    bytes internal ensName = hex"05616c69636501780768616e646c6573046c696e6b00";
     /// `addr(node, 0x80000000 | 8453)` — Base, per ENSIP-11.
     bytes internal data = abi.encodeWithSignature("addr(bytes32,uint256)", bytes32(uint256(1)), uint256(0x80002105));
 
@@ -47,7 +47,7 @@ contract HandleResolverTest is Test {
 
     // ─── The protocol ───────────────────────────────────────────────
 
-    /// A wallet will not hand a wildcard name to a resolver that does not say
+    /// A wallet will not hand a wildcard ENS name to a resolver that does not say
     /// it speaks ENSIP-10, so this answer is what makes the whole scheme reach
     /// this contract at all.
     function test_itAnnouncesWildcardResolution() public view {
@@ -68,7 +68,7 @@ contract HandleResolverTest is Test {
     /// `resolve` always reverts, and that IS the protocol: the revert carries
     /// the endpoints, which is why nothing has to be registered with a wallet.
     function test_resolveRevertsWithTheEndpointsAndTheQuery() public {
-        bytes memory expected = abi.encodeWithSelector(IExtendedResolver.resolve.selector, name, data);
+        bytes memory expected = abi.encodeWithSelector(IExtendedResolver.resolve.selector, ensName, data);
 
         string[] memory urls = new string[](1);
         urls[0] = URL;
@@ -78,13 +78,13 @@ contract HandleResolverTest is Test {
                 OffchainLookup.selector, address(resolver), urls, expected, resolver.resolveWithProof.selector, expected
             )
         );
-        resolver.resolve(name, data);
+        resolver.resolve(ensName, data);
     }
 
     /// The whole round trip: the gateway answers, signs, and the second call
     /// returns the record.
     function test_aSignedAnswerResolves() public view {
-        bytes memory request = abi.encodeWithSelector(IExtendedResolver.resolve.selector, name, data);
+        bytes memory request = abi.encodeWithSelector(IExtendedResolver.resolve.selector, ensName, data);
         bytes memory result = abi.encode(address(0xBEEF));
         bytes memory response = _sign(signerKey, request, result, uint64(block.timestamp + 300));
 
@@ -94,7 +94,7 @@ contract HandleResolverTest is Test {
     // ─── What the signature is for ──────────────────────────────────
 
     function test_anAnswerNobodyInTheSetSignedIsRefused() public {
-        bytes memory request = abi.encodeWithSelector(IExtendedResolver.resolve.selector, name, data);
+        bytes memory request = abi.encodeWithSelector(IExtendedResolver.resolve.selector, ensName, data);
         bytes memory result = abi.encode(address(0xBEEF));
         bytes memory response = _sign(impostorKey, request, result, uint64(block.timestamp + 300));
 
@@ -105,7 +105,7 @@ contract HandleResolverTest is Test {
     /// Seizing the endpoint is not enough — this is the property that lets the
     /// gateway URL be the least sensitive key in the system.
     function test_theResultCannotBeChangedAfterSigning() public {
-        bytes memory request = abi.encodeWithSelector(IExtendedResolver.resolve.selector, name, data);
+        bytes memory request = abi.encodeWithSelector(IExtendedResolver.resolve.selector, ensName, data);
         bytes memory response = _sign(signerKey, request, abi.encode(address(0xBEEF)), uint64(block.timestamp + 300));
 
         (, uint64 expires, bytes memory sig) = abi.decode(response, (bytes, uint64, bytes));
@@ -116,13 +116,13 @@ contract HandleResolverTest is Test {
         resolver.resolveWithProof(tampered, request);
     }
 
-    /// An answer for one name must not resolve another.
+    /// An answer for one ENS name must not resolve another.
     function test_anAnswerCannotBeReusedForAnotherQuery() public {
-        bytes memory request = abi.encodeWithSelector(IExtendedResolver.resolve.selector, name, data);
+        bytes memory request = abi.encodeWithSelector(IExtendedResolver.resolve.selector, ensName, data);
         bytes memory response = _sign(signerKey, request, abi.encode(address(0xBEEF)), uint64(block.timestamp + 300));
 
-        bytes memory otherName = hex"03626f6201780768616e646c6573046c696e6b00"; // bob.x.handles.link
-        bytes memory otherRequest = abi.encodeWithSelector(IExtendedResolver.resolve.selector, otherName, data);
+        bytes memory otherEnsName = hex"03626f6201780768616e646c6573046c696e6b00"; // bob.x.handles.link
+        bytes memory otherRequest = abi.encodeWithSelector(IExtendedResolver.resolve.selector, otherEnsName, data);
 
         vm.expectPartialRevert(HandleResolver.UntrustedSigner.selector);
         resolver.resolveWithProof(response, otherRequest);
@@ -137,7 +137,7 @@ contract HandleResolverTest is Test {
         signers[0] = signer;
         HandleResolver other = new HandleResolver(owner, urls, signers);
 
-        bytes memory request = abi.encodeWithSelector(IExtendedResolver.resolve.selector, name, data);
+        bytes memory request = abi.encodeWithSelector(IExtendedResolver.resolve.selector, ensName, data);
         bytes memory result = abi.encode(address(0xBEEF));
         uint64 expires = uint64(block.timestamp + 300);
 
@@ -148,7 +148,7 @@ contract HandleResolverTest is Test {
     }
 
     function test_anExpiredAnswerIsRefused() public {
-        bytes memory request = abi.encodeWithSelector(IExtendedResolver.resolve.selector, name, data);
+        bytes memory request = abi.encodeWithSelector(IExtendedResolver.resolve.selector, ensName, data);
         uint64 expires = uint64(block.timestamp + 300);
         bytes memory response = _sign(signerKey, request, abi.encode(address(0xBEEF)), expires);
 
@@ -162,7 +162,7 @@ contract HandleResolverTest is Test {
     /// deadline names — a failure that would surface in production, on a
     /// fraction of calls, looking like gateway flakiness.
     function test_anAnswerIsStillGoodInTheBlockItExpires() public view {
-        bytes memory request = abi.encodeWithSelector(IExtendedResolver.resolve.selector, name, data);
+        bytes memory request = abi.encodeWithSelector(IExtendedResolver.resolve.selector, ensName, data);
         bytes memory result = abi.encode(address(0xBEEF));
         bytes memory response = _sign(signerKey, request, result, uint64(block.timestamp));
 
@@ -171,9 +171,9 @@ contract HandleResolverTest is Test {
 
     /// `expires` is the gateway's to choose, so the contract bounds it. Without
     /// this a captured blob stays valid past any rename, and replaying it
-    /// returns the wallet the name USED to hold.
+    /// returns the holder the ENS name USED to resolve to.
     function test_anAnswerCannotClaimAnUnboundedLifetime() public {
-        bytes memory request = abi.encodeWithSelector(IExtendedResolver.resolve.selector, name, data);
+        bytes memory request = abi.encodeWithSelector(IExtendedResolver.resolve.selector, ensName, data);
         bytes memory result = abi.encode(address(0xBEEF));
         uint64 forever = type(uint64).max;
         bytes memory response = _sign(signerKey, request, result, forever);
@@ -188,7 +188,7 @@ contract HandleResolverTest is Test {
 
     /// And the ceiling itself is usable, not merely present.
     function test_anAnswerAtTheCeilingIsAccepted() public view {
-        bytes memory request = abi.encodeWithSelector(IExtendedResolver.resolve.selector, name, data);
+        bytes memory request = abi.encodeWithSelector(IExtendedResolver.resolve.selector, ensName, data);
         bytes memory result = abi.encode(address(0xBEEF));
         bytes memory response = _sign(signerKey, request, result, uint64(block.timestamp + resolver.MAX_LIFETIME()));
 
@@ -222,7 +222,7 @@ contract HandleResolverTest is Test {
         resolver.setSigner(signer, false);
         vm.stopPrank();
 
-        bytes memory request = abi.encodeWithSelector(IExtendedResolver.resolve.selector, name, data);
+        bytes memory request = abi.encodeWithSelector(IExtendedResolver.resolve.selector, ensName, data);
         bytes memory result = abi.encode(address(0xBEEF));
         assertEq(
             resolver.resolveWithProof(_sign(impostorKey, request, result, uint64(block.timestamp + 60)), request),
@@ -244,7 +244,7 @@ contract HandleResolverTest is Test {
         resolver.setUrls(none);
 
         vm.expectRevert(HandleResolver.NoUrls.selector);
-        resolver.resolve(name, data);
+        resolver.resolve(ensName, data);
     }
 
     /// The signing scheme, recomputed the way `ensdomains/offchain-resolver`
@@ -258,7 +258,7 @@ contract HandleResolverTest is Test {
     /// `sender` and `data` by ERC-3668 -- and the four values that reach the
     /// hash are the same four. Change either side and this fails.
     function test_theSigningSchemeMatchesTheEnsReference() public view {
-        bytes memory request = abi.encodeWithSelector(IExtendedResolver.resolve.selector, name, data);
+        bytes memory request = abi.encodeWithSelector(IExtendedResolver.resolve.selector, ensName, data);
         bytes memory result = abi.encode(address(0xBEEF));
         uint64 expires = uint64(block.timestamp + 300);
 
@@ -279,7 +279,7 @@ contract HandleResolverTest is Test {
     /// holds — this pins it, because the day someone replaces the decode with
     /// hand-rolled slicing is the day it stops holding silently.
     function test_aMalformedGatewayResponseCannotReturnAnything() public {
-        bytes memory request = abi.encodeWithSelector(IExtendedResolver.resolve.selector, name, data);
+        bytes memory request = abi.encodeWithSelector(IExtendedResolver.resolve.selector, ensName, data);
 
         bytes[] memory junk = new bytes[](4);
         junk[0] = hex"";
@@ -304,7 +304,7 @@ contract HandleResolverTest is Test {
     /// membership check deleted. A real signature from a key nobody trusts,
     /// asserted against this contract's OWN error, is the property.
     function test_aValidSignatureFromAnUntrustedKeyIsRefused() public {
-        bytes memory request = abi.encodeWithSelector(IExtendedResolver.resolve.selector, name, data);
+        bytes memory request = abi.encodeWithSelector(IExtendedResolver.resolve.selector, ensName, data);
         bytes memory result = abi.encode(address(0xBEEF));
         bytes memory response = _sign(impostorKey, request, result, uint64(block.timestamp + 300));
 
@@ -315,7 +315,7 @@ contract HandleResolverTest is Test {
     /// And the malformed case, kept but named for what it is: bytes that never
     /// reach the signer set because recovery itself refuses them.
     function test_aSignatureRecoveryCannotAcceptIsRefusedEarlier() public {
-        bytes memory request = abi.encodeWithSelector(IExtendedResolver.resolve.selector, name, data);
+        bytes memory request = abi.encodeWithSelector(IExtendedResolver.resolve.selector, ensName, data);
         bytes memory response = abi.encode(abi.encode(address(0xBEEF)), uint64(block.timestamp + 300), new bytes(65));
 
         vm.expectRevert(ECDSA.ECDSAInvalidSignature.selector);
@@ -335,7 +335,7 @@ contract HandleResolverTest is Test {
         assertEq(bare.urlCount(), 0);
 
         vm.expectRevert(HandleResolver.NoUrls.selector);
-        bare.resolve(name, data);
+        bare.resolve(ensName, data);
 
         string[] memory one = new string[](1);
         one[0] = URL;
