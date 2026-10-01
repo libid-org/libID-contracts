@@ -55,12 +55,9 @@ function read<T>(
 }
 
 /// The platform's normalization rules as configured on chain now
-/// (`IdentityNames.rulesOf`); only the platform id is sent.
-export async function rulesOf<K extends string>(
-  reader: RegistryReader,
-  platformKey: PlatformKey<K>,
-): Promise<Rules> {
-  const rules = await read<Rules>(reader, 'rulesOf', [platformId(platformKey)])
+/// (`IdentityNames.rulesOf`).
+export async function rulesOf(reader: RegistryReader, platformId: `0x${string}`): Promise<Rules> {
+  const rules = await read<Rules>(reader, 'rulesOf', [platformId])
   return {
     maxLength: Number(rules.maxLength),
     stripLeadingAt: rules.stripLeadingAt,

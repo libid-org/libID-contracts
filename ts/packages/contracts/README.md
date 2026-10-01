@@ -137,10 +137,11 @@ normalize(' @Alice_1 ', RULES_X) // 'alice_1'
 Hash locally, so the handle text never reaches an RPC:
 
 ```ts
-import { handleHash, handleNode, rulesOf } from '@libid/contracts/identity'
+import { handleHash, handleNode, platformId, PLATFORM_GOOGLE_KEY, rulesOf } from '@libid/contracts/identity'
 
-const hash = handleHash('Alice@Gmail.com', await rulesOf(reader, 'google')) // HandleEscrow.deposit
-const node = handleNode('google', hash) // handleBinding, escrowed, claim, refund
+const google = platformId(PLATFORM_GOOGLE_KEY)
+const hash = handleHash('Alice@Gmail.com', await rulesOf(reader, google)) // HandleEscrow.deposit
+const node = handleNode(google, hash) // handleBinding, escrowed, claim, refund
 ```
 
 ## Development

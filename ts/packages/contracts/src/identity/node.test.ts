@@ -2,7 +2,7 @@ import { type Address, keccak256, type PublicClient, toHex } from 'viem'
 import { describe, expect, it, vi } from 'vitest'
 
 import { HandleError, RULES_GITHUB, RULES_GOOGLE, RULES_X, rulesFor } from './handle.js'
-import { HANDLE_VECTORS } from './handleVectors.js'
+import { HANDLE_VECTORS, PLATFORM_GITHUB_KEY, PLATFORM_X_KEY } from './handleVectors.js'
 import { handleHash, handleNode } from './node.js'
 import { platformId, rulesOf } from './resolve.js'
 
@@ -12,8 +12,10 @@ const ALICE_1_ON_GITHUB = '0x2e2bee956f308d03271ce24b26e5aa20103b41841ddee3c96a9
 
 describe('handleHash and handleNode', () => {
   it('reach the nodes the contracts store under', () => {
-    expect(handleNode('x', handleHash(' @Alice_1 ', RULES_X))).toBe(ALICE_1_ON_X)
-    expect(handleNode('github', handleHash(' Alice-1 ', RULES_GITHUB))).toBe(ALICE_1_ON_GITHUB)
+    const x = platformId(PLATFORM_X_KEY)
+    const github = platformId(PLATFORM_GITHUB_KEY)
+    expect(handleNode(x, handleHash(' @Alice_1 ', RULES_X))).toBe(ALICE_1_ON_X)
+    expect(handleNode(github, handleHash(' Alice-1 ', RULES_GITHUB))).toBe(ALICE_1_ON_GITHUB)
   })
 
   /// The Solidity suite pins `IdentityNames.handleHashOf` to the same values.
@@ -45,12 +47,13 @@ describe('handleHash and handleNode', () => {
     expect(handleHash('with_score', RULES_X)).toBe(keccak256(toHex('with_score')))
   })
 
-  /// An id is hex, and hashing it again as a key names a platform nothing binds.
-  it('take a platform key, not a platform id', () => {
+  /// An id is hex, and hashing it again as a key names a platform nothing
+  /// binds; a key where an id belongs is not a `bytes32` at all.
+  it('take a platform id, which only a key derives', () => {
     const hash = handleHash('alice_1', RULES_X)
+    // @ts-expect-error a platform key is not a platform id
+    expect(() => handleNode('x', hash)).toThrow()
     // @ts-expect-error a platform id is not a platform key
-    expect(handleNode(platformId('x'), hash)).not.toBe(ALICE_1_ON_X)
-    // @ts-expect-error nor is it for platformId itself
     expect(platformId(platformId('x'))).not.toBe(platformId('x'))
   })
 })
@@ -66,7 +69,7 @@ describe('rulesOf', () => {
       address: '0x1111111111111111111111111111111111111111' as Address,
     }
 
-    const rules = await rulesOf(reader, 'x')
+    const rules = await rulesOf(reader, platformId(PLATFORM_X_KEY))
     expect(readContract.mock.calls[0][0]).toMatchObject({
       functionName: 'rulesOf',
       args: [platformId('x')],

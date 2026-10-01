@@ -6,7 +6,6 @@
 import { encodeAbiParameters, type Hex, keccak256, toHex } from 'viem'
 
 import { normalize, type Rules } from './handle.js'
-import { type PlatformKey, platformId } from './resolve.js'
 
 const HANDLE_NODE_V1: Hex = keccak256(toHex('libid.identity.handle-node.v1'))
 
@@ -16,12 +15,14 @@ export function handleHash(raw: string, rules: Rules): Hex {
   return keccak256(toHex(normalize(raw, rules)))
 }
 
-/// The node a handle hash sits on, on a platform named by its key (`'x'`).
-export function handleNode<K extends string>(platformKey: PlatformKey<K>, hash: Hex): Hex {
+/// The node a handle hash sits on, on the platform `platformId` names
+/// (`platformId(PLATFORM_X_KEY)`), as `IdentityNames.handleNodeOfHash` derives
+/// it.
+export function handleNode(platformId: Hex, hash: Hex): Hex {
   return keccak256(
     encodeAbiParameters(
       [{ type: 'bytes32' }, { type: 'bytes32' }, { type: 'bytes32' }],
-      [HANDLE_NODE_V1, platformId(platformKey), hash],
+      [HANDLE_NODE_V1, platformId, hash],
     ),
   )
 }
