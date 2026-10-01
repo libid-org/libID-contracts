@@ -33,6 +33,24 @@ fs_permissions = [
     { access = "read", path = "contracts/circuits/test/fixtures" },
     { access = "read", path = "out" }, # the factory tests read creation code from the artifacts
 ]
+# Gas snapshots are measured under eden-testnet's rules, so only the `gas`
+# profile below writes them: a default run would overwrite them with cancun's.
+gas_snapshot_emit = false
+
+# What verifying a claim costs, recorded in snapshots/ by
+# ClaimVerificationGas.t.sol. CI fails when the committed numbers are not what
+# the code measures: update them with `FOUNDRY_PROFILE=gas forge test`.
+#
+# Osaka because eden-testnet executes under it: EIP-7883 at least triples the
+# price of MODEXP, which the Honk verifiers call. `vm.setEvmVersion` cannot
+# stand in, because forge 1.7.1 prices precompiles by the version a transaction
+# starts under. solc 0.8.33 compiles this tree to the same bytecode for osaka
+# as for cancun, so the numbers are the deployed code's. Compare the two builds
+# when solc moves.
+[profile.gas]
+evm_version = "osaka"
+gas_snapshot_emit = true
+match_path = "contracts/ceremony/test/ClaimVerificationGas.t.sol"
 
 # Lint findings fail CI: the Solidity job runs `forge lint -D notes`, the
 # counterpart of `cargo clippy -D warnings` and `pnpm lint` in the jobs beside
