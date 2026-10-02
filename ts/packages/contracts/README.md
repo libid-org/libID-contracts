@@ -19,6 +19,10 @@ generated from `solidity/contracts/identity/handles.json` by
 pnpm add @libid/contracts viem
 ```
 
+`viem` is an optional peer. The root export, `calls` and `identity` import it;
+`@libid/contracts/ceremony` imports nothing, so a consumer of that subpath alone
+can leave it out.
+
 ## Reading a contract with viem
 
 ```ts
