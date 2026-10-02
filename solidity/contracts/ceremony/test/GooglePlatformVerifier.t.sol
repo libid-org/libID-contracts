@@ -192,7 +192,7 @@ contract GooglePlatformVerifierTest is Test {
         this.run(s);
     }
 
-    /// @dev libid-circuits v0.5.0's oidc-google, proved over a token signed by
+    /// @dev libid-circuits v0.6.0's oidc-google, proved over a token signed by
     ///      a synthetic key whose nonce is this chain's digest for `_payload`,
     ///      and checked by the verifier the pin ships.
     function _realProof() private returns (GooglePlatformVerifier real, GooglePlatformVerifier.GoogleProof memory s) {
