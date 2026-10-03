@@ -8,7 +8,7 @@ import {IHonkVerifier} from "../../ceremony/PlatformVerifierBase.sol";
 /// @notice A vendored Honk verifier accepts a real proof of its circuit, and
 ///         no proof or public input one bit away from it.
 ///
-/// @dev The fixtures are proofs bb 5.2.0 made with `bb prove -t evm` of the
+/// @dev The fixtures are proofs bb 6.0.0-rc.2 made with `bb prove -t evm` of the
 ///      witnesses libid-circuits commits as `circuits/<circuit>/Prover.toml`:
 ///      bearer-link's test vector, and a Google-shaped token signed by a
 ///      synthetic RSA-2048 key. A circuits release that changes a verification
