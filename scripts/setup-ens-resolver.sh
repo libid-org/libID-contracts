@@ -54,7 +54,8 @@ echo "signer    $signer  (from $AWS_KMS_KEY_ID)"
 # revert after a deploy leaves a contract nobody points at.
 owner=$(cast call "$REGISTRY" "owner(bytes32)(address)" "$node" --rpc-url "$RPC_URL")
 echo "owner     $owner"
-if [ "${owner,,}" != "${signer,,}" ]; then
+if [ "$(echo "$owner" | LC_ALL=C tr '[:upper:]' '[:lower:]')" != \
+     "$(echo "$signer" | LC_ALL=C tr '[:upper:]' '[:lower:]')" ]; then
     echo "refusing: the KMS key is not the owner of $ENS_NAME" >&2
     exit 1
 fi
@@ -103,7 +104,8 @@ cast send --aws --rpc-url "$RPC_URL" "$REGISTRY" \
 # that still points at whatever it did before.
 now=$(cast call "$REGISTRY" "resolver(bytes32)(address)" "$node" --rpc-url "$RPC_URL")
 echo "set       $now"
-if [ "${now,,}" != "${resolver,,}" ]; then
+if [ "$(echo "$now" | LC_ALL=C tr '[:upper:]' '[:lower:]')" != \
+     "$(echo "$resolver" | LC_ALL=C tr '[:upper:]' '[:lower:]')" ]; then
     echo "refusing: the registry still names $now — setResolver did not take" >&2
     exit 1
 fi
