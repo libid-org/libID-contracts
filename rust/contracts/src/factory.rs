@@ -1,18 +1,18 @@
 //! Bootstrap and use of the deterministic deployment factory.
 //!
-//! The [`LibidFactory`] proxy lives at the same address on every EVM network
-//! because every byte that feeds its address is frozen: it is deployed
-//! through the canonical keyless CREATE2 deployer (Arachnid's
+//! An environment's [`LibidFactory`] proxy lives at the same address on every
+//! EVM network because every byte that feeds its address is frozen but one:
+//! it is deployed through the canonical keyless CREATE2 deployer (Arachnid's
 //! deterministic-deployment proxy at [`CREATE2_DEPLOYER`]) with fixed salts
-//! and init codes that carry no per-network data — the admin is the baked
-//! [`FACTORY_GENESIS_ADMIN`] constant, so initialization happens atomically
-//! inside the deployment. Protocol proxies are then deployed *through* the
-//! factory via CREATE3, which makes their addresses a function of
-//! `(factory, name)` only — see `solidity/contracts/factory/README.md`.
+//! and init codes whose only input is the genesis admin, the environment's
+//! deployer key ([`FactoryGenesis`]), baked in so that initialization happens
+//! atomically inside the deployment. Protocol proxies are then deployed
+//! *through* the factory via CREATE3, which makes their addresses a function
+//! of `(factory, name)` only — see `solidity/contracts/factory/README.md`.
 //!
-//! [`ensure_factory`] is the whole bootstrap: check → install the CREATE2
-//! deployer if missing (via its well-known presigned transaction) → deploy
-//! the factory impl and proxy at their canonical addresses. There is
+//! [`FactoryGenesis::ensure`] is the whole bootstrap: check → install the
+//! CREATE2 deployer if missing (via its well-known presigned transaction) →
+//! deploy the factory impl and proxy at their canonical addresses. There is
 //! deliberately no fallback deployment path: anything else would change the
 //! factory address and defeat the cross-network guarantee, so a chain that
 //! cannot take the presigned install transaction is a hard error.
@@ -74,12 +74,6 @@ pub const CREATE2_DEPLOYER_FUNDING_WEI: u128 = 10_000_000_000_000_000;
 /// alternate deployment path.
 pub const CREATE2_DEPLOYER_INSTALL_TX: &str = "0xf8a58085174876e800830186a08080b853604580600e600039806000f350fe7fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffe03601600081602082378035828234f58015156039578182fd5b8082525050506014600cf31ba02222222222222222222222222222222222222222222222222222222222222222a02222222222222222222222222222222222222222222222222222222222222222";
 
-/// The genesis admin baked into the frozen factory-proxy init code.
-/// PLACEHOLDER until the owner substitutes the protocol-admin KMS address.
-/// Keep in sync with `solidity/contracts/factory/FactoryGenesis.sol`.
-pub const FACTORY_GENESIS_ADMIN: Address =
-    address!("5bb76B0f81F028de363150602cC6d0Ca929E3C31");
-
 /// The 16-byte CREATE3 proxy init code (`Create3.PROXY_INITCODE`). Constant
 /// forever — its hash feeds every predicted address.
 pub const CREATE3_PROXY_INITCODE: [u8; 16] = [
@@ -109,25 +103,93 @@ pub fn predict_factory_impl_address(artifacts: &Artifacts) -> Result<Address> {
     Ok(CREATE2_DEPLOYER.create2(factory_impl_salt(), keccak256(&init_code)))
 }
 
-/// The frozen proxy init code: ERC1967Proxy creation code ++
-/// abi.encode(implAddress, initialize(FACTORY_GENESIS_ADMIN)). Every byte is
-/// network-invariant; `FactoryDeployer.proxyInitCode()` produces the same
-/// bytes (asserted against the vendored artifacts by the Solidity tests).
-pub fn factory_proxy_init_code(artifacts: &Artifacts) -> Result<Bytes> {
-    let impl_addr = predict_factory_impl_address(artifacts)?;
-    let init_data = LibidFactory::initializeCall {
-        owner_: FACTORY_GENESIS_ADMIN,
-    }
-    .abi_encode();
-    let mut code = artifacts.bytecode("ERC1967Proxy")?.to_vec();
-    code.extend_from_slice(&(impl_addr, Bytes::from(init_data)).abi_encode_params());
-    Ok(code.into())
+/// The factory of one environment, pinned by its genesis admin: the deployer
+/// key that owns the factory from its first block. The admin is the only
+/// varying input of the frozen proxy init code, so the factory's address, and
+/// every address deployed through it, follow from the admin and nothing
+/// else. Testnet and mainnet have their own.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct FactoryGenesis {
+    /// The deployer key: factory owner from genesis, `apply`'s signer.
+    pub admin: Address,
 }
 
-/// The canonical factory address — the same on every EVM network.
-pub fn predict_factory_address(artifacts: &Artifacts) -> Result<Address> {
-    let init_code = factory_proxy_init_code(artifacts)?;
-    Ok(CREATE2_DEPLOYER.create2(factory_proxy_salt(), keccak256(&init_code)))
+impl FactoryGenesis {
+    /// The frozen proxy init code: ERC1967Proxy creation code ++
+    /// abi.encode(implAddress, initialize(admin)). `FactoryDeployer.proxyInitCode(admin)`
+    /// produces the same bytes (asserted against the vendored artifacts by
+    /// the Solidity tests).
+    pub fn proxy_init_code(&self, artifacts: &Artifacts) -> Result<Bytes> {
+        let impl_addr = predict_factory_impl_address(artifacts)?;
+        let init_data = LibidFactory::initializeCall { owner_: self.admin }.abi_encode();
+        let mut code = artifacts.bytecode("ERC1967Proxy")?.to_vec();
+        code.extend_from_slice(&(impl_addr, Bytes::from(init_data)).abi_encode_params());
+        Ok(code.into())
+    }
+
+    /// The factory's address — the same on every EVM network the admin
+    /// deploys to.
+    pub fn address(&self, artifacts: &Artifacts) -> Result<Address> {
+        let init_code = self.proxy_init_code(artifacts)?;
+        Ok(CREATE2_DEPLOYER.create2(factory_proxy_salt(), keccak256(&init_code)))
+    }
+
+    /// Make sure the factory exists at [`Self::address`], bootstrapping
+    /// whatever is missing: the CREATE2 deployer (via the keyless presigned
+    /// transaction), the factory implementation, and the factory proxy —
+    /// each at its deterministic address. Idempotent: reruns are read-only
+    /// no-ops once the factory is up.
+    pub async fn ensure<P: Provider>(
+        &self,
+        provider: &P,
+        artifacts: &Artifacts,
+    ) -> Result<Address> {
+        let factory = self.address(artifacts)?;
+        let code = provider
+            .get_code_at(factory)
+            .await
+            .map_err(|e| Error::Rpc {
+                detail: format!("failed to read code at the factory address: {e}"),
+            })?;
+        if !code.is_empty() {
+            return Ok(factory);
+        }
+
+        ensure_create2_deployer(provider).await?;
+
+        let impl_addr = predict_factory_impl_address(artifacts)?;
+        let impl_code =
+            provider
+                .get_code_at(impl_addr)
+                .await
+                .map_err(|e| Error::Rpc {
+                    detail: format!(
+                        "failed to read code at the factory impl address: {e}"
+                    ),
+                })?;
+        if impl_code.is_empty() {
+            deploy_via_create2(
+                provider,
+                factory_impl_salt(),
+                &factory_impl_init_code(artifacts)?,
+                impl_addr,
+                "LibidFactory (impl)",
+                None,
+            )
+            .await?;
+        }
+
+        deploy_via_create2(
+            provider,
+            factory_proxy_salt(),
+            &self.proxy_init_code(artifacts)?,
+            factory,
+            "LibidFactory (proxy)",
+            None,
+        )
+        .await?;
+        Ok(factory)
+    }
 }
 
 /// The CREATE3 address `factory.deploy(name, ·)` lands on: the factory
@@ -214,59 +276,6 @@ pub async fn ensure_create2_deployer<P: Provider>(provider: &P) -> Result<()> {
         });
     }
     Ok(())
-}
-
-/// Make sure the canonical factory exists at [`predict_factory_address`],
-/// bootstrapping whatever is missing: the CREATE2 deployer (via the keyless
-/// presigned transaction), the factory implementation, and the factory
-/// proxy — each at its deterministic address. Idempotent: reruns are
-/// read-only no-ops once the factory is up.
-pub async fn ensure_factory<P: Provider>(
-    provider: &P,
-    artifacts: &Artifacts,
-) -> Result<Address> {
-    let factory = predict_factory_address(artifacts)?;
-    let code = provider
-        .get_code_at(factory)
-        .await
-        .map_err(|e| Error::Rpc {
-            detail: format!("failed to read code at the factory address: {e}"),
-        })?;
-    if !code.is_empty() {
-        return Ok(factory);
-    }
-
-    ensure_create2_deployer(provider).await?;
-
-    let impl_addr = predict_factory_impl_address(artifacts)?;
-    let impl_code = provider
-        .get_code_at(impl_addr)
-        .await
-        .map_err(|e| Error::Rpc {
-            detail: format!("failed to read code at the factory impl address: {e}"),
-        })?;
-    if impl_code.is_empty() {
-        deploy_via_create2(
-            provider,
-            factory_impl_salt(),
-            &factory_impl_init_code(artifacts)?,
-            impl_addr,
-            "LibidFactory (impl)",
-            None,
-        )
-        .await?;
-    }
-
-    deploy_via_create2(
-        provider,
-        factory_proxy_salt(),
-        &factory_proxy_init_code(artifacts)?,
-        factory,
-        "LibidFactory (proxy)",
-        None,
-    )
-    .await?;
-    Ok(factory)
 }
 
 /// Deploy `creation_code` under `name` through the factory (the provider's
