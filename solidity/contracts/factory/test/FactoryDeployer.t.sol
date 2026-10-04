@@ -111,9 +111,7 @@ contract FactoryDeployerTest is Test {
             vm.parseJsonBytes(vm.readFile("out/ERC1967Proxy.sol/ERC1967Proxy.json"), ".bytecode.object");
         bytes memory expectedProxyInitCode = abi.encodePacked(
             proxyArtifact,
-            abi.encode(
-                FactoryDeployer.predictImplAddress(), abi.encodeCall(LibidFactory.initialize, (ADMIN))
-            )
+            abi.encode(FactoryDeployer.predictImplAddress(), abi.encodeCall(LibidFactory.initialize, (ADMIN)))
         );
         assertEq(keccak256(expectedProxyInitCode), keccak256(FactoryDeployer.proxyInitCode(ADMIN)));
     }
