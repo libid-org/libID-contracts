@@ -3,7 +3,6 @@ pragma solidity ^0.8.20;
 
 import {Test} from "forge-std/Test.sol";
 
-import {FACTORY_GENESIS_ADMIN} from "../FactoryGenesis.sol";
 import {FactoryDeployer} from "../FactoryDeployer.sol";
 import {LibidFactory} from "../LibidFactory.sol";
 import {Ping} from "./Create3.t.sol";
@@ -14,6 +13,10 @@ import {Ping} from "./Create3.t.sol";
 /// impl and proxy init codes are deployed through it exactly as
 /// `ensure_factory` does on a real network.
 contract FactoryDeployerTest is Test {
+    /// The deployer key of this test's environment: the factory's owner from
+    /// its first block.
+    address internal constant ADMIN = address(0xAD1);
+
     /// The runtime bytecode of the deterministic-deployment proxy — the code
     /// that lives at 0x4e59b4…956C on every chain it was installed on.
     /// Calldata format: 32-byte salt ++ init code; returns the 20-byte
@@ -39,29 +42,32 @@ contract FactoryDeployerTest is Test {
         bool ok;
         (ok, impl) = _deployVia(FactoryDeployer.implDeployCalldata());
         assertTrue(ok, "impl deploy failed");
-        (ok, factoryAddr) = _deployVia(FactoryDeployer.proxyDeployCalldata());
+        (ok, factoryAddr) = _deployVia(FactoryDeployer.proxyDeployCalldata(ADMIN));
         assertTrue(ok, "proxy deploy failed");
     }
 
     function test_bootstrap_landsOnThePredictedAddresses() public {
         (address impl, address factoryAddr) = _bootstrap();
         assertEq(impl, FactoryDeployer.predictImplAddress());
-        assertEq(factoryAddr, FactoryDeployer.predictFactoryAddress());
+        assertEq(factoryAddr, FactoryDeployer.predictFactoryAddress(ADMIN));
         assertGt(impl.code.length, 0);
         assertGt(factoryAddr.code.length, 0);
     }
 
     /// The anti-front-running property: the instant the proxy exists, it is
-    /// already initialized with the baked genesis admin. There is no
+    /// already initialized with its genesis admin. There is no
     /// deploy-then-initialize gap.
+    /// A different admin is a different factory, at a different address.
     function test_bootstrap_ownerIsTheGenesisAdminAtomically() public {
         (, address factoryAddr) = _bootstrap();
         LibidFactory factory = LibidFactory(factoryAddr);
-        assertEq(factory.owner(), FACTORY_GENESIS_ADMIN);
+        assertEq(factory.owner(), ADMIN);
 
         // Nobody can re-initialize the proxy…
         vm.expectRevert();
         factory.initialize(address(this));
+
+        assertTrue(FactoryDeployer.predictFactoryAddress(address(0xAD2)) != factoryAddr);
     }
 
     /// …and the raw implementation is bricked by _disableInitializers.
@@ -75,7 +81,7 @@ contract FactoryDeployerTest is Test {
     /// the proxy cannot be deployed ahead of the impl (wrong order fails
     /// loudly instead of minting a broken factory).
     function test_bootstrap_proxyBeforeImplFails() public {
-        (bool ok,) = _deployVia(FactoryDeployer.proxyDeployCalldata());
+        (bool ok,) = _deployVia(FactoryDeployer.proxyDeployCalldata(ADMIN));
         assertFalse(ok);
     }
 
@@ -84,7 +90,7 @@ contract FactoryDeployerTest is Test {
         LibidFactory factory = LibidFactory(factoryAddr);
 
         address predicted = factory.predict("libid.thing");
-        vm.prank(FACTORY_GENESIS_ADMIN);
+        vm.prank(ADMIN);
         assertEq(factory.deploy("libid.thing", type(Ping).creationCode), predicted);
 
         vm.prank(address(this)); // not the admin
@@ -106,9 +112,9 @@ contract FactoryDeployerTest is Test {
         bytes memory expectedProxyInitCode = abi.encodePacked(
             proxyArtifact,
             abi.encode(
-                FactoryDeployer.predictImplAddress(), abi.encodeCall(LibidFactory.initialize, (FACTORY_GENESIS_ADMIN))
+                FactoryDeployer.predictImplAddress(), abi.encodeCall(LibidFactory.initialize, (ADMIN))
             )
         );
-        assertEq(keccak256(expectedProxyInitCode), keccak256(FactoryDeployer.proxyInitCode()));
+        assertEq(keccak256(expectedProxyInitCode), keccak256(FactoryDeployer.proxyInitCode(ADMIN)));
     }
 }

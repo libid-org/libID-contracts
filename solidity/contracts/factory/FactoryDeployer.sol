@@ -3,11 +3,10 @@ pragma solidity ^0.8.20;
 
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
-import {FACTORY_GENESIS_ADMIN} from "./FactoryGenesis.sol";
 import {LibidFactory} from "./LibidFactory.sol";
 
-/// @title FactoryDeployer — the frozen bootstrap material for the canonical
-///        factory, and the math that predicts its address.
+/// @title FactoryDeployer — the frozen bootstrap material for a factory, and
+///        the math that predicts its address from its genesis admin.
 ///
 /// @notice The factory (impl AND proxy) is deployed through the canonical
 ///         keyless CREATE2 deployer (Arachnid's deterministic-deployment
@@ -15,31 +14,33 @@ import {LibidFactory} from "./LibidFactory.sol";
 ///         standard EVM chain), with fixed salts and FROZEN init codes:
 ///
 ///           implAddress  = CREATE2(CREATE2_DEPLOYER, IMPL_SALT,  implInitCode)
-///           factoryAddr  = CREATE2(CREATE2_DEPLOYER, PROXY_SALT, proxyInitCode)
+///           factoryAddr  = CREATE2(CREATE2_DEPLOYER, PROXY_SALT, proxyInitCode(admin))
 ///
 ///         `implInitCode` is the LibidFactory creation code (no constructor
-///         args). `proxyInitCode` is the ERC1967Proxy creation code with
-///         `(implAddress, abi.encodeCall(initialize, (FACTORY_GENESIS_ADMIN)))`
-///         appended — the impl address is itself deterministic, and the admin
-///         is a baked constant, so the proxy's constructor args are
-///         network-invariant. Result: `predictFactoryAddress()` is the same
-///         on every EVM network, and the proxy initializes atomically inside
-///         its own deployment (no front-run window).
+///         args). `proxyInitCode(admin)` is the ERC1967Proxy creation code
+///         with `(implAddress, abi.encodeCall(initialize, (admin)))` appended
+///         — the impl address is itself deterministic, so the only input is
+///         the genesis admin: the deployer key that owns the factory from its
+///         first block. Result: `predictFactoryAddress(admin)` is the same on
+///         every EVM network that admin deploys to, and the proxy initializes
+///         atomically inside its own deployment (no front-run window). One
+///         admin per environment (testnet, mainnet) means one factory address
+///         and one address table per environment.
 ///
 /// @dev THE INIT CODES ARE FROZEN. They are pinned by the compiler settings
 ///      (solc 0.8.33, via_ir, 200 runs, no CBOR metadata) and by the sources;
 ///      `test/FactoryDeployer.t.sol` asserts the built artifacts match
 ///      `type(·).creationCode`, and the vendored artifacts in
 ///      `rust/contracts/artifacts` carry the same bytes. Changing
-///      LibidFactory's source, the admin constant, or the compiler settings
-///      changes the init code and therefore the canonical address — that is a
-///      v2 factory and MUST use new salts (`libid.factory{,.impl}.v2`), never
-///      a silent replacement of v1. Factory-behavior changes that should NOT
-///      move the address go through the normal UUPS upgrade instead.
+///      LibidFactory's source or the compiler settings changes the init code
+///      and therefore every factory address — that is a v2 factory and MUST
+///      use new salts (`libid.factory{,.impl}.v2`), never a silent
+///      replacement of v1. Factory-behavior changes that should NOT move the
+///      address go through the normal UUPS upgrade instead.
 ///
 ///      To deploy on a new network, send two transactions to
 ///      `CREATE2_DEPLOYER` (its calldata format is `salt ++ initCode`):
-///      first `implDeployCalldata()`, then `proxyDeployCalldata()`.
+///      first `implDeployCalldata()`, then `proxyDeployCalldata(admin)`.
 ///      `rust/contracts/src/factory.rs::ensure_factory` automates this,
 ///      including installing the CREATE2 deployer itself via its well-known
 ///      presigned transaction where it is missing.
@@ -67,19 +68,19 @@ library FactoryDeployer {
         return _create2Address(CREATE2_DEPLOYER, IMPL_SALT, keccak256(implInitCode()));
     }
 
-    /// The frozen proxy init code: ERC1967Proxy creation code ++
-    /// abi.encode(implAddress, initialize(FACTORY_GENESIS_ADMIN)). Every byte
-    /// of it is network-invariant.
-    function proxyInitCode() internal pure returns (bytes memory) {
+    /// The frozen proxy init code of the factory `admin` owns from genesis:
+    /// ERC1967Proxy creation code ++ abi.encode(implAddress, initialize(admin)).
+    /// The admin is its only input that varies.
+    function proxyInitCode(address admin) internal pure returns (bytes memory) {
         return abi.encodePacked(
             type(ERC1967Proxy).creationCode,
-            abi.encode(predictImplAddress(), abi.encodeCall(LibidFactory.initialize, (FACTORY_GENESIS_ADMIN)))
+            abi.encode(predictImplAddress(), abi.encodeCall(LibidFactory.initialize, (admin)))
         );
     }
 
-    /// The canonical factory address — the same on every EVM network.
-    function predictFactoryAddress() internal pure returns (address) {
-        return _create2Address(CREATE2_DEPLOYER, PROXY_SALT, keccak256(proxyInitCode()));
+    /// The address of `admin`'s factory — the same on every EVM network.
+    function predictFactoryAddress(address admin) internal pure returns (address) {
+        return _create2Address(CREATE2_DEPLOYER, PROXY_SALT, keccak256(proxyInitCode(admin)));
     }
 
     /// Calldata for `CREATE2_DEPLOYER` that deploys the implementation.
@@ -88,11 +89,11 @@ library FactoryDeployer {
     }
 
     /// Calldata for `CREATE2_DEPLOYER` that deploys (and atomically
-    /// initializes) the factory proxy. Requires the implementation to exist
-    /// already: ERC1967Proxy's constructor refuses an implementation with no
-    /// code.
-    function proxyDeployCalldata() internal pure returns (bytes memory) {
-        return abi.encodePacked(PROXY_SALT, proxyInitCode());
+    /// initializes) `admin`'s factory proxy. Requires the implementation to
+    /// exist already: ERC1967Proxy's constructor refuses an implementation
+    /// with no code.
+    function proxyDeployCalldata(address admin) internal pure returns (bytes memory) {
+        return abi.encodePacked(PROXY_SALT, proxyInitCode(admin));
     }
 
     function _create2Address(address deployer, bytes32 salt, bytes32 initCodeHash) private pure returns (address) {

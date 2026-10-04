@@ -146,7 +146,7 @@ Other entry points:
 
 - `deploy::upgrade_uups` — deploy a fresh implementation and
   `upgradeToAndCall` a UUPS proxy onto it.
-- `factory::ensure_factory` / `factory::factory_deploy` — install the
+- `factory::FactoryGenesis::ensure` / `factory::factory_deploy` — install the
   canonical cross-network factory where missing and deploy protocol proxies
   through it at name-derived CREATE3 addresses.
 - `circuits::version` — the `libid-circuits` release the vendored verifiers

@@ -24,13 +24,14 @@ import {Create3} from "./Create3.sol";
 /// @dev UUPS + Ownable2Step behind an ERC1967 proxy, like every other
 ///      upgradeable contract in the stack. Two things are special here:
 ///
-///      - The canonical deployment path does NOT choose an owner per network.
-///        The proxy init code is FROZEN with `initialize(FACTORY_GENESIS_ADMIN)`
-///        baked in (see `FactoryGenesis.sol` / `FactoryDeployer.proxyInitCode()`),
+///      - The canonical deployment path chooses the owner once per
+///        environment, not per network. The proxy init code is FROZEN with
+///        `initialize(admin)` baked in (see `FactoryDeployer.proxyInitCode`),
 ///        so deployment and initialization are one atomic CREATE2 — no
 ///        front-run window — and the init code (hence the address) is
-///        identical on every chain. `initialize` exists per UUPS convention
-///        and for tests; on the canonical path nobody ever calls it manually.
+///        identical on every chain that admin deploys to. `initialize`
+///        exists per UUPS convention and for tests; on the canonical path
+///        nobody ever calls it manually.
 ///      - Upgrading this factory keeps its address and its deployment
 ///        records; everything deployed through it stays where it is.
 contract LibidFactory is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable {
@@ -51,8 +52,8 @@ contract LibidFactory is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable
 
     /// @param owner_ Address that will own the factory (deploy + upgrade
     ///               authority; should be a multisig / KMS key). The
-    ///               canonical path bakes `FACTORY_GENESIS_ADMIN` here via
-    ///               the frozen proxy init code.
+    ///               canonical path bakes the environment's deployer key
+    ///               here via the frozen proxy init code.
     function initialize(address owner_) external initializer {
         __Ownable_init(owner_);
         __Ownable2Step_init();

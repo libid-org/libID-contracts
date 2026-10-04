@@ -250,11 +250,12 @@ async fn rotates_and_upgrades_the_notary_service() {
 }
 
 /// (c) The deterministic factory, from truly nothing: anvil is started
-/// WITHOUT its predeployed CREATE2 deployer, so `ensure_factory` must
-/// install it via the keyless presigned transaction (funding the one-time
-/// signer first), then deploy the factory impl + proxy at their canonical
-/// addresses. Then a Notary Service proxy goes through the factory at its
-/// name-derived CREATE3 address.
+/// WITHOUT its predeployed CREATE2 deployer, so `FactoryGenesis::ensure`
+/// must install it via the keyless presigned transaction (funding the
+/// one-time signer first), then deploy the factory impl + proxy at their
+/// canonical addresses, owned by the genesis admin from the first block.
+/// Then a Notary Service proxy goes through the factory at its name-derived
+/// CREATE3 address.
 #[tokio::test]
 async fn bootstraps_the_deterministic_factory_and_deploys_through_it() {
     use alloy::{
@@ -267,12 +268,10 @@ async fn bootstraps_the_deterministic_factory_and_deploys_through_it() {
     use libid_contracts::{
         bindings::factory::LibidFactory,
         factory::{
-            ensure_factory,
             factory_deploy,
             predict_address,
-            predict_factory_address,
+            FactoryGenesis,
             CREATE2_DEPLOYER,
-            FACTORY_GENESIS_ADMIN,
         },
     };
 
@@ -283,6 +282,7 @@ async fn bootstraps_the_deterministic_factory_and_deploys_through_it() {
         .expect("anvil spawns");
     let artifacts = Artifacts::embedded();
     let deployer0 = default_signer(&provider).await;
+    let genesis = FactoryGenesis { admin: deployer0 };
 
     // Truly bare chain: no CREATE2 deployer.
     assert!(provider
@@ -291,64 +291,26 @@ async fn bootstraps_the_deterministic_factory_and_deploys_through_it() {
         .unwrap()
         .is_empty());
 
-    let factory = ensure_factory(&provider, &artifacts).await.unwrap();
-    assert_eq!(factory, predict_factory_address(&artifacts).unwrap());
+    let factory = genesis.ensure(&provider, &artifacts).await.unwrap();
+    assert_eq!(factory, genesis.address(&artifacts).unwrap());
     assert!(!provider.get_code_at(factory).await.unwrap().is_empty());
 
-    // The instant the proxy exists it is owned by the baked genesis admin —
+    // The instant the proxy exists it is owned by its genesis admin —
     // initialization was atomic with deployment.
     let factory_contract = LibidFactory::new(factory, &provider);
-    assert_eq!(
-        factory_contract.owner().call().await.unwrap(),
-        FACTORY_GENESIS_ADMIN
-    );
+    assert_eq!(factory_contract.owner().call().await.unwrap(), deployer0);
 
     // Rerun = read-only no-op.
     assert_eq!(
-        ensure_factory(&provider, &artifacts).await.unwrap(),
+        genesis.ensure(&provider, &artifacts).await.unwrap(),
         factory
     );
 
-    // Hand ownership to the test signer: impersonate the genesis admin
-    // (a placeholder address nobody holds a key for) through anvil.
-    provider
-        .raw_request::<_, serde_json::Value>(
-            "anvil_setBalance".into(),
-            (FACTORY_GENESIS_ADMIN, "0xde0b6b3a7640000"),
-        )
-        .await
-        .unwrap();
-    provider
-        .raw_request::<_, serde_json::Value>(
-            "anvil_impersonateAccount".into(),
-            (FACTORY_GENESIS_ADMIN,),
-        )
-        .await
-        .unwrap();
-    let transfer = LibidFactory::transferOwnershipCall {
-        newOwner: deployer0,
-    }
-    .abi_encode();
-    provider
-        .raw_request::<_, serde_json::Value>(
-            "eth_sendTransaction".into(),
-            (serde_json::json!({
-                "from": FACTORY_GENESIS_ADMIN,
-                "to": factory,
-                "data": Bytes::from(transfer),
-            }),),
-        )
-        .await
-        .unwrap();
-    factory_contract
-        .acceptOwnership()
-        .send()
-        .await
-        .unwrap()
-        .get_receipt()
-        .await
-        .unwrap();
-    assert_eq!(factory_contract.owner().call().await.unwrap(), deployer0);
+    // Another admin is another factory, at another address.
+    let other = FactoryGenesis {
+        admin: Address::repeat_byte(0x22),
+    };
+    assert_ne!(other.address(&artifacts).unwrap(), factory);
 
     // A Notary Service PROXY through the factory: impl via plain CREATE (its
     // address doesn't matter), proxy creation code = ERC1967Proxy ++ (impl,
