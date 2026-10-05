@@ -42,6 +42,7 @@ export interface RegistryReader {
 type RegistryAbi = typeof identityRegistryAbi
 type ReadOnly = 'view' | 'pure'
 type RegistryRead = ContractFunctionName<RegistryAbi, ReadOnly>
+type ReadResult<N extends RegistryRead> = ContractFunctionReturnType<RegistryAbi, ReadOnly, N>
 
 /// One view call, typed from the generated ABI: a function name the contract
 /// does not have, wrong arguments, or a return shape read the wrong way fail
@@ -55,12 +56,10 @@ function read<N extends RegistryRead>(
   reader: RegistryReader,
   functionName: N,
   args: ContractFunctionArgs<RegistryAbi, ReadOnly, N>,
-): Promise<ContractFunctionReturnType<RegistryAbi, ReadOnly, N>> {
+): Promise<ReadResult<N>> {
   return (
     reader.client as unknown as {
-      readContract: (
-        request: Record<string, unknown>,
-      ) => Promise<ContractFunctionReturnType<RegistryAbi, ReadOnly, N>>
+      readContract: (request: Record<string, unknown>) => Promise<ReadResult<N>>
     }
   ).readContract({
     authorizationList: undefined,
@@ -69,6 +68,11 @@ function read<N extends RegistryRead>(
     functionName,
     args,
   })
+}
+
+/// The contract's zero address is "nobody".
+function orNull(holder: Address): Address | null {
+  return holder === zeroAddress ? null : holder
 }
 
 /// The platform's normalization rules as configured on chain now
@@ -91,7 +95,7 @@ export async function resolveId(
   id: string,
 ): Promise<Address | null> {
   const holder = await read(reader, 'resolveId', [platformId, id])
-  return holder === zeroAddress ? null : holder
+  return orNull(holder)
 }
 
 /// The holder that last proved this handle, or `null`.
@@ -111,7 +115,7 @@ export async function resolveHandle(
   handle: string,
 ): Promise<Address | null> {
   const holder = await read(reader, 'resolveHandle', [platformId, handle])
-  return holder === zeroAddress ? null : holder
+  return orNull(holder)
 }
 
 /// A holder and the moment the platform stated it.
@@ -131,7 +135,7 @@ export async function idBindingOf(
   id: string,
 ): Promise<Binding> {
   const [holder, observedAt] = await read(reader, 'idBindingOf', [platformId, id])
-  return { holder: holder === zeroAddress ? null : holder, observedAt }
+  return { holder: orNull(holder), observedAt }
 }
 
 /// The holder that last proved this handle and when, in one call
@@ -147,7 +151,7 @@ export async function handleBindingOf(
   handle: string,
 ): Promise<Binding> {
   const [holder, observedAt] = await read(reader, 'handleBindingOf', [platformId, handle])
-  return { holder: holder === zeroAddress ? null : holder, observedAt }
+  return { holder: orNull(holder), observedAt }
 }
 
 /// The handle an identity proved most recently.
@@ -232,7 +236,7 @@ export async function resolveHandleAndId(
 ): Promise<HandleAndIdResolution> {
   const [holder, idAgrees] = await read(reader, 'resolveHandleAndId', [platformId, handle, id])
 
-  return { holder: holder === zeroAddress ? null : holder, idAgrees }
+  return { holder: orNull(holder), idAgrees }
 }
 
 /// One identity a holder proved, as the holder's list reports it.
