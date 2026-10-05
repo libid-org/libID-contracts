@@ -46,9 +46,7 @@ export interface TokenSession {
   /** The form fields the body carries, in the order the prover serializes
    * them. Every verifier holds the whole body to this list: exactly these
    * names in this order, each once with a nonempty value, nothing after
-   * the last. GitHub's list is REQ-PLAT-61's; X's specification keeps its
-   * decoded form on ASM-PROV-07, so the contract is stricter than the
-   * specification there. */
+   * the last. GitHub's list is REQ-PLAT-61's and X's is REQ-PLAT-63's. */
   readonly tokenFields: readonly string[]
 }
 

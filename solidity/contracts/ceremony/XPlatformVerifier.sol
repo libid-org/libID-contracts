@@ -18,9 +18,7 @@ import {TlsNotaryVerifierBase} from "./TlsNotaryVerifierBase.sol";
 ///                         body field, so the request is revealed entire and
 ///                         `_tokenBody` refuses any other count. The body is
 ///                         held to exactly `X_TOKEN_FIELDS` in order, as every
-///                         profile's is; the specification keeps X's decoded
-///                         form on ASM-PROV-07, so this contract is stricter
-///                         than the specification there.
+///                         profile's is (REQ-PLAT-63).
 ///        token response — the `"access_token":"` delimiter and its closing
 ///                         quote revealed; the bearer and every other byte
 ///                         committed.
