@@ -205,8 +205,9 @@ contract IdentityRegistryTest is Test {
         assertEq(registry.resolveHandle(X, "shared"), bob, "the handle moved back");
     }
 
-    /// Replaying the exact proof is refused by the same rule, because equal is
-    /// not newer. That is why the contract needs no nullifier.
+    /// A second proof of the same observation, under a fresh digest, is
+    /// refused by the same rule, because equal is not newer. The exact proof
+    /// stops earlier, at its spent digest (`test_aDigestIsSpendableOnce`).
     function test_replayingAProofIsRefused() public {
         _bind(alice, "123", "alice", 100);
 

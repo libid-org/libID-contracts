@@ -78,10 +78,12 @@ import {IdentityNodes} from "./IdentityNodes.sol";
 ///      learn whether its copy is stale. Merging them into one map would remove
 ///      the only freshness signal the chain can give.
 ///
-///      **There is no nullifier.** A binding is idempotent, so replaying a
-///      proof would rewrite the same value; the danger is an older proof
-///      undoing a newer one, and the `observedAt` watermark refuses that. A
-///      replay carries the same timestamp, so the same rule refuses it too.
+///      **The Authorization Digest is the nullifier.** `bind` records every
+///      digest it accepts in `spentDigests` and refuses one already recorded
+///      with `DigestAlreadySpent` (REQ-COMMON-03, REQ-COMMON-03A). An older
+///      proof carries a digest of its own, so the `observedAt` watermark is
+///      what stops it undoing a newer binding. Equal is not newer, so the
+///      watermark also refuses a second proof of the same observation.
 ///
 ///      **There is no pause.** A pause is a lever over other people's bindings,
 ///      and nothing here needs one: no funds are held, and no address is
