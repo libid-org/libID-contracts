@@ -83,10 +83,13 @@ mod registry_inner {
             function handleBindingOf(bytes32 platformId, string calldata handle) external view returns (address holder, uint64 observedAt);
             /// The handle an id proved most recently, and whether the handle
             /// node still points back at that identity. Empty and false for an
-            /// id never proved.
+            /// id never proved. `current` reads the nodes, not the rules, so it
+            /// stays true after the rules narrow and the handle no longer
+            /// resolves. Reverts `UnknownPlatform` for an unwired platform.
             function handleOfId(bytes32 platformId, string calldata id) external view returns (string memory handle, bool current);
-            /// The id of the identity a handle belongs to now. Empty when none
-            /// does, or for text the rules refuse.
+            /// The id of the identity that holds a handle now. Empty when
+            /// nobody holds it, or for text the rules refuse. Reverts
+            /// `UnknownPlatform` for an unwired platform.
             function idOfHandle(bytes32 platformId, string calldata handle) external view returns (string memory id);
             /// The handle's holder, and whether `id` resolves to that same
             /// holder.

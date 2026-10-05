@@ -1018,7 +1018,22 @@ contract IdentityRegistryTest is Test {
         _assertHandleBinding(X, "@ALICE_1", alice, 100);
         _assertHandleBinding(X, " @Alice_1 ", alice, 100);
         _assertHandleBinding(X, "nobody", address(0), 0);
-        _assertHandleBinding(GITHUB, "alice_1", address(0), 0);
+    }
+
+    /// One handle text on two platforms is two bindings: `alice` is valid on
+    /// both, and each platform answers only its own.
+    function test_handleBindingOfKeepsPlatformsApart() public {
+        _bind(alice, "123", "alice", 100);
+        _assertHandleBinding(GITHUB, "alice", address(0), 0);
+
+        _stage("123", "alice", bob, 200);
+        vm.prank(bob);
+        _submit(GITHUB, false);
+
+        _assertHandleBinding(X, "alice", alice, 100);
+        _assertHandleBinding(GITHUB, "alice", bob, 200);
+        assertEq(registry.idOfHandle(X, "alice"), "123");
+        assertEq(registry.idOfHandle(GITHUB, "alice"), "123");
     }
 
     /// Text the rules refuse answers `(0, 0)`, as `resolveHandle` answers
@@ -1145,6 +1160,24 @@ contract IdentityRegistryTest is Test {
 
         _bind(bob, "456", "alice", 300);
         assertEq(registry.idOfHandle(X, "alice"), "456");
+    }
+
+    /// After the owner narrows the rules so a bound handle no longer
+    /// normalizes, `idOfHandle` answers nobody with `resolveHandle`, while
+    /// `handleOfId` still reports the handle as current.
+    function test_idOfHandleFollowsTheRulesWhenTheyNarrow() public {
+        _bind(alice, "123", "with_score", 100);
+        assertEq(registry.idOfHandle(X, "with_score"), "123");
+
+        HandleNormalizer.Rules memory rules = HandleVectors.rulesFor(X);
+        rules.allowUnderscore = false;
+        vm.prank(owner);
+        registry.setPlatform(X, rules);
+
+        assertEq(registry.resolveHandle(X, "with_score"), address(0));
+        assertEq(registry.idOfHandle(X, "with_score"), "");
+        _assertHandleBinding(X, "with_score", address(0), 0);
+        _assertHandle(X, "123", "with_score", true);
     }
 
     function test_idOfHandleIsEmptyForTextTheRulesRefuse() public {

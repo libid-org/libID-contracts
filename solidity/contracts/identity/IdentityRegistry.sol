@@ -928,12 +928,16 @@ contract IdentityRegistry is
         return (b.holder, b.observedAt);
     }
 
-    /// @notice The id of the identity this handle belongs to now, or empty.
+    /// @notice The id of the identity that holds this handle now, or empty.
     ///
-    /// @dev Empty when nobody proved the handle, when the identity that
-    ///      proved it has since proved another one, and for text the rules
-    ///      refuse. An unwired platform reverts `UnknownPlatform`. The id is
-    ///      byte for byte as the platform issued it.
+    /// @dev Live: answers only while the handle has a holder, so it agrees
+    ///      with `resolveHandle`. Empty when nobody proved the handle, when the
+    ///      identity that proved it has since proved another one, and for text
+    ///      the rules refuse. The `idNodeByHandle` pointer it reads keeps
+    ///      naming the identity that renamed away; an indexer mirroring that
+    ///      pointer under a similar name answers differently from this. An
+    ///      unwired platform reverts `UnknownPlatform`. The id is byte for byte
+    ///      as the platform issued it.
     function idOfHandle(bytes32 platformId, string calldata handle) external view returns (string memory id) {
         (bool normalizes, bytes32 handleNode) = _usableHandleNode(platformId, handle);
         if (!normalizes || _s().handleBindings[handleNode].holder == address(0)) return "";
@@ -946,9 +950,13 @@ contract IdentityRegistry is
     /// @dev `current` is `identitiesOf`'s `handleCurrent`: the handle node
     ///      points back at this identity. It turns false once another
     ///      identity proves the handle, and the string stays as the last
-    ///      thing this identity was known as. It reads the nodes, so a change
-    ///      to the platform's rules is seen by `resolveHandle` before it is
-    ///      seen here. Reverts as `resolveId` does.
+    ///      thing this identity was known as. It reads the nodes, not the
+    ///      rules: after the owner narrows a platform's rules so the handle no
+    ///      longer normalizes, `current` stays true while `resolveHandle`,
+    ///      `handleBindingOf` and `idOfHandle` answer nobody for that text.
+    ///      The handle comes from the `handleNodeById` pointer, which an
+    ///      indexer may mirror under a similar name; `current` is what this
+    ///      adds to it. Reverts as `resolveId` does.
     function handleOfId(bytes32 platformId, string calldata id)
         external
         view
@@ -1071,10 +1079,8 @@ contract IdentityRegistry is
         view
         returns (address holder, bool idAgrees)
     {
-        Platform memory platform = _requireUsable(platformId);
-
-        (HandleNormalizer.Problem problem, bytes32 handleNode) = _handleNode(platformId, handle, platform.rules);
-        holder = problem == HandleNormalizer.Problem.None ? _s().handleBindings[handleNode].holder : address(0);
+        (bool normalizes, bytes32 handleNode) = _usableHandleNode(platformId, handle);
+        if (normalizes) holder = _s().handleBindings[handleNode].holder;
 
         address idHolder = _s().idBindings[IdentityNodes.idNode(platformId, id)].holder;
         // An unknown id does not agree either. A caller with an id the chain

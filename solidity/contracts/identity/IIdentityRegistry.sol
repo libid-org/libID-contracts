@@ -3,8 +3,8 @@ pragma solidity ^0.8.20;
 
 import {HandleNormalizer} from "./HandleNormalizer.sol";
 
-/// @notice What other contracts, `HandleEscrow` among them, ask the identity
-///         registry.
+/// @notice The identity registry's reads: what `HandleEscrow` and other
+///         contracts ask, and the one-call reads a client resolves with.
 interface IIdentityRegistry {
     /// This platform is not configured.
     error UnknownPlatform(bytes32 platformId);
@@ -55,13 +55,16 @@ interface IIdentityRegistry {
         returns (address holder, uint64 observedAt);
 
     /// @notice The handle this id proved most recently, and whether the handle
-    ///         still belongs to this identity. Empty for an id never proved.
+    ///         node still points back at this identity. `("", false)` for an id
+    ///         never proved. Reverts `UnknownPlatform` for a platform that is
+    ///         not wired.
     function handleOfId(bytes32 platformId, string calldata id)
         external
         view
         returns (string memory handle, bool current);
 
-    /// @notice The id of the identity this handle belongs to now. Empty when
-    ///         none does, or for text the rules refuse.
+    /// @notice The id of the identity that holds this handle now. Empty when
+    ///         nobody holds it, or for text the rules refuse. Reverts
+    ///         `UnknownPlatform` for a platform that is not wired.
     function idOfHandle(bytes32 platformId, string calldata handle) external view returns (string memory id);
 }

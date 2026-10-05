@@ -40,25 +40,28 @@ contract SettableRegistry is IIdentityRegistry {
         return platformId != bytes32(0);
     }
 
-    function normalizeHandle(bytes32, string calldata handle) external pure returns (string memory) {
-        return handle;
+    // The registry's one-call reads are not modelled: escrow reads holders
+    // through `handleBinding` alone. Each reverts, so a test that starts
+    // depending on one fails here instead of reading a made-up answer.
+
+    function normalizeHandle(bytes32, string calldata) external pure returns (string memory) {
+        revert("SettableRegistry: normalizeHandle not modelled");
     }
 
-    function handleBindingOf(bytes32 platformId, string calldata handle) external view returns (address, uint64) {
-        return (holderOf[IdentityNodes.handleNode(platformId, handle)], 0);
+    function handleBindingOf(bytes32, string calldata) external pure returns (address, uint64) {
+        revert("SettableRegistry: handleBindingOf not modelled");
     }
 
-    /// Ids are not modelled: every id reads as never proved.
     function idBindingOf(bytes32, string calldata) external pure returns (address, uint64) {
-        return (address(0), 0);
+        revert("SettableRegistry: idBindingOf not modelled");
     }
 
     function handleOfId(bytes32, string calldata) external pure returns (string memory, bool) {
-        return ("", false);
+        revert("SettableRegistry: handleOfId not modelled");
     }
 
     function idOfHandle(bytes32, string calldata) external pure returns (string memory) {
-        return "";
+        revert("SettableRegistry: idOfHandle not modelled");
     }
 }
 
