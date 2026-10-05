@@ -76,7 +76,7 @@ contract CeremonyAuthorizationTest is Test {
         );
         assertTrue(
             CeremonyAuthorization.digest(OPERATION_DOMAIN, 2, CHAIN_ID, NONCE, TRANSACTION_DATA) != base,
-            "verifier version does not bind"
+            "platform ceremony version does not bind"
         );
         assertTrue(
             CeremonyAuthorization.digest(OPERATION_DOMAIN, 1, bytes32(uint256(CHAIN_ID) ^ 1), NONCE, TRANSACTION_DATA)
