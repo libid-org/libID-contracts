@@ -28,10 +28,10 @@ contract LimbHasher is GoogleJwtRoots {
 /// Google's JWKS endpoint.
 ///
 /// The reading is an ordinary platform-ceremonies section 4.1 session: built
-/// with the same builder every Platform Verifier test uses, signed at test
-/// time by the anvil key, and authenticated by a real NotaryService behind a
-/// proxy charging a real fee. Nothing here mocks the thing under test.
-/// Google's real body rides along as a fixture, so the parser is tested
+/// with the same builder the X and GitHub Platform Verifier tests use, signed
+/// at test time by the anvil key, and authenticated by a real NotaryService
+/// behind a proxy charging a real fee. Nothing here mocks the thing under
+/// test. Google's real body rides along as a fixture, so the parser is tested
 /// against the document it will read rather than a shape a test author
 /// remembered.
 contract GoogleJwtRootsTest is Test {
