@@ -1781,6 +1781,24 @@ contract XPlatformVerifierTest is Test {
         this.run{value: quote}(s);
     }
 
+    /// @dev REQ-PLAT-06. The string reader returns whatever lies between the
+    ///      quotes, so the id grammar alone refuses each of these.
+    function test_rejectsAnIdOutsideTheGrammar() public {
+        string[6] memory ids = ["0", "007", "abc", "-1", "18446744073709551616", "100000000000000000000"];
+        for (uint256 i = 0; i < ids.length; ++i) {
+            TlsNotaryVerifierBase.TlsNotaryProof memory s = _payload();
+            s.identitySession = _identityAttestation(ids[i], "alice", "");
+            vm.expectRevert(abi.encodeWithSelector(TlsNotaryVerifierBase.NoncanonicalUserId.selector, bytes(ids[i])));
+            this.run{value: quote}(s);
+        }
+    }
+
+    function test_acceptsTheLargestId() public {
+        TlsNotaryVerifierBase.TlsNotaryProof memory s = _payload();
+        s.identitySession = _identityAttestation("18446744073709551615", "alice", "");
+        assertEq(this.run{value: quote}(s).userId, "18446744073709551615");
+    }
+
     function test_theIdentityAttestationsOwnTimeIsNotEvidenceTime() public {
         TlsNotaryVerifierBase.TlsNotaryProof memory s = _payload();
         bytes memory a = s.identitySession.attestedData;

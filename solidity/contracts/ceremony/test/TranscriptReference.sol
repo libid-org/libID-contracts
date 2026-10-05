@@ -234,7 +234,8 @@ library RefCeremonyAttestation {
 }
 
 /// @notice The field readers of `CeremonyFields` as of commit 7a63c20, code
-///         unchanged.
+///         unchanged, and the REQ-PLAT-06 `userId` grammar, written as a digit
+///         scan and a comparison with the decimal of `2^64 - 1`.
 library RefCeremonyFields {
     error AmbiguousField(string name);
     error FieldNotFound(string name);
@@ -449,6 +450,20 @@ library RefCeremonyFields {
             || c == "_" || c == "-";
     }
 
+    function isCanonicalNonzeroUint64(bytes memory value) internal pure returns (bool) {
+        bytes memory max = "18446744073709551615";
+        if (value.length == 0 || value.length > max.length || value[0] == "0") return false;
+        for (uint256 i = 0; i < value.length; ++i) {
+            if (value[i] < "0" || value[i] > "9") return false;
+        }
+        if (value.length < max.length) return true;
+        // Equal lengths of digits order as their numbers do.
+        for (uint256 i = 0; i < max.length; ++i) {
+            if (value[i] != max[i]) return value[i] < max[i];
+        }
+        return true;
+    }
+
     function _matchesAt(bytes memory data, bytes memory needle, uint256 at) private pure returns (bool) {
         for (uint256 j = 0; j < needle.length; ++j) {
             if (data[at + j] != needle[j]) return false;
@@ -458,8 +473,9 @@ library RefCeremonyFields {
 }
 
 /// @notice The transcript checks `TlsNotaryVerifierBase` ran on each session
-///         as of commit 7a63c20, code unchanged: everything between
-///         authenticating an attestation and reading its time.
+///         as of commit 7a63c20: everything between authenticating an
+///         attestation and reading its time. Code unchanged except the
+///         REQ-PLAT-06 check on the id the identity session reads.
 /// @dev A profile's hooks are parameters here: `Profile` carries the
 ///      constants `XPlatformVerifier` and `GitHubPlatformVerifier` return.
 library RefTranscript {
@@ -467,6 +483,7 @@ library RefTranscript {
     error CodeVerifierMismatch();
     error ClientIdentifierNotSerializerSafe(bytes found);
     error FieldNotUnique(string name, uint256 rangesMatching);
+    error NoncanonicalUserId(bytes found);
     error RequestLineNotAtOrigin(uint32 start);
     error WrongTokenRequestLayout(uint256 revealedRanges, uint256 commitments);
     error NoHeadBoundary(uint256 occurrences);
@@ -579,11 +596,11 @@ library RefTranscript {
 
         RefCeremonyAttestation.requireExactCoverage(data.received, data.recvTranscriptLength);
         bytes memory joined = RefCeremonyAttestation.concatRevealed(data.received);
-        userId = string(
-            !profile.idIsInteger
-                ? _uniqueJsonString(data.received, joined, profile.idField)
-                : _uniqueJsonInteger(data.received, joined, profile.idField)
-        );
+        bytes memory id = !profile.idIsInteger
+            ? _uniqueJsonString(data.received, joined, profile.idField)
+            : _uniqueJsonInteger(data.received, joined, profile.idField);
+        if (!RefCeremonyFields.isCanonicalNonzeroUint64(id)) revert NoncanonicalUserId(id);
+        userId = string(id);
         handle = string(_uniqueJsonString(data.received, joined, profile.handleField));
     }
 

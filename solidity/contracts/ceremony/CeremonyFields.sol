@@ -567,4 +567,29 @@ library CeremonyFields {
         }
         return true;
     }
+
+    /// @notice Whether `value` is the canonical decimal spelling of a nonzero
+    ///         unsigned 64-bit integer: `^[1-9][0-9]{0,19}$`, at most
+    ///         `2^64 - 1`.
+    ///
+    /// @dev REQ-PLAT-06, the grammar of an X or GitHub `userId`: every role
+    ///      must record one account under the same bytes.
+    function isCanonicalNonzeroUint64(bytes memory value) internal pure returns (bool) {
+        uint256 n = value.length;
+        if (n == 0 || n > 20) return false;
+        // Twenty bytes fit in one word, read from its most significant byte.
+        uint256 w = _word(value, 0);
+        if (w >> 248 == 0x30) return false;
+        uint256 number;
+        unchecked {
+            for (uint256 i = 0; i < n; ++i) {
+                // A byte below `0` wraps past 9, so one comparison bounds both ends.
+                uint256 digit = ((w >> (248 - 8 * i)) & 0xff) - 0x30;
+                if (digit > 9) return false;
+                // At most twenty digits: no product here can overflow.
+                number = number * 10 + digit;
+            }
+        }
+        return number <= type(uint64).max;
+    }
 }

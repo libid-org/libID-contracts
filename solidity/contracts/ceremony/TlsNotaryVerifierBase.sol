@@ -93,6 +93,9 @@ abstract contract TlsNotaryVerifierBase is IPlatformVerifier, PlatformVerifierBa
     error ClientIdentifierNotSerializerSafe(bytes found);
     /// @dev A field was found in no revealed range, or in more than one.
     error FieldNotUnique(string name, uint256 rangesMatching);
+    /// @dev The id read is not a nonzero unsigned 64-bit integer in its
+    ///      canonical decimal spelling (REQ-PLAT-06).
+    error NoncanonicalUserId(bytes found);
     /// @dev The first revealed range does not begin the transcript, so nothing
     ///      says the bytes read as a request line ARE the request line.
     error RequestLineNotAtOrigin(uint32 start);
@@ -173,7 +176,8 @@ abstract contract TlsNotaryVerifierBase is IPlatformVerifier, PlatformVerifierBa
     ///      Declaring the field names and leaving the reading to the base makes
     ///      all three unwritable rather than forbidden by a comment. A new
     ///      profile supplies two strings and a shape; it never touches an
-    ///      attestation.
+    ///      attestation. Whatever the shape, the id must spell a nonzero
+    ///      `uint64` in decimal (REQ-PLAT-06), as X and GitHub ids do.
     function _identityFields()
         internal
         pure
@@ -435,11 +439,13 @@ abstract contract TlsNotaryVerifierBase is IPlatformVerifier, PlatformVerifierBa
         }
         bytes memory joined = CeremonyFields.normalizeJsonBytes(CeremonyAttestation.concatRevealed(data.received));
         (string memory idField, IdShape idShape, string memory handleField) = _identityFields();
-        userId = string(
-            idShape == IdShape.JsonString
-                ? _uniqueJsonString(ranges, joined, idField)
-                : _uniqueJsonInteger(ranges, joined, idField)
-        );
+        bytes memory id = idShape == IdShape.JsonString
+            ? _uniqueJsonString(ranges, joined, idField)
+            : _uniqueJsonInteger(ranges, joined, idField);
+        // The readers hold the id to its JSON syntax only: X's quotes admit
+        // any string, GitHub's digits a lone `0` and any length.
+        if (!CeremonyFields.isCanonicalNonzeroUint64(id)) revert NoncanonicalUserId(id);
+        userId = string(id);
         handle = string(_uniqueJsonString(ranges, joined, handleField));
     }
 
