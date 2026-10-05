@@ -43,7 +43,8 @@ import {IExtendedResolver} from "./IExtendedResolver.sol";
 ///      lives, and that every change is a transaction visible in the registry.
 ///      Holding the owner key, the deployer key and the ENS name's owner as ONE
 ///      identity — which the current setup does — means one compromise reaches
-///      all three. See `libid/design/ens-integration.md`.
+///      all three. See libID `specs/ens-integration.md`, REQ-ENS-KEY-01
+///      (libID PR #93).
 ///
 ///      The signature covers the resolver, an expiry, the request and the
 ///      result, so an answer cannot be replayed against another resolver,
