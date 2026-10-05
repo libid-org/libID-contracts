@@ -141,8 +141,8 @@ mod google_jwt_roots_inner {
             /// What one rotation costs beyond gas: the Notary Fee, forwarded
             /// whole. `rotate` must be sent with exactly this value.
             function quoteRotation() external view returns (uint256);
-            /// Permissionless. `attestedData` is the ceremony-common section
-            /// 9.1 record of the JWKS session, `proof` the notary's
+            /// Permissionless. `attestedData` is the platform-ceremonies
+            /// section 4.1 record of the JWKS session, `proof` the notary's
             /// authentication of it (a 65-byte EIP-191 signature today). A
             /// reading dated no later than the current generation is refused
             /// with `NotNewer(createdAt, observedAt)`, and the revert hands

@@ -45,7 +45,7 @@ interface INotaryService {
     ///      Handed back, the fields cannot be reached without paying for the
     ///      check that vouches for them.
     ///
-    /// @param attestedData The exact bytes of ceremony-common section 9.1.
+    /// @param attestedData The exact bytes of platform-ceremonies section 4.1.
     /// @param proof        Whatever this service accepts as the notary's
     ///                     authentication of `attestedData`. Opaque to the
     ///                     caller.

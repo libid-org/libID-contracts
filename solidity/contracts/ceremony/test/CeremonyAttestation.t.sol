@@ -5,8 +5,8 @@ import {Test} from "forge-std/Test.sol";
 import {CeremonyAttestation} from "../CeremonyAttestation.sol";
 import {AttestationBuilder} from "./AttestationBuilder.sol";
 
-/// @notice Pins the section 9.1 decoder against bytes produced by the Rust
-///         encoder in `libid-rs/crates/libid-ceremony`.
+/// @notice Pins the platform-ceremonies section 4.1 decoder against bytes
+///         produced by the Rust encoder in `libid-rs/crates/libid-ceremony`.
 /// @dev The notary writes these bytes and the chain reads them, in two
 ///      languages. If the two ever disagree the notary's signature derives a
 ///      key nobody trusts and every genuine attestation is rejected, so the

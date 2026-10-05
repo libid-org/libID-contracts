@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-/// @notice Builds section 9.1 attested data, for tests only.
+/// @notice Builds platform-ceremonies section 4.1 attested data, for tests only.
 ///
 /// @dev The inverse of `CeremonyAttestation.decode`. Rust-versus-Solidity
 ///      agreement on these bytes is proven separately, by the pinned fixture in

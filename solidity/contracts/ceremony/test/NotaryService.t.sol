@@ -9,7 +9,7 @@ import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {CeremonyAttestation} from "../CeremonyAttestation.sol";
 import {NotaryService} from "../NotaryService.sol";
 
-/// @notice The Notary Service of ceremony-common section 9.2.
+/// @notice The Notary Service of ceremony-common section 9.1.
 /// @dev The signature below is real: produced with `cast wallet sign` over the
 ///      digest of the cross-language attestation fixture, by the public anvil
 ///      key. Nothing here mocks the thing under test.
