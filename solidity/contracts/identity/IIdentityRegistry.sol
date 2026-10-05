@@ -3,8 +3,8 @@ pragma solidity ^0.8.20;
 
 import {HandleNormalizer} from "./HandleNormalizer.sol";
 
-/// @notice What other contracts, `HandleEscrow` among them, ask the identity
-///         registry.
+/// @notice The identity registry's reads: what `HandleEscrow` and other
+///         contracts ask, and the one-call reads a client resolves with.
 interface IIdentityRegistry {
     /// This platform is not configured.
     error UnknownPlatform(bytes32 platformId);
@@ -20,6 +20,13 @@ interface IIdentityRegistry {
     ///         rules. Reverts `UnknownPlatform` or `UnusableHandle`.
     function handleHashOf(bytes32 platformId, string calldata handle) external view returns (bytes32 handleHash);
 
+    /// @notice A handle normalized under the platform's current rules. Reverts
+    ///         as `handleHashOf` does.
+    function normalizeHandle(bytes32 platformId, string calldata handle)
+        external
+        view
+        returns (string memory normalized);
+
     /// @notice The node a handle hashes to under the platform's current rules.
     ///         Reverts as `handleHashOf` does.
     function handleNodeOf(bytes32 platformId, string calldata handle) external view returns (bytes32 handleNode);
@@ -30,4 +37,34 @@ interface IIdentityRegistry {
 
     /// @notice Whether `bind` can bind a holder on this platform now.
     function acceptsBindings(bytes32 platformId) external view returns (bool);
+
+    /// @notice The holder of this handle, normalized on chain, and when it was
+    ///         last proved. `(0, 0)` for text the rules refuse; a retired
+    ///         handle keeps its `observedAt`. Reverts `UnknownPlatform` for a
+    ///         platform that is not wired.
+    function handleBindingOf(bytes32 platformId, string calldata handle)
+        external
+        view
+        returns (address holder, uint64 observedAt);
+
+    /// @notice The holder that proved this id, and when. Reverts
+    ///         `UnknownPlatform` for a platform that is not wired.
+    function idBindingOf(bytes32 platformId, string calldata id)
+        external
+        view
+        returns (address holder, uint64 observedAt);
+
+    /// @notice The handle this id proved most recently, and whether the handle
+    ///         node still points back at this identity. `("", false)` for an id
+    ///         never proved. Reverts `UnknownPlatform` for a platform that is
+    ///         not wired.
+    function handleOfId(bytes32 platformId, string calldata id)
+        external
+        view
+        returns (string memory handle, bool current);
+
+    /// @notice The id of the identity that holds this handle now. Empty when
+    ///         nobody holds it, or for text the rules refuse. Reverts
+    ///         `UnknownPlatform` for a platform that is not wired.
+    function idOfHandle(bytes32 platformId, string calldata handle) external view returns (string memory id);
 }

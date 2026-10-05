@@ -817,10 +817,10 @@ contract IdentityRegistry is
 
     // ─── Reading ────────────────────────────────────────────────────
 
-    // `rulesOf`, `handleHashOf` and `handleNodeOf` answer from the rules, so
-    // they need a configured platform and nothing more: they agree with each
-    // other, and keep answering before a platform's first verifier and after
-    // its last.
+    // `rulesOf`, `normalizeHandle`, `handleHashOf` and `handleNodeOf` answer
+    // from the rules, so they need a configured platform and nothing more:
+    // they agree with each other, and keep answering before a platform's first
+    // verifier and after its last.
 
     /// @notice The platform's normalization rules as configured now, for a
     ///         client that normalizes locally. Reverts `UnknownPlatform`.
@@ -828,15 +828,26 @@ contract IdentityRegistry is
         return _requireConfigured(platformId).rules;
     }
 
+    /// @notice A handle normalized under the platform's current rules: the
+    ///         string a proof of it binds, and the one `handleHashOf` hashes.
+    /// @dev Reverts `UnknownPlatform` for a platform with no rules, and
+    ///      `UnusableHandle` for text the rules refuse (where `resolveHandle`
+    ///      answers zero).
+    function normalizeHandle(bytes32 platformId, string calldata handle)
+        public
+        view
+        returns (string memory normalized)
+    {
+        HandleNormalizer.Problem problem;
+        (problem, normalized) = HandleNormalizer.tryNormalize(handle, _requireConfigured(platformId).rules);
+        if (problem != HandleNormalizer.Problem.None) revert UnusableHandle(problem);
+    }
+
     /// @notice `keccak256` of a handle normalized under the platform's current
     ///         rules: the `handleHash` `HandleEscrow.deposit` takes.
-    /// @dev Reverts `UnusableHandle` for text the rules refuse (where
-    ///      `resolveHandle` answers zero).
+    /// @dev Reverts as `normalizeHandle` does.
     function handleHashOf(bytes32 platformId, string calldata handle) public view returns (bytes32 handleHash) {
-        (HandleNormalizer.Problem problem, string memory normalized) =
-            HandleNormalizer.tryNormalize(handle, _requireConfigured(platformId).rules);
-        if (problem != HandleNormalizer.Problem.None) revert UnusableHandle(problem);
-        return keccak256(bytes(normalized));
+        return keccak256(bytes(normalizeHandle(platformId, handle)));
     }
 
     /// @notice The node a handle hashes to under the platform's current rules,
@@ -867,8 +878,20 @@ contract IdentityRegistry is
     ///      proved this" to a question that was never asked — the platform is
     ///      not wired — and a caller cannot tell the two apart from a zero.
     function resolveId(bytes32 platformId, string calldata id) external view returns (address) {
+        (address holder,) = idBindingOf(platformId, id);
+        return holder;
+    }
+
+    /// @notice The holder that proved this id and when the platform stated
+    ///         it, or `(0, 0)`. Reverts as `resolveId` does.
+    function idBindingOf(bytes32 platformId, string calldata id)
+        public
+        view
+        returns (address holder, uint64 observedAt)
+    {
         _requireUsable(platformId);
-        return _s().idBindings[IdentityNodes.idNode(platformId, id)].holder;
+        Binding storage b = _s().idBindings[IdentityNodes.idNode(platformId, id)];
+        return (b.holder, b.observedAt);
     }
 
     /// @notice The holder that last proved this handle, or the zero address.
@@ -883,9 +906,84 @@ contract IdentityRegistry is
     ///      `UnknownPlatform`. An unwired platform still reverts, because that
     ///      question was never asked.
     function resolveHandle(bytes32 platformId, string calldata handle) external view returns (address) {
+        (address holder,) = handleBindingOf(platformId, handle);
+        return holder;
+    }
+
+    /// @notice The holder that last proved this handle and when the platform
+    ///         stated it, read the way `resolveHandle` reads it.
+    ///
+    /// @dev Text the rules refuse answers `(0, 0)`; an unwired platform
+    ///      reverts `UnknownPlatform`. A retired handle answers a zero holder
+    ///      beside the `observedAt` of the proof that last held it, which is
+    ///      the watermark a new proof of it has to beat.
+    function handleBindingOf(bytes32 platformId, string calldata handle)
+        public
+        view
+        returns (address holder, uint64 observedAt)
+    {
+        (bool normalizes, bytes32 handleNode) = _usableHandleNode(platformId, handle);
+        if (!normalizes) return (address(0), 0);
+        Binding storage b = _s().handleBindings[handleNode];
+        return (b.holder, b.observedAt);
+    }
+
+    /// @notice The id of the identity that holds this handle now, or empty.
+    ///
+    /// @dev Live: answers only while the handle has a holder, so it agrees
+    ///      with `resolveHandle`. Empty when nobody proved the handle, when the
+    ///      identity that proved it has since proved another one, and for text
+    ///      the rules refuse. The `idNodeByHandle` pointer it reads keeps
+    ///      naming the identity that renamed away; an indexer mirroring that
+    ///      pointer under a similar name answers differently from this. An
+    ///      unwired platform reverts `UnknownPlatform`. The id is byte for byte
+    ///      as the platform issued it.
+    function idOfHandle(bytes32 platformId, string calldata handle) external view returns (string memory id) {
+        (bool normalizes, bytes32 handleNode) = _usableHandleNode(platformId, handle);
+        if (!normalizes || _s().handleBindings[handleNode].holder == address(0)) return "";
+        return _s().idPreimages[_s().idNodeByHandle[handleNode]].id;
+    }
+
+    /// @notice The handle this id proved most recently, and whether it is
+    ///         still this identity's. Empty and false for an id never proved.
+    ///
+    /// @dev `current` is `identitiesOf`'s `handleCurrent`: the handle node
+    ///      points back at this identity. It turns false once another
+    ///      identity proves the handle, and the string stays as the last
+    ///      thing this identity was known as. It reads the nodes, not the
+    ///      rules: after the owner narrows a platform's rules so the handle no
+    ///      longer normalizes, `current` stays true while `resolveHandle`,
+    ///      `handleBindingOf` and `idOfHandle` answer nobody for that text.
+    ///      The handle comes from the `handleNodeById` pointer, which an
+    ///      indexer may mirror under a similar name; `current` is what this
+    ///      adds to it. Reverts as `resolveId` does.
+    function handleOfId(bytes32 platformId, string calldata id)
+        external
+        view
+        returns (string memory handle, bool current)
+    {
+        _requireUsable(platformId);
+        return _handleOf(IdentityNodes.idNode(platformId, id));
+    }
+
+    /// @dev The node a resolver reads for this handle, behind the resolvers'
+    ///      gate. `normalizes` is false for text the rules refuse.
+    function _usableHandleNode(bytes32 platformId, string calldata handle)
+        private
+        view
+        returns (bool normalizes, bytes32 handleNode)
+    {
         Platform memory platform = _requireUsable(platformId);
-        (HandleNormalizer.Problem problem, bytes32 handleNode) = _handleNode(platformId, handle, platform.rules);
-        return problem == HandleNormalizer.Problem.None ? _s().handleBindings[handleNode].holder : address(0);
+        HandleNormalizer.Problem problem;
+        (problem, handleNode) = _handleNode(platformId, handle, platform.rules);
+        normalizes = problem == HandleNormalizer.Problem.None;
+    }
+
+    /// @dev The handle an identity proved most recently, as normalized when it
+    ///      was written, and whether its node still points back at the identity.
+    function _handleOf(bytes32 idNode) private view returns (string memory handle, bool current) {
+        bytes32 handleNode = _s().handleNodeById[idNode];
+        return (_s().handlePreimages[handleNode], _s().idNodeByHandle[handleNode] == idNode);
     }
 
     /// @dev The node a handle hashes to under the given rules, or the problem
@@ -955,14 +1053,10 @@ contract IdentityRegistry is
         out = new Identity[](nodes.length);
         for (uint256 i = 0; i < nodes.length; i++) {
             bytes32 idNode = nodes[i];
-            bytes32 handleNode = $.handleNodeById[idNode];
             IdentityPreimage storage preimage = $.idPreimages[idNode];
-            out[i] = Identity({
-                platformId: preimage.platformId,
-                id: preimage.id,
-                handle: $.handlePreimages[handleNode],
-                handleCurrent: $.idNodeByHandle[handleNode] == idNode
-            });
+            (string memory handle, bool current) = _handleOf(idNode);
+            out[i] =
+                Identity({platformId: preimage.platformId, id: preimage.id, handle: handle, handleCurrent: current});
         }
     }
 
@@ -985,10 +1079,8 @@ contract IdentityRegistry is
         view
         returns (address holder, bool idAgrees)
     {
-        Platform memory platform = _requireUsable(platformId);
-
-        (HandleNormalizer.Problem problem, bytes32 handleNode) = _handleNode(platformId, handle, platform.rules);
-        holder = problem == HandleNormalizer.Problem.None ? _s().handleBindings[handleNode].holder : address(0);
+        (bool normalizes, bytes32 handleNode) = _usableHandleNode(platformId, handle);
+        if (normalizes) holder = _s().handleBindings[handleNode].holder;
 
         address idHolder = _s().idBindings[IdentityNodes.idNode(platformId, id)].holder;
         // An unknown id does not agree either. A caller with an id the chain

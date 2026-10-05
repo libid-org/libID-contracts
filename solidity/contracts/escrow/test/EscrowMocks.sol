@@ -39,6 +39,30 @@ contract SettableRegistry is IIdentityRegistry {
     function acceptsBindings(bytes32 platformId) external pure returns (bool) {
         return platformId != bytes32(0);
     }
+
+    // The registry's one-call reads are not modelled: escrow reads holders
+    // through `handleBinding` alone. Each reverts, so a test that starts
+    // depending on one fails here instead of reading a made-up answer.
+
+    function normalizeHandle(bytes32, string calldata) external pure returns (string memory) {
+        revert("SettableRegistry: normalizeHandle not modelled");
+    }
+
+    function handleBindingOf(bytes32, string calldata) external pure returns (address, uint64) {
+        revert("SettableRegistry: handleBindingOf not modelled");
+    }
+
+    function idBindingOf(bytes32, string calldata) external pure returns (address, uint64) {
+        revert("SettableRegistry: idBindingOf not modelled");
+    }
+
+    function handleOfId(bytes32, string calldata) external pure returns (string memory, bool) {
+        revert("SettableRegistry: handleOfId not modelled");
+    }
+
+    function idOfHandle(bytes32, string calldata) external pure returns (string memory) {
+        revert("SettableRegistry: idOfHandle not modelled");
+    }
 }
 
 /// @notice A plain ERC-20 anybody can mint.

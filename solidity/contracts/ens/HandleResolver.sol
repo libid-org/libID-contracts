@@ -41,9 +41,13 @@ import {IExtendedResolver} from "./IExtendedResolver.sol";
 ///      transactions, with no gateway key involved. This contract does not
 ///      split that and cannot; what limits the damage is where the owner key
 ///      lives, and that every change is a transaction visible in the registry.
-///      Holding the owner key, the deployer key and the ENS name's owner as ONE
-///      identity — which the current setup does — means one compromise reaches
-///      all three. See `libid/design/ens-integration.md`.
+///      libID's ENS integration spec (`specs/ens-integration.md`, REQ-ENS-KEY-01)
+///      keeps three keys apart: the DNS registrar account that holds the
+///      Parent Name, the key that owns the Parent Name in ENS and this
+///      resolver, and each Signer. Held together, the least guarded one
+///      decides all three. The spec records that the current deployment does
+///      not meet it: one key, the one the deploy workflow signs with, deploys
+///      this resolver, owns it, and owns the Parent Name.
 ///
 ///      The signature covers the resolver, an expiry, the request and the
 ///      result, so an answer cannot be replayed against another resolver,
@@ -53,9 +57,11 @@ import {IExtendedResolver} from "./IExtendedResolver.sol";
 ///      `ensdomains/offchain-resolver`'s `SignatureVerifier`, which the test
 ///      suite pins byte for byte. So a deployment discipline stands in for it:
 ///      an answer signed for a resolver at address A on one chain verifies
-///      unchanged at address A on another. Never share a signing key between
-///      deployments that could land on the same address — which deterministic
-///      deployment makes the usual outcome rather than the exotic one.
+///      unchanged at address A on another. Resolvers that trust one Signer
+///      must sit at different addresses, whichever chain they are on
+///      (REQ-ENS-KEY-02): one Signer may serve several chains only while the
+///      addresses differ, and deterministic deployment makes a shared address
+///      the usual outcome rather than the exotic one.
 ///
 ///      **Not upgradeable, on purpose.** Replacing it is `setResolver` on the
 ///      ENS name, which is one owner transaction and visible in the registry.

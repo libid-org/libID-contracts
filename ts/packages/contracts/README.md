@@ -20,8 +20,9 @@ pnpm add @libid/contracts viem
 ```
 
 `viem` is an optional peer. The root export, `calls` and `identity` import it;
-`@libid/contracts/ceremony` imports nothing, so a consumer of that subpath alone
-can leave it out.
+`@libid/contracts/ceremony` and `@libid/contracts/handle` (handle
+normalization, the platform rules, the vector table and `ENS_PARENT_NAME`)
+import nothing, so a consumer of those subpaths alone can leave it out.
 
 ## Reading a contract with viem
 
@@ -77,8 +78,11 @@ const rotate = calls.googleJwtRoots.rotate(roots, fee, attestedData, proof)
 
 ```ts
 import {
+  handleBindingOf,
+  handleOfId,
   identitiesOf,
   identityCount,
+  idOfHandle,
   platformId,
   publishedHandleOf,
   resolveHandle,
@@ -92,6 +96,16 @@ const x = platformId(PLATFORM_X_KEY)
 // The holder that last proved a handle, or null. Pass what was typed —
 // normalization happens on chain.
 const holder = await resolveHandle(reader, x, '@Alice')
+
+// The holder and when the platform stated it, in one call. A handle its
+// identity renamed away from has a null holder beside the old observedAt.
+const { holder: h, observedAt } = await handleBindingOf(reader, x, '@Alice')
+
+// From a handle to the id that holds it now, and from an id to its latest
+// handle (current: false once another identity has proved that handle).
+const id = await idOfHandle(reader, x, '@Alice') // '42', or null
+const latest = await handleOfId(reader, x, '42') // { handle: 'alice', current: true }, or null
+// `current` ignores rule changes. Route by idOfHandle or handleBindingOf.
 
 // Before sending funds: does the id still agree with the handle?
 const { idAgrees } = await resolveHandleAndId(reader, x, 'alice', '42')
@@ -130,11 +144,22 @@ const call = calls.identityRegistry.bind(IDENTITY_REGISTRY, fee, platformId(PLAT
 ## Normalizing a handle locally
 
 ```ts
-import { normalize, RULES_X, HandleError } from '@libid/contracts/identity'
+import { normalize, RULES_X, HandleError } from '@libid/contracts/handle'
 
 normalize(' @Alice_1 ', RULES_X) // 'alice_1'
 // Throws HandleError (with a kind matching the on-chain error) on refusal.
 ```
+
+Under the rules a chain has configured now (`rulesOf` needs viem and an RPC):
+
+```ts
+import { rulesOf } from '@libid/contracts/identity'
+
+normalize(' @Alice_1 ', await rulesOf(reader, x))
+```
+
+The contract's `normalizeHandle` view gives the same answer. It sends the
+handle to the RPC, so the package does not wrap it.
 
 ## Deriving a handle node
 

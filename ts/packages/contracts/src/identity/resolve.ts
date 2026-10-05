@@ -8,7 +8,16 @@
 /// package ships separately from the repository it currently lives in, so it
 /// carries no configuration of its own and reaches for nothing outside itself.
 
-import { type Address, keccak256, type PublicClient, toHex, zeroAddress } from 'viem'
+import {
+  type Address,
+  type ContractFunctionArgs,
+  type ContractFunctionName,
+  type ContractFunctionReturnType,
+  keccak256,
+  type PublicClient,
+  toHex,
+  zeroAddress,
+} from 'viem'
 
 import { identityRegistryAbi } from '../abis/identityRegistry.js'
 import type { Rules } from './handle.js'
@@ -30,20 +39,27 @@ export interface RegistryReader {
   address: Address
 }
 
-/// One view call.
+type RegistryAbi = typeof identityRegistryAbi
+type ReadOnly = 'view' | 'pure'
+type RegistryRead = ContractFunctionName<RegistryAbi, ReadOnly>
+type ReadResult<N extends RegistryRead> = ContractFunctionReturnType<RegistryAbi, ReadOnly, N>
+
+/// One view call, typed from the generated ABI: a function name the contract
+/// does not have, wrong arguments, or a return shape read the wrong way fail
+/// to compile.
 ///
-/// Routed through a narrow cast for one reason:
-/// viem's `PublicClient`, without its chain type parameters, types
-/// `authorizationList` as required even for a read. The alternative is to
-/// spread that noise across every call site here.
-function read<T>(
+/// The client goes through a narrow cast for one reason: viem's
+/// `PublicClient`, without its chain type parameters, types
+/// `authorizationList` as required even for a read. The name, the arguments
+/// and the result keep the ABI's types.
+function read<N extends RegistryRead>(
   reader: RegistryReader,
-  functionName: string,
-  args: readonly unknown[],
-): Promise<T> {
+  functionName: N,
+  args: ContractFunctionArgs<RegistryAbi, ReadOnly, N>,
+): Promise<ReadResult<N>> {
   return (
     reader.client as unknown as {
-      readContract: (request: Record<string, unknown>) => Promise<T>
+      readContract: (request: Record<string, unknown>) => Promise<ReadResult<N>>
     }
   ).readContract({
     authorizationList: undefined,
@@ -54,10 +70,15 @@ function read<T>(
   })
 }
 
+/// The contract's zero address is "nobody".
+function orNull(holder: Address): Address | null {
+  return holder === zeroAddress ? null : holder
+}
+
 /// The platform's normalization rules as configured on chain now
 /// (`IdentityRegistry.rulesOf`).
 export async function rulesOf(reader: RegistryReader, platformId: `0x${string}`): Promise<Rules> {
-  const rules = await read<Rules>(reader, 'rulesOf', [platformId])
+  const rules = await read(reader, 'rulesOf', [platformId])
   return {
     maxLength: Number(rules.maxLength),
     stripLeadingAt: rules.stripLeadingAt,
@@ -73,8 +94,8 @@ export async function resolveId(
   platformId: `0x${string}`,
   id: string,
 ): Promise<Address | null> {
-  const holder = await read<Address>(reader, 'resolveId', [platformId, id])
-  return holder === zeroAddress ? null : holder
+  const holder = await read(reader, 'resolveId', [platformId, id])
+  return orNull(holder)
 }
 
 /// The holder that last proved this handle, or `null`.
@@ -93,8 +114,79 @@ export async function resolveHandle(
   platformId: `0x${string}`,
   handle: string,
 ): Promise<Address | null> {
-  const holder = await read<Address>(reader, 'resolveHandle', [platformId, handle])
-  return holder === zeroAddress ? null : holder
+  const holder = await read(reader, 'resolveHandle', [platformId, handle])
+  return orNull(holder)
+}
+
+/// A holder and the moment the platform stated it.
+export interface Binding {
+  /// The holder, or `null`.
+  holder: Address | null
+  /// When the platform stated the binding, in seconds on the scale every
+  /// platform shares. `0n` when nobody proved it.
+  observedAt: bigint
+}
+
+/// The holder that proved this id and when, in one call
+/// (`IdentityRegistry.idBindingOf`).
+export async function idBindingOf(
+  reader: RegistryReader,
+  platformId: `0x${string}`,
+  id: string,
+): Promise<Binding> {
+  const [holder, observedAt] = await read(reader, 'idBindingOf', [platformId, id])
+  return { holder: orNull(holder), observedAt }
+}
+
+/// The holder that last proved this handle and when, in one call
+/// (`IdentityRegistry.handleBindingOf`).
+///
+/// Read the way `resolveHandle` reads: normalized on chain, and a string the
+/// rules refuse answers `{holder: null, observedAt: 0n}`. A handle its
+/// identity renamed away from answers `holder: null` beside the `observedAt`
+/// of the proof that last held it.
+export async function handleBindingOf(
+  reader: RegistryReader,
+  platformId: `0x${string}`,
+  handle: string,
+): Promise<Binding> {
+  const [holder, observedAt] = await read(reader, 'handleBindingOf', [platformId, handle])
+  return { holder: orNull(holder), observedAt }
+}
+
+/// The handle an identity proved most recently.
+export interface HandleOfId {
+  /// As normalized on chain when it was proved.
+  handle: string
+  /// True while the handle node still points back at this identity, as
+  /// `Identity.handleCurrent`. It reads the nodes, not the rules: after the
+  /// platform's rules narrow so this handle no longer normalizes, it stays
+  /// true while `resolveHandle`, `handleBindingOf` and `idOfHandle` answer
+  /// `null` for the handle. Route by those, not by this flag.
+  current: boolean
+}
+
+/// The handle an id proved most recently, or `null` for an id never proved
+/// (`IdentityRegistry.handleOfId`).
+export async function handleOfId(
+  reader: RegistryReader,
+  platformId: `0x${string}`,
+  id: string,
+): Promise<HandleOfId | null> {
+  const [handle, current] = await read(reader, 'handleOfId', [platformId, id])
+  return handle.length === 0 ? null : { handle, current }
+}
+
+/// The id of the identity that holds a handle now, or `null`
+/// (`IdentityRegistry.idOfHandle`). Normalized on chain; a string the rules
+/// refuse, and a handle its identity renamed away from, answer `null`.
+export async function idOfHandle(
+  reader: RegistryReader,
+  platformId: `0x${string}`,
+  handle: string,
+): Promise<string | null> {
+  const id = await read(reader, 'idOfHandle', [platformId, handle])
+  return id.length === 0 ? null : id
 }
 
 /// The handle to show for a holder, or `null`.
@@ -108,7 +200,7 @@ export async function publishedHandleOf(
   holder: Address,
   platformId: `0x${string}`,
 ): Promise<string | null> {
-  const handle = await read<string>(reader, 'publishedHandleOf', [holder, platformId])
+  const handle = await read(reader, 'publishedHandleOf', [holder, platformId])
   return handle.length === 0 ? null : handle
 }
 
@@ -142,13 +234,9 @@ export async function resolveHandleAndId(
   handle: string,
   id: string,
 ): Promise<HandleAndIdResolution> {
-  const [holder, idAgrees] = await read<[Address, boolean]>(reader, 'resolveHandleAndId', [
-    platformId,
-    handle,
-    id,
-  ])
+  const [holder, idAgrees] = await read(reader, 'resolveHandleAndId', [platformId, handle, id])
 
-  return { holder: holder === zeroAddress ? null : holder, idAgrees }
+  return { holder: orNull(holder), idAgrees }
 }
 
 /// One identity a holder proved, as the holder's list reports it.
@@ -169,7 +257,7 @@ export interface Identity {
 
 /// How many identities a holder has, on every platform together.
 export async function identityCount(reader: RegistryReader, holder: Address): Promise<bigint> {
-  return read<bigint>(reader, 'identityCount', [holder])
+  return read(reader, 'identityCount', [holder])
 }
 
 /// A page of a holder's identities, on every platform together:
@@ -189,7 +277,7 @@ export async function identitiesOf(
   from: bigint,
   limit: bigint,
 ): Promise<Identity[]> {
-  const page = await read<readonly Identity[]>(reader, 'identitiesOf', [holder, from, limit])
+  const page = await read(reader, 'identitiesOf', [holder, from, limit])
   return page.map(({ platformId, id, handle, handleCurrent }) => ({
     platformId,
     id,
