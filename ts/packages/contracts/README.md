@@ -20,8 +20,9 @@ pnpm add @libid/contracts viem
 ```
 
 `viem` is an optional peer. The root export, `calls` and `identity` import it;
-`@libid/contracts/ceremony` imports nothing, so a consumer of that subpath alone
-can leave it out.
+`@libid/contracts/ceremony` and `@libid/contracts/handle` (handle
+normalization, the platform rules and the vector table) import nothing, so a
+consumer of those subpaths alone can leave it out.
 
 ## Reading a contract with viem
 
@@ -142,7 +143,7 @@ const call = calls.identityRegistry.bind(IDENTITY_REGISTRY, fee, platformId(PLAT
 ## Normalizing a handle locally
 
 ```ts
-import { normalize, RULES_X, HandleError } from '@libid/contracts/identity'
+import { normalize, RULES_X, HandleError } from '@libid/contracts/handle'
 
 normalize(' @Alice_1 ', RULES_X) // 'alice_1'
 // Throws HandleError (with a kind matching the on-chain error) on refusal.

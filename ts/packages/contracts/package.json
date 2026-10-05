@@ -34,6 +34,10 @@
       "types": "./dist/identity/index.d.ts",
       "default": "./dist/identity/index.js"
     },
+    "./handle": {
+      "types": "./dist/handle/index.d.ts",
+      "default": "./dist/handle/index.js"
+    },
     "./calls": {
       "types": "./dist/calls/index.d.ts",
       "default": "./dist/calls/index.js"
