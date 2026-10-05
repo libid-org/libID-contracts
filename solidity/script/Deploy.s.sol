@@ -48,7 +48,7 @@ contract Deploy is Script {
         // 1. The Notary Service (UUPS proxy) -- the ONE place a notary
         //    attestation is authenticated, deployed first so its proxy address
         //    can be wired into every consumer's initialize. It derives the
-        //    digest from the attested bytes itself (REQ-COMMON-49) and charges
+        //    digest from the attested bytes itself (REQ-COMMON-33) and charges
         //    the Notary Fee. Key rotation is `setNotary`; a fee change is
         //    `setFee`; a proof-system change is a UUPS upgrade of this proxy
         //    alone.

@@ -48,14 +48,15 @@ import {INotaryService} from "./INotaryService.sol";
 ///      by modulus for a lifetime; revisit if Google's rotation ever shows
 ///      that shape.
 ///
-///      The reading is an ordinary notarized session -- the section 9.1
-///      record every Platform Verifier consumes, authenticated by the same
-///      Notary Service and charged the same Notary Fee. What differs is the
-///      layout the keeper's prover produces: everything in both directions is
-///      revealed and nothing is committed. A public key set has nothing to
-///      hide, and zero commitments is what lets this contract read the
-///      transcript by concatenation safely -- with exact coverage and no
-///      commitment, a cut between ranges cannot hide bytes.
+///      The reading is an ordinary notarized session -- the
+///      platform-ceremonies section 4.1 record the X and GitHub Platform
+///      Verifiers consume, authenticated by the same Notary Service and
+///      charged the same Notary Fee. What differs is the layout the keeper's
+///      prover produces: everything in both directions is revealed and
+///      nothing is committed. A public key set has nothing to hide, and zero
+///      commitments is what lets this contract read the transcript by
+///      concatenation safely -- with exact coverage and no commitment, a cut
+///      between ranges cannot hide bytes.
 ///
 ///      **Rotation is permissionless, and deliberately has no nullifier.** With
 ///      an open caller set a one-shot nullifier would BE the attack: a
@@ -304,7 +305,7 @@ contract GoogleJwtRoots is Initializable, UUPSUpgradeable, Ownable2StepUpgradeab
     ///         the Notary Fee, and nothing else -- no role, no allowlist, no
     ///         owner anywhere in the path.
     ///
-    /// @param attestedData The exact bytes of ceremony-common section 9.1.
+    /// @param attestedData The exact bytes of platform-ceremonies section 4.1.
     /// @param proof        The notary's authentication of them, opaque here.
     function rotate(bytes calldata attestedData, bytes calldata proof) external payable {
         GoogleJwtRootsStorage storage $ = _s();

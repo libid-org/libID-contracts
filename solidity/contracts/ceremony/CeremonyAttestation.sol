@@ -4,15 +4,14 @@ pragma solidity ^0.8.24;
 import {CeremonyFields} from "./CeremonyFields.sol";
 
 /// @title CeremonyAttestation
-/// @notice Decoder for the attested-data layout the launch profiles pin.
-/// @dev THE LAYOUT IS THE PROFILE'S, NOT THE SPECIFICATION'S. REQ-COMMON-18
-///      has a Platform Profile fix the attestation format it accepts and
-///      leaves the format itself to the profile author, so these bytes are an
-///      agreement between four components -- this library, `libid-ceremony` in
-///      libid-rs, the TypeScript mirror, and the notary that signs them --
-///      rather than a reading of a published layout. A divergence is silent:
-///      the signature derives a key nobody trusts and every genuine
-///      attestation is rejected with no error saying why.
+/// @notice Decoder for the attested-data layout the X and GitHub profiles pin.
+/// @dev THE LAYOUT IS THE PROFILE'S. REQ-COMMON-18 has a Platform Profile fix
+///      the attestation format it accepts, and the X and GitHub profiles fix
+///      this one in platform-ceremonies section 4.1. Four components read or
+///      write these bytes -- this library, `libid-ceremony` in libid-rs, the
+///      TypeScript mirror, and the notary that signs them -- and a divergence
+///      is silent: the signature derives a key nobody trusts and every
+///      genuine attestation is rejected with no error saying why.
 ///
 ///      The verifying side holds no transcript. It rebuilds these exact bytes
 ///      from what it was handed and derives the signing key from them, so a

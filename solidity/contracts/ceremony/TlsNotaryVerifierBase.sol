@@ -140,9 +140,8 @@ abstract contract TlsNotaryVerifierBase is IPlatformVerifier, PlatformVerifierBa
     ///      one spelling, and nothing after the last. Every profile is held
     ///      this way, so the reads below see a body already known to carry
     ///      each name once, and acceptance never rests on the platform
-    ///      refusing a form it did not count. GitHub's list is REQ-PLAT-61's;
-    ///      X's specification keeps its decoded form on ASM-PROV-07, so the
-    ///      contract is stricter than the specification there.
+    ///      refusing a form it did not count. GitHub's list is REQ-PLAT-61's
+    ///      and X's is REQ-PLAT-63's.
     function _tokenFields() internal pure virtual returns (bytes memory);
 
     /// @dev Any VALUE constraint the profile places on a token-body field

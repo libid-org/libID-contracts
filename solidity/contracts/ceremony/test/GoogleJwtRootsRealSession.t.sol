@@ -105,9 +105,10 @@ contract GoogleJwtRootsRealSessionTest is Test {
     // ─── What the fixture is ────────────────────────────────────────
 
     /// The record is the JWKS session layout, signed by the key the fixture
-    /// names, and its bytes sit where the section 9.1 layout fixes them: the
-    /// sent direction's first revealed range begins at 48 + 8 + 4 + 8 = 68,
-    /// the received one at 68 + 136 + 8 + 8 + 4 + 8 = 232.
+    /// names, and its bytes sit where the platform-ceremonies section 4.1
+    /// layout fixes them: the sent direction's first revealed range begins
+    /// at 48 + 8 + 4 + 8 = 68, the received one at
+    /// 68 + 136 + 8 + 8 + 4 + 8 = 232.
     function test_theRecordIsTheSessionTheFixtureDescribes() public view {
         assertEq(signer, vm.addr(ANVIL_KEY), "the fixture was signed by anvil #0");
         assertEq(record.length, 2811);
