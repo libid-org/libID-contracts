@@ -429,9 +429,10 @@ contract XPlatformVerifierTest is Test {
         this.run{value: quote}(s);
     }
 
-    /// @dev A duplicate in an ENCODED spelling. `code%5Fverifier` is
-    ///      `code_verifier` to a form parser but no literal match for it.
-    ///      REQ-PLAT-63 refuses it as a sixth pair, like any other.
+    /// @dev REQ-PLAT-63, TEST-PLAT-09C: a duplicate in an ENCODED spelling.
+    ///      `code%5Fverifier` is `code_verifier` to a form parser but no
+    ///      literal match for it. It is a sixth pair here, refused like any
+    ///      other.
     function test_rejectsATokenBodyWithAnEncodedDuplicateName() public {
         bytes memory honest = _honestTokenBody();
         TlsNotaryVerifierBase.TlsNotaryProof memory s =
