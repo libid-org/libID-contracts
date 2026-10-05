@@ -207,7 +207,8 @@ contract IdentityRegistryTest is Test {
 
     /// A second proof of the same observation, under a fresh digest, is
     /// refused by the same rule, because equal is not newer. The exact proof
-    /// stops earlier, at its spent digest (`test_aDigestIsSpendableOnce`).
+    /// stops earlier, at its spent digest (`test_aDigestIsSpendableOnce` in
+    /// `CeremonyBind.t.sol`).
     function test_replayingAProofIsRefused() public {
         _bind(alice, "123", "alice", 100);
 
