@@ -21,8 +21,8 @@ pnpm add @libid/contracts viem
 
 `viem` is an optional peer. The root export, `calls` and `identity` import it;
 `@libid/contracts/ceremony` and `@libid/contracts/handle` (handle
-normalization, the platform rules and the vector table) import nothing, so a
-consumer of those subpaths alone can leave it out.
+normalization, the platform rules, the vector table and `ENS_PARENT_NAME`)
+import nothing, so a consumer of those subpaths alone can leave it out.
 
 ## Reading a contract with viem
 
