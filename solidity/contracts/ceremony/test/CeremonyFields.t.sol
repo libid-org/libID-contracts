@@ -122,14 +122,50 @@ contract CeremonyFieldsTest is Test {
         this.jsonInteger(bytes('{"id":1.5}'), "id");
     }
 
-    function test_zeroIsCanonical() public view {
-        assertEq(string(this.jsonInteger(bytes('{"id":0}'), "id")), "0");
+    /// @dev `0` is a JSON integer in its one spelling, so the reader returns
+    ///      it; the `userId` grammar is what refuses it.
+    function test_readsZeroWhichIsNoUserId() public view {
+        bytes memory zero = this.jsonInteger(bytes('{"id":0}'), "id");
+        assertEq(string(zero), "0");
+        assertFalse(CeremonyFields.isCanonicalNonzeroUint64(zero));
     }
 
     function test_refusesAQuotedIntegerForTheIntegerTemplate() public {
         // `"id":"1"` — the digits scan finds none after the delimiter.
         vm.expectRevert(abi.encodeWithSelector(CeremonyFields.NoncanonicalInteger.selector, "id"));
         this.jsonInteger(bytes('{"id":"1"}'), "id");
+    }
+
+    // ─── The userId grammar (REQ-PLAT-06) ───────────────────────────
+
+    function test_acceptsANonzeroUint64UpToItsMaximum() public pure {
+        assertTrue(CeremonyFields.isCanonicalNonzeroUint64("1"));
+        assertTrue(CeremonyFields.isCanonicalNonzeroUint64("2244994945"));
+        assertTrue(CeremonyFields.isCanonicalNonzeroUint64("18446744073709551615"));
+    }
+
+    function test_refusesAValuePastUint64() public pure {
+        assertFalse(CeremonyFields.isCanonicalNonzeroUint64("18446744073709551616"));
+        assertFalse(CeremonyFields.isCanonicalNonzeroUint64("99999999999999999999"));
+        // Twenty-one digits.
+        assertFalse(CeremonyFields.isCanonicalNonzeroUint64("100000000000000000000"));
+    }
+
+    function test_refusesZeroAndALeadingZero() public pure {
+        assertFalse(CeremonyFields.isCanonicalNonzeroUint64("0"));
+        assertFalse(CeremonyFields.isCanonicalNonzeroUint64("007"));
+        assertFalse(CeremonyFields.isCanonicalNonzeroUint64("01844674407370955161"));
+    }
+
+    function test_refusesAnythingButDigits() public pure {
+        assertFalse(CeremonyFields.isCanonicalNonzeroUint64(""));
+        assertFalse(CeremonyFields.isCanonicalNonzeroUint64("abc"));
+        assertFalse(CeremonyFields.isCanonicalNonzeroUint64("12a"));
+        assertFalse(CeremonyFields.isCanonicalNonzeroUint64("-1"));
+        assertFalse(CeremonyFields.isCanonicalNonzeroUint64("+1"));
+        assertFalse(CeremonyFields.isCanonicalNonzeroUint64("1.5"));
+        assertFalse(CeremonyFields.isCanonicalNonzeroUint64("1e3"));
+        assertFalse(CeremonyFields.isCanonicalNonzeroUint64(" 1"));
     }
 
     // ─── Form fields ────────────────────────────────────────────────

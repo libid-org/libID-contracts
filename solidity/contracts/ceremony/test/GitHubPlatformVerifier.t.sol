@@ -622,6 +622,26 @@ contract GitHubPlatformVerifierTest is Test {
         this.run{value: quote}(s);
     }
 
+    /// @dev REQ-PLAT-06. Each is a JSON integer the reader returns, and none
+    ///      is a nonzero `uint64`.
+    function test_rejectsAnIdOutsideUint64() public {
+        string[3] memory ids = ["0", "18446744073709551616", "100000000000000000000"];
+        for (uint256 i = 0; i < ids.length; ++i) {
+            TlsNotaryVerifierBase.TlsNotaryProof memory s = _payload();
+            s.identitySession =
+                _identity(string.concat('{"login":"octocat","id":', ids[i], "}"), CeremonyProfile.AUTHORITY_GITHUB_API);
+            vm.expectRevert(abi.encodeWithSelector(TlsNotaryVerifierBase.NoncanonicalUserId.selector, bytes(ids[i])));
+            this.run{value: quote}(s);
+        }
+    }
+
+    function test_acceptsTheLargestId() public {
+        TlsNotaryVerifierBase.TlsNotaryProof memory s = _payload();
+        s.identitySession =
+            _identity('{"login":"octocat","id":18446744073709551615}', CeremonyProfile.AUTHORITY_GITHUB_API);
+        assertEq(this.run{value: quote}(s).userId, "18446744073709551615");
+    }
+
     // ─── The handle field is `login` ────────────────────────────────
 
     function test_rejectsAResponseWithNoLogin() public {

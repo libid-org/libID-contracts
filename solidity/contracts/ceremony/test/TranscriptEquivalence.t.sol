@@ -151,6 +151,10 @@ contract LiveHelpers {
         return CeremonyFields.isSerializerSafe(value);
     }
 
+    function isCanonicalNonzeroUint64(bytes memory value) external pure returns (bool) {
+        return CeremonyFields.isCanonicalNonzeroUint64(value);
+    }
+
     function occurrences(bytes memory haystack, bytes memory needle) external pure returns (uint256) {
         return CeremonyFields.occurrences(haystack, needle);
     }
@@ -216,6 +220,10 @@ contract RefHelpers {
 
     function isSerializerSafe(bytes memory value) external pure returns (bool) {
         return RefCeremonyFields.isSerializerSafe(value);
+    }
+
+    function isCanonicalNonzeroUint64(bytes memory value) external pure returns (bool) {
+        return RefCeremonyFields.isCanonicalNonzeroUint64(value);
     }
 
     function occurrences(bytes memory haystack, bytes memory needle) external pure returns (uint256) {
@@ -731,8 +739,8 @@ library Gen {
     {
         bytes memory ws = oneOf(r, list("", " ", "\n  ", "\t"));
         bytes memory idValue = integerId
-            ? (chance(r, 80) ? bytes("293919812") : oneOf(r, list("0", "007", "12 3")))
-            : (chance(r, 80) ? bytes('"1051915704843333634"') : oneOf(r, list('""', '"7', "7")));
+            ? (chance(r, 80) ? bytes("293919812") : oneOf(r, list("0", "007", "12 3", "18446744073709551616")))
+            : (chance(r, 80) ? bytes('"1051915704843333634"') : oneOf(r, list('""', '"7', "7", '"abc"')));
         bytes memory idMember = abi.encodePacked('"id"', ws, ":", ws, idValue);
         bytes memory handleMember =
             abi.encodePacked('"', handleField, '"', ws, ":", ws, '"', oneOf(r, list("alice", "Bob_1", "", "a b")), '"');
@@ -957,6 +965,16 @@ contract TranscriptEquivalenceTest is Test {
         Gen.Rng memory r = Gen.Rng(seed);
         bytes memory value = r.chance(50) ? raw : r.soup("Az09*._-+%/ ", 20);
         _same(address(live), address(ref), abi.encodeCall(LiveHelpers.isSerializerSafe, (value)));
+    }
+
+    /// forge-config: default.fuzz.runs = 2000
+    function testFuzz_userIdGrammarMatchesReference(uint256 seed, bytes memory raw) public view {
+        Gen.Rng memory r = Gen.Rng(seed);
+        // Digit runs either side of twenty, and one-byte edits of `2^64 - 1`.
+        bytes memory value = r.chance(25)
+            ? raw
+            : r.chance(50) ? r.soup("0123456789", 22) : r.mutate("18446744073709551615", "0123456789a");
+        _same(address(live), address(ref), abi.encodeCall(LiveHelpers.isCanonicalNonzeroUint64, (value)));
     }
 
     /// forge-config: default.fuzz.runs = 2000
