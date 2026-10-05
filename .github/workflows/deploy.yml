@@ -19,16 +19,20 @@ name: Deploy the ENS resolver
 #   why. Rename a network without adding its sub to the trust policy and the same
 #   thing happens.
 #
-#   The trusted values live in grndd-systems/deployment,
-#   terraform/envs/testnet/main.tf → extra_deployer_subs. Currently trusted:
-#     repo:libid-org/libID-contracts:environment:testnet
-#     repo:libid-org/libID-contracts:environment:mainnet
+#   Each environment has its own role, in the AWS account that holds its key,
+#   and stores the role's ARN as its AWS_DEPLOYER_ROLE_ARN secret. The roles
+#   live in grndd-systems/deployment, terraform/envs/libid-<env>/main.tf
+#   (`module.ens_deployer`), and trust this repository's subject:
+#     repo:libid-org@315373131/libID-contracts@1329996262:environment:testnet
+#     repo:libid-org@315373131/libID-contracts@1329996262:environment:mainnet
 #
-# ONE DEPLOYER KEY SERVES BOTH NETWORKS, BY DESIGN. That means the key does not
-# separate testnet from mainnet — the GitHub Environment does. The `mainnet`
-# environment's protection rule (required reviewers) is therefore the ONLY gate
-# on a production deploy: without an approval the job never starts, so the OIDC
-# token is never minted and the role cannot be assumed. Keep it configured.
+# EACH NETWORK HAS ITS OWN DEPLOYER KEY, in its own AWS account. `testnet`
+# signs with alias/libid-testnet-deployer, the owner of `testnet.handles.link`
+# in Sepolia's registry; `mainnet` signs with alias/libid-mainnet-deployer, the
+# owner of `handles.link` in Ethereum's. The `mainnet` environment's protection
+# rule (required reviewers) is the gate on a production deploy: without an
+# approval the job never starts, so the OIDC token is never minted and the role
+# cannot be assumed. Keep it configured.
 #
 # `network` NAMES THE ENVIRONMENT, NOT THE CHAIN. It selects the authorization
 # and the RPC endpoint, and those are the only things it selects. Which chain is
@@ -51,10 +55,9 @@ on:
           - testnet
           - mainnet
       ens_name:
-        description: The ENS name to point at the resolver
-        required: false
+        description: "The ENS name to point at the resolver: handles.link on mainnet, testnet.handles.link on testnet"
+        required: true
         type: string
-        default: handles.link
       gateway_url:
         description: "CCIP-Read endpoint, carrying the {sender} and {data} placeholders"
         required: false
@@ -93,10 +96,9 @@ permissions:
 env:
   FOUNDRY_VERSION: v1.7.1
   AWS_REGION: eu-central-1
-  # The same key signs for both networks (see the note above), and owns the ENS
-  # name besides. Its name says "testnet" for historical reasons — it is the
-  # deployer key, not a network-scoped one.
-  KMS_KEY_ID: alias/dyaka-testnet-deployer
+  # The network's deployer key, which owns that network's ENS name. A bare
+  # alias resolves in the account of the role the job assumes.
+  KMS_KEY_ID: alias/libid-${{ inputs.network }}-deployer
   # The ENS registry is at this address on mainnet and on every testnet.
   ENS_REGISTRY: "0x00000000000C2E074eC69A0dFb2997BA6C7d2e1e"
 
