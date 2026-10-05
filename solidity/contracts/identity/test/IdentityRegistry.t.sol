@@ -334,8 +334,7 @@ contract IdentityRegistryTest is Test {
     /// Text the rules of the moment refuse reverts with the normalizer's reason, where
     /// `resolveHandle` answers nobody.
     function test_theHashingViewsRefuseWhatTheCurrentRulesRefuse() public {
-        bytes memory badChar =
-            abi.encodeWithSelector(IIdentityRegistry.UnusableHandle.selector, HandleNormalizer.Problem.BadChar);
+        bytes memory badChar = _unusable(HandleNormalizer.Problem.BadChar);
         vm.expectRevert(badChar);
         registry.handleHashOf(X, "ali-ce");
         vm.expectRevert(badChar);
@@ -698,13 +697,19 @@ contract IdentityRegistryTest is Test {
     /// does not.
     function test_handleCurrentReadsTheNodesNotTheRules() public {
         _bind(alice, "123", "with_score", 100);
+        _forbidUnderscoresOnX();
+
+        assertEq(registry.resolveHandle(X, "with_score"), address(0));
+        assertTrue(_identity(alice, X, "123").handleCurrent);
+    }
+
+    /// The owner narrows X's rules so a handle with an underscore no longer
+    /// normalizes.
+    function _forbidUnderscoresOnX() internal {
         HandleNormalizer.Rules memory rules = HandleVectors.rulesFor(X);
         rules.allowUnderscore = false;
         vm.prank(owner);
         registry.setPlatform(X, rules);
-
-        assertEq(registry.resolveHandle(X, "with_score"), address(0));
-        assertTrue(_identity(alice, X, "123").handleCurrent);
     }
 
     /// After any sequence of binds: an identity nobody proved is in no
@@ -1120,19 +1125,6 @@ contract IdentityRegistryTest is Test {
         assertEq(current, listed.handleCurrent);
     }
 
-    /// Like `handleCurrent`, it reads the nodes: narrowing the rules is seen
-    /// by `resolveHandle` first.
-    function test_handleOfIdReadsTheNodesNotTheRules() public {
-        _bind(alice, "123", "with_score", 100);
-        HandleNormalizer.Rules memory rules = HandleVectors.rulesFor(X);
-        rules.allowUnderscore = false;
-        vm.prank(owner);
-        registry.setPlatform(X, rules);
-
-        assertEq(registry.resolveHandle(X, "with_score"), address(0));
-        _assertHandle(X, "123", "with_score", true);
-    }
-
     /// The id of the identity a handle belongs to, through every spelling the
     /// rules fold together, and following the handle to its next owner.
     function test_idOfHandleFollowsTheHandle() public {
@@ -1169,10 +1161,7 @@ contract IdentityRegistryTest is Test {
         _bind(alice, "123", "with_score", 100);
         assertEq(registry.idOfHandle(X, "with_score"), "123");
 
-        HandleNormalizer.Rules memory rules = HandleVectors.rulesFor(X);
-        rules.allowUnderscore = false;
-        vm.prank(owner);
-        registry.setPlatform(X, rules);
+        _forbidUnderscoresOnX();
 
         assertEq(registry.resolveHandle(X, "with_score"), address(0));
         assertEq(registry.idOfHandle(X, "with_score"), "");
@@ -1209,40 +1198,24 @@ contract IdentityRegistryTest is Test {
     /// Text the rules refuse reverts with the normalizer's reason, as the
     /// other rules views do.
     function test_normalizeHandleRefusesWhatTheRulesRefuse() public {
-        vm.expectRevert(
-            abi.encodeWithSelector(IIdentityRegistry.UnusableHandle.selector, HandleNormalizer.Problem.BadChar)
-        );
+        vm.expectRevert(_unusable(HandleNormalizer.Problem.BadChar));
         registry.normalizeHandle(X, "ali-ce");
-        vm.expectRevert(
-            abi.encodeWithSelector(IIdentityRegistry.UnusableHandle.selector, HandleNormalizer.Problem.Empty)
-        );
+        vm.expectRevert(_unusable(HandleNormalizer.Problem.Empty));
         registry.normalizeHandle(X, "@");
-        vm.expectRevert(
-            abi.encodeWithSelector(IIdentityRegistry.UnusableHandle.selector, HandleNormalizer.Problem.TooLong)
-        );
+        vm.expectRevert(_unusable(HandleNormalizer.Problem.TooLong));
         registry.normalizeHandle(X, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
-        vm.expectRevert(
-            abi.encodeWithSelector(IIdentityRegistry.UnusableHandle.selector, HandleNormalizer.Problem.Shape)
-        );
+        vm.expectRevert(_unusable(HandleNormalizer.Problem.Shape));
         registry.normalizeHandle(GITHUB, "-octocat");
     }
 
     /// Every one-call read refuses a platform that is not configured.
     function test_theOneCallReadsRefuseAnUnknownPlatform() public {
         bytes32 unwired = keccak256("nowhere");
-        bytes memory unknown = abi.encodeWithSelector(IIdentityRegistry.UnknownPlatform.selector, unwired);
 
-        vm.expectRevert(unknown);
-        registry.handleBindingOf(unwired, "alice");
-        vm.expectRevert(unknown);
+        _expectTheResolversRefuse(unwired);
+        vm.expectRevert(abi.encodeWithSelector(IIdentityRegistry.UnknownPlatform.selector, unwired));
         registry.handleBindingOf(unwired, "ali ce");
-        vm.expectRevert(unknown);
-        registry.idBindingOf(unwired, "123");
-        vm.expectRevert(unknown);
-        registry.handleOfId(unwired, "123");
-        vm.expectRevert(unknown);
-        registry.idOfHandle(unwired, "alice");
-        vm.expectRevert(unknown);
+        vm.expectRevert(abi.encodeWithSelector(IIdentityRegistry.UnknownPlatform.selector, unwired));
         registry.normalizeHandle(unwired, "alice");
     }
 
@@ -1253,16 +1226,8 @@ contract IdentityRegistryTest is Test {
         bytes32 fresh = keccak256("fresh");
         vm.prank(owner);
         registry.setPlatform(fresh, HandleVectors.rulesFor(X));
-        bytes memory unknown = abi.encodeWithSelector(IIdentityRegistry.UnknownPlatform.selector, fresh);
 
-        vm.expectRevert(unknown);
-        registry.handleBindingOf(fresh, "alice");
-        vm.expectRevert(unknown);
-        registry.idBindingOf(fresh, "123");
-        vm.expectRevert(unknown);
-        registry.handleOfId(fresh, "123");
-        vm.expectRevert(unknown);
-        registry.idOfHandle(fresh, "alice");
+        _expectTheResolversRefuse(fresh);
 
         assertEq(registry.normalizeHandle(fresh, "@Alice"), "alice");
     }
@@ -1278,6 +1243,23 @@ contract IdentityRegistryTest is Test {
         _assertIdBinding(X, "123", alice, 100);
         _assertHandle(X, "123", "alice", true);
         assertEq(registry.idOfHandle(X, "alice"), "123");
+    }
+
+    function _unusable(HandleNormalizer.Problem problem) internal pure returns (bytes memory) {
+        return abi.encodeWithSelector(IIdentityRegistry.UnusableHandle.selector, problem);
+    }
+
+    /// The four one-call resolvers each revert `UnknownPlatform`.
+    function _expectTheResolversRefuse(bytes32 platformId) internal {
+        bytes memory unknown = abi.encodeWithSelector(IIdentityRegistry.UnknownPlatform.selector, platformId);
+        vm.expectRevert(unknown);
+        registry.handleBindingOf(platformId, "alice");
+        vm.expectRevert(unknown);
+        registry.idBindingOf(platformId, "123");
+        vm.expectRevert(unknown);
+        registry.handleOfId(platformId, "123");
+        vm.expectRevert(unknown);
+        registry.idOfHandle(platformId, "alice");
     }
 
     function _assertHandleBinding(bytes32 platformId, string memory handle, address wantHolder, uint64 wantAt)
