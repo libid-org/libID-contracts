@@ -1006,6 +1006,271 @@ contract IdentityRegistryTest is Test {
         assertEq(at, 100, "the watermark stays");
     }
 
+    // ─── One-call reads ─────────────────────────────────────────────
+
+    /// The holder and the proof's age in one call, read the way
+    /// `resolveHandle` reads: normalized on chain, so a reader's spelling does
+    /// not matter.
+    function test_handleBindingOfReadsTheHolderAndWhenItWasProved() public {
+        _bind(alice, "123", " @Alice_1 ", 100);
+
+        _assertHandleBinding(X, "alice_1", alice, 100);
+        _assertHandleBinding(X, "@ALICE_1", alice, 100);
+        _assertHandleBinding(X, " @Alice_1 ", alice, 100);
+        _assertHandleBinding(X, "nobody", address(0), 0);
+        _assertHandleBinding(GITHUB, "alice_1", address(0), 0);
+    }
+
+    /// Text the rules refuse answers `(0, 0)`, as `resolveHandle` answers
+    /// zero, rather than reverting.
+    function test_handleBindingOfAnswersNobodyForTextTheRulesRefuse() public {
+        _bind(alice, "123", "alice", 100);
+
+        _assertHandleBinding(X, "ali ce", address(0), 0);
+        _assertHandleBinding(X, "ali-ce", address(0), 0);
+        _assertHandleBinding(X, "", address(0), 0);
+        _assertHandleBinding(GITHUB, "-octocat", address(0), 0);
+    }
+
+    /// A retired handle has no holder and keeps the watermark a newer proof
+    /// has to beat; `handleBinding` on its node says the same.
+    function test_handleBindingOfShowsARetiredHandlesWatermark() public {
+        _bind(alice, "123", "alice", 100);
+        _bind(alice, "123", "alice2", 200);
+
+        _assertHandleBinding(X, "alice", address(0), 100);
+        _assertHandleBinding(X, "alice2", alice, 200);
+
+        _bind(bob, "456", "alice", 300);
+        _assertHandleBinding(X, "@Alice", bob, 300);
+    }
+
+    function test_idBindingOfReadsTheHolderAndWhenItWasProved() public {
+        _bind(alice, "123", "alice", 100);
+        _bind(alice, "123", "alice2", 200);
+
+        _assertIdBinding(X, "123", alice, 200);
+        _assertIdBinding(X, "456", address(0), 0);
+        _assertIdBinding(GITHUB, "123", address(0), 0);
+
+        _bind(bob, "123", "bob", 300);
+        _assertIdBinding(X, "123", bob, 300);
+    }
+
+    /// The id is read verbatim, as `resolveId` reads it: no normalization.
+    function test_idBindingOfDoesNotNormalizeTheId() public {
+        _bind(alice, "AbC", "alice", 100);
+
+        _assertIdBinding(X, "AbC", alice, 100);
+        _assertIdBinding(X, "abc", address(0), 0);
+        _assertIdBinding(X, " AbC", address(0), 0);
+    }
+
+    /// An identity's latest handle, current while the handle node points back
+    /// at it. A rename moves it; another identity proving the handle turns
+    /// `current` false and leaves the string.
+    function test_handleOfIdFollowsARenameAndATakeover() public {
+        _assertHandle(X, "123", "", false);
+
+        _bind(alice, "123", "@Alice", 100);
+        _assertHandle(X, "123", "alice", true);
+
+        _bind(alice, "123", "Alice2", 200);
+        _assertHandle(X, "123", "alice2", true);
+
+        _bind(bob, "456", "alice2", 300);
+        _assertHandle(X, "123", "alice2", false);
+        _assertHandle(X, "456", "alice2", true);
+    }
+
+    /// `current` is the identity's, not the holder's: a second identity of
+    /// the same holder taking the handle turns it false for the first.
+    function test_handleOfIdTellsTwoIdentitiesOfOneHolderApart() public {
+        _bind(alice, "123", "shared", 100);
+        _bind(alice, "456", "shared", 200);
+
+        _assertHandle(X, "123", "shared", false);
+        _assertHandle(X, "456", "shared", true);
+        assertEq(registry.idOfHandle(X, "shared"), "456");
+    }
+
+    /// The same answer the identity's entry in `identitiesOf` gives.
+    function test_handleOfIdAgreesWithTheList() public {
+        _bind(alice, "123", "alice", 100);
+        _bind(bob, "456", "alice", 200);
+
+        IdentityRegistry.Identity memory listed = _identity(alice, X, "123");
+        (string memory handle, bool current) = registry.handleOfId(X, "123");
+        assertEq(handle, listed.handle);
+        assertEq(current, listed.handleCurrent);
+    }
+
+    /// Like `handleCurrent`, it reads the nodes: narrowing the rules is seen
+    /// by `resolveHandle` first.
+    function test_handleOfIdReadsTheNodesNotTheRules() public {
+        _bind(alice, "123", "with_score", 100);
+        HandleNormalizer.Rules memory rules = HandleVectors.rulesFor(X);
+        rules.allowUnderscore = false;
+        vm.prank(owner);
+        registry.setPlatform(X, rules);
+
+        assertEq(registry.resolveHandle(X, "with_score"), address(0));
+        _assertHandle(X, "123", "with_score", true);
+    }
+
+    /// The id of the identity a handle belongs to, through every spelling the
+    /// rules fold together, and following the handle to its next owner.
+    function test_idOfHandleFollowsTheHandle() public {
+        assertEq(registry.idOfHandle(X, "alice"), "", "nobody proved it");
+
+        _bind(alice, "123", "alice", 100);
+        assertEq(registry.idOfHandle(X, "alice"), "123");
+        assertEq(registry.idOfHandle(X, "@ALICE"), "123");
+        assertEq(registry.idOfHandle(X, " @Alice "), "123");
+        assertEq(registry.idOfHandle(GITHUB, "alice"), "", "another platform");
+
+        _bind(bob, "456", "alice", 200);
+        assertEq(registry.idOfHandle(X, "alice"), "456", "the new owner");
+    }
+
+    /// A handle the identity renamed away from belongs to nobody, as
+    /// `resolveHandle` answers zero for it, until another identity proves it.
+    function test_idOfHandleIsEmptyForARetiredHandle() public {
+        _bind(alice, "123", "alice", 100);
+        _bind(alice, "123", "alice2", 200);
+
+        assertEq(registry.resolveHandle(X, "alice"), address(0));
+        assertEq(registry.idOfHandle(X, "alice"), "");
+        assertEq(registry.idOfHandle(X, "alice2"), "123");
+
+        _bind(bob, "456", "alice", 300);
+        assertEq(registry.idOfHandle(X, "alice"), "456");
+    }
+
+    function test_idOfHandleIsEmptyForTextTheRulesRefuse() public {
+        _bind(alice, "123", "alice", 100);
+
+        assertEq(registry.idOfHandle(X, "ali ce"), "");
+        assertEq(registry.idOfHandle(X, "ali-ce"), "");
+        assertEq(registry.idOfHandle(X, ""), "");
+    }
+
+    /// The id comes back byte for byte as the platform issued it.
+    function test_idOfHandleAnswersTheIdVerbatim() public {
+        _bind(alice, "MDQ6VXNlcjIwMjEzMTc0", "octocat", 100);
+        assertEq(registry.idOfHandle(X, "OctoCat"), "MDQ6VXNlcjIwMjEzMTc0");
+    }
+
+    /// The string `handleHashOf` hashes and a proof of the handle binds.
+    function test_normalizeHandleAnswersWhatABindStores() public {
+        assertEq(registry.normalizeHandle(X, " @Alice_1 "), "alice_1");
+        assertEq(registry.normalizeHandle(X, "@ALICE"), "alice");
+        assertEq(registry.normalizeHandle(X, "alice"), "alice");
+        assertEq(registry.normalizeHandle(GITHUB, "Octo-Cat"), "octo-cat");
+        assertEq(keccak256(bytes(registry.normalizeHandle(X, "@ALICE"))), registry.handleHashOf(X, "@ALICE"));
+
+        _bind(alice, "123", " @Alice_1 ", 100);
+        _assertHandle(X, "123", registry.normalizeHandle(X, "@ALICE_1"), true);
+    }
+
+    /// Text the rules refuse reverts with the normalizer's reason, as the
+    /// other rules views do.
+    function test_normalizeHandleRefusesWhatTheRulesRefuse() public {
+        vm.expectRevert(
+            abi.encodeWithSelector(IIdentityRegistry.UnusableHandle.selector, HandleNormalizer.Problem.BadChar)
+        );
+        registry.normalizeHandle(X, "ali-ce");
+        vm.expectRevert(
+            abi.encodeWithSelector(IIdentityRegistry.UnusableHandle.selector, HandleNormalizer.Problem.Empty)
+        );
+        registry.normalizeHandle(X, "@");
+        vm.expectRevert(
+            abi.encodeWithSelector(IIdentityRegistry.UnusableHandle.selector, HandleNormalizer.Problem.TooLong)
+        );
+        registry.normalizeHandle(X, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+        vm.expectRevert(
+            abi.encodeWithSelector(IIdentityRegistry.UnusableHandle.selector, HandleNormalizer.Problem.Shape)
+        );
+        registry.normalizeHandle(GITHUB, "-octocat");
+    }
+
+    /// Every one-call read refuses a platform that is not configured.
+    function test_theOneCallReadsRefuseAnUnknownPlatform() public {
+        bytes32 unwired = keccak256("nowhere");
+        bytes memory unknown = abi.encodeWithSelector(IIdentityRegistry.UnknownPlatform.selector, unwired);
+
+        vm.expectRevert(unknown);
+        registry.handleBindingOf(unwired, "alice");
+        vm.expectRevert(unknown);
+        registry.handleBindingOf(unwired, "ali ce");
+        vm.expectRevert(unknown);
+        registry.idBindingOf(unwired, "123");
+        vm.expectRevert(unknown);
+        registry.handleOfId(unwired, "123");
+        vm.expectRevert(unknown);
+        registry.idOfHandle(unwired, "alice");
+        vm.expectRevert(unknown);
+        registry.normalizeHandle(unwired, "alice");
+    }
+
+    /// The four resolvers refuse a platform with rules and no verifier, like
+    /// `resolveHandle`; `normalizeHandle` answers from the rules, like
+    /// `handleHashOf`.
+    function test_theOneCallReadsOnAPlatformWithoutAVerifier() public {
+        bytes32 fresh = keccak256("fresh");
+        vm.prank(owner);
+        registry.setPlatform(fresh, HandleVectors.rulesFor(X));
+        bytes memory unknown = abi.encodeWithSelector(IIdentityRegistry.UnknownPlatform.selector, fresh);
+
+        vm.expectRevert(unknown);
+        registry.handleBindingOf(fresh, "alice");
+        vm.expectRevert(unknown);
+        registry.idBindingOf(fresh, "123");
+        vm.expectRevert(unknown);
+        registry.handleOfId(fresh, "123");
+        vm.expectRevert(unknown);
+        registry.idOfHandle(fresh, "alice");
+
+        assertEq(registry.normalizeHandle(fresh, "@Alice"), "alice");
+    }
+
+    /// A platform whose every version was retired keeps answering what it
+    /// holds, as the other resolvers do.
+    function test_theOneCallReadsOutliveTheLastVersion() public {
+        _bind(alice, "123", "alice", 100);
+        vm.prank(owner);
+        proofVerifier.setVerifier(X, V1, IPlatformVerifier(address(0)));
+
+        _assertHandleBinding(X, "alice", alice, 100);
+        _assertIdBinding(X, "123", alice, 100);
+        _assertHandle(X, "123", "alice", true);
+        assertEq(registry.idOfHandle(X, "alice"), "123");
+    }
+
+    function _assertHandleBinding(bytes32 platformId, string memory handle, address wantHolder, uint64 wantAt)
+        internal
+        view
+    {
+        (address holder, uint64 observedAt) = registry.handleBindingOf(platformId, handle);
+        assertEq(holder, wantHolder, "holder");
+        assertEq(observedAt, wantAt, "observedAt");
+    }
+
+    function _assertIdBinding(bytes32 platformId, string memory id, address wantHolder, uint64 wantAt) internal view {
+        (address holder, uint64 observedAt) = registry.idBindingOf(platformId, id);
+        assertEq(holder, wantHolder, "holder");
+        assertEq(observedAt, wantAt, "observedAt");
+    }
+
+    function _assertHandle(bytes32 platformId, string memory id, string memory wantHandle, bool wantCurrent)
+        internal
+        view
+    {
+        (string memory handle, bool current) = registry.handleOfId(platformId, id);
+        assertEq(handle, wantHandle, "handle");
+        assertEq(current, wantCurrent, "current");
+    }
+
     // ─── Ownership ──────────────────────────────────────────────────
 
     /// The owner has no privileged path to a binding. It obeys the same target

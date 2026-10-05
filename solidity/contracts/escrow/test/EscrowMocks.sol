@@ -39,6 +39,27 @@ contract SettableRegistry is IIdentityRegistry {
     function acceptsBindings(bytes32 platformId) external pure returns (bool) {
         return platformId != bytes32(0);
     }
+
+    function normalizeHandle(bytes32, string calldata handle) external pure returns (string memory) {
+        return handle;
+    }
+
+    function handleBindingOf(bytes32 platformId, string calldata handle) external view returns (address, uint64) {
+        return (holderOf[IdentityNodes.handleNode(platformId, handle)], 0);
+    }
+
+    /// Ids are not modelled: every id reads as never proved.
+    function idBindingOf(bytes32, string calldata) external pure returns (address, uint64) {
+        return (address(0), 0);
+    }
+
+    function handleOfId(bytes32, string calldata) external pure returns (string memory, bool) {
+        return ("", false);
+    }
+
+    function idOfHandle(bytes32, string calldata) external pure returns (string memory) {
+        return "";
+    }
 }
 
 /// @notice A plain ERC-20 anybody can mint.

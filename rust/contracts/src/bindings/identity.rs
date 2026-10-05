@@ -74,6 +74,20 @@ mod registry_inner {
             function unpublish(bytes32 platformId) external;
             function resolveId(bytes32 platformId, string calldata id) external view returns (address);
             function resolveHandle(bytes32 platformId, string calldata handle) external view returns (address);
+            /// The holder that proved an id and when, as `resolveId` reads
+            /// it; `(0, 0)` when nobody did.
+            function idBindingOf(bytes32 platformId, string calldata id) external view returns (address holder, uint64 observedAt);
+            /// The holder that last proved a handle and when, as
+            /// `resolveHandle` reads it. `(0, 0)` for text the rules refuse;
+            /// a retired handle answers a zero holder beside its watermark.
+            function handleBindingOf(bytes32 platformId, string calldata handle) external view returns (address holder, uint64 observedAt);
+            /// The handle an id proved most recently, and whether the handle
+            /// node still points back at that identity. Empty and false for an
+            /// id never proved.
+            function handleOfId(bytes32 platformId, string calldata id) external view returns (string memory handle, bool current);
+            /// The id of the identity a handle belongs to now. Empty when none
+            /// does, or for text the rules refuse.
+            function idOfHandle(bytes32 platformId, string calldata handle) external view returns (string memory id);
             /// The handle's holder, and whether `id` resolves to that same
             /// holder.
             function resolveHandleAndId(bytes32 platformId, string calldata handle, string calldata id) external view returns (address holder, bool idAgrees);
@@ -88,6 +102,9 @@ mod registry_inner {
             /// `keccak256` of the normalized handle: what `HandleEscrow.deposit`
             /// takes. Reverts `UnknownPlatform` or `UnusableHandle`.
             function handleHashOf(bytes32 platformId, string calldata handle) external view returns (bytes32 handleHash);
+            /// The handle normalized under the platform's current rules.
+            /// Reverts `UnknownPlatform` or `UnusableHandle`.
+            function normalizeHandle(bytes32 platformId, string calldata handle) external view returns (string memory normalized);
             /// The node a handle hashes to now; reverts as `handleHashOf` does.
             function handleNodeOf(bytes32 platformId, string calldata handle) external view returns (bytes32 handleNode);
             /// The node of a handle given as its hash, as `bind` binds it.

@@ -77,8 +77,11 @@ const rotate = calls.googleJwtRoots.rotate(roots, fee, attestedData, proof)
 
 ```ts
 import {
+  handleBindingOf,
+  handleOfId,
   identitiesOf,
   identityCount,
+  idOfHandle,
   platformId,
   publishedHandleOf,
   resolveHandle,
@@ -92,6 +95,15 @@ const x = platformId(PLATFORM_X_KEY)
 // The holder that last proved a handle, or null. Pass what was typed —
 // normalization happens on chain.
 const holder = await resolveHandle(reader, x, '@Alice')
+
+// The holder and when the platform stated it, in one call. A handle its
+// identity renamed away from has a null holder beside the old observedAt.
+const { holder: h, observedAt } = await handleBindingOf(reader, x, '@Alice')
+
+// From a handle to the id that holds it now, and from an id to its latest
+// handle (current: false once another identity has proved that handle).
+const id = await idOfHandle(reader, x, '@Alice') // '42', or null
+const latest = await handleOfId(reader, x, '42') // { handle: 'alice', current: true }, or null
 
 // Before sending funds: does the id still agree with the handle?
 const { idAgrees } = await resolveHandleAndId(reader, x, 'alice', '42')
@@ -135,6 +147,10 @@ import { normalize, RULES_X, HandleError } from '@libid/contracts/identity'
 normalize(' @Alice_1 ', RULES_X) // 'alice_1'
 // Throws HandleError (with a kind matching the on-chain error) on refusal.
 ```
+
+The same answer from the chain, under the rules configured there now, is
+`await normalizeHandle(reader, x, ' @Alice_1 ')`; it rejects with
+`UnusableHandle` where `normalize` throws.
 
 ## Deriving a handle node
 

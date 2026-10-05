@@ -97,6 +97,92 @@ export async function resolveHandle(
   return holder === zeroAddress ? null : holder
 }
 
+/// A holder and the moment the platform stated it.
+export interface Binding {
+  /// The holder, or `null`.
+  holder: Address | null
+  /// When the platform stated the binding, in seconds on the scale every
+  /// platform shares. `0n` when nobody proved it.
+  observedAt: bigint
+}
+
+/// The holder that proved this id and when, in one call
+/// (`IdentityRegistry.idBindingOf`).
+export async function idBindingOf(
+  reader: RegistryReader,
+  platformId: `0x${string}`,
+  id: string,
+): Promise<Binding> {
+  const [holder, observedAt] = await read<[Address, bigint]>(reader, 'idBindingOf', [
+    platformId,
+    id,
+  ])
+  return { holder: holder === zeroAddress ? null : holder, observedAt }
+}
+
+/// The holder that last proved this handle and when, in one call
+/// (`IdentityRegistry.handleBindingOf`).
+///
+/// Read the way `resolveHandle` reads: normalized on chain, and a string the
+/// rules refuse answers `{holder: null, observedAt: 0n}`. A handle its
+/// identity renamed away from answers `holder: null` beside the `observedAt`
+/// of the proof that last held it.
+export async function handleBindingOf(
+  reader: RegistryReader,
+  platformId: `0x${string}`,
+  handle: string,
+): Promise<Binding> {
+  const [holder, observedAt] = await read<[Address, bigint]>(reader, 'handleBindingOf', [
+    platformId,
+    handle,
+  ])
+  return { holder: holder === zeroAddress ? null : holder, observedAt }
+}
+
+/// The handle an identity proved most recently.
+export interface HandleOfId {
+  /// As normalized on chain when it was proved.
+  handle: string
+  /// True while the handle node still points back at this identity, as
+  /// `Identity.handleCurrent`.
+  current: boolean
+}
+
+/// The handle an id proved most recently, or `null` for an id never proved
+/// (`IdentityRegistry.handleOfId`).
+export async function handleOfId(
+  reader: RegistryReader,
+  platformId: `0x${string}`,
+  id: string,
+): Promise<HandleOfId | null> {
+  const [handle, current] = await read<[string, boolean]>(reader, 'handleOfId', [platformId, id])
+  return handle.length === 0 ? null : { handle, current }
+}
+
+/// The id of the identity a handle belongs to now, or `null`
+/// (`IdentityRegistry.idOfHandle`). Normalized on chain; a string the rules
+/// refuse answers `null`.
+export async function idOfHandle(
+  reader: RegistryReader,
+  platformId: `0x${string}`,
+  handle: string,
+): Promise<string | null> {
+  const id = await read<string>(reader, 'idOfHandle', [platformId, handle])
+  return id.length === 0 ? null : id
+}
+
+/// A handle normalized under the platform's rules as configured on chain now
+/// (`IdentityRegistry.normalizeHandle`). A string the rules refuse rejects
+/// with `UnusableHandle`. `normalize` under `rulesOf` answers the same without
+/// sending the handle to an RPC.
+export async function normalizeHandle(
+  reader: RegistryReader,
+  platformId: `0x${string}`,
+  handle: string,
+): Promise<string> {
+  return read<string>(reader, 'normalizeHandle', [platformId, handle])
+}
+
 /// The handle to show for a holder, or `null`.
 ///
 /// Forward-checked on chain: empty once the stored handle resolves somewhere

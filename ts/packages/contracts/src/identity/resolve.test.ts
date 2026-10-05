@@ -9,8 +9,13 @@ import { describe, expect, it, vi } from 'vitest'
 
 import { PLATFORM_X_KEY } from './handleVectors.js'
 import {
+  handleBindingOf,
+  handleOfId,
+  idBindingOf,
   identitiesOf,
   identityCount,
+  idOfHandle,
+  normalizeHandle,
   platformId,
   publishedHandleOf,
   type RegistryReader,
@@ -73,6 +78,104 @@ describe('resolving a handle', () => {
     await resolveHandle(reader(readContract), X, '  @Alice ')
 
     expect(readContract.mock.calls[0][0].args[1]).toBe('  @Alice ')
+  })
+})
+
+describe('reading a binding with its age', () => {
+  it('reads the holder and observedAt of an id', async () => {
+    const readContract = vi.fn().mockResolvedValue([ALICE, 100n])
+    expect(await idBindingOf(reader(readContract), X, '42')).toEqual({
+      holder: ALICE,
+      observedAt: 100n,
+    })
+
+    expect(readContract.mock.calls[0][0]).toMatchObject({
+      address: CONTRACT,
+      functionName: 'idBindingOf',
+      args: [X, '42'],
+    })
+  })
+
+  it('reads the holder and observedAt of a handle, passing the handle through', async () => {
+    const readContract = vi.fn().mockResolvedValue([ALICE, 100n])
+    expect(await handleBindingOf(reader(readContract), X, ' @Alice ')).toEqual({
+      holder: ALICE,
+      observedAt: 100n,
+    })
+
+    expect(readContract.mock.calls[0][0]).toMatchObject({
+      functionName: 'handleBindingOf',
+      args: [X, ' @Alice '],
+    })
+  })
+
+  /// A retired handle has no holder and keeps its watermark.
+  it('reports no holder beside a retired watermark', async () => {
+    const readContract = vi.fn().mockResolvedValue([zeroAddress, 100n])
+    expect(await handleBindingOf(reader(readContract), X, 'alice')).toEqual({
+      holder: null,
+      observedAt: 100n,
+    })
+  })
+
+  it('reports an unbound id or handle as null at zero', async () => {
+    const readContract = vi.fn().mockResolvedValue([zeroAddress, 0n])
+    const none = { holder: null, observedAt: 0n }
+
+    expect(await idBindingOf(reader(readContract), X, 'nobody')).toEqual(none)
+    expect(await handleBindingOf(reader(readContract), X, 'not a handle')).toEqual(none)
+  })
+})
+
+describe('moving between an id and its handle', () => {
+  it('reads the latest handle of an id and whether it is still current', async () => {
+    const readContract = vi.fn().mockResolvedValue(['alice', false])
+    expect(await handleOfId(reader(readContract), X, '42')).toStrictEqual({
+      handle: 'alice',
+      current: false,
+    })
+
+    expect(readContract.mock.calls[0][0]).toMatchObject({
+      functionName: 'handleOfId',
+      args: [X, '42'],
+    })
+  })
+
+  it('reports an id never proved as null', async () => {
+    const readContract = vi.fn().mockResolvedValue(['', false])
+    expect(await handleOfId(reader(readContract), X, 'nobody')).toBeNull()
+  })
+
+  it('reads the id a handle belongs to', async () => {
+    const readContract = vi.fn().mockResolvedValue('42')
+    expect(await idOfHandle(reader(readContract), X, '@Alice')).toBe('42')
+
+    expect(readContract.mock.calls[0][0]).toMatchObject({
+      functionName: 'idOfHandle',
+      args: [X, '@Alice'],
+    })
+  })
+
+  it('reports a handle nobody holds as null', async () => {
+    const readContract = vi.fn().mockResolvedValue('')
+    expect(await idOfHandle(reader(readContract), X, 'nobody')).toBeNull()
+  })
+
+  it('reads a handle normalized under the rules on chain', async () => {
+    const readContract = vi.fn().mockResolvedValue('alice')
+    expect(await normalizeHandle(reader(readContract), X, ' @Alice ')).toBe('alice')
+
+    expect(readContract.mock.calls[0][0]).toMatchObject({
+      functionName: 'normalizeHandle',
+      args: [X, ' @Alice '],
+    })
+  })
+
+  /// The contract refuses text its rules refuse here, as `handleHashOf` does.
+  it('lets a refused handle surface', async () => {
+    const readContract = vi.fn().mockRejectedValue(revertingWith('UnusableHandle'))
+
+    await expect(normalizeHandle(reader(readContract), X, 'ali ce')).rejects.toThrow()
   })
 })
 
