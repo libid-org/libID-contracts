@@ -473,9 +473,9 @@ library RefCeremonyFields {
 }
 
 /// @notice The transcript checks `TlsNotaryVerifierBase` ran on each session
-///         as of commit 7a63c20, code unchanged: everything between
-///         authenticating an attestation and reading its time. The identity
-///         session also holds the id it reads to REQ-PLAT-06.
+///         as of commit 7a63c20: everything between authenticating an
+///         attestation and reading its time. Code unchanged except the
+///         REQ-PLAT-06 check on the id the identity session reads.
 /// @dev A profile's hooks are parameters here: `Profile` carries the
 ///      constants `XPlatformVerifier` and `GitHubPlatformVerifier` return.
 library RefTranscript {

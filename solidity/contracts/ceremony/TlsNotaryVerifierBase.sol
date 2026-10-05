@@ -176,7 +176,8 @@ abstract contract TlsNotaryVerifierBase is IPlatformVerifier, PlatformVerifierBa
     ///      Declaring the field names and leaving the reading to the base makes
     ///      all three unwritable rather than forbidden by a comment. A new
     ///      profile supplies two strings and a shape; it never touches an
-    ///      attestation.
+    ///      attestation. Whatever the shape, the id must spell a nonzero
+    ///      `uint64` in decimal (REQ-PLAT-06), as X and GitHub ids do.
     function _identityFields()
         internal
         pure

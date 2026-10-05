@@ -624,7 +624,7 @@ contract GitHubPlatformVerifierTest is Test {
 
     /// @dev REQ-PLAT-06. Each is a JSON integer the reader returns, and none
     ///      is a nonzero `uint64`.
-    function test_rejectsAnIdOutsideUint64() public {
+    function test_rejectsAnIdOutsideTheGrammar() public {
         string[3] memory ids = ["0", "18446744073709551616", "100000000000000000000"];
         for (uint256 i = 0; i < ids.length; ++i) {
             TlsNotaryVerifierBase.TlsNotaryProof memory s = _payload();
