@@ -2,11 +2,17 @@ import {
   type Address,
   BaseError,
   ContractFunctionRevertedError,
+  createPublicClient,
+  custom,
+  decodeFunctionData,
+  encodeErrorResult,
+  encodeFunctionResult,
   type PublicClient,
   zeroAddress,
 } from 'viem'
 import { describe, expect, it, vi } from 'vitest'
 
+import { identityRegistryAbi } from '../abis/identityRegistry.js'
 import { PLATFORM_X_KEY } from './handleVectors.js'
 import {
   handleBindingOf,
@@ -15,7 +21,6 @@ import {
   identitiesOf,
   identityCount,
   idOfHandle,
-  normalizeHandle,
   platformId,
   publishedHandleOf,
   type RegistryReader,
@@ -81,101 +86,125 @@ describe('resolving a handle', () => {
   })
 })
 
+/// A reader whose client is a real viem `PublicClient`, answering `eth_call`
+/// with `result` encoded by the generated ABI, or reverting with `revert`.
+/// The wrapper under test goes through viem's own encoding and decoding, so a
+/// return shape the wrapper reads differently from the ABI fails here.
+function chain(
+  answer:
+    | { functionName: string; result: unknown }
+    | { revert: { errorName: string; args: readonly unknown[] } },
+): { reader: RegistryReader; calls: { functionName: string; args: readonly unknown[] }[] } {
+  const calls: { functionName: string; args: readonly unknown[] }[] = []
+  const client = createPublicClient({
+    transport: custom(
+      {
+        async request({ method, params }) {
+          if (method !== 'eth_call') throw new Error(`unexpected ${method}`)
+          const [{ to, data }] = params as [{ to: Address; data: `0x${string}` }]
+          expect(to).toBe(CONTRACT)
+          const call = decodeFunctionData({ abi: identityRegistryAbi, data })
+          calls.push({ functionName: call.functionName, args: call.args ?? [] })
+          if ('revert' in answer) {
+            throw {
+              code: 3,
+              message: 'execution reverted',
+              data: encodeErrorResult({
+                abi: identityRegistryAbi,
+                errorName: answer.revert.errorName,
+                args: answer.revert.args,
+              } as never),
+            }
+          }
+          expect(call.functionName).toBe(answer.functionName)
+          return encodeFunctionResult({
+            abi: identityRegistryAbi,
+            functionName: answer.functionName,
+            result: answer.result,
+          } as never)
+        },
+      },
+      { retryCount: 0 },
+    ),
+  })
+  return { reader: { client: client as PublicClient, address: CONTRACT }, calls }
+}
+
+/// The custom error a rejected read carries, decoded from the ABI.
+async function revertName(promise: Promise<unknown>): Promise<string | undefined> {
+  const error = await promise.then(
+    () => {
+      throw new Error('expected a revert')
+    },
+    (e: unknown) => e,
+  )
+  expect(error).toBeInstanceOf(BaseError)
+  const reverted = (error as BaseError).walk((e) => e instanceof ContractFunctionRevertedError)
+  return (reverted as ContractFunctionRevertedError | null)?.data?.errorName
+}
+
 describe('reading a binding with its age', () => {
   it('reads the holder and observedAt of an id', async () => {
-    const readContract = vi.fn().mockResolvedValue([ALICE, 100n])
-    expect(await idBindingOf(reader(readContract), X, '42')).toEqual({
-      holder: ALICE,
-      observedAt: 100n,
-    })
-
-    expect(readContract.mock.calls[0][0]).toMatchObject({
-      address: CONTRACT,
-      functionName: 'idBindingOf',
-      args: [X, '42'],
-    })
+    const { reader, calls } = chain({ functionName: 'idBindingOf', result: [ALICE, 100n] })
+    expect(await idBindingOf(reader, X, '42')).toEqual({ holder: ALICE, observedAt: 100n })
+    expect(calls).toEqual([{ functionName: 'idBindingOf', args: [X, '42'] }])
   })
 
   it('reads the holder and observedAt of a handle, passing the handle through', async () => {
-    const readContract = vi.fn().mockResolvedValue([ALICE, 100n])
-    expect(await handleBindingOf(reader(readContract), X, ' @Alice ')).toEqual({
+    const { reader, calls } = chain({ functionName: 'handleBindingOf', result: [ALICE, 100n] })
+    expect(await handleBindingOf(reader, X, ' @Alice ')).toEqual({
       holder: ALICE,
       observedAt: 100n,
     })
-
-    expect(readContract.mock.calls[0][0]).toMatchObject({
-      functionName: 'handleBindingOf',
-      args: [X, ' @Alice '],
-    })
+    expect(calls).toEqual([{ functionName: 'handleBindingOf', args: [X, ' @Alice '] }])
   })
 
   /// A retired handle has no holder and keeps its watermark.
   it('reports no holder beside a retired watermark', async () => {
-    const readContract = vi.fn().mockResolvedValue([zeroAddress, 100n])
-    expect(await handleBindingOf(reader(readContract), X, 'alice')).toEqual({
-      holder: null,
-      observedAt: 100n,
-    })
+    const { reader } = chain({ functionName: 'handleBindingOf', result: [zeroAddress, 100n] })
+    expect(await handleBindingOf(reader, X, 'alice')).toEqual({ holder: null, observedAt: 100n })
   })
 
   it('reports an unbound id or handle as null at zero', async () => {
-    const readContract = vi.fn().mockResolvedValue([zeroAddress, 0n])
     const none = { holder: null, observedAt: 0n }
+    const ids = chain({ functionName: 'idBindingOf', result: [zeroAddress, 0n] })
+    expect(await idBindingOf(ids.reader, X, 'nobody')).toEqual(none)
+    const handles = chain({ functionName: 'handleBindingOf', result: [zeroAddress, 0n] })
+    expect(await handleBindingOf(handles.reader, X, 'not a handle')).toEqual(none)
+  })
 
-    expect(await idBindingOf(reader(readContract), X, 'nobody')).toEqual(none)
-    expect(await handleBindingOf(reader(readContract), X, 'not a handle')).toEqual(none)
+  /// An unwired platform is a deployment mistake, not an answer about a
+  /// binding, so the contract's `UnknownPlatform` reaches the caller.
+  it('lets UnknownPlatform surface', async () => {
+    const { reader } = chain({ revert: { errorName: 'UnknownPlatform', args: [X] } })
+    expect(await revertName(handleBindingOf(reader, X, 'alice'))).toBe('UnknownPlatform')
+    expect(await revertName(idBindingOf(reader, X, '42'))).toBe('UnknownPlatform')
+    expect(await revertName(handleOfId(reader, X, '42'))).toBe('UnknownPlatform')
+    expect(await revertName(idOfHandle(reader, X, 'alice'))).toBe('UnknownPlatform')
   })
 })
 
 describe('moving between an id and its handle', () => {
   it('reads the latest handle of an id and whether it is still current', async () => {
-    const readContract = vi.fn().mockResolvedValue(['alice', false])
-    expect(await handleOfId(reader(readContract), X, '42')).toStrictEqual({
-      handle: 'alice',
-      current: false,
-    })
-
-    expect(readContract.mock.calls[0][0]).toMatchObject({
-      functionName: 'handleOfId',
-      args: [X, '42'],
-    })
+    const { reader, calls } = chain({ functionName: 'handleOfId', result: ['alice', false] })
+    expect(await handleOfId(reader, X, '42')).toStrictEqual({ handle: 'alice', current: false })
+    expect(calls).toEqual([{ functionName: 'handleOfId', args: [X, '42'] }])
   })
 
   it('reports an id never proved as null', async () => {
-    const readContract = vi.fn().mockResolvedValue(['', false])
-    expect(await handleOfId(reader(readContract), X, 'nobody')).toBeNull()
+    const { reader } = chain({ functionName: 'handleOfId', result: ['', false] })
+    expect(await handleOfId(reader, X, 'nobody')).toBeNull()
   })
 
-  it('reads the id a handle belongs to', async () => {
-    const readContract = vi.fn().mockResolvedValue('42')
-    expect(await idOfHandle(reader(readContract), X, '@Alice')).toBe('42')
-
-    expect(readContract.mock.calls[0][0]).toMatchObject({
-      functionName: 'idOfHandle',
-      args: [X, '@Alice'],
-    })
+  it('reads the id that holds a handle', async () => {
+    const { reader, calls } = chain({ functionName: 'idOfHandle', result: '42' })
+    expect(await idOfHandle(reader, X, '@Alice')).toBe('42')
+    expect(calls).toEqual([{ functionName: 'idOfHandle', args: [X, '@Alice'] }])
   })
 
   it('reports a handle nobody holds as null', async () => {
-    const readContract = vi.fn().mockResolvedValue('')
-    expect(await idOfHandle(reader(readContract), X, 'nobody')).toBeNull()
-  })
-
-  it('reads a handle normalized under the rules on chain', async () => {
-    const readContract = vi.fn().mockResolvedValue('alice')
-    expect(await normalizeHandle(reader(readContract), X, ' @Alice ')).toBe('alice')
-
-    expect(readContract.mock.calls[0][0]).toMatchObject({
-      functionName: 'normalizeHandle',
-      args: [X, ' @Alice '],
-    })
-  })
-
-  /// The contract refuses text its rules refuse here, as `handleHashOf` does.
-  it('lets a refused handle surface', async () => {
-    const readContract = vi.fn().mockRejectedValue(revertingWith('UnusableHandle'))
-
-    await expect(normalizeHandle(reader(readContract), X, 'ali ce')).rejects.toThrow()
+    const { reader } = chain({ functionName: 'idOfHandle', result: '' })
+    expect(await idOfHandle(reader, X, 'nobody')).toBeNull()
   })
 })
 

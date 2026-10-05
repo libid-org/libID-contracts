@@ -105,6 +105,9 @@ const { holder: h, observedAt } = await handleBindingOf(reader, x, '@Alice')
 // handle (current: false once another identity has proved that handle).
 const id = await idOfHandle(reader, x, '@Alice') // '42', or null
 const latest = await handleOfId(reader, x, '42') // { handle: 'alice', current: true }, or null
+// `current` reads the nodes, not the rules: after the platform's rules narrow so
+// 'alice' no longer normalizes, it stays true while handleBindingOf and
+// idOfHandle answer null. Route by those.
 
 // Before sending funds: does the id still agree with the handle?
 const { idAgrees } = await resolveHandleAndId(reader, x, 'alice', '42')
@@ -149,9 +152,11 @@ normalize(' @Alice_1 ', RULES_X) // 'alice_1'
 // Throws HandleError (with a kind matching the on-chain error) on refusal.
 ```
 
-The same answer from the chain, under the rules configured there now, is
-`await normalizeHandle(reader, x, ' @Alice_1 ')`; it rejects with
-`UnusableHandle` where `normalize` throws.
+To normalize under the rules a chain has configured now, read them once and
+normalize locally: `normalize(handle, await rulesOf(reader, x))`. `rulesOf`
+is in `@libid/contracts/identity`, which needs viem and an RPC; `normalize`
+is in both subpaths. The contract's own `normalizeHandle` view gives the same
+answer, but it sends the handle to the RPC, so the package does not wrap it.
 
 ## Deriving a handle node
 
