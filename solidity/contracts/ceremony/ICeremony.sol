@@ -63,12 +63,18 @@ interface ICeremony {
     ///                            Consumer compare and display it without
     ///                            knowing which platform produced it
     ///                            (REQ-COMMON-16).
-    /// @param userId              The canonical, immutable platform identifier.
-    /// @param handle              RAW authenticated bytes. Normalization is the
-    ///                            Consumer's derivation on its own write path,
-    ///                            and a caller-supplied normalized handle or
-    ///                            pre-hashed key must be refused
-    ///                            (REQ-PLAT-08A, REQ-PLAT-08B).
+    /// @param idNode              `SHA256(user-id tag || id)`: the key of the
+    ///                            canonical, immutable platform identifier,
+    ///                            which never leaves the circuit.
+    /// @param handleNode          `SHA256(handle tag || fold(handle))`: the key
+    ///                            of the handle, normalized in the circuit
+    ///                            from the bytes the platform sent. The
+    ///                            handle itself never reaches the chain unless
+    ///                            its holder discloses it.
+    /// @param handle              The handle the submission disclosed,
+    ///                            normalized, or empty for a private one. The
+    ///                            Platform Verifier has checked that it hashes
+    ///                            to `handleNode`.
     /// @param metadataObservedAt  The monotone metadata watermark: when the
     ///                            platform stated the identity, on the scale
     ///                            every profile shares.
@@ -78,7 +84,8 @@ interface ICeremony {
         bytes transactionData;
         uint16 ceremonyVersion;
         bytes clientIdentifier;
-        string userId;
+        bytes32 idNode;
+        bytes32 handleNode;
         string handle;
         uint64 metadataObservedAt;
     }

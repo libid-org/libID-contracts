@@ -5,7 +5,7 @@ import {Test} from "forge-std/Test.sol";
 
 import {CeremonyProfile} from "../CeremonyProfile.sol";
 import {HandleVectors} from "../../identity/HandleVectors.sol";
-import {IdentityNodes} from "../../identity/IdentityNodes.sol";
+import {TestNodes} from "../../identity/test/TestNodes.sol";
 
 /// @notice One platform id per platform, and libID namespaces only its own things.
 ///
@@ -19,9 +19,7 @@ contract PlatformIdentityTest is Test {
     ///      platform key. The specification fixes the keys -- the
     ///      launch profiles of REQ-PLAT-01 are `google`, `x` and `github` --
     ///      and leaves the derivation to the profile author, so this repository
-    ///      pins it. Everything that derives the same value derives it this
-    ///      way, and a namespace of our own here would make every genuine
-    ///      attestation name a platform no verifier recognizes.
+    ///      pins it.
     function test_theTwoTablesAgree() public pure {
         assertEq(HandleVectors.PLATFORM_X, CeremonyProfile.PLATFORM_X, "x");
         assertEq(HandleVectors.PLATFORM_GITHUB, CeremonyProfile.PLATFORM_GITHUB, "github");
@@ -35,23 +33,31 @@ contract PlatformIdentityTest is Test {
     }
 
     /// @dev A platform's name is not libID's to namespace; libID's own
-    ///      constructs are. The node tags, the attestation format tag and the
-    ///      session tags all carry the prefix, and none of them says `dyaka`.
-    function test_libidNamespacesOnlyItsOwnConstructs() public pure {
-        assertEq(IdentityNodes.ID_NODE_V1, keccak256(bytes("libid.identity.id-node.v1")));
-        assertEq(IdentityNodes.HANDLE_NODE_V1, keccak256(bytes("libid.identity.handle-node.v1")));
+    ///      constructs are. The node tags carry the prefix and the platform,
+    ///      one per platform and kind, so no two platforms and no id and
+    ///      handle share a key.
+    function test_theNodeTagsArePinned() public pure {
+        assertEq(HandleVectors.USER_ID_TAG_X, bytes("libid.x.user-id"));
+        assertEq(HandleVectors.HANDLE_TAG_X, bytes("libid.x.handle"));
+        assertEq(HandleVectors.USER_ID_TAG_GITHUB, bytes("libid.github.user-id"));
+        assertEq(HandleVectors.HANDLE_TAG_GITHUB, bytes("libid.github.handle"));
+        assertEq(HandleVectors.USER_ID_TAG_GOOGLE, bytes("libid.google.user-id"));
+        assertEq(HandleVectors.HANDLE_TAG_GOOGLE, bytes("libid.google.handle"));
     }
 
-    /// @dev The node tags are what every stored key hangs off, so changing one
-    ///      rekeys the whole system. Pinned so it cannot happen quietly.
-    function test_theNodeTagsArePinned() public pure {
+    /// @dev A node is the circuit's `SHA256(tag || value)`. Pinned against
+    ///      Python's hashlib, so a change to a tag or to the hash cannot
+    ///      happen quietly:
+    ///        hashlib.sha256(b"libid.x.user-id2244994945")
+    ///        hashlib.sha256(b"libid.x.handlealice_1")
+    function test_theNodesArePinned() public pure {
         assertEq(
-            IdentityNodes.idNode(CeremonyProfile.PLATFORM_X, "2244994945"),
-            keccak256(
-                abi.encode(
-                    keccak256(bytes("libid.identity.id-node.v1")), keccak256(bytes("x")), keccak256(bytes("2244994945"))
-                )
-            )
+            TestNodes.idNode(CeremonyProfile.PLATFORM_X, "2244994945"),
+            0x68291869976ffad2abf3e933ec9ab2623395ff8b3b9242e655e1da3ef43d4f94
+        );
+        assertEq(
+            TestNodes.handleNode(CeremonyProfile.PLATFORM_X, "alice_1"),
+            0xe09c4f5bfbbc723bc35701ea9d718a1c5edb29b1ed5bb0cb0fabb3c43d8136af
         );
     }
 }

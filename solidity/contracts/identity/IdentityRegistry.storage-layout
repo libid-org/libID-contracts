@@ -11,18 +11,15 @@ field slot=6 offset=0 proofVerifier: contract IProofVerifier
 field slot=7 offset=0 everBound: mapping(bytes32 => bool)
 field slot=8 offset=0 spentDigests: mapping(bytes32 => bool)
 field slot=9 offset=0 holderIdentities: struct IdentityList.Data
-field slot=11 offset=0 idPreimages: mapping(bytes32 => struct IdentityRegistry.IdentityPreimage)
-field slot=12 offset=0 handlePreimages: mapping(bytes32 => string)
+field slot=11 offset=0 platformOfId: mapping(bytes32 => bytes32)
 struct IdentityList.Data slot=0 offset=0 nodes: mapping(address => bytes32[])
 struct IdentityList.Data slot=1 offset=0 position: mapping(bytes32 => uint256)
 struct IdentityRegistry.Binding slot=0 offset=0 holder: address
 struct IdentityRegistry.Binding slot=0 offset=20 observedAt: uint64
 struct IdentityRegistry.Platform slot=0 offset=0 rules: struct HandleNormalizer.Rules
-struct IdentityRegistry.Platform slot=1 offset=0 configured: bool
-struct IdentityRegistry.IdentityPreimage slot=0 offset=0 platformId: bytes32
-struct IdentityRegistry.IdentityPreimage slot=1 offset=0 id: string
+struct IdentityRegistry.Platform slot=1 offset=0 handleTag: bytes
+struct IdentityRegistry.Platform slot=2 offset=0 configured: bool
 struct HandleNormalizer.Rules slot=0 offset=0 maxLength: uint16
-struct HandleNormalizer.Rules slot=0 offset=2 stripLeadingAt: bool
-struct HandleNormalizer.Rules slot=0 offset=3 isEmail: bool
-struct HandleNormalizer.Rules slot=0 offset=4 allowUnderscore: bool
-struct HandleNormalizer.Rules slot=0 offset=5 allowHyphen: bool
+struct HandleNormalizer.Rules slot=0 offset=2 isEmail: bool
+struct HandleNormalizer.Rules slot=0 offset=3 allowUnderscore: bool
+struct HandleNormalizer.Rules slot=0 offset=4 allowHyphen: bool

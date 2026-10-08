@@ -3,8 +3,8 @@ pragma solidity ^0.8.20;
 
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 
-import {IdentityNodes} from "../../identity/IdentityNodes.sol";
 import {IIdentityRegistry} from "../../identity/IIdentityRegistry.sol";
+import {TestNodes} from "../../identity/test/TestNodes.sol";
 
 /// @notice A one-token list for `HandleEscrow.claim`.
 function one(address token) pure returns (address[] memory tokens) {
@@ -12,7 +12,7 @@ function one(address token) pure returns (address[] memory tokens) {
     tokens[0] = token;
 }
 
-/// @notice A registry whose holders are set directly; deposits go by hash.
+/// @notice A registry whose holders are set directly.
 contract SettableRegistry is IIdentityRegistry {
     mapping(bytes32 => address) public holderOf;
 
@@ -24,16 +24,9 @@ contract SettableRegistry is IIdentityRegistry {
         return (holderOf[handleNode], 0);
     }
 
+    /// @dev Takes the handle already normalized.
     function handleNodeOf(bytes32 platformId, string calldata handle) external pure returns (bytes32) {
-        return IdentityNodes.handleNode(platformId, handle);
-    }
-
-    function handleHashOf(bytes32, string calldata handle) external pure returns (bytes32) {
-        return keccak256(bytes(handle));
-    }
-
-    function handleNodeOfHash(bytes32 platformId, bytes32 handleHash) external pure returns (bytes32) {
-        return IdentityNodes.handleNodeOfHash(platformId, handleHash);
+        return TestNodes.handleNode(platformId, handle);
     }
 
     function acceptsBindings(bytes32 platformId) external pure returns (bool) {

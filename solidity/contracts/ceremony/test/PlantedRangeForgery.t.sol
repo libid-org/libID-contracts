@@ -23,6 +23,8 @@ contract Honk2 is IHonkVerifier {
 }
 
 contract PlantedRangeForgeryTest is Test {
+    using AttestationBuilder for AttestationBuilder.Direction;
+
     XPlatformVerifier verifier;
     NotaryService notary;
     uint256 quote;
@@ -140,12 +142,12 @@ contract PlantedRangeForgeryTest is Test {
             ),
             length: sentLen
         });
-        bytes memory body = abi.encodePacked('HTTP/1.1 200 OK\r\n\r\n{"id":"2244994945","username":"alice"}');
-        AttestationBuilder.Direction memory received = AttestationBuilder.Direction({
-            revealed: AttestationBuilder.one(AttestationBuilder.Range({start: 0, value: body})),
-            commitments: AttestationBuilder.none(),
-            length: uint32(body.length)
-        });
+        // The anchor-only reveal: the id and handle committed, the anchors
+        // around them revealed, every other byte behind a commitment.
+        AttestationBuilder.Direction memory received;
+        received.commit('{"data":{', bytes32(uint256(0x5555))).reveal('"id":"')
+            .commit("2244994945", bytes32(uint256(0x3333))).reveal('","username":"')
+            .commit("alice", bytes32(uint256(0x4444))).reveal('"').commit("}}", bytes32(uint256(0x5555)));
         bytes memory attested = AttestationBuilder.encode(CeremonyProfile.AUTHORITY_X_API, T0, sent, received);
         return ICeremony.Attestation({attestedData: attested, proof: _sign(attested)});
     }
@@ -222,9 +224,8 @@ contract PlantedRangeForgeryTest is Test {
 
     /// Finding 7: the empty handle never reaches a node -- normalize reverts.
     function test_skeptic2_emptyHandleReverts() public {
-        HandleNormalizer.Rules memory google = HandleNormalizer.Rules({
-            maxLength: 254, stripLeadingAt: false, isEmail: true, allowUnderscore: true, allowHyphen: true
-        });
+        HandleNormalizer.Rules memory google =
+            HandleNormalizer.Rules({maxLength: 62, isEmail: true, allowUnderscore: false, allowHyphen: false});
         vm.expectRevert(HandleNormalizer.EmptyHandle.selector);
         this.normalizeExternal("", google);
     }

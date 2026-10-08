@@ -15,6 +15,7 @@ import {INotaryService} from "../INotaryService.sol";
 import {NotaryService} from "../NotaryService.sol";
 import {IHonkVerifier, PlatformVerifierBase} from "../PlatformVerifierBase.sol";
 import {TlsNotaryVerifierBase} from "../TlsNotaryVerifierBase.sol";
+import {XPlatformVerifier} from "../XPlatformVerifier.sol";
 
 contract Honk is IHonkVerifier {
     function verify(bytes calldata, bytes32[] calldata) external pure returns (bool) {
@@ -27,7 +28,10 @@ contract Honk is IHonkVerifier {
 ///         id, the `login` field, a revealed body credential, and the exact
 ///         five-field form the body is held to.
 contract GitHubPlatformVerifierTest is Test {
+    using AttestationBuilder for AttestationBuilder.Direction;
+
     GitHubPlatformVerifier verifier;
+    address honk;
     NotaryService notary;
     uint256 quote;
 
@@ -44,6 +48,18 @@ contract GitHubPlatformVerifierTest is Test {
     bytes32 digest;
     bytes32 constant TOKEN_COMMITMENT = bytes32(uint256(0x1111));
     bytes32 constant IDENTITY_COMMITMENT = bytes32(uint256(0x2222));
+    bytes32 constant ID_COMMITMENT = bytes32(uint256(0x3333));
+    bytes32 constant HANDLE_COMMITMENT = bytes32(uint256(0x4444));
+    /// Whatever else the response hides: the status, the other members.
+    bytes32 constant OTHER = bytes32(uint256(0x5555));
+
+    /// The two nodes of the fixture account, from Python's hashlib rather
+    /// than any implementation here:
+    ///   hashlib.sha256(b"libid.github.user-id583231")
+    ///   hashlib.sha256(b"libid.github.handleoctocat")
+    /// The second is the FOLDED login: the account is `OctoCat`.
+    bytes32 constant ID_NODE = 0x475902b27989feb395b9b0cd3156aa573a9676c13155b8e7e3ddaf3e77181847;
+    bytes32 constant HANDLE_NODE = 0x381fb9d7d3b01214e58b94202ea10f78e169adef68bcc20d40c130deca6dfe74;
 
     function setUp() public {
         digest = CeremonyAuthorization.digestFor(DOMAIN, 1, AUTH_NONCE, _txData());
@@ -56,7 +72,8 @@ contract GitHubPlatformVerifierTest is Test {
                 )
             )
         );
-        address honkAddr = address(new Honk());
+        honk = address(new Honk());
+        address honkAddr = honk;
         GitHubPlatformVerifier vImpl = new GitHubPlatformVerifier();
         verifier = GitHubPlatformVerifier(
             address(
@@ -187,38 +204,44 @@ contract GitHubPlatformVerifierTest is Test {
         return ICeremony.Attestation({attestedData: attested, proof: _sign(attested)});
     }
 
-    function _identity(string memory body, bytes32 authority) private pure returns (ICeremony.Attestation memory) {
-        bytes memory head =
-            "GET /user HTTP/1.1\r\naccept: application/vnd.github+json\r\nhost: api.github.com\r\n\r\nauthorization: Bearer ";
-        bytes memory bearer = "gho_TOKENTOKENTOKEN";
-        bytes memory tail = "\r\nconnection: close\r\n\r\n";
-        uint32 start = uint32(head.length);
-        uint32 end = start + uint32(bearer.length);
-        uint32 sentLen = end + uint32(tail.length);
+    /// The honest identity read, the bearer committed, from `authority`.
+    function _identity(bytes32 authority) private pure returns (ICeremony.Attestation memory) {
+        return _identityReceiving(_identityResponse(), authority);
+    }
 
-        AttestationBuilder.Direction memory sent = AttestationBuilder.Direction({
-            revealed: AttestationBuilder.two(
-                AttestationBuilder.Range({start: 0, value: head}), AttestationBuilder.Range({start: end, value: tail})
-            ),
-            commitments: AttestationBuilder.one(
-                AttestationBuilder.Commitment({start: start, end: end, value: IDENTITY_COMMITMENT})
-            ),
-            length: sentLen
-        });
-        // The status line rides at the front, revealed with the rest, so the
-        // verifier reads the server's agreement at offset zero.
-        bytes memory b = abi.encodePacked("HTTP/1.1 200 OK\r\n\r\n", body);
-        AttestationBuilder.Direction memory received = AttestationBuilder.Direction({
-            revealed: AttestationBuilder.one(AttestationBuilder.Range({start: 0, value: b})),
-            commitments: AttestationBuilder.none(),
-            length: uint32(b.length)
-        });
+    /// The identity response as GitHub pretty-prints it and libid-rs lays it
+    /// out: the anchors revealed, JSON whitespace and all, the login and the
+    /// id each committed on its own, the id's terminating comma revealed, and
+    /// every other byte behind a commitment of its own.
+    function _identityResponse() private pure returns (AttestationBuilder.Direction memory received) {
+        received.commit("HTTP/1.1 200 OK\r\ncontent-type: application/json\r\n\r\n{\n  ", OTHER).reveal('"login": "')
+            .commit("OctoCat", HANDLE_COMMITMENT).reveal('"').commit(",\n  ", OTHER).reveal('"id": ')
+            .commit("583231", ID_COMMITMENT).reveal(",")
+            .commit('\n  "node_id": "MDQ6VXNlcjU4MzIzMQ==",\n  "name": "The Octocat"\n}', OTHER);
+    }
+
+    /// The response up to the id's anchor, honest: the login framed.
+    function _upToTheId() private pure returns (AttestationBuilder.Direction memory received) {
+        received.commit("HTTP/1.1 200 OK\r\n\r\n{\n  ", OTHER).reveal('"login": "').commit("OctoCat", HANDLE_COMMITMENT)
+            .reveal('"').commit(",\n  ", OTHER);
+    }
+
+    /// The honest identity request around `received`, from `authority`.
+    function _identityReceiving(AttestationBuilder.Direction memory received, bytes32 authority)
+        private
+        pure
+        returns (ICeremony.Attestation memory)
+    {
+        AttestationBuilder.Direction memory sent;
+        sent.reveal(
+                "GET /user HTTP/1.1\r\naccept: application/vnd.github+json\r\nhost: api.github.com\r\n\r\nauthorization: Bearer "
+            ).commit("gho_TOKENTOKENTOKEN", IDENTITY_COMMITMENT).reveal("\r\nconnection: close\r\n\r\n");
         bytes memory attested = AttestationBuilder.encode(authority, T0, sent, received);
         return ICeremony.Attestation({attestedData: attested, proof: _sign(attested)});
     }
 
     function _txData() private pure returns (bytes memory) {
-        return abi.encode(address(0xBEEF));
+        return abi.encode(address(0xBEEF), uint256(0), address(0));
     }
 
     /// The `github/v1` payload the fixtures are made for.
@@ -229,7 +252,9 @@ contract GitHubPlatformVerifierTest is Test {
         s.transactionData = _txData();
         s.proof = hex"00";
         s.tokenSession = _exchange(CeremonyProfile.AUTHORITY_GITHUB);
-        s.identitySession = _identity('{"login":"octocat","id":583231}', CeremonyProfile.AUTHORITY_GITHUB_API);
+        s.identitySession = _identity(CeremonyProfile.AUTHORITY_GITHUB_API);
+        s.idNode = ID_NODE;
+        s.handleNode = HANDLE_NODE;
     }
 
     function run(TlsNotaryVerifierBase.TlsNotaryProof memory s)
@@ -244,8 +269,10 @@ contract GitHubPlatformVerifierTest is Test {
 
     function test_verifiesAWholeGitHubCeremony() public {
         ICeremony.VerifiedClaim memory f = this.run{value: quote}(_payload());
-        assertEq(f.userId, "583231");
-        assertEq(f.handle, "octocat");
+        // The nodes the payload claims, passed through: the proof is what
+        // binds them, and the stub here accepts any.
+        assertEq(f.idNode, ID_NODE);
+        assertEq(f.handleNode, HANDLE_NODE);
         assertEq(string(f.clientIdentifier), "Iv1.8a61f9b3a7aba766");
         assertEq(f.sessionId, digest);
         assertEq(f.operationDomain, DOMAIN);
@@ -466,7 +493,7 @@ contract GitHubPlatformVerifierTest is Test {
         TlsNotaryVerifierBase.TlsNotaryProof memory s = _withExchangeBody(
             _exchangeBody("caf%C3%A9", "https%3A%2F%2Fa.example%2F%E2%82%AC", "0123456789abcdef0123456789abcdef")
         );
-        assertEq(this.run{value: quote}(s).handle, "octocat");
+        assertEq(this.run{value: quote}(s).handleNode, HANDLE_NODE);
     }
 
     /// @dev TEST-PLAT-12: a `+`, an escaped tab and an escaped byte above
@@ -480,7 +507,7 @@ contract GitHubPlatformVerifierTest is Test {
         for (uint256 i = 0; i < secrets.length; ++i) {
             TlsNotaryVerifierBase.TlsNotaryProof memory s =
                 _withExchangeBody(_exchangeBody("abc", "https%3A%2F%2Fa.example", secrets[i]));
-            assertEq(this.run{value: quote}(s).handle, "octocat");
+            assertEq(this.run{value: quote}(s).handleNode, HANDLE_NODE);
         }
     }
 
@@ -490,7 +517,7 @@ contract GitHubPlatformVerifierTest is Test {
         TlsNotaryVerifierBase.TlsNotaryProof memory s = _withExchangeBody(
             _exchangeBody("abc", "https%3A%2F%2Fa.example", "%21%22%23%24%25%26%27%28%29%2B%2C%2F%3A%3B%3D%7E")
         );
-        assertEq(this.run{value: quote}(s).handle, "octocat");
+        assertEq(this.run{value: quote}(s).handleNode, HANDLE_NODE);
     }
 
     /// @dev REQ-COMMON-16B, TEST-PLAT-12: `my%2Bapp` is the serialization of
@@ -555,7 +582,7 @@ contract GitHubPlatformVerifierTest is Test {
     function test_acceptsAnExchangeWithAPlusInAValue() public {
         TlsNotaryVerifierBase.TlsNotaryProof memory s =
             _withExchangeBody(_exchangeBody("abc+def", "https%3A%2F%2Fa.example", "0123456789abcdef0123456789abcdef"));
-        assertEq(this.run{value: quote}(s).handle, "octocat");
+        assertEq(this.run{value: quote}(s).handleNode, HANDLE_NODE);
     }
 
     /// @dev TEST-PLAT-12: a credential with ENCODED delimiters remains one
@@ -564,7 +591,7 @@ contract GitHubPlatformVerifierTest is Test {
     function test_acceptsAnExchangeWithEncodedDelimitersInAValue() public {
         TlsNotaryVerifierBase.TlsNotaryProof memory s =
             _withExchangeBody(_exchangeBody("abc", "https%3A%2F%2Fa.example", "0123%26code_verifier%3DEVIL"));
-        assertEq(this.run{value: quote}(s).handle, "octocat");
+        assertEq(this.run{value: quote}(s).handleNode, HANDLE_NODE);
     }
 
     // ─── Two authorities, not one ───────────────────────────────────
@@ -581,54 +608,151 @@ contract GitHubPlatformVerifierTest is Test {
 
     function test_rejectsTheIdentityReadFromTheExchangeHost() public {
         TlsNotaryVerifierBase.TlsNotaryProof memory s = _payload();
-        s.identitySession = _identity('{"login":"octocat","id":583231}', CeremonyProfile.AUTHORITY_GITHUB);
+        s.identitySession = _identity(CeremonyProfile.AUTHORITY_GITHUB);
         vm.expectPartialRevert(PlatformVerifierBase.WrongAuthority.selector);
         this.run{value: quote}(s);
     }
 
     // ─── The bare-integer id (REQ-PLAT-51) ──────────────────────────
 
-    function test_readsTheIdWithEitherTerminator() public {
+    function _refusedFraming(AttestationBuilder.Direction memory received, bytes4 error_) private {
         TlsNotaryVerifierBase.TlsNotaryProof memory s = _payload();
-        s.identitySession = _identity('{"id":1,"login":"octocat"}', CeremonyProfile.AUTHORITY_GITHUB_API);
-        assertEq(this.run{value: quote}(s).userId, "1");
-    }
-
-    /// @dev The terminator proves the revealed digits are the whole number
-    ///      rather than a prefix of a longer one.
-    function test_rejectsAnIdWithoutAStructuralTerminator() public {
-        TlsNotaryVerifierBase.TlsNotaryProof memory s = _payload();
-        // A space before the brace is JSON's own and reads through; a space
-        // before more digits touches no structural byte and is the
-        // terminator, which is not one.
-        s.identitySession = _identity('{"login":"octocat","id":583231 4}', CeremonyProfile.AUTHORITY_GITHUB_API);
-        vm.expectPartialRevert(CeremonyFields.BadIntegerTerminator.selector);
+        s.identitySession = _identityReceiving(received, CeremonyProfile.AUTHORITY_GITHUB_API);
+        vm.expectPartialRevert(error_);
         this.run{value: quote}(s);
     }
 
-    function test_rejectsANoncanonicalId() public {
+    function _accepted(AttestationBuilder.Direction memory received) private returns (ICeremony.VerifiedClaim memory) {
         TlsNotaryVerifierBase.TlsNotaryProof memory s = _payload();
-        s.identitySession = _identity('{"login":"octocat","id":007}', CeremonyProfile.AUTHORITY_GITHUB_API);
-        vm.expectPartialRevert(CeremonyFields.NoncanonicalInteger.selector);
-        this.run{value: quote}(s);
+        s.identitySession = _identityReceiving(received, CeremonyProfile.AUTHORITY_GITHUB_API);
+        return this.run{value: quote}(s);
+    }
+
+    /// @dev The id is GitHub's last member as often as not, so `}` ends it as
+    ///      well as `,`, with JSON whitespace before either.
+    function test_framesTheIdWithEitherTerminator() public {
+        AttestationBuilder.Direction memory received = _upToTheId();
+        received.reveal('"id": ').commit("583231", ID_COMMITMENT).reveal("\n}");
+        assertEq(_accepted(received).idNode, ID_NODE);
+
+        received = _upToTheId();
+        received.reveal('"id":').commit("583231", ID_COMMITMENT).reveal(" ,").commit('"name":"x"}', OTHER);
+        assertEq(_accepted(received).idNode, ID_NODE);
+    }
+
+    /// @dev The terminator proves the committed digits are the whole number
+    ///      rather than a prefix of a longer one. A commitment followed by
+    ///      anything else frames nothing.
+    function test_refusesAnIdWithoutAStructuralTerminator() public {
+        AttestationBuilder.Direction memory received = _upToTheId();
+        received.reveal('"id": ').commit("583231", ID_COMMITMENT).reveal(";").commit("}", OTHER);
+        _refusedFraming(received, CeremonyAttestation.NoFramedCommitment.selector);
+    }
+
+    /// @dev A commitment over part of the digits, the rest revealed: the byte
+    ///      after the commitment is a digit, so it frames nothing.
+    function test_refusesACommitmentOverPartOfTheId() public {
+        AttestationBuilder.Direction memory received = _upToTheId();
+        received.reveal('"id": ').commit("5832", ID_COMMITMENT).reveal("31,").commit("}", OTHER);
+        _refusedFraming(received, CeremonyAttestation.NoFramedCommitment.selector);
+    }
+
+    /// @dev The terminator committed with the digits: what follows is the next
+    ///      member's quote, which ends no number.
+    function test_refusesAnIdCommittedWithItsTerminator() public {
+        AttestationBuilder.Direction memory received = _upToTheId();
+        received.reveal('"id": ').commit("583231,", ID_COMMITMENT).reveal('\n  "node_id": ').commit('"x"}', OTHER);
+        _refusedFraming(received, CeremonyAttestation.NoFramedCommitment.selector);
+    }
+
+    /// @dev Only whitespace revealed after the digits, the terminator hidden:
+    ///      nothing revealed says where the number ends.
+    function test_refusesAnIdWhoseTerminatorIsHidden() public {
+        AttestationBuilder.Direction memory received = _upToTheId();
+        received.reveal('"id": ').commit("583231", ID_COMMITMENT).reveal(" ").commit(",}", OTHER);
+        _refusedFraming(received, CeremonyAttestation.NoFramedCommitment.selector);
+    }
+
+    /// @dev The digits revealed, nothing committed: the id is on chain and
+    ///      there is no commitment for the circuit to open.
+    function test_refusesARevealedId() public {
+        AttestationBuilder.Direction memory received = _upToTheId();
+        received.reveal('"id": 583231,').commit("}", OTHER);
+        _refusedFraming(received, CeremonyAttestation.NoFramedCommitment.selector);
     }
 
     /// @dev A quoted id is not the integer GitHub returns, and REQ-PLAT-08
-    ///      refuses it rather than coercing.
+    ///      refuses it rather than coercing: with the quote revealed, the
+    ///      anchor is `"id":"`, which is not `"id":`.
     function test_rejectsAQuotedId() public {
-        TlsNotaryVerifierBase.TlsNotaryProof memory s = _payload();
-        s.identitySession = _identity('{"login":"octocat","id":"583231"}', CeremonyProfile.AUTHORITY_GITHUB_API);
-        vm.expectPartialRevert(CeremonyFields.NoncanonicalInteger.selector);
-        this.run{value: quote}(s);
+        AttestationBuilder.Direction memory received = _upToTheId();
+        received.reveal('"id": "').commit("583231", ID_COMMITMENT).reveal('",').commit("}", OTHER);
+        _refusedFraming(received, CeremonyAttestation.NoFramedCommitment.selector);
+    }
+
+    /// @dev The digits themselves are the circuit's: a framed commitment over
+    ///      `007`, or over a quoted value, reaches the proof, and only the
+    ///      circuit's id rule -- a decimal with no leading zero -- refuses it.
+    ///      The stub here accepts any proof; the real circuit would not.
+    function test_leavesTheIdsDigitsToTheCircuit() public {
+        AttestationBuilder.Direction memory received = _upToTheId();
+        received.reveal('"id": ').commit("007", ID_COMMITMENT).reveal(",").commit("}", OTHER);
+        assertEq(_accepted(received).idNode, ID_NODE);
+
+        received = _upToTheId();
+        received.reveal('"id": ').commit('"583231"', ID_COMMITMENT).reveal(",").commit("}", OTHER);
+        assertEq(_accepted(received).idNode, ID_NODE);
+    }
+
+    /// @dev A key that ends like the anchor is not the anchor: `"node_id":`
+    ///      frames no id, so a response revealing only it has none.
+    function test_refusesALookalikeIdKey() public {
+        AttestationBuilder.Direction memory received = _upToTheId();
+        received.reveal('"node_id": ').commit("583231", ID_COMMITMENT).reveal(",").commit("}", OTHER);
+        _refusedFraming(received, CeremonyAttestation.NoFramedCommitment.selector);
+    }
+
+    /// @dev The key cut by a hidden byte: `"i`, a commitment, `d": `.
+    function test_refusesAnIdAnchorSplitAroundACommittedGap() public {
+        AttestationBuilder.Direction memory received = _upToTheId();
+        received.reveal('"i').commit("d", OTHER).reveal('": ').commit("583231", ID_COMMITMENT).reveal(",")
+            .commit("}", OTHER);
+        _refusedFraming(received, CeremonyAttestation.NoFramedCommitment.selector);
+    }
+
+    /// @dev Two id anchors revealed, each framing a commitment.
+    function test_refusesTwoFramedIds() public {
+        AttestationBuilder.Direction memory received = _upToTheId();
+        received.reveal('"id": ').commit("583231", ID_COMMITMENT).reveal(",").commit("\n  ", OTHER).reveal('"id": ')
+            .commit("1", OTHER).reveal("}");
+        _refusedFraming(received, CeremonyAttestation.AmbiguousFraming.selector);
     }
 
     // ─── The handle field is `login` ────────────────────────────────
 
     function test_rejectsAResponseWithNoLogin() public {
-        TlsNotaryVerifierBase.TlsNotaryProof memory s = _payload();
-        s.identitySession = _identity('{"username":"octocat","id":583231}', CeremonyProfile.AUTHORITY_GITHUB_API);
-        vm.expectPartialRevert(TlsNotaryVerifierBase.FieldNotUnique.selector);
-        this.run{value: quote}(s);
+        AttestationBuilder.Direction memory received;
+        received.commit("HTTP/1.1 200 OK\r\n\r\n{", OTHER).reveal('"username":"').commit("OctoCat", HANDLE_COMMITMENT)
+            .reveal('",').reveal('"id":').commit("583231", ID_COMMITMENT).reveal("}");
+        _refusedFraming(received, CeremonyAttestation.NoFramedCommitment.selector);
+    }
+
+    /// @dev A second `login` in another spelling is a second `login`: the
+    ///      count compares with JSON whitespace removed.
+    function test_rejectsADuplicateMemberInAnotherWhitespaceSpelling() public {
+        AttestationBuilder.Direction memory received = _upToTheId();
+        received.reveal('"id": ').commit("583231", ID_COMMITMENT).reveal(",").commit("\n  ", OTHER)
+            .reveal('"login" : "').commit("mallory", OTHER).reveal('"}');
+        _refusedFraming(received, CeremonyAttestation.AmbiguousFraming.selector);
+    }
+
+    /// @dev The login committed with its closing quote frames nothing.
+    function test_refusesALoginCommittedWithItsClosingQuote() public {
+        AttestationBuilder.Direction memory received;
+        received.commit("HTTP/1.1 200 OK\r\n\r\n{\n  ", OTHER).reveal('"login": "')
+            .commit('OctoCat"', HANDLE_COMMITMENT).reveal(",").commit("\n  ", OTHER).reveal('"id": ')
+            .commit("583231", ID_COMMITMENT).reveal("}");
+        _refusedFraming(received, CeremonyAttestation.NoFramedCommitment.selector);
     }
 
     // ─── Shared duties still hold ───────────────────────────────────
@@ -692,7 +816,7 @@ contract GitHubPlatformVerifierTest is Test {
             "x-github-api-version: 2022-11-28\r\nconnection: close\r\n\r\n"
         );
         ICeremony.VerifiedClaim memory f = this.run{value: quote}(s);
-        assertEq(f.handle, "octocat");
+        assertEq(f.handleNode, HANDLE_NODE);
     }
 
     /// The honest identity read for a request given as the bytes before the
@@ -714,13 +838,8 @@ contract GitHubPlatformVerifierTest is Test {
             ),
             length: end + uint32(tail.length)
         });
-        bytes memory b = abi.encodePacked("HTTP/1.1 200 OK\r\n\r\n", '{"login":"octocat","id":583231}');
-        AttestationBuilder.Direction memory received = AttestationBuilder.Direction({
-            revealed: AttestationBuilder.one(AttestationBuilder.Range({start: 0, value: b})),
-            commitments: AttestationBuilder.none(),
-            length: uint32(b.length)
-        });
-        bytes memory attested = AttestationBuilder.encode(CeremonyProfile.AUTHORITY_GITHUB_API, T0, sent, received);
+        bytes memory attested =
+            AttestationBuilder.encode(CeremonyProfile.AUTHORITY_GITHUB_API, T0, sent, _identityResponse());
         return ICeremony.Attestation({attestedData: attested, proof: _sign(attested)});
     }
 
@@ -745,31 +864,73 @@ contract GitHubPlatformVerifierTest is Test {
         // media type the profile pins, whitespace and all. A compact body here
         // once let this fixture pass a verifier that refused every real read.
         assertTrue(
-            _contains(vm.parseJsonBytes(json, ".identity.received"), bytes('"login": "octocat"')),
+            _contains(vm.parseJsonBytes(json, ".identity.received"), bytes('"login": "OctoCat"')),
             "the fixture carries GitHub's pretty-printed response"
         );
 
         TlsNotaryVerifierBase.TlsNotaryProof memory s = _payload();
-        s.tokenSession = ICeremony.Attestation({
-            attestedData: vm.parseJsonBytes(json, ".token.attested_data"),
-            proof: vm.parseJsonBytes(json, ".token.notary_signature")
-        });
-        s.identitySession = ICeremony.Attestation({
-            attestedData: vm.parseJsonBytes(json, ".identity.attested_data"),
-            proof: vm.parseJsonBytes(json, ".identity.notary_signature")
-        });
+        s.tokenSession = _rustSession(json, ".token");
+        s.identitySession = _rustSession(json, ".identity");
         ICeremony.VerifiedClaim memory f = this.run{value: quote}(s);
-        assertEq(f.userId, "583231");
-        assertEq(f.handle, "octocat");
+        assertEq(f.idNode, ID_NODE);
+        assertEq(f.handleNode, HANDLE_NODE);
         assertEq(string(f.clientIdentifier), "Iv1.8a61f9b3a7aba766");
         assertEq(f.sessionId, digest);
     }
 
+    /// @dev The record reveals the anchors and the id's terminator, and
+    ///      neither value in any case.
+    function test_theIdentityRecordRevealsNeitherTheIdNorTheLogin() public view {
+        bytes memory attested = vm.parseJsonBytes(vm.readFile(RUST_SESSION), ".identity.attested_data");
+        assertFalse(_contains(attested, "583231"), "the id");
+        assertFalse(_contains(attested, "OctoCat"), "the login");
+        assertFalse(_contains(attested, "octocat"), "the folded login");
+        assertTrue(_contains(attested, '"login": "'), "the login's anchor");
+        assertTrue(_contains(attested, '"id": '), "the id's anchor");
+    }
+
+    /// @dev The opening libid-rs wrote beside the records opens the
+    ///      commitments the notary signed, under tlsn's SHA-256 over the value
+    ///      and its 16-byte blinder; and the framing finds exactly those two.
+    function test_theWitnessOpensTheCommitmentsTheFramingFinds() public view {
+        string memory json = vm.readFile(RUST_SESSION);
+        assertEq(vm.parseJsonString(json, ".identity_link_witness.id.value"), "583231");
+        assertEq(vm.parseJsonString(json, ".identity_link_witness.handle.value"), "OctoCat");
+
+        bytes32 id = vm.parseJsonBytes32(json, ".identity_link_witness.id.commitment");
+        bytes32 handle = vm.parseJsonBytes32(json, ".identity_link_witness.handle.commitment");
+        assertEq(sha256(bytes.concat("583231", _blinder(json, ".identity_link_witness.id.blinder"))), id);
+        assertEq(sha256(bytes.concat("OctoCat", _blinder(json, ".identity_link_witness.handle.blinder"))), handle);
+
+        CeremonyAttestation.AttestedData memory data = this.decode(vm.parseJsonBytes(json, ".identity.attested_data"));
+        assertEq(CeremonyAttestation.requireFramedInteger(data.received, '"id":').commitment, id);
+        assertEq(CeremonyAttestation.requireFramedCommitment(data.received, '"login":"', '"').commitment, handle);
+    }
+
+    function decode(bytes calldata attested) external pure returns (CeremonyAttestation.AttestedData memory) {
+        return CeremonyAttestation.decode(attested);
+    }
+
+    function _blinder(string memory json, string memory key) private pure returns (bytes memory b) {
+        b = vm.parseJsonBytes(json, key);
+        assertEq(b.length, 16, "tlsn's blinder is 16 bytes");
+    }
+
+    function _rustSession(string memory json, string memory key) private pure returns (ICeremony.Attestation memory) {
+        return ICeremony.Attestation({
+            attestedData: vm.parseJsonBytes(json, string.concat(key, ".attested_data")),
+            proof: vm.parseJsonBytes(json, string.concat(key, ".notary_signature"))
+        });
+    }
+
     string constant RUST_SESSION_PROOF = "contracts/ceremony/test/fixtures/github-ceremony-session-proof.json";
+    string constant X_SESSION = "contracts/ceremony/test/fixtures/x-ceremony-session.json";
+    string constant X_SESSION_PROOF = "contracts/ceremony/test/fixtures/x-ceremony-session-proof.json";
 
     /// The error the bearer-link verifier raises for a sumcheck round that
     /// does not hold. That verifier never returns false: it refuses by
-    /// reverting, and `verify` passes the revert through.
+    /// reverting, and `verify` passes the revert through. A public input
+    /// other than the one proved fails here too.
     error SumcheckFailed();
 
     /// The low byte of proof word 29, the first sumcheck coefficient in bb's
@@ -778,42 +939,37 @@ contract GitHubPlatformVerifierTest is Test {
     /// verifier's precompile call burn all the gas it is given.
     uint256 constant FLIPPED_PROOF_BYTE = 29 * 32 + 31;
 
-    /// `RUST_SESSION`'s records with the proof of the bearer they commit, and
+    /// `RUST_SESSION`'s records with the proof bb made of their witness, and
     /// the circuit's own verifier wired in place of the stub. Returns that
     /// verifier and the public inputs bb proved.
     function _realProofPayload()
         private
         returns (TlsNotaryVerifierBase.TlsNotaryProof memory s, address circuit, bytes32[] memory proved)
     {
-        circuit = vm.deployCode("BearerLinkHonkVerifier.sol:BearerLinkHonkVerifier");
+        circuit = vm.deployCode("BearerLinkGithubHonkVerifier.sol:BearerLinkGithubHonkVerifier");
         vm.prank(OWNER);
         verifier.setTrustRoots(INotaryService(address(notary)), IHonkVerifier(circuit), circuit.codehash);
 
         string memory session = vm.readFile(RUST_SESSION);
         string memory proof = vm.readFile(RUST_SESSION_PROOF);
         s = _payload();
-        s.tokenSession = ICeremony.Attestation({
-            attestedData: vm.parseJsonBytes(session, ".token.attested_data"),
-            proof: vm.parseJsonBytes(session, ".token.notary_signature")
-        });
-        s.identitySession = ICeremony.Attestation({
-            attestedData: vm.parseJsonBytes(session, ".identity.attested_data"),
-            proof: vm.parseJsonBytes(session, ".identity.notary_signature")
-        });
+        s.tokenSession = _rustSession(session, ".token");
+        s.identitySession = _rustSession(session, ".identity");
         s.proof = vm.parseJsonBytes(proof, ".proof");
         proved = vm.parseJsonBytes32Array(proof, ".public_inputs");
     }
 
-    /// @dev The stub accepts any public inputs, so only the circuit's own
-    ///      verifier can say the inputs this verifier builds from the two
-    ///      sessions are the ones the circuit proves. bb proved the bearer
-    ///      these records commit, from their openings.
+    /// @dev Stage B's acceptance. The circuit's own verifier, a real proof of
+    ///      the records libid-rs produced, and the nodes out are the ones
+    ///      Python's hashlib computes for `583231` and `octocat`: GitHub sent
+    ///      `OctoCat`, and the circuit folded it.
     function test_verifiesARealProofOfTheRecordsLibidRsProduces() public {
         (TlsNotaryVerifierBase.TlsNotaryProof memory s, address circuit, bytes32[] memory proved) = _realProofPayload();
+        assertEq(proved.length, 72);
         vm.expectCall(circuit, abi.encodeCall(IHonkVerifier.verify, (s.proof, proved)));
         ICeremony.VerifiedClaim memory f = this.run{value: quote}(s);
-        assertEq(f.userId, "583231");
-        assertEq(f.handle, "octocat");
+        assertEq(f.idNode, 0x475902b27989feb395b9b0cd3156aa573a9676c13155b8e7e3ddaf3e77181847, "hashlib idNode");
+        assertEq(f.handleNode, 0x381fb9d7d3b01214e58b94202ea10f78e169adef68bcc20d40c130deca6dfe74, "hashlib handleNode");
         assertEq(string(f.clientIdentifier), "Iv1.8a61f9b3a7aba766");
         assertEq(f.sessionId, digest);
         assertEq(f.operationDomain, DOMAIN);
@@ -827,6 +983,136 @@ contract GitHubPlatformVerifierTest is Test {
         s.proof[FLIPPED_PROOF_BYTE] ^= 0x01;
         vm.expectRevert(SumcheckFailed.selector);
         this.run{value: quote}(s);
+    }
+
+    // ─── What the real proof binds ──────────────────────────────────
+
+    function test_refusesARealProofUnderAnotherIdNode() public {
+        (TlsNotaryVerifierBase.TlsNotaryProof memory s,,) = _realProofPayload();
+        s.idNode = sha256("libid.github.user-id1");
+        vm.expectRevert(SumcheckFailed.selector);
+        this.run{value: quote}(s);
+    }
+
+    function test_refusesARealProofUnderAnotherHandleNode() public {
+        (TlsNotaryVerifierBase.TlsNotaryProof memory s,,) = _realProofPayload();
+        s.handleNode ^= bytes32(uint256(1) << 255);
+        vm.expectRevert(SumcheckFailed.selector);
+        this.run{value: quote}(s);
+    }
+
+    function test_refusesARealProofWithItsNodesSwapped() public {
+        (TlsNotaryVerifierBase.TlsNotaryProof memory s,,) = _realProofPayload();
+        (s.idNode, s.handleNode) = (s.handleNode, s.idNode);
+        vm.expectRevert(SumcheckFailed.selector);
+        this.run{value: quote}(s);
+    }
+
+    /// @dev The record's login commitment replaced by the X fixture's and the
+    ///      record re-signed by the notary this suite trusts: every check
+    ///      before the proof passes, and the proof opens nothing.
+    function test_refusesARealProofOverAnotherSessionsHandleCommitment() public {
+        _refuseOverASubstitutedCommitment(".identity_link_witness.handle.commitment");
+    }
+
+    function test_refusesARealProofOverAnotherSessionsIdCommitment() public {
+        _refuseOverASubstitutedCommitment(".identity_link_witness.id.commitment");
+    }
+
+    function test_refusesARealProofOverAnotherSessionsIdentityBearer() public {
+        _refuseOverASubstitutedCommitment(".identity_link_witness.identity_bearer.commitment");
+    }
+
+    function _refuseOverASubstitutedCommitment(string memory key) private {
+        (TlsNotaryVerifierBase.TlsNotaryProof memory s,,) = _realProofPayload();
+        bytes32 ours = vm.parseJsonBytes32(vm.readFile(RUST_SESSION), key);
+        bytes32 theirs = vm.parseJsonBytes32(vm.readFile(X_SESSION), key);
+        s.identitySession = _resigned(s.identitySession.attestedData, ours, theirs, bytes32(0), bytes32(0));
+        vm.expectRevert(SumcheckFailed.selector);
+        this.run{value: quote}(s);
+    }
+
+    /// @dev The id and login commitments exchanged in the record. Each is
+    ///      still framed, the login's commitment now behind the id's anchors
+    ///      and terminator, and the proof refuses the pair.
+    function test_refusesARealProofWithTheIdAndHandleCommitmentsSwapped() public {
+        (TlsNotaryVerifierBase.TlsNotaryProof memory s,,) = _realProofPayload();
+        string memory json = vm.readFile(RUST_SESSION);
+        bytes32 id = vm.parseJsonBytes32(json, ".identity_link_witness.id.commitment");
+        bytes32 handle = vm.parseJsonBytes32(json, ".identity_link_witness.handle.commitment");
+        s.identitySession = _resigned(s.identitySession.attestedData, id, handle, handle, id);
+        vm.expectRevert(SumcheckFailed.selector);
+        this.run{value: quote}(s);
+    }
+
+    /// @dev X's identity session, as signed, is refused before the proof:
+    ///      its authority is X's API host.
+    function test_refusesAnotherPlatformsIdentitySession() public {
+        (TlsNotaryVerifierBase.TlsNotaryProof memory s,,) = _realProofPayload();
+        s.identitySession = _rustSession(vm.readFile(X_SESSION), ".identity");
+        vm.expectPartialRevert(PlatformVerifierBase.WrongAuthority.selector);
+        this.run{value: quote}(s);
+    }
+
+    /// @dev An X proof, with its nodes, over GitHub's sessions: another
+    ///      verification key, refused by GitHub's.
+    function test_refusesAnXProofUnderTheGitHubCircuit() public {
+        (TlsNotaryVerifierBase.TlsNotaryProof memory s,,) = _realProofPayload();
+        string memory x = vm.readFile(X_SESSION_PROOF);
+        s.proof = vm.parseJsonBytes(x, ".proof");
+        bytes32[] memory proved = vm.parseJsonBytes32Array(x, ".public_inputs");
+        s.idNode = bytes32((uint256(proved[68]) << 128) | uint256(proved[69]));
+        s.handleNode = bytes32((uint256(proved[70]) << 128) | uint256(proved[71]));
+        vm.expectRevert(SumcheckFailed.selector);
+        this.run{value: quote}(s);
+    }
+
+    /// @dev And this suite's GitHub sessions and proof, sent to an X verifier
+    ///      wired to the X circuit, are refused at the first session.
+    function test_anXVerifierRefusesAGitHubCeremony() public {
+        (TlsNotaryVerifierBase.TlsNotaryProof memory s,,) = _realProofPayload();
+        address circuit = vm.deployCode("BearerLinkXHonkVerifier.sol:BearerLinkXHonkVerifier");
+        XPlatformVerifier x = XPlatformVerifier(
+            address(
+                new ERC1967Proxy(
+                    address(new XPlatformVerifier()),
+                    abi.encodeCall(
+                        XPlatformVerifier.initialize,
+                        (OWNER, INotaryService(address(notary)), IHonkVerifier(circuit), circuit.codehash)
+                    )
+                )
+            )
+        );
+        uint256 value = x.quote();
+        vm.expectPartialRevert(PlatformVerifierBase.WrongAuthority.selector);
+        x.verify{value: value}(abi.encode(s));
+    }
+
+    /// `attested` with the 32-byte commitment `a` replaced by `aTo` and, when
+    /// `b` is nonzero, `b` by `bTo`, re-signed by the notary this suite
+    /// trusts. Each must occur exactly once.
+    function _resigned(bytes memory attested, bytes32 a, bytes32 aTo, bytes32 b, bytes32 bTo)
+        private
+        pure
+        returns (ICeremony.Attestation memory)
+    {
+        uint256 atA = _onlyOffsetOf(attested, abi.encodePacked(a));
+        uint256 atB = b == bytes32(0) ? type(uint256).max : _onlyOffsetOf(attested, abi.encodePacked(b));
+        for (uint256 i = 0; i < 32; ++i) {
+            attested[atA + i] = aTo[i];
+            if (atB != type(uint256).max) attested[atB + i] = bTo[i];
+        }
+        return ICeremony.Attestation({attestedData: attested, proof: _sign(attested)});
+    }
+
+    function _onlyOffsetOf(bytes memory haystack, bytes memory needle) private pure returns (uint256 at) {
+        at = _indexOf(haystack, needle);
+        assertTrue(at != type(uint256).max, "commitment not in the record");
+        bytes memory rest = new bytes(haystack.length - at - 1);
+        for (uint256 i = 0; i < rest.length; ++i) {
+            rest[i] = haystack[at + 1 + i];
+        }
+        assertEq(_indexOf(rest, needle), type(uint256).max, "commitment twice in the record");
     }
 
     function _contains(bytes memory haystack, bytes memory needle) private pure returns (bool) {
@@ -848,64 +1134,41 @@ contract GitHubPlatformVerifierTest is Test {
 
     /// @dev GitHub pretty-prints `/user` for the media type the profile pins:
     ///      a newline and two spaces before every member, a space after every
-    ///      colon. The readers remove JSON whitespace before they look, so the
-    ///      compact delimiters they match are the grammar, not the bytes.
-    function test_readsTheIdentityGitHubPrettyPrints() public {
-        TlsNotaryVerifierBase.TlsNotaryProof memory s = _payload();
-        s.identitySession = _identity(
-            '{\n  "login": "octocat",\n  "id": 583231,\n  "node_id": "MDQ6VXNlcjU4MzIzMQ==",\n  "name": "The Octocat"\n}',
-            CeremonyProfile.AUTHORITY_GITHUB_API
-        );
-        ICeremony.VerifiedClaim memory f = this.run{value: quote}(s);
-        assertEq(f.userId, "583231");
-        assertEq(f.handle, "octocat");
-    }
-
-    /// @dev A second `login` in another spelling is a second `login`.
-    function test_rejectsADuplicateMemberInAnotherWhitespaceSpelling() public {
-        TlsNotaryVerifierBase.TlsNotaryProof memory s = _payload();
-        s.identitySession =
-            _identity('{"login":"octocat","id":583231,"login" : "mallory"}', CeremonyProfile.AUTHORITY_GITHUB_API);
-        vm.expectRevert(abi.encodeWithSelector(TlsNotaryVerifierBase.FieldNotUnique.selector, "login", 2));
-        this.run{value: quote}(s);
+    ///      colon. The anchors are compared with JSON whitespace removed, so
+    ///      the compact delimiters they match are the grammar, not the bytes;
+    ///      the honest response every test here uses is that shape.
+    function test_framesTheIdentityGitHubPrettyPrints() public {
+        AttestationBuilder.Direction memory received;
+        received.commit("HTTP/1.1 200 OK\r\n\r\n{\n  ", OTHER).reveal('"login" :  "')
+            .commit("OctoCat", HANDLE_COMMITMENT).reveal('"').commit(",\n  ", OTHER).reveal('"id"\t:\n ')
+            .commit("583231", ID_COMMITMENT).reveal("\n,").commit('"name": "The Octocat"\n}', OTHER);
+        ICeremony.VerifiedClaim memory f = _accepted(received);
+        assertEq(f.idNode, ID_NODE);
+        assertEq(f.handleNode, HANDLE_NODE);
     }
 
     string constant REAL_SESSION = "contracts/ceremony/test/fixtures/github-ceremony-real.json";
 
     /// @dev A ceremony that actually ran: two MPC-TLS sessions against
-    ///      github.com and api.github.com on 2026-09-17, the exchange with a
-    ///      real authorization code under the PKCE challenge derived from this
-    ///      suite's digest, the identity read with the bearer GitHub issued,
-    ///      the verifier in the prover's process signing as the key this
-    ///      suite trusts (libid-rs `examples/capture_ceremony.rs`). Nothing in
-    ///      the file was written by hand: the head is what hyper put on the
-    ///      wire, the body is what GitHub answered, pretty-printed as GitHub
-    ///      prints it, the credential is in the clear and the bearer is
-    ///      committed, not present. Verified with the signatures unedited, at a
-    ///      clock a minute past the identity read.
+    ///      github.com and api.github.com on 2026-09-17, signed as the key
+    ///      this suite trusts (libid-rs `examples/capture_ceremony.rs`). Its
+    ///      identity response reveals the login and the id, which the
+    ///      anchor-only framing refuses: no committed value sits behind either
+    ///      anchor. It verifies again once recaptured with the anchors alone
+    ///      revealed and a proof made of its witness.
     function test_verifiesTheRecordsACeremonyProduced() public {
+        vm.skip(
+            true,
+            "github-ceremony-real.json predates the hashed identities: it reveals the id and login; recapture with libid-rs capture_ceremony under the anchor-only reveal"
+        );
         string memory json = vm.readFile(REAL_SESSION);
         assertEq(vm.parseJsonBytes32(json, ".authorization_digest"), digest, "bound to this suite's digest");
-        assertEq(vm.parseJsonBytes32(json, ".authorization_nonce"), AUTH_NONCE);
-        assertEq(vm.parseJsonAddress(json, ".notary"), vm.addr(NOTARY_KEY), "signed by the key this suite trusts");
-        assertTrue(
-            _contains(vm.parseJsonBytes(json, ".identity.attested_data"), bytes('"login": "')),
-            "GitHub's pretty-printed response, as served"
-        );
         vm.warp(vm.parseJsonUint(json, ".identity.created_at") + 60);
 
         TlsNotaryVerifierBase.TlsNotaryProof memory s = _payload();
-        s.tokenSession = ICeremony.Attestation({
-            attestedData: vm.parseJsonBytes(json, ".token.attested_data"),
-            proof: vm.parseJsonBytes(json, ".token.notary_signature")
-        });
-        s.identitySession = ICeremony.Attestation({
-            attestedData: vm.parseJsonBytes(json, ".identity.attested_data"),
-            proof: vm.parseJsonBytes(json, ".identity.notary_signature")
-        });
+        s.tokenSession = _rustSession(json, ".token");
+        s.identitySession = _rustSession(json, ".identity");
         ICeremony.VerifiedClaim memory f = this.run{value: quote}(s);
-        assertEq(f.userId, "293919812");
-        assertEq(f.handle, "testyakly");
         assertEq(string(f.clientIdentifier), "Iv23lioEM9NAR9vO8CmT");
         assertEq(f.sessionId, digest);
     }
@@ -941,13 +1204,8 @@ contract GitHubPlatformVerifierTest is Test {
             ),
             length: end + uint32(tail.length)
         });
-        bytes memory b = abi.encodePacked("HTTP/1.1 200 OK\r\n\r\n", '{"login":"octocat","id":583231}');
-        AttestationBuilder.Direction memory received = AttestationBuilder.Direction({
-            revealed: AttestationBuilder.one(AttestationBuilder.Range({start: 0, value: b})),
-            commitments: AttestationBuilder.none(),
-            length: uint32(b.length)
-        });
-        bytes memory attested = AttestationBuilder.encode(CeremonyProfile.AUTHORITY_GITHUB_API, T0, sent, received);
+        bytes memory attested =
+            AttestationBuilder.encode(CeremonyProfile.AUTHORITY_GITHUB_API, T0, sent, _identityResponse());
         return ICeremony.Attestation({attestedData: attested, proof: _sign(attested)});
     }
 
@@ -1031,7 +1289,7 @@ contract GitHubPlatformVerifierTest is Test {
         TlsNotaryVerifierBase.TlsNotaryProof memory s = _payload();
         s.tokenSession = ICeremony.Attestation({attestedData: a, proof: _sign(a)});
         ICeremony.VerifiedClaim memory f = this.run{value: quote}(s);
-        assertEq(f.handle, "octocat");
+        assertEq(f.handleNode, HANDLE_NODE);
     }
 
     /// @dev And the fixtures above compose that head from parts, so this is
@@ -1071,7 +1329,24 @@ contract GitHubPlatformVerifierTest is Test {
         this.run{value: quote}(s);
     }
 
-    /// REQ-PLAT-52B: mirror of XPlatformVerifier.t.sol:403 test_provesAgainstTheCommitmentsTheNotarySigned
-    /// using this file's TOKEN_COMMITMENT / IDENTITY_COMMITMENT (verified passing as test_P25_…).
-    function test_provesAgainstTheCommitmentsTheNotarySigned() public { /* copy of the X test */ }
+    /// @dev REQ-PLAT-52B: the 72 inputs the proof is checked against are
+    ///      built from the two attestations and the payload's nodes, written
+    ///      out here independently of the verifier: the bearer commitments a
+    ///      byte per field, then the id and login commitments and the two
+    ///      nodes as `[high, low]` halves.
+    function test_provesAgainstTheCommitmentsTheNotarySigned() public {
+        bytes32[] memory expected = new bytes32[](72);
+        for (uint256 i = 0; i < 32; ++i) {
+            expected[i] = bytes32(uint256(uint8(TOKEN_COMMITMENT[i])));
+            expected[32 + i] = bytes32(uint256(uint8(IDENTITY_COMMITMENT[i])));
+        }
+        bytes32[4] memory wide = [ID_COMMITMENT, HANDLE_COMMITMENT, ID_NODE, HANDLE_NODE];
+        for (uint256 k = 0; k < 4; ++k) {
+            expected[64 + 2 * k] = bytes32(uint256(wide[k]) / 2 ** 128);
+            expected[65 + 2 * k] = bytes32(uint256(wide[k]) % 2 ** 128);
+        }
+        TlsNotaryVerifierBase.TlsNotaryProof memory s = _payload();
+        vm.expectCall(address(honk), abi.encodeCall(IHonkVerifier.verify, (s.proof, expected)));
+        this.run{value: quote}(s);
+    }
 }

@@ -1,8 +1,10 @@
-//! Turns a platform handle into the one form the identity system hashes into
-//! a node.
+//! Turns a handle a caller typed into the one form the identity circuits hash
+//! into a node.
 //!
-//! This mirrors `contracts/identity/HandleNormalizer.sol` byte for byte. The
-//! two are hand written and share nothing but the vector table in
+//! The transform refuses rather than repairs: A-Z fold to a-z, and nothing is
+//! trimmed or stripped. It mirrors the circuits' `lib/identity` and
+//! `contracts/identity/HandleNormalizer.sol` byte for byte. They are hand
+//! written and share nothing but the vector table in
 //! `contracts/identity/handles.json`, so a difference between them fails a test
 //! instead of looking up a node the chain never wrote.
 
@@ -53,11 +55,8 @@ impl std::error::Error for HandleError {}
 /// configuration rather than code.
 #[derive(Debug, Clone, Copy)]
 pub struct Rules {
-    /// Bytes allowed after trimming and the `@` strip.
+    /// Bytes allowed.
     pub max_length: usize,
-    /// Remove one leading `@`. X and GitHub do. An email keeps its own `@`, so
-    /// Google does not.
-    pub strip_leading_at: bool,
     /// Validate as an address instead of a bare handle.
     pub is_email: bool,
     /// Allowed by X, not by GitHub.
@@ -78,7 +77,6 @@ impl Rules {
     /// exercises.
     pub const X: Self = Self {
         max_length: v::MAX_LENGTH_X,
-        strip_leading_at: v::STRIP_LEADING_AT_X,
         is_email: v::IS_EMAIL_X,
         allow_underscore: v::ALLOW_UNDERSCORE_X,
         allow_hyphen: v::ALLOW_HYPHEN_X,
@@ -87,7 +85,6 @@ impl Rules {
     /// GitHub: letters, digits and hyphen.
     pub const GITHUB: Self = Self {
         max_length: v::MAX_LENGTH_GITHUB,
-        strip_leading_at: v::STRIP_LEADING_AT_GITHUB,
         is_email: v::IS_EMAIL_GITHUB,
         allow_underscore: v::ALLOW_UNDERSCORE_GITHUB,
         allow_hyphen: v::ALLOW_HYPHEN_GITHUB,
@@ -96,7 +93,6 @@ impl Rules {
     /// Google: an address, used exactly as proved.
     pub const GOOGLE: Self = Self {
         max_length: v::MAX_LENGTH_GOOGLE,
-        strip_leading_at: v::STRIP_LEADING_AT_GOOGLE,
         is_email: v::IS_EMAIL_GOOGLE,
         allow_underscore: v::ALLOW_UNDERSCORE_GOOGLE,
         allow_hyphen: v::ALLOW_HYPHEN_GOOGLE,
@@ -104,9 +100,8 @@ impl Rules {
 }
 
 /// The rules for a platform key (`"x"`, `"github"`, ...) from the generated
-/// table: what the contracts were released with. The chain's owner can change
-/// a platform's rules, so a hash for a deposit should use the rules
-/// `IdentityRegistry.rulesOf` returns.
+/// table. They are frozen at launch: the circuits that key bindings carry
+/// them, so no deployment can run others.
 pub fn rules_for(platform_key: &str) -> Option<Rules> {
     match platform_key {
         v::PLATFORM_X_KEY => Some(Rules::X),
@@ -118,26 +113,7 @@ pub fn rules_for(platform_key: &str) -> Option<Rules> {
 
 /// The normalized handle, or the reason it was refused.
 pub fn normalize(raw: &str, rules: Rules) -> Result<String, HandleError> {
-    let input = raw.as_bytes();
-
-    // Trim ASCII spaces only. A tab or a newline is not whitespace to remove
-    // here; it is a byte the platform does not allow, and the character check
-    // below refuses it. Trimming it would accept "ali\tce" as "alice" here and
-    // refuse it in Solidity.
-    let mut start = 0usize;
-    let mut end = input.len();
-    while start < end && input[start] == b' ' {
-        start += 1;
-    }
-    while end > start && input[end - 1] == b' ' {
-        end -= 1;
-    }
-
-    if rules.strip_leading_at && end > start && input[start] == b'@' {
-        start += 1;
-    }
-
-    let slice = &input[start..end];
+    let slice = raw.as_bytes();
     if slice.is_empty() {
         return Err(HandleError::Empty);
     }

@@ -5,10 +5,9 @@ import {CeremonyAttestation} from "../CeremonyAttestation.sol";
 import {CeremonyFields} from "../CeremonyFields.sol";
 import {CeremonyProfile} from "../CeremonyProfile.sol";
 
-/// @notice The transcript checks of `CeremonyAttestation` as of commit 7a63c20,
-///         for the differential tests in `TranscriptEquivalence.t.sol`. Code
-///         unchanged except `_field`, whose header names drop every space and
-///         tab as REQ-PLAT-56A and REQ-COMMON-39B require.
+/// @notice A reference implementation of the transcript checks of
+///         `CeremonyAttestation` in plain byte loops, for the differential
+///         tests in `TranscriptEquivalence.t.sol`.
 /// @dev Errors are declared here with the signatures of the originals, so a
 ///      revert carries the same data. Types are the live library's, so one
 ///      input feeds both implementations.
@@ -49,6 +48,46 @@ library RefCeremonyAttestation {
         }
         if (found == type(uint256).max) revert NoFramedCommitment();
         return block_.commitments[found];
+    }
+
+    /// @dev The one commitment that is a bare JSON integer's digits: `prefix`
+    ///      ends the revealed range before it, and the revealed range after it
+    ///      begins, JSON whitespace aside, with `,` or `}`.
+    function requireFramedInteger(CeremonyAttestation.DirectionBlock memory block_, bytes memory prefix)
+        internal
+        pure
+        returns (CeremonyAttestation.RangeCommitment memory framed)
+    {
+        if (_occurrences(RefCeremonyFields.normalizeJsonBytes(concatRevealed(block_)), prefix) > 1) {
+            revert AmbiguousFraming();
+        }
+
+        uint256 found = type(uint256).max;
+        for (uint256 i = 0; i < block_.commitments.length; ++i) {
+            CeremonyAttestation.RangeCommitment memory c = block_.commitments[i];
+            if (!_anchoredBy(block_, c.start, prefix)) continue;
+            if (!_endsANumber(block_, c.end)) continue;
+
+            if (found != type(uint256).max) revert AmbiguousFraming();
+            found = i;
+        }
+        if (found == type(uint256).max) revert NoFramedCommitment();
+        return block_.commitments[found];
+    }
+
+    /// @dev Whether the revealed range starting at `at` has `,` or `}` as
+    ///      its first byte that is not JSON whitespace.
+    function _endsANumber(CeremonyAttestation.DirectionBlock memory block_, uint32 at) private pure returns (bool) {
+        for (uint256 i = 0; i < block_.revealed.length; ++i) {
+            if (block_.revealed[i].start != at) continue;
+            bytes memory v = block_.revealed[i].value;
+            uint256 j = 0;
+            while (j < v.length && (v[j] == " " || v[j] == "\t" || v[j] == "\n" || v[j] == "\r")) {
+                ++j;
+            }
+            return j < v.length && (v[j] == "," || v[j] == "}");
+        }
+        return false;
     }
 
     function _anchoredBy(CeremonyAttestation.DirectionBlock memory block_, uint32 at, bytes memory prefix)
@@ -233,8 +272,7 @@ library RefCeremonyAttestation {
     }
 }
 
-/// @notice The field readers of `CeremonyFields` as of commit 7a63c20, code
-///         unchanged.
+/// @notice The field readers of `CeremonyFields`, modelled byte by byte.
 library RefCeremonyFields {
     error AmbiguousField(string name);
     error FieldNotFound(string name);
@@ -457,16 +495,15 @@ library RefCeremonyFields {
     }
 }
 
-/// @notice The transcript checks `TlsNotaryVerifierBase` ran on each session
-///         as of commit 7a63c20, code unchanged: everything between
-///         authenticating an attestation and reading its time.
+/// @notice The transcript checks `TlsNotaryVerifierBase` runs on each session:
+///         everything between authenticating an attestation and reading its
+///         time, in the same order, so a revert carries the same data.
 /// @dev A profile's hooks are parameters here: `Profile` carries the
 ///      constants `XPlatformVerifier` and `GitHubPlatformVerifier` return.
 library RefTranscript {
     error WrongRequestLine();
     error CodeVerifierMismatch();
     error ClientIdentifierNotSerializerSafe(bytes found);
-    error FieldNotUnique(string name, uint256 rangesMatching);
     error RequestLineNotAtOrigin(uint32 start);
     error WrongTokenRequestLayout(uint256 revealedRanges, uint256 commitments);
     error NoHeadBoundary(uint256 occurrences);
@@ -557,11 +594,12 @@ library RefTranscript {
         tokenCommitment = bearer.commitment;
     }
 
-    /// @dev `_identitySession` after `_authenticate`.
+    /// @dev `_identitySession` after `_authenticate`: the committed bearer,
+    ///      id and handle, each found by its framing.
     function identityTranscript(CeremonyAttestation.AttestedData memory data, Profile memory profile)
         internal
         pure
-        returns (bytes32 identityCommitment, string memory userId, string memory handle)
+        returns (bytes32 bearerCommitment, bytes32 idCommitment, bytes32 handleCommitment)
     {
         if (data.sent.revealed.length == 0 || data.sent.revealed[0].start != 0) {
             revert RequestLineNotAtOrigin(data.sent.revealed.length == 0
@@ -574,70 +612,22 @@ library RefTranscript {
 
         CeremonyAttestation.RangeCommitment memory bearer =
             RefCeremonyAttestation.requireBearerHeaderRequest(data.sent, data.sentTranscriptLength);
-        identityCommitment = bearer.commitment;
+        bearerCommitment = bearer.commitment;
         _checkIdentityHead(RefCeremonyAttestation.concatRevealed(data.sent));
 
         RefCeremonyAttestation.requireExactCoverage(data.received, data.recvTranscriptLength);
-        bytes memory joined = RefCeremonyAttestation.concatRevealed(data.received);
-        userId = string(
-            !profile.idIsInteger
-                ? _uniqueJsonString(data.received, joined, profile.idField)
-                : _uniqueJsonInteger(data.received, joined, profile.idField)
-        );
-        handle = string(_uniqueJsonString(data.received, joined, profile.handleField));
-    }
-
-    function _delimiterCount(bytes memory joined, bytes memory delimiter) private pure returns (uint256 count) {
-        for (uint256 i = 0; i + delimiter.length <= joined.length; ++i) {
-            bool hit = true;
-            for (uint256 j = 0; j < delimiter.length; ++j) {
-                if (joined[i + j] != delimiter[j]) {
-                    hit = false;
-                    break;
-                }
-            }
-            if (hit) ++count;
-        }
-    }
-
-    function _uniqueJsonString(
-        CeremonyAttestation.DirectionBlock memory block_,
-        bytes memory joined,
-        string memory name
-    ) internal pure returns (bytes memory value) {
-        uint256 matches;
-        for (uint256 i = 0; i < block_.revealed.length; ++i) {
-            (CeremonyFields.Found found, bytes memory v) =
-                RefCeremonyFields.tryJsonString(block_.revealed[i].value, name);
-            if (found == CeremonyFields.Found.Several) revert FieldNotUnique(name, 2);
-            if (found == CeremonyFields.Found.One) {
-                ++matches;
-                value = v;
-            }
-        }
-        if (matches != 1) revert FieldNotUnique(name, matches);
-        uint256 seen = _delimiterCount(RefCeremonyFields.normalizeJsonBytes(joined), abi.encodePacked('"', name, '":"'));
-        if (seen != 1) revert FieldNotUnique(name, seen);
-    }
-
-    function _uniqueJsonInteger(
-        CeremonyAttestation.DirectionBlock memory block_,
-        bytes memory joined,
-        string memory name
-    ) internal pure returns (bytes memory digits) {
-        uint256 matches;
-        for (uint256 i = 0; i < block_.revealed.length; ++i) {
-            (CeremonyFields.Found found, bytes memory v) =
-                RefCeremonyFields.tryJsonInteger(block_.revealed[i].value, name);
-            if (found == CeremonyFields.Found.Several) revert FieldNotUnique(name, 2);
-            if (found == CeremonyFields.Found.One) {
-                ++matches;
-                digits = v;
-            }
-        }
-        if (matches != 1) revert FieldNotUnique(name, matches);
-        uint256 seen = _delimiterCount(RefCeremonyFields.normalizeJsonBytes(joined), abi.encodePacked('"', name, '":'));
-        if (seen != 1) revert FieldNotUnique(name, seen);
+        idCommitment = profile.idIsInteger
+            ? RefCeremonyAttestation.requireFramedInteger(data.received, abi.encodePacked('"', profile.idField, '":'))
+            .commitment
+            : RefCeremonyAttestation.requireFramedCommitment(
+                data.received, abi.encodePacked('"', profile.idField, '":"'), '"'
+            )
+            .commitment;
+        handleCommitment =
+        RefCeremonyAttestation.requireFramedCommitment(
+            data.received, abi.encodePacked('"', profile.handleField, '":"'), '"'
+        )
+        .commitment;
     }
 
     // `1 << i` is the mask for line i. The lint's heuristic reads a literal on

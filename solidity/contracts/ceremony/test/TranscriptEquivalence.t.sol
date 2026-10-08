@@ -23,9 +23,10 @@ contract XTranscripts is XPlatformVerifier {
     function identityTranscript(CeremonyAttestation.AttestedData memory data)
         external
         pure
-        returns (bytes32, string memory, string memory)
+        returns (bytes32, bytes32, bytes32)
     {
-        return _identityTranscript(data);
+        Commitments memory c = _identityTranscript(data);
+        return (c.bearer, c.id, c.handle);
     }
 }
 
@@ -42,9 +43,10 @@ contract GitHubTranscripts is GitHubPlatformVerifier {
     function identityTranscript(CeremonyAttestation.AttestedData memory data)
         external
         pure
-        returns (bytes32, string memory, string memory)
+        returns (bytes32, bytes32, bytes32)
     {
-        return _identityTranscript(data);
+        Commitments memory c = _identityTranscript(data);
+        return (c.bearer, c.id, c.handle);
     }
 }
 
@@ -67,7 +69,7 @@ contract RefTranscripts {
     function identityTranscript(CeremonyAttestation.AttestedData memory data)
         external
         view
-        returns (bytes32, string memory, string memory)
+        returns (bytes32, bytes32, bytes32)
     {
         return RefTranscript.identityTranscript(data, _profile());
     }
@@ -113,6 +115,14 @@ contract LiveHelpers {
         bytes memory suffix
     ) external pure returns (CeremonyAttestation.RangeCommitment memory) {
         return CeremonyAttestation.requireFramedCommitment(block_, prefix, suffix);
+    }
+
+    function requireFramedInteger(CeremonyAttestation.DirectionBlock memory block_, bytes memory prefix)
+        external
+        pure
+        returns (CeremonyAttestation.RangeCommitment memory)
+    {
+        return CeremonyAttestation.requireFramedInteger(block_, prefix);
     }
 
     function normalizeJsonBytes(bytes memory data) external pure returns (bytes memory) {
@@ -184,6 +194,14 @@ contract RefHelpers {
         bytes memory suffix
     ) external pure returns (CeremonyAttestation.RangeCommitment memory) {
         return RefCeremonyAttestation.requireFramedCommitment(block_, prefix, suffix);
+    }
+
+    function requireFramedInteger(CeremonyAttestation.DirectionBlock memory block_, bytes memory prefix)
+        external
+        pure
+        returns (CeremonyAttestation.RangeCommitment memory)
+    {
+        return RefCeremonyAttestation.requireFramedInteger(block_, prefix);
     }
 
     function normalizeJsonBytes(bytes memory data) external pure returns (bytes memory) {
@@ -720,47 +738,120 @@ library Gen {
 
     // ─── Identity response ──────────────────────────────────────────
 
-    /// @dev A JSON response carrying the two members a profile reads, among
-    ///      others; revealed member by member with the rest committed, and
-    ///      bent: whitespace, a duplicate, a lookalike, a cut through a
-    ///      delimiter.
+    /// @dev One identity member as libid-rs reveals it: the anchor, the
+    ///      value, and the byte that closes it -- a quote, or the `,` or `}`
+    ///      that ends a bare integer.
+    struct Member {
+        bytes anchor;
+        bytes value;
+        bytes close;
+    }
+
+    /// @dev A JSON response carrying the two members a profile reads: the
+    ///      anchors and closing bytes revealed, the values and every other
+    ///      byte committed, as the anchor-only reveal lays it out. Then bent:
+    ///      whitespace in and around an anchor, a decoy member revealed or
+    ///      hidden, a quoted integer or a bare string, a value boundary moved
+    ///      a byte, a cut through an anchor.
     function identityResponse(Rng memory r, bool integerId, bytes memory handleField)
         internal
         pure
         returns (CeremonyAttestation.DirectionBlock memory, uint32)
     {
         bytes memory ws = oneOf(r, list("", " ", "\n  ", "\t"));
-        bytes memory idValue = integerId
-            ? (chance(r, 80) ? bytes("293919812") : oneOf(r, list("0", "007", "12 3")))
-            : (chance(r, 80) ? bytes('"1051915704843333634"') : oneOf(r, list('""', '"7', "7")));
-        bytes memory idMember = abi.encodePacked('"id"', ws, ":", ws, idValue);
-        bytes memory handleMember =
-            abi.encodePacked('"', handleField, '"', ws, ":", ws, '"', oneOf(r, list("alice", "Bob_1", "", "a b")), '"');
         bool idFirst = chance(r, 50);
-        bytes memory first = idFirst ? idMember : handleMember;
-        bytes memory second = idFirst ? handleMember : idMember;
-        bytes memory sep = chance(r, 85) ? oneOf(r, list(",", ", ", ",\n  ")) : oneOf(r, list(ws, "}", " "));
+        Member memory id = idMember(r, integerId, ws, idFirst);
+        Member memory handle = Member({
+            anchor: abi.encodePacked('"', handleField, '"', ws, ":", ws, '"'),
+            value: oneOf(r, list("alice", "Bob_1", "", "a b")),
+            close: '"'
+        });
         bytes memory decoy = chance(r, 10)
             ? oneOf(r, list('"name":"\\"id\\":\\"1\\"",', abi.encodePacked('"', handleField, '":"x",'), '"id":5,'))
             : bytes("");
-        bytes memory prefix = bytes.concat('HTTP/1.1 200 OK\r\n\r\n{"data":{', decoy);
-        bytes memory t = bytes.concat(prefix, first, sep, second, ws, "}}");
-        // Each member revealed with the byte after it, which is what closes
-        // an integer; what lies between them committed or revealed.
-        uint256 a = prefix.length;
-        uint256 b = a + first.length + (sep.length == 0 ? 0 : 1);
-        uint256 c = a + first.length + sep.length;
-        uint256 d = c + second.length + ws.length + 1;
-        if (chance(r, 3)) t = mutate(r, t, '"{}:, \n0a');
-        if (d > t.length) d = t.length;
-        if (c > d) c = d;
-        if (b > c) b = c;
-        if (a > b) a = b;
-        uint8 middle = chance(r, 50) ? COMMIT : REVEAL;
-        CeremonyAttestation.DirectionBlock memory block_ = split(
-            r, t, marks(a, b, c, d), kinds(COMMIT, REVEAL, middle, REVEAL, COMMIT), chance(r, 25) ? 1 + pick(r, 2) : 0
+        // An integer id that comes first closes on its own comma; anything
+        // else is followed by one.
+        bytes memory sep = idFirst && integerId
+            ? oneOf(r, list("", " ", "\n  "))
+            : (chance(r, 85) ? oneOf(r, list(",", ", ", ",\n  ")) : oneOf(r, list(ws, "}", " ")));
+        bytes memory tail = !idFirst && integerId ? bytes("}") : bytes.concat(ws, "}}");
+        return members(
+            r,
+            'HTTP/1.1 200 OK\r\n\r\n{"data":{',
+            decoy,
+            idFirst ? id : handle,
+            sep,
+            idFirst ? handle : id,
+            tail,
+            chance(r, 25) ? 1 + pick(r, 2) : 0
         );
-        return (block_, length(r, t));
+    }
+
+    /// @dev The id member: a JSON string for X, a bare integer for GitHub --
+    ///      and now and then the other shape, which neither framing admits.
+    function idMember(Rng memory r, bool integerId, bytes memory ws, bool first)
+        internal
+        pure
+        returns (Member memory m)
+    {
+        bool quoted = integerId ? chance(r, 5) : !chance(r, 5);
+        m.anchor = abi.encodePacked('"id"', ws, ":", ws, quoted ? bytes('"') : bytes(""));
+        m.value = integerId
+            ? (chance(r, 80) ? bytes("293919812") : oneOf(r, list("0", "007", "12 3")))
+            : (chance(r, 80) ? bytes("1051915704843333634") : oneOf(r, list("", "7", "1 2")));
+        if (quoted) m.close = '"';
+        else m.close = first ? oneOf(r, list(",", " ,", ";")) : oneOf(r, list("}", "\n}", "]"));
+    }
+
+    /// @dev `head ‖ decoy ‖ first ‖ sep ‖ second ‖ tail`, laid out as the
+    ///      anchor-only reveal does: the head committed, the decoy revealed or
+    ///      hidden, each member's anchor revealed, its value committed and its
+    ///      close revealed, the separator either, the tail committed. Now and
+    ///      then a value boundary moves a byte and the bytes are mutated;
+    ///      `extra` further cuts split a segment.
+    function members(
+        Rng memory r,
+        bytes memory head,
+        bytes memory decoy,
+        Member memory first,
+        bytes memory sep,
+        Member memory second,
+        bytes memory tail,
+        uint256 extra
+    ) internal pure returns (CeremonyAttestation.DirectionBlock memory, uint32) {
+        bytes memory t = bytes.concat(
+            head, decoy, first.anchor, first.value, first.close, sep, second.anchor, second.value, second.close, tail
+        );
+        uint256[] memory bounds = new uint256[](9);
+        bounds[0] = head.length;
+        bounds[1] = bounds[0] + decoy.length;
+        bounds[2] = bounds[1] + first.anchor.length;
+        bounds[3] = bounds[2] + first.value.length;
+        bounds[4] = bounds[3] + first.close.length;
+        bounds[5] = bounds[4] + sep.length;
+        bounds[6] = bounds[5] + second.anchor.length;
+        bounds[7] = bounds[6] + second.value.length;
+        bounds[8] = bounds[7] + second.close.length;
+        // A value that takes its closing byte, or leaves its last behind.
+        if (chance(r, 5)) bounds[3] = chance(r, 50) ? bounds[3] + 1 : (bounds[3] == 0 ? 0 : bounds[3] - 1);
+        if (chance(r, 5)) bounds[7] = chance(r, 50) ? bounds[7] + 1 : bounds[7] - 1;
+        if (chance(r, 3)) t = mutate(r, t, '"{}:, \n0a');
+        for (uint256 i = 0; i < bounds.length; ++i) {
+            if (bounds[i] > t.length) bounds[i] = t.length;
+            if (i > 0 && bounds[i] < bounds[i - 1]) bounds[i] = bounds[i - 1];
+        }
+        uint8[] memory segmentKinds = new uint8[](10);
+        segmentKinds[0] = COMMIT;
+        segmentKinds[1] = chance(r, 50) ? REVEAL : COMMIT;
+        segmentKinds[2] = REVEAL;
+        segmentKinds[3] = COMMIT;
+        segmentKinds[4] = REVEAL;
+        segmentKinds[5] = chance(r, 50) ? COMMIT : REVEAL;
+        segmentKinds[6] = REVEAL;
+        segmentKinds[7] = COMMIT;
+        segmentKinds[8] = REVEAL;
+        segmentKinds[9] = COMMIT;
+        return (split(r, t, bounds, segmentKinds, extra), length(r, t));
     }
 }
 
@@ -996,6 +1087,26 @@ contract TranscriptEquivalenceTest is Test {
         );
     }
 
+    /// @dev The id's integer framing, on GitHub-shaped responses.
+    /// forge-config: default.fuzz.runs = 2000
+    function testFuzz_framedIntegerMatchesReference(uint256 seed) public view {
+        Gen.Rng memory r = Gen.Rng(seed);
+        (CeremonyAttestation.DirectionBlock memory block_,) = r.identityResponse(true, "login");
+        _same(address(live), address(ref), abi.encodeCall(LiveHelpers.requireFramedInteger, (block_, '"id":')));
+    }
+
+    /// @dev The string framing on the same responses' handle, and on X's.
+    /// forge-config: default.fuzz.runs = 2000
+    function testFuzz_framedValueMatchesReference(uint256 seed) public view {
+        Gen.Rng memory r = Gen.Rng(seed);
+        bool integerId = r.chance(50);
+        bytes memory handleField = integerId ? bytes("login") : bytes("username");
+        (CeremonyAttestation.DirectionBlock memory block_,) = r.identityResponse(integerId, handleField);
+        bytes memory prefix = abi.encodePacked('"', handleField, '":"');
+        _same(address(live), address(ref), abi.encodeCall(LiveHelpers.requireFramedCommitment, (block_, prefix, '"')));
+        _same(address(live), address(ref), abi.encodeCall(LiveHelpers.requireFramedCommitment, (block_, '"id":"', '"')));
+    }
+
     // ─── The byte search ────────────────────────────────────────────
 
     /// @dev The bounded `indexOfByte` against a byte loop over `[from, end)`.
@@ -1141,9 +1252,19 @@ contract TranscriptEquivalenceTest is Test {
 
     // ─── The real sessions ──────────────────────────────────────────
 
-    /// @dev The two ceremonies the real-session suites verify, stage by
-    ///      stage: the honest path, where a divergence would cost users.
-    function test_theRealSessionsMatchReference() public view {
+    /// @dev The records libid-rs produces, stage by stage: the honest path,
+    ///      where a divergence would cost users.
+    function test_theLibidRsSessionsMatchReference() public view {
+        _real("contracts/ceremony/test/fixtures/x-ceremony-session.json", address(x), address(refX));
+        _real("contracts/ceremony/test/fixtures/github-ceremony-session.json", address(github), address(refGitHub));
+    }
+
+    /// @dev And the two ceremonies that ran against the platforms.
+    function test_theRealSessionsMatchReference() public {
+        vm.skip(
+            true,
+            "the *-ceremony-real.json captures predate the hashed identities and reveal the id and handle; recapture under the anchor-only reveal"
+        );
         _real("contracts/ceremony/test/fixtures/x-ceremony-real.json", address(x), address(refX));
         _real("contracts/ceremony/test/fixtures/github-ceremony-real.json", address(github), address(refGitHub));
     }

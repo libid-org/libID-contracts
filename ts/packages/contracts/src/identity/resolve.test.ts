@@ -8,6 +8,7 @@ import {
 import { describe, expect, it, vi } from 'vitest'
 
 import { PLATFORM_X_KEY } from './handleVectors.js'
+import { handleNode, idNode } from './node.js'
 import {
   identitiesOf,
   identityCount,
@@ -30,6 +31,10 @@ function reader(readContract: ReturnType<typeof vi.fn>): RegistryReader {
 }
 
 const X = platformId(PLATFORM_X_KEY)
+const ID_42 = idNode(PLATFORM_X_KEY, '42')
+const ID_43 = idNode(PLATFORM_X_KEY, '43')
+const ALICE_NODE = handleNode(PLATFORM_X_KEY, 'alice')
+const OLD_NODE = handleNode(PLATFORM_X_KEY, 'alice_old')
 
 describe('resolving a handle', () => {
   /// The contract stores under the hash of the platform key, and the keys are
@@ -41,14 +46,15 @@ describe('resolving a handle', () => {
     expect(platformId('dyaka.identity.platform.github')).not.toBe(X)
   })
 
-  it('reads the holder that proved an id', async () => {
+  /// Only the node reaches the RPC; the id is hashed here.
+  it('reads the holder that proved an id node', async () => {
     const readContract = vi.fn().mockResolvedValue(ALICE)
-    expect(await resolveId(reader(readContract), X, '42')).toBe(ALICE)
+    expect(await resolveId(reader(readContract), ID_42)).toBe(ALICE)
 
     expect(readContract.mock.calls[0][0]).toMatchObject({
       address: CONTRACT,
       functionName: 'resolveId',
-      args: [X, '42'],
+      args: [ID_42],
     })
   })
 
@@ -62,7 +68,7 @@ describe('resolving a handle', () => {
   it('reports an unbound handle as null rather than the zero address', async () => {
     const readContract = vi.fn().mockResolvedValue(zeroAddress)
 
-    expect(await resolveId(reader(readContract), X, 'nobody')).toBeNull()
+    expect(await resolveId(reader(readContract), ID_42)).toBeNull()
     expect(await resolveHandle(reader(readContract), X, 'nobody')).toBeNull()
   })
 
@@ -101,7 +107,7 @@ describe('checking a handle against an id', () => {
   it('agrees when both point at one holder', async () => {
     const readContract = vi.fn().mockResolvedValue([ALICE, true])
 
-    expect(await resolveHandleAndId(reader(readContract), X, 'alice', '42')).toEqual({
+    expect(await resolveHandleAndId(reader(readContract), X, 'alice', ID_42)).toEqual({
       holder: ALICE,
       idAgrees: true,
     })
@@ -113,7 +119,7 @@ describe('checking a handle against an id', () => {
   /// say so before anybody signs.
   it('still resolves the handle when the id disagrees', async () => {
     const readContract = vi.fn().mockResolvedValue([ALICE, false])
-    const resolution = await resolveHandleAndId(reader(readContract), X, 'alice', '42')
+    const resolution = await resolveHandleAndId(reader(readContract), X, 'alice', ID_42)
 
     expect(resolution.holder).toBe(ALICE)
     expect(resolution.idAgrees).toBe(false)
@@ -121,7 +127,7 @@ describe('checking a handle against an id', () => {
 
   it('reports no holder for a handle nobody has proved', async () => {
     const readContract = vi.fn().mockResolvedValue([zeroAddress, false])
-    const resolution = await resolveHandleAndId(reader(readContract), X, 'nobody', '42')
+    const resolution = await resolveHandleAndId(reader(readContract), X, 'nobody', ID_42)
 
     expect(resolution.holder).toBeNull()
     expect(resolution.idAgrees).toBe(false)
@@ -133,7 +139,7 @@ describe('checking a handle against an id', () => {
     // answer.
     const readContract = vi.fn().mockResolvedValue([zeroAddress, false])
 
-    expect(await resolveHandleAndId(reader(readContract), X, 'not a handle', '42')).toEqual({
+    expect(await resolveHandleAndId(reader(readContract), X, 'not a handle', ID_42)).toEqual({
       holder: null,
       idAgrees: false,
     })
@@ -164,17 +170,17 @@ describe('listing the identities a holder proved', () => {
   })
 
   /// The contract answers a struct array. Each entry arrives as an `Identity`
-  /// with its four fields and nothing else, so a caller can compare and
+  /// with its four fields -- nodes, never plaintext -- and nothing else, so a caller can compare and
   /// serialize a page without knowing how the tuple was decoded.
   it('maps the struct array into identities', async () => {
     const readContract = vi.fn().mockResolvedValue([
-      { platformId: X, id: '42', handle: 'alice', handleCurrent: true },
-      { platformId: X, id: '43', handle: 'alice_old', handleCurrent: false },
+      { platformId: X, idNode: ID_42, handleNode: ALICE_NODE, handleCurrent: true },
+      { platformId: X, idNode: ID_43, handleNode: OLD_NODE, handleCurrent: false },
     ])
 
     expect(await identitiesOf(reader(readContract), ALICE, 0n, 10n)).toStrictEqual([
-      { platformId: X, id: '42', handle: 'alice', handleCurrent: true },
-      { platformId: X, id: '43', handle: 'alice_old', handleCurrent: false },
+      { platformId: X, idNode: ID_42, handleNode: ALICE_NODE, handleCurrent: true },
+      { platformId: X, idNode: ID_43, handleNode: OLD_NODE, handleCurrent: false },
     ])
   })
 })

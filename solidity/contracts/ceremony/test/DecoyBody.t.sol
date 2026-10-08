@@ -23,6 +23,8 @@ contract OkHonk is IHonkVerifier {
 /// @notice The real body is COMMITTED and a decoy body is revealed after it.
 ///         Coverage tiles cleanly, so the direction looks honest.
 contract DecoyBodyTest is Test {
+    using AttestationBuilder for AttestationBuilder.Direction;
+
     XPlatformVerifier verifier;
     NotaryService notary;
     uint256 quote;
@@ -133,12 +135,12 @@ contract DecoyBodyTest is Test {
             commitments: AttestationBuilder.one(AttestationBuilder.Commitment({start: s0, end: e0, value: ID_C})),
             length: l
         });
-        bytes memory body = '{"data":{"id":"2244994945","username":"victim"}}';
-        AttestationBuilder.Direction memory recv = AttestationBuilder.Direction({
-            revealed: AttestationBuilder.one(AttestationBuilder.Range({start: 0, value: body})),
-            commitments: AttestationBuilder.none(),
-            length: uint32(body.length)
-        });
+        // The anchor-only reveal: the id and handle committed, the anchors
+        // around them revealed, every other byte behind a commitment.
+        AttestationBuilder.Direction memory recv;
+        recv.commit('{"data":{', bytes32(uint256(0x5555))).reveal('"id":"')
+            .commit("2244994945", bytes32(uint256(0x3333))).reveal('","username":"')
+            .commit("victim", bytes32(uint256(0x4444))).reveal('"').commit("}}", bytes32(uint256(0x5555)));
         bytes memory att = AttestationBuilder.encode(CeremonyProfile.AUTHORITY_X_API, T0, sent, recv);
         return ICeremony.Attestation({attestedData: att, proof: _sign(att)});
     }

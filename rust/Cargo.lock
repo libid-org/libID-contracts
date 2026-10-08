@@ -2562,6 +2562,7 @@ version = "0.17.0"
 dependencies = [
  "alloy",
  "include_dir",
+ "libid-identity",
  "libid-profiles",
  "serde",
  "serde_json",
@@ -2572,6 +2573,9 @@ dependencies = [
 [[package]]
 name = "libid-identity"
 version = "0.17.0"
+dependencies = [
+ "sha2",
+]
 
 [[package]]
 name = "libid-profiles"

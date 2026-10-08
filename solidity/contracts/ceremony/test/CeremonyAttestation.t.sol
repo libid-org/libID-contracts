@@ -13,6 +13,8 @@ import {AttestationBuilder} from "./AttestationBuilder.sol";
 ///      fixture below is the load-bearing test in this file: it is the Rust
 ///      encoder's output, not this decoder's.
 contract CeremonyAttestationTest is Test {
+    using AttestationBuilder for AttestationBuilder.Direction;
+
     /// @dev Shaped like an X identity session: the request reveals every byte
     ///      but the bearer, which is committed between the revealed ranges.
     bytes constant FIXTURE = hex"4930142f5283d4a8eab0d24c588f00b21213ae2a47e7ed6c1dc6a57044f1655d"
@@ -251,5 +253,69 @@ contract CeremonyAttestationTest is Test {
             CeremonyAttestation.RangeCommitment({start: bearer, end: bearer + 5, commitment: bytes32(uint256(7))});
         vm.expectRevert(CeremonyAttestation.NoFramedCommitment.selector);
         this.framed(block_);
+    }
+
+    // ─── A bare integer's framing ───────────────────────────────────
+
+    function framedInteger(CeremonyAttestation.DirectionBlock memory block_) external pure returns (bytes32) {
+        return CeremonyAttestation.requireFramedInteger(block_, '"id":').commitment;
+    }
+
+    /// `d` as the decoder hands it to a verifier, in the received direction.
+    function _received(AttestationBuilder.Direction memory d)
+        private
+        view
+        returns (CeremonyAttestation.DirectionBlock memory)
+    {
+        AttestationBuilder.Direction memory none;
+        return this.decode(AttestationBuilder.encode(bytes32(0), 0, none, d)).received;
+    }
+
+    /// `"id":` in GitHub's spelling revealed, the digits committed, then
+    /// `after_` revealed and a committed rest.
+    function _integer(bytes memory after_) private view returns (CeremonyAttestation.DirectionBlock memory) {
+        AttestationBuilder.Direction memory d;
+        d.commit("{\n  ", bytes32(uint256(1))).reveal('"id": ').commit("583231", bytes32(uint256(7))).reveal(after_)
+            .commit('"x"}', bytes32(uint256(2)));
+        return _received(d);
+    }
+
+    /// @dev The number ends at a `,` or a `}`, with JSON whitespace allowed
+    ///      before either: what proves the committed digits are all of it.
+    function test_framesABareIntegerByItsTerminator() public view {
+        assertEq(this.framedInteger(_integer(",\n  ")), bytes32(uint256(7)));
+        assertEq(this.framedInteger(_integer("}")), bytes32(uint256(7)));
+        assertEq(this.framedInteger(_integer(" \t\r\n,")), bytes32(uint256(7)));
+    }
+
+    /// @dev Anything else after the digits frames nothing: another digit (the
+    ///      commitment stops mid-number), a `;`, a `]`, a quote, or only
+    ///      whitespace with the terminator hidden.
+    function test_refusesAnythingElseAfterTheDigits() public {
+        bytes[5] memory afters = [bytes("1,"), bytes(";"), bytes("]"), bytes('",'), bytes("  ")];
+        for (uint256 i = 0; i < afters.length; ++i) {
+            CeremonyAttestation.DirectionBlock memory block_ = _integer(afters[i]);
+            vm.expectRevert(CeremonyAttestation.NoFramedCommitment.selector);
+            this.framedInteger(block_);
+        }
+    }
+
+    /// @dev The terminator must be in the revealed range that starts where
+    ///      the commitment ends. Hidden behind a second commitment, it says
+    ///      nothing.
+    function test_refusesAnIntegerFollowedByACommitment() public {
+        AttestationBuilder.Direction memory d;
+        d.reveal('"id":').commit("583231", bytes32(uint256(7))).commit(",", bytes32(uint256(2))).reveal("}");
+        CeremonyAttestation.DirectionBlock memory block_ = _received(d);
+        vm.expectRevert(CeremonyAttestation.NoFramedCommitment.selector);
+        this.framedInteger(block_);
+    }
+
+    /// @dev A second anchor anywhere in the revealed bytes, in any JSON
+    ///      spelling, framing a commitment or not.
+    function test_refusesASecondIntegerAnchor() public {
+        CeremonyAttestation.DirectionBlock memory block_ = _integer(',"id" : 1}');
+        vm.expectRevert(CeremonyAttestation.AmbiguousFraming.selector);
+        this.framedInteger(block_);
     }
 }

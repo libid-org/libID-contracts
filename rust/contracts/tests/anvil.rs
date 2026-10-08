@@ -116,11 +116,14 @@ async fn deploys_the_identity_stack_behind_proxies() {
             platform_id,
             IdentityRegistry::Rules {
                 maxLength: 39,
-                stripLeadingAt: true,
                 isEmail: false,
                 allowUnderscore: false,
                 allowHyphen: true,
             },
+            libid_identity::handle_vectors::HANDLE_TAG_GITHUB
+                .as_bytes()
+                .to_vec()
+                .into(),
         )
         .send()
         .await
@@ -150,7 +153,10 @@ async fn deploys_the_identity_stack_behind_proxies() {
     // A platform that has rules and can verify nothing says so: answering
     // `address(0)` would tell the caller "nobody holds this handle" about a
     // platform that is not wired yet.
-    let unwired = registry.resolveId(platform_id, "12345".into()).call().await;
+    let unwired = registry
+        .resolveHandle(platform_id, "octocat".into())
+        .call()
+        .await;
     assert!(
         unwired.is_err(),
         "an unwired platform answered instead of reverting UnknownPlatform"
@@ -481,8 +487,12 @@ async fn deploys_and_initializes_every_platform_verifier() {
     // The real verifiers, one per circuit. The hash a Platform Verifier
     // pins is read off the chain, never computed from the vendored bytes:
     // it is what the chain holds for the artifact.
-    let bearer_link =
-        deploy_honk_verifier(&provider, &artifacts, Circuit::BearerLink, None)
+    let bearer_link_x =
+        deploy_honk_verifier(&provider, &artifacts, Circuit::BearerLinkX, None)
+            .await
+            .unwrap();
+    let bearer_link_github =
+        deploy_honk_verifier(&provider, &artifacts, Circuit::BearerLinkGithub, None)
             .await
             .unwrap();
     let oidc_google =
@@ -490,22 +500,27 @@ async fn deploys_and_initializes_every_platform_verifier() {
             .await
             .unwrap();
     let honk_at = |circuit: Circuit| match circuit {
-        Circuit::BearerLink => bearer_link,
+        Circuit::BearerLinkX => bearer_link_x,
+        Circuit::BearerLinkGithub => bearer_link_github,
         Circuit::OidcGoogle => oidc_google,
     };
-    let honk = bearer_link;
+    let mut codehashes = Vec::new();
+    for circuit in Circuit::ALL {
+        let codehash = codehash_at(&provider, honk_at(circuit)).await.unwrap();
+        assert_ne!(codehash, keccak256([]));
+        assert!(
+            !codehashes.contains(&codehash),
+            "one artifact for two circuits"
+        );
+        codehashes.push(codehash);
+    }
+    let honk = bearer_link_x;
     let honk_codehash = codehash_at(&provider, honk).await.unwrap();
-    assert_ne!(honk_codehash, keccak256([]));
-    assert_ne!(
-        honk_codehash,
-        codehash_at(&provider, oidc_google).await.unwrap(),
-        "one artifact for two circuits"
-    );
 
-    let tls = TlsNotaryRoots {
+    let tls = |honk_verifier| TlsNotaryRoots {
         owner: deployer,
         notary_service: notary_proxy,
-        honk_verifier: bearer_link,
+        honk_verifier,
     };
     let google = GoogleRoots {
         owner: deployer,
@@ -515,8 +530,8 @@ async fn deploys_and_initializes_every_platform_verifier() {
     let proof_verifier = CeremonyProofVerifier::new(proof_verifier_proxy, &provider);
 
     for init in [
-        Initializer::X(tls),
-        Initializer::GitHub(tls),
+        Initializer::X(tls(bearer_link_x)),
+        Initializer::GitHub(tls(bearer_link_github)),
         Initializer::Google(google),
     ] {
         let verifier = init.verifier();
@@ -636,13 +651,10 @@ async fn deploys_and_initializes_every_platform_verifier() {
 
     // A Honk verifier that is not deployed is caught before any transaction:
     // the hash of nothing is exactly what the contract refuses to pin.
-    let err = Initializer::X(TlsNotaryRoots {
-        honk_verifier: Address::repeat_byte(0x99),
-        ..tls
-    })
-    .call(&provider)
-    .await
-    .unwrap_err();
+    let err = Initializer::X(tls(Address::repeat_byte(0x99)))
+        .call(&provider)
+        .await
+        .unwrap_err();
     assert!(matches!(err, Error::Initializer { .. }), "{err}");
     assert!(err.to_string().contains("no code at"), "{err}");
 
@@ -780,11 +792,14 @@ async fn escrows_value_against_an_unclaimed_handle() {
             platform_id,
             IdentityRegistry::Rules {
                 maxLength: 39,
-                stripLeadingAt: true,
                 isEmail: false,
                 allowUnderscore: false,
                 allowHyphen: true,
             },
+            libid_identity::handle_vectors::HANDLE_TAG_GITHUB
+                .as_bytes()
+                .to_vec()
+                .into(),
         )
         .send()
         .await
@@ -795,9 +810,10 @@ async fn escrows_value_against_an_unclaimed_handle() {
 
     // The real GitHub Platform Verifier, on the real Honk verifier for its
     // circuit, registered as version 1.
-    let honk = deploy_honk_verifier(&provider, &artifacts, Circuit::BearerLink, None)
-        .await
-        .unwrap();
+    let honk =
+        deploy_honk_verifier(&provider, &artifacts, Circuit::BearerLinkGithub, None)
+            .await
+            .unwrap();
     let github = Initializer::GitHub(TlsNotaryRoots {
         owner: deployer,
         notary_service: notary_proxy,
@@ -831,27 +847,30 @@ async fn escrows_value_against_an_unclaimed_handle() {
     let escrow = HandleEscrow::new(escrow_proxy, &provider);
     let native = escrow.NATIVE().call().await.unwrap();
 
-    // The registry hashes the text into a node; the node is pinned with `cast`.
-    let handle_hash = registry
-        .handleHashOf(platform_id, " Alice-1 ".into())
-        .call()
-        .await
-        .unwrap();
-    assert_eq!(handle_hash, keccak256("alice-1"));
+    // The registry folds and hashes the text into the node the circuit
+    // binds; libid-identity computes the same node off chain, and both are
+    // pinned against Python's hashlib:
+    //   hashlib.sha256(b"libid.github.handlealice-1")
     let node = registry
-        .handleNodeOfHash(platform_id, handle_hash)
+        .handleNodeOf(platform_id, "Alice-1".into())
         .call()
         .await
         .unwrap();
     assert_eq!(
         node,
-        b256!("2e2bee956f308d03271ce24b26e5aa20103b41841ddee3c96a94d2449902f710")
+        b256!("308384ccaaa9a343d9ff4eee1905eb96c737a7151658d8f8af847ef5ce363fb1")
+    );
+    assert_eq!(
+        node.0,
+        libid_identity::handle_node("github", "Alice-1")
+            .unwrap()
+            .unwrap()
     );
 
     // Escrowed for nobody; an unheld node refuses a claim with the bound error.
     let amount = U256::from(1_000_000_000_000_000_000u64);
     escrow
-        .deposit(platform_id, handle_hash, native, amount, deployer)
+        .deposit(platform_id, node, native, amount, deployer)
         .value(amount)
         .send()
         .await
@@ -975,13 +994,20 @@ async fn deploys_the_honk_verifiers_over_their_own_circuits() {
         );
         deployed.push((address, decoded.logN));
     }
-    assert_ne!(
-        deployed[0].1, deployed[1].1,
-        "both platforms would verify under one circuit"
-    );
+    // One verification key per circuit: X and GitHub prove at the same size,
+    // so the code, not the size, is what tells their verifiers apart.
+    for (i, (a, _)) in deployed.iter().enumerate() {
+        for (b, _) in &deployed[i + 1..] {
+            assert_ne!(
+                codehash_at(&provider, *a).await.unwrap(),
+                codehash_at(&provider, *b).await.unwrap(),
+                "two platforms would verify under one circuit"
+            );
+        }
+    }
 
     // What a Platform Verifier pins is the same on every deployment.
-    let again = deploy_honk_verifier(&provider, &artifacts, Circuit::BearerLink, None)
+    let again = deploy_honk_verifier(&provider, &artifacts, Circuit::BearerLinkX, None)
         .await
         .unwrap();
     assert_ne!(again, deployed[0].0);

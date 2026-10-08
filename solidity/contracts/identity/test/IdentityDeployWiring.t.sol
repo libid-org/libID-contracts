@@ -16,9 +16,9 @@ import {StubPlatformVerifier} from "./StubPlatformVerifier.sol";
 /// writes wrong nodes for every handle on that platform, and nothing later
 /// would notice: the handle would simply resolve to nothing.
 ///
-/// So the wiring is asserted rather than assumed — that the rules the deploy
-/// installs are the ones `handles.json` states, and that every platform it
-/// wires comes out resolvable.
+/// So the wiring is asserted rather than assumed — that the rules and the
+/// handle tag the deploy installs are the ones `handles.json` states, and that
+/// every platform it wires comes out resolvable.
 contract IdentityDeployWiringTest is Test {
     IdentityRegistry internal registry;
     CeremonyProofVerifier internal proofVerifier;
@@ -42,7 +42,6 @@ contract IdentityDeployWiringTest is Test {
     function test_theGeneratedRulesAreTheOnesTheDeployInstalls() public pure {
         HandleNormalizer.Rules memory x = HandleVectors.rulesFor(HandleVectors.PLATFORM_X);
         assertEq(x.maxLength, uint16(HandleVectors.MAX_LENGTH_X), "X length");
-        assertTrue(x.stripLeadingAt, "X strips a leading @");
         assertTrue(x.allowUnderscore, "X allows underscore");
         assertFalse(x.allowHyphen, "X allows no hyphen");
         assertFalse(x.isEmail, "X is not an email");
@@ -55,7 +54,7 @@ contract IdentityDeployWiringTest is Test {
         HandleNormalizer.Rules memory g = HandleVectors.rulesFor(HandleVectors.PLATFORM_GOOGLE);
         assertEq(g.maxLength, uint16(HandleVectors.MAX_LENGTH_GOOGLE), "Google length");
         assertTrue(g.isEmail, "Google is an email");
-        assertFalse(g.stripLeadingAt, "an email keeps its @");
+        assertFalse(g.allowUnderscore || g.allowHyphen, "an email's charset is its own");
     }
 
     /// An unknown platform reverts rather than returning a permissive default.
@@ -90,12 +89,17 @@ contract IdentityDeployWiringTest is Test {
         assertEq(registry.resolveHandle(HandleVectors.PLATFORM_X, "nobody"), address(0));
         assertEq(registry.resolveHandle(HandleVectors.PLATFORM_GITHUB, "nobody"), address(0));
         assertEq(registry.resolveHandle(HandleVectors.PLATFORM_GOOGLE, "nobody@example.com"), address(0));
+
+        // The tag a disclosure and every resolver hash under is the circuit's.
+        assertEq(registry.handleTagOf(HandleVectors.PLATFORM_X), bytes("libid.x.handle"));
+        assertEq(registry.handleTagOf(HandleVectors.PLATFORM_GITHUB), bytes("libid.github.handle"));
+        assertEq(registry.handleTagOf(HandleVectors.PLATFORM_GOOGLE), bytes("libid.google.handle"));
     }
 
     /// The deploy script's wiring, mirrored. Both sides call one helper so this
     /// test cannot drift from the script it exists to prove.
     function _wireIdentityPlatform(bytes32 platformId) internal returns (address verifier) {
-        registry.setPlatform(platformId, HandleVectors.rulesFor(platformId));
+        registry.setPlatform(platformId, HandleVectors.rulesFor(platformId), HandleVectors.handleTagFor(platformId));
         verifier = address(new StubPlatformVerifier(platformId, 0));
         proofVerifier.setVerifier(platformId, 1, IPlatformVerifier(verifier));
     }

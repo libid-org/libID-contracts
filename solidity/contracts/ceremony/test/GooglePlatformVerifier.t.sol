@@ -59,10 +59,15 @@ contract GooglePlatformVerifierTest is Test {
     bytes32 digest;
     bytes constant CLIENT_ID = "123456789-abcdef.apps.googleusercontent.com";
     string constant SUB = "123456789012345678901";
-    /// The `userId` platform-ceremonies section 2.1 publishes for `SUB`:
-    /// `SHA256("libid.google-user-id" || sub)`, computed outside Solidity.
-    string constant USER_ID = "0x20078023c9d4bf6bffc2580ec36446075d10c8453cecbe4f1cb3d326b2b35560";
-    string constant EMAIL = "a.b+tag@example.com";
+    /// The id node the oidc-google circuit outputs for `SUB`:
+    ///   hashlib.sha256(b"libid.google.user-id123456789012345678901")
+    bytes32 constant USER_ID = 0xa83e66b34468315fb68c3098b3c521b749aafb1db3390cb53ec03a8db139f2c7;
+    // The handle node it outputs for the mixed-case address
+    // `A.B+tag@Example.COM`, which it folds before hashing:
+    //   hashlib.sha256(b"libid.google.handlea.b+tag@example.com")
+    // The dot and the +tag stay; only case folds. The address itself never
+    // reaches this contract.
+    bytes32 constant HANDLE_NODE = 0x40169b5cc6400158aeef2a13b73a14fc36e5e1df8595572b8fe282a269f26dd4;
     /// The signed `exp` of the real proof's token.
     uint64 constant REAL_EXP = 1_893_456_000;
 
@@ -95,28 +100,6 @@ contract GooglePlatformVerifierTest is Test {
 
     // ─── Building the public inputs ─────────────────────────────────
 
-    function _pack31(bytes memory s) private pure returns (bytes32 out) {
-        require(s.length <= 31, "too long");
-        uint256 v;
-        for (uint256 i = 0; i < 31; ++i) {
-            v = v << 8;
-            if (i < s.length) v |= uint8(s[i]);
-        }
-        return bytes32(v);
-    }
-
-    function _packMulti(bytes memory s, uint256 count) private pure returns (bytes32[] memory out) {
-        out = new bytes32[](count);
-        for (uint256 f = 0; f < count; ++f) {
-            bytes memory chunk = new bytes(31);
-            for (uint256 i = 0; i < 31; ++i) {
-                uint256 at = f * 31 + i;
-                chunk[i] = at < s.length ? s[at] : bytes1(0);
-            }
-            out[f] = _pack31(chunk);
-        }
-    }
-
     function _modulusLimb(uint256 i) private pure returns (bytes32) {
         return bytes32(uint256(0x1000 + i));
     }
@@ -140,12 +123,10 @@ contract GooglePlatformVerifierTest is Test {
         bytes32 aud = sha256(clientId);
         pi[32] = bytes32(uint256(aud) >> 128);
         pi[33] = bytes32(uint256(aud) & type(uint128).max);
-        bytes32 userId = sha256(bytes.concat("libid.google-user-id", bytes(SUB)));
-        pi[34] = bytes32(uint256(userId) >> 128);
-        pi[35] = bytes32(uint256(userId) & type(uint128).max);
-        bytes32[] memory email = _packMulti(bytes(EMAIL), 2);
-        pi[36] = email[0];
-        pi[37] = email[1];
+        pi[34] = bytes32(uint256(USER_ID) >> 128);
+        pi[35] = bytes32(uint256(USER_ID) & type(uint128).max);
+        pi[36] = bytes32(uint256(HANDLE_NODE) >> 128);
+        pi[37] = bytes32(uint256(HANDLE_NODE) & type(uint128).max);
         pi[38] = bytes32(uint256(exp));
         for (uint256 i = 0; i < 18; ++i) {
             pi[39 + i] = _modulusLimb(i);
@@ -153,7 +134,7 @@ contract GooglePlatformVerifierTest is Test {
     }
 
     function _txData() private pure returns (bytes memory) {
-        return abi.encode(address(0xBEEF));
+        return abi.encode(address(0xBEEF), uint256(0), address(0));
     }
 
     /// The `google/v1` payload the public inputs are made for. Nothing
@@ -234,8 +215,11 @@ contract GooglePlatformVerifierTest is Test {
     function test_verifiesARealProof() public {
         (GooglePlatformVerifier real, GooglePlatformVerifier.GoogleProof memory s) = _realProof();
         ICeremony.VerifiedClaim memory f = real.verify(abi.encode(s));
-        assertEq(f.userId, "0x121c75456ead3d5fa8f601dbd629bddb84dcdb4934b2a6b6d2e46b5661c6d35b");
-        assertEq(f.handle, "fixture@example.com");
+        // hashlib.sha256(b"libid.google.user-id100000000000000000001")
+        assertEq(f.idNode, 0x5e13b7e56f17994a08b7464e5c5c5758228d6816db0a0af9bbd73f65335fcec8);
+        // The token's address is Fixture@Example.com; the circuit folded it:
+        //   hashlib.sha256(b"libid.google.handlefixture@example.com")
+        assertEq(f.handleNode, 0xfbda24950a7bc55993b7aacc3acbde636931dbb45f04c1ff6f6909027962885f);
     }
 
     /// @dev The proof binds the digest: one changed bit is another account.
@@ -248,8 +232,8 @@ contract GooglePlatformVerifierTest is Test {
 
     function test_verifiesAWholeGoogleCeremony() public {
         ICeremony.VerifiedClaim memory f = this.run(_payload());
-        assertEq(f.userId, USER_ID);
-        assertEq(f.handle, EMAIL);
+        assertEq(f.idNode, USER_ID);
+        assertEq(f.handleNode, HANDLE_NODE);
         assertEq(string(f.clientIdentifier), string(CLIENT_ID));
         // Section 2.2: the signed `exp` supplies BOTH the watermark and the
         // validity ceiling.
@@ -258,11 +242,32 @@ contract GooglePlatformVerifierTest is Test {
         assertEq(f.metadataObservedAt, EXP - GOOGLE_ALLOWANCE);
     }
 
-    /// @dev The handle is RAW: normalization is the Consumer's derivation on its
-    ///      own write path, so the address keeps its dot and its plus tag
-    ///      exactly as Google signed them.
-    function test_returnsTheRawEmailUnnormalized() public {
-        assertEq(this.run(_payload()).handle, "a.b+tag@example.com");
+    /// @dev The handle node is the circuit's, read from its two halves and
+    ///      returned as read. Folding and the Google rules are the circuit's:
+    ///      the real-proof test shows a mixed-case address arriving folded.
+    function test_returnsTheHandleNodeTheCircuitOutputs() public {
+        GooglePlatformVerifier.GoogleProof memory s = _payload();
+        s.publicInputs[36] = bytes32(uint256(0x02));
+        s.publicInputs[37] = bytes32(uint256(0x1234));
+        assertEq(this.run(s).handleNode, bytes32((uint256(2) << 128) | 0x1234));
+    }
+
+    // A disclosed address is checked against the proof's handle node and
+    // returned folded; an empty one keeps the claim private.
+    function test_disclosesTheAddressTheProofBound() public {
+        GooglePlatformVerifier.GoogleProof memory s = _payload();
+        assertEq(this.run(s).handle, "", "a private claim discloses nothing");
+        s.handle = "A.B+tag@Example.COM";
+        assertEq(this.run(s).handle, "a.b+tag@example.com");
+    }
+
+    // An address the proof did not bind is refused, not disclosed.
+    function test_refusesToDiscloseAnAddressTheProofDidNotBind() public {
+        GooglePlatformVerifier.GoogleProof memory s = _payload();
+        s.handle = "other@example.com";
+        bytes32 other = sha256("libid.google.handleother@example.com");
+        vm.expectRevert(abi.encodeWithSelector(PlatformVerifierBase.HandleNotProved.selector, other, HANDLE_NODE));
+        this.run(s);
     }
 
     // ─── Zero attestations, zero fee ────────────────────────────────
@@ -381,13 +386,13 @@ contract GooglePlatformVerifierTest is Test {
 
     // ─── The user id ────────────────────────────────────────────────
 
-    /// @dev One spelling per digest: `0x`, then 64 lowercase hex digits with
-    ///      the leading zeros kept, so an id never has two encodings.
-    function test_writesTheUserIdAsSixtyFourLowercaseHexDigits() public {
+    /// @dev The id node is the circuit's digest, rebuilt from its halves
+    ///      `[high, low]` with the leading zeros kept.
+    function test_returnsTheUserIdDigestAsTheIdNode() public {
         GooglePlatformVerifier.GoogleProof memory s = _payload();
-        s.publicInputs[34] = bytes32(0);
+        s.publicInputs[34] = bytes32(uint256(0x01));
         s.publicInputs[35] = bytes32(uint256(0xabcdef));
-        assertEq(this.run(s).userId, "0x0000000000000000000000000000000000000000000000000000000000abcdef");
+        assertEq(this.run(s).idNode, bytes32((uint256(1) << 128) | 0xabcdef));
     }
 
     /// @dev The user id is a digest in two halves, like the audience, and the
@@ -395,7 +400,7 @@ contract GooglePlatformVerifierTest is Test {
     function test_rejectsAnOverwideLowUserIdHalf() public {
         GooglePlatformVerifier.GoogleProof memory s = _payload();
         s.publicInputs[34] = bytes32(0);
-        s.publicInputs[35] = sha256(bytes.concat("libid.google-user-id", bytes(SUB)));
+        s.publicInputs[35] = USER_ID;
         vm.expectRevert(
             abi.encodeWithSelector(
                 GooglePlatformVerifier.PublicInputOverwide.selector, 35, uint256(s.publicInputs[35]), 128
@@ -412,15 +417,25 @@ contract GooglePlatformVerifierTest is Test {
         this.run(s);
     }
 
-    // ─── The packed email ───────────────────────────────────────────
+    // ─── The handle node ────────────────────────────────────────────
 
-    /// @dev `_unpack` reads 31 bytes of each of the email's two field elements
-    ///      and drops whatever sits above them in silence. Dropped, the handle
-    ///      this returns is not the one the circuit proved.
-    function test_rejectsAnOverwideEmailField() public {
+    /// @dev The handle node is two halves like the id node, and an over-wide
+    ///      low half would name any handle at all.
+    function test_rejectsAnOverwideLowHandleHalf() public {
         GooglePlatformVerifier.GoogleProof memory s = _payload();
-        s.publicInputs[37] = bytes32(uint256(s.publicInputs[37]) | (uint256(1) << 248));
-        vm.expectPartialRevert(GooglePlatformVerifier.PublicInputOverwide.selector);
+        s.publicInputs[36] = bytes32(0);
+        s.publicInputs[37] = HANDLE_NODE;
+        vm.expectRevert(
+            abi.encodeWithSelector(GooglePlatformVerifier.PublicInputOverwide.selector, 37, uint256(HANDLE_NODE), 128)
+        );
+        this.run(s);
+    }
+
+    function test_rejectsAnOverwideHighHandleHalf() public {
+        GooglePlatformVerifier.GoogleProof memory s = _payload();
+        uint256 widened = uint256(s.publicInputs[36]) | (uint256(1) << 128);
+        s.publicInputs[36] = bytes32(widened);
+        vm.expectRevert(abi.encodeWithSelector(GooglePlatformVerifier.PublicInputOverwide.selector, 36, widened, 128));
         this.run(s);
     }
 

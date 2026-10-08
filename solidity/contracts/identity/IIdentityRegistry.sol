@@ -16,17 +16,11 @@ interface IIdentityRegistry {
     ///         keeps its `observedAt`.
     function handleBinding(bytes32 handleNode) external view returns (address holder, uint64 observedAt);
 
-    /// @notice `keccak256` of a handle normalized under the platform's current
-    ///         rules. Reverts `UnknownPlatform` or `UnusableHandle`.
-    function handleHashOf(bytes32 platformId, string calldata handle) external view returns (bytes32 handleHash);
-
-    /// @notice The node a handle hashes to under the platform's current rules.
-    ///         Reverts as `handleHashOf` does.
+    /// @notice The node a handle is bound under: normalized with the
+    ///         platform's rules, then `SHA256(handle tag || handle)`. Reverts
+    ///         `UnusableHandle` for text no binding can have, and
+    ///         `UnknownPlatform` for an unconfigured platform.
     function handleNodeOf(bytes32 platformId, string calldata handle) external view returns (bytes32 handleNode);
-
-    /// @notice The node of a handle given as `handleHash`: the node this system
-    ///         binds, for any platform id.
-    function handleNodeOfHash(bytes32 platformId, bytes32 handleHash) external view returns (bytes32 handleNode);
 
     /// @notice Whether `bind` can bind a holder on this platform now.
     function acceptsBindings(bytes32 platformId) external view returns (bool);

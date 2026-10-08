@@ -10,7 +10,22 @@ export interface HandleVector {
   output: string
   accepted: boolean
   errorKind: number
+  /** SHA256(handle tag || output), hex, or empty when the case is refused. */
+  handleNode: string
 }
+
+export interface IdVector {
+  platform: string
+  /** The id exactly as the platform sent it. */
+  input: string
+  accepted: boolean
+  errorKind: number
+  /** SHA256(id tag || input), hex, or empty when the case is refused. */
+  idNode: string
+}
+
+/** SHA-256 of the handles.json this file was generated from. */
+export const TABLE_SHA256 = 'ea81ef6430403fa5ac1be4382814df826164217f020cf770f4c1b780db80a1a9'
 
 /** keccak256 of this string is the platform id. */
 export const PLATFORM_X_KEY = 'x'
@@ -26,24 +41,49 @@ export const MAX_LENGTH_GITHUB = 39
 /** Bytes a google handle may have after normalization. */
 export const MAX_LENGTH_GOOGLE = 62
 
-/** Remove one leading `@`. */
-export const STRIP_LEADING_AT_X = true
+/** An id node is SHA256 of this tag, then the id. */
+export const USER_ID_TAG_X = 'libid.x.user-id'
+/** A handle node is SHA256 of this tag, then the normalized handle. */
+export const HANDLE_TAG_X = 'libid.x.handle'
+/** Bytes a x id may have. */
+export const MAX_ID_LENGTH_X = 20
+/** The id is ASCII digits; otherwise printable ASCII without a quote or backslash. */
+export const ID_DECIMAL_X = true
+/** The id may start with `0` when longer than one byte. */
+export const ID_LEADING_ZERO_X = true
+/** An id node is SHA256 of this tag, then the id. */
+export const USER_ID_TAG_GITHUB = 'libid.github.user-id'
+/** A handle node is SHA256 of this tag, then the normalized handle. */
+export const HANDLE_TAG_GITHUB = 'libid.github.handle'
+/** Bytes a github id may have. */
+export const MAX_ID_LENGTH_GITHUB = 20
+/** The id is ASCII digits; otherwise printable ASCII without a quote or backslash. */
+export const ID_DECIMAL_GITHUB = true
+/** The id may start with `0` when longer than one byte. */
+export const ID_LEADING_ZERO_GITHUB = false
+/** An id node is SHA256 of this tag, then the id. */
+export const USER_ID_TAG_GOOGLE = 'libid.google.user-id'
+/** A handle node is SHA256 of this tag, then the normalized handle. */
+export const HANDLE_TAG_GOOGLE = 'libid.google.handle'
+/** Bytes a google id may have. */
+export const MAX_ID_LENGTH_GOOGLE = 31
+/** The id is ASCII digits; otherwise printable ASCII without a quote or backslash. */
+export const ID_DECIMAL_GOOGLE = false
+/** The id may start with `0` when longer than one byte. */
+export const ID_LEADING_ZERO_GOOGLE = true
+
 /** Validate as an address instead of a bare handle. */
 export const IS_EMAIL_X = false
 /** Allow `_`. */
 export const ALLOW_UNDERSCORE_X = true
 /** Allow `-`, but not leading, trailing or doubled. */
 export const ALLOW_HYPHEN_X = false
-/** Remove one leading `@`. */
-export const STRIP_LEADING_AT_GITHUB = true
 /** Validate as an address instead of a bare handle. */
 export const IS_EMAIL_GITHUB = false
 /** Allow `_`. */
 export const ALLOW_UNDERSCORE_GITHUB = false
 /** Allow `-`, but not leading, trailing or doubled. */
 export const ALLOW_HYPHEN_GITHUB = true
-/** Remove one leading `@`. */
-export const STRIP_LEADING_AT_GOOGLE = false
 /** Validate as an address instead of a bare handle. */
 export const IS_EMAIL_GOOGLE = true
 /** Allow `_`. */
@@ -57,48 +97,75 @@ export const ERROR_BADCHARACTER = 2
 export const ERROR_BADSHAPE = 3
 
 export const HANDLE_VECTORS: HandleVector[] = [
-  { platform: "x", input: " @Alice_1 ", output: "alice_1", accepted: true, errorKind: 0 },
-  { platform: "x", input: "alice", output: "alice", accepted: true, errorKind: 0 },
-  { platform: "x", input: "@a", output: "a", accepted: true, errorKind: 0 },
-  { platform: "x", input: "A1_b2", output: "a1_b2", accepted: true, errorKind: 0 },
-  { platform: "x", input: "a12345678901234", output: "a12345678901234", accepted: true, errorKind: 0 },
-  { platform: "x", input: "a123456789012345", output: "", accepted: false, errorKind: 1 },
-  { platform: "x", input: "", output: "", accepted: false, errorKind: 0 },
-  { platform: "x", input: "   ", output: "", accepted: false, errorKind: 0 },
-  { platform: "x", input: "@", output: "", accepted: false, errorKind: 0 },
-  { platform: "x", input: "@@alice", output: "", accepted: false, errorKind: 2 },
-  { platform: "x", input: "alice-1", output: "", accepted: false, errorKind: 2 },
-  { platform: "x", input: "ali ce", output: "", accepted: false, errorKind: 2 },
-  { platform: "x", input: "ali\tce", output: "", accepted: false, errorKind: 2 },
-  { platform: "x", input: "ali\nce", output: "", accepted: false, errorKind: 2 },
-  { platform: "x", input: "alic\u00e9", output: "", accepted: false, errorKind: 2 },
-  { platform: "x", input: "\talice", output: "", accepted: false, errorKind: 2 },
-  { platform: "x", input: "alice\t", output: "", accepted: false, errorKind: 2 },
-  { platform: "x", input: "\nalice", output: "", accepted: false, errorKind: 2 },
-  { platform: "x", input: " @ alice ", output: "", accepted: false, errorKind: 2 },
-  { platform: "github", input: "@Octo-Cat", output: "octo-cat", accepted: true, errorKind: 0 },
-  { platform: "github", input: "octocat", output: "octocat", accepted: true, errorKind: 0 },
-  { platform: "github", input: " OctoCat ", output: "octocat", accepted: true, errorKind: 0 },
-  { platform: "github", input: "a", output: "a", accepted: true, errorKind: 0 },
-  { platform: "github", input: "o-c", output: "o-c", accepted: true, errorKind: 0 },
-  { platform: "github", input: "-octocat", output: "", accepted: false, errorKind: 3 },
-  { platform: "github", input: "octocat-", output: "", accepted: false, errorKind: 3 },
-  { platform: "github", input: "octo--cat", output: "", accepted: false, errorKind: 3 },
-  { platform: "github", input: "octo_cat", output: "", accepted: false, errorKind: 2 },
-  { platform: "github", input: "-", output: "", accepted: false, errorKind: 3 },
-  { platform: "github", input: "", output: "", accepted: false, errorKind: 0 },
-  { platform: "github", input: "abcdefghijabcdefghijabcdefghijabcdefghi", output: "abcdefghijabcdefghijabcdefghijabcdefghi", accepted: true, errorKind: 0 },
-  { platform: "github", input: "abcdefghijabcdefghijabcdefghijabcdefghij", output: "", accepted: false, errorKind: 1 },
-  { platform: "github", input: "\n", output: "", accepted: false, errorKind: 2 },
-  { platform: "google", input: "A.B+tag@Example.COM", output: "a.b+tag@example.com", accepted: true, errorKind: 0 },
-  { platform: "google", input: "alice@example.com", output: "alice@example.com", accepted: true, errorKind: 0 },
-  { platform: "google", input: " Alice@Example.com ", output: "alice@example.com", accepted: true, errorKind: 0 },
-  { platform: "google", input: "@Alice@example.com", output: "", accepted: false, errorKind: 3 },
-  { platform: "google", input: "alice", output: "", accepted: false, errorKind: 3 },
-  { platform: "google", input: "@example.com", output: "", accepted: false, errorKind: 3 },
-  { platform: "google", input: "alice@", output: "", accepted: false, errorKind: 3 },
-  { platform: "google", input: "", output: "", accepted: false, errorKind: 0 },
-  { platform: "google", input: "ali ce@example.com", output: "", accepted: false, errorKind: 2 },
-  { platform: "google", input: "abcdefghijabcdefghijabcdefghijabcdefghijabcdefghij@example.com", output: "abcdefghijabcdefghijabcdefghijabcdefghijabcdefghij@example.com", accepted: true, errorKind: 0 },
-  { platform: "google", input: "abcdefghijabcdefghijabcdefghijabcdefghijabcdefghijk@example.com", output: "", accepted: false, errorKind: 1 },
+  { platform: "x", input: " @Alice_1 ", output: "", accepted: false, errorKind: 2, handleNode: "" },
+  { platform: "x", input: "Alice_1", output: "alice_1", accepted: true, errorKind: 0, handleNode: "0xe09c4f5bfbbc723bc35701ea9d718a1c5edb29b1ed5bb0cb0fabb3c43d8136af" },
+  { platform: "x", input: "alice", output: "alice", accepted: true, errorKind: 0, handleNode: "0x0bed64615b5776d2567a82467d7be0e266e02803910d694a72703ee2a4cc911a" },
+  { platform: "x", input: "@a", output: "", accepted: false, errorKind: 2, handleNode: "" },
+  { platform: "x", input: "A1_b2", output: "a1_b2", accepted: true, errorKind: 0, handleNode: "0x55be0847f475409cb1da1d008804b966de05bb088d2469129c142faf2ec4a678" },
+  { platform: "x", input: "a12345678901234", output: "a12345678901234", accepted: true, errorKind: 0, handleNode: "0xbd3a96fb00ea79bdb486cbaa43914f8c110c8585d419fc02e5b1536c7617af58" },
+  { platform: "x", input: "a123456789012345", output: "", accepted: false, errorKind: 1, handleNode: "" },
+  { platform: "x", input: "", output: "", accepted: false, errorKind: 0, handleNode: "" },
+  { platform: "x", input: "   ", output: "", accepted: false, errorKind: 2, handleNode: "" },
+  { platform: "x", input: "@", output: "", accepted: false, errorKind: 2, handleNode: "" },
+  { platform: "x", input: "@@alice", output: "", accepted: false, errorKind: 2, handleNode: "" },
+  { platform: "x", input: "alice-1", output: "", accepted: false, errorKind: 2, handleNode: "" },
+  { platform: "x", input: "ali ce", output: "", accepted: false, errorKind: 2, handleNode: "" },
+  { platform: "x", input: "ali\tce", output: "", accepted: false, errorKind: 2, handleNode: "" },
+  { platform: "x", input: "ali\nce", output: "", accepted: false, errorKind: 2, handleNode: "" },
+  { platform: "x", input: "alic\u00e9", output: "", accepted: false, errorKind: 2, handleNode: "" },
+  { platform: "x", input: "\talice", output: "", accepted: false, errorKind: 2, handleNode: "" },
+  { platform: "x", input: "alice\t", output: "", accepted: false, errorKind: 2, handleNode: "" },
+  { platform: "x", input: "\nalice", output: "", accepted: false, errorKind: 2, handleNode: "" },
+  { platform: "x", input: " @ alice ", output: "", accepted: false, errorKind: 2, handleNode: "" },
+  { platform: "github", input: "OctoCat", output: "octocat", accepted: true, errorKind: 0, handleNode: "0x381fb9d7d3b01214e58b94202ea10f78e169adef68bcc20d40c130deca6dfe74" },
+  { platform: "github", input: "@Octo-Cat", output: "", accepted: false, errorKind: 2, handleNode: "" },
+  { platform: "github", input: "octocat", output: "octocat", accepted: true, errorKind: 0, handleNode: "0x381fb9d7d3b01214e58b94202ea10f78e169adef68bcc20d40c130deca6dfe74" },
+  { platform: "github", input: " OctoCat ", output: "", accepted: false, errorKind: 2, handleNode: "" },
+  { platform: "github", input: "a", output: "a", accepted: true, errorKind: 0, handleNode: "0x823c23491391b659703362484a08cfbcc8cede4ea3b5ba1753c3df7756799c70" },
+  { platform: "github", input: "o-c", output: "o-c", accepted: true, errorKind: 0, handleNode: "0xaa580baff71ac37d38e08b9b7b0dd7516ec01608457fbbee7f445a0b8f7d9fc5" },
+  { platform: "github", input: "-octocat", output: "", accepted: false, errorKind: 3, handleNode: "" },
+  { platform: "github", input: "octocat-", output: "", accepted: false, errorKind: 3, handleNode: "" },
+  { platform: "github", input: "octo--cat", output: "", accepted: false, errorKind: 3, handleNode: "" },
+  { platform: "github", input: "octo_cat", output: "", accepted: false, errorKind: 2, handleNode: "" },
+  { platform: "github", input: "-", output: "", accepted: false, errorKind: 3, handleNode: "" },
+  { platform: "github", input: "", output: "", accepted: false, errorKind: 0, handleNode: "" },
+  { platform: "github", input: "abcdefghijabcdefghijabcdefghijabcdefghi", output: "abcdefghijabcdefghijabcdefghijabcdefghi", accepted: true, errorKind: 0, handleNode: "0x3f7bdb081795e2934e1e949f1933b8df950a6e6026dbc70060fc3a79b693a058" },
+  { platform: "github", input: "abcdefghijabcdefghijabcdefghijabcdefghij", output: "", accepted: false, errorKind: 1, handleNode: "" },
+  { platform: "github", input: "\n", output: "", accepted: false, errorKind: 2, handleNode: "" },
+  { platform: "google", input: "A.B+tag@Example.COM", output: "a.b+tag@example.com", accepted: true, errorKind: 0, handleNode: "0x40169b5cc6400158aeef2a13b73a14fc36e5e1df8595572b8fe282a269f26dd4" },
+  { platform: "google", input: "alice@example.com", output: "alice@example.com", accepted: true, errorKind: 0, handleNode: "0x41c79cba63d5bd4735ca51af1af31702918f326eb6fc1afd853d675fee3a59cc" },
+  { platform: "google", input: " Alice@Example.com ", output: "", accepted: false, errorKind: 2, handleNode: "" },
+  { platform: "google", input: "@Alice@example.com", output: "", accepted: false, errorKind: 3, handleNode: "" },
+  { platform: "google", input: "alice", output: "", accepted: false, errorKind: 3, handleNode: "" },
+  { platform: "google", input: "@example.com", output: "", accepted: false, errorKind: 3, handleNode: "" },
+  { platform: "google", input: "alice@", output: "", accepted: false, errorKind: 3, handleNode: "" },
+  { platform: "google", input: "", output: "", accepted: false, errorKind: 0, handleNode: "" },
+  { platform: "google", input: "ali ce@example.com", output: "", accepted: false, errorKind: 2, handleNode: "" },
+  { platform: "google", input: "abcdefghijabcdefghijabcdefghijabcdefghijabcdefghij@example.com", output: "abcdefghijabcdefghijabcdefghijabcdefghijabcdefghij@example.com", accepted: true, errorKind: 0, handleNode: "0x3dc67054a8f794285dc9496fd7c2442ef34401b5e3f6a49e7d3fd9cc6a917e97" },
+  { platform: "google", input: "abcdefghijabcdefghijabcdefghijabcdefghijabcdefghijk@example.com", output: "", accepted: false, errorKind: 1, handleNode: "" },
+]
+
+export const ID_VECTORS: IdVector[] = [
+  { platform: "x", input: "2244994945", accepted: true, errorKind: 0, idNode: "0x68291869976ffad2abf3e933ec9ab2623395ff8b3b9242e655e1da3ef43d4f94" },
+  { platform: "x", input: "7", accepted: true, errorKind: 0, idNode: "0x5c228a76caebd7cc0148637f2344c022228820a028f1fbd0d840227da5b5fa6f" },
+  { platform: "x", input: "00123", accepted: true, errorKind: 0, idNode: "0xb956fd3511a9d1b0e365593cc0548b0d6170ecac1d45b0596a53b9beffe59b2f" },
+  { platform: "x", input: "12345678901234567890", accepted: true, errorKind: 0, idNode: "0x46d787dc85127e79b248e3768ab657f0c543bc3ce5b97f1645c69f8432a3ec3b" },
+  { platform: "x", input: "123456789012345678901", accepted: false, errorKind: 1, idNode: "" },
+  { platform: "x", input: "", accepted: false, errorKind: 0, idNode: "" },
+  { platform: "x", input: "12a4", accepted: false, errorKind: 2, idNode: "" },
+  { platform: "x", input: "-1", accepted: false, errorKind: 2, idNode: "" },
+  { platform: "github", input: "583231", accepted: true, errorKind: 0, idNode: "0x475902b27989feb395b9b0cd3156aa573a9676c13155b8e7e3ddaf3e77181847" },
+  { platform: "github", input: "0", accepted: true, errorKind: 0, idNode: "0x90f128b24f42f2f5b6924ca42ac0ec9220498d50b0ce131a1cf9135bd3e017c3" },
+  { platform: "github", input: "0583231", accepted: false, errorKind: 3, idNode: "" },
+  { platform: "github", input: "18446744073709551615", accepted: true, errorKind: 0, idNode: "0xdaaed93a4b3862ac845bdc7e3db729492757f8c0b53c6572e6897d9ae0ff54fd" },
+  { platform: "github", input: "", accepted: false, errorKind: 0, idNode: "" },
+  { platform: "github", input: "5 8", accepted: false, errorKind: 2, idNode: "" },
+  { platform: "google", input: "110169484474386276334", accepted: true, errorKind: 0, idNode: "0x620866cfb4d2776a32cd94d8e8b55577526af86115ebf125d4ca1ca7bf07737e" },
+  { platform: "google", input: "a b~Z", accepted: true, errorKind: 0, idNode: "0xa8ad7455d3d38bcd9b94b444284182fee9766f2403e7fe283c68c4a08123be77" },
+  { platform: "google", input: "1234567890123456789012345678901", accepted: true, errorKind: 0, idNode: "0xe95d993e3520fe34fd3eec014d9bbf91868c7e7e5160d95bc3eeca9dfb38329e" },
+  { platform: "google", input: "12345678901234567890123456789012", accepted: false, errorKind: 1, idNode: "" },
+  { platform: "google", input: "", accepted: false, errorKind: 0, idNode: "" },
+  { platform: "google", input: "a\"b", accepted: false, errorKind: 2, idNode: "" },
+  { platform: "google", input: "a\\b", accepted: false, errorKind: 2, idNode: "" },
+  { platform: "google", input: "a\tb", accepted: false, errorKind: 2, idNode: "" },
 ]

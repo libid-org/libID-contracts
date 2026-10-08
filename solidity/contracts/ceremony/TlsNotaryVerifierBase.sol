@@ -31,10 +31,17 @@ import {PlatformVerifierBase} from "./PlatformVerifierBase.sol";
 ///      verifying it earlier would prove a relation between numbers nobody had
 ///      tied to a session yet.
 abstract contract TlsNotaryVerifierBase is IPlatformVerifier, PlatformVerifierBase {
-    /// @dev Two 32-byte commitments as 64 public inputs, one byte each.
-    uint256 internal constant PUBLIC_INPUTS = 64;
+    /// @dev The bearer-link circuit's public inputs, in its order: the two
+    ///      bearer commitments one byte per field, then the id and handle
+    ///      commitments and the two nodes, each as two 16-byte big-endian
+    ///      halves `[high, low]`.
+    uint256 internal constant PUBLIC_INPUTS = 72;
     uint256 internal constant OFF_TOKEN_COMMITMENT = 0;
     uint256 internal constant OFF_IDENTITY_COMMITMENT = 32;
+    uint256 internal constant OFF_ID_COMMITMENT = 64;
+    uint256 internal constant OFF_HANDLE_COMMITMENT = 66;
+    uint256 internal constant OFF_ID_NODE = 68;
+    uint256 internal constant OFF_HANDLE_NODE = 70;
 
     /// @dev What frames the committed bearer in the token response. Every other
     ///      response byte is hidden, so without these the committed range is
@@ -75,7 +82,17 @@ abstract contract TlsNotaryVerifierBase is IPlatformVerifier, PlatformVerifierBa
     /// @param transactionData    Into the digest, and returned opaque
     ///                           (REQ-COMMON-06B).
     /// @param tokenSession       The token exchange, notarized.
-    /// @param identitySession    The identity read, notarized.
+    /// @param identitySession    The identity read, notarized. Its response
+    ///                           reveals only the anchors around the id and
+    ///                           the handle; both values are committed.
+    /// @param idNode             `SHA256(user-id tag || id)`, as the prover
+    ///                           claims it. The proof binds it to the committed
+    ///                           id; nothing else vouches for it.
+    /// @param handleNode         `SHA256(handle tag || fold(handle))`, bound to
+    ///                           the committed handle the same way.
+    /// @param handle             Empty for a private submission. Otherwise the
+    ///                           handle to disclose as the holder's name; it
+    ///                           must hash to `handleNode` (`_disclosed`).
     /// @param proof              Verified under the artifact governance
     ///                           selected, never one the caller names.
     struct TlsNotaryProof {
@@ -85,14 +102,15 @@ abstract contract TlsNotaryVerifierBase is IPlatformVerifier, PlatformVerifierBa
         bytes transactionData;
         Attestation tokenSession;
         Attestation identitySession;
+        bytes32 idNode;
+        bytes32 handleNode;
+        string handle;
         bytes proof;
     }
 
     error WrongRequestLine();
     error CodeVerifierMismatch();
     error ClientIdentifierNotSerializerSafe(bytes found);
-    /// @dev A field was found in no revealed range, or in more than one.
-    error FieldNotUnique(string name, uint256 rangesMatching);
     /// @dev The first revealed range does not begin the transcript, so nothing
     ///      says the bytes read as a request line ARE the request line.
     error RequestLineNotAtOrigin(uint32 start);
@@ -179,64 +197,6 @@ abstract contract TlsNotaryVerifierBase is IPlatformVerifier, PlatformVerifierBa
         virtual
         returns (string memory idField, IdShape idShape, string memory handleField);
 
-    /// @dev Find a JSON string field in exactly one revealed range.
-    ///
-    ///      Reading from a concatenation of the revealed ranges is what this
-    ///      exists to prevent. Concatenation discards every offset, so a prover
-    ///      revealing disjoint fragments -- the opening of one member, the
-    ///      middle of a display name, the tail of another member -- gets them
-    ///      joined into a document that never existed on the wire, and the
-    ///      duplicate-delimiter check of REQ-COMMON-19A has nothing to fire on
-    ///      because the genuine member is simply not in the buffer.
-    ///
-    ///      Requiring the whole match to sit inside one authenticated range
-    ///      means every byte of it came from one contiguous run the notary
-    ///      signed, at the offsets it signed them at.
-    ///
-    ///      `ranges` holds each revealed range and `joined` their concatenation,
-    ///      each normalized whole by `normalizeJsonBytes`. The count over
-    ///      `joined` can only over-count at a seam, which fails closed.
-    function _uniqueJsonString(bytes[] memory ranges, bytes memory joined, string memory name)
-        private
-        pure
-        returns (bytes memory value)
-    {
-        uint256 matches;
-        for (uint256 i = 0; i < ranges.length; ++i) {
-            (CeremonyFields.Found found, bytes memory v) = CeremonyFields.tryNormalizedJsonString(ranges[i], name);
-            if (found == CeremonyFields.Found.Several) revert FieldNotUnique(name, 2);
-            if (found == CeremonyFields.Found.One) {
-                ++matches;
-                value = v;
-            }
-        }
-        if (matches != 1) revert FieldNotUnique(name, matches);
-        // And the delimiter appears once across the whole revealed set, so a
-        // second copy cannot hide under a range boundary.
-        uint256 seen = CeremonyFields.occurrences(joined, abi.encodePacked('"', name, '":"'));
-        if (seen != 1) revert FieldNotUnique(name, seen);
-    }
-
-    /// @dev The same, for a bare JSON integer.
-    function _uniqueJsonInteger(bytes[] memory ranges, bytes memory joined, string memory name)
-        private
-        pure
-        returns (bytes memory digits)
-    {
-        uint256 matches;
-        for (uint256 i = 0; i < ranges.length; ++i) {
-            (CeremonyFields.Found found, bytes memory v) = CeremonyFields.tryNormalizedJsonInteger(ranges[i], name);
-            if (found == CeremonyFields.Found.Several) revert FieldNotUnique(name, 2);
-            if (found == CeremonyFields.Found.One) {
-                ++matches;
-                digits = v;
-            }
-        }
-        if (matches != 1) revert FieldNotUnique(name, matches);
-        uint256 seen = CeremonyFields.occurrences(joined, abi.encodePacked('"', name, '":'));
-        if (seen != 1) revert FieldNotUnique(name, seen);
-    }
-
     // ─── The flow ───────────────────────────────────────────────────
 
     /// @inheritdoc IPlatformVerifier
@@ -274,11 +234,15 @@ abstract contract TlsNotaryVerifierBase is IPlatformVerifier, PlatformVerifierBa
         );
 
         (uint64 observedAt, bytes32 tokenCommitment) = _tokenSession(digest, p, fee, claimed);
-        bytes32 identityCommitment = _identitySession(p, fee, claimed);
+        Commitments memory identity = _identitySession(p, fee);
 
         // Built, not compared. The proof verifies against the commitments the
-        // notary signed and nothing else can be substituted for them.
-        _requireProof(p.proof, _publicInputs(tokenCommitment, identityCommitment));
+        // notary signed and the nodes the payload claims, so the nodes leave
+        // here only as the keys of the values the platform committed.
+        _requireProof(p.proof, _publicInputs(tokenCommitment, identity, p.idNode, p.handleNode));
+        claimed.idNode = p.idNode;
+        claimed.handleNode = p.handleNode;
+        claimed.handle = _disclosed(p.handle, p.handleNode);
 
         // The same locals that entered the digest, returned. The Consumer acts
         // on these and records that digest; they are one submission's worth of
@@ -370,21 +334,26 @@ abstract contract TlsNotaryVerifierBase is IPlatformVerifier, PlatformVerifierBa
         tokenCommitment = bearer.commitment;
     }
 
-    function _identitySession(TlsNotaryProof memory p, uint256 fee, VerifiedClaim memory fields)
-        private
-        returns (bytes32 identityCommitment)
-    {
+    /// @dev The identity session's three commitments the circuit opens.
+    struct Commitments {
+        bytes32 bearer;
+        bytes32 id;
+        bytes32 handle;
+    }
+
+    function _identitySession(TlsNotaryProof memory p, uint256 fee) private returns (Commitments memory) {
         CeremonyAttestation.AttestedData memory data = _authenticate(p.identitySession, _identityAuthority(), fee);
-        (identityCommitment, fields.userId, fields.handle) = _identityTranscript(data);
+        return _identityTranscript(data);
     }
 
     /// @dev Every transcript check of the identity session, request then
     ///      response; `data` must come from `_authenticate`. Returns the
-    ///      committed bearer, the user id and the raw handle.
+    ///      committed bearer, id and handle, which the circuit opens. The id
+    ///      and the handle are never read here: they are not revealed.
     function _identityTranscript(CeremonyAttestation.AttestedData memory data)
         internal
         pure
-        returns (bytes32 identityCommitment, string memory userId, string memory handle)
+        returns (Commitments memory committed)
     {
         // REQ-COMMON-21A: the path separates operations on the same server.
         // Anchored at the origin for the same reason as the token request --
@@ -404,65 +373,51 @@ abstract contract TlsNotaryVerifierBase is IPlatformVerifier, PlatformVerifierBa
         // gap and the count still says one.
         (CeremonyAttestation.RangeCommitment memory bearer, bytes memory revealed) =
             CeremonyAttestation.requireBearerHeaderRequest(data.sent, data.sentTranscriptLength);
-        identityCommitment = bearer.commitment;
+        committed.bearer = bearer.commitment;
         _checkIdentityHead(revealed);
 
-        // Tiled, not revealed whole. The response may hide bytes, which is
-        // what keeps a platform's account metadata off chain when the profile's
-        // client returns more than the two members this reads.
+        // Tiled, and the two values hidden. Every response byte is revealed or
+        // committed, and the id and the handle are each one commitment, found
+        // by the revealed anchors immediately around it: `"username":"` before
+        // and `"` after, or `"id":` before and the `,` or `}` that ends a bare
+        // integer after. JSON whitespace inside an anchor is the platform's
+        // (GitHub writes `"id": 583231,`) and is ignored to compare.
         //
-        // The cost is stated rather than hidden. Every reader below scans
-        // revealed bytes, so a commitment is invisible to all of them: a
-        // response that genuinely names an authoritative field TWICE lets a
-        // prover commit the real member and reveal the one it chose, and both
-        // the per-range read and the cross-range count then see exactly one.
-        // Uniqueness is a property of the document, and this establishes it
-        // over a part.
-        //
-        // What stands in for it is ASM-PROV-06 -- the platform emits each
-        // authoritative field exactly once -- plus the platform's own JSON
-        // escaping, which keeps a delimiter out of any value the account
-        // controls. Neither is checked here, and neither can be. A duplicate
-        // that reaches the REVEALED bytes is still caught, in either range
-        // layout; only one hidden behind a commitment is not.
+        // What this establishes, and what it cannot. Each anchor appears once
+        // in the revealed bytes and frames exactly one commitment, so the
+        // circuit opens the range the anchors name and no other. But every
+        // reader here scans REVEALED bytes, and a commitment is invisible to
+        // all of them: a response that genuinely names an authoritative field
+        // twice lets a prover hide the real member behind one commitment and
+        // frame the one it chose. Uniqueness is a property of the document,
+        // and this establishes it over a part. What stands in for it is
+        // ASM-PROV-06 -- the platform emits each authoritative field exactly
+        // once -- plus the platform's JSON escaping, which keeps a delimiter
+        // out of any value the account controls. Neither is checked here, and
+        // neither can be.
         CeremonyAttestation.requireExactCoverage(data.received, data.recvTranscriptLength);
-        // The join is normalized whole, not assembled from the normalized
-        // ranges: whitespace at a seam goes or stays by the bytes on both sides.
-        bytes[] memory ranges = new bytes[](data.received.revealed.length);
-        for (uint256 i = 0; i < ranges.length; ++i) {
-            ranges[i] = CeremonyFields.normalizeJsonBytes(data.received.revealed[i].value);
-        }
-        bytes memory joined = CeremonyFields.normalizeJsonBytes(CeremonyAttestation.concatRevealed(data.received));
         (string memory idField, IdShape idShape, string memory handleField) = _identityFields();
-        userId = string(
-            idShape == IdShape.JsonString
-                ? _uniqueJsonString(ranges, joined, idField)
-                : _uniqueJsonInteger(ranges, joined, idField)
-        );
-        handle = string(_uniqueJsonString(ranges, joined, handleField));
+        committed.id = idShape == IdShape.JsonString
+            ? CeremonyAttestation.requireFramedCommitment(data.received, abi.encodePacked('"', idField, '":"'), '"')
+            .commitment
+            : CeremonyAttestation.requireFramedInteger(data.received, abi.encodePacked('"', idField, '":')).commitment;
+        committed.handle =
+        CeremonyAttestation.requireFramedCommitment(data.received, abi.encodePacked('"', handleField, '":"'), '"')
+        .commitment;
     }
 
     // ─── Helpers ────────────────────────────────────────────────────
 
-    /// @dev Match a proved commitment against the one the attestation carried.
-    ///      Without this the circuit could prove a link between two
-    ///      attestations other than the ones submitted (REQ-PLAT-32C,
-    ///      REQ-PLAT-52B).
     /// @dev The circuit's public inputs, as this verifier derives them.
     ///
-    ///      Two 32-byte commitments as 64 field elements of one byte each,
-    ///      token first. The circuit fixes that order; this contract fixes
-    ///      where the bytes come from -- the attestations it just
-    ///      authenticated, never the caller.
-    ///
-    ///      There used to be a comparison here instead, against inputs the
-    ///      caller supplied. It cost 64 words of calldata to say something the
-    ///      verifier already knew, and it could be got wrong: reconstructing a
-    ///      byte with `uint8(...)` accepted a field element of 0x0101 as 0x01,
-    ///      so the binding rested on the circuit range-constraining outputs
-    ///      this contract cannot see. Derived, there is nothing to constrain
-    ///      and nothing to disagree with.
-    function _publicInputs(bytes32 tokenCommitment, bytes32 identityCommitment)
+    ///      The two bearer commitments as 64 field elements of one byte each,
+    ///      token first, then the id and handle commitments and the two nodes
+    ///      as `[high, low]` halves. The circuit fixes that order; this
+    ///      contract fixes where the values come from -- the commitments from
+    ///      the attestations it just authenticated, the nodes from the claim
+    ///      it is about to return -- so the proof binds exactly what leaves
+    ///      (REQ-PLAT-32C, REQ-PLAT-52B).
+    function _publicInputs(bytes32 tokenCommitment, Commitments memory identity, bytes32 idNode, bytes32 handleNode)
         private
         pure
         returns (bytes32[] memory inputs)
@@ -470,8 +425,18 @@ abstract contract TlsNotaryVerifierBase is IPlatformVerifier, PlatformVerifierBa
         inputs = new bytes32[](PUBLIC_INPUTS);
         for (uint256 i = 0; i < 32; ++i) {
             inputs[OFF_TOKEN_COMMITMENT + i] = bytes32(uint256(uint8(tokenCommitment[i])));
-            inputs[OFF_IDENTITY_COMMITMENT + i] = bytes32(uint256(uint8(identityCommitment[i])));
+            inputs[OFF_IDENTITY_COMMITMENT + i] = bytes32(uint256(uint8(identity.bearer[i])));
         }
+        _halves(inputs, OFF_ID_COMMITMENT, identity.id);
+        _halves(inputs, OFF_HANDLE_COMMITMENT, identity.handle);
+        _halves(inputs, OFF_ID_NODE, idNode);
+        _halves(inputs, OFF_HANDLE_NODE, handleNode);
+    }
+
+    /// @dev A 32-byte value as two big-endian 16-byte field elements.
+    function _halves(bytes32[] memory inputs, uint256 at, bytes32 value) private pure {
+        inputs[at] = value >> 128;
+        inputs[at + 1] = bytes32(uint256(uint128(uint256(value))));
     }
 
     /// @dev The head's header lines: each required one exactly once with its

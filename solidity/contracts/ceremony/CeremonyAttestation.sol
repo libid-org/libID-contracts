@@ -196,6 +196,54 @@ library CeremonyAttestation {
         return block_.commitments[found];
     }
 
+    /// @notice The one commitment framed as a bare JSON integer's digits:
+    ///         `prefix` revealed before it, and after it a revealed range
+    ///         that, JSON whitespace aside, starts with the `,` or `}` that
+    ///         ends the number.
+    ///
+    /// @dev The terminator is what proves the committed digits are the whole
+    ///      number rather than a prefix of a longer one; a commitment that
+    ///      stops mid-number is followed by a digit, and frames nothing. The
+    ///      digits themselves are the circuit's to check.
+    function requireFramedInteger(DirectionBlock memory block_, bytes memory prefix)
+        internal
+        pure
+        returns (RangeCommitment memory framed)
+    {
+        if (CeremonyFields.occurrences(CeremonyFields.normalizeJsonBytes(concatRevealed(block_)), prefix) > 1) {
+            revert AmbiguousFraming();
+        }
+
+        uint256 found = type(uint256).max;
+        for (uint256 i = 0; i < block_.commitments.length; ++i) {
+            RangeCommitment memory c = block_.commitments[i];
+            if (!_anchoredBy(block_, c.start, prefix)) continue;
+            if (!_terminatedAt(block_, c.end)) continue;
+
+            if (found != type(uint256).max) revert AmbiguousFraming();
+            found = i;
+        }
+        if (found == type(uint256).max) revert NoFramedCommitment();
+        return block_.commitments[found];
+    }
+
+    /// @dev Whether a revealed range starts exactly at `at` and its first byte
+    ///      after JSON whitespace is `,` or `}`.
+    function _terminatedAt(DirectionBlock memory block_, uint32 at) private pure returns (bool) {
+        for (uint256 i = 0; i < block_.revealed.length; ++i) {
+            RevealedRange memory range = block_.revealed[i];
+            if (range.start != at) continue;
+            bytes memory v = range.value;
+            for (uint256 j = 0; j < v.length; ++j) {
+                bytes1 b = v[j];
+                if (b == 0x20 || b == 0x09 || b == 0x0a || b == 0x0d) continue;
+                return b == 0x2c || b == 0x7d;
+            }
+            return false;
+        }
+        return false;
+    }
+
     /// @dev Whether a revealed range ends exactly at `at` and, JSON whitespace
     ///      removed, ends with `prefix`. The whitespace stays revealed at its
     ///      offsets -- the range is the wire -- and is only ignored to compare.
@@ -263,8 +311,9 @@ library CeremonyAttestation {
         // direction to err in: a false seam over-rejects an honest session,
         // which fails closed. Missing a real header does not.
         //
-        // Reading a VALUE stays per range -- see `_uniqueJsonString`. Counting
-        // and reading want opposite things: a count must not miss, a read must
+        // Locating a value stays per range -- see `requireFramedCommitment`,
+        // whose anchor is one revealed range, never a join. Counting and
+        // locating want opposite things: a count must not miss, a locate must
         // not splice.
         // Counted once. Filling the error argument with a second call would
         // rescan the whole revealed transcript, so every rejected submission

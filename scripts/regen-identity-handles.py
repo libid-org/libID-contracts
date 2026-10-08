@@ -2,11 +2,21 @@
 """Regenerate the identity platform constants and the handle vector table.
 
 `solidity/contracts/identity/handles.json` is the single source of truth. Edit
-it, then run this script. Up to three files are written and never drift apart:
+it, then run this script. These files are written and never drift apart:
 
     solidity/contracts/identity/HandleVectors.sol          # Solidity constants + vectors
     rust/identity/src/handle_vectors.rs                    # Rust constants + vectors
     ts/packages/contracts/src/identity/handleVectors.ts    # TypeScript constants + vectors
+    <libid-circuits>/lib/identity/src/table.nr             # Noir constants + vector tests,
+                                                           # with --noir-out <that path>
+
+Every output carries the SHA-256 of handles.json, so a consumer holding a
+generated file from one table and a contract from another can tell.
+
+Every handleNode and idNode in the table is recomputed here with hashlib and
+must match what the table states: the stored nodes are the independent
+reference every language is tested against, so a wrong one is refused before
+it is copied anywhere.
 
 An output is skipped with a note until its target directory appears. The normalizer
 itself is hand written in each language. Only the constants and the vectors
@@ -14,11 +24,12 @@ come from here. That is the point: several implementations, one vector table,
 so a difference between them fails a test instead of writing a different key
 on chain.
 
-Run: ./scripts/regen-identity-handles.py
+Run: ./scripts/regen-identity-handles.py [--noir-out ../libid-circuits/lib/identity/src/table.nr]
 """
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import pathlib
 import shutil
@@ -69,8 +80,6 @@ def rule_flags(platform: dict[str, Any]) -> tuple[tuple[str, bool, str], ...]:
     prevent.
     """
     return (
-        ("STRIP_LEADING_AT", bool(platform.get("stripLeadingAt", False)),
-         "Remove one leading `@`."),
         ("IS_EMAIL", platform.get("shape") == "email",
          "Validate as an address instead of a bare handle."),
         ("ALLOW_UNDERSCORE", bool(platform.get("allowUnderscore", False)),
@@ -78,6 +87,47 @@ def rule_flags(platform: dict[str, Any]) -> tuple[tuple[str, bool, str], ...]:
         ("ALLOW_HYPHEN", bool(platform.get("allowHyphen", False)),
          "Allow `-`, but not leading, trailing or doubled."),
     )
+
+
+def table_sha256(raw: bytes) -> str:
+    return hashlib.sha256(raw).hexdigest()
+
+
+def check_nodes(spec: dict[str, Any]) -> None:
+    """Refuse a table whose stored nodes are not SHA256(tag || value)."""
+    tags = {p["key"]: p["tags"] for p in spec["platforms"]}
+    for vec in spec["vectors"]:
+        if "output" not in vec:
+            if "handleNode" in vec:
+                raise SystemExit(f"ERROR: refused vector {vec['input']!r} carries a node")
+            continue
+        want = "0x" + hashlib.sha256(
+            (tags[vec["platform"]]["handle"] + vec["output"]).encode()
+        ).hexdigest()
+        if vec.get("handleNode") != want:
+            raise SystemExit(
+                f"ERROR: {vec['platform']} {vec['input']!r}: handleNode is not "
+                f"SHA256(tag || output); expected {want}"
+            )
+    for vec in spec["idVectors"]:
+        if "error" in vec:
+            if "idNode" in vec:
+                raise SystemExit(f"ERROR: refused id {vec['input']!r} carries a node")
+            continue
+        want = "0x" + hashlib.sha256(
+            (tags[vec["platform"]]["userId"] + vec["input"]).encode()
+        ).hexdigest()
+        if vec.get("idNode") != want:
+            raise SystemExit(
+                f"ERROR: {vec['platform']} id {vec['input']!r}: idNode is not "
+                f"SHA256(tag || id); expected {want}"
+            )
+
+
+def id_flags(platform: dict[str, Any]) -> tuple[int, bool, bool]:
+    """(max length, decimal, leading zero allowed) for a platform's ids."""
+    rules = platform["id"]
+    return rules["maxLength"], rules["shape"] == "decimal", bool(rules["leadingZero"])
 
 
 def sol_escape(value: str) -> str:
@@ -132,7 +182,7 @@ def error_index(errors: list[dict[str, Any]], key: str) -> int:
     raise SystemExit(f"ERROR: unknown error kind {key!r} in a vector")
 
 
-def gen_sol(spec: dict[str, Any]) -> str:
+def gen_sol(spec: dict[str, Any], digest: str) -> str:
     platforms = spec["platforms"]
     errors = spec["errors"]
     vectors = spec["vectors"]
@@ -151,6 +201,9 @@ def gen_sol(spec: dict[str, Any]) -> str:
         "///      TypeScript run the same table. A normalizer that disagrees with",
         "///      another language fails a test instead of writing a different node.",
         "library HandleVectors {",
+        "    /// SHA-256 of the handles.json this file was generated from.",
+        f"    bytes32 internal constant TABLE_SHA256 = 0x{digest};",
+        "",
     ]
 
     for p in platforms:
@@ -167,6 +220,39 @@ def gen_sol(spec: dict[str, Any]) -> str:
         lines.append(
             f"    uint256 internal constant MAX_LENGTH_{name} = {p['maxLength']};"
         )
+    lines.append("")
+
+    for p in platforms:
+        name = p["key"].upper()
+        lines.append(f'    /// `{p["tags"]["userId"]}`: an id node is SHA256 of this, then the id.')
+        lines.append(f'    bytes internal constant USER_ID_TAG_{name} = "{p["tags"]["userId"]}";')
+        lines.append(f'    /// `{p["tags"]["handle"]}`: a handle node is SHA256 of this, then the')
+        lines.append("    /// normalized handle.")
+        lines.append(f'    bytes internal constant HANDLE_TAG_{name} = "{p["tags"]["handle"]}";')
+    lines.append("")
+    lines.append("    /// The tag a platform's id nodes are hashed under.")
+    lines.append("    ///")
+    lines.append("    /// @dev Reverts on an unknown platform, as `rulesFor` does.")
+    lines.append(
+        "    function userIdTagFor(bytes32 platformId) internal pure returns (bytes memory) {"
+    )
+    for p in platforms:
+        name = p["key"].upper()
+        lines.append(f"        if (platformId == PLATFORM_{name}) return USER_ID_TAG_{name};")
+    lines.append('        revert("unknown platform");')
+    lines.append("    }")
+    lines.append("")
+    lines.append("    /// The tag a platform's handle nodes are hashed under.")
+    lines.append("    ///")
+    lines.append("    /// @dev Reverts on an unknown platform, as `rulesFor` does.")
+    lines.append(
+        "    function handleTagFor(bytes32 platformId) internal pure returns (bytes memory) {"
+    )
+    for p in platforms:
+        name = p["key"].upper()
+        lines.append(f"        if (platformId == PLATFORM_{name}) return HANDLE_TAG_{name};")
+    lines.append('        revert("unknown platform");')
+    lines.append("    }")
     lines.append("")
 
     lines.append(
@@ -194,9 +280,6 @@ def gen_sol(spec: dict[str, Any]) -> str:
         lines.append(f"        if (platformId == PLATFORM_{name}) {{")
         lines.append("            return HandleNormalizer.Rules({")
         lines.append(f"                maxLength: {p['maxLength']},")
-        lines.append(
-            f"                stripLeadingAt: {str(p.get('stripLeadingAt', False)).lower()},"
-        )
         lines.append(f"                isEmail: {is_email},")
         lines.append(
             f"                allowUnderscore: {str(p.get('allowUnderscore', False)).lower()},"
@@ -217,6 +300,7 @@ def gen_sol(spec: dict[str, Any]) -> str:
     lines.append("        string output;")
     lines.append("        bool accepted;")
     lines.append("        uint8 errorKind;")
+    lines.append("        bytes32 handleNode;")
     lines.append("    }")
     lines.append("")
 
@@ -238,14 +322,15 @@ def gen_sol(spec: dict[str, Any]) -> str:
         lines.append(
             f'        v[{i}] = Vector({{platform: "{vec["platform"]}",'
             f' input: "{sol_escape(vec["input"])}", output: "{out}",'
-            f' accepted: {"true" if accepted else "false"}, errorKind: {kind}}});'
+            f' accepted: {"true" if accepted else "false"}, errorKind: {kind},'
+            f' handleNode: {vec.get("handleNode", "bytes32(0)")}}});'
         )
     lines.append("    }")
     lines.append("}")
     return "\n".join(lines) + "\n"
 
 
-def gen_rust(spec: dict[str, Any]) -> str:
+def gen_rust(spec: dict[str, Any], digest: str) -> str:
     platforms = spec["platforms"]
     errors = spec["errors"]
     vectors = spec["vectors"]
@@ -267,7 +352,26 @@ def gen_rust(spec: dict[str, Any]) -> str:
         "    pub accepted: bool,",
         "    /// Which refusal the case expects, when it is refused.",
         "    pub error_kind: u8,",
+        "    /// SHA256(handle tag || output), hex, or empty when the case is refused.",
+        "    pub handle_node: &'static str,",
         "}",
+        "",
+        "/// One id case from the shared table.",
+        "pub struct IdVector {",
+        "    /// Platform key, as written in the source table.",
+        "    pub platform: &'static str,",
+        "    /// The id exactly as the platform sent it.",
+        "    pub input: &'static str,",
+        "    /// Whether the id rules accept this case.",
+        "    pub accepted: bool,",
+        "    /// Which refusal the case expects, when it is refused.",
+        "    pub error_kind: u8,",
+        "    /// SHA256(id tag || input), hex, or empty when the case is refused.",
+        "    pub id_node: &'static str,",
+        "}",
+        "",
+        "/// SHA-256 of the handles.json this file was generated from.",
+        f'pub const TABLE_SHA256: &str = "{digest}";',
         "",
     ]
 
@@ -285,9 +389,24 @@ def gen_rust(spec: dict[str, Any]) -> str:
         )
     lines.append("")
 
-    # The normalizer's rules, generated rather than restated. A deploy writes
-    # these on chain, so a Rust copy that drifted from the Solidity one would
-    # key every handle on that platform differently.
+    for p in platforms:
+        name = p["key"].upper()
+        lines.append(f"/// An id node is SHA256 of this tag, then the id.")
+        lines.append(f'pub const USER_ID_TAG_{name}: &str = "{p["tags"]["userId"]}";')
+        lines.append(f"/// A handle node is SHA256 of this tag, then the normalized handle.")
+        lines.append(f'pub const HANDLE_TAG_{name}: &str = "{p["tags"]["handle"]}";')
+        max_len, decimal, leading = id_flags(p)
+        lines.append(f"/// Bytes a {p['key']} id may have.")
+        lines.append(f"pub const MAX_ID_LENGTH_{name}: usize = {max_len};")
+        lines.append("/// The id is ASCII digits; otherwise printable ASCII without `\"` or `\\`.")
+        lines.append(f"pub const ID_DECIMAL_{name}: bool = {'true' if decimal else 'false'};")
+        lines.append("/// The id may start with `0` when longer than one byte.")
+        lines.append(f"pub const ID_LEADING_ZERO_{name}: bool = {'true' if leading else 'false'};")
+    lines.append("")
+
+    # The normalizer's rules, generated rather than restated. A Rust copy that
+    # drifted from the circuit's would key every handle on that platform
+    # differently from the chain that stores it.
     for p in platforms:
         name = p["key"].upper()
         for flag, value, doc in rule_flags(p):
@@ -314,12 +433,28 @@ def gen_rust(spec: dict[str, Any]) -> str:
         lines.append(f'        output: "{out}",')
         lines.append(f"        accepted: {'true' if accepted else 'false'},")
         lines.append(f"        error_kind: {kind},")
+        lines.append(f'        handle_node: "{vec.get("handleNode", "")}",')
+        lines.append("    },")
+    lines.append("];")
+    lines.append("")
+    id_vectors = spec["idVectors"]
+    lines.append("/// Every id case, shared with TypeScript and Noir.")
+    lines.append(f"pub const ID_VECTORS: [IdVector; {len(id_vectors)}] = [")
+    for vec in id_vectors:
+        accepted = "error" not in vec
+        kind = 0 if accepted else error_index(errors, vec["error"])
+        lines.append("    IdVector {")
+        lines.append(f'        platform: "{vec["platform"]}",')
+        lines.append(f'        input: "{rust_escape(vec["input"])}",')
+        lines.append(f"        accepted: {'true' if accepted else 'false'},")
+        lines.append(f"        error_kind: {kind},")
+        lines.append(f'        id_node: "{vec.get("idNode", "")}",')
         lines.append("    },")
     lines.append("];")
     return "\n".join(lines) + "\n"
 
 
-def gen_ts(spec: dict[str, Any]) -> str:
+def gen_ts(spec: dict[str, Any], digest: str) -> str:
     platforms = spec["platforms"]
     errors = spec["errors"]
     vectors = spec["vectors"]
@@ -336,7 +471,22 @@ def gen_ts(spec: dict[str, Any]) -> str:
         "  output: string",
         "  accepted: boolean",
         "  errorKind: number",
+        "  /** SHA256(handle tag || output), hex, or empty when the case is refused. */",
+        "  handleNode: string",
         "}",
+        "",
+        "export interface IdVector {",
+        "  platform: string",
+        "  /** The id exactly as the platform sent it. */",
+        "  input: string",
+        "  accepted: boolean",
+        "  errorKind: number",
+        "  /** SHA256(id tag || input), hex, or empty when the case is refused. */",
+        "  idNode: string",
+        "}",
+        "",
+        "/** SHA-256 of the handles.json this file was generated from. */",
+        f"export const TABLE_SHA256 = '{digest}'",
         "",
     ]
 
@@ -356,6 +506,21 @@ def gen_ts(spec: dict[str, Any]) -> str:
         lines.append(
             f"export const MAX_LENGTH_{p['key'].upper()} = {p['maxLength']}"
         )
+    lines.append("")
+
+    for p in platforms:
+        name = p["key"].upper()
+        max_len, decimal, leading = id_flags(p)
+        lines.append("/** An id node is SHA256 of this tag, then the id. */")
+        lines.append(f"export const USER_ID_TAG_{name} = '{p['tags']['userId']}'")
+        lines.append("/** A handle node is SHA256 of this tag, then the normalized handle. */")
+        lines.append(f"export const HANDLE_TAG_{name} = '{p['tags']['handle']}'")
+        lines.append(f"/** Bytes a {p['key']} id may have. */")
+        lines.append(f"export const MAX_ID_LENGTH_{name} = {max_len}")
+        lines.append("/** The id is ASCII digits; otherwise printable ASCII without a quote or backslash. */")
+        lines.append(f"export const ID_DECIMAL_{name} = {'true' if decimal else 'false'}")
+        lines.append("/** The id may start with `0` when longer than one byte. */")
+        lines.append(f"export const ID_LEADING_ZERO_{name} = {'true' if leading else 'false'}")
     lines.append("")
 
     # The normalizer's rules, generated rather than restated, exactly as Rust
@@ -385,10 +550,169 @@ def gen_ts(spec: dict[str, Any]) -> str:
             f" input: {json.dumps(vec['input'])},"
             f" output: {out},"
             f" accepted: {'true' if accepted else 'false'},"
-            f" errorKind: {kind} }},"
+            f" errorKind: {kind},"
+            f" handleNode: {json.dumps(vec.get('handleNode', ''))} }},"
+        )
+    lines.append("]")
+    lines.append("")
+    lines.append("export const ID_VECTORS: IdVector[] = [")
+    for vec in spec["idVectors"]:
+        accepted = "error" not in vec
+        kind = 0 if accepted else error_index(errors, vec["error"])
+        lines.append(
+            f"  {{ platform: {json.dumps(vec['platform'])},"
+            f" input: {json.dumps(vec['input'])},"
+            f" accepted: {'true' if accepted else 'false'},"
+            f" errorKind: {kind},"
+            f" idNode: {json.dumps(vec.get('idNode', ''))} }},"
         )
     lines.append("]")
     return "\n".join(lines) + "\n"
+
+
+NOIR_ERRORS = {
+    "Empty": "is empty",
+    "TooLong": "too long",
+    "BadCharacter": "byte not allowed",
+    "BadShape": "shape not allowed",
+}
+
+
+def noir_bytes(value: bytes) -> str:
+    return "[" + ", ".join(f"0x{b:02x}" for b in value) + "]"
+
+
+def gen_noir(spec: dict[str, Any], digest: str) -> str:
+    """The circuit library's constants and one test per vector.
+
+    A refused vector is a `should_fail_with` test on the reason every other
+    language gives. A value longer than the platform allows does not fit the
+    circuit's buffer at all; its test hands the buffer's worth of bytes with
+    the true length, which is the claim a dishonest witness would make.
+    """
+    platforms = spec["platforms"]
+    lines = [
+        header("//").rstrip("\n"),
+        "",
+        "// Platform tags, rules and the shared vector table, for the identity",
+        "// circuits. The algorithm is lib.nr's; these are its inputs and its tests.",
+        "",
+        "use crate::{HandleRules, IdRules};",
+        "",
+        "/// SHA-256 of the handles.json this file was generated from.",
+        f'pub global TABLE_SHA256: str<64> = "{digest}";',
+        "",
+    ]
+    for p in platforms:
+        name = p["key"].upper()
+        id_tag = p["tags"]["userId"].encode()
+        handle_tag = p["tags"]["handle"].encode()
+        max_len, decimal, leading = id_flags(p)
+        is_email = p.get("shape") == "email"
+        lines += [
+            f"/// `{p['tags']['userId']}`",
+            f"pub global USER_ID_TAG_{name}: [u8; {len(id_tag)}] = {noir_bytes(id_tag)};",
+            f"/// `{p['tags']['handle']}`",
+            f"pub global HANDLE_TAG_{name}: [u8; {len(handle_tag)}] = {noir_bytes(handle_tag)};",
+            f"pub global MAX_HANDLE_{name}: u32 = {p['maxLength']};",
+            f"pub global MAX_ID_{name}: u32 = {max_len};",
+            f"pub global HANDLE_RULES_{name}: HandleRules = HandleRules {{",
+            f"    max_len: {p['maxLength']},",
+            f"    allow_underscore: {str(bool(p.get('allowUnderscore')) and not is_email).lower()},",
+            f"    allow_hyphen: {str(bool(p.get('allowHyphen')) and not is_email).lower()},",
+            f"    is_email: {str(is_email).lower()},",
+            "};",
+            f"pub global ID_RULES_{name}: IdRules = IdRules {{",
+            f"    max_len: {max_len},",
+            f"    decimal: {str(decimal).lower()},",
+            f"    leading_zero: {str(leading).lower()},",
+            "};",
+            "",
+        ]
+
+    by_key = {p["key"]: p for p in platforms}
+
+    def buffer(value: bytes, size: int) -> str:
+        kept = value[:size]
+        return noir_bytes(kept + bytes(size - len(kept)))
+
+    # The tests. Each runs the hand-written algorithm on the table's input.
+    for i, vec in enumerate(spec["vectors"]):
+        name = vec["platform"].upper()
+        size = by_key[vec["platform"]]["maxLength"]
+        raw = vec["input"].encode()
+        tag_len = len(by_key[vec["platform"]]["tags"]["handle"].encode())
+        attr = "#[test]"
+        if "error" in vec:
+            attr = f'#[test(should_fail_with = "handle {NOIR_ERRORS[vec["error"]]}")]'
+        lines.append(attr)
+        lines.append(f"fn handle_{vec['platform']}_{i}() {{")
+        lines.append(f"    // {json.dumps(vec['input'], ensure_ascii=False)}")
+        lines.append(f"    let raw: [u8; {size}] = {buffer(raw, size)};")
+        lines.append(
+            f"    let out = crate::normalize_handle(raw, {len(raw)}, HANDLE_RULES_{name});"
+        )
+        if "output" in vec:
+            node = bytes.fromhex(vec["handleNode"][2:])
+            lines.append(
+                f"    let node = crate::tagged_hash::<{tag_len}, {size}, {tag_len + size}>"
+                f"(HANDLE_TAG_{name}, out, {len(raw)});"
+            )
+            lines.append(f"    assert(node == {noir_bytes(node)});")
+        else:
+            lines.append("    let _ = out;")
+        lines.append("}")
+        lines.append("")
+
+    for i, vec in enumerate(spec["idVectors"]):
+        name = vec["platform"].upper()
+        size, _, _ = id_flags(by_key[vec["platform"]])
+        raw = vec["input"].encode()
+        tag_len = len(by_key[vec["platform"]]["tags"]["userId"].encode())
+        attr = "#[test]"
+        if "error" in vec:
+            attr = f'#[test(should_fail_with = "id {NOIR_ERRORS[vec["error"]]}")]'
+        lines.append(attr)
+        lines.append(f"fn id_{vec['platform']}_{i}() {{")
+        lines.append(f"    // {json.dumps(vec['input'], ensure_ascii=False)}")
+        lines.append(f"    let raw: [u8; {size}] = {buffer(raw, size)};")
+        lines.append(f"    crate::check_id(raw, {len(raw)}, ID_RULES_{name});")
+        if "idNode" in vec:
+            node = bytes.fromhex(vec["idNode"][2:])
+            lines.append(
+                f"    let node = crate::tagged_hash::<{tag_len}, {size}, {tag_len + size}>"
+                f"(USER_ID_TAG_{name}, raw, {len(raw)});"
+            )
+            lines.append(f"    assert(node == {noir_bytes(node)});")
+        lines.append("}")
+        lines.append("")
+    return "\n".join(lines).rstrip("\n") + "\n"
+
+
+def noir_formatted(text: str) -> str:
+    """Run the emitted Noir through `nargo fmt`, as the Solidity goes through
+    `forge fmt`: the circuits' CI checks formatting, so the committed file has
+    to be exactly what this script produces formatted.
+    """
+    import tempfile
+
+    nargo = shutil.which("nargo")
+    if nargo is None:
+        print("ERROR: nargo is not on PATH, so the Noir cannot be formatted", file=sys.stderr)
+        raise SystemExit(1)
+    with tempfile.TemporaryDirectory() as tmp:
+        package = pathlib.Path(tmp)
+        (package / "src").mkdir()
+        (package / "Nargo.toml").write_text(
+            '[package]\nname = "table"\ntype = "lib"\nauthors = [""]\n[dependencies]\n'
+        )
+        source = package / "src" / "lib.nr"
+        source.write_text(text, encoding="utf-8")
+        done = subprocess.run([nargo, "fmt"], cwd=package, capture_output=True, text=True)
+        if done.returncode != 0:
+            print(f"ERROR: nargo fmt failed:\n{done.stderr}", file=sys.stderr)
+            raise SystemExit(1)
+        return source.read_text(encoding="utf-8")
 
 
 def sol_formatted(text: str) -> str:
@@ -418,12 +742,25 @@ def sol_formatted(text: str) -> str:
     return done.stdout
 
 
+def display(path: pathlib.Path) -> str:
+    try:
+        return str(path.relative_to(REPO_ROOT))
+    except ValueError:
+        return str(path)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--check",
         action="store_true",
         help="Write nothing; exit non-zero if any generated file is out of date.",
+    )
+    parser.add_argument(
+        "--noir-out",
+        type=pathlib.Path,
+        help="Also write (or, with --check, compare) the Noir table at this path,"
+        " normally <libid-circuits>/lib/identity/src/table.nr.",
     )
     args = parser.parse_args()
 
@@ -432,17 +769,22 @@ def main() -> int:
         return 1
     # Explicit encoding: handles.json holds non-ASCII, and the ambient locale
     # decides otherwise on a machine configured differently.
-    spec = json.loads(SOURCE.read_text(encoding="utf-8"))
+    raw = SOURCE.read_bytes()
+    spec = json.loads(raw.decode("utf-8"))
+    check_nodes(spec)
+    digest = table_sha256(raw)
 
     outputs = []
     skipped = []
-    outputs.append((SOL_OUT, sol_formatted(gen_sol(spec))))
+    outputs.append((SOL_OUT, sol_formatted(gen_sol(spec, digest))))
     # Emit an output only once its package directory exists (both do today).
     for path, gen in ((RUST_OUT, gen_rust), (TS_OUT, gen_ts)):
         if path.parent.exists():
-            outputs.append((path, gen(spec)))
+            outputs.append((path, gen(spec, digest)))
         else:
             skipped.append(path)
+    if args.noir_out is not None:
+        outputs.append((args.noir_out.resolve(), noir_formatted(gen_noir(spec, digest))))
 
     for path in skipped:
         print(
@@ -459,7 +801,7 @@ def main() -> int:
         if stale:
             print("ERROR: generated files are out of date. Run scripts/regen-identity-handles.py", file=sys.stderr)
             for path in stale:
-                print(f"  {path.relative_to(REPO_ROOT)}", file=sys.stderr)
+                print(f"  {display(path)}", file=sys.stderr)
             return 1
         print("generated files are up to date")
         return 0
@@ -467,7 +809,7 @@ def main() -> int:
     for path, text in outputs:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(text, encoding="utf-8")
-        print(f"wrote {path.relative_to(REPO_ROOT)}")
+        print(f"wrote {display(path)}")
     return 0
 
 

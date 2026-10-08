@@ -91,4 +91,37 @@ library AttestationBuilder {
         out[0] = a;
         out[1] = b;
     }
+
+    /// @dev `value` revealed at the end of `d`, which grows by its length.
+    ///      With `commit`, lays a direction out segment by segment, so a test
+    ///      reads as the transcript it builds: `d.reveal('"id":"').commit(id,
+    ///      ID).reveal('"')`. Returns `d` to chain; `d` is changed in place.
+    function reveal(Direction memory d, bytes memory value) internal pure returns (Direction memory) {
+        Range[] memory grown = new Range[](d.revealed.length + 1);
+        for (uint256 i = 0; i < d.revealed.length; ++i) {
+            grown[i] = d.revealed[i];
+        }
+        grown[d.revealed.length] = Range({start: d.length, value: value});
+        d.revealed = grown;
+        d.length += uint32(value.length);
+        return d;
+    }
+
+    /// @dev `value` committed under `commitment` at the end of `d`. The
+    ///      bytes themselves are not recorded, only how many there are.
+    function commit(Direction memory d, bytes memory value, bytes32 commitment)
+        internal
+        pure
+        returns (Direction memory)
+    {
+        Commitment[] memory grown = new Commitment[](d.commitments.length + 1);
+        for (uint256 i = 0; i < d.commitments.length; ++i) {
+            grown[i] = d.commitments[i];
+        }
+        uint32 end = d.length + uint32(value.length);
+        grown[d.commitments.length] = Commitment({start: d.length, end: end, value: commitment});
+        d.commitments = grown;
+        d.length = end;
+        return d;
+    }
 }

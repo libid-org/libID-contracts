@@ -44,7 +44,11 @@ pub const COVERED: &[(&str, &str)] = &[
     ("GooglePlatformVerifier", "GooglePlatformVerifier"),
     // circuits: the UltraHonk verifiers the Platform Verifiers pin, vendored
     // from the libid-circuits release
-    ("BearerLinkHonkVerifier", "BearerLinkHonkVerifier"),
+    ("BearerLinkXHonkVerifier", "BearerLinkXHonkVerifier"),
+    (
+        "BearerLinkGithubHonkVerifier",
+        "BearerLinkGithubHonkVerifier",
+    ),
     ("OidcGoogleHonkVerifier", "OidcGoogleHonkVerifier"),
     // identity
     ("IdentityRegistry", "IdentityRegistry"),

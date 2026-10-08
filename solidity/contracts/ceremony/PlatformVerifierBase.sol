@@ -9,6 +9,8 @@ import {CeremonyAttestation} from "./CeremonyAttestation.sol";
 import {CeremonyProfile} from "./CeremonyProfile.sol";
 import {ICeremony} from "./ICeremony.sol";
 import {INotaryService} from "./INotaryService.sol";
+import {HandleNormalizer} from "../identity/HandleNormalizer.sol";
+import {HandleVectors} from "../identity/HandleVectors.sol";
 
 /// @dev The bb-generated proof verifier for this platform's circuit.
 interface IHonkVerifier {
@@ -83,6 +85,10 @@ abstract contract PlatformVerifierBase is ICeremony, Initializable, UUPSUpgradea
     error ZeroAddress();
     /// @dev The verifier at that address is not the artifact governance named.
     error WrongVerifierArtifact(bytes32 expected, bytes32 found);
+    /// @dev The handle the payload discloses does not hash to the handle node
+    ///      the proof bound. Disclose the handle the platform shows for this
+    ///      account, as it shows it.
+    error HandleNotProved(bytes32 disclosed, bytes32 proved);
 
     // OpenZeppelin's initializer convention -- `__Contract_init`, so a child's
     // initializer reads which base each call sets up -- over mixedCase.
@@ -140,6 +146,19 @@ abstract contract PlatformVerifierBase is ICeremony, Initializable, UUPSUpgradea
     /// @dev The platform this verifier answers for. Asked during
     ///      initialization, so it must not read storage.
     function _platform() internal pure virtual returns (bytes32);
+
+    /// @dev The handle a payload discloses, checked against the handle node
+    ///      its proof bound: normalized with the platform's rules and hashed
+    ///      under its tag, both `handles.json`'s and so the circuit's own.
+    ///      Returns the normalized handle, or empty for a private submission.
+    function _disclosed(string memory handle, bytes32 handleNode) internal pure returns (string memory normalized) {
+        if (bytes(handle).length == 0) return "";
+        bytes32 node;
+        (normalized, node) = HandleNormalizer.nodeOf(
+            handle, HandleVectors.rulesFor(_platform()), HandleVectors.handleTagFor(_platform())
+        );
+        if (node != handleNode) revert HandleNotProved(node, handleNode);
+    }
 
     /// @dev The ceremony version this verifier implements: the protocol
     ///      revision the Authorization Digest binds, hardcoded here because it

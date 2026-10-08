@@ -1,9 +1,13 @@
 {
   "version": "0.6.0",
   "circuits": {
-    "bearer-link": {
-      "contract": "BearerLinkHonkVerifier",
-      "sha256": "84831e14d52c9ff1b5a9c4e9a5d79b9849370ed08b64b8966439e7c73d7e61c7"
+    "bearer-link-github": {
+      "contract": "BearerLinkGithubHonkVerifier",
+      "sha256": null
+    },
+    "bearer-link-x": {
+      "contract": "BearerLinkXHonkVerifier",
+      "sha256": null
     },
     "oidc-google": {
       "contract": "OidcGoogleHonkVerifier",

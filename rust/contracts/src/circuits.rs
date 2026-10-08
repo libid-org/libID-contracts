@@ -33,27 +33,29 @@ use crate::{
 
 /// One ceremony circuit, and so one vendored Honk verifier.
 ///
-/// Two, not three: `oidc-google` proves the Google ID Token, and
-/// `bearer-link` ties a token exchange to an identity for X and GitHub
-/// alike, because their statements are the same.
+/// One per platform: each circuit carries its platform's handle rules and
+/// node tags, so an X proof cannot key a GitHub binding.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Circuit {
-    /// The token-exchange circuit, shared by the `x/v1` and `github/v1`
-    /// profiles.
-    BearerLink,
+    /// X's token exchange, identity read and account keys, for `x/v1`.
+    BearerLinkX,
+    /// GitHub's, for `github/v1`.
+    BearerLinkGithub,
     /// The Google OIDC circuit, for `google/v1`.
     OidcGoogle,
 }
 
 impl Circuit {
     /// Every circuit the launch platforms verify under.
-    pub const ALL: [Self; 2] = [Self::BearerLink, Self::OidcGoogle];
+    pub const ALL: [Self; 3] =
+        [Self::BearerLinkX, Self::BearerLinkGithub, Self::OidcGoogle];
 
     /// The circuit's directory in the `libid-circuits` release, which is
     /// also its tarball's name and its key in `circuits.json`.
     pub const fn name(self) -> &'static str {
         match self {
-            Self::BearerLink => "bearer-link",
+            Self::BearerLinkX => "bearer-link-x",
+            Self::BearerLinkGithub => "bearer-link-github",
             Self::OidcGoogle => "oidc-google",
         }
     }
@@ -64,7 +66,8 @@ impl Circuit {
     /// project and one artifact path names one circuit.
     pub const fn contract(self) -> &'static str {
         match self {
-            Self::BearerLink => "BearerLinkHonkVerifier",
+            Self::BearerLinkX => "BearerLinkXHonkVerifier",
+            Self::BearerLinkGithub => "BearerLinkGithubHonkVerifier",
             Self::OidcGoogle => "OidcGoogleHonkVerifier",
         }
     }
@@ -127,21 +130,22 @@ mod tests {
         }
     }
 
-    /// The two circuits are distinct artifacts: a shared one would wire
-    /// both platforms to one verification key.
+    /// The circuits are distinct artifacts: a shared one would wire two
+    /// platforms to one verification key, and one platform's proof would key
+    /// the other's bindings.
     #[test]
-    fn the_two_circuits_are_different_artifacts() {
+    fn the_circuits_are_different_artifacts() {
         let artifacts = Artifacts::embedded();
-        let [bearer, oidc] = Circuit::ALL;
-        assert_ne!(bearer.contract(), oidc.contract());
-        assert_ne!(
-            artifacts
-                .bytecode_hex(bearer.contract(), bearer.contract())
-                .unwrap(),
-            artifacts
-                .bytecode_hex(oidc.contract(), oidc.contract())
-                .unwrap()
-        );
+        for (i, a) in Circuit::ALL.iter().enumerate() {
+            for b in &Circuit::ALL[i + 1..] {
+                assert_ne!(a.contract(), b.contract());
+                assert_ne!(
+                    artifacts.bytecode_hex(a.contract(), a.contract()).unwrap(),
+                    artifacts.bytecode_hex(b.contract(), b.contract()).unwrap(),
+                    "{a:?} and {b:?}"
+                );
+            }
+        }
     }
 
     /// The enum and the pin name the same circuits under the same

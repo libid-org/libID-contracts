@@ -10,7 +10,8 @@ import {IHonkVerifier} from "../../ceremony/PlatformVerifierBase.sol";
 ///
 /// @dev The fixtures are proofs bb 6.0.0-rc.2 made with `bb prove -t evm` of the
 ///      witnesses libid-circuits commits as `circuits/<circuit>/Prover.toml`:
-///      bearer-link's test vector, and a Google-shaped token signed by a
+///      each bearer-link circuit's witness of the libid-rs ceremony fixture
+///      session for its platform, and a Google-shaped token signed by a
 ///      synthetic RSA-2048 key. A circuits release that changes a verification
 ///      key fails here until they are proved again under it.
 ///
@@ -80,13 +81,27 @@ abstract contract HonkVerifierProofTest is Test {
     }
 }
 
-contract BearerLinkHonkVerifierProofTest is HonkVerifierProofTest {
+contract BearerLinkXHonkVerifierProofTest is HonkVerifierProofTest {
     function _artifact() internal pure override returns (string memory) {
-        return "BearerLinkHonkVerifier.sol:BearerLinkHonkVerifier";
+        return "BearerLinkXHonkVerifier.sol:BearerLinkXHonkVerifier";
     }
 
     function _fixture() internal pure override returns (string memory) {
-        return "contracts/circuits/test/fixtures/bearer-link-proof.json";
+        return "contracts/circuits/test/fixtures/bearer-link-x-proof.json";
+    }
+
+    function _verifyGasBound() internal pure override returns (uint64) {
+        return 750_000;
+    }
+}
+
+contract BearerLinkGithubHonkVerifierProofTest is HonkVerifierProofTest {
+    function _artifact() internal pure override returns (string memory) {
+        return "BearerLinkGithubHonkVerifier.sol:BearerLinkGithubHonkVerifier";
+    }
+
+    function _fixture() internal pure override returns (string memory) {
+        return "contracts/circuits/test/fixtures/bearer-link-github-proof.json";
     }
 
     function _verifyGasBound() internal pure override returns (uint64) {

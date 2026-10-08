@@ -7,41 +7,15 @@ import {HandleVectors} from "../HandleVectors.sol";
 
 /// @notice The shared handle vector table, run against the Solidity normalizer.
 ///
-/// @dev Rust and TypeScript run the same table from the same JSON. That is the
-///      whole guard: three hand-written normalizers, one set of cases, so a
-///      language that disagrees fails here instead of writing a different key
-///      on chain.
+/// @dev The circuits, Rust and TypeScript run the same table from the same
+///      JSON. That is the whole guard: several hand-written normalizers, one
+///      set of cases, so an implementation that disagrees fails here instead of
+///      naming a different node on chain.
 contract HandleNormalizerTest is Test {
+    /// The rules the table names a platform by, from the generated table the
+    /// deploy installs: a second copy here could drift from it unnoticed.
     function _rules(string memory platform) internal pure returns (HandleNormalizer.Rules memory) {
-        bytes32 key = keccak256(bytes(platform));
-        if (key == keccak256("x")) {
-            return HandleNormalizer.Rules({
-                maxLength: uint16(HandleVectors.MAX_LENGTH_X),
-                stripLeadingAt: true,
-                isEmail: false,
-                allowUnderscore: true,
-                allowHyphen: false
-            });
-        }
-        if (key == keccak256("github")) {
-            return HandleNormalizer.Rules({
-                maxLength: uint16(HandleVectors.MAX_LENGTH_GITHUB),
-                stripLeadingAt: true,
-                isEmail: false,
-                allowUnderscore: false,
-                allowHyphen: true
-            });
-        }
-        if (key == keccak256("google")) {
-            return HandleNormalizer.Rules({
-                maxLength: uint16(HandleVectors.MAX_LENGTH_GOOGLE),
-                stripLeadingAt: false,
-                isEmail: true,
-                allowUnderscore: false,
-                allowHyphen: false
-            });
-        }
-        revert("unknown platform in the vector table");
+        return HandleVectors.rulesFor(keccak256(bytes(platform)));
     }
 
     /// Exposed so `vm.expectRevert` has an external call to watch.
@@ -66,9 +40,33 @@ contract HandleNormalizerTest is Test {
         }
     }
 
+    /// An accepted vector carries the node its output hashes to under the
+    /// platform's handle tag: the node a circuit outputs and the registry keys
+    /// a binding by. The circuits, Rust and TypeScript check the same column,
+    /// so a tag or a hash that disagrees anywhere fails somewhere.
+    function test_everyAcceptedVectorHashesToItsHandleNode() public pure {
+        HandleVectors.Vector[] memory vectors = HandleVectors.all();
+        uint256 checked;
+        for (uint256 i = 0; i < vectors.length; i++) {
+            HandleVectors.Vector memory v = vectors[i];
+            if (!v.accepted) {
+                assertEq(v.handleNode, bytes32(0), string.concat("refused vector ", vm.toString(i), " names a node"));
+                continue;
+            }
+            bytes memory tag = HandleVectors.handleTagFor(keccak256(bytes(v.platform)));
+            assertEq(
+                sha256(abi.encodePacked(tag, v.output)),
+                v.handleNode,
+                string.concat("vector ", vm.toString(i), " names the wrong node")
+            );
+            checked++;
+        }
+        assertTrue(checked > 0, "no accepted vector was checked");
+    }
+
     /// The vector table names WHICH refusal, not merely that one happened. A
     /// bare `expectRevert` would pass when the normalizer refused for the wrong
-    /// reason, and the reason is what the three languages must agree on.
+    /// reason, and the reason is what the implementations must agree on.
     function _selector(uint8 kind) internal pure returns (bytes4) {
         if (kind == HandleVectors.ERROR_EMPTY) return HandleNormalizer.EmptyHandle.selector;
         if (kind == HandleVectors.ERROR_TOOLONG) return HandleNormalizer.HandleTooLong.selector;
@@ -98,5 +96,17 @@ contract HandleNormalizerTest is Test {
         assertEq(this.normalize("A.B+tag@Example.COM", "google"), "a.b+tag@example.com");
         assertEq(this.normalize("Alice_1", "x"), "alice_1");
         assertEq(this.normalize("Octo-Cat", "github"), "octo-cat");
+    }
+
+    /// The normalizer refuses rather than repairs. A space or a leading at sign is
+    /// not stripped into a handle: the circuit hashes the bytes the platform
+    /// sent, and a repaired copy would name a node nobody proved.
+    function test_paddingAndALeadingAtAreRefusedNotStripped() public {
+        vm.expectRevert(HandleNormalizer.BadCharacter.selector);
+        this.normalize(" alice", "x");
+        vm.expectRevert(HandleNormalizer.BadCharacter.selector);
+        this.normalize("@alice", "x");
+        vm.expectRevert(HandleNormalizer.BadCharacter.selector);
+        this.normalize("octocat ", "github");
     }
 }

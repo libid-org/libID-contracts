@@ -22,6 +22,8 @@ contract Honk3 is IHonkVerifier {
 }
 
 contract LayoutForgeryTest is Test {
+    using AttestationBuilder for AttestationBuilder.Direction;
+
     XPlatformVerifier verifier;
     NotaryService notary;
     uint256 quote;
@@ -199,8 +201,9 @@ contract LayoutForgeryTest is Test {
     ///      COVERAGE is what closes it, and that is worth being exact about.
     ///      The fragments have to be disjoint for the splice to say anything
     ///      new, and disjoint means a gap -- which `requireExactCoverage`
-    ///      refuses before any reader runs. The per-range read is the second
-    ///      line, for a TILED response whose members sit in different ranges;
+    ///      refuses before any reader runs. The framing is the second line,
+    ///      for a TILED response: an anchor is one revealed run ending where
+    ///      its commitment starts, never a join across ranges.
     ///      `XPlatformVerifier.t.sol` proves that one, because it cannot be
     ///      reached from here.
     function test_aSplicedResponseCannotForgeAnIdentity() public {
@@ -253,12 +256,9 @@ contract LayoutForgeryTest is Test {
     }
 
     function _honestIdentityRecv() private pure returns (AttestationBuilder.Direction memory received) {
-        bytes memory body = '{"data":{"id":"2244994945","username":"alice"}}';
-        received = AttestationBuilder.Direction({
-            revealed: AttestationBuilder.one(AttestationBuilder.Range({start: 0, value: body})),
-            commitments: AttestationBuilder.none(),
-            length: uint32(body.length)
-        });
+        received.commit('{"data":{', bytes32(uint256(0x5555))).reveal('"id":"')
+            .commit("2244994945", bytes32(uint256(0x3333))).reveal('","username":"')
+            .commit("alice", bytes32(uint256(0x4444))).reveal('"').commit("}}", bytes32(uint256(0x5555)));
     }
 
     /// The request line must BEGIN the transcript, not merely be listed first.

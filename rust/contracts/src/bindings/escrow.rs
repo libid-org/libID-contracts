@@ -1,8 +1,8 @@
 //! Bindings for the handle escrow (`solidity/contracts/escrow/`): value held
 //! against a handle node until its holder in `IdentityRegistry` claims it, and
-//! refundable to each deposit's `refundTo` until then. `deposit` takes
-//! `keccak256(normalized handle)`, from `IdentityRegistry.handleHashOf` or
-//! computed locally.
+//! refundable to each deposit's `refundTo` until then. `deposit` takes the
+//! handle node, `SHA256(handle tag || normalized handle)`, from
+//! `IdentityRegistry.handleNodeOf` or `libid_identity::handle_node`.
 
 /// Bindings for `escrow/HandleEscrow.sol`.
 #[allow(clippy::too_many_arguments, unused_attributes)]
@@ -14,13 +14,13 @@ mod escrow_inner {
         interface HandleEscrow {
             function initialize(address owner_, address registry_) external;
 
-            /// Pay a handle by its hash. A held node is paid straight through
+            /// Pay a handle by its node. A held node is paid straight through
             /// (`Forwarded`); otherwise the value is escrowed (`Deposited`) and
             /// `refundTo` can `refund` it until the holder claims. An unchecked
-            /// wrong hash funds a slot only `refund` recovers.
+            /// wrong node funds a slot only `refund` recovers.
             function deposit(
                 bytes32 platformId,
-                bytes32 handleHash,
+                bytes32 handleNode,
                 address token,
                 uint256 amount,
                 address refundTo

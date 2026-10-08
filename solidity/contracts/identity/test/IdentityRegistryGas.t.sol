@@ -6,7 +6,7 @@ import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.s
 
 import {HandleVectors} from "../HandleVectors.sol";
 import {IdentityRegistry} from "../IdentityRegistry.sol";
-import {IdentityNodes} from "../IdentityNodes.sol";
+import {TestNodes} from "./TestNodes.sol";
 import {CeremonyProofVerifier} from "../../ceremony/CeremonyProofVerifier.sol";
 import {IPlatformVerifier} from "../../ceremony/IPlatformVerifier.sol";
 import {IProofVerifier} from "../../ceremony/IProofVerifier.sol";
@@ -50,7 +50,7 @@ contract IdentityRegistryGasTest is Test {
         xVerifier = new StubPlatformVerifier(X, 0);
         vm.startPrank(owner);
         registry.setProofVerifier(IProofVerifier(address(proofVerifier)));
-        registry.setPlatform(X, HandleVectors.rulesFor(X));
+        registry.setPlatform(X, HandleVectors.rulesFor(X), HandleVectors.handleTagFor(X));
         proofVerifier.setVerifier(X, V1, IPlatformVerifier(address(xVerifier)));
         vm.stopPrank();
         vm.warp(1_000_000);
@@ -121,7 +121,9 @@ contract IdentityRegistryGasTest is Test {
         return vm.lastCallGas().gasTotalUsed;
     }
 
-    /// A bind made out to `who`, from cold storage.
+    /// A bind made out to `who`, from cold storage. It discloses the handle,
+    /// so the disclosure path is measured with the bind and every holder has
+    /// a name for `publishedHandleOf` to read and `unpublish` to clear.
     function _prove(address who, string memory id, string memory handle) internal {
         xVerifier.set(id, handle);
         xVerifier.setObservedAt(++clock);
@@ -130,12 +132,13 @@ contract IdentityRegistryGasTest is Test {
                 ceremonyVersion: V1,
                 operationDomain: keccak256(bytes("libid.claim-identity")),
                 authorizationNonce: bytes32(++nonce),
-                transactionData: abi.encode(who, uint256(0), address(0))
+                transactionData: abi.encode(who, uint256(0), address(0)),
+                handle: handle
             })
         );
         _cool();
         vm.prank(who);
-        registry.bind(X, V1, payload, true);
+        registry.bind(X, V1, payload);
     }
 
     // ─── Writes ─────────────────────────────────────────────────────
@@ -215,17 +218,17 @@ contract IdentityRegistryGasTest is Test {
     /// The reads under the resolvers: a binding by its node, and a digest.
     function test_theRawReadsCostTheSame() public measured {
         _cool();
-        registry.idBinding(IdentityNodes.idNode(X, _id(1, 0)));
+        registry.idBinding(TestNodes.idNode(X, _id(1, 0)));
         uint64 atFew = _used();
         _cool();
-        registry.idBinding(IdentityNodes.idNode(X, _id(2, 0)));
+        registry.idBinding(TestNodes.idNode(X, _id(2, 0)));
         assertEq(atFew, _used(), "idBinding");
 
         _cool();
-        registry.handleBinding(IdentityNodes.handleNode(X, _handle(1, 0)));
+        registry.handleBinding(TestNodes.handleNode(X, _handle(1, 0)));
         atFew = _used();
         _cool();
-        registry.handleBinding(IdentityNodes.handleNode(X, _handle(2, 0)));
+        registry.handleBinding(TestNodes.handleNode(X, _handle(2, 0)));
         assertEq(atFew, _used(), "handleBinding");
 
         _prove(few, _id(1, 900_003), _handle(1, 900_003));
@@ -249,17 +252,17 @@ contract IdentityRegistryGasTest is Test {
         assertEq(atFew, _used(), "resolveHandle");
 
         _cool();
-        registry.resolveId(X, _id(1, 0));
+        registry.resolveId(TestNodes.idNode(X, _id(1, 0)));
         atFew = _used();
         _cool();
-        registry.resolveId(X, _id(2, 0));
+        registry.resolveId(TestNodes.idNode(X, _id(2, 0)));
         assertEq(atFew, _used(), "resolveId");
 
         _cool();
-        registry.resolveHandleAndId(X, _handle(1, 0), _id(1, 0));
+        registry.resolveHandleAndId(X, _handle(1, 0), TestNodes.idNode(X, _id(1, 0)));
         atFew = _used();
         _cool();
-        registry.resolveHandleAndId(X, _handle(2, 0), _id(2, 0));
+        registry.resolveHandleAndId(X, _handle(2, 0), TestNodes.idNode(X, _id(2, 0)));
         assertEq(atFew, _used(), "resolveHandleAndId");
 
         _cool();

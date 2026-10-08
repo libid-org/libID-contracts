@@ -6,7 +6,7 @@ until then each deposit's `refundTo` can take its own contribution back. A
 handle somebody already holds is paid straight through.
 
 ```solidity
-escrow.deposit{value: amount}(platformId, handleHash, escrow.NATIVE(), amount, refundTo);
+escrow.deposit{value: amount}(platformId, handleNode, escrow.NATIVE(), amount, refundTo);
 escrow.claim(handleNode, tokens, recipient);   // the handle's holder
 escrow.refund(handleNode, token, recipient);   // refundTo, while unclaimed
 ```
@@ -17,10 +17,11 @@ escrow.refund(handleNode, token, recipient);   // refundTo, while unclaimed
   refund.
 - `NATIVE`, the EIP-7528 address `0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE`,
   names the chain's own coin in `deposit`, `claim`, `refund` and every event.
-- `handleHash` is `keccak256` of the handle normalized under the chain's
-  current rules (`IdentityRegistry.rulesOf`). Hash locally: `handleHashOf` over
-  RPC sends the handle to the provider. A wrong hash funds a slot only
-  `refundTo` can recover. Take `handleNode` from `Deposited`.
+- `handleNode` is `SHA256(handle tag || normalized handle)`, the node the
+  platform's circuit binds the handle under. Compute it locally with
+  `@libid/contracts` or `libid-identity` (`handleNode`); `handleNodeOf` over
+  RPC sends the handle to the provider. A wrong node funds a slot only
+  `refundTo` can recover.
 - Escrowed value is refundable until claimed; a refund and a claim race.
 - `Deposited`, `Claimed` and `Refunded` name their round. A claim closes the
   round it names and the next deposit opens the next, so a `Refunded` belongs
@@ -43,18 +44,18 @@ escrow.refund(handleNode, token, recipient);   // refundTo, while unclaimed
 
 ## Deploying
 
-- Upgrade the deployed `IdentityRegistry` first: `initialize` reverts
-  `RegistryLacks` unless it answers `handleBinding`, `acceptsBindings` and
-  `handleNodeOfHash`.
+- `initialize` reverts `RegistryLacks` unless the registry answers
+  `handleBinding` and `acceptsBindings`.
 - The escrow keeps that `IdentityRegistry` for life. There is no setter, so no
   key can point claims elsewhere; deploy the escrow once the registry sits at
   its final address, and move it later only by upgrade.
 
 ## Privacy and trust
 
-A hash keeps the handle out of the sender's calldata but is not secret: anyone
-can hash a guess. A Google recipient claims through today's Google profile,
-which puts the email on chain in plaintext.
+A node keeps the handle out of the sender's calldata but is not secret: anyone
+can hash a guess. Claiming discloses nothing either: the holder's binding is
+keyed by the same node, and its handle stays private unless the holder
+publishes it.
 
 Every key that can change what `handleBinding` answers can take escrowed value
 through an ordinary identity binding: the `IdentityRegistry`,

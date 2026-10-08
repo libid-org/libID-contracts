@@ -3,6 +3,8 @@ pragma solidity ^0.8.24;
 
 import {CeremonyAuthorization} from "../../ceremony/CeremonyAuthorization.sol";
 import {IPlatformVerifier} from "../../ceremony/IPlatformVerifier.sol";
+import {HandleNormalizer} from "../HandleNormalizer.sol";
+import {HandleVectors} from "../HandleVectors.sol";
 
 /// @notice Stands in for a Platform Verifier.
 ///
@@ -16,14 +18,24 @@ import {IPlatformVerifier} from "../../ceremony/IPlatformVerifier.sol";
 ///      and the digest travel, rather than have the stub invent them. Unlike a
 ///      real verifier it takes the ceremony version from the payload instead
 ///      of a constant, so one stub can stand in for several.
+///
+///      It returns the nodes a circuit would: the id hashed as given, the
+///      handle folded with the platform's rules and hashed, under the
+///      platform's tags -- X's for a platform the table does not know.
 contract StubPlatformVerifier is IPlatformVerifier {
-    /// @dev The stub's payload. Only what the digest needs.
+    /// @dev The stub's payload: what the digest needs, and the handle to
+    ///      disclose (empty for a private submission).
     struct StubPayload {
         uint16 ceremonyVersion;
         bytes32 operationDomain;
         bytes32 authorizationNonce;
         bytes transactionData;
+        string handle;
     }
+
+    /// @dev `PlatformVerifierBase.HandleNotProved`, so a test reads one
+    ///      selector whichever verifier refused.
+    error HandleNotProved(bytes32 disclosed, bytes32 proved);
 
     bytes32 private immutable PLATFORM;
     uint256 public fee;
@@ -33,6 +45,11 @@ contract StubPlatformVerifier is IPlatformVerifier {
     bytes32 public lastDigest;
     uint256 public lastValue;
     bytes public lastPayload;
+    /// Nodes reported as given instead of hashed from `userId` and `handle`,
+    /// while `rawNodes` is set: a node no circuit would output, zero among them.
+    bool public rawNodes;
+    bytes32 public rawIdNode;
+    bytes32 public rawHandleNode;
 
     constructor(bytes32 platform, uint256 fee_) {
         PLATFORM = platform;
@@ -42,6 +59,14 @@ contract StubPlatformVerifier is IPlatformVerifier {
     function set(string memory u, string memory h) external {
         userId = u;
         handle = h;
+    }
+
+    /// Report these nodes as they are, for a test of what the registry does
+    /// with a node it did not expect.
+    function setNodes(bytes32 idNode, bytes32 handleNode) external {
+        rawNodes = true;
+        rawIdNode = idNode;
+        rawHandleNode = handleNode;
     }
 
     function setObservedAt(uint64 t) external {
@@ -69,8 +94,32 @@ contract StubPlatformVerifier is IPlatformVerifier {
         c.transactionData = p.transactionData;
         c.ceremonyVersion = p.ceremonyVersion;
         c.clientIdentifier = "client";
-        c.userId = userId;
-        c.handle = handle;
+        (bytes memory idTag, bytes memory handleTag, HandleNormalizer.Rules memory rules) = _platformTable();
+        if (rawNodes) {
+            c.idNode = rawIdNode;
+            c.handleNode = rawHandleNode;
+        } else {
+            c.idNode = sha256(abi.encodePacked(idTag, userId));
+            c.handleNode = sha256(abi.encodePacked(handleTag, HandleNormalizer.normalize(handle, rules)));
+            // The real verifiers' disclosure check: the disclosed handle,
+            // normalized, must hash to the handle node.
+            if (bytes(p.handle).length != 0) {
+                (string memory normalized, bytes32 node) = HandleNormalizer.nodeOf(p.handle, rules, handleTag);
+                if (node != c.handleNode) revert HandleNotProved(node, c.handleNode);
+                c.handle = normalized;
+            }
+        }
         c.metadataObservedAt = observedAt;
+    }
+
+    function _platformTable()
+        private
+        view
+        returns (bytes memory idTag, bytes memory handleTag, HandleNormalizer.Rules memory rules)
+    {
+        bytes32 known = PLATFORM == HandleVectors.PLATFORM_GITHUB || PLATFORM == HandleVectors.PLATFORM_GOOGLE
+            ? PLATFORM
+            : HandleVectors.PLATFORM_X;
+        return (HandleVectors.userIdTagFor(known), HandleVectors.handleTagFor(known), HandleVectors.rulesFor(known));
     }
 }

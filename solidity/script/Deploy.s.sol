@@ -122,6 +122,6 @@ contract Deploy is Script {
     ///      platform is one line here and cannot pick up a neighbour's rules by
     ///      a copy-paste slip.
     function _wireIdentityPlatform(IdentityRegistry registry, bytes32 platformId) internal {
-        registry.setPlatform(platformId, HandleVectors.rulesFor(platformId));
+        registry.setPlatform(platformId, HandleVectors.rulesFor(platformId), HandleVectors.handleTagFor(platformId));
     }
 }

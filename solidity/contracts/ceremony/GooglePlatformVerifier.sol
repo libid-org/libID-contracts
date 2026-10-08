@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-import {Strings} from "@openzeppelin/contracts/utils/Strings.sol";
-
 import {CeremonyAuthorization} from "./CeremonyAuthorization.sol";
 import {CeremonyProfile} from "./CeremonyProfile.sol";
 import {INotaryService} from "./INotaryService.sol";
@@ -34,11 +32,11 @@ interface IGoogleJwtRoots {
 ///      against the digest it rebuilds from its own payload (REQ-COMMON-02A).
 ///      Exactly one of the two methods, never both and never neither.
 ///
-///      The Google `userId` is a digest. Google shows a `sub` only to the
-///      applications a user signs in to, so the circuit keeps it private and
-///      publishes `SHA256("libid.google-user-id" || sub)`, which this contract
-///      returns as `0x` and 64 lowercase hex digits (platform-ceremonies
-///      section 2.1).
+///      Neither the `sub` nor the address leaves the circuit. It publishes
+///      the id node `SHA256("libid.google.user-id" || sub)` and the handle
+///      node `SHA256("libid.google.handle" || fold(email))`, the address
+///      checked against the Google rules and folded there, and this contract
+///      returns both as it read them.
 ///
 ///      Evidence time comes from the signed `exp` alone. It supplies BOTH
 ///      `metadataObservedAt` and `proofValidUntil` (section 2.2), so the
@@ -50,8 +48,8 @@ contract GooglePlatformVerifier is IPlatformVerifier, PlatformVerifierBase {
     ///      packed Fields.
     uint256 private constant OFF_DIGEST = 0;
     uint256 private constant OFF_AUDIENCE = 32; // 2 fields, 16 bytes each
-    uint256 private constant OFF_USER_ID = 34; // 2 fields, 16 bytes each
-    uint256 private constant OFF_EMAIL = 36; // 2 fields, 31 bytes each
+    uint256 private constant OFF_ID_NODE = 34; // 2 fields, 16 bytes each
+    uint256 private constant OFF_HANDLE_NODE = 36; // 2 fields, 16 bytes each
     uint256 private constant OFF_EXP = 38;
     uint256 private constant OFF_MODULUS = 39; // 18 limbs
     uint256 private constant MODULUS_LIMBS = 18;
@@ -79,6 +77,9 @@ contract GooglePlatformVerifier is IPlatformVerifier, PlatformVerifierBase {
     ///                           so they are carried and checked instead.
     /// @param publicInputs       The circuit's 57 public inputs, in the order
     ///                           REQ-PLAT-16B fixes.
+    /// @param handle             Empty for a private submission. Otherwise the
+    ///                           address to disclose as the holder's name; it
+    ///                           must hash to the proof's handle node.
     /// @param proof              Verified under the artifact governance
     ///                           selected, never one the caller names.
     struct GoogleProof {
@@ -88,6 +89,7 @@ contract GooglePlatformVerifier is IPlatformVerifier, PlatformVerifierBase {
         bytes transactionData;
         bytes clientIdentifier;
         bytes32[] publicInputs;
+        string handle;
         bytes proof;
     }
 
@@ -246,12 +248,11 @@ contract GooglePlatformVerifier is IPlatformVerifier, PlatformVerifierBase {
         // first safe.
         _requireProof(p.proof, p.publicInputs);
 
-        // The digest the circuit computed over the signed `sub`. Fixed width,
-        // so never empty: the circuit alone refuses an empty `sub`.
-        claimed.userId = Strings.toHexString(uint256(_hashFromHalves(p.publicInputs, OFF_USER_ID)), 32);
-        // RAW bytes. Normalization is the Consumer's derivation on its own
-        // write path (REQ-PLAT-16B).
-        claimed.handle = string(_unpack(p.publicInputs, OFF_EMAIL, 2));
+        // The nodes the circuit computed over the signed `sub` and the
+        // folded address.
+        claimed.idNode = _hashFromHalves(p.publicInputs, OFF_ID_NODE);
+        claimed.handleNode = _hashFromHalves(p.publicInputs, OFF_HANDLE_NODE);
+        claimed.handle = _disclosed(p.handle, claimed.handleNode);
         claimed.metadataObservedAt = _onSharedScale(exp, _futureObservationAllowance());
         claimed.clientIdentifier = p.clientIdentifier;
         claimed.sessionId = digest;
@@ -275,7 +276,7 @@ contract GooglePlatformVerifier is IPlatformVerifier, PlatformVerifierBase {
     }
 
     /// @dev A SHA-256 digest as two big-endian 16-byte Fields: the signed
-    ///      `aud`'s, and the `userId`'s.
+    ///      `aud`'s, and the two nodes.
     function _hashFromHalves(bytes32[] memory publicInputs, uint256 offset) private pure returns (bytes32) {
         uint256 high = uint256(publicInputs[offset]);
         uint256 low = uint256(publicInputs[offset + 1]);
@@ -287,45 +288,10 @@ contract GooglePlatformVerifier is IPlatformVerifier, PlatformVerifierBase {
         // 128th fall off the top and several `high` values agree. `low` is
         // NOT shifted, so bits above its 128th land in the high half -- one
         // over-wide `low` alone can produce any 256-bit result: a free match
-        // against the audience hash, or any `userId` at all.
+        // against the audience hash, or any node at all.
         if (high >> 128 != 0) revert PublicInputOverwide(offset, high, 128);
         if (low >> 128 != 0) revert PublicInputOverwide(offset + 1, low, 128);
         return bytes32((high << 128) | low);
-    }
-
-    /// @dev The circuit packs 31 bytes per Field, big-endian, zero-padded past
-    ///      the real length. Unpacking and dropping the padding recovers the
-    ///      bytes without the caller supplying a copy to be checked against —
-    ///      one fewer value for a caller to choose.
-    function _unpack(bytes32[] memory publicInputs, uint256 offset, uint256 count)
-        private
-        pure
-        returns (bytes memory out)
-    {
-        bytes memory full = new bytes(count * 31);
-        for (uint256 f = 0; f < count; ++f) {
-            uint256 v = uint256(publicInputs[offset + f]);
-            // A field element holds more than the 31 bytes read below, and
-            // whatever sits above them is dropped in silence -- so the email
-            // this returns would not be the one the circuit proved. Refuse
-            // instead (REQ-COMMON-28 in spirit: no truncation).
-            if (v >> 248 != 0) revert PublicInputOverwide(offset + f, v, 248);
-            for (uint256 i = 0; i < 31; ++i) {
-                // Casting to uint8 takes the low byte on purpose: the shift
-                // brought byte `i` to the bottom, and the other iterations
-                // read the rest.
-                // forge-lint: disable-next-line(unsafe-typecast)
-                full[f * 31 + (30 - i)] = bytes1(uint8(v >> (8 * i)));
-            }
-        }
-        uint256 len = full.length;
-        while (len > 0 && full[len - 1] == 0) {
-            --len;
-        }
-        out = new bytes(len);
-        for (uint256 i = 0; i < len; ++i) {
-            out[i] = full[i];
-        }
     }
 
     function _requireTrustedModulus(bytes32[] memory publicInputs) private view {

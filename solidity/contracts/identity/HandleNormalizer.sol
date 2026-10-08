@@ -1,20 +1,20 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-/// @notice Turns a platform handle into the one form the identity system
-///         hashes into a node.
+/// @notice Turns a handle a caller typed into the one form the identity
+///         circuits hash into a node.
 ///
-/// @dev The transform is closed. It reads bytes, it does not fold Unicode, and
-///      it never consults a table outside this file. Handles on the supported
-///      platforms are ASCII, so a closed transform gives Solidity, Rust and
-///      TypeScript the same answer with no shared library between them.
+/// @dev The transform is closed and refuses rather than repairs: A-Z fold to
+///      a-z, and nothing is trimmed or stripped. It reads bytes, it does not
+///      fold Unicode, and it never consults a table outside this file.
 ///
-///      Normalization runs on the write path, not only in a client. The handle
-///      arrives inside a proof, so the contract must derive the node itself. A
-///      caller that supplied a pre-hashed node could name any handle it liked.
-///
-///      Every rule below is exercised by the vector table in
-///      `contracts/identity/handles.json`, which Rust and TypeScript run too.
+///      The circuit is what keys a binding: it folds the handle the platform
+///      sent and outputs its node. This copy serves the plaintext a caller
+///      hands the registry -- a disclosure, a lookup -- and must agree with
+///      the circuit byte for byte, or a disclosed name would not hash to the
+///      node it names. Every rule below is exercised by the vector table in
+///      `contracts/identity/handles.json`, which the circuits, Rust and
+///      TypeScript run too.
 library HandleNormalizer {
     /// Nothing is left after the transform.
     error EmptyHandle();
@@ -28,16 +28,13 @@ library HandleNormalizer {
     /// @notice What one platform accepts. Stored per platform, so a new
     ///         platform is configuration rather than code.
     ///
-    /// @param maxLength       Bytes allowed after trimming and the `@` strip.
-    /// @param stripLeadingAt  Remove one leading `@`. X and GitHub do. An email
-    ///                        keeps its own `@`, so Google does not.
+    /// @param maxLength       Bytes allowed.
     /// @param isEmail         Validate as an address instead of a bare handle.
     /// @param allowUnderscore Allowed by X, not by GitHub.
     /// @param allowHyphen     Allowed by GitHub, not by X. A hyphen may not
     ///                        start or end the handle, and two may not touch.
     struct Rules {
         uint16 maxLength;
-        bool stripLeadingAt;
         bool isEmail;
         bool allowUnderscore;
         bool allowHyphen;
@@ -55,8 +52,8 @@ library HandleNormalizer {
 
     /// @notice The normalized handle, or a revert naming what was wrong.
     ///
-    /// @dev The write path. A handle that arrives inside a proof and does not
-    ///      normalize is a broken proof, and failing loudly is right.
+    /// @dev The disclosure path. A name a holder asks to publish that does not
+    ///      normalize can name no node, and failing loudly is right.
     function normalize(string memory raw, Rules memory rules) internal pure returns (string memory out) {
         Problem problem;
         (problem, out) = tryNormalize(raw, rules);
@@ -79,31 +76,13 @@ library HandleNormalizer {
         returns (Problem problem, string memory normalized)
     {
         bytes memory input = bytes(raw);
-
-        // Trim ASCII spaces only. A tab or a newline is not whitespace to be
-        // removed here; it is a byte the platform does not allow, and the
-        // character check below refuses it. Trimming it instead would accept
-        // "ali\tce" as "alice" in one language and refuse it in another.
-        uint256 start = 0;
-        uint256 end = input.length;
-        while (start < end && input[start] == 0x20) {
-            start++;
-        }
-        while (end > start && input[end - 1] == 0x20) {
-            end--;
-        }
-
-        if (rules.stripLeadingAt && end > start && input[start] == 0x40) {
-            start++;
-        }
-
-        uint256 length = end - start;
+        uint256 length = input.length;
         if (length == 0) return (Problem.Empty, "");
         if (length > rules.maxLength) return (Problem.TooLong, "");
 
         bytes memory out = new bytes(length);
         for (uint256 i = 0; i < length; i++) {
-            bytes1 c = input[start + i];
+            bytes1 c = input[i];
             // Fold A-Z down. Nothing else changes, so two addresses that differ
             // in more than case stay two identities.
             if (c >= 0x41 && c <= 0x5A) {
@@ -158,5 +137,21 @@ library HandleNormalizer {
             if (value[i] == 0x2D && value[i - 1] == 0x2D) return false;
         }
         return true;
+    }
+
+    /// @notice A disclosed handle, normalized, and the node it names:
+    ///         `SHA256(tag || normalized)`, the node the platform's circuit
+    ///         outputs for that handle.
+    ///
+    /// @dev The one disclosure computation, for the Platform Verifier checking
+    ///      a handle against its proof and the registry checking one a holder
+    ///      publishes later. Reverts as `normalize` does.
+    function nodeOf(string memory raw, Rules memory rules, bytes memory tag)
+        internal
+        pure
+        returns (string memory normalized, bytes32 node)
+    {
+        normalized = normalize(raw, rules);
+        node = sha256(abi.encodePacked(tag, normalized));
     }
 }

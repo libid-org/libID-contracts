@@ -60,20 +60,18 @@ export async function rulesOf(reader: RegistryReader, platformId: `0x${string}`)
   const rules = await read<Rules>(reader, 'rulesOf', [platformId])
   return {
     maxLength: Number(rules.maxLength),
-    stripLeadingAt: rules.stripLeadingAt,
     isEmail: rules.isEmail,
     allowUnderscore: rules.allowUnderscore,
     allowHyphen: rules.allowHyphen,
   }
 }
 
-/// The holder that proved this id, or `null`.
+/// The holder that proved this id node (`idNode(platformKey, id)`), or `null`.
 export async function resolveId(
   reader: RegistryReader,
-  platformId: `0x${string}`,
-  id: string,
+  idNode: `0x${string}`,
 ): Promise<Address | null> {
-  const holder = await read<Address>(reader, 'resolveId', [platformId, id])
+  const holder = await read<Address>(reader, 'resolveId', [idNode])
   return holder === zeroAddress ? null : holder
 }
 
@@ -115,7 +113,7 @@ export async function publishedHandleOf(
 export interface HandleAndIdResolution {
   /// The handle's holder, or `null`.
   holder: Address | null
-  /// True only when the id resolves to that same holder.
+  /// True only when the id node resolves to that same holder.
   ///
   /// False means the caller's `(handle, id)` pair comes from two moments:
   /// somebody proved the handle after the caller learned who held it. That is
@@ -123,7 +121,7 @@ export interface HandleAndIdResolution {
   idAgrees: boolean
 }
 
-/// Resolve a handle and report whether an id still agrees with it.
+/// Resolve a handle and report whether an id node still agrees with it.
 ///
 /// **Read this before signing, and do not let it block a transfer.** A handle
 /// that will not route is not a handle: sending to a handle means sending to
@@ -140,12 +138,12 @@ export async function resolveHandleAndId(
   reader: RegistryReader,
   platformId: `0x${string}`,
   handle: string,
-  id: string,
+  idNode: `0x${string}`,
 ): Promise<HandleAndIdResolution> {
   const [holder, idAgrees] = await read<[Address, boolean]>(reader, 'resolveHandleAndId', [
     platformId,
     handle,
-    id,
+    idNode,
   ])
 
   return { holder: holder === zeroAddress ? null : holder, idAgrees }
@@ -155,13 +153,14 @@ export async function resolveHandleAndId(
 export interface Identity {
   /// The platform the identity is on, as `platformId` derives it.
   platformId: `0x${string}`
-  /// The id, byte for byte as the platform issued it.
-  id: string
-  /// The handle this identity proved most recently, as normalized on chain.
-  handle: string
+  /// The node of the id. The id itself is never on chain.
+  idNode: `0x${string}`
+  /// The node of the handle this identity proved most recently. The handle is
+  /// on chain only if its holder published it (`publishedHandleOf`).
+  handleNode: `0x${string}`
   /// True while the handle node still points back at this identity.
   ///
-  /// False once another identity proves the same handle: the string stays as
+  /// False once another identity proves the same handle: the node stays as
   /// the last thing this identity was known as, and the flag says not to route
   /// by it.
   handleCurrent: boolean
@@ -190,10 +189,10 @@ export async function identitiesOf(
   limit: bigint,
 ): Promise<Identity[]> {
   const page = await read<readonly Identity[]>(reader, 'identitiesOf', [holder, from, limit])
-  return page.map(({ platformId, id, handle, handleCurrent }) => ({
+  return page.map(({ platformId, idNode, handleNode, handleCurrent }) => ({
     platformId,
-    id,
-    handle,
+    idNode,
+    handleNode,
     handleCurrent,
   }))
 }
