@@ -129,22 +129,6 @@ contract LiveHelpers {
         return CeremonyFields.normalizeJsonBytes(data);
     }
 
-    function tryJsonString(bytes memory data, string memory name)
-        external
-        pure
-        returns (CeremonyFields.Found, bytes memory)
-    {
-        return CeremonyFields.tryNormalizedJsonString(CeremonyFields.normalizeJsonBytes(data), name);
-    }
-
-    function tryJsonInteger(bytes memory data, string memory name)
-        external
-        pure
-        returns (CeremonyFields.Found, bytes memory)
-    {
-        return CeremonyFields.tryNormalizedJsonInteger(CeremonyFields.normalizeJsonBytes(data), name);
-    }
-
     function requireExactForm(bytes memory body, bytes memory names) external pure {
         CeremonyFields.requireExactForm(body, names);
     }
@@ -206,22 +190,6 @@ contract RefHelpers {
 
     function normalizeJsonBytes(bytes memory data) external pure returns (bytes memory) {
         return RefCeremonyFields.normalizeJsonBytes(data);
-    }
-
-    function tryJsonString(bytes memory data, string memory name)
-        external
-        pure
-        returns (CeremonyFields.Found, bytes memory)
-    {
-        return RefCeremonyFields.tryJsonString(data, name);
-    }
-
-    function tryJsonInteger(bytes memory data, string memory name)
-        external
-        pure
-        returns (CeremonyFields.Found, bytes memory)
-    {
-        return RefCeremonyFields.tryJsonInteger(data, name);
     }
 
     function formField(bytes memory data, string memory name) external pure returns (bytes memory) {
@@ -977,30 +945,6 @@ contract TranscriptEquivalenceTest is Test {
         Gen.Rng memory r = Gen.Rng(seed);
         bytes memory data = r.chance(30) ? raw : r.soup(' \t\r\n:,{}[]"a1', 70);
         _same(address(live), address(ref), abi.encodeCall(LiveHelpers.normalizeJsonBytes, (data)));
-    }
-
-    /// forge-config: default.fuzz.runs = 2000
-    function testFuzz_jsonReadsMatchReference(uint256 seed) public view {
-        Gen.Rng memory r = Gen.Rng(seed);
-        string memory name = string(
-            r.oneOf(
-                Gen.list(
-                    "id",
-                    "login",
-                    "username",
-                    r.chance(50) ? bytes("") : bytes("a_member_name_long_enough_for_two_words")
-                )
-            )
-        );
-        bytes memory data = bytes.concat(
-            r.soup(' "{}:,1a', 12),
-            r.chance(70) ? abi.encodePacked('"', name, '"', r.soup(" :", 3), ":", r.soup(' "', 2)) : bytes(""),
-            r.soup(' "{}:,0123a\\', 16),
-            r.chance(30) ? abi.encodePacked('"', name, '":') : bytes(""),
-            r.soup(' "{}:,1a', 8)
-        );
-        _same(address(live), address(ref), abi.encodeCall(LiveHelpers.tryJsonString, (data, name)));
-        _same(address(live), address(ref), abi.encodeCall(LiveHelpers.tryJsonInteger, (data, name)));
     }
 
     /// forge-config: default.fuzz.runs = 2000

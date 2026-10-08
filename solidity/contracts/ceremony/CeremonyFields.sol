@@ -2,14 +2,15 @@
 pragma solidity ^0.8.24;
 
 /// @title CeremonyFields
-/// @notice Reading one field out of the revealed bytes of an attestation, and
-///         holding a form body to exactly the fields it should carry.
+/// @notice The byte searches and the JSON whitespace removal the transcript
+///         checks run over revealed bytes, and holding a form body to exactly
+///         the fields it should carry.
 ///
 /// @dev Nothing here parses a document. ceremony-common section 9 says so
 ///      plainly: no complete HTTP request grammar, no complete HTTP response
 ///      grammar, no complete JSON grammar is proved or parsed anywhere in the
-///      protocol. A JSON field is matched by its exact delimiter template, a
-///      form field by its own boundary template, and that is all.
+///      protocol. A JSON delimiter is matched by its exact template, a form
+///      field by its own boundary template, and that is all.
 ///
 ///      What makes a template safe to trust is REQ-COMMON-19A: the Platform
 ///      Verifier must reject a transcript in which a field's full delimiter
@@ -17,18 +18,13 @@ pragma solidity ^0.8.24;
 ///      text the account holder chooses -- a display name, a bio -- and that
 ///      text can embed a lookalike field. Reading the first match would let it
 ///      answer for the real one; reading the last would too. Refusing to answer
-///      at all is what closes it.
+///      at all is what closes it, which `occurrences` lets a caller do.
 library CeremonyFields {
-    /// @dev The delimiter appears more than once, so no reading of it is
+    /// @dev The form names the field more than once, so no reading of it is
     ///      authoritative (REQ-COMMON-19A).
     error AmbiguousField(string name);
+    /// @dev The form does not name the field.
     error FieldNotFound(string name);
-    /// @dev A GitHub `id` must be followed by `,` or `}` and no other byte: the
-    ///      terminator is what proves the revealed digits are the whole number
-    ///      rather than a prefix of a longer one (REQ-PLAT-51).
-    error BadIntegerTerminator(string name, bytes1 found);
-    /// @dev Leading zeros, a sign, a fraction, an exponent, or no digits at all.
-    error NoncanonicalInteger(string name);
     /// @dev The body stops being the exact form at byte `at`: the pair that
     ///      begins there is not the name expected next, a value byte is outside
     ///      the serializer's alphabet, an escape is not two uppercase hex
@@ -38,18 +34,6 @@ library CeremonyFields {
     error MalformedForm(uint256 at);
     /// @dev A field the form must carry once carries nothing.
     error EmptyFormValue(string name);
-
-    /// @notice What a field lookup found in one range.
-    enum Found {
-        None,
-        One,
-        Several,
-        /// The delimiter is here, but the value has no end inside this range.
-        /// A caller scanning range by range treats it as `None` -- a value
-        /// with no established extent is one it must not read, and splicing
-        /// the rest out of a neighbouring range is what these reads forbid.
-        Unterminated
-    }
 
     /// @notice A body `requireExactForm` accepted: per listed field, in list
     ///         order, its name's hash and its value's offsets in `body`.
@@ -73,84 +57,18 @@ library CeremonyFields {
     uint256 private constant SERIALIZER_SAFE = (((1 << 26) - 1) << 0x41) | (((1 << 26) - 1) << 0x61)
         | (((1 << 10) - 1) << 0x30) | (1 << 0x2a) | (1 << 0x2e) | (1 << 0x5f) | (1 << 0x2d);
 
-    /// @notice The string value of member `name` in bytes `normalizeJsonBytes`
-    ///         returned, reporting instead of reverting.
-    ///
-    /// @dev A caller searching several revealed ranges needs to distinguish
-    ///      "not in this range" from "malformed", because a field legitimately
-    ///      lives in exactly one of them.
-    function tryNormalizedJsonString(bytes memory data, string memory name)
-        internal
-        pure
-        returns (Found found, bytes memory value)
-    {
-        bytes memory needle = abi.encodePacked('"', name, '":"');
-        uint256 at;
-        (found, at) = _findUnique(data, needle);
-        if (found != Found.One) return (found, "");
-
-        at += needle.length;
-        uint256 end = indexOfByte(data, at, '"');
-        // A value with no closing quote inside THIS range has no established
-        // extent, and splicing the rest from a neighbouring range is exactly
-        // what these reads must not do.
-        if (end == data.length) return (Found.Unterminated, "");
-
-        return (Found.One, _slice(data, at, end));
-    }
-
-    /// @notice The integer member `name` in bytes `normalizeJsonBytes`
-    ///         returned, reporting absence and refusing malformation.
-    ///
-    /// @dev Absence is reported, because a field lives in exactly one revealed
-    ///      range and the others must be able to say "not here". Unlike the
-    ///      string reader, a malformed match reverts: the needle `"id":` is the
-    ///      full delimiter -- it cannot match inside a neighbouring member such
-    ///      as `"node_id":"`, whose `i` is preceded by `_` rather than a quote --
-    ///      so a second occurrence is a duplicate delimiter, which
-    ///      REQ-COMMON-19A wants rejected rather than skipped past to whichever
-    ///      copy parses.
-    function tryNormalizedJsonInteger(bytes memory data, string memory name)
-        internal
-        pure
-        returns (Found found, bytes memory digits)
-    {
-        bytes memory needle = abi.encodePacked('"', name, '":');
-        uint256 at;
-        (found, at) = _findUnique(data, needle);
-        if (found != Found.One) return (found, "");
-
-        at += needle.length;
-        uint256 end = at;
-        // Reads `data[end]` only below `data.length`.
-        assembly ("memory-safe") {
-            let p := add(data, 0x20)
-            let len := mload(data)
-            for {} lt(end, len) { end := add(end, 1) } {
-                let c := byte(0, mload(add(p, end)))
-                if or(lt(c, 0x30), gt(c, 0x39)) { break }
-            }
-        }
-        if (end == at) revert NoncanonicalInteger(name);
-        if (end - at > 1 && data[at] == "0") revert NoncanonicalInteger(name);
-        if (end == data.length) return (Found.None, "");
-        if (data[end] != "," && data[end] != "}") revert BadIntegerTerminator(name, data[end]);
-
-        return (Found.One, _slice(data, at, end));
-    }
-
     /// @notice `data` with the JSON whitespace that touches a structural
     ///         byte removed.
     ///
     /// @dev The four bytes JSON lets a writer put between tokens (RFC 8259
     ///      section 2): space, tab, line feed, carriage return. GitHub
     ///      pretty-prints `/user` for the media type the profile pins, so the
-    ///      compact delimiters the readers above match are a grammar, not the
-    ///      bytes on the wire. Removing the whitespace first, the way
-    ///      `CeremonyAttestation.normalizeHeaderBytes` does for a request head,
-    ///      leaves every reader its one exact template and makes a member in
-    ///      any spelling the same member -- so a duplicate spelled with spaces
-    ///      is still counted as one.
+    ///      compact delimiters `CeremonyAttestation`'s framing checks match
+    ///      are a grammar, not the bytes on the wire. Removing the whitespace
+    ///      first, the way `CeremonyAttestation.normalizeHeaderBytes` does for
+    ///      a request head, leaves every check its one exact template and
+    ///      makes a member in any spelling the same member -- so a duplicate
+    ///      spelled with spaces is still counted as one.
     ///
     ///      Only a run that touches `:` `,` `{` `}` `[` or `]` on either side
     ///      goes, which is exactly where JSON puts insignificant whitespace.
@@ -221,13 +139,6 @@ library CeremonyFields {
             }
             marked := or(or(equal(word, 0x20), equal(word, 0x09)), or(equal(word, 0x0a), equal(word, 0x0d)))
         }
-    }
-
-    function _findUnique(bytes memory data, bytes memory needle) private pure returns (Found found, uint256 at) {
-        at = _indexOf(data, needle, 0);
-        if (at == type(uint256).max) return (Found.None, 0);
-        if (_indexOf(data, needle, at + 1) != type(uint256).max) return (Found.Several, 0);
-        return (Found.One, at);
     }
 
     /// @notice How many offsets of `haystack` begin a copy of `needle`,

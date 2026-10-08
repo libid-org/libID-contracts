@@ -163,26 +163,6 @@ contract TranscriptWordEdgesTest is Test {
         }
     }
 
-    /// @dev A member placed so its delimiter, its value and its terminator
-    ///      fall anywhere in a word, under names whose delimiters are 31, 32
-    ///      and 33 bytes: the one-word compare, its full mask, and the hashed
-    ///      compare past it.
-    /// forge-config: default.fuzz.runs = 3000
-    function testFuzz_jsonReadsAtWordEdges(uint256 seed) public view {
-        Gen.Rng memory r = Gen.Rng(seed);
-        bytes memory name = r.oneOf(Gen.list("id", "login", "username", Edge.repeat("n", 27 + r.pick(5))));
-        bytes memory ws = r.oneOf(Gen.list("", " ", "\n\t", "\r\n  "));
-        bytes memory value = r.chance(50)
-            ? bytes.concat('"', r.fill(r.near(40), 'a1_ \\:,"'), r.chance(85) ? bytes('"') : bytes(""))
-            : bytes.concat(r.fill(r.near(40), "0123456789"), r.oneOf(Gen.list(",", "}", " ", "")));
-        bytes memory member = bytes.concat('"', name, '"', ws, ":", ws, value);
-        bytes memory data = bytes.concat(r.fill(r.near(70), JSON_ALPHABET), member, r.fill(r.near(40), JSON_ALPHABET));
-        if (r.chance(15)) data = Edge.insert(data, r.near(data.length), member);
-        if (r.chance(10)) data = r.mutate(data, '"{}:, \n0a');
-        _same(address(live), address(ref), abi.encodeCall(LiveHelpers.tryJsonString, (data, string(name))));
-        _same(address(live), address(ref), abi.encodeCall(LiveHelpers.tryJsonInteger, (data, string(name))));
-    }
-
     /// @dev A needle cut out of a periodic haystack at a word edge, the byte
     ///      it ends on sometimes changed: a mask one byte short or long
     ///      counts a copy that is not there or misses one that is.

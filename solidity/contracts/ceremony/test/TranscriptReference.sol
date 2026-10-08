@@ -2,7 +2,6 @@
 pragma solidity ^0.8.24;
 
 import {CeremonyAttestation} from "../CeremonyAttestation.sol";
-import {CeremonyFields} from "../CeremonyFields.sol";
 import {CeremonyProfile} from "../CeremonyProfile.sol";
 
 /// @notice A reference implementation of the transcript checks of
@@ -272,67 +271,13 @@ library RefCeremonyAttestation {
     }
 }
 
-/// @notice The field readers of `CeremonyFields`, modelled byte by byte.
+/// @notice The JSON normalization and form checks of `CeremonyFields`,
+///         modelled byte by byte.
 library RefCeremonyFields {
     error AmbiguousField(string name);
     error FieldNotFound(string name);
-    error BadIntegerTerminator(string name, bytes1 found);
-    error NoncanonicalInteger(string name);
     error MalformedForm(uint256 at);
     error EmptyFormValue(string name);
-
-    function tryJsonString(bytes memory data, string memory name)
-        internal
-        pure
-        returns (CeremonyFields.Found found, bytes memory value)
-    {
-        data = normalizeJsonBytes(data);
-        bytes memory needle = abi.encodePacked('"', name, '":"');
-        uint256 at;
-        (found, at) = _findUnique(data, needle);
-        if (found != CeremonyFields.Found.One) return (found, "");
-
-        at += needle.length;
-        uint256 end = at;
-        while (end < data.length && data[end] != '"') {
-            ++end;
-        }
-        if (end == data.length) return (CeremonyFields.Found.Unterminated, "");
-
-        value = new bytes(end - at);
-        for (uint256 i = 0; i < value.length; ++i) {
-            value[i] = data[at + i];
-        }
-        return (CeremonyFields.Found.One, value);
-    }
-
-    function tryJsonInteger(bytes memory data, string memory name)
-        internal
-        pure
-        returns (CeremonyFields.Found found, bytes memory digits)
-    {
-        data = normalizeJsonBytes(data);
-        bytes memory needle = abi.encodePacked('"', name, '":');
-        uint256 at;
-        (found, at) = _findUnique(data, needle);
-        if (found != CeremonyFields.Found.One) return (found, "");
-
-        at += needle.length;
-        uint256 end = at;
-        while (end < data.length && data[end] >= "0" && data[end] <= "9") {
-            ++end;
-        }
-        if (end == at) revert NoncanonicalInteger(name);
-        if (end - at > 1 && data[at] == "0") revert NoncanonicalInteger(name);
-        if (end == data.length) return (CeremonyFields.Found.None, "");
-        if (data[end] != "," && data[end] != "}") revert BadIntegerTerminator(name, data[end]);
-
-        digits = new bytes(end - at);
-        for (uint256 i = 0; i < digits.length; ++i) {
-            digits[i] = data[at + i];
-        }
-        return (CeremonyFields.Found.One, digits);
-    }
 
     function normalizeJsonBytes(bytes memory data) internal pure returns (bytes memory out) {
         out = new bytes(data.length);
@@ -367,21 +312,6 @@ library RefCeremonyFields {
 
     function _isStructural(bytes1 c) private pure returns (bool) {
         return c == ":" || c == "," || c == "{" || c == "}" || c == "[" || c == "]";
-    }
-
-    function _findUnique(bytes memory data, bytes memory needle)
-        private
-        pure
-        returns (CeremonyFields.Found found, uint256 at)
-    {
-        uint256 hit = type(uint256).max;
-        for (uint256 i = 0; i + needle.length <= data.length; ++i) {
-            if (!_matchesAt(data, needle, i)) continue;
-            if (hit != type(uint256).max) return (CeremonyFields.Found.Several, 0);
-            hit = i;
-        }
-        if (hit == type(uint256).max) return (CeremonyFields.Found.None, 0);
-        return (CeremonyFields.Found.One, hit);
     }
 
     function formField(bytes memory data, string memory name) internal pure returns (bytes memory value) {
