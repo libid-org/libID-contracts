@@ -234,7 +234,7 @@ contract GitHubPlatformVerifierTest is Test {
     {
         AttestationBuilder.Direction memory sent;
         sent.reveal(
-                "GET /user HTTP/1.1\r\naccept: application/vnd.github+json\r\nhost: api.github.com\r\n\r\nauthorization: Bearer "
+                "GET /user HTTP/1.1\r\naccept: application/vnd.github+json\r\nhost: api.github.com\r\nauthorization: Bearer "
             ).commit("gho_TOKENTOKENTOKEN", IDENTITY_COMMITMENT).reveal("\r\nconnection: close\r\n\r\n");
         bytes memory attested = AttestationBuilder.encode(authority, T0, sent, received);
         return ICeremony.Attestation({attestedData: attested, proof: _sign(attested)});
@@ -790,6 +790,18 @@ contract GitHubPlatformVerifierTest is Test {
         this.run{value: quote}(s);
     }
 
+    /// @dev The identity read carries exactly one HTTP request, as the token
+    ///      exchange does.
+    function test_rejectsASecondRequestOnTheIdentityRead() public {
+        TlsNotaryVerifierBase.TlsNotaryProof memory s = _payload();
+        s.identitySession = _identityWithHead(
+            "GET /user HTTP/1.1\r\nhost: api.github.com\r\nauthorization: Bearer ",
+            "\r\n\r\nGET /user HTTP/1.1\r\nhost: api.github.com\r\nauthorization: token ghp_OTHER\r\n\r\n"
+        );
+        vm.expectRevert(abi.encodeWithSelector(CeremonyAttestation.NotOneRequest.selector, 2));
+        this.run{value: quote}(s);
+    }
+
     /// @dev And `cookie`, the other credential a platform might honour over
     ///      the bearer, is refused on the identity read by name.
     function test_rejectsACookieOnTheIdentityRead() public {
@@ -1189,7 +1201,7 @@ contract GitHubPlatformVerifierTest is Test {
         bytes memory head = abi.encodePacked(
             "GET /user HTTP/1.1\r\n",
             extraHeaders,
-            "accept: application/vnd.github+json\r\nhost: api.github.com\r\n\r\nauthorization: Bearer "
+            "accept: application/vnd.github+json\r\nhost: api.github.com\r\nauthorization: Bearer "
         );
         bytes memory bearer = "gho_TOKENTOKENTOKEN";
         bytes memory tail = "\r\nconnection: close\r\n\r\n";

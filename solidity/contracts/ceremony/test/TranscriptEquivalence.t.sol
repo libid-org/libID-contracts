@@ -693,7 +693,19 @@ library Gen {
                 head = bytes.concat(head, eol(r), line);
             }
         }
-        bytes memory end = chance(r, 95) ? bytes("\r\n\r\n") : oneOf(r, list("\r\n", "\r\n\r\ncookie: a", "\n\n"));
+        // Otherwise no head end, a second one, bytes after it, or a second
+        // request after it.
+        bytes memory end = chance(r, 92)
+            ? bytes("\r\n\r\n")
+            : oneOf(
+                r,
+                list(
+                    "\r\n",
+                    "\r\n\r\ncookie: a",
+                    "\n\n",
+                    "\r\n\r\nGET /2/users/me HTTP/1.1\r\nauthorization: Bearer y\r\n\r\n"
+                )
+            );
         tail = bytes.concat(tail, end);
         bytes memory bearer = chance(r, 98) ? bytes("TOKENTOKENTOKEN") : bytes("TOK\r\nEN");
         bytes memory t = bytes.concat(head, bearer, tail);

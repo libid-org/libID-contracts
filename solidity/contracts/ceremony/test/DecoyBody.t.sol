@@ -122,7 +122,7 @@ contract DecoyBodyTest is Test {
     }
 
     function _identity() private pure returns (ICeremony.Attestation memory) {
-        bytes memory head = "GET /2/users/me HTTP/1.1\r\nhost: api.x.com\r\n\r\nauthorization: Bearer ";
+        bytes memory head = "GET /2/users/me HTTP/1.1\r\nhost: api.x.com\r\nauthorization: Bearer ";
         bytes memory bearer = "VICTIMBEARERTOKEN";
         bytes memory tail = "\r\nconnection: close\r\n\r\n";
         uint32 s0 = uint32(head.length);

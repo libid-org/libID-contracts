@@ -127,7 +127,7 @@ contract PlantedRangeForgeryTest is Test {
 
     function _honestIdentity() private pure returns (ICeremony.Attestation memory) {
         bytes memory head =
-            abi.encodePacked("GET /2/users/me HTTP/1.1\r\nhost: api.x.com\r\n", "\r\nauthorization: Bearer ");
+            abi.encodePacked("GET /2/users/me HTTP/1.1\r\nhost: api.x.com", "\r\nauthorization: Bearer ");
         bytes memory bearer = "TOKENTOKENTOKEN";
         bytes memory tail = "\r\n\r\n";
         uint32 bstart = uint32(head.length);

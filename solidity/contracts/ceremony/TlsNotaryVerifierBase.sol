@@ -378,10 +378,12 @@ abstract contract TlsNotaryVerifierBase is IPlatformVerifier, PlatformVerifierBa
             revert WrongRequestLine();
         }
 
-        // Coverage, the line-anchored uniqueness scan and the framing bytes,
-        // together. They are one property: the scan reads only revealed bytes,
-        // so without coverage a prover hides a second authorization header in a
-        // gap and the count still says one.
+        // Coverage, one request, the line-anchored uniqueness scan and the
+        // framing bytes, together. They are one property: the scan reads only
+        // revealed bytes, so without coverage a prover hides a second
+        // authorization header in a gap and the count still says one; and it
+        // counts lines of one head, so the session carries that head alone,
+        // as the token session carries its one request.
         (CeremonyAttestation.RangeCommitment memory bearer, bytes memory revealed) =
             CeremonyAttestation.requireBearerHeaderRequest(data.sent, data.sentTranscriptLength);
         committed.bearer = bearer.commitment;
@@ -713,25 +715,7 @@ abstract contract TlsNotaryVerifierBase is IPlatformVerifier, PlatformVerifierBa
 
         // Exactly one head boundary. A well-formed request has one; requiring
         // it removes any question of which run of bytes the body is.
-        uint256 at = type(uint256).max;
-        uint256 seen;
-        // Every boundary begins with a CR, so only those offsets are tried.
-        for (
-            uint256 cr = CeremonyFields.indexOfByte(whole, 0, 0x0d);
-            cr + 4 <= whole.length;
-            cr = CeremonyFields.indexOfByte(whole, cr + 1, 0x0d)
-        ) {
-            uint256 four;
-            // The four bytes at `cr`, inside `whole` by the loop condition;
-            // the shift drops what the word holds past them.
-            assembly ("memory-safe") {
-                four := shr(224, mload(add(add(whole, 0x20), cr)))
-            }
-            if (four == 0x0d0a0d0a) {
-                ++seen;
-                if (at == type(uint256).max) at = cr;
-            }
-        }
+        (uint256 seen, uint256 at) = CeremonyAttestation.headBoundaries(whole);
         if (seen != 1) revert NoHeadBoundary(seen);
 
         uint256 declared = _checkTokenHead(_slice(whole, 0, at));

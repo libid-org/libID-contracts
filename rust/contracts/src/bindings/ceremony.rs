@@ -314,6 +314,11 @@ mod tls_notary_platform_verifier_inner {
             /// The framing's prefix is revealed twice, or frames two
             /// commitments.
             error AmbiguousFraming();
+            /// The identity request's revealed bytes hold `heads` head ends
+            /// where one request holds exactly one.
+            error NotOneRequest(uint256 heads);
+            /// Bytes follow the identity request's head.
+            error BytesAfterRequest(uint256 count);
             error AmbiguousField(string name);
             error FieldNotFound(string name);
             error MalformedForm(uint256 at);

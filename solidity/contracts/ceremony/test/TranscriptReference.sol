@@ -21,6 +21,8 @@ library RefCeremonyAttestation {
     error BadBearerFraming();
     error NoFramedCommitment();
     error AmbiguousFraming();
+    error NotOneRequest(uint256 heads);
+    error BytesAfterRequest(uint256 count);
 
     bytes internal constant BEARER_PREFIX = "\r\nauthorization: Bearer ";
     bytes internal constant BEARER_SUFFIX = "\r\n";
@@ -233,6 +235,7 @@ library RefCeremonyAttestation {
 
         bytes memory revealed = concatRevealed(block_);
         requireCrlfLineEndings(revealed);
+        _requireOneBodilessRequest(block_, revealed, length);
 
         uint256 headers = _countNeedle(normalizeHeaderBytes(revealed));
         if (headers != 1) revert NotOneAuthorizationHeader(headers);
@@ -243,6 +246,28 @@ library RefCeremonyAttestation {
         if (keccak256(before_) != keccak256(BEARER_PREFIX) || keccak256(after_) != keccak256(BEARER_SUFFIX)) {
             revert BadBearerFraming();
         }
+    }
+
+    /// @dev One `\r\n\r\n` in the revealed bytes joined, ending them, and
+    ///      the transcript ending where the last revealed byte does. A plain
+    ///      byte loop over every offset, where production tries only the CRs.
+    function _requireOneBodilessRequest(
+        CeremonyAttestation.DirectionBlock memory block_,
+        bytes memory revealed,
+        uint32 length
+    ) private pure {
+        uint256 heads;
+        uint256 at;
+        for (uint256 i = 0; i + 4 <= revealed.length; ++i) {
+            if (revealed[i] == 0x0d && revealed[i + 1] == 0x0a && revealed[i + 2] == 0x0d && revealed[i + 3] == 0x0a) {
+                ++heads;
+                at = i;
+            }
+        }
+        if (heads != 1) revert NotOneRequest(heads);
+        if (at + 4 != revealed.length) revert BytesAfterRequest(revealed.length - at - 4);
+        uint32 end = block_.revealed[block_.revealed.length - 1].end;
+        if (end != length) revert BytesAfterRequest(length - end);
     }
 
     function requireCrlfLineEndings(bytes memory revealed) internal pure {

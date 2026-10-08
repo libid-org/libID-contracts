@@ -106,6 +106,12 @@ library CeremonyAttestation {
     error NoFramedCommitment();
     /// @dev More than one is, so the framing identifies nothing.
     error AmbiguousFraming();
+    /// @dev The revealed bytes of a request direction hold `heads` head
+    ///      boundaries (`\r\n\r\n`) where one HTTP request holds exactly one.
+    error NotOneRequest(uint256 heads);
+    /// @dev `count` bytes follow the head of a request that has no body: the
+    ///      session carries more than the one request.
+    error BytesAfterRequest(uint256 count);
 
     /// @notice Parse and shape-check the attested data.
     /// @dev Trailing bytes are refused: the layout accounts for every byte, so
@@ -306,7 +312,8 @@ library CeremonyAttestation {
 
     /// @notice Every check REQ-COMMON-35, -39 and -40 require of an
     ///         identity-session request that commits a credential in an HTTP
-    ///         `Authorization` header.
+    ///         `Authorization` header, and that the session carries that one
+    ///         request and nothing after it (`requireOneBodilessRequest`).
     ///
     /// @dev At launch that is X's `/2/users/me` request and GitHub's `/user`
     ///      request, and nothing else. A token request carries its credential
@@ -338,6 +345,7 @@ library CeremonyAttestation {
 
         revealed = concatRevealed(block_);
         requireCrlfLineEndings(revealed);
+        requireOneBodilessRequest(block_, revealed, length);
 
         // Counted over the CONCATENATION, not per range.
         //
@@ -369,6 +377,69 @@ library CeremonyAttestation {
         bytes memory after_ = _revealedSlice(block_, commitment.end, commitment.end + uint32(BEARER_SUFFIX.length));
         if (keccak256(before_) != keccak256(BEARER_PREFIX) || keccak256(after_) != keccak256(BEARER_SUFFIX)) {
             revert BadBearerFraming();
+        }
+    }
+
+    /// @notice The direction carries exactly one HTTP request with no body,
+    ///         as the token session carries exactly one request with its form.
+    ///
+    /// @dev `revealed` must be `concatRevealed(block_)`, with the direction
+    ///      already exactly covered and its line endings already CRLF. Three
+    ///      conditions, each over bytes the notary signed:
+    ///
+    ///        exactly one head boundary in the revealed bytes joined;
+    ///        nothing revealed after it, since the request has no body;
+    ///        the last revealed range ending at the signed transcript length,
+    ///        so no commitment follows it either.
+    ///
+    ///      Everything revealed then lies inside the one head, and so does
+    ///      every committed range, since the last revealed range ends the
+    ///      transcript -- the authorization line included.
+    ///      A header the caller reads out of `revealed` is a header of the
+    ///      request the platform answered, and the platform answered nothing
+    ///      else on this session.
+    ///
+    ///      Counted over the join, as the authorization count is: a boundary
+    ///      cut across two ranges is still one, and a seam can only add one,
+    ///      which refuses rather than accepts.
+    function requireOneBodilessRequest(DirectionBlock memory block_, bytes memory revealed, uint32 length)
+        internal
+        pure
+    {
+        (uint256 heads, uint256 at) = headBoundaries(revealed);
+        if (heads != 1) revert NotOneRequest(heads);
+        uint256 trailing = revealed.length - (at + 4);
+        if (trailing != 0) revert BytesAfterRequest(trailing);
+        // In bounds: one boundary means at least four revealed bytes, so at
+        // least one revealed range.
+        uint32 lastEnd = block_.revealed[block_.revealed.length - 1].end;
+        if (lastEnd != length) revert BytesAfterRequest(length - lastEnd);
+    }
+
+    /// @notice How many head boundaries (`\r\n\r\n`) `data` holds, overlapping
+    ///         ones included, and the offset of the first, or `max` for none.
+    ///
+    /// @dev The one count both sessions' request checks read: the token
+    ///      request requires one with its form after it, the identity request
+    ///      one with nothing after it.
+    function headBoundaries(bytes memory data) internal pure returns (uint256 count, uint256 first) {
+        first = type(uint256).max;
+        // Every boundary begins with a CR, so only those offsets are tried.
+        for (
+            uint256 cr = CeremonyFields.indexOfByte(data, 0, 0x0d);
+            cr + 4 <= data.length;
+            cr = CeremonyFields.indexOfByte(data, cr + 1, 0x0d)
+        ) {
+            uint256 four;
+            // The four bytes at `cr`, inside `data` by the loop condition;
+            // the shift drops what the word holds past them.
+            assembly ("memory-safe") {
+                four := shr(224, mload(add(add(data, 0x20), cr)))
+            }
+            if (four == 0x0d0a0d0a) {
+                ++count;
+                if (first == type(uint256).max) first = cr;
+            }
         }
     }
 

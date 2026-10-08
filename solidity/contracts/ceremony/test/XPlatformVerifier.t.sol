@@ -269,7 +269,7 @@ contract XPlatformVerifierTest is Test {
                 abi.encodePacked(
                     "GET /2/users/me HTTP/1.1\r\naccept: application/json\r\nhost: api.x.com\r\n",
                     extraHeader,
-                    "\r\nauthorization: Bearer "
+                    "authorization: Bearer "
                 )
             ).commit("TOKENTOKENTOKEN", IDENTITY_COMMITMENT).reveal("\r\nconnection: close\r\n\r\n");
     }
@@ -995,6 +995,36 @@ contract XPlatformVerifierTest is Test {
 
     // ─── The identity request ───────────────────────────────────────
 
+    /// @dev The identity session carries exactly one HTTP request, as the
+    ///      token session does: a second one after it is refused before any
+    ///      header is counted, with or without a credential of its own.
+    function test_rejectsASecondRequestOnTheIdentitySession() public {
+        TlsNotaryVerifierBase.TlsNotaryProof memory s = _payload();
+        s.identitySession = _identityAttestationWithHead(
+            "GET /2/users/me HTTP/1.1\r\nhost: api.x.com\r\nauthorization: Bearer ",
+            "\r\n\r\nGET /2/users/me HTTP/1.1\r\nhost: api.x.com\r\nauthorization: Bearer OTHERTOKENOTHER\r\n\r\n"
+        );
+        vm.expectRevert(abi.encodeWithSelector(CeremonyAttestation.NotOneRequest.selector, 2));
+        this.run{value: quote}(s);
+
+        s.identitySession = _identityAttestationWithHead(
+            "GET /2/users/me HTTP/1.1\r\nhost: api.x.com\r\nauthorization: Bearer ",
+            "\r\n\r\nGET /2/users/me HTTP/1.1\r\nhost: api.x.com\r\n\r\n"
+        );
+        vm.expectRevert(abi.encodeWithSelector(CeremonyAttestation.NotOneRequest.selector, 2));
+        this.run{value: quote}(s);
+    }
+
+    /// @dev A GET has no body: bytes after the head are refused.
+    function test_rejectsBytesAfterTheIdentityRequest() public {
+        TlsNotaryVerifierBase.TlsNotaryProof memory s = _payload();
+        s.identitySession = _identityAttestationWithHead(
+            "GET /2/users/me HTTP/1.1\r\nhost: api.x.com\r\nauthorization: Bearer ", "\r\n\r\nGET"
+        );
+        vm.expectRevert(abi.encodeWithSelector(CeremonyAttestation.BytesAfterRequest.selector, 3));
+        this.run{value: quote}(s);
+    }
+
     function test_rejectsASecondAuthorizationHeader() public {
         TlsNotaryVerifierBase.TlsNotaryProof memory s = _payload();
         s.identitySession = _identityAttestation("2244994945", "Alice_1", "authorization: Bearer stolen\r\n");
@@ -1420,7 +1450,7 @@ contract XPlatformVerifierTest is Test {
 
     function _identityAttestationOnPath(string memory requestLine) private pure returns (ICeremony.Attestation memory) {
         bytes memory head = abi.encodePacked(
-            requestLine, "HTTP/1.1\r\naccept: application/json\r\nhost: api.x.com\r\n", "\r\nauthorization: Bearer "
+            requestLine, "HTTP/1.1\r\naccept: application/json\r\nhost: api.x.com", "\r\nauthorization: Bearer "
         );
         bytes memory bearer = "TOKENTOKENTOKEN";
         bytes memory tail = "\r\nconnection: close\r\n\r\n";

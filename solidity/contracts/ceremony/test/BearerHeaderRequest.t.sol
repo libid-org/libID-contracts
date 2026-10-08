@@ -25,10 +25,18 @@ contract BearerHeaderRequestTest is Test {
         pure
         returns (CeremonyAttestation.DirectionBlock memory block_, uint32 length)
     {
+        return _request(extraHeader, bearerPrefix, "\r\nconnection: close\r\n\r\n");
+    }
+
+    /// The same, with `tail` revealed after the committed bearer.
+    function _request(string memory extraHeader, string memory bearerPrefix, bytes memory tail)
+        private
+        pure
+        returns (CeremonyAttestation.DirectionBlock memory block_, uint32 length)
+    {
         bytes memory head = abi.encodePacked(
             "GET /2/users/me HTTP/1.1\r\naccept: application/json\r\nhost: api.x.com\r\n", extraHeader, bearerPrefix
         );
-        bytes memory tail = "\r\nconnection: close\r\n\r\n";
         uint32 start = uint32(head.length);
         uint32 end = start + uint32(BEARER.length);
         length = end + uint32(tail.length);
@@ -42,7 +50,7 @@ contract BearerHeaderRequestTest is Test {
     }
 
     function _honest() private pure returns (CeremonyAttestation.DirectionBlock memory block_, uint32 length) {
-        return _request("", "\r\nauthorization: Bearer ");
+        return _request("", "authorization: Bearer ");
     }
 
     /// @dev The prover picks where the reveals are cut. Cutting one through the
@@ -51,7 +59,7 @@ contract BearerHeaderRequestTest is Test {
     ///      platform answering to whichever bearer it honoured. The count runs
     ///      over the concatenation for exactly this.
     function test_rejectsANeedleSplitAcrossAdjacentRanges() public {
-        bytes memory head = "GET /2/users/me HTTP/1.1\r\nhost: api.x.com\r\n";
+        bytes memory head = "GET /2/users/me HTTP/1.1\r\nhost: api.x.com";
         bytes memory victim = "\r\nauthorization: Bearer VICTIMTOKENVICTIM";
         bytes memory own = "\r\nauthorization: Bearer ";
         bytes memory tail = "\r\nconnection: close\r\n\r\n";
@@ -91,7 +99,7 @@ contract BearerHeaderRequestTest is Test {
 
     function test_rejectsASecondAuthorizationHeader() public {
         (CeremonyAttestation.DirectionBlock memory b, uint32 len) =
-            _request("authorization: Bearer stolen\r\n", "\r\nauthorization: Bearer ");
+            _request("authorization: Bearer stolen\r\n", "authorization: Bearer ");
         vm.expectRevert(abi.encodeWithSelector(CeremonyAttestation.NotOneAuthorizationHeader.selector, 2));
         this.run(b, len);
     }
@@ -100,7 +108,7 @@ contract BearerHeaderRequestTest is Test {
     ///      admits whitespace, so a literal search would miss this one.
     function test_rejectsACaseAndWhitespaceEvadedSecondHeader() public {
         (CeremonyAttestation.DirectionBlock memory b, uint32 len) =
-            _request("AuThOrIzAtIoN:\tBeArEr stolen\r\n", "\r\nauthorization: Bearer ");
+            _request("AuThOrIzAtIoN:\tBeArEr stolen\r\n", "authorization: Bearer ");
         vm.expectRevert(abi.encodeWithSelector(CeremonyAttestation.NotOneAuthorizationHeader.selector, 2));
         this.run(b, len);
     }
@@ -110,13 +118,13 @@ contract BearerHeaderRequestTest is Test {
     ///      match and the header is never counted.
     function test_rejectsAnObsoleteLineFold() public {
         (CeremonyAttestation.DirectionBlock memory b, uint32 len) =
-            _request("authorization:\r\n Bearer stolen\r\n", "\r\nauthorization: Bearer ");
+            _request("authorization:\r\n Bearer stolen\r\n", "authorization: Bearer ");
         vm.expectPartialRevert(CeremonyAttestation.ObsoleteLineFold.selector);
         this.run(b, len);
     }
 
     function test_rejectsARequestWithNoAuthorizationHeader() public {
-        (CeremonyAttestation.DirectionBlock memory b, uint32 len) = _request("", "\r\nx-other: ");
+        (CeremonyAttestation.DirectionBlock memory b, uint32 len) = _request("", "x-other: ");
         vm.expectRevert(abi.encodeWithSelector(CeremonyAttestation.NotOneAuthorizationHeader.selector, 0));
         this.run(b, len);
     }
@@ -168,5 +176,101 @@ contract BearerHeaderRequestTest is Test {
         b.commitments = two;
         vm.expectRevert(abi.encodeWithSelector(CeremonyAttestation.NotOneCommitment.selector, 2));
         this.run(b, len);
+    }
+
+    // ─── One request ────────────────────────────────────────────────
+
+    function _withTail(bytes memory tail) private pure returns (CeremonyAttestation.DirectionBlock memory, uint32) {
+        return _request("", "authorization: Bearer ", tail);
+    }
+
+    /// @dev The session carries one request, as the token session does: a
+    ///      second head after the first is refused, whatever it carries.
+    function test_rejectsASecondRequestAfterTheFirst() public {
+        (CeremonyAttestation.DirectionBlock memory b, uint32 len) =
+            _withTail("\r\nconnection: close\r\n\r\nGET /2/users/me HTTP/1.1\r\nhost: api.x.com\r\n\r\n");
+        vm.expectRevert(abi.encodeWithSelector(CeremonyAttestation.NotOneRequest.selector, 2));
+        this.run(b, len);
+    }
+
+    /// @dev Including one with an authorization header of its own: the one
+    ///      request is required before any header is counted.
+    function test_rejectsASecondRequestCarryingItsOwnAuthorization() public {
+        (CeremonyAttestation.DirectionBlock memory b, uint32 len) = _withTail(
+            "\r\n\r\nGET /2/users/me HTTP/1.1\r\nhost: api.x.com\r\nauthorization: Bearer OTHERTOKENOTHERT\r\n\r\n"
+        );
+        vm.expectRevert(abi.encodeWithSelector(CeremonyAttestation.NotOneRequest.selector, 2));
+        this.run(b, len);
+    }
+
+    /// @dev A GET has no body, so nothing may follow its head.
+    function test_rejectsBytesAfterTheHead() public {
+        (CeremonyAttestation.DirectionBlock memory b, uint32 len) = _withTail("\r\nconnection: close\r\n\r\nGET");
+        vm.expectRevert(abi.encodeWithSelector(CeremonyAttestation.BytesAfterRequest.selector, 3));
+        this.run(b, len);
+    }
+
+    function test_rejectsARequestWithNoHeadEnd() public {
+        (CeremonyAttestation.DirectionBlock memory b, uint32 len) = _withTail("\r\nconnection: close\r\n");
+        vm.expectRevert(abi.encodeWithSelector(CeremonyAttestation.NotOneRequest.selector, 0));
+        this.run(b, len);
+    }
+
+    /// @dev A head end cut across two revealed ranges is still one, counted
+    ///      over the join: the honest request verifies however it is cut.
+    function test_acceptsAHeadEndCutAcrossTwoRanges() public view {
+        (CeremonyAttestation.DirectionBlock memory b, uint32 len) = _honest();
+        this.run(_cutLast(b, 2), len);
+    }
+
+    /// @dev And a second head end cut that way is still counted.
+    function test_rejectsASecondHeadEndCutAcrossTwoRanges() public {
+        (CeremonyAttestation.DirectionBlock memory b, uint32 len) =
+            _withTail("\r\n\r\nGET /2/users/me HTTP/1.1\r\n\r\n");
+        vm.expectRevert(abi.encodeWithSelector(CeremonyAttestation.NotOneRequest.selector, 2));
+        this.run(_cutLast(b, 3), len);
+    }
+
+    /// @dev A committed range after the last revealed byte is bytes after the
+    ///      head too, read off the signed length rather than the join.
+    function test_rejectsACommittedRangeAfterTheHead() public {
+        (CeremonyAttestation.DirectionBlock memory b, uint32 len) = _honest();
+        CeremonyAttestation.RangeCommitment[] memory com = new CeremonyAttestation.RangeCommitment[](2);
+        com[0] = b.commitments[0];
+        com[1] = CeremonyAttestation.RangeCommitment({start: len, end: len + 7, commitment: bytes32(uint256(6))});
+        b.commitments = com;
+        bytes memory revealed = CeremonyAttestation.concatRevealed(b);
+        vm.expectRevert(abi.encodeWithSelector(CeremonyAttestation.BytesAfterRequest.selector, 7));
+        this.oneRequest(b, revealed, len + 7);
+    }
+
+    function oneRequest(CeremonyAttestation.DirectionBlock memory block_, bytes memory revealed, uint32 length)
+        external
+        pure
+    {
+        CeremonyAttestation.requireOneBodilessRequest(block_, revealed, length);
+    }
+
+    /// `b` with its last revealed range cut in two, `back` bytes from its end.
+    function _cutLast(CeremonyAttestation.DirectionBlock memory b, uint256 back)
+        private
+        pure
+        returns (CeremonyAttestation.DirectionBlock memory)
+    {
+        uint256 n = b.revealed.length;
+        CeremonyAttestation.RevealedRange memory last = b.revealed[n - 1];
+        uint256 at = last.value.length - back;
+        // forge-lint: disable-next-line(unsafe-typecast)
+        uint32 cut = last.start + uint32(at);
+        CeremonyAttestation.RevealedRange[] memory rev = new CeremonyAttestation.RevealedRange[](n + 1);
+        for (uint256 i = 0; i + 1 < n; ++i) {
+            rev[i] = b.revealed[i];
+        }
+        rev[n - 1] = CeremonyAttestation.RevealedRange({start: last.start, end: cut, value: _slice(last.value, 0, at)});
+        rev[n] = CeremonyAttestation.RevealedRange({
+            start: cut, end: last.end, value: _slice(last.value, at, last.value.length)
+        });
+        b.revealed = rev;
+        return b;
     }
 }

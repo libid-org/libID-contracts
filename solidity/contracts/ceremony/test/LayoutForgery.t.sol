@@ -149,7 +149,7 @@ contract LayoutForgeryTest is Test {
         returns (ICeremony.Attestation memory)
     {
         bytes memory head = abi.encodePacked(
-            "GET /2/users/me HTTP/1.1\r\nhost: api.x.com\r\n", "\r\nauthorization: Bearer "
+            "GET /2/users/me HTTP/1.1\r\nhost: api.x.com", "\r\nauthorization: Bearer "
         );
         bytes memory bearer = "TOKENTOKENTOKEN";
         bytes memory tail = "\r\n\r\n";

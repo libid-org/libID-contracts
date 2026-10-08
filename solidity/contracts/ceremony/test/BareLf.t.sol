@@ -12,7 +12,7 @@ contract BareLfTest is Test {
 
     function _req(string memory extra) private pure returns (CeremonyAttestation.DirectionBlock memory b, uint32 len) {
         bytes memory head =
-            abi.encodePacked("GET /2/users/me HTTP/1.1\r\nhost: api.x.com\r\n", extra, "\r\nauthorization: Bearer ");
+            abi.encodePacked("GET /2/users/me HTTP/1.1\r\nhost: api.x.com\r\n", extra, "authorization: Bearer ");
         bytes memory bearer = "TOKENVALUE";
         bytes memory tail = "\r\nconnection: close\r\n\r\n";
         uint32 s = uint32(head.length);
