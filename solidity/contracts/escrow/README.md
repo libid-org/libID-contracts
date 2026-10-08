@@ -6,7 +6,7 @@ until then each deposit's `refundTo` can take its own contribution back. A
 handle somebody already holds is paid straight through.
 
 ```solidity
-escrow.deposit{value: amount}(platformId, handleNode, escrow.NATIVE(), amount, refundTo);
+escrow.deposit{value: amount}(handleNode, escrow.NATIVE(), amount, refundTo);
 escrow.claim(handleNode, tokens, recipient);   // the handle's holder
 escrow.refund(handleNode, token, recipient);   // refundTo, while unclaimed
 ```
@@ -26,8 +26,8 @@ escrow.refund(handleNode, token, recipient);   // refundTo, while unclaimed
 - `Deposited`, `Claimed` and `Refunded` name their round. A claim closes the
   round it names and the next deposit opens the next, so a `Refunded` belongs
   to the `Deposited` of its round and a `Claimed` took what that round still
-  held. `Claimed` and `Refunded` name no platform: join on the node with
-  `Deposited` or `IdentityRegistry.IdentityBound`.
+  held. No escrow event names a platform: join on the node with
+  `IdentityRegistry.IdentityBound`, or recompute it from a known handle.
 - Pay-through goes to whoever holds the handle when the transaction lands,
   recycled handles included. Show `handleBinding(node).observedAt` first. A
   holder that rejects ETH cannot be paid in ETH; a holder contract can burn
@@ -38,14 +38,15 @@ escrow.refund(handleNode, token, recipient);   // refundTo, while unclaimed
   reverts `OverDebited`, and only an upgrade can release it. A token that
   blocklists the escrow freezes its slots; value sent outside `deposit` is
   never swept.
-- Refunds work whatever the platform's rules or `acceptsBindings` say.
+- Refunds work whatever the platform's state. A node on a platform that no
+  longer binds escrows like any other and can only be refunded.
 - Indexers should allow-list tokens: anyone can emit `Deposited` for a token
   they wrote.
 
 ## Deploying
 
 - `initialize` reverts `RegistryLacks` unless the registry answers
-  `handleBinding` and `acceptsBindings`.
+  `handleBinding`.
 - The escrow keeps that `IdentityRegistry` for life. There is no setter, so no
   key can point claims elsewhere; deploy the escrow once the registry sits at
   its final address, and move it later only by upgrade.

@@ -8,7 +8,8 @@ import {ReentrancyGuardUpgradeable} from "@openzeppelin/contracts-upgradeable/ut
 
 import {ICeremony} from "../ceremony/ICeremony.sol";
 import {IProofVerifier} from "../ceremony/IProofVerifier.sol";
-import {HandleNormalizer} from "./HandleNormalizer.sol";
+import {HandleNormalizer} from "../handles/HandleNormalizer.sol";
+import {HandleVectors} from "../handles/HandleVectors.sol";
 import {IIdentityRegistry} from "./IIdentityRegistry.sol";
 import {IdentityList} from "./IdentityList.sol";
 
@@ -41,16 +42,19 @@ import {IdentityList} from "./IdentityList.sol";
 ///      takes no cut: it moves exactly what one submission authorized to
 ///      exactly the address that submission named.
 ///
-///      **What the owner can still do, stated plainly.** It configures which
-///      verifiers a platform uses, and a verifier is trusted to report what a
+///      **What the owner can still do, stated plainly.** It points this
+///      contract at a Proof Verifier, whose owner registers the verifiers a
+///      platform uses: registering one enables binding on a platform, retiring
+///      its last version withdraws it. A verifier is trusted to report what a
 ///      proof says — so an owner that installs a dishonest verifier can mint
 ///      any binding. And the contract is UUPS, so the owner can replace all of
 ///      this. Read the guarantee above as "under honest configuration"; the
 ///      trust boundary is the owner key, and it is the same one every
-///      upgradeable contract here has. A platform's rules and tag are NOT
-///      among the owner's levers once anything is bound on it: `setPlatform`
-///      refuses, because the circuits that key bindings carry those rules, and
-///      a registry disclosing under others would name nodes nobody proved.
+///      upgradeable contract here has. Which platforms exist, and their rules
+///      and tags, are NOT among the owner's levers: they are `HandleVectors`'
+///      constants, generated from the same `handles.json` the circuits that
+///      key bindings are built from, so this contract cannot disclose or
+///      resolve under rules no circuit used.
 ///
 ///      **The keys come from the circuits.** A Platform Verifier returns
 ///      `idNode = SHA256(user-id tag || id)` and `handleNode = SHA256(handle tag
@@ -159,39 +163,18 @@ contract IdentityRegistry is
         bool handleCurrent;
     }
 
-    /// @notice A platform this contract accepts proofs for.
-    ///
-    /// @dev What lives here is what every version of a platform's proof must
-    ///      agree on, and what the circuits that key its bindings carry: the
-    ///      rules a disclosed handle is normalized with, and the tag it is
-    ///      hashed under. Both are frozen once anything is bound on the
-    ///      platform.
-    ///
-    ///      **The id reaches the node verbatim.** A handle is folded on the way
-    ///      in; an id is not, and must not be -- any normalization risks
-    ///      folding two identities into one. A verifier built on another API of
-    ///      the same platform (GitHub's GraphQL `node_id` beside its REST `id`)
-    ///      would key the same person on another node; that is settled where a
-    ///      verifier is reviewed, not here.
-    ///
-    /// @param rules      How a disclosed handle on this platform normalizes,
-    ///                   exactly as the platform's circuit folds it.
-    /// @param handleTag  What a handle node is `SHA256(tag || handle)` under.
-    /// @param configured Whether the platform exists at all. A platform whose
-    ///                   every version has been retired is still configured,
-    ///                   so "is it wired" cannot be read off the Supported
-    ///                   Version Set.
-    struct Platform {
-        HandleNormalizer.Rules rules;
-        bytes handleTag;
-        bool configured;
-    }
-
     // ─── State ──────────────────────────────────────────────────────
 
     /// @custom:storage-location erc7201:libid.storage.IdentityRegistry
     struct IdentityRegistryStorage {
         /// idNode -> the holder that proved that id.
+        ///
+        /// The id reaches the node verbatim. A handle is folded on the way
+        /// in; an id is not, and must not be -- any normalization risks
+        /// folding two identities into one. A verifier built on another API
+        /// of the same platform (GitHub's GraphQL `node_id` beside its REST
+        /// `id`) would key the same person on another node; that is settled
+        /// where a verifier is reviewed, not here.
         mapping(bytes32 => Binding) idBindings;
         /// handleNode -> the holder that last proved that handle.
         mapping(bytes32 => Binding) handleBindings;
@@ -202,8 +185,6 @@ contract IdentityRegistry is
         /// per platform, written only by a disclosure and cleared only by
         /// `unpublish`.
         mapping(address => mapping(bytes32 => string)) published;
-        /// platformId -> its rules and tag, and whether it is configured.
-        mapping(bytes32 => Platform) platforms;
         /// idNode -> the handle node that identity last proved, and back.
         ///
         /// An identity has one handle at a time. When it proves a new one the
@@ -223,8 +204,7 @@ contract IdentityRegistry is
         /// platformId -> has any identity ever been bound on it.
         ///
         /// Set once and never cleared: it answers "was this platform ever able
-        /// to verify", which a retirement cannot make false in retrospect,
-        /// and it is what freezes the platform's rules and tag.
+        /// to verify", which a retirement cannot make false in retrospect.
         mapping(bytes32 => bool) everBound;
         /// Every Authorization Digest this Consumer has accepted.
         ///
@@ -306,9 +286,6 @@ contract IdentityRegistry is
     /// @dev Nobody else's entry can be retired this way. See `bind`.
     event HandleRetired(bytes32 indexed platformId, bytes32 indexed handleNode, address indexed holder);
 
-    /// @notice A platform's rules and tag were configured.
-    event PlatformConfigured(bytes32 indexed platformId);
-
     /// @notice This Consumer was pointed at a Proof Verifier.
     event ProofVerifierConfigured(address verifier);
 
@@ -369,12 +346,6 @@ contract IdentityRegistry is
     /// since passed to someone else. Disclose the handle the platform shows
     /// for your account, as it shows it.
     error NotYourHandle(bytes32 handleNode);
-    /// The platform has bindings, so its rules and tag are frozen: the
-    /// circuits that key them carry these, and a change would make disclosure
-    /// name nodes nobody proved.
-    error PlatformFrozen(bytes32 platformId);
-    /// A platform needs a tag to hash its handles under.
-    error EmptyHandleTag();
 
     // ─── Setup ──────────────────────────────────────────────────────
 
@@ -388,29 +359,6 @@ contract IdentityRegistry is
         __Ownable2Step_init();
         __UUPSUpgradeable_init();
         __ReentrancyGuard_init();
-    }
-
-    /// @notice Add a platform: the rules a disclosed handle normalizes with
-    ///         and the tag its node is hashed under.
-    ///
-    /// @dev Both must be the platform circuit's own, as `handles.json` states
-    ///      them (`HandleVectors.rulesFor`, `HandleVectors.handleTagFor`).
-    ///      Settable until the first binding on the platform, and frozen from
-    ///      then on.
-    ///
-    ///      A platform is never removed. The bindings would stay in storage
-    ///      while every resolver began reverting `UnknownPlatform`.
-    function setPlatform(bytes32 platformId, HandleNormalizer.Rules calldata rules, bytes calldata handleTag)
-        external
-        onlyOwner
-    {
-        if (_s().everBound[platformId]) revert PlatformFrozen(platformId);
-        if (handleTag.length == 0) revert EmptyHandleTag();
-        Platform storage platform = _s().platforms[platformId];
-        platform.rules = rules;
-        platform.handleTag = handleTag;
-        platform.configured = true;
-        emit PlatformConfigured(platformId);
     }
 
     // ─── Binding ────────────────────────────────────────────────────
@@ -441,7 +389,7 @@ contract IdentityRegistry is
     ///      node its proof bound and returns it normalized, and it becomes the
     ///      caller's name on the platform, as `publish` would make it.
     function bind(bytes32 platformId, uint16 verifierVersion, bytes calldata payload) external payable nonReentrant {
-        _requireConfigured(platformId);
+        _requireKnown(platformId);
 
         IProofVerifier pv = _s().proofVerifier;
         uint256 required = pv.quote(platformId, verifierVersion);
@@ -565,10 +513,9 @@ contract IdentityRegistry is
     ///      first. The calldata is public whatever happens, so a refused call
     ///      still shows the handle it carried.
     function publish(bytes32 platformId, string calldata handle) external {
-        _requireConfigured(platformId);
-        Platform storage platform = _s().platforms[platformId];
+        _requireKnown(platformId);
         (string memory normalized, bytes32 handleNode) =
-            HandleNormalizer.nodeOf(handle, platform.rules, platform.handleTag);
+            HandleNormalizer.nodeOf(handle, HandleVectors.rulesFor(platformId), HandleVectors.handleTagFor(platformId));
         if (_s().handleBindings[handleNode].holder != msg.sender) revert NotYourHandle(handleNode);
         _name(platformId, handleNode, normalized);
     }
@@ -586,22 +533,32 @@ contract IdentityRegistry is
         emit HandlePublished(msg.sender, platformId, handleNode, handle);
     }
 
-    function _nodeOf(bytes memory tag, string memory normalized) private pure returns (bytes32) {
-        return sha256(abi.encodePacked(tag, normalized));
+    /// @dev The node typed text names on a platform, or why it names none.
+    function _tryNodeOf(bytes32 platformId, string calldata handle)
+        private
+        pure
+        returns (HandleNormalizer.Problem problem, bytes32 handleNode)
+    {
+        string memory normalized;
+        (problem, normalized) = HandleNormalizer.tryNormalize(handle, HandleVectors.rulesFor(platformId));
+        if (problem == HandleNormalizer.Problem.None) {
+            handleNode = HandleNormalizer.node(HandleVectors.handleTagFor(platformId), normalized);
+        }
     }
 
     // ─── Guards ─────────────────────────────────────────────────────
 
-    function _requireConfigured(bytes32 platformId) private view returns (Platform storage platform) {
-        platform = _s().platforms[platformId];
-        if (!platform.configured) revert UnknownPlatform(platformId);
+    /// @dev A platform is one `handles.json` names: its rules and tags are the
+    ///      generated constants, and there is nothing to configure.
+    function _requireKnown(bytes32 platformId) private pure {
+        if (!HandleVectors.knows(platformId)) revert UnknownPlatform(platformId);
     }
 
-    /// @dev A resolver answers for a platform that is configured and either
-    ///      has bound something or can verify now.
-    function _requireUsable(bytes32 platformId) private view returns (Platform storage platform) {
-        platform = _requireConfigured(platformId);
-        if (_s().everBound[platformId]) return platform;
+    /// @dev A resolver answers for a platform that is known and either has
+    ///      bound something or can verify now.
+    function _requireUsable(bytes32 platformId) private view {
+        _requireKnown(platformId);
+        if (_s().everBound[platformId]) return;
 
         IProofVerifier pv = _s().proofVerifier;
         if (address(pv) == address(0) || !pv.verifiesPlatform(platformId)) {
@@ -616,13 +573,15 @@ contract IdentityRegistry is
     // ─── Views ──────────────────────────────────────────────────────
 
     /// @notice The rules a handle on this platform normalizes with.
-    function rulesOf(bytes32 platformId) external view returns (HandleNormalizer.Rules memory) {
-        return _requireConfigured(platformId).rules;
+    function rulesOf(bytes32 platformId) external pure returns (HandleNormalizer.Rules memory) {
+        _requireKnown(platformId);
+        return HandleVectors.rulesFor(platformId);
     }
 
     /// @notice The tag this platform's handle nodes are hashed under.
-    function handleTagOf(bytes32 platformId) external view returns (bytes memory) {
-        return _requireConfigured(platformId).handleTag;
+    function handleTagOf(bytes32 platformId) external pure returns (bytes memory) {
+        _requireKnown(platformId);
+        return HandleVectors.handleTagFor(platformId);
     }
 
     /// @notice The node a handle is bound under, from the handle as typed.
@@ -630,17 +589,16 @@ contract IdentityRegistry is
     /// @dev Reverts `UnusableHandle` for text no binding can have. A caller
     ///      paying a handle should compute this once and keep the node: an
     ///      escrow deposit is keyed by it.
-    function handleNodeOf(bytes32 platformId, string calldata handle) external view returns (bytes32) {
-        Platform storage platform = _requireConfigured(platformId);
-        (HandleNormalizer.Problem problem, string memory normalized) =
-            HandleNormalizer.tryNormalize(handle, platform.rules);
+    function handleNodeOf(bytes32 platformId, string calldata handle) external pure returns (bytes32) {
+        _requireKnown(platformId);
+        (HandleNormalizer.Problem problem, bytes32 handleNode) = _tryNodeOf(platformId, handle);
         if (problem != HandleNormalizer.Problem.None) revert UnusableHandle(problem);
-        return _nodeOf(platform.handleTag, normalized);
+        return handleNode;
     }
 
     /// @notice Whether a platform can be bound right now.
     function acceptsBindings(bytes32 platformId) external view returns (bool) {
-        if (!_s().platforms[platformId].configured) return false;
+        if (!HandleVectors.knows(platformId)) return false;
         IProofVerifier pv = _s().proofVerifier;
         return address(pv) != address(0) && pv.verifiesPlatform(platformId);
     }
@@ -654,11 +612,10 @@ contract IdentityRegistry is
     /// @notice The holder of a handle as typed, or zero for text no binding
     ///         can have.
     function resolveHandle(bytes32 platformId, string calldata handle) external view returns (address) {
-        Platform storage platform = _requireUsable(platformId);
-        (HandleNormalizer.Problem problem, string memory normalized) =
-            HandleNormalizer.tryNormalize(handle, platform.rules);
+        _requireUsable(platformId);
+        (HandleNormalizer.Problem problem, bytes32 handleNode) = _tryNodeOf(platformId, handle);
         if (problem != HandleNormalizer.Problem.None) return address(0);
-        return _s().handleBindings[_nodeOf(platform.handleTag, normalized)].holder;
+        return _s().handleBindings[handleNode].holder;
     }
 
     /// @notice The name a holder disclosed on a platform, while it still
@@ -666,7 +623,7 @@ contract IdentityRegistry is
     function publishedHandleOf(address holder, bytes32 platformId) external view returns (string memory) {
         string memory published = _s().published[holder][platformId];
         if (bytes(published).length == 0) return "";
-        bytes32 handleNode = _nodeOf(_s().platforms[platformId].handleTag, published);
+        bytes32 handleNode = HandleNormalizer.node(HandleVectors.handleTagFor(platformId), published);
         if (_s().handleBindings[handleNode].holder != holder) return "";
         return published;
     }
@@ -701,12 +658,9 @@ contract IdentityRegistry is
         view
         returns (address holder, bool idAgrees)
     {
-        Platform storage platform = _requireUsable(platformId);
-        (HandleNormalizer.Problem problem, string memory normalized) =
-            HandleNormalizer.tryNormalize(handle, platform.rules);
-        holder = problem == HandleNormalizer.Problem.None
-            ? _s().handleBindings[_nodeOf(platform.handleTag, normalized)].holder
-            : address(0);
+        _requireUsable(platformId);
+        (HandleNormalizer.Problem problem, bytes32 handleNode) = _tryNodeOf(platformId, handle);
+        holder = problem == HandleNormalizer.Problem.None ? _s().handleBindings[handleNode].holder : address(0);
         idAgrees =
             holder != address(0) && _s().idBindings[idNode].holder == holder && _s().platformOfId[idNode] == platformId;
     }

@@ -52,11 +52,6 @@ mod registry_inner {
             /// Always reverts; the contract declares it `pure`.
             function renounceOwnership() external pure;
 
-            /// The rules a disclosed handle normalizes with and the tag its
-            /// node is hashed under, both the platform circuit's own. Reverts
-            /// `PlatformFrozen` once anything is bound on the platform.
-            function setPlatform(bytes32 platformId, Rules calldata rules, bytes calldata handleTag) external;
-
             /// Which contract holds the Supported Version Set. Registering a
             /// version is that contract's call, not this one's.
             function setProofVerifier(address verifier) external;
@@ -85,16 +80,18 @@ mod registry_inner {
             /// The handle a holder published, while it still resolves back to
             /// that holder; empty otherwise.
             function publishedHandleOf(address holder, bytes32 platformId) external view returns (string memory);
-            /// The platform's rules, for local normalization.
-            function rulesOf(bytes32 platformId) external view returns (Rules memory);
+            /// The platform's rules, for local normalization: the generated
+            /// `handles.json` constants, which no call changes.
+            function rulesOf(bytes32 platformId) external pure returns (Rules memory);
             /// The tag the platform's handle nodes are hashed under.
-            function handleTagOf(bytes32 platformId) external view returns (bytes memory);
-            /// Whether `bind` can bind a holder on this platform
-            /// now: rules, and a Proof Verifier that verifies it.
+            function handleTagOf(bytes32 platformId) external pure returns (bytes memory);
+            /// Whether `bind` can bind a holder on this platform now: a
+            /// platform `handles.json` names, and a Proof Verifier that
+            /// verifies it.
             function acceptsBindings(bytes32 platformId) external view returns (bool);
             /// The node a handle is bound under: what `HandleEscrow.deposit`
             /// takes. Reverts `UnknownPlatform` or `UnusableHandle`.
-            function handleNodeOf(bytes32 platformId, string calldata handle) external view returns (bytes32 handleNode);
+            function handleNodeOf(bytes32 platformId, string calldata handle) external pure returns (bytes32 handleNode);
 
             /// How many identities a holder has, on every platform together.
             function identityCount(address holder) external view returns (uint256);
@@ -123,8 +120,8 @@ mod registry_inner {
                 bytes32 indexed handleNode,
                 string handle
             );
-            /// A platform not configured, or one nothing verifies and on
-            /// which nothing was ever bound.
+            /// A platform `handles.json` does not name, or, to a resolver,
+            /// one nothing verifies and on which nothing was ever bound.
             error UnknownPlatform(bytes32 platformId);
             /// Text the platform's rules refuse; `problem` is a
             /// `HandleNormalizer.Problem`.
@@ -150,9 +147,6 @@ mod registry_inner {
             error StaleProof(uint64 observedAt, uint64 known);
             /// The disclosed handle is not one the caller holds.
             error NotYourHandle(bytes32 handleNode);
-            /// The platform has bindings; its rules and tag are frozen.
-            error PlatformFrozen(bytes32 platformId);
-            error EmptyHandleTag();
             error EmptyHandle();
             error HandleTooLong();
             error BadCharacter();
@@ -162,7 +156,6 @@ mod registry_inner {
             error ReentrancyGuardReentrantCall();
 
             event HandleRetired(bytes32 indexed platformId, bytes32 indexed handleNode, address indexed holder);
-            event PlatformConfigured(bytes32 indexed platformId);
             event ProofVerifierConfigured(address verifier);
             /// The service fee a binding's own Authorized Transaction Data named
             /// was delivered. Emitted only when there is one.

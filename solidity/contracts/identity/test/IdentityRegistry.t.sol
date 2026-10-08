@@ -4,8 +4,8 @@ pragma solidity ^0.8.24;
 import {Test, Vm} from "forge-std/Test.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
-import {HandleNormalizer} from "../HandleNormalizer.sol";
-import {HandleVectors} from "../HandleVectors.sol";
+import {HandleNormalizer} from "../../handles/HandleNormalizer.sol";
+import {HandleVectors} from "../../handles/HandleVectors.sol";
 import {IIdentityRegistry} from "../IIdentityRegistry.sol";
 import {IdentityRegistry} from "../IdentityRegistry.sol";
 import {CeremonyProofVerifier} from "../../ceremony/CeremonyProofVerifier.sol";
@@ -63,10 +63,9 @@ contract IdentityRegistryTest is Test {
     /// The version every platform's first verifier lands on.
     uint16 internal constant V1 = 1;
 
-    /// Configure a platform's rules, tag and first verifier, the way a
-    /// deployment does. Caller supplies the prank.
+    /// Enable a platform: register its first verifier. Caller supplies the
+    /// prank.
     function _wire(bytes32 platformId, address verifierAddr) internal {
-        registry.setPlatform(platformId, HandleVectors.rulesFor(platformId), HandleVectors.handleTagFor(platformId));
         proofVerifier.setVerifier(platformId, V1, IPlatformVerifier(verifierAddr));
     }
 
@@ -201,7 +200,7 @@ contract IdentityRegistryTest is Test {
         _submit(X, "");
     }
 
-    function test_anUnconfiguredPlatformIsRefused() public {
+    function test_anUnknownPlatformIsRefused() public {
         bytes32 unknown = keccak256("nowhere");
         _stage("123", "alice", alice, 100);
 
@@ -346,66 +345,44 @@ contract IdentityRegistryTest is Test {
         _submit(X, "");
     }
 
-    // ─── Platform configuration ─────────────────────────────────────
+    // ─── Platforms ──────────────────────────────────────────────────
 
-    /// The circuits that key a platform's bindings carry its rules and tag. Once
-    /// anything is bound there, a change would make disclosure and every
-    /// resolver name nodes nobody proved, so the owner can no longer make one.
-    /// Retiring every verifier does not thaw it: the bindings are still there.
-    function test_aPlatformFreezesAtItsFirstBinding() public {
-        vm.startPrank(owner);
-        registry.setPlatform(X, HandleVectors.rulesFor(X), HandleVectors.handleTagFor(X));
-        registry.setPlatform(X, HandleVectors.rulesFor(X), HandleVectors.handleTagFor(X));
-        vm.stopPrank();
-
-        _bindDisclosing(alice, "123", "alice", 100);
-
-        HandleNormalizer.Rules memory narrowed = HandleVectors.rulesFor(X);
-        narrowed.allowUnderscore = false;
-        vm.startPrank(owner);
-        vm.expectRevert(abi.encodeWithSelector(IdentityRegistry.PlatformFrozen.selector, X));
-        registry.setPlatform(X, narrowed, HandleVectors.handleTagFor(X));
-        vm.expectRevert(abi.encodeWithSelector(IdentityRegistry.PlatformFrozen.selector, X));
-        registry.setPlatform(X, HandleVectors.rulesFor(X), "libid.other.handle");
-        vm.expectRevert(abi.encodeWithSelector(IdentityRegistry.PlatformFrozen.selector, X));
-        registry.setPlatform(X, HandleVectors.rulesFor(X), "");
-
-        proofVerifier.setVerifier(X, V1, IPlatformVerifier(address(0)));
-        vm.expectRevert(abi.encodeWithSelector(IdentityRegistry.PlatformFrozen.selector, X));
-        registry.setPlatform(X, HandleVectors.rulesFor(X), HandleVectors.handleTagFor(X));
-
-        // The freeze is per platform: nothing is bound on GitHub yet.
-        registry.setPlatform(GITHUB, HandleVectors.rulesFor(GITHUB), HandleVectors.handleTagFor(GITHUB));
-        vm.stopPrank();
-
+    /// Which platforms exist, and their rules and tags, are the generated
+    /// constants the circuits carry: the registry answers them for every
+    /// platform `handles.json` names, verifier or not, and has nothing an owner
+    /// could set.
+    function test_aPlatformsRulesAndTagAreTheCircuitsOwn() public view {
+        bytes32[3] memory platforms = [X, GITHUB, HandleVectors.PLATFORM_GOOGLE];
+        for (uint256 i = 0; i < platforms.length; i++) {
+            bytes32 platformId = platforms[i];
+            assertEq(registry.handleTagOf(platformId), HandleVectors.handleTagFor(platformId));
+            assertEq(
+                keccak256(abi.encode(registry.rulesOf(platformId))),
+                keccak256(abi.encode(HandleVectors.rulesFor(platformId)))
+            );
+        }
         assertEq(registry.handleTagOf(X), bytes("libid.x.handle"));
-        assertTrue(registry.rulesOf(X).allowUnderscore, "the rules moved");
-        assertEq(registry.publishedHandleOf(alice, X), "alice", "the name still stands");
-    }
-
-    /// A platform needs a tag to hash its handles under. Without one every
-    /// handle node would be `SHA256(handle)`, shared with any other platform
-    /// configured the same way.
-    function test_aPlatformNeedsAHandleTag() public {
-        bytes32 fresh = keccak256("fresh");
-        vm.prank(owner);
-        vm.expectRevert(IdentityRegistry.EmptyHandleTag.selector);
-        registry.setPlatform(fresh, HandleVectors.rulesFor(X), "");
-
-        vm.expectRevert(abi.encodeWithSelector(IIdentityRegistry.UnknownPlatform.selector, fresh));
-        registry.rulesOf(fresh);
     }
 
     // ─── The freshness signal ───────────────────────────────────────
 
-    /// Every resolver that names a platform answers an unwired one the same
-    /// way. A zero address would tell a caller "nobody proved this" when the
-    /// truth is that the platform is not configured, and a zero cannot say
-    /// which. `resolveId` takes a node, which names no platform, so it has
-    /// nothing to refuse and answers nobody.
-    function test_everyResolverRefusesAnUnknownPlatform() public {
+    /// Every entry point that names a platform answers an unknown one the
+    /// same way. A zero address would tell a caller "nobody proved this" when
+    /// the truth is that no such platform exists, and a zero cannot say which.
+    /// `resolveId` takes a node, which names no platform, so it has nothing to
+    /// refuse and answers nobody.
+    function test_everyEntryPointRefusesAnUnknownPlatform() public {
         bytes32 unwired = keccak256("nowhere");
         bytes32 idNode = _id(X, "123");
+
+        _stage("123", "alice", alice, 100);
+        vm.prank(alice);
+        vm.expectRevert(abi.encodeWithSelector(IIdentityRegistry.UnknownPlatform.selector, unwired));
+        _submit(unwired, "");
+        vm.prank(alice);
+        vm.expectRevert(abi.encodeWithSelector(IIdentityRegistry.UnknownPlatform.selector, unwired));
+        registry.publish(unwired, "alice");
+        assertFalse(registry.acceptsBindings(unwired));
 
         vm.expectRevert(abi.encodeWithSelector(IIdentityRegistry.UnknownPlatform.selector, unwired));
         registry.resolveHandle(unwired, "alice");
@@ -1107,10 +1084,10 @@ contract IdentityRegistryTest is Test {
         assertFalse(idAgrees);
     }
 
-    /// An unwired platform still reverts. Zero would answer "nobody proved
+    /// An unknown platform still reverts. Zero would answer "nobody proved
     /// this" to a question that was never asked, and the caller cannot tell the
     /// two apart from an address.
-    function test_anUnwiredPlatformStillReverts() public {
+    function test_anUnknownPlatformStillReverts() public {
         bytes32 unknown = keccak256("nowhere");
         vm.expectRevert(abi.encodeWithSelector(IIdentityRegistry.UnknownPlatform.selector, unknown));
         registry.resolveHandle(unknown, "alice");
@@ -1208,63 +1185,61 @@ contract IdentityRegistryTest is Test {
 
     // ─── A platform is not usable until it can verify ───────────────
 
-    /// Between `setPlatform` and `setVerifier` a platform has rules and
+    /// A platform `handles.json` names but no verifier serves has rules and
     /// can verify nothing. Answering `address(0)` there would tell a caller
-    /// "nobody proved this" about a platform that is not wired yet.
+    /// "nobody proved this" about a platform that cannot bind yet.
     function test_aPlatformWithoutAVerifierDoesNotResolve() public {
-        bytes32 fresh = keccak256("fresh");
-        vm.prank(owner);
-        registry.setPlatform(fresh, HandleVectors.rulesFor(X), HandleVectors.handleTagFor(X));
-        bytes32 idNode = _id(X, "123");
+        bytes32 google = HandleVectors.PLATFORM_GOOGLE;
+        bytes32 idNode = _id(google, "123");
+        bytes32 handleNode = _hn(google, "alice@gmail.com");
 
-        vm.expectRevert(abi.encodeWithSelector(IIdentityRegistry.UnknownPlatform.selector, fresh));
-        registry.resolveHandle(fresh, "alice");
+        vm.expectRevert(abi.encodeWithSelector(IIdentityRegistry.UnknownPlatform.selector, google));
+        registry.resolveHandle(google, "alice@gmail.com");
 
-        vm.expectRevert(abi.encodeWithSelector(IIdentityRegistry.UnknownPlatform.selector, fresh));
-        registry.resolveHandleAndId(fresh, "alice", idNode);
+        vm.expectRevert(abi.encodeWithSelector(IIdentityRegistry.UnknownPlatform.selector, google));
+        registry.resolveHandleAndId(google, "alice@gmail.com", idNode);
 
         // The hashing views answer: a client folding under `rulesOf` and
         // hashing under `handleTagOf` reaches the node `handleNodeOf` names.
-        assertEq(registry.rulesOf(fresh).maxLength, HandleVectors.rulesFor(X).maxLength);
-        assertEq(registry.handleTagOf(fresh), HandleVectors.handleTagFor(X));
-        assertEq(registry.handleNodeOf(fresh, "Alice"), _hn(X, "alice"));
+        assertEq(registry.rulesOf(google).maxLength, HandleVectors.rulesFor(google).maxLength);
+        assertEq(registry.handleTagOf(google), HandleVectors.handleTagFor(google));
+        assertEq(registry.handleNodeOf(google, "Alice@Gmail.com"), handleNode);
     }
 
     /// And binding says the same thing, rather than naming a version the
-    /// caller never chose. The platform is configured here, so the Consumer
-    /// lets the bind through and the Proof Verifier is the one with nothing
-    /// to dispatch to.
+    /// caller never chose. The platform is known, so the Consumer lets the
+    /// bind through and the Proof Verifier is the one with nothing to
+    /// dispatch to.
     function test_bindingOnAPlatformWithoutAVerifierIsRefused() public {
-        bytes32 fresh = keccak256("fresh");
-        vm.prank(owner);
-        registry.setPlatform(fresh, HandleVectors.rulesFor(X), HandleVectors.handleTagFor(X));
-
+        bytes32 google = HandleVectors.PLATFORM_GOOGLE;
         _stage("123", "alice", alice, 100);
         vm.prank(alice);
-        vm.expectRevert(abi.encodeWithSelector(CeremonyProofVerifier.UnknownVersion.selector, fresh, V1));
-        _submit(fresh, "");
+        vm.expectRevert(abi.encodeWithSelector(CeremonyProofVerifier.UnknownVersion.selector, google, V1));
+        _submit(google, "");
     }
 
-    /// A new bind needs rules and a verifier the Proof Verifier answers for; retiring the
-    /// last version stops new binds while bound identities keep resolving.
-    function test_acceptsBindingsNeedsRulesAndAVerifier() public {
+    /// A new bind needs a known platform and a verifier the Proof Verifier
+    /// answers for: registering one enables the platform, retiring the last
+    /// version withdraws it, and bound identities keep resolving.
+    function test_acceptsBindingsNeedsAKnownPlatformAndAVerifier() public {
+        bytes32 google = HandleVectors.PLATFORM_GOOGLE;
         assertTrue(registry.acceptsBindings(X));
-        (bytes32 noRules, bytes32 noVerifier) = (keccak256("no rules"), keccak256("no verifier"));
-        StubPlatformVerifier verifier = new StubPlatformVerifier(noRules, 0);
+        assertFalse(registry.acceptsBindings(google), "no verifier");
+
+        StubPlatformVerifier unknownVerifier = new StubPlatformVerifier(keccak256("nowhere"), 0);
+        StubPlatformVerifier googleVerifier = new StubPlatformVerifier(google, 0);
         vm.startPrank(owner);
-        proofVerifier.setVerifier(noRules, V1, IPlatformVerifier(address(verifier)));
-        registry.setPlatform(noVerifier, HandleVectors.rulesFor(X), HandleVectors.handleTagFor(X));
+        proofVerifier.setVerifier(keccak256("nowhere"), V1, IPlatformVerifier(address(unknownVerifier)));
+        proofVerifier.setVerifier(google, V1, IPlatformVerifier(address(googleVerifier)));
         vm.stopPrank();
-        assertFalse(registry.acceptsBindings(noRules));
-        assertFalse(registry.acceptsBindings(noVerifier));
+        assertFalse(registry.acceptsBindings(keccak256("nowhere")), "not in handles.json");
+        assertTrue(registry.acceptsBindings(google));
 
         IdentityRegistry bare = IdentityRegistry(
             address(
                 new ERC1967Proxy(address(new IdentityRegistry()), abi.encodeCall(IdentityRegistry.initialize, (owner)))
             )
         );
-        vm.prank(owner);
-        bare.setPlatform(X, HandleVectors.rulesFor(X), HandleVectors.handleTagFor(X));
         assertEq(address(bare.proofVerifier()), address(0));
         assertFalse(bare.acceptsBindings(X), "no Proof Verifier");
 
@@ -1272,22 +1247,6 @@ contract IdentityRegistryTest is Test {
         vm.prank(owner);
         proofVerifier.setVerifier(X, V1, IPlatformVerifier(address(0)));
         assertFalse(registry.acceptsBindings(X));
-        assertEq(registry.resolveHandle(X, "alice"), alice);
-    }
-
-    /// `setPlatform` writes field-wise, so configuring a platform again before
-    /// its first binding must leave it exactly as wired as it was. A
-    /// whole-struct assignment would unconfigure every platform it touched.
-    function test_reconfiguringBeforeTheFirstBindingLeavesThePlatformWired() public {
-        HandleNormalizer.Rules memory narrowed = HandleVectors.rulesFor(X);
-        narrowed.maxLength = 12;
-        vm.prank(owner);
-        registry.setPlatform(X, narrowed, HandleVectors.handleTagFor(X));
-        assertEq(registry.rulesOf(X).maxLength, 12);
-
-        _stage("123", "alice", alice, 100);
-        vm.prank(alice);
-        _submit(X, "");
         assertEq(registry.resolveHandle(X, "alice"), alice);
     }
 
@@ -1318,10 +1277,11 @@ contract IdentityRegistryTest is Test {
         assertEq(registry.resolveId(_id(X, "123")), alice, "the binding moved");
     }
 
-    /// Configuring a platform is the whole of the owner's power here, and it
-    /// reaches no existing binding. Replacing the verifier a version dispatches
-    /// to must not disturb a binding that the previous one's proof established.
-    function test_reconfiguringAPlatformLeavesBindingsAlone() public {
+    /// Choosing a platform's verifiers is the whole of the owner's power here,
+    /// and it reaches no existing binding. Replacing the verifier a version
+    /// dispatches to must not disturb a binding that the previous one's proof
+    /// established.
+    function test_replacingAVerifierLeavesBindingsAlone() public {
         _bind(alice, "123", "alice", 100);
 
         StubPlatformVerifier replacement = new StubPlatformVerifier(X, 0);
@@ -1333,9 +1293,9 @@ contract IdentityRegistryTest is Test {
         assertEq(address(proofVerifier.verifierOf(X, V1)), address(replacement));
     }
 
-    function test_onlyTheOwnerConfiguresAPlatform() public {
+    function test_onlyTheOwnerSetsTheProofVerifier() public {
         vm.prank(alice);
         vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, alice));
-        registry.setPlatform(X, HandleVectors.rulesFor(X), HandleVectors.handleTagFor(X));
+        registry.setProofVerifier(IProofVerifier(address(0xBEEF)));
     }
 }

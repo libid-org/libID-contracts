@@ -98,9 +98,10 @@ async fn deploys_the_identity_stack_behind_proxies() {
     .await
     .unwrap();
 
-    // Wire the registry: the Proof Verifier it dispatches through, and the
-    // platform's rules. The platform id is keccak256 of the platform key:
-    // libID namespaces only its own strings.
+    // Wire the registry: the Proof Verifier it dispatches through. The
+    // platforms and their rules are the registry's generated constants; the
+    // platform id is keccak256 of the platform key, and libID namespaces only
+    // its own strings.
     let registry = IdentityRegistry::new(registry_proxy, &provider);
     registry
         .setProofVerifier(verifier_proxy)
@@ -111,26 +112,6 @@ async fn deploys_the_identity_stack_behind_proxies() {
         .await
         .unwrap();
     let platform_id = keccak256(b"github");
-    registry
-        .setPlatform(
-            platform_id,
-            IdentityRegistry::Rules {
-                maxLength: 39,
-                isEmail: false,
-                allowUnderscore: false,
-                allowHyphen: true,
-            },
-            libid_identity::handle_vectors::HANDLE_TAG_GITHUB
-                .as_bytes()
-                .to_vec()
-                .into(),
-        )
-        .send()
-        .await
-        .unwrap()
-        .get_receipt()
-        .await
-        .unwrap();
 
     // The Notary Service holds the key and the fee it was given.
     let notary = NotaryService::new(notary_proxy, &provider);
@@ -152,7 +133,7 @@ async fn deploys_the_identity_stack_behind_proxies() {
     );
     // A platform that has rules and can verify nothing says so: answering
     // `address(0)` would tell the caller "nobody holds this handle" about a
-    // platform that is not wired yet.
+    // platform no verifier serves yet. Its rules are the circuit's anyway.
     let unwired = registry
         .resolveHandle(platform_id, "octocat".into())
         .call()
@@ -160,6 +141,25 @@ async fn deploys_the_identity_stack_behind_proxies() {
     assert!(
         unwired.is_err(),
         "an unwired platform answered instead of reverting UnknownPlatform"
+    );
+    let rules = registry.rulesOf(platform_id).call().await.unwrap();
+    assert_eq!(
+        (
+            rules.maxLength,
+            rules.isEmail,
+            rules.allowUnderscore,
+            rules.allowHyphen
+        ),
+        (39, false, false, true)
+    );
+    assert_eq!(
+        registry
+            .handleTagOf(platform_id)
+            .call()
+            .await
+            .unwrap()
+            .as_ref(),
+        libid_identity::handle_vectors::HANDLE_TAG_GITHUB.as_bytes()
     );
 
     // The root list points at the Notary Service, quotes its fee, and starts
@@ -787,26 +787,6 @@ async fn escrows_value_against_an_unclaimed_handle() {
         .get_receipt()
         .await
         .unwrap();
-    registry
-        .setPlatform(
-            platform_id,
-            IdentityRegistry::Rules {
-                maxLength: 39,
-                isEmail: false,
-                allowUnderscore: false,
-                allowHyphen: true,
-            },
-            libid_identity::handle_vectors::HANDLE_TAG_GITHUB
-                .as_bytes()
-                .to_vec()
-                .into(),
-        )
-        .send()
-        .await
-        .unwrap()
-        .get_receipt()
-        .await
-        .unwrap();
 
     // The real GitHub Platform Verifier, on the real Honk verifier for its
     // circuit, registered as version 1.
@@ -869,8 +849,8 @@ async fn escrows_value_against_an_unclaimed_handle() {
 
     // Escrowed for nobody; an unheld node refuses a claim with the bound error.
     let amount = U256::from(1_000_000_000_000_000_000u64);
-    escrow
-        .deposit(platform_id, node, native, amount, deployer)
+    let receipt = escrow
+        .deposit(node, native, amount, deployer)
         .value(amount)
         .send()
         .await
@@ -878,6 +858,20 @@ async fn escrows_value_against_an_unclaimed_handle() {
         .get_receipt()
         .await
         .unwrap();
+    let deposited = receipt
+        .decoded_log::<HandleEscrow::Deposited>()
+        .expect("no Deposited event");
+    assert_eq!(
+        (
+            deposited.handleNode,
+            deposited.token,
+            deposited.refundTo,
+            deposited.depositor,
+            deposited.round,
+            deposited.amount
+        ),
+        (node, native, deployer, deployer, U256::ZERO, amount)
+    );
     assert_eq!(escrow.escrowed(node, native).call().await.unwrap(), amount);
     let err = escrow
         .claim(node, vec![native], stranger)

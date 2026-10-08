@@ -3,9 +3,9 @@
 //!
 //! The transform refuses rather than repairs: A-Z fold to a-z, and nothing is
 //! trimmed or stripped. It mirrors the circuits' `lib/identity` and
-//! `contracts/identity/HandleNormalizer.sol` byte for byte. They are hand
+//! `contracts/handles/HandleNormalizer.sol` byte for byte. They are hand
 //! written and share nothing but the vector table in
-//! `contracts/identity/handles.json`, so a difference between them fails a test
+//! `contracts/handles/handles.json`, so a difference between them fails a test
 //! instead of looking up a node the chain never wrote.
 
 /// Why a handle was refused. The kinds match the Solidity errors and the
@@ -231,6 +231,27 @@ mod tests {
                 }
             }
         }
+    }
+
+    /// The generated constants name the table they came from by its SHA-256,
+    /// checked against the file in this repository.
+    #[test]
+    fn the_generated_constants_come_from_this_table() {
+        use sha2::Digest as _;
+        let path = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../solidity/contracts/handles/handles.json"
+        );
+        let table = std::fs::read(path).expect("handles.json beside the crate");
+        let digest: String = sha2::Sha256::digest(&table)
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect();
+        assert_eq!(
+            digest,
+            crate::handle_vectors::TABLE_SHA256,
+            "handle_vectors.rs is stale: run scripts/regen-identity-handles.py"
+        );
     }
 
     /// The table must keep covering both outcomes. A regeneration that dropped

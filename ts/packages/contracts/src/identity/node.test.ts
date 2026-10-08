@@ -76,7 +76,7 @@ describe('handleNode and idNode', () => {
 
 describe('rulesOf', () => {
   /// Only the platform id reaches the RPC.
-  it('reads the rules the chain was configured with', async () => {
+  it('reads the rules the registry answers', async () => {
     const readContract = vi.fn().mockResolvedValue({ ...RULES_X, maxLength: 15n })
     const reader = {
       client: { readContract } as unknown as PublicClient,

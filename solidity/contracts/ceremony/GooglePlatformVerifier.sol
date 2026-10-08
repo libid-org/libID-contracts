@@ -243,16 +243,17 @@ contract GooglePlatformVerifier is IPlatformVerifier, PlatformVerifierBase {
         // expiry buys a proportionally long lock on the name.
         _requireNotAhead(exp);
 
+        // The nodes the circuit computed over the signed `sub` and the folded
+        // address, and a disclosure checked against the handle node before
+        // the proof's cost is paid.
+        claimed.idNode = _hashFromHalves(p.publicInputs, OFF_ID_NODE);
+        claimed.handleNode = _hashFromHalves(p.publicInputs, OFF_HANDLE_NODE);
+        claimed.handle = _disclosed(p.handle, claimed.handleNode);
+
         // Every public input read above becomes authentic here, and the whole
         // transaction reverts if it does not; that is what makes reading them
         // first safe.
         _requireProof(p.proof, p.publicInputs);
-
-        // The nodes the circuit computed over the signed `sub` and the
-        // folded address.
-        claimed.idNode = _hashFromHalves(p.publicInputs, OFF_ID_NODE);
-        claimed.handleNode = _hashFromHalves(p.publicInputs, OFF_HANDLE_NODE);
-        claimed.handle = _disclosed(p.handle, claimed.handleNode);
         claimed.metadataObservedAt = _onSharedScale(exp, _futureObservationAllowance());
         claimed.clientIdentifier = p.clientIdentifier;
         claimed.sessionId = digest;

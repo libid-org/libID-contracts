@@ -109,4 +109,15 @@ contract HandleNormalizerTest is Test {
         vm.expectRevert(HandleNormalizer.BadCharacter.selector);
         this.normalize("octocat ", "github");
     }
+
+    /// @dev The generated constants name the table they came from by its
+    ///      SHA-256. Checked against the file itself, so a hand edit of
+    ///      either, or a regeneration skipped, fails here.
+    function test_theGeneratedConstantsComeFromThisTable() public view {
+        assertEq(
+            sha256(vm.readFileBinary("contracts/handles/handles.json")),
+            HandleVectors.TABLE_SHA256,
+            "HandleVectors.sol is stale: run scripts/regen-identity-handles.py"
+        );
+    }
 }

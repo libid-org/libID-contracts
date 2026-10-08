@@ -46,11 +46,16 @@
 # --local takes the verifiers from a libid-circuits `scripts/build.sh --out
 # <artifacts>` instead of a release. Nothing vouches for those bytes but the
 # build you ran, so it is for developing against an unreleased circuit, never
-# for a deploy; the written files say so. It still refuses artifacts built
-# from another handles.json than this repository's: their rules and tags would
-# key handles differently from the registry that stores them.
+# for a deploy; the written files say so.
 #
-# Requires curl, jq, tar, forge and shasum or sha256sum.
+# Either way, each circuit ships the Noir table its rules and tags were
+# compiled from (`handles-table.nr`), and it must be the table this
+# repository's contracts/handles/handles.json generates: a circuit built from
+# another table keys handles differently from the registry that stores them.
+# The comparison is the generator's (`--compare-noir`), so a hand edit of the
+# shipped table is caught, not only a stale label.
+#
+# Requires curl, jq, tar, forge, python3 and shasum or sha256sum.
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -83,6 +88,18 @@ sha256() {
 
 [[ -f "$PIN" ]] || { echo "no pin at $PIN" >&2; exit 1; }
 
+# The circuit in `$1` was compiled from this repository's handle table.
+require_table() {
+    local dir="$1" circuit="$2"
+    [[ -f "$dir/handles-table.nr" ]] ||
+        { echo "$circuit: no handles-table.nr; it predates the shipped handle table, or the build is not libid-circuits'" >&2; exit 1; }
+    python3 "$REPO_ROOT/scripts/regen-identity-handles.py" --compare-noir "$dir/handles-table.nr" >/dev/null || {
+        echo "$circuit was built from another handle table than contracts/handles/handles.json" >&2
+        echo "  regenerate: scripts/regen-identity-handles.py --noir-out <libid-circuits>/lib/identity/src/table.nr, then rebuild" >&2
+        exit 1
+    }
+}
+
 # The interchange-format checks and the formatting, shared by both modes.
 write_verifier() {
     local src="$1" contract="$2" banner="$3" contracts
@@ -104,16 +121,10 @@ write_verifier() {
 
 if [[ -n "$LOCAL" ]]; then
     LOCAL="$(cd "$LOCAL" && pwd)"
-    table="$(sha256 "$SOLIDITY/contracts/identity/handles.json")"
-    built="$(cat "$LOCAL/handles.json.sha256" 2>/dev/null || true)"
-    [[ "$built" == "$table" ]] || {
-        echo "$LOCAL was built from handles.json $built, this repository's is $table" >&2
-        echo "  regenerate: scripts/regen-identity-handles.py --noir-out <libid-circuits>/lib/identity/src/table.nr, then rebuild" >&2
-        exit 1
-    }
     STAGE="$(mktemp -d)"
     trap 'rm -rf "$STAGE"' EXIT
     while IFS=$'\t' read -r circuit contract; do
+        require_table "$LOCAL/$circuit" "$circuit"
         write_verifier "$LOCAL/$circuit/$contract.sol" "$contract" \
             "// UNRELEASED: from a local libid-circuits build ($LOCAL/$circuit) by scripts/vendor-circuit-verifiers.sh --local.\n// Not pinned by circuits.json. Develop against it; never deploy it."
         echo "==> $circuit -> $DEST_REL/$contract.sol (local, unpinned)"
@@ -169,6 +180,7 @@ while IFS=$'\t' read -r circuit contract want; do
             { echo "$tarball: $name sha256 $file_got, the manifest says $file_want" >&2; exit 1; }
     done < <(jq -r --arg t "$tarball" '.tarballs[$t].files | to_entries[] | "\(.key)\t\(.value)"' "$WORK/manifest.json")
 
+    require_table "$WORK/$circuit" "$circuit"
     write_verifier "$WORK/$circuit/$contract.sol" "$contract" \
         "// Vendored from libid-circuits $TAG ($tarball) by scripts/vendor-circuit-verifiers.sh. Do not edit.\n// The pin is $DEST_REL/circuits.json; \`forge fmt\` is the only change to what shipped."
     echo "==> $circuit -> $DEST_REL/$contract.sol"

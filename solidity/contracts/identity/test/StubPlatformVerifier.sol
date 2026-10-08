@@ -3,8 +3,8 @@ pragma solidity ^0.8.24;
 
 import {CeremonyAuthorization} from "../../ceremony/CeremonyAuthorization.sol";
 import {IPlatformVerifier} from "../../ceremony/IPlatformVerifier.sol";
-import {HandleNormalizer} from "../HandleNormalizer.sol";
-import {HandleVectors} from "../HandleVectors.sol";
+import {HandleNormalizer} from "../../handles/HandleNormalizer.sol";
+import {HandleVectors} from "../../handles/HandleVectors.sol";
 
 /// @notice Stands in for a Platform Verifier.
 ///

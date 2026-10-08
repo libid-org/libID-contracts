@@ -223,6 +223,9 @@ abstract contract TlsNotaryVerifierBase is IPlatformVerifier, PlatformVerifierBa
         // presence check for any field.
         TlsNotaryProof memory p = abi.decode(payload, (TlsNotaryProof));
         _requireCeremonyVersion(p.ceremonyVersion);
+        // A disclosure is checked against the node the payload claims, before
+        // anything is paid or proved: the proof below is what binds that node.
+        claimed.handle = _disclosed(p.handle, p.handleNode);
 
         // The digest, rebuilt from what was decoded, this verifier's own
         // version, and the chain it runs on. Never trusted for its content:
@@ -242,7 +245,6 @@ abstract contract TlsNotaryVerifierBase is IPlatformVerifier, PlatformVerifierBa
         _requireProof(p.proof, _publicInputs(tokenCommitment, identity, p.idNode, p.handleNode));
         claimed.idNode = p.idNode;
         claimed.handleNode = p.handleNode;
-        claimed.handle = _disclosed(p.handle, p.handleNode);
 
         // The same locals that entered the digest, returned. The Consumer acts
         // on these and records that digest; they are one submission's worth of

@@ -4,7 +4,7 @@ pragma solidity ^0.8.24;
 import {Test} from "forge-std/Test.sol";
 
 import {CeremonyProfile} from "../CeremonyProfile.sol";
-import {HandleVectors} from "../../identity/HandleVectors.sol";
+import {HandleVectors} from "../../handles/HandleVectors.sol";
 import {TestNodes} from "../../identity/test/TestNodes.sol";
 
 /// @notice One platform id per platform, and libID namespaces only its own things.

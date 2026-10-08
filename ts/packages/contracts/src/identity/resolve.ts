@@ -54,8 +54,8 @@ function read<T>(
   })
 }
 
-/// The platform's normalization rules as configured on chain now
-/// (`IdentityRegistry.rulesOf`).
+/// The platform's normalization rules as the registry answers them
+/// (`IdentityRegistry.rulesOf`): the generated `handles.json` constants.
 export async function rulesOf(reader: RegistryReader, platformId: `0x${string}`): Promise<Rules> {
   const rules = await read<Rules>(reader, 'rulesOf', [platformId])
   return {
@@ -83,9 +83,9 @@ export async function resolveId(
 /// answers the zero address, which is the same answer as a handle nobody has
 /// proved, and the one a search box wants.
 ///
-/// A revert propagates. `UnknownPlatform` in particular means the platform is
-/// not configured, and answering "unbound" would bury a deployment mistake
-/// under a plausible result.
+/// A revert propagates. `UnknownPlatform` in particular means `handles.json`
+/// names no such platform or no verifier serves it yet, and answering
+/// "unbound" would bury a deployment mistake under a plausible result.
 export async function resolveHandle(
   reader: RegistryReader,
   platformId: `0x${string}`,

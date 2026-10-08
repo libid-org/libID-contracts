@@ -13,7 +13,7 @@ pragma solidity ^0.8.20;
 ///      hands the registry -- a disclosure, a lookup -- and must agree with
 ///      the circuit byte for byte, or a disclosed name would not hash to the
 ///      node it names. Every rule below is exercised by the vector table in
-///      `contracts/identity/handles.json`, which the circuits, Rust and
+///      `contracts/handles/handles.json`, which the circuits, Rust and
 ///      TypeScript run too.
 library HandleNormalizer {
     /// Nothing is left after the transform.
@@ -149,9 +149,16 @@ library HandleNormalizer {
     function nodeOf(string memory raw, Rules memory rules, bytes memory tag)
         internal
         pure
-        returns (string memory normalized, bytes32 node)
+        returns (string memory normalized, bytes32 handleNode)
     {
         normalized = normalize(raw, rules);
-        node = sha256(abi.encodePacked(tag, normalized));
+        handleNode = node(tag, normalized);
+    }
+
+    /// @notice `SHA256(tag || normalized)`: the node a normalized handle is
+    ///         bound under. The one place this contract set writes the
+    ///         formula the circuits compute.
+    function node(bytes memory tag, string memory normalized) internal pure returns (bytes32) {
+        return sha256(abi.encodePacked(tag, normalized));
     }
 }

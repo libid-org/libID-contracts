@@ -16,15 +16,11 @@ mod escrow_inner {
 
             /// Pay a handle by its node. A held node is paid straight through
             /// (`Forwarded`); otherwise the value is escrowed (`Deposited`) and
-            /// `refundTo` can `refund` it until the holder claims. An unchecked
-            /// wrong node funds a slot only `refund` recovers.
-            function deposit(
-                bytes32 platformId,
-                bytes32 handleNode,
-                address token,
-                uint256 amount,
-                address refundTo
-            ) external payable;
+            /// `refundTo` can `refund` it until the holder claims. The node
+            /// names its platform through its tag. An unchecked wrong node, or
+            /// one on a platform that no longer binds, funds a slot only
+            /// `refund` recovers.
+            function deposit(bytes32 handleNode, address token, uint256 amount, address refundTo) external payable;
 
             /// Take everything held for a node in each of `tokens`; holder
             /// only. Tokens with nothing held are skipped; reverts
@@ -57,7 +53,6 @@ mod escrow_inner {
                 address indexed token,
                 address indexed refundTo,
                 address depositor,
-                bytes32 platformId,
                 uint256 round,
                 uint256 amount
             );
@@ -68,7 +63,6 @@ mod escrow_inner {
                 address indexed token,
                 address indexed depositor,
                 address holder,
-                bytes32 platformId,
                 uint256 amount,
                 uint256 received
             );
@@ -107,8 +101,6 @@ mod escrow_inner {
             /// `refundTo` is zero or the escrow: nobody could refund.
             error BadRefundTo(address refundTo);
             error BadRecipient(address recipient);
-            /// Nobody holds the node and nothing new can bind on the platform.
-            error PlatformAcceptsNoBindings(bytes32 platformId);
             error NativeTransferFailed(address recipient, uint256 amount);
             /// A payout took more of the escrow's balance than it booked.
             error OverDebited(address token, uint256 booked, uint256 debited);

@@ -32,6 +32,9 @@ fs_permissions = [
     # Real proofs of each circuit, for the Honk verifiers (see HonkVerifierProofs.t.sol).
     { access = "read", path = "contracts/circuits/test/fixtures" },
     { access = "read", path = "out" }, # the factory tests read creation code from the artifacts
+    # The handle table itself, so the generated constants are checked against
+    # the file they claim to come from (see HandleNormalizer.t.sol).
+    { access = "read", path = "contracts/handles/handles.json" },
 ]
 # Gas snapshots are measured under eden-testnet's rules, so only the `gas`
 # profile below writes them: a default run would overwrite them with cancun's.

@@ -4,7 +4,7 @@ pragma solidity ^0.8.24;
 import {Test} from "forge-std/Test.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
-import {HandleVectors} from "../HandleVectors.sol";
+import {HandleVectors} from "../../handles/HandleVectors.sol";
 import {IdentityRegistry} from "../IdentityRegistry.sol";
 import {TestNodes} from "./TestNodes.sol";
 import {CeremonyProofVerifier} from "../../ceremony/CeremonyProofVerifier.sol";
@@ -50,7 +50,6 @@ contract IdentityRegistryGasTest is Test {
         xVerifier = new StubPlatformVerifier(X, 0);
         vm.startPrank(owner);
         registry.setProofVerifier(IProofVerifier(address(proofVerifier)));
-        registry.setPlatform(X, HandleVectors.rulesFor(X), HandleVectors.handleTagFor(X));
         proofVerifier.setVerifier(X, V1, IPlatformVerifier(address(xVerifier)));
         vm.stopPrank();
         vm.warp(1_000_000);

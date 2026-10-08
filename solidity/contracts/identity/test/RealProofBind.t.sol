@@ -14,7 +14,6 @@ import {NotaryService} from "../../ceremony/NotaryService.sol";
 import {IHonkVerifier, PlatformVerifierBase} from "../../ceremony/PlatformVerifierBase.sol";
 import {TlsNotaryVerifierBase} from "../../ceremony/TlsNotaryVerifierBase.sol";
 import {XPlatformVerifier} from "../../ceremony/XPlatformVerifier.sol";
-import {HandleVectors} from "../HandleVectors.sol";
 import {IdentityRegistry} from "../IdentityRegistry.sol";
 
 /// @notice An X identity bound, published and withdrawn through the whole
@@ -88,7 +87,6 @@ contract RealProofBindTest is Test {
         vm.startPrank(OWNER);
         proofVerifier.setVerifier(X, 1, IPlatformVerifier(address(xVerifier)));
         registry.setProofVerifier(IProofVerifier(address(proofVerifier)));
-        registry.setPlatform(X, HandleVectors.rulesFor(X), HandleVectors.handleTagFor(X));
         vm.stopPrank();
         vm.deal(BINDER, 1 ether);
         vm.deal(address(0xCAFE), 1 ether);

@@ -14,7 +14,7 @@ import {NotaryService} from "../NotaryService.sol";
 import {IHonkVerifier} from "../PlatformVerifierBase.sol";
 import {TlsNotaryVerifierBase} from "../TlsNotaryVerifierBase.sol";
 import {XPlatformVerifier} from "../XPlatformVerifier.sol";
-import {HandleNormalizer} from "../../identity/HandleNormalizer.sol";
+import {HandleNormalizer} from "../../handles/HandleNormalizer.sol";
 
 contract Honk2 is IHonkVerifier {
     function verify(bytes calldata, bytes32[] calldata) external pure returns (bool) {

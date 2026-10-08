@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-import {HandleVectors} from "../HandleVectors.sol";
+import {HandleVectors} from "../../handles/HandleVectors.sol";
 
 /// @notice The nodes a binding is stored under, for tests that bind through
 ///         a stub verifier and must name the keys a circuit would output.

@@ -3,10 +3,10 @@
 ///
 /// The transform refuses rather than repairs: A-Z fold to a-z, and nothing is
 /// trimmed or stripped. It mirrors the circuits' `lib/identity`,
-/// `solidity/contracts/identity/HandleNormalizer.sol` and
+/// `solidity/contracts/handles/HandleNormalizer.sol` and
 /// `rust/identity/src/handle.rs` byte for byte. The transforms are hand
 /// written; the rules they run and the vectors they are checked
-/// against are generated from `solidity/contracts/identity/handles.json`, so a
+/// against are generated from `solidity/contracts/handles/handles.json`, so a
 /// difference between them fails a test instead of looking up a node the chain
 /// never wrote.
 

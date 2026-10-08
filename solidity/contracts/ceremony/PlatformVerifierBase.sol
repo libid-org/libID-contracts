@@ -9,8 +9,8 @@ import {CeremonyAttestation} from "./CeremonyAttestation.sol";
 import {CeremonyProfile} from "./CeremonyProfile.sol";
 import {ICeremony} from "./ICeremony.sol";
 import {INotaryService} from "./INotaryService.sol";
-import {HandleNormalizer} from "../identity/HandleNormalizer.sol";
-import {HandleVectors} from "../identity/HandleVectors.sol";
+import {HandleNormalizer} from "../handles/HandleNormalizer.sol";
+import {HandleVectors} from "../handles/HandleVectors.sol";
 
 /// @dev The bb-generated proof verifier for this platform's circuit.
 interface IHonkVerifier {

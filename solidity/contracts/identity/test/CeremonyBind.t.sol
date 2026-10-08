@@ -9,7 +9,6 @@ import {CeremonyProfile} from "../../ceremony/CeremonyProfile.sol";
 import {CeremonyProofVerifier} from "../../ceremony/CeremonyProofVerifier.sol";
 import {IPlatformVerifier} from "../../ceremony/IPlatformVerifier.sol";
 import {IProofVerifier} from "../../ceremony/IProofVerifier.sol";
-import {HandleVectors} from "../HandleVectors.sol";
 import {IdentityRegistry} from "../IdentityRegistry.sol";
 import {TestNodes} from "./TestNodes.sol";
 import {StubPlatformVerifier} from "./StubPlatformVerifier.sol";
@@ -47,7 +46,6 @@ contract CeremonyBindTest is Test {
 
         vm.startPrank(OWNER);
         registry.setProofVerifier(IProofVerifier(address(proofVerifier)));
-        registry.setPlatform(PLATFORM, HandleVectors.rulesFor(PLATFORM), HandleVectors.handleTagFor(PLATFORM));
         verifier = new StubPlatformVerifier(PLATFORM, FEE);
         proofVerifier.setVerifier(PLATFORM, 1, IPlatformVerifier(address(verifier)));
         vm.stopPrank();

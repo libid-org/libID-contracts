@@ -17,7 +17,7 @@ import {IPlatformVerifier} from "../IPlatformVerifier.sol";
 import {IProofVerifier} from "../IProofVerifier.sol";
 import {IdentityRegistry} from "../../identity/IdentityRegistry.sol";
 import {GoogleJwtRoots} from "../GoogleJwtRoots.sol";
-import {HandleVectors} from "../../identity/HandleVectors.sol";
+import {HandleVectors} from "../../handles/HandleVectors.sol";
 import {TestNodes} from "../../identity/test/TestNodes.sol";
 import {StubPlatformVerifier} from "../../identity/test/StubPlatformVerifier.sol";
 import {AttestationBuilder} from "./AttestationBuilder.sol";
@@ -396,8 +396,6 @@ contract UpgradeSafetyTest is Test {
 
     function test_upgrade_IdentityRegistry() public {
         _registry();
-        vm.prank(OWNER);
-        registry.setPlatform(X, HandleVectors.rulesFor(X), HandleVectors.handleTagFor(X));
         _bindAs(alice, 1);
         bytes32 digest = stub.lastDigest();
 
@@ -427,24 +425,22 @@ contract UpgradeSafetyTest is Test {
         _bindAs(who, nonce);
     }
 
-    /// The list's two words sit at namespace words +9 and +10, after
-    /// `spentDigests` at +8, and `platformOfId` at +11 after them. A field
+    /// The list's two words sit at namespace words +8 and +9, after
+    /// `spentDigests` at +7, and `platformOfId` at +10 after them. A field
     /// slipped in ahead of them would pass every functional test on a fresh
     /// deployment and read a live proxy's lists out of the wrong words.
     function test_theListsSitAtTheWordsAfterEveryOlderField() public {
         _registry();
-        vm.prank(OWNER);
-        registry.setPlatform(X, HandleVectors.rulesFor(X), HandleVectors.handleTagFor(X));
         _bindAs(alice, 1);
 
         uint256 root = uint256(REGISTRY_ROOT);
         bytes32 idNode = TestNodes.idNode(X, "2244994945");
 
-        bytes32 list = keccak256(abi.encode(alice, root + 9));
+        bytes32 list = keccak256(abi.encode(alice, root + 8));
         assertEq(uint256(vm.load(address(registry), list)), 1, "nodes: the list holds one identity");
         assertEq(vm.load(address(registry), keccak256(abi.encode(list))), idNode, "nodes: and it is this one");
-        assertEq(uint256(vm.load(address(registry), keccak256(abi.encode(idNode, root + 10)))), 1, "position");
-        assertEq(vm.load(address(registry), keccak256(abi.encode(idNode, root + 11))), X, "platformOfId");
+        assertEq(uint256(vm.load(address(registry), keccak256(abi.encode(idNode, root + 9)))), 1, "position");
+        assertEq(vm.load(address(registry), keccak256(abi.encode(idNode, root + 10))), X, "platformOfId");
     }
 
     /// `Binding` once carried a `version` (uint32 at byte offset 28). Stale bits
@@ -453,8 +449,6 @@ contract UpgradeSafetyTest is Test {
     /// write path never made has no list entry for another wallet to take over.
     function test_bindingStaleVersionWordIsIgnored() public {
         _registry();
-        vm.prank(OWNER);
-        registry.setPlatform(X, HandleVectors.rulesFor(X), HandleVectors.handleTagFor(X));
         bytes32 idNode = TestNodes.idNode(X, "2244994945");
         bytes32 slot = keccak256(abi.encode(idNode, uint256(REGISTRY_ROOT) + 0));
         address bob = address(0xB0B);

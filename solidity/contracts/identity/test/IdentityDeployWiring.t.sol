@@ -4,21 +4,24 @@ pragma solidity ^0.8.20;
 import {Test} from "forge-std/Test.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
-import {HandleNormalizer} from "../HandleNormalizer.sol";
-import {HandleVectors} from "../HandleVectors.sol";
+import {HandleNormalizer} from "../../handles/HandleNormalizer.sol";
+import {HandleVectors} from "../../handles/HandleVectors.sol";
+import {IIdentityRegistry} from "../IIdentityRegistry.sol";
 import {IdentityRegistry} from "../IdentityRegistry.sol";
 import {IPlatformVerifier} from "../../ceremony/IPlatformVerifier.sol";
 import {IProofVerifier} from "../../ceremony/IProofVerifier.sol";
 import {CeremonyProofVerifier} from "../../ceremony/CeremonyProofVerifier.sol";
 import {StubPlatformVerifier} from "./StubPlatformVerifier.sol";
 
-/// The deploy wires three platforms into one registry. A wrong rule set there
-/// writes wrong nodes for every handle on that platform, and nothing later
-/// would notice: the handle would simply resolve to nothing.
+/// A deployed registry knows the three platforms `handles.json` names, with the
+/// rules and handle tags it states: nothing is configured per platform, so no
+/// deploy step can install a wrong rule set. A wrong one would write wrong
+/// nodes for every handle on that platform, and nothing later would notice:
+/// the handle would simply resolve to nothing.
 ///
-/// So the wiring is asserted rather than assumed — that the rules and the
-/// handle tag the deploy installs are the ones `handles.json` states, and that
-/// every platform it wires comes out resolvable.
+/// So the wiring is asserted rather than assumed — that the rules and tags a
+/// fresh registry answers are the ones `handles.json` states, and that
+/// registering a verifier is all it takes to make each platform resolvable.
 contract IdentityDeployWiringTest is Test {
     IdentityRegistry internal registry;
     CeremonyProofVerifier internal proofVerifier;
@@ -38,8 +41,8 @@ contract IdentityDeployWiringTest is Test {
     }
 
     /// The rules come from the generated table, so a change to `handles.json`
-    /// reaches the deploy without anybody editing it.
-    function test_theGeneratedRulesAreTheOnesTheDeployInstalls() public pure {
+    /// reaches the registry without anybody editing it.
+    function test_theGeneratedRulesAreTheHandlesJsonOnes() public pure {
         HandleNormalizer.Rules memory x = HandleVectors.rulesFor(HandleVectors.PLATFORM_X);
         assertEq(x.maxLength, uint16(HandleVectors.MAX_LENGTH_X), "X length");
         assertTrue(x.allowUnderscore, "X allows underscore");
@@ -70,8 +73,14 @@ contract IdentityDeployWiringTest is Test {
         return HandleVectors.rulesFor(platformId);
     }
 
-    /// Wiring all three the way the deploy does leaves each one resolvable.
-    function test_theDeployWiringLeavesEveryPlatformUsable() public {
+    /// Registering a verifier for each of the three leaves each one resolvable;
+    /// before that, each resolver refuses it.
+    function test_registeringAVerifierMakesEveryPlatformUsable() public {
+        vm.expectRevert(
+            abi.encodeWithSelector(IIdentityRegistry.UnknownPlatform.selector, HandleVectors.PLATFORM_GOOGLE)
+        );
+        registry.resolveHandle(HandleVectors.PLATFORM_GOOGLE, "nobody@example.com");
+
         vm.startPrank(owner);
         address x = _wireIdentityPlatform(HandleVectors.PLATFORM_X);
         address gh = _wireIdentityPlatform(HandleVectors.PLATFORM_GITHUB);
@@ -96,10 +105,8 @@ contract IdentityDeployWiringTest is Test {
         assertEq(registry.handleTagOf(HandleVectors.PLATFORM_GOOGLE), bytes("libid.google.handle"));
     }
 
-    /// The deploy script's wiring, mirrored. Both sides call one helper so this
-    /// test cannot drift from the script it exists to prove.
+    /// Enable a platform: register a first verifier for it.
     function _wireIdentityPlatform(bytes32 platformId) internal returns (address verifier) {
-        registry.setPlatform(platformId, HandleVectors.rulesFor(platformId), HandleVectors.handleTagFor(platformId));
         verifier = address(new StubPlatformVerifier(platformId, 0));
         proofVerifier.setVerifier(platformId, 1, IPlatformVerifier(verifier));
     }

@@ -62,7 +62,7 @@ and npm package carry the generated output even though git does not.
 
 ## Handle vectors
 
-`solidity/contracts/identity/handles.json` is the source of truth for platform
+`solidity/contracts/handles/handles.json` is the source of truth for platform
 handle rules and the shared normalization vector table. After editing it:
 
 ```sh
@@ -70,7 +70,7 @@ python3 scripts/regen-identity-handles.py          # rewrite generated outputs
 python3 scripts/regen-identity-handles.py --check  # verify nothing drifted
 ```
 
-This generates `solidity/contracts/identity/HandleVectors.sol`,
+This generates `solidity/contracts/handles/HandleVectors.sol`,
 `rust/identity/src/handle_vectors.rs` and
 `ts/packages/contracts/src/identity/handleVectors.ts`; CI's handle-tables job
 fails when any of them drifts from `handles.json`.

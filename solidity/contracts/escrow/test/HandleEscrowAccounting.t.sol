@@ -9,7 +9,7 @@ import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.s
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 import {HandleEscrow, NATIVE_TOKEN} from "../HandleEscrow.sol";
-import {HandleVectors} from "../../identity/HandleVectors.sol";
+import {HandleVectors} from "../../handles/HandleVectors.sol";
 import {IIdentityRegistry} from "../../identity/IIdentityRegistry.sol";
 import {TestNodes} from "../../identity/test/TestNodes.sol";
 import {FeeToken, NoReturnToken, SettableRegistry, TestERC20, one} from "./EscrowMocks.sol";
@@ -60,7 +60,7 @@ contract EscrowHandler is CommonBase, StdCheats, StdUtils {
             NoReturnToken(token).approve(address(ESCROW), amount);
         }
         vm.prank(from);
-        ESCROW.deposit{value: token == NATIVE ? amount : 0}(PLATFORM, node, token, amount, refundTo);
+        ESCROW.deposit{value: token == NATIVE ? amount : 0}(node, token, amount, refundTo);
         if (REGISTRY.holderOf(node) == address(0)) modelled[node][token][refundTo] += delivered;
     }
 
