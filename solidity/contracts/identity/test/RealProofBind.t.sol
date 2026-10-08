@@ -6,6 +6,8 @@ import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.s
 
 import {CeremonyProfile} from "../../ceremony/CeremonyProfile.sol";
 import {CeremonyProofVerifier} from "../../ceremony/CeremonyProofVerifier.sol";
+import {GitHubPlatformVerifier} from "../../ceremony/GitHubPlatformVerifier.sol";
+import {GooglePlatformVerifier, IGoogleJwtRoots} from "../../ceremony/GooglePlatformVerifier.sol";
 import {ICeremony} from "../../ceremony/ICeremony.sol";
 import {INotaryService} from "../../ceremony/INotaryService.sol";
 import {IPlatformVerifier} from "../../ceremony/IPlatformVerifier.sol";
@@ -16,61 +18,46 @@ import {TlsNotaryVerifierBase} from "../../ceremony/TlsNotaryVerifierBase.sol";
 import {XPlatformVerifier} from "../../ceremony/XPlatformVerifier.sol";
 import {IdentityRegistry} from "../IdentityRegistry.sol";
 
-/// @notice An X identity bound, published and withdrawn through the whole
-///         deployed stack with a real proof: the registry over the Proof
-///         Verifier over the X Platform Verifier over the circuit's own Honk
-///         verifier, and a notary trusting the fixture's key.
+/// @notice A platform's identity bound through the whole deployed stack with
+///         a real proof: the registry over the Proof Verifier over the
+///         platform's Platform Verifier over the circuit's own Honk verifier.
 ///
-/// @dev The sessions are libid-rs's `ceremony_fixtures` records and the proof
-///      the one bb made of their witness (`x-ceremony-session-proof.json`).
-///      The account is `Alice_1`, id `2244994945`; the nodes below are
-///      Python hashlib's. The records' Authorized Transaction Data is the
-///      registry's own triple `(0xBEEF, 0, 0)`, so they bind unedited.
-contract RealProofBindTest is Test {
+/// @dev Each platform supplies its fixture, the plaintext the fixture proves
+///      and the nodes Python's hashlib computes for them; the checks are
+///      shared. Every fixture's Authorized Transaction Data is the registry's
+///      own triple `(0xBEEF, 0, 0)`, so it binds unedited.
+abstract contract RealProofBindBase is Test {
     IdentityRegistry registry;
     CeremonyProofVerifier proofVerifier;
-    XPlatformVerifier xVerifier;
-    NotaryService notary;
 
     address constant OWNER = address(0xA11CE);
     address constant BINDER = address(0xBEEF);
-    uint256 constant NOTARY_KEY = 0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80;
-    uint256 constant NOTARY_FEE = 0.001 ether;
-    bytes32 constant X = CeremonyProfile.PLATFORM_X;
 
-    string constant SESSION = "contracts/ceremony/test/fixtures/x-ceremony-session.json";
-    string constant PROOF = "contracts/ceremony/test/fixtures/x-ceremony-session-proof.json";
+    // ─── What each platform supplies ────────────────────────────────
 
-    /// hashlib.sha256(b"libid.x.user-id2244994945")
-    bytes32 constant ID_NODE = 0x68291869976ffad2abf3e933ec9ab2623395ff8b3b9242e655e1da3ef43d4f94;
-    /// hashlib.sha256(b"libid.x.handlealice_1")
-    bytes32 constant HANDLE_NODE = 0xe09c4f5bfbbc723bc35701ea9d718a1c5edb29b1ed5bb0cb0fabb3c43d8136af;
+    function _platform() internal pure virtual returns (bytes32);
 
-    function setUp() public {
-        string memory session = vm.readFile(SESSION);
-        vm.chainId(vm.parseJsonUint(session, ".chain_id"));
-        vm.warp(vm.parseJsonUint(session, ".created_at") + 60);
+    /// The payload over the fixture, disclosing `handle` (empty for a private
+    /// submission).
+    function _payload(string memory handle) internal view virtual returns (bytes memory);
 
-        notary = NotaryService(
-            address(
-                new ERC1967Proxy(
-                    address(new NotaryService()),
-                    abi.encodeCall(NotaryService.initialize, (OWNER, vm.addr(NOTARY_KEY), NOTARY_FEE))
-                )
-            )
-        );
-        address circuit = vm.deployCode("BearerLinkXHonkVerifier.sol:BearerLinkXHonkVerifier");
-        xVerifier = XPlatformVerifier(
-            address(
-                new ERC1967Proxy(
-                    address(new XPlatformVerifier()),
-                    abi.encodeCall(
-                        XPlatformVerifier.initialize,
-                        (OWNER, INotaryService(address(notary)), IHonkVerifier(circuit), circuit.codehash)
-                    )
-                )
-            )
-        );
+    /// The id, the handle as the platform shows it, and the handle folded:
+    /// the bytes a private bind must leave nowhere.
+    function _secrets() internal pure virtual returns (string[3] memory);
+
+    function _idNode() internal pure virtual returns (bytes32);
+
+    function _handleNode() internal pure virtual returns (bytes32);
+
+    /// The contracts whose storage a bind may write, besides the registry and
+    /// the Proof Verifier.
+    function _verifiers() internal view virtual returns (address[] memory);
+
+    // ─── The stack ──────────────────────────────────────────────────
+
+    /// The Proof Verifier and the registry, with `verifier` as the platform's
+    /// version 1.
+    function _deployStack(address verifier) internal {
         proofVerifier = CeremonyProofVerifier(
             address(
                 new ERC1967Proxy(
@@ -83,90 +70,34 @@ contract RealProofBindTest is Test {
                 new ERC1967Proxy(address(new IdentityRegistry()), abi.encodeCall(IdentityRegistry.initialize, (OWNER)))
             )
         );
-
         vm.startPrank(OWNER);
-        proofVerifier.setVerifier(X, 1, IPlatformVerifier(address(xVerifier)));
+        proofVerifier.setVerifier(_platform(), 1, IPlatformVerifier(verifier));
         registry.setProofVerifier(IProofVerifier(address(proofVerifier)));
         vm.stopPrank();
         vm.deal(BINDER, 1 ether);
         vm.deal(address(0xCAFE), 1 ether);
     }
 
-    // ─── The payloads ───────────────────────────────────────────────
-
-    /// The `x/v1` payload over `token`, the fixture's identity record and
-    /// the fixture's proof, naming `transactionData`.
-    function _payload(ICeremony.Attestation memory token, bytes memory transactionData, string memory handle)
-        private
-        view
-        returns (bytes memory)
-    {
-        string memory session = vm.readFile(SESSION);
-        TlsNotaryVerifierBase.TlsNotaryProof memory p;
-        p.ceremonyVersion = uint16(vm.parseJsonUint(session, ".ceremony_version"));
-        p.operationDomain = vm.parseJsonBytes32(session, ".operation_domain");
-        p.authorizationNonce = vm.parseJsonBytes32(session, ".authorization_nonce");
-        p.transactionData = transactionData;
-        p.tokenSession = token;
-        p.identitySession = ICeremony.Attestation({
-            attestedData: vm.parseJsonBytes(session, ".identity.attested_data"),
-            proof: vm.parseJsonBytes(session, ".identity.notary_signature")
-        });
-        p.idNode = ID_NODE;
-        p.handleNode = HANDLE_NODE;
-        p.handle = handle;
-        p.proof = vm.parseJsonBytes(vm.readFile(PROOF), ".proof");
-        return abi.encode(p);
-    }
-
-    /// The fixture exactly as libid-rs wrote it, disclosing nothing.
-    function _producedPayload() private view returns (bytes memory) {
-        return _producedPayload("");
-    }
-
-    /// The fixture, disclosing `handle`.
-    function _producedPayload(string memory handle) private view returns (bytes memory) {
-        string memory session = vm.readFile(SESSION);
-        return _payload(
-            ICeremony.Attestation({
-                attestedData: vm.parseJsonBytes(session, ".token.attested_data"),
-                proof: vm.parseJsonBytes(session, ".token.notary_signature")
-            }),
-            vm.parseJsonBytes(session, ".transaction_data"),
-            handle
-        );
-    }
-
-    function _bind(bytes memory payload) private {
-        uint256 value = registry.quoteBind(X, 1);
+    function _bind(bytes memory payload) internal {
+        uint256 value = registry.quoteBind(_platform(), 1);
         vm.prank(BINDER);
-        registry.bind{value: value}(X, 1, payload);
-    }
-
-    // ─── The fixture as produced ────────────────────────────────────
-
-    /// @dev The fixture names the binder and no fee, in the registry's shape.
-    function test_theProducedFixtureCarriesTheRegistryTriple() public view {
-        assertEq(
-            vm.parseJsonBytes(vm.readFile(SESSION), ".transaction_data"), abi.encode(BINDER, uint256(0), address(0))
-        );
+        registry.bind{value: value}(_platform(), 1, payload);
     }
 
     // ─── Bind, privately ────────────────────────────────────────────
 
-    /// @dev The stage-A gate: a private bind with a real proof. Nothing it
-    ///      writes or logs carries the id or the handle, in any case: not the
-    ///      events' topics or data, not a storage slot of the registry or the
-    ///      verifiers, not the calldata.
+    /// @dev A private bind with a real proof. Nothing it writes or logs
+    ///      carries the id or the handle, in any case: not the events' topics
+    ///      or data, not a storage slot of the registry or the verifiers, not
+    ///      the calldata.
     function test_bindsPrivatelyAndDisclosesNothing() public {
-        bytes memory payload = _producedPayload();
+        bytes memory payload = _payload("");
         assertFalse(_containsAny(payload), "the payload carries an id or handle");
 
         vm.record();
         vm.recordLogs();
         _bind(payload);
-        uint256 gasUsed = vm.lastCallGas().gasTotalUsed;
-        emit log_named_uint("bind gas", gasUsed);
+        emit log_named_uint("bind gas", vm.lastCallGas().gasTotalUsed);
 
         Vm.Log[] memory logs = vm.getRecordedLogs();
         assertGt(logs.length, 0);
@@ -178,67 +109,33 @@ contract RealProofBindTest is Test {
         }
         _assertNoSlotCarriesAny(address(registry));
         _assertNoSlotCarriesAny(address(proofVerifier));
-        _assertNoSlotCarriesAny(address(xVerifier));
+        address[] memory verifiers = _verifiers();
+        for (uint256 i = 0; i < verifiers.length; ++i) {
+            _assertNoSlotCarriesAny(verifiers[i]);
+        }
 
-        assertEq(registry.resolveId(ID_NODE), BINDER);
-        (address holder,) = registry.handleBinding(HANDLE_NODE);
+        assertEq(registry.resolveId(_idNode()), BINDER);
+        (address holder,) = registry.handleBinding(_handleNode());
         assertEq(holder, BINDER);
-        assertEq(registry.resolveHandle(X, "Alice_1"), BINDER);
-        assertEq(registry.resolveHandle(X, "alice_1"), BINDER);
-        assertEq(registry.publishedHandleOf(BINDER, X), "", "a private bind publishes nothing");
+        assertEq(registry.resolveHandle(_platform(), _secrets()[1]), BINDER);
+        assertEq(registry.resolveHandle(_platform(), _secrets()[2]), BINDER);
+        assertEq(registry.publishedHandleOf(BINDER, _platform()), "", "a private bind publishes nothing");
     }
 
-    // ─── Publish, then withdraw ─────────────────────────────────────
+    // ─── Disclose in the payload ────────────────────────────────────
 
-    /// @dev The holder discloses its handle in any case; the registry checks
-    ///      it hashes to the bound node and stores the folded form.
-    function test_publishesTheHandleFolded() public {
-        _bind(_producedPayload());
-        vm.expectEmit(address(registry));
-        emit IdentityRegistry.HandlePublished(BINDER, X, HANDLE_NODE, "alice_1");
-        vm.prank(BINDER);
-        registry.publish(X, "ALICE_1");
-        assertEq(registry.publishedHandleOf(BINDER, X), "alice_1");
-    }
-
-    function test_refusesToPublishAHandleTheHolderDidNotProve() public {
-        _bind(_producedPayload());
-        vm.expectRevert(abi.encodeWithSelector(IdentityRegistry.NotYourHandle.selector, sha256("libid.x.handlebob")));
-        vm.prank(BINDER);
-        registry.publish(X, "bob");
-    }
-
-    function test_refusesToPublishAnotherHoldersHandle() public {
-        _bind(_producedPayload());
-        vm.expectRevert(abi.encodeWithSelector(IdentityRegistry.NotYourHandle.selector, HANDLE_NODE));
-        vm.prank(address(0xCAFE));
-        registry.publish(X, "alice_1");
-    }
-
-    function test_unpublishClearsTheName() public {
-        _bind(_producedPayload());
-        vm.prank(BINDER);
-        registry.publish(X, "Alice_1");
-        vm.expectEmit(address(registry));
-        emit IdentityRegistry.HandleUnpublished(BINDER, X);
-        vm.prank(BINDER);
-        registry.unpublish(X);
-        assertEq(registry.publishedHandleOf(BINDER, X), "");
-        // The binding itself stays.
-        assertEq(registry.resolveHandle(X, "alice_1"), BINDER);
-    }
-
-    /// @dev Disclosing in the payload: the X Platform Verifier checks the
+    /// @dev Disclosing in the payload: the Platform Verifier checks the
     ///      handle against the node its real proof bound and returns it
-    ///      folded. The folded handle is then in the logs, which is also what
-    ///      says the scan in the private test can see one.
+    ///      folded, and the registry names the holder by it. The folded
+    ///      handle is then in the logs, which is also what says the scan in
+    ///      the private test can see one.
     function test_bindsAndPublishesInOneCall() public {
-        bytes memory payload = _producedPayload("Alice_1");
+        bytes memory payload = _payload(_secrets()[1]);
         vm.recordLogs();
         vm.expectEmit(address(registry));
-        emit IdentityRegistry.HandlePublished(BINDER, X, HANDLE_NODE, "alice_1");
+        emit IdentityRegistry.HandlePublished(BINDER, _platform(), _handleNode(), _secrets()[2]);
         _bind(payload);
-        assertEq(registry.publishedHandleOf(BINDER, X), "alice_1");
+        assertEq(registry.publishedHandleOf(BINDER, _platform()), _secrets()[2]);
 
         Vm.Log[] memory logs = vm.getRecordedLogs();
         bool seen;
@@ -248,17 +145,36 @@ contract RealProofBindTest is Test {
         assertTrue(seen, "a disclosure logs the handle");
     }
 
+    /// @dev A disclosure the real proof does not back is refused by the
+    ///      Platform Verifier, before anything is written.
+    function test_refusesToBindAHandleTheProofDidNotBind() public {
+        (string memory other, bytes32 otherNode) = _otherHandle();
+        bytes memory payload = _payload(other);
+        uint256 value = registry.quoteBind(_platform(), 1);
+        vm.expectRevert(abi.encodeWithSelector(PlatformVerifierBase.HandleNotProved.selector, otherNode, _handleNode()));
+        vm.prank(BINDER);
+        registry.bind{value: value}(_platform(), 1, payload);
+        assertEq(registry.resolveId(_idNode()), address(0));
+    }
+
+    /// A handle the platform's rules accept and the proof did not bind, and
+    /// its node by hashlib.
+    function _otherHandle() internal pure virtual returns (string memory, bytes32);
+
     // ─── Helpers ────────────────────────────────────────────────────
 
     /// Whether `data` carries the id, the handle as sent, or the handle
     /// folded.
-    function _containsAny(bytes memory data) private pure returns (bool) {
-        return _indexOf(data, "2244994945") != type(uint256).max || _indexOf(data, "Alice_1") != type(uint256).max
-            || _indexOf(data, "alice_1") != type(uint256).max;
+    function _containsAny(bytes memory data) internal pure returns (bool) {
+        string[3] memory secrets = _secrets();
+        for (uint256 i = 0; i < secrets.length; ++i) {
+            if (_indexOf(data, bytes(secrets[i])) != type(uint256).max) return true;
+        }
+        return false;
     }
 
     /// Every slot `target` wrote since `vm.record`, read back and scanned.
-    function _assertNoSlotCarriesAny(address target) private view {
+    function _assertNoSlotCarriesAny(address target) internal view {
         (, bytes32[] memory writes) = vm.accesses(target);
         for (uint256 i = 0; i < writes.length; ++i) {
             assertFalse(
@@ -279,16 +195,346 @@ contract RealProofBindTest is Test {
         }
         return type(uint256).max;
     }
+}
 
-    /// @dev A disclosure the real proof does not back is refused by the
-    ///      Platform Verifier, before anything is written.
-    function test_refusesToBindAHandleTheProofDidNotBind() public {
-        bytes memory payload = _producedPayload("bob");
-        uint256 value = registry.quoteBind(X, 1);
-        bytes32 bob = sha256("libid.x.handlebob");
-        vm.expectRevert(abi.encodeWithSelector(PlatformVerifierBase.HandleNotProved.selector, bob, HANDLE_NODE));
+/// @notice The notarized platforms' fixtures: libid-rs's `ceremony_fixtures`
+///         records and the proof bb made of their witness, under a notary
+///         trusting the fixture's key.
+abstract contract RealTlsNotaryBind is RealProofBindBase {
+    uint256 constant NOTARY_KEY = 0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80;
+    uint256 constant NOTARY_FEE = 0.001 ether;
+
+    NotaryService notary;
+    address platformVerifier;
+
+    function _session() internal pure virtual returns (string memory);
+
+    function _proofFile() internal pure virtual returns (string memory);
+
+    function setUp() public {
+        string memory session = vm.readFile(_session());
+        vm.chainId(vm.parseJsonUint(session, ".chain_id"));
+        vm.warp(vm.parseJsonUint(session, ".created_at") + 60);
+
+        notary = NotaryService(
+            address(
+                new ERC1967Proxy(
+                    address(new NotaryService()),
+                    abi.encodeCall(NotaryService.initialize, (OWNER, vm.addr(NOTARY_KEY), NOTARY_FEE))
+                )
+            )
+        );
+        platformVerifier = _deployVerifier(INotaryService(address(notary)));
+        _deployStack(platformVerifier);
+    }
+
+    function _deployVerifier(INotaryService notary_) internal virtual returns (address);
+
+    function _verifiers() internal view override returns (address[] memory v) {
+        v = new address[](2);
+        (v[0], v[1]) = (platformVerifier, address(notary));
+    }
+
+    /// The fixture's payload, naming its own transaction data.
+    function _payload(string memory handle) internal view override returns (bytes memory) {
+        string memory session = vm.readFile(_session());
+        TlsNotaryVerifierBase.TlsNotaryProof memory p;
+        p.ceremonyVersion = uint16(vm.parseJsonUint(session, ".ceremony_version"));
+        p.operationDomain = vm.parseJsonBytes32(session, ".operation_domain");
+        p.authorizationNonce = vm.parseJsonBytes32(session, ".authorization_nonce");
+        p.transactionData = vm.parseJsonBytes(session, ".transaction_data");
+        p.tokenSession = ICeremony.Attestation({
+            attestedData: vm.parseJsonBytes(session, ".token.attested_data"),
+            proof: vm.parseJsonBytes(session, ".token.notary_signature")
+        });
+        p.identitySession = ICeremony.Attestation({
+            attestedData: vm.parseJsonBytes(session, ".identity.attested_data"),
+            proof: vm.parseJsonBytes(session, ".identity.notary_signature")
+        });
+        p.idNode = _idNode();
+        p.handleNode = _handleNode();
+        p.handle = handle;
+        p.proof = vm.parseJsonBytes(vm.readFile(_proofFile()), ".proof");
+        return abi.encode(p);
+    }
+
+    /// @dev The fixture names the binder and no fee, in the registry's shape.
+    function test_theProducedFixtureCarriesTheRegistryTriple() public view {
+        assertEq(
+            vm.parseJsonBytes(vm.readFile(_session()), ".transaction_data"), abi.encode(BINDER, uint256(0), address(0))
+        );
+    }
+
+    /// @dev The nodes this test names are the ones the proof outputs, `[high,
+    ///      low]` at fields 68 to 71.
+    function test_theNodesAreTheProofsOutputs() public view {
+        bytes32[] memory inputs = vm.parseJsonBytes32Array(vm.readFile(_proofFile()), ".public_inputs");
+        assertEq(bytes32((uint256(inputs[68]) << 128) | uint256(inputs[69])), _idNode());
+        assertEq(bytes32((uint256(inputs[70]) << 128) | uint256(inputs[71])), _handleNode());
+    }
+}
+
+/// @notice X: the account is `Alice_1`, id `2244994945`, proved by the
+///         `x-ceremony-session` fixture; and the publish path after a private
+///         bind.
+contract RealProofBindTest is RealTlsNotaryBind {
+    bytes32 constant X = CeremonyProfile.PLATFORM_X;
+    /// hashlib.sha256(b"libid.x.user-id2244994945")
+    bytes32 constant ID_NODE = 0x68291869976ffad2abf3e933ec9ab2623395ff8b3b9242e655e1da3ef43d4f94;
+    /// hashlib.sha256(b"libid.x.handlealice_1")
+    bytes32 constant HANDLE_NODE = 0xe09c4f5bfbbc723bc35701ea9d718a1c5edb29b1ed5bb0cb0fabb3c43d8136af;
+
+    function _platform() internal pure override returns (bytes32) {
+        return X;
+    }
+
+    function _session() internal pure override returns (string memory) {
+        return "contracts/ceremony/test/fixtures/x-ceremony-session.json";
+    }
+
+    function _proofFile() internal pure override returns (string memory) {
+        return "contracts/ceremony/test/fixtures/x-ceremony-session-proof.json";
+    }
+
+    function _secrets() internal pure override returns (string[3] memory) {
+        return ["2244994945", "Alice_1", "alice_1"];
+    }
+
+    function _idNode() internal pure override returns (bytes32) {
+        return ID_NODE;
+    }
+
+    function _handleNode() internal pure override returns (bytes32) {
+        return HANDLE_NODE;
+    }
+
+    function _otherHandle() internal pure override returns (string memory, bytes32) {
+        // hashlib.sha256(b"libid.x.handlebob")
+        return ("bob", 0xa48e7da67389935eacd89176ab4b723dd9dbad5833fd777344590fd04c62418f);
+    }
+
+    function _deployVerifier(INotaryService notary_) internal override returns (address) {
+        address circuit = vm.deployCode("BearerLinkXHonkVerifier.sol:BearerLinkXHonkVerifier");
+        return address(
+            new ERC1967Proxy(
+                address(new XPlatformVerifier()),
+                abi.encodeCall(XPlatformVerifier.initialize, (OWNER, notary_, IHonkVerifier(circuit), circuit.codehash))
+            )
+        );
+    }
+
+    // ─── Publish, then withdraw ─────────────────────────────────────
+
+    /// @dev The holder discloses its handle in any case; the registry checks
+    ///      it hashes to the bound node and stores the folded form.
+    function test_publishesTheHandleFolded() public {
+        _bind(_payload(""));
+        vm.expectEmit(address(registry));
+        emit IdentityRegistry.HandlePublished(BINDER, X, HANDLE_NODE, "alice_1");
         vm.prank(BINDER);
-        registry.bind{value: value}(X, 1, payload);
-        assertEq(registry.resolveId(ID_NODE), address(0));
+        registry.publish(X, "ALICE_1");
+        assertEq(registry.publishedHandleOf(BINDER, X), "alice_1");
+    }
+
+    function test_refusesToPublishAHandleTheHolderDidNotProve() public {
+        _bind(_payload(""));
+        vm.expectRevert(abi.encodeWithSelector(IdentityRegistry.NotYourHandle.selector, sha256("libid.x.handlebob")));
+        vm.prank(BINDER);
+        registry.publish(X, "bob");
+    }
+
+    function test_refusesToPublishAnotherHoldersHandle() public {
+        _bind(_payload(""));
+        vm.expectRevert(abi.encodeWithSelector(IdentityRegistry.NotYourHandle.selector, HANDLE_NODE));
+        vm.prank(address(0xCAFE));
+        registry.publish(X, "alice_1");
+    }
+
+    function test_unpublishClearsTheName() public {
+        _bind(_payload(""));
+        vm.prank(BINDER);
+        registry.publish(X, "Alice_1");
+        vm.expectEmit(address(registry));
+        emit IdentityRegistry.HandleUnpublished(BINDER, X);
+        vm.prank(BINDER);
+        registry.unpublish(X);
+        assertEq(registry.publishedHandleOf(BINDER, X), "");
+        // The binding itself stays.
+        assertEq(registry.resolveHandle(X, "alice_1"), BINDER);
+    }
+}
+
+/// @notice GitHub: the account is `OctoCat`, id `583231`, proved by the
+///         `github-ceremony-session` fixture through the vendored
+///         bearer-link-github verifier.
+contract RealProofBindGitHubTest is RealTlsNotaryBind {
+    function _platform() internal pure override returns (bytes32) {
+        return CeremonyProfile.PLATFORM_GITHUB;
+    }
+
+    function _session() internal pure override returns (string memory) {
+        return "contracts/ceremony/test/fixtures/github-ceremony-session.json";
+    }
+
+    function _proofFile() internal pure override returns (string memory) {
+        return "contracts/ceremony/test/fixtures/github-ceremony-session-proof.json";
+    }
+
+    function _secrets() internal pure override returns (string[3] memory) {
+        return ["583231", "OctoCat", "octocat"];
+    }
+
+    /// hashlib.sha256(b"libid.github.user-id583231")
+    function _idNode() internal pure override returns (bytes32) {
+        return 0x475902b27989feb395b9b0cd3156aa573a9676c13155b8e7e3ddaf3e77181847;
+    }
+
+    /// hashlib.sha256(b"libid.github.handleoctocat")
+    function _handleNode() internal pure override returns (bytes32) {
+        return 0x381fb9d7d3b01214e58b94202ea10f78e169adef68bcc20d40c130deca6dfe74;
+    }
+
+    function _otherHandle() internal pure override returns (string memory, bytes32) {
+        // hashlib.sha256(b"libid.github.handlebob")
+        return ("bob", 0x8d6d26894b3f7b464a314d1539926c23b4f432fdf8315f6fba9b08d0223969c2);
+    }
+
+    function _deployVerifier(INotaryService notary_) internal override returns (address) {
+        address circuit = vm.deployCode("BearerLinkGithubHonkVerifier.sol:BearerLinkGithubHonkVerifier");
+        return address(
+            new ERC1967Proxy(
+                address(new GitHubPlatformVerifier()),
+                abi.encodeCall(
+                    GitHubPlatformVerifier.initialize, (OWNER, notary_, IHonkVerifier(circuit), circuit.codehash)
+                )
+            )
+        );
+    }
+}
+
+/// @notice A JWT root list trusting what the test tells it to.
+contract TrustingJwtRoots is IGoogleJwtRoots {
+    mapping(bytes32 => uint256) public expiry;
+
+    function trust(bytes32 modulusHash, uint256 until) external {
+        expiry[modulusHash] = until;
+    }
+
+    function trustedHashExpiresAt(bytes32 modulusHash) external view returns (uint256) {
+        return expiry[modulusHash];
+    }
+}
+
+/// @notice Google: the account is `Fixture@Example.com`, sub
+///         `100000000000000000001`, proved by `google-ceremony-proof.json`
+///         through the vendored oidc-google verifier, over a token signed by a
+///         synthetic key the root list here trusts.
+contract RealProofBindGoogleTest is RealProofBindBase {
+    string constant PROOF = "contracts/ceremony/test/fixtures/google-ceremony-proof.json";
+    /// The signed `exp` of the fixture's token.
+    uint64 constant EXP = 1_893_456_000;
+    /// The handle node's `[high, low]` public inputs.
+    uint256 constant HANDLE_HIGH = 36;
+    uint256 constant HANDLE_LOW = 37;
+
+    TrustingJwtRoots roots;
+    address platformVerifier;
+
+    function setUp() public {
+        roots = new TrustingJwtRoots();
+        address circuit = vm.deployCode("OidcGoogleHonkVerifier.sol:OidcGoogleHonkVerifier");
+        platformVerifier = address(
+            new ERC1967Proxy(
+                address(new GooglePlatformVerifier()),
+                abi.encodeCall(
+                    GooglePlatformVerifier.initialize,
+                    (
+                        OWNER,
+                        INotaryService(address(0)),
+                        IHonkVerifier(circuit),
+                        circuit.codehash,
+                        IGoogleJwtRoots(address(roots))
+                    )
+                )
+            )
+        );
+        _deployStack(platformVerifier);
+
+        // The modulus the proof exposes, `[39, 57)`, is the one trusted.
+        bytes32[] memory inputs = vm.parseJsonBytes32Array(vm.readFile(PROOF), ".public_inputs");
+        bytes memory modulus;
+        for (uint256 i = 39; i < 57; ++i) {
+            modulus = bytes.concat(modulus, inputs[i]);
+        }
+        roots.trust(keccak256(modulus), EXP + 86400);
+        vm.warp(EXP - 3600);
+    }
+
+    function _platform() internal pure override returns (bytes32) {
+        return CeremonyProfile.PLATFORM_GOOGLE;
+    }
+
+    function _verifiers() internal view override returns (address[] memory v) {
+        v = new address[](2);
+        (v[0], v[1]) = (platformVerifier, address(roots));
+    }
+
+    function _secrets() internal pure override returns (string[3] memory) {
+        return ["100000000000000000001", "Fixture@Example.com", "fixture@example.com"];
+    }
+
+    /// hashlib.sha256(b"libid.google.user-id100000000000000000001")
+    function _idNode() internal pure override returns (bytes32) {
+        return 0x5e13b7e56f17994a08b7464e5c5c5758228d6816db0a0af9bbd73f65335fcec8;
+    }
+
+    // hashlib.sha256(b"libid.google.handlefixture@example.com")
+    function _handleNode() internal pure override returns (bytes32) {
+        return 0xfbda24950a7bc55993b7aacc3acbde636931dbb45f04c1ff6f6909027962885f;
+    }
+
+    function _otherHandle() internal pure override returns (string memory, bytes32) {
+        // hashlib.sha256(b"libid.google.handleother@example.com")
+        return ("other@example.com", 0x952d5e757983e3af1d1671b554bd9644d0934e06bbd97b6c5a2b0448bc0cb52c);
+    }
+
+    function _payload(string memory handle) internal view override returns (bytes memory) {
+        return abi.encode(_proof(handle));
+    }
+
+    /// The `google/v1` payload the proof was made for: its nonce is the
+    /// Authorization Digest of these fields on chain 31337.
+    function _proof(string memory handle) internal view returns (GooglePlatformVerifier.GoogleProof memory s) {
+        string memory json = vm.readFile(PROOF);
+        s.ceremonyVersion = 1;
+        s.operationDomain = keccak256(bytes("libid.claim-identity"));
+        s.authorizationNonce = bytes32(uint256(0x5555555555555555555555555555555555555555555555555555555555555555));
+        s.transactionData = abi.encode(BINDER, uint256(0), address(0));
+        s.clientIdentifier = bytes(vm.parseJsonString(json, ".client_identifier"));
+        s.publicInputs = vm.parseJsonBytes32Array(json, ".public_inputs");
+        s.handle = handle;
+        s.proof = vm.parseJsonBytes(json, ".proof");
+    }
+
+    /// @dev The handle node this test names is the one the proof outputs.
+    function test_theNodesAreTheProofsOutputs() public view {
+        bytes32[] memory inputs = vm.parseJsonBytes32Array(vm.readFile(PROOF), ".public_inputs");
+        assertEq(bytes32((uint256(inputs[34]) << 128) | uint256(inputs[35])), _idNode());
+        assertEq(bytes32((uint256(inputs[HANDLE_HIGH]) << 128) | uint256(inputs[HANDLE_LOW])), _handleNode());
+    }
+
+    /// @dev The proof binds the handle node: a payload naming another one,
+    ///      privately so no disclosure check runs first, fails the Honk
+    ///      verifier's sumcheck and binds nothing.
+    function test_anotherHandleNodeFailsTheProof() public {
+        GooglePlatformVerifier.GoogleProof memory s = _proof("");
+        s.publicInputs[HANDLE_LOW] ^= bytes32(uint256(1));
+        bytes memory payload = abi.encode(s);
+        vm.prank(BINDER);
+        vm.expectRevert(abi.encodeWithSignature("SumcheckFailed()"));
+        registry.bind(_platform(), 1, payload);
+        assertEq(registry.resolveId(_idNode()), address(0));
+        (address holder,) = registry.handleBinding(_handleNode());
+        assertEq(holder, address(0));
     }
 }
