@@ -26,85 +26,186 @@ library RefCeremonyAttestation {
     bytes internal constant BEARER_SUFFIX = "\r\n";
     bytes internal constant AUTHORIZATION_NEEDLE = "\r\nauthorization:";
 
+    // ─── Framing, over the transcript rebuilt ───────────────────────
+    //
+    // Not the production algorithm in byte loops: production walks the list
+    // of ranges, finds the one ending at a commitment, normalizes it and
+    // compares its tail. This rebuilds the transcript as a byte map -- each
+    // offset revealed (with its byte and its range), committed, or unknown --
+    // and reads every rule off the map with a forward, streaming
+    // normalization. Both read the same rule, stated in
+    // `CeremonyAttestation.requireFramedCommitment`:
+    //
+    //   - the prefix occurs at most once in the revealed bytes joined, JSON
+    //     whitespace removed;
+    //   - a commitment is framed when the revealed range that ends exactly at
+    //     its start ends, whitespace removed, with the prefix -- one range,
+    //     never a join -- and, for a string, the suffix is revealed right
+    //     after it, joins allowed; for an integer, the range that starts
+    //     exactly at its end begins, whitespace aside, with `,` or `}`;
+    //   - exactly one commitment is framed.
+    //
+    // Blocks are ascending, nonempty and disjoint, as `decode` returns them.
+
+    uint8 private constant UNKNOWN = 0;
+    uint8 private constant REVEALED = 1;
+    uint8 private constant COMMITTED = 2;
+
+    /// @dev The transcript as far as the block covers it.
+    struct ByteMap {
+        uint8[] kind;
+        bytes text;
+        /// The revealed range or the commitment an offset belongs to.
+        uint256[] owner;
+    }
+
     function requireFramedCommitment(
         CeremonyAttestation.DirectionBlock memory block_,
         bytes memory prefix,
         bytes memory suffix
     ) internal pure returns (CeremonyAttestation.RangeCommitment memory framed) {
-        if (_occurrences(RefCeremonyFields.normalizeJsonBytes(concatRevealed(block_)), prefix) > 1) {
-            revert AmbiguousFraming();
-        }
-
-        uint256 found = type(uint256).max;
-        for (uint256 i = 0; i < block_.commitments.length; ++i) {
-            CeremonyAttestation.RangeCommitment memory c = block_.commitments[i];
-            if (!_anchoredBy(block_, c.start, prefix)) continue;
-            bytes memory after_ = _revealedSlice(block_, c.end, c.end + uint32(suffix.length));
-            if (keccak256(after_) != keccak256(suffix)) continue;
-
-            if (found != type(uint256).max) revert AmbiguousFraming();
-            found = i;
-        }
-        if (found == type(uint256).max) revert NoFramedCommitment();
-        return block_.commitments[found];
+        return _framed(block_, prefix, suffix, false);
     }
 
-    /// @dev The one commitment that is a bare JSON integer's digits: `prefix`
-    ///      ends the revealed range before it, and the revealed range after it
-    ///      begins, JSON whitespace aside, with `,` or `}`.
     function requireFramedInteger(CeremonyAttestation.DirectionBlock memory block_, bytes memory prefix)
         internal
         pure
         returns (CeremonyAttestation.RangeCommitment memory framed)
     {
-        if (_occurrences(RefCeremonyFields.normalizeJsonBytes(concatRevealed(block_)), prefix) > 1) {
-            revert AmbiguousFraming();
-        }
+        return _framed(block_, prefix, "", true);
+    }
 
-        uint256 found = type(uint256).max;
+    function _framed(
+        CeremonyAttestation.DirectionBlock memory block_,
+        bytes memory prefix,
+        bytes memory suffix,
+        bool integer
+    ) private pure returns (CeremonyAttestation.RangeCommitment memory) {
+        ByteMap memory m = _map(block_);
+        if (_countIn(RefCeremonyFields.normalizeJsonBytes(_revealedText(m)), prefix) > 1) revert AmbiguousFraming();
+
+        uint256 framedCount;
+        uint256 which;
+        for (uint256 ci = 0; ci < block_.commitments.length; ++ci) {
+            CeremonyAttestation.RangeCommitment memory c = block_.commitments[ci];
+            bool closed = integer ? _numberEndsAt(m, c.end) : _revealedAt(m, c.end, suffix);
+            if (closed && _anchorEndsWith(m, c.start, prefix)) {
+                ++framedCount;
+                if (framedCount == 1) which = ci;
+            }
+        }
+        if (framedCount == 0) revert NoFramedCommitment();
+        if (framedCount > 1) revert AmbiguousFraming();
+        return block_.commitments[which];
+    }
+
+    function _map(CeremonyAttestation.DirectionBlock memory block_) private pure returns (ByteMap memory m) {
+        uint256 size;
+        for (uint256 i = 0; i < block_.revealed.length; ++i) {
+            if (block_.revealed[i].end > size) size = block_.revealed[i].end;
+        }
+        for (uint256 i = 0; i < block_.commitments.length; ++i) {
+            if (block_.commitments[i].end > size) size = block_.commitments[i].end;
+        }
+        m.kind = new uint8[](size);
+        m.text = new bytes(size);
+        m.owner = new uint256[](size);
+        for (uint256 i = 0; i < block_.revealed.length; ++i) {
+            CeremonyAttestation.RevealedRange memory r = block_.revealed[i];
+            for (uint256 p = r.start; p < r.end; ++p) {
+                (m.kind[p], m.text[p], m.owner[p]) = (REVEALED, r.value[p - r.start], i);
+            }
+        }
         for (uint256 i = 0; i < block_.commitments.length; ++i) {
             CeremonyAttestation.RangeCommitment memory c = block_.commitments[i];
-            if (!_anchoredBy(block_, c.start, prefix)) continue;
-            if (!_endsANumber(block_, c.end)) continue;
-
-            if (found != type(uint256).max) revert AmbiguousFraming();
-            found = i;
+            for (uint256 p = c.start; p < c.end; ++p) {
+                (m.kind[p], m.owner[p]) = (COMMITTED, i);
+            }
         }
-        if (found == type(uint256).max) revert NoFramedCommitment();
-        return block_.commitments[found];
     }
 
-    /// @dev Whether the revealed range starting at `at` has `,` or `}` as
-    ///      its first byte that is not JSON whitespace.
-    function _endsANumber(CeremonyAttestation.DirectionBlock memory block_, uint32 at) private pure returns (bool) {
-        for (uint256 i = 0; i < block_.revealed.length; ++i) {
-            if (block_.revealed[i].start != at) continue;
-            bytes memory v = block_.revealed[i].value;
-            uint256 j = 0;
-            while (j < v.length && (v[j] == " " || v[j] == "\t" || v[j] == "\n" || v[j] == "\r")) {
-                ++j;
-            }
-            return j < v.length && (v[j] == "," || v[j] == "}");
+    /// @dev Every revealed byte, in transcript order.
+    function _revealedText(ByteMap memory m) private pure returns (bytes memory out) {
+        out = new bytes(m.text.length);
+        uint256 n;
+        for (uint256 p = 0; p < m.text.length; ++p) {
+            if (m.kind[p] == REVEALED) out[n++] = m.text[p];
+        }
+        assembly ("memory-safe") {
+            mstore(out, n)
+        }
+    }
+
+    /// @dev Whether the revealed range whose last byte sits right before `at`
+    ///      -- and that range alone -- ends, whitespace removed, with `prefix`.
+    function _anchorEndsWith(ByteMap memory m, uint256 at, bytes memory prefix) private pure returns (bool) {
+        if (at == 0 || at > m.kind.length || m.kind[at - 1] != REVEALED) return false;
+        uint256 range = m.owner[at - 1];
+        // The range has to END here, not run on past the commitment's start.
+        if (at < m.kind.length && m.kind[at] == REVEALED && m.owner[at] == range) return false;
+        uint256 from = at - 1;
+        while (from > 0 && m.kind[from - 1] == REVEALED && m.owner[from - 1] == range) {
+            --from;
+        }
+        bytes memory text = new bytes(at - from);
+        for (uint256 p = from; p < at; ++p) {
+            text[p - from] = m.text[p];
+        }
+        bytes memory normalized = RefCeremonyFields.normalizeJsonBytes(text);
+        if (normalized.length < prefix.length) return false;
+        uint256 offset = normalized.length - prefix.length;
+        for (uint256 k = 0; k < prefix.length; ++k) {
+            if (normalized[offset + k] != prefix[k]) return false;
+        }
+        return true;
+    }
+
+    /// @dev Whether `expected` is revealed, byte for byte, from `at` on.
+    function _revealedAt(ByteMap memory m, uint256 at, bytes memory expected) private pure returns (bool) {
+        for (uint256 k = 0; k < expected.length; ++k) {
+            uint256 p = at + k;
+            if (p >= m.kind.length || m.kind[p] != REVEALED || m.text[p] != expected[k]) return false;
+        }
+        return true;
+    }
+
+    /// @dev Whether a revealed range begins exactly at `at` and its first
+    ///      byte that is not JSON whitespace is `,` or `}`.
+    function _numberEndsAt(ByteMap memory m, uint256 at) private pure returns (bool) {
+        if (at >= m.kind.length || m.kind[at] != REVEALED) return false;
+        uint256 range = m.owner[at];
+        if (at > 0 && m.kind[at - 1] == REVEALED && m.owner[at - 1] == range) return false;
+        for (uint256 p = at; p < m.kind.length && m.kind[p] == REVEALED && m.owner[p] == range; ++p) {
+            bytes1 b = m.text[p];
+            if (b == " " || b == "\t" || b == "\n" || b == "\r") continue;
+            return b == "," || b == "}";
         }
         return false;
     }
 
-    function _anchoredBy(CeremonyAttestation.DirectionBlock memory block_, uint32 at, bytes memory prefix)
-        private
-        pure
-        returns (bool)
-    {
-        for (uint256 i = 0; i < block_.revealed.length; ++i) {
-            CeremonyAttestation.RevealedRange memory range = block_.revealed[i];
-            if (range.end != at) continue;
-            bytes memory normalized = RefCeremonyFields.normalizeJsonBytes(range.value);
-            if (normalized.length < prefix.length) return false;
-            for (uint256 j = 0; j < prefix.length; ++j) {
-                if (normalized[normalized.length - prefix.length + j] != prefix[j]) return false;
+    /// @dev Copies of `needle` in `haystack`, overlapping ones included.
+    function _countIn(bytes memory haystack, bytes memory needle) private pure returns (uint256 count) {
+        if (needle.length == 0) return haystack.length + 1;
+        uint256 matched;
+        // Each start offset is tracked by how far its match has got; a match
+        // that fails is dropped, and one that completes is counted.
+        uint256[] memory progress = new uint256[](haystack.length);
+        uint256 live;
+        for (uint256 i = 0; i < haystack.length; ++i) {
+            progress[live++] = 0;
+            uint256 kept;
+            for (uint256 j = 0; j < live; ++j) {
+                if (haystack[i] != needle[progress[j]]) continue;
+                uint256 next = progress[j] + 1;
+                if (next == needle.length) {
+                    ++matched;
+                } else {
+                    progress[kept++] = next;
+                }
             }
-            return true;
+            live = kept;
         }
-        return false;
+        return matched;
     }
 
     function _occurrences(bytes memory haystack, bytes memory needle) internal pure returns (uint256 count) {
@@ -279,27 +380,36 @@ library RefCeremonyFields {
     error MalformedForm(uint256 at);
     error EmptyFormValue(string name);
 
+    /// @dev Streaming: a whitespace run is held back until the byte after it
+    ///      decides it. It goes when that byte, or the last byte kept before
+    ///      it, is structural; a run the data ends on goes when the last byte
+    ///      kept is structural.
     function normalizeJsonBytes(bytes memory data) internal pure returns (bytes memory out) {
         out = new bytes(data.length);
         uint256 n;
-        uint256 i;
-        while (i < data.length) {
-            if (!_isJsonWhitespace(data[i])) {
-                out[n++] = data[i];
-                ++i;
+        uint256 heldFrom;
+        uint256 held;
+        bool lastStructural;
+        for (uint256 i = 0; i < data.length; ++i) {
+            bytes1 c = data[i];
+            if (_isJsonWhitespace(c)) {
+                if (held == 0) heldFrom = i;
+                ++held;
                 continue;
             }
-            uint256 j = i;
-            while (j < data.length && _isJsonWhitespace(data[j])) {
-                ++j;
-            }
-            bool touches = (n != 0 && _isStructural(out[n - 1])) || (j < data.length && _isStructural(data[j]));
-            if (!touches) {
-                for (uint256 k = i; k < j; ++k) {
+            if (held != 0 && !lastStructural && !_isStructural(c)) {
+                for (uint256 k = heldFrom; k < heldFrom + held; ++k) {
                     out[n++] = data[k];
                 }
             }
-            i = j;
+            held = 0;
+            out[n++] = c;
+            lastStructural = _isStructural(c);
+        }
+        if (held != 0 && !lastStructural) {
+            for (uint256 k = heldFrom; k < heldFrom + held; ++k) {
+                out[n++] = data[k];
+            }
         }
         assembly ("memory-safe") {
             mstore(out, n)

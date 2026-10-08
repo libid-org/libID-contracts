@@ -1051,6 +1051,58 @@ contract TranscriptEquivalenceTest is Test {
         _same(address(live), address(ref), abi.encodeCall(LiveHelpers.requireFramedCommitment, (block_, '"id":"', '"')));
     }
 
+    /// @dev How often the generators above produce a framing both sides
+    ///      accept. Fuzz runs cannot count across runs, so this walks seeds
+    ///      itself: an equivalence that only ever compares two refusals
+    ///      proves nothing about what is accepted.
+    function test_theFramingGeneratorsAcceptOften() public {
+        uint256 runs = 300;
+        uint256[5] memory accepted;
+        for (uint256 seed = 0; seed < runs; ++seed) {
+            // One call per seed, so each seed's memory is released with its frame.
+            bool[5] memory outcome = this.framingOutcomes(seed);
+            for (uint256 i = 0; i < 5; ++i) {
+                if (outcome[i]) ++accepted[i];
+            }
+        }
+        string[5] memory names = [
+            "framed commitment accepted, of 300",
+            "framed integer accepted, of 300",
+            "framed handle accepted, of 300",
+            "X identity session accepted, of 300",
+            "GitHub identity session accepted, of 300"
+        ];
+        for (uint256 i = 0; i < 5; ++i) {
+            emit log_named_uint(names[i], accepted[i]);
+            assertGt(accepted[i], i < 3 ? runs / 5 : runs / 10, names[i]);
+        }
+    }
+
+    /// @dev Which of the framings, and the whole identity sessions, one seed's
+    ///      transcripts pass, both implementations agreeing on each.
+    function framingOutcomes(uint256 seed) external view returns (bool[5] memory outcome) {
+        Gen.Rng memory r = Gen.Rng(seed);
+        (CeremonyAttestation.DirectionBlock memory token,) = r.tokenResponse();
+        outcome[0] = _same(
+            address(live),
+            address(ref),
+            abi.encodeCall(LiveHelpers.requireFramedCommitment, (token, '"access_token":"', '"'))
+        );
+        (CeremonyAttestation.DirectionBlock memory gh,) = r.identityResponse(true, "login");
+        outcome[1] = _same(address(live), address(ref), abi.encodeCall(LiveHelpers.requireFramedInteger, (gh, '"id":')));
+        outcome[2] = _same(
+            address(live), address(ref), abi.encodeCall(LiveHelpers.requireFramedCommitment, (gh, '"login":"', '"'))
+        );
+        outcome[3] = _same(
+            address(x), address(refX), abi.encodeCall(XTranscripts.identityTranscript, (_identitySession(r, false)))
+        );
+        outcome[4] = _same(
+            address(github),
+            address(refGitHub),
+            abi.encodeCall(XTranscripts.identityTranscript, (_identitySession(r, true)))
+        );
+    }
+
     // ─── The byte search ────────────────────────────────────────────
 
     /// @dev The bounded `indexOfByte` against a byte loop over `[from, end)`.
