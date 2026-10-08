@@ -17,7 +17,7 @@ import {CeremonyProofVerifier} from "../../ceremony/CeremonyProofVerifier.sol";
 import {IPlatformVerifier} from "../../ceremony/IPlatformVerifier.sol";
 import {IProofVerifier} from "../../ceremony/IProofVerifier.sol";
 import {HandleEscrow, NATIVE_TOKEN} from "../HandleEscrow.sol";
-import {FeeToken, InertToken, RejectEther, TestERC20, one} from "./EscrowMocks.sol";
+import {FeeToken, InertToken, PreNodeRegistry, RejectEther, SettableRegistry, TestERC20, one} from "./EscrowMocks.sol";
 
 // The native token as the escrow names it.
 address constant NATIVE = NATIVE_TOKEN;
@@ -631,14 +631,20 @@ contract HandleEscrowTest is Test {
 
     // ─── Wiring and upgrades ────────────────────────────────────────
 
-    /// `initialize` refuses a registry that does not answer `handleBinding` in shape.
+    /// `initialize` refuses a registry that does not answer `handleBinding` in
+    /// shape, or is not the registry that keys identities by node.
     function test_initializeChecksTheRegistry() public {
         assertEq(address(escrow.registry()), address(registry));
         _assertRefused(address(0), abi.encodeWithSelector(HandleEscrow.NoRegistry.selector));
         _assertLacks(makeAddr("no code"), IIdentityRegistry.handleBinding.selector);
         _assertLacks(address(new RegistryWithAOneWordFallback()), IIdentityRegistry.handleBinding.selector);
         _assertLacks(address(new RegistryWithASilentFallback()), IIdentityRegistry.handleBinding.selector);
-        _deploy(address(new RegistryWithHandleBindingOnly()));
+        // The registry before identities were keyed by node answers
+        // `handleBinding` too; it lacks `resolveId(bytes32)`.
+        _assertLacks(address(new PreNodeRegistry()), IdentityRegistry.resolveId.selector);
+        _assertLacks(address(new RegistryWithHandleBindingOnly()), IdentityRegistry.resolveId.selector);
+        // The two functions in their shapes are all it asks.
+        _deploy(address(new SettableRegistry()));
 
         HandleEscrow impl = new HandleEscrow();
         vm.expectRevert(Initializable.InvalidInitialization.selector);

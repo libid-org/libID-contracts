@@ -22,6 +22,25 @@ contract SettableRegistry is IIdentityRegistry {
     function handleBinding(bytes32 handleNode) external view returns (address holder, uint64 observedAt) {
         return (holderOf[handleNode], 0);
     }
+
+    /// The function `HandleEscrow` probes to tell this registry from the one
+    /// before it.
+    function resolveId(bytes32) external pure returns (address) {
+        return address(0);
+    }
+}
+
+/// @notice Shaped like the registry before identities were keyed by node:
+///         `handleBinding` answers alike, and `resolveId` takes a platform and
+///         an id rather than a node.
+contract PreNodeRegistry is IIdentityRegistry {
+    function handleBinding(bytes32) external pure returns (address holder, uint64 observedAt) {
+        return (address(0), 0);
+    }
+
+    function resolveId(bytes32, string calldata) external pure returns (address) {
+        return address(0);
+    }
 }
 
 /// @notice A plain ERC-20 anybody can mint.

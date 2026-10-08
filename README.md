@@ -116,6 +116,10 @@ upgrade a live proxy onto it:
 - The `x`, `github` and `google` ceremonies stay at ceremony version 1. Their
   payload shapes are this release's, so a client built against an earlier
   deployment is refused at decode.
+- `HandleEscrow` is redeployed against the new registry, never upgraded or
+  re-pointed: its deposits are keyed by handle node, and a node means nothing
+  to the registry before it. `initialize` probes `resolveId(bytes32)`, which
+  only the new registry has, and reverts `RegistryLacks` against the old one.
 
 ## Releasing
 
