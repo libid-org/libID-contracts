@@ -24,7 +24,10 @@ import {TlsNotaryVerifierBase} from "./TlsNotaryVerifierBase.sol";
 ///                         committed.
 ///        identity request — the bearer committed, every other byte revealed and
 ///                         tiled exactly, per REQ-COMMON-35.
-///        identity response — `id` and `username` with their full delimiters.
+///        identity response — the `"id":"` and `"username":"` anchors and
+///                         each closing quote revealed; the id and the handle
+///                         each one commitment between them, which the
+///                         circuit opens and hashes into the two nodes.
 ///
 ///      A notary emitting a different layout produces attestations this
 ///      verifier rejects, so the layout must be agreed before either ships.
@@ -116,9 +119,9 @@ contract XPlatformVerifier is TlsNotaryVerifierBase {
         if (keccak256(grantType) != keccak256(GRANT_TYPE)) revert WrongGrantType(grantType);
     }
 
-    /// @dev REQ-PLAT-31. X's `id` is a JSON string, so both members are read by
-    ///      their full `"field":"` delimiters, refusing a transcript where
-    ///      either matches twice.
+    /// @dev REQ-PLAT-31. X's `id` is a JSON string, so both commitments are
+    ///      found by their full `"field":"` anchors and a closing quote,
+    ///      refusing a transcript where either anchor is revealed twice.
     function _identityFields()
         internal
         pure

@@ -102,6 +102,21 @@ dry-run and publish, refusing any tarball whose digest is not the pin's; a
 release cannot ship a verifier that is not what the pinned circuits release
 shipped.
 
+## Deploying hashed identities
+
+The registry keys identities by the nodes the circuits output, and each
+Platform Verifier decodes a payload that carries those nodes. Neither reads
+what an earlier deployment stored or accepts what an earlier client sent, so
+this stack ships only as a new deployment under new canonical names. Never
+upgrade a live proxy onto it:
+
+- `IdentityRegistry` keeps the storage namespace `libid.storage.IdentityRegistry`,
+  and its slots hold nodes. A proxy upgraded from a registry that held other
+  keys would read every stored entry as a node it never was, and answer.
+- The `x`, `github` and `google` ceremonies stay at ceremony version 1. Their
+  payload shapes are this release's, so a client built against an earlier
+  deployment is refused at decode.
+
 ## Releasing
 
 The Rust crate ([`libid-contracts`](https://crates.io/crates/libid-contracts))

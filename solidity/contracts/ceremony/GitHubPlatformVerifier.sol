@@ -8,11 +8,13 @@ import {TlsNotaryVerifierBase} from "./TlsNotaryVerifierBase.sol";
 
 /// @title GitHubPlatformVerifier — the `github/v1` profile.
 ///
-/// @notice The same relation X states, for a second platform.
+/// @notice The same relation X states, for a second platform, proved under
+///         GitHub's own circuit.
 ///
 /// @dev This verifier sees two attestations and one proof, exactly as X does.
-///      It differs in its constants and two reads, and adds no value check
-///      of its own: the base holds the token body to `GITHUB_TOKEN_FIELDS`
+///      It differs in its constants, the shape of its id, and the circuit it
+///      pins -- `bearer-link-github`, which hashes under GitHub's tags -- and
+///      adds no value check of its own: the base holds the token body to `GITHUB_TOKEN_FIELDS`
 ///      and reads `code_verifier` and `client_id` out of it, nothing else.
 ///
 ///      TWO AUTHORITIES, NOT ONE. `github.com` serves the exchange and
@@ -51,7 +53,11 @@ import {TlsNotaryVerifierBase} from "./TlsNotaryVerifierBase.sol";
 ///                         revealed; the bearer and everything else committed.
 ///        identity request — the bearer committed, every other byte revealed
 ///                         and tiled exactly.
-///        identity response — `id` and `login` with their full delimiters.
+///        identity response — the `"id":` and `"login":"` anchors revealed,
+///                         with the `,` or `}` after the id and the quote
+///                         after the login; the id and the handle each one
+///                         commitment between them, which the circuit opens
+///                         and hashes into the two nodes.
 ///
 ///      An attestation of this exchange carries the application credential in
 ///      plaintext: to the notary that observed the session, and to every
@@ -130,11 +136,11 @@ contract GitHubPlatformVerifier is TlsNotaryVerifierBase {
         return CeremonyProfile.GITHUB_TOKEN_FIELDS;
     }
 
-    /// @dev REQ-PLAT-51. GitHub's `id` is a BARE integer, so it is read by the
-    ///      integer template with its terminator pinned to `,` or `}` and no
-    ///      other byte: the terminator is what proves the revealed digits are
-    ///      the whole number rather than a prefix of a longer one, and JSON
-    ///      member order does not say which of the two closes it.
+    /// @dev REQ-PLAT-51. GitHub's `id` is a BARE integer, so its commitment is
+    ///      found by the integer framing with its terminator pinned to `,` or
+    ///      `}` and no other byte: the terminator is what proves the committed
+    ///      digits are the whole number rather than a prefix of a longer one,
+    ///      and JSON member order does not say which of the two closes it.
     ///
     ///      The handle field is `login`, not `username`.
     function _identityFields()

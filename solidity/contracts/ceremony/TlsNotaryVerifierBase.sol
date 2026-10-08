@@ -10,7 +10,9 @@ import {PlatformVerifierBase} from "./PlatformVerifierBase.sol";
 
 /// @title TlsNotaryVerifierBase
 /// @notice The shape both TLSNotary profiles share: two notarized sessions, one
-///         hidden bearer linking them, one proof binding that link.
+///         hidden bearer linking them, and one proof, under the platform's own
+///         circuit, binding that link and the committed id and handle to the
+///         two nodes the payload claims.
 ///
 /// @dev `x/v1` and `github/v1` state the same relation and differ only in
 ///      constants and two reads, so the flow lives here once. What a subclass
@@ -23,8 +25,14 @@ import {PlatformVerifierBase} from "./PlatformVerifierBase.sol";
 ///        the token body's field list, which the base holds the whole body to;
 ///        any value check on the token body beyond the base's — X compares
 ///        `grant_type`, GitHub adds none;
-///        how the identity fields are read — X's `id` is a JSON string, GitHub's
-///        a bare integer.
+///        how the identity commitments are framed — X's `id` is a JSON
+///        string, GitHub's a bare integer.
+///
+///      What differs and is not code is the circuit. Each platform has its
+///      own, carrying its handle rules and node tags, and the subclass's
+///      deployment pins that circuit's Honk verifier. The public-input layout
+///      below is the same for both, so the pin is what keeps an X proof from
+///      keying a GitHub binding.
 ///
 ///      Order matters in one place. The proof is verified LAST, once the
 ///      commitments it links are known to be the ones the attestations carried;
@@ -61,8 +69,9 @@ abstract contract TlsNotaryVerifierBase is IPlatformVerifier, PlatformVerifierBa
     /// @dev `abi.encode` of this struct is the payload for `x/v1` and
     ///      `github/v1`. The two profiles share one shape because they state
     ///      the same relation; platform separation is the route that reached
-    ///      this contract plus the authorities each subclass pins, not the
-    ///      struct's name, which the encoding does not carry.
+    ///      this contract, the authorities each subclass pins, and the circuit
+    ///      its Honk verifier answers for, not the struct's name, which the
+    ///      encoding does not carry.
     ///
     ///      It carries no platform id and no chain id: this verifier knows the
     ///      first and reads the second. It carries no public inputs and no
@@ -170,15 +179,15 @@ abstract contract TlsNotaryVerifierBase is IPlatformVerifier, PlatformVerifierBa
 
     /// @dev Which shape a platform's immutable identifier takes in its identity
     ///      response. X quotes it; GitHub sends a bare integer, whose
-    ///      terminator is what proves the revealed digits are the whole number
-    ///      rather than a prefix of a longer one.
+    ///      terminator is what proves the committed digits are the whole
+    ///      number rather than a prefix of a longer one.
     enum IdShape {
         JsonString,
         JsonInteger
     }
 
-    /// @dev The two identity members this profile reads, as DATA rather than as
-    ///      a reading routine.
+    /// @dev The two identity members whose commitments this profile frames, as
+    ///      DATA rather than as a reading routine.
     ///
     ///      A hook handed the direction block could concatenate its revealed
     ///      ranges, index them positionally, or read `revealed[0]` -- and each

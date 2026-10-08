@@ -232,6 +232,11 @@ contract IdentityRegistry is
     ///      reorder or remove one: both would make an upgraded proxy read every
     ///      stored value out of the wrong bytes, and a struct read from the
     ///      wrong bytes does not revert — it answers.
+    ///
+    ///      Its slots hold circuit-proved nodes, and a registry keyed any other
+    ///      way uses the same namespace, so this contract ships only as a new
+    ///      deployment under new canonical names, never as an upgrade of a
+    ///      proxy that holds such a registry.
     function _s() private pure returns (IdentityRegistryStorage storage $) {
         assembly {
             $.slot := IDENTITY_REGISTRY_STORAGE

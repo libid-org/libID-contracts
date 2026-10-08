@@ -136,6 +136,17 @@ abstract contract PlatformVerifierBase is ICeremony, Initializable, UUPSUpgradea
     ///      for the EXACT artifact governance selected; an address alone does
     ///      not say which circuit answers behind it, and a mismatch found at
     ///      the first user's proof is found in production.
+    ///
+    ///      The owner must pin THIS platform's circuit. X's and GitHub's
+    ///      circuits share one public-input layout, so a TLSNotary verifier
+    ///      wired to the other platform's Honk verifier accepts that circuit's
+    ///      proofs, whose nodes hash the id and handle under the other
+    ///      platform's tags and rules. The code hash check proves which
+    ///      artifact is wired, not that it is this platform's. The
+    ///      `libid-contracts` crate refuses that pairing off chain, in
+    ///      `Initializer::call` and in `PlatformVerifier::circuit_codehash_at`
+    ///      for a rotation; a call built any other way is the owner's to get
+    ///      right.
     function setTrustRoots(INotaryService notary_, IHonkVerifier honkVerifier_, bytes32 honkVerifierCodehash_)
         external
         onlyOwner

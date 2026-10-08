@@ -51,8 +51,9 @@ impl std::fmt::Display for HandleError {
 
 impl std::error::Error for HandleError {}
 
-/// What one platform accepts. Held per platform, so a new platform is
-/// configuration rather than code.
+/// What one platform accepts. Each platform's rules are a generated
+/// constant from `handles.json`, the table its circuit folds handles with; a
+/// new platform is a `handles.json` entry and a circuit of its own.
 #[derive(Debug, Clone, Copy)]
 pub struct Rules {
     /// Bytes allowed.

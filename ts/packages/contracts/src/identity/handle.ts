@@ -51,8 +51,9 @@ const BAD_CHARACTER = () =>
 const BAD_SHAPE = () =>
   new HandleError(ERROR_BADSHAPE, 'the handle has an arrangement this platform does not allow')
 
-/// What one platform accepts. Held per platform, so a new platform is
-/// configuration rather than code.
+/// What one platform accepts. Each platform's rules are a generated
+/// constant from `handles.json`, the table its circuit folds handles with; a
+/// new platform is a `handles.json` entry and a circuit of its own.
 export interface Rules {
   /** Bytes allowed. */
   maxLength: number

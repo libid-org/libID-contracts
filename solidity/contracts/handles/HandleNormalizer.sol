@@ -25,8 +25,10 @@ library HandleNormalizer {
     /// Allowed bytes in an arrangement the platform does not allow.
     error BadShape();
 
-    /// @notice What one platform accepts. Stored per platform, so a new
-    ///         platform is configuration rather than code.
+    /// @notice What one platform accepts. Each platform's rules are a
+    ///         `HandleVectors` constant generated from `handles.json`, the
+    ///         table its circuit folds handles with; a new platform is a
+    ///         `handles.json` entry and a circuit of its own.
     ///
     /// @param maxLength       Bytes allowed.
     /// @param isEmail         Validate as an address instead of a bare handle.
