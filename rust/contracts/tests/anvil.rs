@@ -546,7 +546,10 @@ async fn deploys_and_initializes_every_platform_verifier() {
         );
         let honk_codehash = keccak256(provider.get_code_at(honk).await.unwrap());
         assert_eq!(
-            init.call(&provider).await.unwrap().honk_verifier_codehash(),
+            init.call(&provider, &artifacts)
+                .await
+                .unwrap()
+                .honk_verifier_codehash(),
             honk_codehash,
             "{verifier:?}: the initializer computed a hash the chain does not hold"
         );
@@ -652,11 +655,87 @@ async fn deploys_and_initializes_every_platform_verifier() {
     // A Honk verifier that is not deployed is caught before any transaction:
     // the hash of nothing is exactly what the contract refuses to pin.
     let err = Initializer::X(tls(Address::repeat_byte(0x99)))
-        .call(&provider)
+        .call(&provider, &artifacts)
         .await
         .unwrap_err();
     assert!(matches!(err, Error::Initializer { .. }), "{err}");
     assert!(err.to_string().contains("no code at"), "{err}");
+
+    // Each deployed verifier holds its circuit's vendored runtime code, so
+    // the hash the initializer checks against is the one the chain reports.
+    for circuit in Circuit::ALL {
+        assert_eq!(
+            circuit.runtime_codehash(&artifacts).unwrap(),
+            codehash_at(&provider, honk_at(circuit)).await.unwrap(),
+            "{circuit:?}"
+        );
+    }
+
+    // X wired to GitHub's circuit is refused by name, before any
+    // transaction: the two share a public-input layout, so the contract
+    // would accept it and key X bindings under GitHub's tags. Code that is
+    // no vendored verifier at all is refused the same way.
+    let err = Initializer::X(tls(bearer_link_github))
+        .call(&provider, &artifacts)
+        .await
+        .unwrap_err();
+    match &err {
+        Error::WrongCircuit {
+            contract,
+            address,
+            expected,
+            found,
+            ..
+        } => {
+            assert_eq!(*contract, "XPlatformVerifier");
+            assert_eq!(*address, bearer_link_github);
+            assert_eq!(*expected, Circuit::BearerLinkX);
+            assert_eq!(*found, Some(Circuit::BearerLinkGithub));
+        }
+        other => panic!("expected WrongCircuit, got {other}"),
+    }
+    assert!(
+        err.to_string().contains("bearer-link-github")
+            && err.to_string().contains("bearer-link-x"),
+        "{err}"
+    );
+    // The rotation path runs the same check: the hash `setTrustRoots`
+    // takes is handed out only for the platform's own circuit.
+    assert_eq!(
+        PlatformVerifier::GitHub
+            .circuit_codehash_at(&provider, &artifacts, bearer_link_github)
+            .await
+            .unwrap(),
+        codehash_at(&provider, bearer_link_github).await.unwrap()
+    );
+    assert!(matches!(
+        PlatformVerifier::GitHub
+            .circuit_codehash_at(&provider, &artifacts, bearer_link_x)
+            .await,
+        Err(Error::WrongCircuit {
+            found: Some(Circuit::BearerLinkX),
+            ..
+        })
+    ));
+    let err = deploy_platform_verifier(
+        &provider,
+        &artifacts,
+        &Initializer::GitHub(tls(notary_proxy)),
+        None,
+    )
+    .await
+    .unwrap_err();
+    assert!(
+        matches!(
+            err,
+            Error::WrongCircuit {
+                expected: Circuit::BearerLinkGithub,
+                found: None,
+                ..
+            }
+        ),
+        "{err}"
+    );
 
     // The rules the wrapper enforces are the contract's, not its own: a
     // hand-built Google initializer carrying a Notary Service, and an X one

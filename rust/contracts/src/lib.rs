@@ -25,8 +25,8 @@
 //!   through it at name-derived CREATE3 addresses.
 //! - [`platform_verifier`] — the Platform Verifier initializer: which
 //!   contract serves which platform, and an `initialize` call built with the
-//!   Honk verifier's code hash read off chain and the rules
-//!   `PlatformVerifierBase` enforces checked first.
+//!   Honk verifier's code hash read off chain, checked to be its platform's
+//!   circuit, and the rules `PlatformVerifierBase` enforces checked first.
 //! - [`circuits`] — the ceremony circuits' UltraHonk verifiers, vendored
 //!   from the pinned `libid-circuits` release: which circuit a platform
 //!   proves under, and the deploy of its verifier.

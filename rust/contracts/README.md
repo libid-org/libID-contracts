@@ -83,7 +83,10 @@ by address and by code hash, and holds a Notary Service only if its profile
 notarizes anything. Its validity window is its profile's, compiled in, so the
 initializer takes none. `platform_verifier::Initializer`
 knows those rules: it reads the code hash off the chain, refuses what the
-contract would refuse, and builds the exact `initialize` call.
+contract would refuse, and builds the exact `initialize` call. It also refuses
+a Honk verifier that is not its platform's circuit (`Error::WrongCircuit`),
+which the contract cannot: X's and GitHub's circuits share one public-input
+layout.
 
 The Honk verifier is vendored here too, from the pinned `libid-circuits`
 release: bb's optimized verifier, one contract per circuit.
@@ -139,8 +142,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-For a factory (CREATE3) deploy, `Initializer::call` returns the typed
-`initialize` call; `abi_encode` it into the proxy's init data.
+For a factory (CREATE3) deploy, `Initializer::call(&provider, &artifacts)`
+returns the typed `initialize` call; `abi_encode` it into the proxy's init
+data.
 
 Other entry points:
 
@@ -151,8 +155,11 @@ Other entry points:
   through it at name-derived CREATE3 addresses.
 - `circuits::version` — the `libid-circuits` release the vendored verifiers
   came from, for a consumer that names a deployment after its artifact.
-- `platform_verifier::codehash_at` — the code hash `setTrustRoots` wants
-  when a Platform Verifier is rotated onto a new circuit release.
+- `PlatformVerifier::circuit_codehash_at` — the code hash `setTrustRoots`
+  wants when a Platform Verifier is rotated onto a new circuit release,
+  refused (`Error::WrongCircuit`) unless the address holds that platform's
+  circuit's verifier. `platform_verifier::codehash_at` reads any address's
+  code hash, unchecked.
 - `Artifacts::method_identifiers` — selector extraction from the vendored
   `methodIdentifiers`.
 - `bindings::ceremony::{TlsNotaryProof, GoogleProof}` — the payload a Platform

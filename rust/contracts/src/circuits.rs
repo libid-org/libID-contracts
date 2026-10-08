@@ -18,7 +18,11 @@
 //! pins, beside the code hash it reads off the chain.
 
 use alloy::{
-    primitives::Address,
+    primitives::{
+        keccak256,
+        Address,
+        B256,
+    },
     providers::Provider,
 };
 
@@ -70,6 +74,33 @@ impl Circuit {
             Self::BearerLinkGithub => "BearerLinkGithubHonkVerifier",
             Self::OidcGoogle => "OidcGoogleHonkVerifier",
         }
+    }
+}
+
+impl Circuit {
+    /// The code hash a deployed copy of this circuit's verifier has:
+    /// `keccak256` of the vendored runtime code, which is what `EXTCODEHASH`
+    /// reports at its address. bb's verifier has no immutables, so every
+    /// copy deployed from the vendored creation code holds exactly these
+    /// bytes.
+    pub fn runtime_codehash(self, artifacts: &Artifacts) -> Result<B256> {
+        Ok(keccak256(artifacts.deployed_bytecode_named(
+            self.contract(),
+            self.contract(),
+        )?))
+    }
+
+    /// The circuit whose vendored verifier has this code hash, if any.
+    pub fn with_runtime_codehash(
+        artifacts: &Artifacts,
+        codehash: B256,
+    ) -> Result<Option<Self>> {
+        for circuit in Self::ALL {
+            if circuit.runtime_codehash(artifacts)? == codehash {
+                return Ok(Some(circuit));
+            }
+        }
+        Ok(None)
     }
 }
 
@@ -146,6 +177,23 @@ mod tests {
                 );
             }
         }
+    }
+
+    /// Each circuit's runtime code hash names it back, and no other.
+    #[test]
+    fn a_runtime_codehash_names_its_circuit() {
+        let artifacts = Artifacts::embedded();
+        for circuit in Circuit::ALL {
+            let codehash = circuit.runtime_codehash(&artifacts).unwrap();
+            assert_eq!(
+                Circuit::with_runtime_codehash(&artifacts, codehash).unwrap(),
+                Some(circuit)
+            );
+        }
+        assert_eq!(
+            Circuit::with_runtime_codehash(&artifacts, B256::ZERO).unwrap(),
+            None
+        );
     }
 
     /// The enum and the pin name the same circuits under the same

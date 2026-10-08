@@ -20,6 +20,29 @@ pub enum Error {
         /// Which rule, and which contract.
         detail: String,
     },
+    /// A Platform Verifier initializer pinning a Honk verifier that is not
+    /// its platform's circuit: the code at `address` is another circuit's
+    /// verifier (`found`), or none the crate vendors (`found` is `None`).
+    /// X's and GitHub's circuits share a public-input layout, so the
+    /// contract alone would accept either.
+    #[error(
+        "initializer error: {contract}: the Honk verifier at {address} (code hash {codehash}) \
+         is {}, not the {} circuit's",
+        .found.map_or("no vendored circuit's verifier", |c| c.name()),
+        .expected.name()
+    )]
+    WrongCircuit {
+        /// The Platform Verifier being initialized.
+        contract: &'static str,
+        /// The address it was handed.
+        address: alloy::primitives::Address,
+        /// The circuit its platform proves under.
+        expected: crate::circuits::Circuit,
+        /// The circuit whose verifier is at `address`, if any.
+        found: Option<crate::circuits::Circuit>,
+        /// The code hash at `address`.
+        codehash: alloy::primitives::B256,
+    },
 }
 
 /// Crate result alias.

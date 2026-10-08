@@ -155,13 +155,32 @@ impl Artifacts {
             .collect()
     }
 
+    /// Runtime bytecode — what a deployment leaves at its address — where
+    /// the source file and contract names differ. Equal to the code a
+    /// deployed copy holds only for a contract with no immutables, which
+    /// the Honk verifiers are.
+    pub fn deployed_bytecode_named(&self, file: &str, contract: &str) -> Result<Bytes> {
+        let hex_str = self.object_hex(file, contract, "deployedBytecode")?;
+        let bytes = hex::decode(&hex_str).map_err(|e| Error::Artifact {
+            detail: format!(
+                "invalid deployedBytecode hex for {file}.sol:{contract}: {e}"
+            ),
+        })?;
+        Ok(Bytes::from(bytes))
+    }
+
     /// The raw `bytecode.object` hex, without `0x`.
     pub(crate) fn bytecode_hex(&self, file: &str, contract: &str) -> Result<String> {
+        self.object_hex(file, contract, "bytecode")
+    }
+
+    /// The raw `<field>.object` hex, without `0x`.
+    fn object_hex(&self, file: &str, contract: &str, field: &str) -> Result<String> {
         let json = self.raw(file, contract)?;
-        let raw = json["bytecode"]["object"]
+        let raw = json[field]["object"]
             .as_str()
             .ok_or_else(|| Error::Artifact {
-                detail: format!("no bytecode.object in {file}.sol/{contract}.json"),
+                detail: format!("no {field}.object in {file}.sol/{contract}.json"),
             })?;
         Ok(raw.strip_prefix("0x").unwrap_or(raw).to_owned())
     }
