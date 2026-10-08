@@ -300,7 +300,12 @@ contract IdentityRegistry is
     event HandleUnpublished(address indexed holder, bytes32 indexed platformId);
 
     // ─── Errors ─────────────────────────────────────────────────────
-    // `UnknownPlatform` and `UnusableHandle` are declared in `IIdentityRegistry`.
+
+    /// `handles.json` names no such platform, or a resolver was asked about
+    /// one that has never bound and cannot verify now.
+    error UnknownPlatform(bytes32 platformId);
+    /// Text the platform's rules refuse, with the normalizer's reason.
+    error UnusableHandle(HandleNormalizer.Problem problem);
 
     /// @notice The one operation this Consumer owns.
     ///
@@ -346,6 +351,12 @@ contract IdentityRegistry is
     /// since passed to someone else. Disclose the handle the platform shows
     /// for your account, as it shows it.
     error NotYourHandle(bytes32 handleNode);
+    /// The Platform Verifier returned a disclosed handle that does not hash,
+    /// under the platform's tag, to the handle node it returned with it. A
+    /// verifier that checked its disclosure never returns this pair; the name
+    /// slot is written only with a handle that names the node it is stored
+    /// against.
+    error DisclosureMismatch(bytes32 disclosed, bytes32 bound);
 
     // ─── Setup ──────────────────────────────────────────────────────
 
@@ -387,7 +398,10 @@ contract IdentityRegistry is
     ///      **A disclosed handle comes with the claim.** The payload may carry
     ///      the handle; the Platform Verifier checked it against the handle
     ///      node its proof bound and returns it normalized, and it becomes the
-    ///      caller's name on the platform, as `publish` would make it.
+    ///      caller's name on the platform, as `publish` would make it. The name
+    ///      slot is this contract's, so it hashes the returned handle under the
+    ///      platform's tag once more and refuses one that does not name the
+    ///      returned node (`DisclosureMismatch`).
     function bind(bytes32 platformId, uint16 verifierVersion, bytes calldata payload) external payable nonReentrant {
         _requireKnown(platformId);
 
@@ -425,7 +439,11 @@ contract IdentityRegistry is
         if (claimed.metadataObservedAt == 0) revert NoObservationTime();
 
         _write(platformId, claimed.idNode, claimed.handleNode, claimed.metadataObservedAt, claimed.ceremonyVersion);
-        if (bytes(claimed.handle).length != 0) _name(platformId, claimed.handleNode, claimed.handle);
+        if (bytes(claimed.handle).length != 0) {
+            bytes32 disclosed = HandleNormalizer.node(HandleVectors.handleTagFor(platformId), claimed.handle);
+            if (disclosed != claimed.handleNode) revert DisclosureMismatch(disclosed, claimed.handleNode);
+            _name(platformId, claimed.handleNode, claimed.handle);
+        }
 
         emit CeremonyBound(claimed.sessionId, msg.sender, platformId, claimed.clientIdentifier);
 
@@ -521,8 +539,10 @@ contract IdentityRegistry is
     }
 
     /// @notice Withdraw the caller's name on a platform. The transaction that
-    ///         disclosed it stays public.
+    ///         disclosed it stays public. Reverts `UnknownPlatform` for a
+    ///         platform `handles.json` does not name.
     function unpublish(bytes32 platformId) external {
+        _requireKnown(platformId);
         delete _s().published[msg.sender][platformId];
         emit HandleUnpublished(msg.sender, platformId);
     }
@@ -586,7 +606,8 @@ contract IdentityRegistry is
 
     /// @notice The node a handle is bound under, from the handle as typed.
     ///
-    /// @dev Reverts `UnusableHandle` for text no binding can have. A caller
+    /// @dev Reverts `UnusableHandle` for text no binding can have, and
+    ///      `UnknownPlatform` for a platform `handles.json` does not name. A caller
     ///      paying a handle should compute this once and keep the node: an
     ///      escrow deposit is keyed by it.
     function handleNodeOf(bytes32 platformId, string calldata handle) external pure returns (bytes32) {
@@ -619,8 +640,10 @@ contract IdentityRegistry is
     }
 
     /// @notice The name a holder disclosed on a platform, while it still
-    ///         holds that handle; empty otherwise.
+    ///         holds that handle; empty otherwise. Reverts `UnknownPlatform`
+    ///         for a platform `handles.json` does not name.
     function publishedHandleOf(address holder, bytes32 platformId) external view returns (string memory) {
+        _requireKnown(platformId);
         string memory published = _s().published[holder][platformId];
         if (bytes(published).length == 0) return "";
         bytes32 handleNode = HandleNormalizer.node(HandleVectors.handleTagFor(platformId), published);

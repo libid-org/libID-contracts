@@ -6,7 +6,6 @@ import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.s
 
 import {HandleNormalizer} from "../../handles/HandleNormalizer.sol";
 import {HandleVectors} from "../../handles/HandleVectors.sol";
-import {IIdentityRegistry} from "../IIdentityRegistry.sol";
 import {IdentityRegistry} from "../IdentityRegistry.sol";
 import {IPlatformVerifier} from "../../ceremony/IPlatformVerifier.sol";
 import {IProofVerifier} from "../../ceremony/IProofVerifier.sol";
@@ -63,8 +62,9 @@ contract IdentityDeployWiringTest is Test {
     /// An unknown platform reverts rather than returning a permissive default.
     /// A default would silently normalize with the wrong rules.
     function test_anUnknownPlatformHasNoRules() public {
-        vm.expectRevert(bytes("unknown platform"));
-        this.rulesForExternally(keccak256("nowhere"));
+        bytes32 nowhere = keccak256("nowhere");
+        vm.expectRevert(abi.encodeWithSelector(HandleVectors.UnknownPlatform.selector, nowhere));
+        this.rulesForExternally(nowhere);
     }
 
     /// `rulesFor` is an internal library call, which `expectRevert` cannot see.
@@ -77,7 +77,7 @@ contract IdentityDeployWiringTest is Test {
     /// before that, each resolver refuses it.
     function test_registeringAVerifierMakesEveryPlatformUsable() public {
         vm.expectRevert(
-            abi.encodeWithSelector(IIdentityRegistry.UnknownPlatform.selector, HandleVectors.PLATFORM_GOOGLE)
+            abi.encodeWithSelector(IdentityRegistry.UnknownPlatform.selector, HandleVectors.PLATFORM_GOOGLE)
         );
         registry.resolveHandle(HandleVectors.PLATFORM_GOOGLE, "nobody@example.com");
 

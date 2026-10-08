@@ -19,9 +19,9 @@ escrow.refund(handleNode, token, recipient);   // refundTo, while unclaimed
   names the chain's own coin in `deposit`, `claim`, `refund` and every event.
 - `handleNode` is `SHA256(handle tag || normalized handle)`, the node the
   platform's circuit binds the handle under. Compute it locally with
-  `@libid/contracts` or `libid-identity` (`handleNode`); `handleNodeOf` over
-  RPC sends the handle to the provider. A wrong node funds a slot only
-  `refundTo` can recover.
+  `@libid/contracts` or `libid-identity` (`handleNode`);
+  `IdentityRegistry.handleNodeOf` over RPC sends the handle to the provider. A
+  wrong node funds a slot only `refundTo` can recover.
 - Escrowed value is refundable until claimed; a refund and a claim race.
 - `Deposited`, `Claimed` and `Refunded` name their round. A claim closes the
   round it names and the next deposit opens the next, so a `Refunded` belongs

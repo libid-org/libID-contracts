@@ -4,7 +4,6 @@ pragma solidity ^0.8.20;
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 
 import {IIdentityRegistry} from "../../identity/IIdentityRegistry.sol";
-import {TestNodes} from "../../identity/test/TestNodes.sol";
 
 /// @notice A one-token list for `HandleEscrow.claim`.
 function one(address token) pure returns (address[] memory tokens) {
@@ -22,15 +21,6 @@ contract SettableRegistry is IIdentityRegistry {
 
     function handleBinding(bytes32 handleNode) external view returns (address holder, uint64 observedAt) {
         return (holderOf[handleNode], 0);
-    }
-
-    /// @dev Takes the handle already normalized.
-    function handleNodeOf(bytes32 platformId, string calldata handle) external pure returns (bytes32) {
-        return TestNodes.handleNode(platformId, handle);
-    }
-
-    function acceptsBindings(bytes32 platformId) external pure returns (bool) {
-        return platformId != bytes32(0);
     }
 }
 

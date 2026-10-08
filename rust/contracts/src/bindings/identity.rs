@@ -122,6 +122,7 @@ mod registry_inner {
             );
             /// A platform `handles.json` does not name, or, to a resolver,
             /// one nothing verifies and on which nothing was ever bound.
+            /// Every entry point that takes a platform raises it.
             error UnknownPlatform(bytes32 platformId);
             /// Text the platform's rules refuse; `problem` is a
             /// `HandleNormalizer.Problem`.
@@ -147,6 +148,9 @@ mod registry_inner {
             error StaleProof(uint64 observedAt, uint64 known);
             /// The disclosed handle is not one the caller holds.
             error NotYourHandle(bytes32 handleNode);
+            /// The Platform Verifier returned a handle that does not hash to
+            /// the handle node it returned with it; nothing is written.
+            error DisclosureMismatch(bytes32 disclosed, bytes32 bound);
             error EmptyHandle();
             error HandleTooLong();
             error BadCharacter();

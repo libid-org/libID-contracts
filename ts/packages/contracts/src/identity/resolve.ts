@@ -100,7 +100,8 @@ export async function resolveHandle(
 /// Forward-checked on chain: empty once the stored handle resolves somewhere
 /// else. ENS asks integrators to perform that check themselves and warns that
 /// skipping it displays an ENS primary name that no longer resolves back; here
-/// it cannot be skipped, because the contract does it.
+/// it cannot be skipped, because the contract does it. A revert propagates:
+/// `UnknownPlatform` means `handles.json` names no such platform.
 export async function publishedHandleOf(
   reader: RegistryReader,
   holder: Address,

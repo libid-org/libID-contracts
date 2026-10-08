@@ -47,6 +47,8 @@ contract StubPlatformVerifier is IPlatformVerifier {
     bytes public lastPayload;
     /// Nodes reported as given instead of hashed from `userId` and `handle`,
     /// while `rawNodes` is set: a node no circuit would output, zero among them.
+    /// The payload's handle is then returned as it came, unchecked, as a
+    /// verifier that skipped its disclosure check would return it.
     bool public rawNodes;
     bytes32 public rawIdNode;
     bytes32 public rawHandleNode;
@@ -98,6 +100,7 @@ contract StubPlatformVerifier is IPlatformVerifier {
         if (rawNodes) {
             c.idNode = rawIdNode;
             c.handleNode = rawHandleNode;
+            c.handle = p.handle;
         } else {
             c.idNode = sha256(abi.encodePacked(idTag, userId));
             c.handleNode = sha256(abi.encodePacked(handleTag, HandleNormalizer.normalize(handle, rules)));

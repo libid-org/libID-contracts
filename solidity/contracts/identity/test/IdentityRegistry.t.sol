@@ -6,7 +6,6 @@ import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.s
 
 import {HandleNormalizer} from "../../handles/HandleNormalizer.sol";
 import {HandleVectors} from "../../handles/HandleVectors.sol";
-import {IIdentityRegistry} from "../IIdentityRegistry.sol";
 import {IdentityRegistry} from "../IdentityRegistry.sol";
 import {CeremonyProofVerifier} from "../../ceremony/CeremonyProofVerifier.sol";
 import {IPlatformVerifier} from "../../ceremony/IPlatformVerifier.sol";
@@ -205,7 +204,7 @@ contract IdentityRegistryTest is Test {
         _stage("123", "alice", alice, 100);
 
         vm.prank(alice);
-        vm.expectRevert(abi.encodeWithSelector(IIdentityRegistry.UnknownPlatform.selector, unknown));
+        vm.expectRevert(abi.encodeWithSelector(IdentityRegistry.UnknownPlatform.selector, unknown));
         _submit(unknown, "");
     }
 
@@ -370,31 +369,37 @@ contract IdentityRegistryTest is Test {
     /// same way. A zero address would tell a caller "nobody proved this" when
     /// the truth is that no such platform exists, and a zero cannot say which.
     /// `resolveId` takes a node, which names no platform, so it has nothing to
-    /// refuse and answers nobody.
+    /// refuse and answers nobody; `acceptsBindings` is the question itself,
+    /// and answers false.
     function test_everyEntryPointRefusesAnUnknownPlatform() public {
         bytes32 unwired = keccak256("nowhere");
         bytes32 idNode = _id(X, "123");
 
         _stage("123", "alice", alice, 100);
         vm.prank(alice);
-        vm.expectRevert(abi.encodeWithSelector(IIdentityRegistry.UnknownPlatform.selector, unwired));
+        vm.expectRevert(abi.encodeWithSelector(IdentityRegistry.UnknownPlatform.selector, unwired));
         _submit(unwired, "");
         vm.prank(alice);
-        vm.expectRevert(abi.encodeWithSelector(IIdentityRegistry.UnknownPlatform.selector, unwired));
+        vm.expectRevert(abi.encodeWithSelector(IdentityRegistry.UnknownPlatform.selector, unwired));
         registry.publish(unwired, "alice");
         assertFalse(registry.acceptsBindings(unwired));
+        vm.prank(alice);
+        vm.expectRevert(abi.encodeWithSelector(IdentityRegistry.UnknownPlatform.selector, unwired));
+        registry.unpublish(unwired);
+        vm.expectRevert(abi.encodeWithSelector(IdentityRegistry.UnknownPlatform.selector, unwired));
+        registry.publishedHandleOf(alice, unwired);
 
-        vm.expectRevert(abi.encodeWithSelector(IIdentityRegistry.UnknownPlatform.selector, unwired));
+        vm.expectRevert(abi.encodeWithSelector(IdentityRegistry.UnknownPlatform.selector, unwired));
         registry.resolveHandle(unwired, "alice");
 
-        vm.expectRevert(abi.encodeWithSelector(IIdentityRegistry.UnknownPlatform.selector, unwired));
+        vm.expectRevert(abi.encodeWithSelector(IdentityRegistry.UnknownPlatform.selector, unwired));
         registry.resolveHandleAndId(unwired, "alice", idNode);
 
-        vm.expectRevert(abi.encodeWithSelector(IIdentityRegistry.UnknownPlatform.selector, unwired));
+        vm.expectRevert(abi.encodeWithSelector(IdentityRegistry.UnknownPlatform.selector, unwired));
         registry.rulesOf(unwired);
-        vm.expectRevert(abi.encodeWithSelector(IIdentityRegistry.UnknownPlatform.selector, unwired));
+        vm.expectRevert(abi.encodeWithSelector(IdentityRegistry.UnknownPlatform.selector, unwired));
         registry.handleTagOf(unwired);
-        vm.expectRevert(abi.encodeWithSelector(IIdentityRegistry.UnknownPlatform.selector, unwired));
+        vm.expectRevert(abi.encodeWithSelector(IdentityRegistry.UnknownPlatform.selector, unwired));
         registry.handleNodeOf(unwired, "alice");
 
         assertEq(registry.resolveId(keccak256("no such node")), address(0));
@@ -421,7 +426,7 @@ contract IdentityRegistryTest is Test {
     /// trimmed.
     function test_theHashingViewRefusesWhatTheRulesRefuse() public {
         bytes memory badChar =
-            abi.encodeWithSelector(IIdentityRegistry.UnusableHandle.selector, HandleNormalizer.Problem.BadChar);
+            abi.encodeWithSelector(IdentityRegistry.UnusableHandle.selector, HandleNormalizer.Problem.BadChar);
         vm.expectRevert(badChar);
         registry.handleNodeOf(X, "ali-ce");
         vm.expectRevert(badChar);
@@ -565,7 +570,7 @@ contract IdentityRegistryTest is Test {
         registry.publish(X, "@alice");
         vm.expectRevert(HandleNormalizer.EmptyHandle.selector);
         registry.publish(X, "");
-        vm.expectRevert(abi.encodeWithSelector(IIdentityRegistry.UnknownPlatform.selector, keccak256("nowhere")));
+        vm.expectRevert(abi.encodeWithSelector(IdentityRegistry.UnknownPlatform.selector, keccak256("nowhere")));
         registry.publish(keccak256("nowhere"), "alice");
         vm.stopPrank();
     }
@@ -607,6 +612,29 @@ contract IdentityRegistryTest is Test {
         vm.prank(alice);
         registry.bind(X, V1, payload);
         assertEq(registry.resolveHandle(X, "alice"), alice, "the digest was spent");
+    }
+
+    /// The registry owns the name slot, so it does not take a verifier's word
+    /// that a returned handle names the returned node: it hashes the handle
+    /// under the platform's tag and refuses a mismatch, writing nothing.
+    function test_aDisclosureThatDoesNotNameTheBoundNodeIsRefused() public {
+        bytes32 idNode = _id(X, "123");
+        bytes32 bound = _hn(X, "alice");
+        bytes32 disclosed = _hn(X, "bob");
+        _stage("123", "alice", alice, 100);
+        xVerifier.setNodes(idNode, bound);
+
+        vm.prank(alice);
+        vm.expectRevert(abi.encodeWithSelector(IdentityRegistry.DisclosureMismatch.selector, disclosed, bound));
+        _submit(X, "bob");
+
+        assertEq(registry.resolveId(idNode), address(0), "the id was bound");
+        assertEq(registry.publishedHandleOf(alice, X), "", "the name was written");
+
+        // The same verifier's matching disclosure is stored.
+        vm.prank(alice);
+        _submit(X, "alice");
+        assertEq(registry.publishedHandleOf(alice, X), "alice");
     }
 
     /// One submission's payload under a chosen nonce, so a test can submit
@@ -1089,7 +1117,7 @@ contract IdentityRegistryTest is Test {
     /// two apart from an address.
     function test_anUnknownPlatformStillReverts() public {
         bytes32 unknown = keccak256("nowhere");
-        vm.expectRevert(abi.encodeWithSelector(IIdentityRegistry.UnknownPlatform.selector, unknown));
+        vm.expectRevert(abi.encodeWithSelector(IdentityRegistry.UnknownPlatform.selector, unknown));
         registry.resolveHandle(unknown, "alice");
     }
 
@@ -1193,10 +1221,10 @@ contract IdentityRegistryTest is Test {
         bytes32 idNode = _id(google, "123");
         bytes32 handleNode = _hn(google, "alice@gmail.com");
 
-        vm.expectRevert(abi.encodeWithSelector(IIdentityRegistry.UnknownPlatform.selector, google));
+        vm.expectRevert(abi.encodeWithSelector(IdentityRegistry.UnknownPlatform.selector, google));
         registry.resolveHandle(google, "alice@gmail.com");
 
-        vm.expectRevert(abi.encodeWithSelector(IIdentityRegistry.UnknownPlatform.selector, google));
+        vm.expectRevert(abi.encodeWithSelector(IdentityRegistry.UnknownPlatform.selector, google));
         registry.resolveHandleAndId(google, "alice@gmail.com", idNode);
 
         // The hashing views answer: a client folding under `rulesOf` and

@@ -206,7 +206,7 @@ contract HandleEscrowTest is Test {
             } else {
                 vm.expectRevert(
                     abi.encodeWithSelector(
-                        IIdentityRegistry.UnusableHandle.selector, HandleNormalizer.Problem(v.errorKind + 1)
+                        IdentityRegistry.UnusableHandle.selector, HandleNormalizer.Problem(v.errorKind + 1)
                     )
                 );
                 registry.handleNodeOf(platformId, v.input);
@@ -252,11 +252,11 @@ contract HandleEscrowTest is Test {
         TextPayer payer = new TextPayer(escrow, registry);
         vm.startPrank(sender);
         vm.expectRevert(
-            abi.encodeWithSelector(IIdentityRegistry.UnusableHandle.selector, HandleNormalizer.Problem.BadChar)
+            abi.encodeWithSelector(IdentityRegistry.UnusableHandle.selector, HandleNormalizer.Problem.BadChar)
         );
         payer.pay{value: 1 ether}(X, "ali-ce");
         vm.expectRevert(
-            abi.encodeWithSelector(IIdentityRegistry.UnusableHandle.selector, HandleNormalizer.Problem.BadChar)
+            abi.encodeWithSelector(IdentityRegistry.UnusableHandle.selector, HandleNormalizer.Problem.BadChar)
         );
         payer.pay{value: 1 ether}(X, "@alice");
         payer.pay{value: 1 ether}(X, "Alice");
