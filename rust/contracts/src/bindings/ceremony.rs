@@ -27,7 +27,7 @@ mod notary_service_inner {
     use alloy::sol;
 
     sol! {
-        #[sol(rpc)]
+        #[sol(rpc, abi)]
         interface NotaryService {
             /// `notary_` is the first trusted key; `fee_` may be zero (a
             /// deployment may meter at no charge, and the exact-value rule
@@ -53,6 +53,23 @@ mod notary_service_inner {
             event FeeChanged(uint256 previousFee, uint256 newFee);
             event NotaryTrustChanged(address indexed key, bool trusted);
             event FeesWithdrawn(address indexed to, uint256 amount);
+
+            // What `verify` can revert with, out of a `bind` that reached it,
+            // and what the operator calls can.
+            error WrongFee(uint256 required, uint256 provided);
+            error UntrustedNotary(address recovered);
+            error MalformedSignature();
+            error Truncated();
+            error TrailingBytes(uint256 extra);
+            error EmptyRange(uint32 at);
+            error OutOfOrder(uint32 start, uint32 previousEnd);
+            error PastTranscriptEnd(uint32 end, uint32 length);
+            error CommitmentOverlapsRevealed(uint32 start, uint32 end);
+            error ZeroAddress();
+            error NothingToWithdraw();
+            error WithdrawalFailed(address to, uint256 amount);
+            error OwnableUnauthorizedAccount(address account);
+            error OwnableInvalidOwner(address owner);
         }
     }
 }
@@ -72,7 +89,7 @@ mod proof_verifier_inner {
     use alloy::sol;
 
     sol! {
-        #[sol(rpc)]
+        #[sol(rpc, abi)]
         interface CeremonyProofVerifier {
             function initialize(address owner_) external;
             /// Register (or, with the zero address, remove) the Platform
@@ -94,6 +111,15 @@ mod proof_verifier_inner {
             function acceptOwnership() external;
 
             event VerifierConfigured(bytes32 indexed platformId, uint16 indexed verifierVersion, address verifier);
+
+            /// No Platform Verifier is registered for the pair a `bind` named.
+            error UnknownVersion(bytes32 platformId, uint16 verifierVersion);
+            /// `setVerifier` was handed a verifier serving another platform.
+            error VerifierPlatformMismatch(bytes32 expected, bytes32 found);
+            /// The value attached is not the pair's quote.
+            error WrongValue(uint256 required, uint256 provided);
+            error OwnableUnauthorizedAccount(address account);
+            error OwnableInvalidOwner(address owner);
         }
     }
 }
@@ -539,6 +565,43 @@ mod tests {
             "GooglePlatformVerifier",
             &GooglePlatformVerifier::abi::contract(),
             OMITTED,
+        );
+    }
+
+    /// The Notary Service and the Proof Verifier bind every error a `bind`
+    /// can surface from them, so `BindError` decodes it.
+    #[test]
+    fn the_route_bindings_match_the_artifact_abis() {
+        let route_omitted: Vec<&str> = OMITTED
+            .iter()
+            .copied()
+            .chain([
+                "event OwnershipTransferStarted(address,address)",
+                "event OwnershipTransferred(address,address)",
+                "function renounceOwnership()",
+            ])
+            .collect();
+        assert_binding_matches_artifact(
+            "NotaryService",
+            "NotaryService",
+            &NotaryService::abi::contract(),
+            &route_omitted
+                .iter()
+                .copied()
+                .filter(|item| *item != "function verify(bytes)")
+                .chain(["function verify(bytes,bytes)"])
+                .collect::<Vec<_>>(),
+        );
+        assert_binding_matches_artifact(
+            "CeremonyProofVerifier",
+            "CeremonyProofVerifier",
+            &CeremonyProofVerifier::abi::contract(),
+            &route_omitted
+                .iter()
+                .copied()
+                .filter(|item| *item != "function verify(bytes)")
+                .chain(["function verify(bytes32,uint16,bytes)"])
+                .collect::<Vec<_>>(),
         );
     }
 
