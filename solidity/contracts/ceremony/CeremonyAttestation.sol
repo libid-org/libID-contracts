@@ -149,6 +149,21 @@ library CeremonyAttestation {
     ///      uncounted, and the platform answering to whichever it honoured.
     bytes internal constant AUTHORIZATION_NEEDLE = "\r\nauthorization:";
 
+    /// @dev What ends a framed commitment: a revealed range that starts at its
+    ///      end with exact bytes, or one whose first byte past JSON whitespace
+    ///      is the `,` or `}` that closes a bare JSON integer.
+    enum Terminator {
+        Suffix,
+        JsonIntegerEnd
+    }
+
+    /// @notice Every revealed byte of a direction, joined in order, with the
+    ///         JSON whitespace removed: what the framed readers count a
+    ///         prefix in.
+    function normalizedRevealed(DirectionBlock memory block_) internal pure returns (bytes memory) {
+        return CeremonyFields.normalizeJsonBytes(concatRevealed(block_));
+    }
+
     /// @notice The one commitment framed by these revealed bytes, JSON
     ///         whitespace aside.
     ///
@@ -171,29 +186,20 @@ library CeremonyAttestation {
         pure
         returns (RangeCommitment memory framed)
     {
-        // The prefix at most once across everything revealed, JSON whitespace
-        // removed: a second one, in any spelling, is a second place the framing
-        // could point, whether or not a commitment sits behind it.
-        if (CeremonyFields.occurrences(CeremonyFields.normalizeJsonBytes(concatRevealed(block_)), prefix) > 1) {
-            revert AmbiguousFraming();
-        }
+        return _framed(block_, normalizedRevealed(block_), prefix, Terminator.Suffix, suffix);
+    }
 
-        uint256 found = type(uint256).max;
-        for (uint256 i = 0; i < block_.commitments.length; ++i) {
-            RangeCommitment memory c = block_.commitments[i];
-            // The one revealed range ending where the commitment starts is the
-            // anchor, and its bytes with the JSON whitespace removed end with
-            // the prefix. One range, never a join: a prefix assembled across a
-            // seam is one the platform never wrote in one piece.
-            if (!_anchoredBy(block_, c.start, prefix)) continue;
-            bytes memory after_ = _revealedSlice(block_, c.end, c.end + uint32(suffix.length));
-            if (keccak256(after_) != keccak256(suffix)) continue;
-
-            if (found != type(uint256).max) revert AmbiguousFraming();
-            found = i;
-        }
-        if (found == type(uint256).max) revert NoFramedCommitment();
-        return block_.commitments[found];
+    /// @notice `requireFramedCommitment`, for a caller reading several values
+    ///         out of one direction. `normalized` must be
+    ///         `normalizedRevealed(block_)`: the uniqueness of the prefix is
+    ///         counted in it.
+    function requireFramedCommitment(
+        DirectionBlock memory block_,
+        bytes memory normalized,
+        bytes memory prefix,
+        bytes memory suffix
+    ) internal pure returns (RangeCommitment memory framed) {
+        return _framed(block_, normalized, prefix, Terminator.Suffix, suffix);
     }
 
     /// @notice The one commitment framed as a bare JSON integer's digits:
@@ -210,15 +216,49 @@ library CeremonyAttestation {
         pure
         returns (RangeCommitment memory framed)
     {
-        if (CeremonyFields.occurrences(CeremonyFields.normalizeJsonBytes(concatRevealed(block_)), prefix) > 1) {
-            revert AmbiguousFraming();
-        }
+        return _framed(block_, normalizedRevealed(block_), prefix, Terminator.JsonIntegerEnd, "");
+    }
 
+    /// @notice `requireFramedInteger`, with `normalized` as
+    ///         `requireFramedCommitment` takes it.
+    function requireFramedInteger(DirectionBlock memory block_, bytes memory normalized, bytes memory prefix)
+        internal
+        pure
+        returns (RangeCommitment memory framed)
+    {
+        return _framed(block_, normalized, prefix, Terminator.JsonIntegerEnd, "");
+    }
+
+    /// @dev The framed lookup both readers share. The prefix at most once in
+    ///      `normalized`, which is everything revealed with JSON whitespace
+    ///      removed: a second one, in any spelling, is a second place the
+    ///      framing could point, whether or not a commitment sits behind it.
+    ///      Then exactly one commitment anchored by the prefix and ended by the
+    ///      terminator.
+    function _framed(
+        DirectionBlock memory block_,
+        bytes memory normalized,
+        bytes memory prefix,
+        Terminator terminator,
+        bytes memory suffix
+    ) private pure returns (RangeCommitment memory) {
+        if (CeremonyFields.occurrences(normalized, prefix) > 1) revert AmbiguousFraming();
+
+        bytes32 suffixHash = keccak256(suffix);
         uint256 found = type(uint256).max;
         for (uint256 i = 0; i < block_.commitments.length; ++i) {
             RangeCommitment memory c = block_.commitments[i];
+            // The one revealed range ending where the commitment starts is the
+            // anchor, and its bytes with the JSON whitespace removed end with
+            // the prefix. One range, never a join: a prefix assembled across a
+            // seam is one the platform never wrote in one piece.
             if (!_anchoredBy(block_, c.start, prefix)) continue;
-            if (!_terminatedAt(block_, c.end)) continue;
+            if (terminator == Terminator.Suffix) {
+                bytes memory after_ = _revealedSlice(block_, c.end, c.end + uint32(suffix.length));
+                if (keccak256(after_) != suffixHash) continue;
+            } else if (!_terminatedAt(block_, c.end)) {
+                continue;
+            }
 
             if (found != type(uint256).max) revert AmbiguousFraming();
             found = i;

@@ -399,12 +399,19 @@ abstract contract TlsNotaryVerifierBase is IPlatformVerifier, PlatformVerifierBa
         // neither can be.
         CeremonyAttestation.requireExactCoverage(data.received, data.recvTranscriptLength);
         (string memory idField, IdShape idShape, string memory handleField) = _identityFields();
+        // Joined and normalized once; both reads count their prefix in it.
+        bytes memory normalized = CeremonyAttestation.normalizedRevealed(data.received);
         committed.id = idShape == IdShape.JsonString
-            ? CeremonyAttestation.requireFramedCommitment(data.received, abi.encodePacked('"', idField, '":"'), '"')
+            ? CeremonyAttestation.requireFramedCommitment(
+                data.received, normalized, abi.encodePacked('"', idField, '":"'), '"'
+            )
             .commitment
-            : CeremonyAttestation.requireFramedInteger(data.received, abi.encodePacked('"', idField, '":')).commitment;
+            : CeremonyAttestation.requireFramedInteger(data.received, normalized, abi.encodePacked('"', idField, '":'))
+            .commitment;
         committed.handle =
-        CeremonyAttestation.requireFramedCommitment(data.received, abi.encodePacked('"', handleField, '":"'), '"')
+        CeremonyAttestation.requireFramedCommitment(
+            data.received, normalized, abi.encodePacked('"', handleField, '":"'), '"'
+        )
         .commitment;
     }
 
