@@ -389,6 +389,18 @@
       "platform": "google",
       "input": "abcdefghijabcdefghijabcdefghijabcdefghijabcdefghijk@example.com",
       "error": "TooLong"
+    },
+    {
+      "platform": "google",
+      "input": "a\"b@example.com",
+      "error": "BadCharacter",
+      "note": "A quote is refused: the circuit's closing-quote check depends on it."
+    },
+    {
+      "platform": "google",
+      "input": "a\\b@example.com",
+      "error": "BadCharacter",
+      "note": "A backslash is refused, so no JSON escape reaches a node."
     }
   ],
   "idVectors": [
