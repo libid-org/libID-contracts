@@ -134,6 +134,24 @@ const call = calls.identityRegistry.bind(IDENTITY_REGISTRY, fee, github, 1, payl
 // call = { to, value, data } — sign and send from the address the payload names.
 ```
 
+The payload is one struct, `abi.encode`d, in the shape its Platform Verifier
+decodes. `encodeTlsNotaryProof` builds the X and GitHub one and
+`encodeGoogleProof` the Google one; both read the struct types from the
+generated `ceremonyPayloadsAbi`:
+
+```ts
+import { encodeTlsNotaryProof } from '@libid/contracts'
+
+const payload = encodeTlsNotaryProof({
+  ceremonyVersion: 1,
+  operationDomain, authorizationNonce, transactionData,
+  tokenSession, identitySession,   // { attestedData, proof } each
+  idNode, handleNode,
+  handle: '',                      // or the handle to publish
+  proof,
+})
+```
+
 A refused bind reverts with an error from whichever contract on its route
 refused it. `bindErrorsAbi` carries all of them — the registry's, the Proof
 Verifier's, the three Platform Verifiers' and the Notary Service's — so one

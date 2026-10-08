@@ -415,6 +415,73 @@ mod google_platform_verifier_inner {
 
 pub use google_platform_verifier_inner::GooglePlatformVerifier;
 
+/// The payloads `IdentityRegistry.bind` carries to a Platform Verifier, from
+/// `ceremony/ICeremonyPayloads.sol`.
+///
+/// `bind` takes a payload as opaque bytes and the Platform Verifier the
+/// route ends at `abi.decode`s it as one struct. `ICeremonyPayloads` takes
+/// each struct in a function nothing calls, so the structs reach an ABI, and
+/// a test holds these to it. A payload is the struct's
+/// [`SolValue::abi_encode`](alloy::sol_types::SolValue::abi_encode) —
+/// `abi.encode(p)` — and never a call to either function.
+#[allow(clippy::too_many_arguments, unused_attributes)]
+mod payloads_inner {
+    use alloy::sol;
+
+    sol! {
+        #[sol(abi)]
+        interface ICeremonyPayloads {
+            /// `ICeremony.Attestation`: the notarized bytes and the Notary
+            /// Service's authentication of them.
+            #[derive(Debug, PartialEq, Eq)]
+            struct Attestation {
+                bytes attestedData;
+                bytes proof;
+            }
+
+            /// `TlsNotaryVerifierBase.TlsNotaryProof`: the `x/v1` and
+            /// `github/v1` payload. `handle` is empty for a private
+            /// submission; otherwise it must hash to `handleNode`.
+            #[derive(Debug, PartialEq, Eq)]
+            struct TlsNotaryProof {
+                uint16 ceremonyVersion;
+                bytes32 operationDomain;
+                bytes32 authorizationNonce;
+                bytes transactionData;
+                Attestation tokenSession;
+                Attestation identitySession;
+                bytes32 idNode;
+                bytes32 handleNode;
+                string handle;
+                bytes proof;
+            }
+
+            /// `GooglePlatformVerifier.GoogleProof`: the `google/v1` payload.
+            #[derive(Debug, PartialEq, Eq)]
+            struct GoogleProof {
+                uint16 ceremonyVersion;
+                bytes32 operationDomain;
+                bytes32 authorizationNonce;
+                bytes transactionData;
+                bytes clientIdentifier;
+                bytes32[] publicInputs;
+                string handle;
+                bytes proof;
+            }
+
+            function tlsNotaryProof(TlsNotaryProof calldata payload) external pure;
+            function googleProof(GoogleProof calldata payload) external pure;
+        }
+    }
+}
+
+pub use payloads_inner::ICeremonyPayloads::{
+    self as ICeremonyPayloads,
+    Attestation,
+    GoogleProof,
+    TlsNotaryProof,
+};
+
 #[cfg(test)]
 mod tests {
     use alloy::sol_types::SolCall;
@@ -472,6 +539,97 @@ mod tests {
             "GooglePlatformVerifier",
             &GooglePlatformVerifier::abi::contract(),
             OMITTED,
+        );
+    }
+
+    /// The payload structs are the ones the verifiers decode: the interface
+    /// that takes them compiles to these function signatures, tuple types
+    /// included.
+    #[test]
+    fn the_payload_bindings_match_the_artifact_abi() {
+        assert_binding_matches_artifact(
+            "ICeremonyPayloads",
+            "ICeremonyPayloads",
+            &ICeremonyPayloads::abi::contract(),
+            &[],
+        );
+    }
+
+    /// The X fixture, encoded here, is the bytes solc encodes for it:
+    /// `x-ceremony-payload.json` pins their hash, and `PayloadEncoding.t.sol`
+    /// and the TypeScript encoder are held to the same one.
+    #[test]
+    fn the_x_fixture_payload_encodes_to_the_pinned_bytes() {
+        use alloy::{
+            primitives::{
+                keccak256,
+                Bytes,
+                B256,
+            },
+            sol_types::SolValue,
+        };
+
+        let dir = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../solidity/contracts/ceremony/test/fixtures/"
+        );
+        let read = |name: &str| -> serde_json::Value {
+            let text = std::fs::read_to_string(format!("{dir}{name}")).unwrap();
+            serde_json::from_str(&text).unwrap()
+        };
+        let session = read("x-ceremony-session.json");
+        let proof = read("x-ceremony-session-proof.json");
+        let extra = read("x-ceremony-payload.json");
+        let str_of = |v: &serde_json::Value| v.as_str().unwrap().to_owned();
+        let bytes = |v: &serde_json::Value| str_of(v).parse::<Bytes>().unwrap();
+        let word = |v: &serde_json::Value| str_of(v).parse::<B256>().unwrap();
+
+        let payload = TlsNotaryProof {
+            ceremonyVersion: u16::try_from(session["ceremony_version"].as_u64().unwrap())
+                .unwrap(),
+            operationDomain: word(&session["operation_domain"]),
+            authorizationNonce: word(&session["authorization_nonce"]),
+            transactionData: bytes(&session["transaction_data"]),
+            tokenSession: Attestation {
+                attestedData: bytes(&session["token"]["attested_data"]),
+                proof: bytes(&session["token"]["notary_signature"]),
+            },
+            identitySession: Attestation {
+                attestedData: bytes(&session["identity"]["attested_data"]),
+                proof: bytes(&session["identity"]["notary_signature"]),
+            },
+            idNode: word(&extra["id_node"]),
+            handleNode: word(&extra["handle_node"]),
+            handle: str_of(&extra["handle"]),
+            proof: bytes(&proof["proof"]),
+        };
+
+        let encoded = payload.abi_encode();
+        assert_eq!(encoded.len() as u64, extra["length"].as_u64().unwrap());
+        assert_eq!(keccak256(&encoded), word(&extra["keccak256"]));
+        assert_eq!(TlsNotaryProof::abi_decode(&encoded).unwrap(), payload);
+    }
+
+    #[test]
+    fn a_google_payload_round_trips() {
+        use alloy::{
+            primitives::B256,
+            sol_types::SolValue,
+        };
+
+        let payload = GoogleProof {
+            ceremonyVersion: 1,
+            operationDomain: B256::repeat_byte(0x11),
+            authorizationNonce: B256::repeat_byte(0x22),
+            transactionData: vec![1, 2].into(),
+            clientIdentifier: b"aud".to_vec().into(),
+            publicInputs: vec![B256::repeat_byte(0x33), B256::repeat_byte(0x44)],
+            handle: "alice@gmail.com".into(),
+            proof: vec![0xde, 0xad].into(),
+        };
+        assert_eq!(
+            GoogleProof::abi_decode(&payload.abi_encode()).unwrap(),
+            payload
         );
     }
 

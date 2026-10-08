@@ -41,6 +41,14 @@ const contracts = [
     exportName: 'ceremonyProofVerifierAbi',
   },
   { file: 'GoogleJwtRoots.sol', name: 'GoogleJwtRoots', exportName: 'googleJwtRootsAbi' },
+  // No contract implements it: its two functions take the payload structs the
+  // Platform Verifiers decode, so their tuple types reach an ABI.
+  // `src/payloads.ts` encodes against it.
+  {
+    file: 'ICeremonyPayloads.sol',
+    name: 'ICeremonyPayloads',
+    exportName: 'ceremonyPayloadsAbi',
+  },
   { file: 'LibidFactory.sol', name: 'LibidFactory', exportName: 'libidFactoryAbi' },
   { file: 'WTIA9.sol', name: 'WTIA9', exportName: 'wtia9Abi' },
 ]

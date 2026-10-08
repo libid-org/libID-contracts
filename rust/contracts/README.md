@@ -107,7 +107,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let artifacts = Artifacts::embedded();
     let (owner, notary, proof_verifier): (Address, Address, Address) = todo!();
 
-    // The circuit `x/v1` proves under is `bearer-link`; `PlatformVerifier::circuit`
+    // The circuit `x/v1` proves under is `bearer-link-x`; `PlatformVerifier::circuit`
     // says so, and this deploys its verifier.
     let honk_verifier =
         deploy_honk_verifier(&provider, &artifacts, PlatformVerifier::X.circuit(), None).await?;
@@ -155,6 +155,8 @@ Other entry points:
   when a Platform Verifier is rotated onto a new circuit release.
 - `Artifacts::method_identifiers` — selector extraction from the vendored
   `methodIdentifiers`.
+- `bindings::ceremony::{TlsNotaryProof, GoogleProof}` — the payload a Platform
+  Verifier decodes; its `SolValue::abi_encode` is the `payload` `bind` takes.
 
 ## Testing
 
