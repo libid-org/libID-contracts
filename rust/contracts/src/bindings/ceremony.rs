@@ -201,7 +201,7 @@ mod tls_notary_platform_verifier_inner {
     use alloy::sol;
 
     sol! {
-        #[sol(rpc)]
+        #[sol(rpc, abi)]
         interface TlsNotaryPlatformVerifier {
             /// Derives so the built call can be compared and printed by the
             /// initializer that assembles it.
@@ -216,7 +216,7 @@ mod tls_notary_platform_verifier_inner {
             /// The identity platform this verifier serves: `keccak256` of the
             /// platform's bare name. The Proof Verifier refuses to register it
             /// under another platform.
-            function platformId() external view returns (bytes32);
+            function platformId() external pure returns (bytes32);
             /// What a submission must carry: one Notary Fee per attestation
             /// the profile requires — two, for a TLSNotary profile.
             function quote() external view returns (uint256);
@@ -239,8 +239,12 @@ mod tls_notary_platform_verifier_inner {
             function pendingOwner() external view returns (address);
             function transferOwnership(address newOwner) external;
             function acceptOwnership() external;
+            /// Always reverts; the contract declares it `pure`.
+            function renounceOwnership() external pure;
 
             event TrustRootsChanged(address notary, address honkVerifier, bytes32 honkVerifierCodehash);
+            event OwnershipTransferStarted(address indexed previousOwner, address indexed newOwner);
+            event OwnershipTransferred(address indexed previousOwner, address indexed newOwner);
 
             /// A profile that verifies no attestation holds a Notary Service,
             /// or one that verifies some holds none.
@@ -248,6 +252,56 @@ mod tls_notary_platform_verifier_inner {
             error ZeroAddress();
             /// The verifier at that address is not the artifact named.
             error WrongVerifierArtifact(bytes32 expected, bytes32 found);
+            // What `verify` can revert with, so a consumer decodes a refused
+            // claim by name: the base's checks, the disclosed handle's, and
+            // the normalizer's for a disclosure its rules refuse.
+            error WrongValue(uint256 required, uint256 provided);
+            error WrongCeremonyVersion(uint16 expected, uint16 found);
+            error WrongAuthority(bytes32 expected, bytes32 found);
+            error TransactionDataTooLong(uint256 length);
+            error AttestationAhead(uint64 createdAt, uint64 blockTime, uint64 allowance);
+            error ProofExpired(uint64 validUntil, uint64 blockTime);
+            error ObservedInTheFuture(uint64 observedAt, uint64 limit);
+            /// The Honk verifier answered `false`.
+            error BadProof();
+            /// The disclosed handle hashes to `disclosed`, not the node the
+            /// proof bound.
+            error HandleNotProved(bytes32 disclosed, bytes32 proved);
+            error EmptyHandle();
+            error HandleTooLong();
+            error BadCharacter();
+            error BadShape();
+            error UnknownPlatform(bytes32 platformId);
+            error OwnableUnauthorizedAccount(address account);
+            error OwnableInvalidOwner(address owner);
+            // The transcript checks of the two notarized sessions.
+            error CoverageGap(uint32 from, uint32 to);
+            error SpansOverlap(uint32 at);
+            error NotOneCommitment(uint256 count);
+            error ObsoleteLineFold(uint256 at);
+            error BareLineFeed(uint256 at);
+            error BareCarriageReturn(uint256 at);
+            error NotOneAuthorizationHeader(uint256 count);
+            error BadBearerFraming();
+            /// No commitment carries the framing the profile reads a value by.
+            error NoFramedCommitment();
+            /// The framing's prefix is revealed twice, or frames two
+            /// commitments.
+            error AmbiguousFraming();
+            error AmbiguousField(string name);
+            error FieldNotFound(string name);
+            error MalformedForm(uint256 at);
+            error EmptyFormValue(string name);
+            error WrongRequestLine();
+            error CodeVerifierMismatch();
+            error ClientIdentifierNotSerializerSafe(bytes found);
+            error RequestLineNotAtOrigin(uint32 start);
+            error WrongTokenRequestLayout(uint256 revealedRanges, uint256 commitments);
+            error NoHeadBoundary(uint256 occurrences);
+            error WrongTokenRequestHead();
+            error ForbiddenRequestHeader(bytes name);
+            error WrongDeclaredBodyLength(uint256 declared, uint256 signed);
+            error WrongGrantType(bytes found);
         }
     }
 }
@@ -278,7 +332,7 @@ mod google_platform_verifier_inner {
     use alloy::sol;
 
     sol! {
-        #[sol(rpc)]
+        #[sol(rpc, abi)]
         interface GooglePlatformVerifier {
             #[derive(Debug, PartialEq, Eq)]
             function initialize(
@@ -290,10 +344,10 @@ mod google_platform_verifier_inner {
             ) external;
 
             /// `keccak256("google")`.
-            function platformId() external view returns (bytes32);
+            function platformId() external pure returns (bytes32);
             /// Always zero: the profile verifies nothing that charges, and
             /// `verify` refuses any value sent.
-            function quote() external view returns (uint256);
+            function quote() external pure returns (uint256);
 
             /// The root list the trusted moduli are read through.
             function jwtRoots() external view returns (address);
@@ -312,13 +366,49 @@ mod google_platform_verifier_inner {
             function pendingOwner() external view returns (address);
             function transferOwnership(address newOwner) external;
             function acceptOwnership() external;
+            /// Always reverts; the contract declares it `pure`.
+            function renounceOwnership() external pure;
 
             event JwtRootsChanged(address roots);
             event TrustRootsChanged(address notary, address honkVerifier, bytes32 honkVerifierCodehash);
+            event OwnershipTransferStarted(address indexed previousOwner, address indexed newOwner);
+            event OwnershipTransferred(address indexed previousOwner, address indexed newOwner);
 
             error WrongNotaryForProfile(bytes32 platformId, address notary);
             error ZeroAddress();
             error WrongVerifierArtifact(bytes32 expected, bytes32 found);
+            // What `verify` can revert with, so a consumer decodes a refused
+            // claim by name: the base's checks, the disclosed handle's, and
+            // the normalizer's for a disclosure its rules refuse.
+            error WrongValue(uint256 required, uint256 provided);
+            error WrongCeremonyVersion(uint16 expected, uint16 found);
+            error WrongAuthority(bytes32 expected, bytes32 found);
+            error TransactionDataTooLong(uint256 length);
+            error AttestationAhead(uint64 createdAt, uint64 blockTime, uint64 allowance);
+            error ProofExpired(uint64 validUntil, uint64 blockTime);
+            error ObservedInTheFuture(uint64 observedAt, uint64 limit);
+            /// The Honk verifier answered `false`.
+            error BadProof();
+            /// The disclosed handle hashes to `disclosed`, not the node the
+            /// proof bound.
+            error HandleNotProved(bytes32 disclosed, bytes32 proved);
+            error EmptyHandle();
+            error HandleTooLong();
+            error BadCharacter();
+            error BadShape();
+            error UnknownPlatform(bytes32 platformId);
+            error OwnableUnauthorizedAccount(address account);
+            error OwnableInvalidOwner(address owner);
+            // The ID token's checks.
+            error AudienceMismatch();
+            error MissingClientIdentifier();
+            error DigestMismatch(bytes32 proved, bytes32 recomputed);
+            error ExpiryNotAUint64(uint256 value);
+            error PublicInputNotAByte(uint256 index, uint256 value);
+            error PublicInputOverwide(uint256 index, uint256 value, uint256 bits);
+            error TokenExpired(uint64 exp, uint64 blockTime);
+            error UntrustedModulus(bytes32 modulusHash);
+            error WrongPublicInputCount(uint256 expected, uint256 provided);
         }
     }
 }
@@ -330,7 +420,60 @@ mod tests {
     use alloy::sol_types::SolCall;
 
     use super::*;
-    use crate::Artifacts;
+    use crate::{
+        bindings::drift::{
+            assert_binding_matches_artifact,
+            assert_shared_binding_matches_artifact,
+        },
+        Artifacts,
+    };
+
+    /// Inherited upgrade and initializer ABI, left to `proxy::IUUPSUpgradeable`,
+    /// and `verify`, which only a contract on the route calls.
+    const OMITTED: &[&str] = &[
+        "error AddressEmptyCode(address)",
+        "error ERC1967InvalidImplementation(address)",
+        "error ERC1967NonPayable()",
+        "error FailedCall()",
+        "error InvalidInitialization()",
+        "error NotInitializing()",
+        "error UUPSUnauthorizedCallContext()",
+        "error UUPSUnsupportedProxiableUUID(bytes32)",
+        "event Initialized(uint64)",
+        "event Upgraded(address)",
+        "function UPGRADE_INTERFACE_VERSION()",
+        "function proxiableUUID()",
+        "function upgradeToAndCall(address,bytes)",
+        "function verify(bytes)",
+    ];
+
+    /// Every error `verify` can revert with is bound, so a refused claim
+    /// decodes by name; one interface serves the X and GitHub contracts, and
+    /// both artifacts must agree with it.
+    #[test]
+    fn the_platform_verifier_bindings_match_the_artifact_abis() {
+        let tls = TlsNotaryPlatformVerifier::abi::contract();
+        assert_binding_matches_artifact(
+            "XPlatformVerifier",
+            "XPlatformVerifier",
+            &tls,
+            OMITTED,
+        );
+        // GitHub's token request carries no `grant_type` to refuse.
+        assert_shared_binding_matches_artifact(
+            "GitHubPlatformVerifier",
+            "GitHubPlatformVerifier",
+            &tls,
+            OMITTED,
+            &["error WrongGrantType(bytes)"],
+        );
+        assert_binding_matches_artifact(
+            "GooglePlatformVerifier",
+            "GooglePlatformVerifier",
+            &GooglePlatformVerifier::abi::contract(),
+            OMITTED,
+        );
+    }
 
     /// A Platform Verifier binding and its vendored artifact come from one
     /// tree, so every bound selector is one the compiled contract answers.
