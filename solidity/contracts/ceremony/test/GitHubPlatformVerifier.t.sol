@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
+import {HonkStub} from "./HonkStub.sol";
 import {TlsNotaryProof} from "../CeremonyPayloads.sol";
 import {Test} from "forge-std/Test.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
@@ -17,12 +18,6 @@ import {NotaryService} from "../NotaryService.sol";
 import {IHonkVerifier, PlatformVerifierBase} from "../PlatformVerifierBase.sol";
 import {TlsNotaryVerifierBase} from "../TlsNotaryVerifierBase.sol";
 import {XPlatformVerifier} from "../XPlatformVerifier.sol";
-
-contract Honk is IHonkVerifier {
-    function verify(bytes calldata, bytes32[] calldata) external pure returns (bool) {
-        return true;
-    }
-}
 
 /// @notice The `github/v1` path. The shared flow is covered by the X suite, so
 ///         this exercises what actually differs: two authorities, a bare-integer
@@ -73,7 +68,7 @@ contract GitHubPlatformVerifierTest is Test {
                 )
             )
         );
-        honk = address(new Honk());
+        honk = HonkStub.deploy(HonkStub.GITHUB);
         address honkAddr = honk;
         GitHubPlatformVerifier vImpl = new GitHubPlatformVerifier();
         verifier = GitHubPlatformVerifier(

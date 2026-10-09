@@ -252,6 +252,9 @@ mod tls_notary_platform_verifier_inner {
             /// The code hash of the artifact wired: the only handle on WHICH
             /// circuit a deployed bb verifier answers for.
             function honkVerifierCodehash() external view returns (bytes32);
+            /// The runtime code hash of the one Honk verifier this contract
+            /// accepts: its platform's circuit's, as compiled in.
+            function circuitCodehash() external pure returns (bytes32);
             function protocolParameters()
                 external
                 pure
@@ -278,6 +281,9 @@ mod tls_notary_platform_verifier_inner {
             error ZeroAddress();
             /// The verifier at that address is not the artifact named.
             error WrongVerifierArtifact(bytes32 expected, bytes32 found);
+            /// The Honk verifier is not this platform's circuit's: `expected`
+            /// is `circuitCodehash()`, `found` the code hash at the address.
+            error WrongCircuit(bytes32 expected, bytes32 found);
             // What `verify` can revert with, so a consumer decodes a refused
             // claim by name: the base's checks, the disclosed handle's, and
             // `UnusableHandle` for a disclosure the rules refuse.
@@ -386,6 +392,9 @@ mod google_platform_verifier_inner {
             function notaryService() external view returns (address);
             function honkVerifier() external view returns (address);
             function honkVerifierCodehash() external view returns (bytes32);
+            /// The runtime code hash of the one Honk verifier this contract
+            /// accepts: its platform's circuit's, as compiled in.
+            function circuitCodehash() external pure returns (bytes32);
             function protocolParameters()
                 external
                 pure
@@ -407,6 +416,9 @@ mod google_platform_verifier_inner {
             error WrongNotaryForProfile(bytes32 platformId, address notary);
             error ZeroAddress();
             error WrongVerifierArtifact(bytes32 expected, bytes32 found);
+            /// The Honk verifier is not this platform's circuit's: `expected`
+            /// is `circuitCodehash()`, `found` the code hash at the address.
+            error WrongCircuit(bytes32 expected, bytes32 found);
             // What `verify` can revert with, so a consumer decodes a refused
             // claim by name: the base's checks, the disclosed handle's, and
             // `UnusableHandle` for a disclosure the rules refuse.

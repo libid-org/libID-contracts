@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
+import {CircuitCodehashes} from "../../circuits/CircuitCodehashes.sol";
+import {HonkStub} from "./HonkStub.sol";
 import {TlsNotaryProof} from "../CeremonyPayloads.sol";
 import {Test} from "forge-std/Test.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
@@ -19,18 +21,6 @@ import {TlsNotaryVerifierBase} from "../TlsNotaryVerifierBase.sol";
 import {XPlatformVerifier} from "../XPlatformVerifier.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 
-contract AcceptingHonk is IHonkVerifier {
-    bool public answer = true;
-
-    function setAnswer(bool a) external {
-        answer = a;
-    }
-
-    function verify(bytes calldata, bytes32[] calldata) external view returns (bool) {
-        return answer;
-    }
-}
-
 /// @notice A profile no launch profile is: its allowance sits below its skew.
 contract SkewPastAllowance is PlatformVerifierBase {
     uint64 public constant SKEW = 300;
@@ -45,6 +35,10 @@ contract SkewPastAllowance is PlatformVerifierBase {
 
     function _ceremonyVersion() internal pure override returns (uint16) {
         return CeremonyProfile.LAUNCH_VERSION;
+    }
+
+    function _circuitCodehash() internal pure override returns (bytes32) {
+        return bytes32(0);
     }
 
     function _proofLifetime() internal pure override returns (uint64) {
@@ -68,7 +62,7 @@ contract XPlatformVerifierTest is Test {
 
     XPlatformVerifier verifier;
     NotaryService notary;
-    AcceptingHonk honk;
+    address honk;
     /// Hoisted: an external call inside a `{value:}` argument would consume the
     /// `expectRevert` before the call under test ever runs.
     uint256 quote;
@@ -115,7 +109,7 @@ contract XPlatformVerifierTest is Test {
                 )
             )
         );
-        honk = new AcceptingHonk();
+        honk = HonkStub.deploy(HonkStub.X);
 
         XPlatformVerifier vImpl = new XPlatformVerifier();
         verifier = XPlatformVerifier(
@@ -608,7 +602,7 @@ contract XPlatformVerifierTest is Test {
     }
 
     function test_rejectsAProofThatDoesNotVerify() public {
-        honk.setAnswer(false);
+        HonkStub.answer(honk, false);
         TlsNotaryProof memory s = _payload();
         vm.expectRevert(PlatformVerifierBase.BadProof.selector);
         this.run{value: quote}(s);
@@ -1151,7 +1145,7 @@ contract XPlatformVerifierTest is Test {
     ///      mis-wiring fail here, at the governance call, rather than at the
     ///      first user's proof.
     function test_rejectsAVerifierThatIsNotTheNamedArtifact() public {
-        address other = address(new AcceptingHonk());
+        address other = HonkStub.deploy(HonkStub.X);
         vm.prank(OWNER);
         vm.expectPartialRevert(PlatformVerifierBase.WrongVerifierArtifact.selector);
         verifier.setTrustRoots(INotaryService(address(notary)), IHonkVerifier(other), keccak256("some other artifact"));
@@ -1180,8 +1174,22 @@ contract XPlatformVerifierTest is Test {
         verifier.setTrustRoots(INotaryService(address(notary)), IHonkVerifier(eoa), keccak256("anything"));
     }
 
+    /// @dev Only this platform's circuit's verifier: GitHub's has the same
+    ///      public-input layout, and is refused by its code hash.
+    function test_rejectsAnotherCircuitsVerifier() public {
+        address github = vm.deployCode(HonkStub.GITHUB);
+        vm.prank(OWNER);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                PlatformVerifierBase.WrongCircuit.selector, CircuitCodehashes.BEARER_LINK_X, github.codehash
+            )
+        );
+        verifier.setTrustRoots(INotaryService(address(notary)), IHonkVerifier(github), github.codehash);
+        assertEq(verifier.circuitCodehash(), CircuitCodehashes.BEARER_LINK_X);
+    }
+
     function test_recordsTheArtifactItWired() public {
-        address other = address(new AcceptingHonk());
+        address other = HonkStub.deploy(HonkStub.X);
         vm.prank(OWNER);
         verifier.setTrustRoots(INotaryService(address(notary)), IHonkVerifier(other), other.codehash);
         assertEq(verifier.honkVerifier(), other);

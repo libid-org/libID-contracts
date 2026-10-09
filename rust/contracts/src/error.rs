@@ -23,8 +23,8 @@ pub enum Error {
     /// A Platform Verifier initializer pinning a Honk verifier that is not
     /// its platform's circuit: the code at `address` is another circuit's
     /// verifier (`found`), or none the crate vendors (`found` is `None`).
-    /// X's and GitHub's circuits share a public-input layout, so the
-    /// contract alone would accept either.
+    /// The contract refuses the same with `WrongCircuit`; this says so
+    /// before any transaction.
     #[error(
         "initializer error: {contract}: the Honk verifier at {address} (code hash {codehash}) \
          is {}, not the {} circuit's",

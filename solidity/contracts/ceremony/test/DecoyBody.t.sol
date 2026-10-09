@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
+import {HonkStub} from "./HonkStub.sol";
 import {TlsNotaryProof} from "../CeremonyPayloads.sol";
 import {Test} from "forge-std/Test.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
@@ -14,12 +15,6 @@ import {NotaryService} from "../NotaryService.sol";
 import {IHonkVerifier} from "../PlatformVerifierBase.sol";
 import {TlsNotaryVerifierBase} from "../TlsNotaryVerifierBase.sol";
 import {XPlatformVerifier} from "../XPlatformVerifier.sol";
-
-contract OkHonk is IHonkVerifier {
-    function verify(bytes calldata, bytes32[] calldata) external pure returns (bool) {
-        return true;
-    }
-}
 
 /// @notice The real body is COMMITTED and a decoy body is revealed after it.
 ///         Coverage tiles cleanly, so the direction looks honest.
@@ -49,7 +44,7 @@ contract DecoyBodyTest is Test {
         notary = NotaryService(
             address(new ERC1967Proxy(address(ni), abi.encodeCall(NotaryService.initialize, (OWNER, vm.addr(KEY), FEE))))
         );
-        address honkAddr = address(new OkHonk());
+        address honkAddr = HonkStub.deploy(HonkStub.X);
         XPlatformVerifier vi = new XPlatformVerifier();
         verifier = XPlatformVerifier(
             address(

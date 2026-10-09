@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
+import {HonkStub} from "./HonkStub.sol";
 import {TlsNotaryProof} from "../CeremonyPayloads.sol";
 import {Test} from "forge-std/Test.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
@@ -14,12 +15,6 @@ import {INotaryService} from "../INotaryService.sol";
 import {NotaryService} from "../NotaryService.sol";
 import {IHonkVerifier} from "../PlatformVerifierBase.sol";
 import {XPlatformVerifier} from "../XPlatformVerifier.sol";
-
-contract Honk3 is IHonkVerifier {
-    function verify(bytes calldata, bytes32[] calldata) external pure returns (bool) {
-        return true;
-    }
-}
 
 contract LayoutForgeryTest is Test {
     using AttestationBuilder for AttestationBuilder.Direction;
@@ -51,7 +46,7 @@ contract LayoutForgeryTest is Test {
                 )
             )
         );
-        address honkAddr = address(new Honk3());
+        address honkAddr = HonkStub.deploy(HonkStub.X);
         XPlatformVerifier vImpl = new XPlatformVerifier();
         verifier = XPlatformVerifier(
             address(

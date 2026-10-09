@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
+import {CircuitCodehashes} from "../circuits/CircuitCodehashes.sol";
 import {CeremonyFields} from "./CeremonyFields.sol";
 import {CeremonyProfile} from "./CeremonyProfile.sol";
 import {INotaryService} from "./INotaryService.sol";
@@ -48,6 +49,11 @@ contract XPlatformVerifier is TlsNotaryVerifierBase {
         bytes32 honkVerifierCodehash_
     ) external initializer {
         __PlatformVerifierBase_init(owner_, notary_, honkVerifier_, honkVerifierCodehash_);
+    }
+
+    /// @dev `bearer-link-x`'s verifier, and no other.
+    function _circuitCodehash() internal pure override returns (bytes32) {
+        return CircuitCodehashes.BEARER_LINK_X;
     }
 
     function _platform() internal pure override returns (bytes32) {

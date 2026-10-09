@@ -85,6 +85,10 @@ abstract contract PlatformVerifierBase is ICeremony, Initializable, UUPSUpgradea
     error ZeroAddress();
     /// @dev The verifier at that address is not the artifact governance named.
     error WrongVerifierArtifact(bytes32 expected, bytes32 found);
+    /// @dev The verifier at that address is not this platform's circuit's:
+    ///      `expected` is the runtime code hash of the vendored verifier this
+    ///      contract was compiled against, `found` the code hash there.
+    error WrongCircuit(bytes32 expected, bytes32 found);
     /// @dev The handle the payload discloses does not hash to the handle node
     ///      the proof bound. Disclose the handle the platform shows for this
     ///      account, as it shows it.
@@ -121,6 +125,13 @@ abstract contract PlatformVerifierBase is ICeremony, Initializable, UUPSUpgradea
         return _base().honkVerifierCodehash;
     }
 
+    /// @notice The runtime code hash of the one Honk verifier this contract
+    ///         accepts: its platform's circuit's, as vendored when it was
+    ///         compiled. `honkVerifierCodehash()` is always this value.
+    function circuitCodehash() external pure returns (bytes32) {
+        return _circuitCodehash();
+    }
+
     /// @notice The validity window this verifier enforces, in seconds: the
     ///         values its profile fixes (REQ-PARAM-01).
     function protocolParameters()
@@ -137,16 +148,15 @@ abstract contract PlatformVerifierBase is ICeremony, Initializable, UUPSUpgradea
     ///      not say which circuit answers behind it, and a mismatch found at
     ///      the first user's proof is found in production.
     ///
-    ///      The owner must pin THIS platform's circuit. X's and GitHub's
-    ///      circuits share one public-input layout, so a TLSNotary verifier
-    ///      wired to the other platform's Honk verifier accepts that circuit's
-    ///      proofs, whose nodes hash the id and handle under the other
-    ///      platform's tags and rules. The code hash check proves which
-    ///      artifact is wired, not that it is this platform's. The
-    ///      `libid-contracts` crate refuses that pairing off chain, in
-    ///      `Initializer::call` and in `PlatformVerifier::circuit_codehash_at`
-    ///      for a rotation; a call built any other way is the owner's to get
-    ///      right.
+    ///      And the artifact must be THIS platform's circuit's (`WrongCircuit`).
+    ///      X's and GitHub's circuits share one public-input layout, so a
+    ///      TLSNotary verifier wired to the other platform's Honk verifier
+    ///      would accept that circuit's proofs, whose nodes hash the id and
+    ///      handle under the other platform's tags and rules. The code hash
+    ///      the address holds must be `circuitCodehash()`, the vendored
+    ///      verifier's, so a different circuit or circuit release is a new
+    ///      implementation, not a rotation. The `libid-contracts` crate makes
+    ///      the same check off chain before any transaction.
     function setTrustRoots(INotaryService notary_, IHonkVerifier honkVerifier_, bytes32 honkVerifierCodehash_)
         external
         onlyOwner
@@ -157,6 +167,11 @@ abstract contract PlatformVerifierBase is ICeremony, Initializable, UUPSUpgradea
     /// @dev The platform this verifier answers for. Asked during
     ///      initialization, so it must not read storage.
     function _platform() internal pure virtual returns (bytes32);
+
+    /// @dev The runtime code hash of this platform's circuit's Honk verifier:
+    ///      a `CircuitCodehashes` constant, generated from the vendored
+    ///      verifier.
+    function _circuitCodehash() internal pure virtual returns (bytes32);
 
     /// @dev The handle a payload discloses, checked against the handle node
     ///      its proof bound: normalized with the platform's rules and hashed
@@ -237,6 +252,8 @@ abstract contract PlatformVerifierBase is ICeremony, Initializable, UUPSUpgradea
         }
         bytes32 found = address(honkVerifier_).codehash;
         if (found != honkVerifierCodehash_) revert WrongVerifierArtifact(honkVerifierCodehash_, found);
+        bytes32 circuit = _circuitCodehash();
+        if (found != circuit) revert WrongCircuit(circuit, found);
 
         _base().notary = notary_;
         _base().honkVerifier = honkVerifier_;

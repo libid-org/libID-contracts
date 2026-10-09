@@ -10,8 +10,8 @@
 //! verifier's address, and a zero owner or root list. The validity window is
 //! not among them: each verifier reads its profile's from `CeremonyProfile`,
 //! so a deployment supplies none. [`Initializer::call`] reads the code hash off the chain,
-//! requires it to be the platform's own circuit's verifier — which the
-//! contract cannot tell from another circuit's with the same public inputs —
+//! requires it to be the platform's own circuit's verifier — the contract
+//! pins that runtime code hash too, and reverts `WrongCircuit` otherwise —
 //! checks the rest, and builds the exact `initialize` call;
 //! [`deploy_platform_verifier`] puts the implementation behind a fresh
 //! ERC1967 proxy with it.
@@ -121,7 +121,7 @@ impl PlatformVerifier {
     ///
     /// [`Error::WrongCircuit`] when the address holds another circuit's
     /// verifier, or code that is no vendored verifier at all — which the
-    /// contract accepts, since X's and GitHub's circuits share one
+    /// contract refuses too, since X's and GitHub's circuits share one
     /// public-input layout. [`Error::Rpc`] when it holds no code.
     pub async fn circuit_codehash_at<P: Provider>(
         self,
@@ -274,10 +274,10 @@ impl Initializer {
     /// resulting hash, and a verifier that is not deployed yet is the
     /// mis-wiring the check exists to catch — and with
     /// [`Error::WrongCircuit`] when it holds another circuit's verifier, or
-    /// code that is no vendored verifier at all. The contract cannot catch
-    /// the second: X's and GitHub's circuits share one public-input layout,
-    /// so it accepts either circuit's verifier for either platform, and the
-    /// wrong one keys bindings under the other platform's tags.
+    /// code that is no vendored verifier at all. The contract refuses the
+    /// same (`WrongCircuit`): X's and GitHub's circuits share one
+    /// public-input layout, and the wrong one would key bindings under the
+    /// other platform's tags.
     pub async fn call<P: Provider>(
         &self,
         provider: &P,

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
+import {HonkStub} from "./HonkStub.sol";
 import {GoogleProof, TlsNotaryProof} from "../CeremonyPayloads.sol";
 import {Test} from "forge-std/Test.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
@@ -12,18 +13,6 @@ import {ICeremony} from "../ICeremony.sol";
 import {INotaryService} from "../INotaryService.sol";
 import {IHonkVerifier, PlatformVerifierBase} from "../PlatformVerifierBase.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
-
-contract Honk is IHonkVerifier {
-    bool public answer = true;
-
-    function setAnswer(bool a) external {
-        answer = a;
-    }
-
-    function verify(bytes calldata, bytes32[] calldata) external view returns (bool) {
-        return answer;
-    }
-}
 
 contract Roots is IGoogleJwtRoots {
     mapping(bytes32 => uint256) public expiry;
@@ -43,7 +32,7 @@ contract Roots is IGoogleJwtRoots {
 contract GooglePlatformVerifierTest is Test {
     GooglePlatformVerifier verifier;
     Roots roots;
-    Honk honk;
+    address honk;
 
     address constant OWNER = address(0xA11CE);
     uint64 constant T0 = 1_770_000_000;
@@ -75,7 +64,7 @@ contract GooglePlatformVerifierTest is Test {
         digest = CeremonyAuthorization.digestFor(DOMAIN, 1, AUTH_NONCE, _txData());
         vm.warp(T0);
         roots = new Roots();
-        honk = new Honk();
+        honk = HonkStub.deploy(HonkStub.GOOGLE);
         GooglePlatformVerifier impl = new GooglePlatformVerifier();
         verifier = GooglePlatformVerifier(
             address(
@@ -477,7 +466,7 @@ contract GooglePlatformVerifierTest is Test {
     // ─── The proof ──────────────────────────────────────────────────
 
     function test_rejectsAProofThatDoesNotVerify() public {
-        honk.setAnswer(false);
+        HonkStub.answer(honk, false);
         GoogleProof memory s = _payload();
         vm.expectRevert(PlatformVerifierBase.BadProof.selector);
         this.run(s);

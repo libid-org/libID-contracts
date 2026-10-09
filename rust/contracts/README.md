@@ -83,10 +83,10 @@ by address and by code hash, and holds a Notary Service only if its profile
 notarizes anything. Its validity window is its profile's, compiled in, so the
 initializer takes none. `platform_verifier::Initializer`
 knows those rules: it reads the code hash off the chain, refuses what the
-contract would refuse, and builds the exact `initialize` call. It also refuses
-a Honk verifier that is not its platform's circuit (`Error::WrongCircuit`),
-which the contract cannot: X's and GitHub's circuits share one public-input
-layout.
+contract would refuse, and builds the exact `initialize` call. Among those, a
+Honk verifier that is not its platform's circuit's (`Error::WrongCircuit`):
+the contract pins its circuit's runtime code hash (`circuitCodehash()`) and
+reverts `WrongCircuit`, and the initializer says so before any transaction.
 
 The Honk verifier is vendored here too, from the pinned `libid-circuits`
 release: bb's optimized verifier, one contract per circuit.

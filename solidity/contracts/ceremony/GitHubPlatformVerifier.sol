@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
+import {CircuitCodehashes} from "../circuits/CircuitCodehashes.sol";
 import {CeremonyProfile} from "./CeremonyProfile.sol";
 import {INotaryService} from "./INotaryService.sol";
 import {IHonkVerifier} from "./PlatformVerifierBase.sol";
@@ -76,6 +77,11 @@ contract GitHubPlatformVerifier is TlsNotaryVerifierBase {
         bytes32 honkVerifierCodehash_
     ) external initializer {
         __PlatformVerifierBase_init(owner_, notary_, honkVerifier_, honkVerifierCodehash_);
+    }
+
+    /// @dev `bearer-link-github`'s verifier, and no other.
+    function _circuitCodehash() internal pure override returns (bytes32) {
+        return CircuitCodehashes.BEARER_LINK_GITHUB;
     }
 
     function _platform() internal pure override returns (bytes32) {

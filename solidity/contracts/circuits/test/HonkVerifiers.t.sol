@@ -9,6 +9,8 @@ import {GooglePlatformVerifier, IGoogleJwtRoots} from "../../ceremony/GooglePlat
 import {INotaryService} from "../../ceremony/INotaryService.sol";
 import {IHonkVerifier} from "../../ceremony/PlatformVerifierBase.sol";
 import {XPlatformVerifier} from "../../ceremony/XPlatformVerifier.sol";
+import {PlatformVerifierBase} from "../../ceremony/PlatformVerifierBase.sol";
+import {CircuitCodehashes} from "../CircuitCodehashes.sol";
 
 /// @notice The vendored Honk verifiers are what the Platform Verifiers pin.
 ///
@@ -164,5 +166,62 @@ contract HonkVerifiersTest is Test {
         assertNotEq(x.honkVerifierCodehash(), gh.honkVerifierCodehash(), "one artifact for X and GitHub");
         assertNotEq(x.honkVerifierCodehash(), g.honkVerifierCodehash(), "one artifact for X and Google");
         assertNotEq(gh.honkVerifierCodehash(), g.honkVerifierCodehash(), "one artifact for GitHub and Google");
+    }
+
+    /// @dev The constants the Platform Verifiers pin are the code hashes of
+    ///      the verifiers vendored beside them. `vendor-circuit-verifiers.sh`
+    ///      writes both; this fails while either is stale, so a re-vendor
+    ///      that is not committed with its constants does not pass.
+    function test_theCommittedCodehashesAreTheVendoredVerifiers() public view {
+        assertEq(address(bearerLinkX).codehash, CircuitCodehashes.BEARER_LINK_X, "bearer-link-x");
+        assertEq(address(bearerLinkGithub).codehash, CircuitCodehashes.BEARER_LINK_GITHUB, "bearer-link-github");
+        assertEq(address(oidcGoogle).codehash, CircuitCodehashes.OIDC_GOOGLE, "oidc-google");
+    }
+
+    /// @dev Each Platform Verifier refuses at initialization every vendored
+    ///      verifier but its own circuit's, the other bearer-link circuit's
+    ///      included.
+    function test_eachPlatformVerifierRefusesTheOtherCircuits() public {
+        _refuses(address(new XPlatformVerifier()), bearerLinkGithub, CircuitCodehashes.BEARER_LINK_X);
+        _refuses(address(new XPlatformVerifier()), oidcGoogle, CircuitCodehashes.BEARER_LINK_X);
+        _refuses(address(new GitHubPlatformVerifier()), bearerLinkX, CircuitCodehashes.BEARER_LINK_GITHUB);
+        _refuses(address(new GitHubPlatformVerifier()), oidcGoogle, CircuitCodehashes.BEARER_LINK_GITHUB);
+
+        GooglePlatformVerifier google = new GooglePlatformVerifier();
+        for (uint256 i = 0; i < 2; ++i) {
+            IHonkVerifier wrong = i == 0 ? bearerLinkX : bearerLinkGithub;
+            vm.expectRevert(
+                abi.encodeWithSelector(
+                    PlatformVerifierBase.WrongCircuit.selector, CircuitCodehashes.OIDC_GOOGLE, address(wrong).codehash
+                )
+            );
+            new ERC1967Proxy(
+                address(google),
+                abi.encodeCall(
+                    GooglePlatformVerifier.initialize,
+                    (
+                        OWNER,
+                        INotaryService(address(0)),
+                        wrong,
+                        address(wrong).codehash,
+                        IGoogleJwtRoots(address(0x0808))
+                    )
+                )
+            );
+        }
+    }
+
+    /// `impl` (an X or GitHub verifier) behind a proxy initialized with
+    /// `wrong` reverts naming `expected` and what `wrong` holds.
+    function _refuses(address impl, IHonkVerifier wrong, bytes32 expected) private {
+        vm.expectRevert(
+            abi.encodeWithSelector(PlatformVerifierBase.WrongCircuit.selector, expected, address(wrong).codehash)
+        );
+        new ERC1967Proxy(
+            impl,
+            abi.encodeCall(
+                XPlatformVerifier.initialize, (OWNER, INotaryService(address(0x0707)), wrong, address(wrong).codehash)
+            )
+        );
     }
 }

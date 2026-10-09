@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
+import {CircuitCodehashes} from "../circuits/CircuitCodehashes.sol";
 import {CeremonyAuthorization} from "./CeremonyAuthorization.sol";
 import {GoogleProof} from "./CeremonyPayloads.sol";
 import {CeremonyProfile} from "./CeremonyProfile.sol";
@@ -122,6 +123,11 @@ contract GooglePlatformVerifier is IPlatformVerifier, PlatformVerifierBase {
         if (address(roots) == address(0)) revert ZeroAddress();
         _g().jwtRoots = roots;
         emit JwtRootsChanged(address(roots));
+    }
+
+    /// @dev `oidc-google`'s verifier, and no other.
+    function _circuitCodehash() internal pure override returns (bytes32) {
+        return CircuitCodehashes.OIDC_GOOGLE;
     }
 
     function _platform() internal pure override returns (bytes32) {

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
+import {HonkStub} from "./HonkStub.sol";
 import {Test} from "forge-std/Test.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
@@ -21,12 +22,6 @@ import {HandlePlatforms} from "../../handles/HandlePlatforms.sol";
 import {TestNodes} from "../../identity/test/TestNodes.sol";
 import {StubPlatformVerifier} from "../../identity/test/StubPlatformVerifier.sol";
 import {AttestationBuilder} from "./AttestationBuilder.sol";
-
-contract RHonk is IHonkVerifier {
-    function verify(bytes calldata, bytes32[] calldata) external pure returns (bool) {
-        return true;
-    }
-}
 
 contract RRoots is IGoogleJwtRoots {
     function trustedHashExpiresAt(bytes32) external pure returns (uint256) {
@@ -139,7 +134,7 @@ contract UpgradeSafetyTest is Test {
 
     function test_upgrade_XPlatformVerifier() public {
         NotaryService ns = _notaryService();
-        RHonk honk = new RHonk();
+        IHonkVerifier honk = IHonkVerifier(HonkStub.deploy(HonkStub.X));
         XPlatformVerifier impl = new XPlatformVerifier();
         vm.expectRevert(Initializable.InvalidInitialization.selector);
         impl.initialize(OWNER, ns, honk, address(honk).codehash);
@@ -173,7 +168,7 @@ contract UpgradeSafetyTest is Test {
 
     function test_upgrade_GitHubPlatformVerifier() public {
         NotaryService ns = _notaryService();
-        RHonk honk = new RHonk();
+        IHonkVerifier honk = IHonkVerifier(HonkStub.deploy(HonkStub.GITHUB));
         GitHubPlatformVerifier impl = new GitHubPlatformVerifier();
         vm.expectRevert(Initializable.InvalidInitialization.selector);
         impl.initialize(OWNER, ns, honk, address(honk).codehash);
@@ -203,7 +198,7 @@ contract UpgradeSafetyTest is Test {
     // ─── Google ─────────────────────────────────────────────────────
 
     function test_upgrade_GooglePlatformVerifier() public {
-        RHonk honk = new RHonk();
+        IHonkVerifier honk = IHonkVerifier(HonkStub.deploy(HonkStub.GOOGLE));
         RRoots roots = new RRoots();
         GooglePlatformVerifier impl = new GooglePlatformVerifier();
         vm.expectRevert(Initializable.InvalidInitialization.selector);
