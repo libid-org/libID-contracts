@@ -438,13 +438,15 @@ contract IdentityRegistry is
     }
 
     /// @notice `resolveHandleAndId` for a handle node computed off chain, so
-    ///         the handle itself never reaches the RPC.
+    ///         the handle itself never reaches the RPC. A node proved on
+    ///         another platform resolves as an unknown handle does.
     function resolveHandleNodeAndId(bytes32 platformId, bytes32 handleNode, bytes32 idNode)
         external
         view
         returns (address holder, bool idAgrees)
     {
         _requireUsable(platformId);
+        if (_s().platformOfId[_s().idNodeByHandle[handleNode]] != platformId) return (address(0), false);
         return _resolveNodeAndId(platformId, handleNode, idNode);
     }
 

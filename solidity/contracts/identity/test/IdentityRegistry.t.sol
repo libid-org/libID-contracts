@@ -433,6 +433,18 @@ contract IdentityRegistryTest is PrivacyScan {
         assertTrue(agrees);
     }
 
+    /// A handle node proved on GitHub is unknown on X, whatever id comes with it.
+    function test_resolveHandleNodeAndIdRefusesAHandleNodeFromAnotherPlatform() public {
+        _bind(alice, "123", "alice", 100);
+        _stage("456", "gh-alice", alice, 100);
+        vm.prank(alice);
+        _submit(GITHUB, "");
+
+        (address holder, bool agrees) = registry.resolveHandleNodeAndId(X, _hn(GITHUB, "gh-alice"), _id(X, "123"));
+        assertEq(holder, address(0), "a GitHub handle node resolved on X");
+        assertFalse(agrees, "a GitHub handle node agreed with an X id");
+    }
+
     /// The case the two mappings exist for: a consumer has a pair from two
     /// different moments, and the chain can say so.
     function test_resolveHandleAndIdReportsAHandleThatChangedHands() public {
