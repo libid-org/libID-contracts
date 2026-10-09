@@ -69,6 +69,8 @@ const contracts = [
 // calls is last: bb's generated code reverts from assembly with selectors its
 // own artifact does not declare (`SumcheckFailed()` among them), so their
 // names come from `IHonkVerifierErrors`, which declares them under bb's names.
+// Rust's `BindError::decode` tries the same list; a test there fails when the
+// two differ.
 const bindRoute = [
   ['IdentityRegistry.sol', 'IdentityRegistry'],
   ['CeremonyProofVerifier.sol', 'CeremonyProofVerifier'],

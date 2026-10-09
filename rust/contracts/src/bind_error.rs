@@ -262,4 +262,37 @@ mod tests {
         assert!(BindError::decode(&revert("NoSuchError()", vec![])).is_none());
         assert!(BindError::decode(&[]).is_none());
     }
+
+    /// TypeScript's `bindErrorsAbi` is built from `bindRoute` in
+    /// `codegen.mjs`. It lists the same contracts in the order `decode`
+    /// tries them, with X's and GitHub's verifiers under the one binding.
+    #[test]
+    fn the_typescript_bind_route_is_the_one_decode_tries() {
+        let codegen = std::fs::read_to_string(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../ts/packages/contracts/scripts/codegen.mjs"
+        ))
+        .expect("codegen.mjs");
+        let (_, route) = codegen
+            .split_once("const bindRoute = [")
+            .expect("bindRoute");
+        let (route, _) = route.split_once("\n]").expect("the end of bindRoute");
+        let ts: Vec<&str> = route.lines().filter_map(|l| l.split('\'').nth(3)).collect();
+
+        let source = include_str!("bind_error.rs");
+        let (_, decode) = source.split_once("pub fn decode(").expect("decode");
+        let (decode, _) = decode.split_once("\n    }\n").expect("the end of decode");
+        let rust: Vec<&str> = decode
+            .lines()
+            .filter_map(|l| l.split_once("Errors::abi_decode"))
+            .filter_map(|(head, _)| head.rsplit(' ').next())
+            .flat_map(|binding| match binding {
+                "TlsNotaryPlatformVerifier" => {
+                    vec!["XPlatformVerifier", "GitHubPlatformVerifier"]
+                }
+                other => vec![other],
+            })
+            .collect();
+        assert_eq!(rust, ts);
+    }
 }
