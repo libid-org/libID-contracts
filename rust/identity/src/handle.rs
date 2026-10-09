@@ -8,7 +8,7 @@
 /// TypeScript ones, because the vector table names which refusal it expects.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HandleError {
-    /// Nothing is left after the transform.
+    /// No bytes at all.
     Empty,
     /// More bytes than the platform allows.
     TooLong,

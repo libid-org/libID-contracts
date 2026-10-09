@@ -11,6 +11,7 @@ use crate::{
     check_id,
     normalize,
     HandleError,
+    IdError,
 };
 
 /// The tags a platform's nodes are hashed under: `(user id, handle)`.
@@ -36,7 +37,7 @@ pub fn handle_node(
 }
 
 /// The node a user id is bound under. The id is hashed exactly as given.
-pub fn id_node(platform_key: &str, id: &str) -> Option<Result<[u8; 32], HandleError>> {
+pub fn id_node(platform_key: &str, id: &str) -> Option<Result<[u8; 32], IdError>> {
     let p = v::platform(platform_key)?;
     Some(check_id(id, p.id_rules).map(|()| tagged(p.user_id_tag, id)))
 }
