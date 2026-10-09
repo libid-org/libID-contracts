@@ -10,6 +10,7 @@ import {CeremonyProofVerifier} from "../CeremonyProofVerifier.sol";
 import {ICeremony} from "../ICeremony.sol";
 import {IPlatformVerifier} from "../IPlatformVerifier.sol";
 import {StubPlatformVerifier} from "../../identity/test/StubPlatformVerifier.sol";
+import {TestNodes} from "../../identity/test/TestNodes.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 
 /// @notice The Proof Verifier as dispatch: it routes, forwards value, and
@@ -46,7 +47,8 @@ contract CeremonyProofVerifierTest is Test {
                 ceremonyVersion: ceremonyVersion,
                 operationDomain: DOMAIN,
                 authorizationNonce: NONCE,
-                transactionData: _txData()
+                transactionData: _txData(),
+                handle: ""
             })
         );
     }
@@ -172,8 +174,8 @@ contract CeremonyProofVerifierTest is Test {
         assertEq(c.operationDomain, DOMAIN);
         assertEq(c.transactionData, _txData());
         assertEq(c.ceremonyVersion, 1);
-        assertEq(c.userId, "2244994945");
-        assertEq(c.handle, "alice");
+        assertEq(c.idNode, TestNodes.idNode(PLATFORM_ID, "2244994945"));
+        assertEq(c.handleNode, TestNodes.handleNode(PLATFORM_ID, "alice"));
         assertEq(c.metadataObservedAt, 1_770_000_000);
         assertEq(c.sessionId, platform.lastDigest());
     }

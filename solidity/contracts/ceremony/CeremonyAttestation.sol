@@ -106,6 +106,10 @@ library CeremonyAttestation {
     error NoFramedCommitment();
     /// @dev More than one is, so the framing identifies nothing.
     error AmbiguousFraming();
+    /// @dev The revealed request bytes hold `heads` head boundaries, not one.
+    error NotOneRequest(uint256 heads);
+    /// @dev `count` bytes follow the head of a bodiless request.
+    error BytesAfterRequest(uint256 count);
 
     /// @notice Parse and shape-check the attested data.
     /// @dev Trailing bytes are refused: the layout accounts for every byte, so
@@ -149,35 +153,71 @@ library CeremonyAttestation {
     ///      uncounted, and the platform answering to whichever it honoured.
     bytes internal constant AUTHORIZATION_NEEDLE = "\r\nauthorization:";
 
-    /// @notice The one commitment framed by these revealed bytes, JSON
-    ///         whitespace aside.
-    ///
-    /// @dev For a direction that is NOT exactly covered, where several ranges
-    ///      are hidden and only the anchors around one of them are revealed.
-    ///      The X token response is that case: the bearer is committed, the
-    ///      `"access_token":"` delimiter and its closing quote are revealed,
-    ///      and every other response byte sits behind a commitment of its own.
-    ///
-    ///      The framing is what IDENTIFIES the bearer, not its being the only
-    ///      commitment. Without it a received direction revealing nothing at
-    ///      all leaves the committed range indistinguishable from a
-    ///      `refresh_token` value, or any other substring the prover chose to
-    ///      commit (REQ-PLAT-57, REQ-PLAT-58).
-    ///
-    ///      Exactly one commitment may carry the framing. Two would leave
-    ///      nothing to say which the circuit opened.
+    /// @dev What ends a framed commitment: exact suffix bytes, or the `,` or `}`
+    ///      closing a bare JSON integer.
+    enum Terminator {
+        Suffix,
+        JsonIntegerEnd
+    }
+
+    /// @notice A direction's revealed bytes, joined, without JSON whitespace.
+    function normalizedRevealed(DirectionBlock memory block_) internal pure returns (bytes memory) {
+        return CeremonyFields.normalizeJsonBytes(concatRevealed(block_));
+    }
+
+    /// @notice The one commitment framed by revealed `prefix` and `suffix`, JSON
+    ///         whitespace aside; the framing identifies it (REQ-PLAT-57, REQ-PLAT-58).
     function requireFramedCommitment(DirectionBlock memory block_, bytes memory prefix, bytes memory suffix)
         internal
         pure
         returns (RangeCommitment memory framed)
     {
-        // The prefix at most once across everything revealed, JSON whitespace
-        // removed: a second one, in any spelling, is a second place the framing
-        // could point, whether or not a commitment sits behind it.
-        if (CeremonyFields.occurrences(CeremonyFields.normalizeJsonBytes(concatRevealed(block_)), prefix) > 1) {
-            revert AmbiguousFraming();
-        }
+        return _framed(block_, normalizedRevealed(block_), prefix, Terminator.Suffix, suffix);
+    }
 
+    /// @notice `requireFramedCommitment` with `normalized` =
+    ///         `normalizedRevealed(block_)`, for several reads of one direction.
+    function requireFramedCommitment(
+        DirectionBlock memory block_,
+        bytes memory normalized,
+        bytes memory prefix,
+        bytes memory suffix
+    ) internal pure returns (RangeCommitment memory framed) {
+        return _framed(block_, normalized, prefix, Terminator.Suffix, suffix);
+    }
+
+    /// @notice The one commitment after revealed `prefix` and before a revealed
+    ///         `,` or `}`, so the committed digits are the whole number.
+    function requireFramedInteger(DirectionBlock memory block_, bytes memory prefix)
+        internal
+        pure
+        returns (RangeCommitment memory framed)
+    {
+        return _framed(block_, normalizedRevealed(block_), prefix, Terminator.JsonIntegerEnd, "");
+    }
+
+    /// @notice `requireFramedInteger`, with `normalized` as
+    ///         `requireFramedCommitment` takes it.
+    function requireFramedInteger(DirectionBlock memory block_, bytes memory normalized, bytes memory prefix)
+        internal
+        pure
+        returns (RangeCommitment memory framed)
+    {
+        return _framed(block_, normalized, prefix, Terminator.JsonIntegerEnd, "");
+    }
+
+    /// @dev The prefix at most once in `normalized`, then exactly one commitment
+    ///      anchored by it and ended by the terminator.
+    function _framed(
+        DirectionBlock memory block_,
+        bytes memory normalized,
+        bytes memory prefix,
+        Terminator terminator,
+        bytes memory suffix
+    ) private pure returns (RangeCommitment memory) {
+        if (CeremonyFields.occurrences(normalized, prefix) > 1) revert AmbiguousFraming();
+
+        bytes32 suffixHash = keccak256(suffix);
         uint256 found = type(uint256).max;
         for (uint256 i = 0; i < block_.commitments.length; ++i) {
             RangeCommitment memory c = block_.commitments[i];
@@ -186,14 +226,35 @@ library CeremonyAttestation {
             // the prefix. One range, never a join: a prefix assembled across a
             // seam is one the platform never wrote in one piece.
             if (!_anchoredBy(block_, c.start, prefix)) continue;
-            bytes memory after_ = _revealedSlice(block_, c.end, c.end + uint32(suffix.length));
-            if (keccak256(after_) != keccak256(suffix)) continue;
+            if (terminator == Terminator.Suffix) {
+                bytes memory after_ = _revealedSlice(block_, c.end, c.end + uint32(suffix.length));
+                if (keccak256(after_) != suffixHash) continue;
+            } else if (!_terminatedAt(block_, c.end)) {
+                continue;
+            }
 
             if (found != type(uint256).max) revert AmbiguousFraming();
             found = i;
         }
         if (found == type(uint256).max) revert NoFramedCommitment();
         return block_.commitments[found];
+    }
+
+    /// @dev Whether a revealed range starts exactly at `at` and its first byte
+    ///      after JSON whitespace is `,` or `}`.
+    function _terminatedAt(DirectionBlock memory block_, uint32 at) private pure returns (bool) {
+        for (uint256 i = 0; i < block_.revealed.length; ++i) {
+            RevealedRange memory range = block_.revealed[i];
+            if (range.start != at) continue;
+            bytes memory v = range.value;
+            for (uint256 j = 0; j < v.length; ++j) {
+                bytes1 b = v[j];
+                if (b == 0x20 || b == 0x09 || b == 0x0a || b == 0x0d) continue;
+                return b == 0x2c || b == 0x7d;
+            }
+            return false;
+        }
+        return false;
     }
 
     /// @dev Whether a revealed range ends exactly at `at` and, JSON whitespace
@@ -216,24 +277,10 @@ library CeremonyAttestation {
         return false;
     }
 
-    /// @notice Every check REQ-COMMON-35, -39 and -40 require of an
-    ///         identity-session request that commits a credential in an HTTP
-    ///         `Authorization` header.
-    ///
-    /// @dev At launch that is X's `/2/users/me` request and GitHub's `/user`
-    ///      request, and nothing else. A token request carries its credential
-    ///      as a form field, where there is no header line to count and none
-    ///      to frame, so none of the three reaches one.
-    ///
-    ///      The three are one call because they are one property, and two of
-    ///      them are worthless alone. The uniqueness scan counts the needle
-    ///      across REVEALED bytes only, so a byte covered by nothing is a byte
-    ///      it never reads: without coverage a prover hides a second
-    ///      authorization header in a gap, the count stays at one, and the
-    ///      platform honours whichever header it likes.
-    ///
-    /// @return commitment The committed bearer range, which the caller then
-    ///         matches against the circuit's identity-bearer public input.
+    /// @notice REQ-COMMON-35, -39 and -40 for an identity request that commits
+    ///         its credential in one `Authorization` header, and nothing after it.
+    /// @dev Coverage first: the header count reads revealed bytes only.
+    /// @return commitment The committed bearer range.
     /// @return revealed   `concatRevealed(block_)`, the bytes the count read.
     function requireBearerHeaderRequest(DirectionBlock memory block_, uint32 length)
         internal
@@ -250,26 +297,10 @@ library CeremonyAttestation {
 
         revealed = concatRevealed(block_);
         requireCrlfLineEndings(revealed);
+        requireOneBodilessRequest(block_, revealed, length);
 
-        // Counted over the CONCATENATION, not per range.
-        //
-        // Per range was wrong in the unsafe direction. The prover picks where
-        // the reveals are cut, so cutting one through the middle of a second
-        // `\r\nauthorization:` makes neither half contain the needle: two
-        // header lines, count of one, and the platform answers to whichever
-        // bearer it honoured -- someone else's. Confirmed by proof of concept.
-        //
-        // Joining regions can manufacture a match at a seam, and that is the
-        // direction to err in: a false seam over-rejects an honest session,
-        // which fails closed. Missing a real header does not.
-        //
-        // Reading a VALUE stays per range -- see `_uniqueJsonString`. Counting
-        // and reading want opposite things: a count must not miss, a read must
-        // not splice.
-        // Counted once. Filling the error argument with a second call would
-        // rescan the whole revealed transcript, so every rejected submission
-        // would pay twice for the check that rejected it -- on a buffer the
-        // prover sizes.
+        // Counted over the join, so a reveal cut through a header cannot hide it;
+        // a false match at a seam fails closed.
         uint256 headers = _countNeedle(revealed);
         if (headers != 1) revert NotOneAuthorizationHeader(headers);
 
@@ -280,6 +311,47 @@ library CeremonyAttestation {
         bytes memory after_ = _revealedSlice(block_, commitment.end, commitment.end + uint32(BEARER_SUFFIX.length));
         if (keccak256(before_) != keccak256(BEARER_PREFIX) || keccak256(after_) != keccak256(BEARER_SUFFIX)) {
             revert BadBearerFraming();
+        }
+    }
+
+    /// @notice The direction carries exactly one bodiless HTTP request.
+    /// @dev `revealed` is `concatRevealed(block_)`, covered and CRLF-checked: one
+    ///      head boundary, nothing revealed after it, and the last range ending
+    ///      the transcript.
+    function requireOneBodilessRequest(DirectionBlock memory block_, bytes memory revealed, uint32 length)
+        internal
+        pure
+    {
+        (uint256 heads, uint256 at) = headBoundaries(revealed);
+        if (heads != 1) revert NotOneRequest(heads);
+        uint256 trailing = revealed.length - (at + 4);
+        if (trailing != 0) revert BytesAfterRequest(trailing);
+        // In bounds: one boundary means at least four revealed bytes, so at
+        // least one revealed range.
+        uint32 lastEnd = block_.revealed[block_.revealed.length - 1].end;
+        if (lastEnd != length) revert BytesAfterRequest(length - lastEnd);
+    }
+
+    /// @notice How many head boundaries (`\r\n\r\n`) `data` holds, overlapping
+    ///         ones included, and the offset of the first, or `max` for none.
+    function headBoundaries(bytes memory data) internal pure returns (uint256 count, uint256 first) {
+        first = type(uint256).max;
+        // Every boundary begins with a CR, so only those offsets are tried.
+        for (
+            uint256 cr = CeremonyFields.indexOfByte(data, 0, 0x0d);
+            cr + 4 <= data.length;
+            cr = CeremonyFields.indexOfByte(data, cr + 1, 0x0d)
+        ) {
+            uint256 four;
+            // The four bytes at `cr`, inside `data` by the loop condition;
+            // the shift drops what the word holds past them.
+            assembly ("memory-safe") {
+                four := shr(224, mload(add(add(data, 0x20), cr)))
+            }
+            if (four == 0x0d0a0d0a) {
+                ++count;
+                if (first == type(uint256).max) first = cr;
+            }
         }
     }
 

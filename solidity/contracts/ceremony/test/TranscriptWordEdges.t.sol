@@ -163,26 +163,6 @@ contract TranscriptWordEdgesTest is Test {
         }
     }
 
-    /// @dev A member placed so its delimiter, its value and its terminator
-    ///      fall anywhere in a word, under names whose delimiters are 31, 32
-    ///      and 33 bytes: the one-word compare, its full mask, and the hashed
-    ///      compare past it.
-    /// forge-config: default.fuzz.runs = 3000
-    function testFuzz_jsonReadsAtWordEdges(uint256 seed) public view {
-        Gen.Rng memory r = Gen.Rng(seed);
-        bytes memory name = r.oneOf(Gen.list("id", "login", "username", Edge.repeat("n", 27 + r.pick(5))));
-        bytes memory ws = r.oneOf(Gen.list("", " ", "\n\t", "\r\n  "));
-        bytes memory value = r.chance(50)
-            ? bytes.concat('"', r.fill(r.near(40), 'a1_ \\:,"'), r.chance(85) ? bytes('"') : bytes(""))
-            : bytes.concat(r.fill(r.near(40), "0123456789"), r.oneOf(Gen.list(",", "}", " ", "")));
-        bytes memory member = bytes.concat('"', name, '"', ws, ":", ws, value);
-        bytes memory data = bytes.concat(r.fill(r.near(70), JSON_ALPHABET), member, r.fill(r.near(40), JSON_ALPHABET));
-        if (r.chance(15)) data = Edge.insert(data, r.near(data.length), member);
-        if (r.chance(10)) data = r.mutate(data, '"{}:, \n0a');
-        _same(address(live), address(ref), abi.encodeCall(LiveHelpers.tryJsonString, (data, string(name))));
-        _same(address(live), address(ref), abi.encodeCall(LiveHelpers.tryJsonInteger, (data, string(name))));
-    }
-
     /// @dev A needle cut out of a periodic haystack at a word edge, the byte
     ///      it ends on sometimes changed: a mask one byte short or long
     ///      counts a copy that is not there or misses one that is.
@@ -555,52 +535,36 @@ contract TranscriptWordEdgesTest is Test {
         length = uint32(t.length);
     }
 
-    /// @dev An identity response with a pad member revealed with the first
-    ///      read member, so both members' delimiters move through a word.
+    /// @dev An anchor-only identity response with a pad member that moves the
+    ///      anchors through a word.
     function _edgeIdentityResponse(Gen.Rng memory r, bool integerId, bytes memory handleField)
         private
         pure
         returns (CeremonyAttestation.DirectionBlock memory block_, uint32 length)
     {
         bytes memory ws = r.oneOf(Gen.list("", " ", "\n  ", "\t"));
-        bytes memory idValue = integerId
-            ? (r.chance(80) ? bytes("293919812") : r.oneOf(Gen.list("0", "007", "12 3")))
-            : (r.chance(80) ? bytes('"1051915704843333634"') : r.oneOf(Gen.list('""', '"7', "7")));
-        bytes memory idMember = bytes.concat('"id"', ws, ":", ws, idValue);
-        bytes memory handleMember = bytes.concat(
-            '"',
-            handleField,
-            '"',
-            ws,
-            ":",
-            ws,
-            '"',
-            r.fill(1 + r.near(40), "aB_1"),
-            r.chance(95) ? bytes('"') : bytes("")
-        );
         bool idFirst = r.chance(50);
+        Gen.Member memory id = r.idMember(integerId, ws, idFirst);
+        Gen.Member memory handle = Gen.Member({
+            anchor: bytes.concat('"', handleField, '"', ws, ":", ws, '"'),
+            value: r.fill(1 + r.near(40), "aB_1"),
+            close: r.chance(95) ? bytes('"') : bytes("")
+        });
         bytes memory pad = bytes.concat('"pad":"', Edge.repeat("p", r.near(70)), '",', ws);
         if (r.chance(10)) pad = bytes.concat(pad, r.oneOf(Gen.list('"xid":1,', '"id_":2,', '"id":3,')));
-        bytes memory first = bytes.concat(pad, idFirst ? idMember : handleMember);
-        bytes memory second = idFirst ? handleMember : idMember;
-        bytes memory sep = r.oneOf(Gen.list(",", ", ", ",\n  "));
-        bytes memory prefix = 'HTTP/1.1 200 OK\r\n\r\n{"data":{';
-        bytes memory t = bytes.concat(prefix, first, sep, second, ws, "}}");
-        uint256 a = prefix.length;
-        uint256 b = a + first.length + 1;
-        uint256 c = a + first.length + sep.length;
-        uint256 d = c + second.length + ws.length + 1;
-        uint8 middle = r.chance(50) ? Gen.COMMIT : Gen.REVEAL;
-        block_ = r.split(
-            t,
-            Gen.marks(a, b, c, d),
-            Gen.kinds(Gen.COMMIT, Gen.REVEAL, middle, Gen.REVEAL, Gen.COMMIT),
+        if (idFirst) id.anchor = bytes.concat(pad, id.anchor);
+        else handle.anchor = bytes.concat(pad, handle.anchor);
+        bytes memory sep = idFirst && integerId ? bytes("") : r.oneOf(Gen.list(",", ", ", ",\n  "));
+        bytes memory tail = !idFirst && integerId ? bytes("}") : bytes.concat(ws, "}}");
+        (block_, length) = r.members(
+            'HTTP/1.1 200 OK\r\n\r\n{"data":{',
+            "",
+            idFirst ? id : handle,
+            sep,
+            idFirst ? handle : id,
+            tail,
             r.chance(20) ? 1 + r.pick(2) : 0
         );
-        // Casting to uint32 is safe: a generated response is a few hundred
-        // bytes long.
-        // forge-lint: disable-next-line(unsafe-typecast)
-        length = uint32(t.length);
     }
 
     function _edgeIdentitySession(Gen.Rng memory r, bool isGitHub)
@@ -617,9 +581,19 @@ contract TranscriptWordEdgesTest is Test {
     ///      word and the first of the next, where the head check lowercases
     ///      it, reads `_` as `-`, trims it before the colon, or keeps it.
     function test_headerNamesSortEveryByteValueAtWordEdges() public view {
-        bytes memory response = 'HTTP/1.1 200 OK\r\n\r\n{"id":"1","username":"a"}';
+        bytes memory status = "HTTP/1.1 200 OK\r\n\r\n{";
+        bytes memory response = bytes.concat(status, '"id":"1","username":"a"}');
         CeremonyAttestation.AttestedData memory data;
-        data.received = Gen.layout(response, Gen.marks(0, response.length), Gen.kinds(Gen.REVEAL, Gen.REVEAL));
+        // The anchor-only reveal: `"id":"`, `","username":"` and `"}` in the
+        // open, the two values and the head committed.
+        uint256 id = status.length + 6;
+        uint256 handle = id + 15;
+        uint256[] memory cuts = new uint256[](7);
+        (cuts[0], cuts[1], cuts[2], cuts[3]) = (0, status.length, id, id + 1);
+        (cuts[4], cuts[5], cuts[6]) = (handle, handle + 1, response.length);
+        data.received = Gen.layout(
+            response, cuts, Gen.kinds6(Gen.COMMIT, Gen.REVEAL, Gen.COMMIT, Gen.REVEAL, Gen.COMMIT, Gen.REVEAL)
+        );
         // Casting to uint32 is safe: the response is under a hundred bytes.
         // forge-lint: disable-next-line(unsafe-typecast)
         data.recvTranscriptLength = uint32(response.length);

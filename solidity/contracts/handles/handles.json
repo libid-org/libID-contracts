@@ -1,0 +1,525 @@
+{
+  "version": 2,
+  "note": [
+    "The single source of truth for platform identity constants, for handle",
+    "normalization, and for the tags that make a value a key. Solidity, Rust,",
+    "TypeScript and Noir constants are generated from this file by",
+    "scripts/regen-identity-handles.py. The normalizer logic is hand written in",
+    "each language -- the circuit's is the one that keys a binding -- and every",
+    "language runs the same vector table, so a difference between them fails a",
+    "test instead of writing a different node on chain.",
+    "",
+    "Normalization is a closed byte transform that refuses rather than repairs.",
+    "A-Z fold to a-z and nothing else changes: no byte is trimmed, no @ is",
+    "stripped. It is not Unicode case folding and not UTS-46. Handles on the",
+    "supported platforms are ASCII, so a closed transform gives four languages",
+    "the same answer with no shared library.",
+    "",
+    "A node is SHA256(tag || value): the handle node over the normalized",
+    "handle, the id node over the id exactly as the platform sent it. The tags",
+    "are raw ASCII with no separator or length prefix, one per platform and",
+    "kind, so no two platforms and no id and handle share a key. Every",
+    "handleNode and idNode below was computed independently, with Python's",
+    "hashlib over the hand-written output; the generator recomputes each one",
+    "and refuses a table whose stored node disagrees.",
+    "",
+    "A platform id is keccak256 of the platform key ('x'), with no namespace",
+    "of its own. The specification fixes the keys -- the launch profiles of",
+    "REQ-PLAT-01 are google, x and github -- and leaves the derivation to",
+    "the profile author, so this repository pins it.",
+    "",
+    "The generated rulesFor takes the platform id in Solidity, where a caller",
+    "has the id, and the platform key in Rust, TypeScript and Noir, where a",
+    "caller has the key."
+  ],
+  "platforms": [
+    {
+      "key": "x",
+      "maxLength": 15,
+      "shape": "handle",
+      "allowUnderscore": true,
+      "allowHyphen": false,
+      "note": "X allows letters, digits and underscore, up to 15 characters.",
+      "tags": {
+        "userId": "libid.x.user-id",
+        "handle": "libid.x.handle"
+      },
+      "id": {
+        "maxLength": 20,
+        "shape": "decimal",
+        "leadingZero": true,
+        "note": "X user ids are decimal strings of up to 20 digits."
+      }
+    },
+    {
+      "key": "github",
+      "maxLength": 39,
+      "shape": "handle",
+      "allowUnderscore": false,
+      "allowHyphen": true,
+      "note": [
+        "GitHub allows letters, digits and hyphen, up to 39 characters. A hyphen",
+        "may not start or end the handle, and two hyphens may not touch."
+      ],
+      "tags": {
+        "userId": "libid.github.user-id",
+        "handle": "libid.github.handle"
+      },
+      "id": {
+        "maxLength": 20,
+        "shape": "decimal",
+        "leadingZero": false,
+        "note": "GitHub ids are bare JSON integers, written without a leading zero."
+      }
+    },
+    {
+      "key": "google",
+      "maxLength": 62,
+      "shape": "email",
+      "allowUnderscore": false,
+      "allowHyphen": false,
+      "note": [
+        "The address is used as proved. This transform does not remove dots,",
+        "does not strip a +tag, and does not rewrite a domain, because two",
+        "different addresses must never become one identity.",
+        "",
+        "62 bytes is a hard limit and not only a lookup limit. A longer address",
+        "is rejected instead of truncated, for the same reason.",
+        "",
+        "allowUnderscore and allowHyphen are stated for completeness and",
+        "are never read: the email shape supersedes both, and the address",
+        "set already carries the underscore and the hyphen."
+      ],
+      "tags": {
+        "userId": "libid.google.user-id",
+        "handle": "libid.google.handle"
+      },
+      "id": {
+        "maxLength": 31,
+        "shape": "printable",
+        "leadingZero": true,
+        "note": [
+          "The OIDC sub: printable ASCII 0x20-0x7e without '\"' or '\\\\', at most",
+          "31 bytes, as the oidc-google circuit reads it."
+        ]
+      }
+    }
+  ],
+  "errors": [
+    {
+      "key": "Empty",
+      "note": "Nothing is left after the transform."
+    },
+    {
+      "key": "TooLong",
+      "note": "More bytes than the platform allows."
+    },
+    {
+      "key": "BadCharacter",
+      "note": "A byte the platform does not allow."
+    },
+    {
+      "key": "BadShape",
+      "note": "Allowed bytes in an arrangement the platform does not allow."
+    }
+  ],
+  "vectors": [
+    {
+      "platform": "x",
+      "input": " @Alice_1 ",
+      "error": "BadCharacter",
+      "note": "A space is refused, not trimmed."
+    },
+    {
+      "platform": "x",
+      "input": "Alice_1",
+      "output": "alice_1",
+      "note": "Letters fold down; the e2e fixture's handle.",
+      "handleNode": "0xe09c4f5bfbbc723bc35701ea9d718a1c5edb29b1ed5bb0cb0fabb3c43d8136af"
+    },
+    {
+      "platform": "x",
+      "input": "alice",
+      "output": "alice",
+      "handleNode": "0x0bed64615b5776d2567a82467d7be0e266e02803910d694a72703ee2a4cc911a"
+    },
+    {
+      "platform": "x",
+      "input": "@a",
+      "error": "BadCharacter",
+      "note": "An @ is refused, not stripped."
+    },
+    {
+      "platform": "x",
+      "input": "A1_b2",
+      "output": "a1_b2",
+      "handleNode": "0x55be0847f475409cb1da1d008804b966de05bb088d2469129c142faf2ec4a678"
+    },
+    {
+      "platform": "x",
+      "input": "a12345678901234",
+      "output": "a12345678901234",
+      "note": "15 bytes is the limit.",
+      "handleNode": "0xbd3a96fb00ea79bdb486cbaa43914f8c110c8585d419fc02e5b1536c7617af58"
+    },
+    {
+      "platform": "x",
+      "input": "a123456789012345",
+      "error": "TooLong"
+    },
+    {
+      "platform": "x",
+      "input": "",
+      "error": "Empty"
+    },
+    {
+      "platform": "x",
+      "input": "   ",
+      "error": "BadCharacter"
+    },
+    {
+      "platform": "x",
+      "input": "@",
+      "error": "BadCharacter"
+    },
+    {
+      "platform": "x",
+      "input": "@@alice",
+      "error": "BadCharacter"
+    },
+    {
+      "platform": "x",
+      "input": "alice-1",
+      "error": "BadCharacter",
+      "note": "X does not allow a hyphen."
+    },
+    {
+      "platform": "x",
+      "input": "ali ce",
+      "error": "BadCharacter",
+      "note": "An inner space is not trimmed."
+    },
+    {
+      "platform": "x",
+      "input": "ali\tce",
+      "error": "BadCharacter"
+    },
+    {
+      "platform": "x",
+      "input": "ali\nce",
+      "error": "BadCharacter"
+    },
+    {
+      "platform": "x",
+      "input": "alicé",
+      "error": "BadCharacter",
+      "note": "A byte above 0x7f is refused."
+    },
+    {
+      "platform": "x",
+      "input": "\talice",
+      "error": "BadCharacter",
+      "note": "A leading tab is not trimmed. Only 0x20 is."
+    },
+    {
+      "platform": "x",
+      "input": "alice\t",
+      "error": "BadCharacter",
+      "note": "A trailing tab is not trimmed either."
+    },
+    {
+      "platform": "x",
+      "input": "\nalice",
+      "error": "BadCharacter"
+    },
+    {
+      "platform": "x",
+      "input": " @ alice ",
+      "error": "BadCharacter"
+    },
+    {
+      "platform": "github",
+      "input": "OctoCat",
+      "output": "octocat",
+      "note": "The e2e fixture's login.",
+      "handleNode": "0x381fb9d7d3b01214e58b94202ea10f78e169adef68bcc20d40c130deca6dfe74"
+    },
+    {
+      "platform": "github",
+      "input": "@Octo-Cat",
+      "error": "BadCharacter",
+      "note": "An @ is refused, not stripped."
+    },
+    {
+      "platform": "github",
+      "input": "octocat",
+      "output": "octocat",
+      "handleNode": "0x381fb9d7d3b01214e58b94202ea10f78e169adef68bcc20d40c130deca6dfe74"
+    },
+    {
+      "platform": "github",
+      "input": " OctoCat ",
+      "error": "BadCharacter",
+      "note": "A space is refused, not trimmed."
+    },
+    {
+      "platform": "github",
+      "input": "a",
+      "output": "a",
+      "handleNode": "0x823c23491391b659703362484a08cfbcc8cede4ea3b5ba1753c3df7756799c70"
+    },
+    {
+      "platform": "github",
+      "input": "o-c",
+      "output": "o-c",
+      "handleNode": "0xaa580baff71ac37d38e08b9b7b0dd7516ec01608457fbbee7f445a0b8f7d9fc5"
+    },
+    {
+      "platform": "github",
+      "input": "-octocat",
+      "error": "BadShape",
+      "note": "A hyphen may not start it."
+    },
+    {
+      "platform": "github",
+      "input": "octocat-",
+      "error": "BadShape",
+      "note": "A hyphen may not end it."
+    },
+    {
+      "platform": "github",
+      "input": "octo--cat",
+      "error": "BadShape",
+      "note": "Two hyphens may not touch."
+    },
+    {
+      "platform": "github",
+      "input": "octo_cat",
+      "error": "BadCharacter",
+      "note": "GitHub does not allow an underscore."
+    },
+    {
+      "platform": "github",
+      "input": "-",
+      "error": "BadShape"
+    },
+    {
+      "platform": "github",
+      "input": "",
+      "error": "Empty"
+    },
+    {
+      "platform": "github",
+      "input": "abcdefghijabcdefghijabcdefghijabcdefghi",
+      "output": "abcdefghijabcdefghijabcdefghijabcdefghi",
+      "note": "39 bytes is the limit.",
+      "handleNode": "0x3f7bdb081795e2934e1e949f1933b8df950a6e6026dbc70060fc3a79b693a058"
+    },
+    {
+      "platform": "github",
+      "input": "abcdefghijabcdefghijabcdefghijabcdefghij",
+      "error": "TooLong"
+    },
+    {
+      "platform": "github",
+      "input": "\n",
+      "error": "BadCharacter"
+    },
+    {
+      "platform": "google",
+      "input": "A.B+tag@Example.COM",
+      "output": "a.b+tag@example.com",
+      "note": "The dot and the +tag stay. Only case folds.",
+      "handleNode": "0x40169b5cc6400158aeef2a13b73a14fc36e5e1df8595572b8fe282a269f26dd4"
+    },
+    {
+      "platform": "google",
+      "input": "alice@example.com",
+      "output": "alice@example.com",
+      "handleNode": "0x41c79cba63d5bd4735ca51af1af31702918f326eb6fc1afd853d675fee3a59cc"
+    },
+    {
+      "platform": "google",
+      "input": " Alice@Example.com ",
+      "error": "BadCharacter",
+      "note": "A space is refused, not trimmed."
+    },
+    {
+      "platform": "google",
+      "input": "@Alice@example.com",
+      "error": "BadShape",
+      "note": "Google keeps its @, so this address has two."
+    },
+    {
+      "platform": "google",
+      "input": "alice",
+      "error": "BadShape",
+      "note": "An address needs one @."
+    },
+    {
+      "platform": "google",
+      "input": "@example.com",
+      "error": "BadShape",
+      "note": "The @ may not start it."
+    },
+    {
+      "platform": "google",
+      "input": "alice@",
+      "error": "BadShape",
+      "note": "The @ may not end it."
+    },
+    {
+      "platform": "google",
+      "input": "",
+      "error": "Empty"
+    },
+    {
+      "platform": "google",
+      "input": "ali ce@example.com",
+      "error": "BadCharacter"
+    },
+    {
+      "platform": "google",
+      "input": "abcdefghijabcdefghijabcdefghijabcdefghijabcdefghij@example.com",
+      "output": "abcdefghijabcdefghijabcdefghijabcdefghijabcdefghij@example.com",
+      "note": "62 bytes is the limit.",
+      "handleNode": "0x3dc67054a8f794285dc9496fd7c2442ef34401b5e3f6a49e7d3fd9cc6a917e97"
+    },
+    {
+      "platform": "google",
+      "input": "abcdefghijabcdefghijabcdefghijabcdefghijabcdefghijk@example.com",
+      "error": "TooLong"
+    },
+    {
+      "platform": "google",
+      "input": "a\"b@example.com",
+      "error": "BadCharacter",
+      "note": "A quote is refused: the circuit's closing-quote check depends on it."
+    },
+    {
+      "platform": "google",
+      "input": "a\\b@example.com",
+      "error": "BadCharacter",
+      "note": "A backslash is refused, so no JSON escape reaches a node."
+    }
+  ],
+  "idVectors": [
+    {
+      "platform": "x",
+      "input": "2244994945",
+      "idNode": "0x68291869976ffad2abf3e933ec9ab2623395ff8b3b9242e655e1da3ef43d4f94"
+    },
+    {
+      "platform": "x",
+      "input": "7",
+      "idNode": "0x5c228a76caebd7cc0148637f2344c022228820a028f1fbd0d840227da5b5fa6f"
+    },
+    {
+      "platform": "x",
+      "input": "00123",
+      "note": "X ids are strings, and a string may start with 0.",
+      "idNode": "0xb956fd3511a9d1b0e365593cc0548b0d6170ecac1d45b0596a53b9beffe59b2f"
+    },
+    {
+      "platform": "x",
+      "input": "12345678901234567890",
+      "note": "20 digits is the limit.",
+      "idNode": "0x46d787dc85127e79b248e3768ab657f0c543bc3ce5b97f1645c69f8432a3ec3b"
+    },
+    {
+      "platform": "x",
+      "input": "123456789012345678901",
+      "error": "TooLong"
+    },
+    {
+      "platform": "x",
+      "input": "",
+      "error": "Empty"
+    },
+    {
+      "platform": "x",
+      "input": "12a4",
+      "error": "BadCharacter"
+    },
+    {
+      "platform": "x",
+      "input": "-1",
+      "error": "BadCharacter"
+    },
+    {
+      "platform": "github",
+      "input": "583231",
+      "idNode": "0x475902b27989feb395b9b0cd3156aa573a9676c13155b8e7e3ddaf3e77181847"
+    },
+    {
+      "platform": "github",
+      "input": "0",
+      "note": "0 alone is not a leading zero.",
+      "idNode": "0x90f128b24f42f2f5b6924ca42ac0ec9220498d50b0ce131a1cf9135bd3e017c3"
+    },
+    {
+      "platform": "github",
+      "input": "0583231",
+      "error": "BadShape",
+      "note": "A JSON integer has no leading zero."
+    },
+    {
+      "platform": "github",
+      "input": "18446744073709551615",
+      "note": "20 digits is the limit.",
+      "idNode": "0xdaaed93a4b3862ac845bdc7e3db729492757f8c0b53c6572e6897d9ae0ff54fd"
+    },
+    {
+      "platform": "github",
+      "input": "",
+      "error": "Empty"
+    },
+    {
+      "platform": "github",
+      "input": "5 8",
+      "error": "BadCharacter"
+    },
+    {
+      "platform": "google",
+      "input": "110169484474386276334",
+      "idNode": "0x620866cfb4d2776a32cd94d8e8b55577526af86115ebf125d4ca1ca7bf07737e"
+    },
+    {
+      "platform": "google",
+      "input": "a b~Z",
+      "note": "Any printable ASCII but the quote and the backslash.",
+      "idNode": "0xa8ad7455d3d38bcd9b94b444284182fee9766f2403e7fe283c68c4a08123be77"
+    },
+    {
+      "platform": "google",
+      "input": "1234567890123456789012345678901",
+      "note": "31 bytes is the limit.",
+      "idNode": "0xe95d993e3520fe34fd3eec014d9bbf91868c7e7e5160d95bc3eeca9dfb38329e"
+    },
+    {
+      "platform": "google",
+      "input": "12345678901234567890123456789012",
+      "error": "TooLong"
+    },
+    {
+      "platform": "google",
+      "input": "",
+      "error": "Empty"
+    },
+    {
+      "platform": "google",
+      "input": "a\"b",
+      "error": "BadCharacter"
+    },
+    {
+      "platform": "google",
+      "input": "a\\b",
+      "error": "BadCharacter"
+    },
+    {
+      "platform": "google",
+      "input": "a\tb",
+      "error": "BadCharacter"
+    }
+  ]
+}

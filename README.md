@@ -62,7 +62,7 @@ and npm package carry the generated output even though git does not.
 
 ## Handle vectors
 
-`solidity/contracts/identity/handles.json` is the source of truth for platform
+`solidity/contracts/handles/handles.json` is the source of truth for platform
 handle rules and the shared normalization vector table. After editing it:
 
 ```sh
@@ -70,8 +70,10 @@ python3 scripts/regen-identity-handles.py          # rewrite generated outputs
 python3 scripts/regen-identity-handles.py --check  # verify nothing drifted
 ```
 
-This generates `solidity/contracts/identity/HandleVectors.sol`,
-`rust/identity/src/handle_vectors.rs` and
+This generates `solidity/contracts/handles/HandlePlatforms.sol` (the
+platform ids, rules and tags the contracts read),
+`solidity/contracts/handles/HandleVectors.sol` (the vector table, for tests
+only), `rust/identity/src/handle_vectors.rs` and
 `ts/packages/contracts/src/identity/handleVectors.ts`; CI's handle-tables job
 fails when any of them drifts from `handles.json`.
 
@@ -101,6 +103,36 @@ CI's forge-build action runs the same script before every build, test,
 dry-run and publish, refusing any tarball whose digest is not the pin's; a
 release cannot ship a verifier that is not what the pinned circuits release
 shipped.
+
+Each Platform Verifier also pins its own circuit's verifier on chain, by
+runtime code hash: `initialize` and `setTrustRoots` revert `WrongCircuit`
+for any other code. The hashes are constants in
+`solidity/contracts/circuits/CircuitCodehashes.sol`, which the script writes
+after the verifiers (it compiles them under `foundry.toml`; the bytecode
+carries no metadata, so it depends on the source and the compiler settings
+alone). That file is committed, because the contracts import it, and `forge
+test` fails while it disagrees with the vendored verifiers: commit it with
+`circuits.json` whenever the pin moves. A new circuit release is therefore a
+new Platform Verifier implementation, not a trust-root rotation.
+
+## Deploying hashed identities
+
+The registry keys identities by the nodes the circuits output, and each
+Platform Verifier decodes a payload that carries those nodes. Neither reads
+what an earlier deployment stored or accepts what an earlier client sent, so
+this stack ships only as a new deployment under new canonical names. Never
+upgrade a live proxy onto it:
+
+- `IdentityRegistry` keeps the storage namespace `libid.storage.IdentityRegistry`,
+  and its slots hold nodes. A proxy upgraded from a registry that held other
+  keys would read every stored entry as a node it never was, and answer.
+- The `x`, `github` and `google` ceremonies stay at ceremony version 1. Their
+  payload shapes are this release's, so a client built against an earlier
+  deployment is refused at decode.
+- `HandleEscrow` is redeployed against the new registry, never upgraded or
+  re-pointed: its deposits are keyed by handle node, and a node means nothing
+  to the registry before it. `initialize` probes `resolveId(bytes32)`, which
+  only the new registry has, and reverts `RegistryLacks` against the old one.
 
 ## Releasing
 

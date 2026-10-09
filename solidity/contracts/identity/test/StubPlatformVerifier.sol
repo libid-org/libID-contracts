@@ -3,27 +3,24 @@ pragma solidity ^0.8.24;
 
 import {CeremonyAuthorization} from "../../ceremony/CeremonyAuthorization.sol";
 import {IPlatformVerifier} from "../../ceremony/IPlatformVerifier.sol";
+import {HandlePlatforms} from "../../handles/HandlePlatforms.sol";
+import {TestNodes} from "./TestNodes.sol";
 
-/// @notice Stands in for a Platform Verifier.
-///
-/// @dev Everything a real one checks has its own suite. Here it only has to
-///      charge, decode, answer, and let the Consumer's and the Proof Verifier's
-///      own duties be exercised.
-///
-///      It decodes a payload of its own shape and rebuilds the digest the way
-///      a real verifier does -- from the decoded fields and the chain it runs
-///      on -- so a test above it can watch the domain, the transaction data
-///      and the digest travel, rather than have the stub invent them. Unlike a
-///      real verifier it takes the ceremony version from the payload instead
-///      of a constant, so one stub can stand in for several.
+/// @notice Stands in for a Platform Verifier: decodes its own payload, rebuilds
+///         the digest, and returns the nodes a circuit would (X's tags for an unknown platform).
+/// @dev Takes the ceremony version from the payload, so one stub serves several.
 contract StubPlatformVerifier is IPlatformVerifier {
-    /// @dev The stub's payload. Only what the digest needs.
+    /// @dev The digest inputs and the handle to disclose (empty when private).
     struct StubPayload {
         uint16 ceremonyVersion;
         bytes32 operationDomain;
         bytes32 authorizationNonce;
         bytes transactionData;
+        string handle;
     }
+
+    /// @dev Same selector as `PlatformVerifierBase.HandleNotProved`.
+    error HandleNotProved(bytes32 disclosed, bytes32 proved);
 
     bytes32 private immutable PLATFORM;
     uint256 public fee;
@@ -33,6 +30,10 @@ contract StubPlatformVerifier is IPlatformVerifier {
     bytes32 public lastDigest;
     uint256 public lastValue;
     bytes public lastPayload;
+    /// While set, report the nodes from `setNodes` as given and return the payload's handle unchecked.
+    bool public rawNodes;
+    bytes32 public rawIdNode;
+    bytes32 public rawHandleNode;
 
     constructor(bytes32 platform, uint256 fee_) {
         PLATFORM = platform;
@@ -42,6 +43,13 @@ contract StubPlatformVerifier is IPlatformVerifier {
     function set(string memory u, string memory h) external {
         userId = u;
         handle = h;
+    }
+
+    /// Report these nodes as they are.
+    function setNodes(bytes32 idNode, bytes32 handleNode) external {
+        rawNodes = true;
+        rawIdNode = idNode;
+        rawHandleNode = handleNode;
     }
 
     function setObservedAt(uint64 t) external {
@@ -69,8 +77,21 @@ contract StubPlatformVerifier is IPlatformVerifier {
         c.transactionData = p.transactionData;
         c.ceremonyVersion = p.ceremonyVersion;
         c.clientIdentifier = "client";
-        c.userId = userId;
-        c.handle = handle;
+        if (rawNodes) {
+            c.idNode = rawIdNode;
+            c.handleNode = rawHandleNode;
+            c.handle = p.handle;
+        } else {
+            bytes32 known = HandlePlatforms.knows(PLATFORM) ? PLATFORM : HandlePlatforms.PLATFORM_X;
+            c.idNode = TestNodes.idNode(known, userId);
+            (, c.handleNode) = HandlePlatforms.handleNodeOf(known, handle);
+            // The disclosed handle, normalized, must hash to the handle node.
+            if (bytes(p.handle).length != 0) {
+                (string memory normalized, bytes32 node) = HandlePlatforms.handleNodeOf(known, p.handle);
+                if (node != c.handleNode) revert HandleNotProved(node, c.handleNode);
+                c.handle = normalized;
+            }
+        }
         c.metadataObservedAt = observedAt;
     }
 }

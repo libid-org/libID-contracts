@@ -1,36 +1,17 @@
-/// Turns a platform handle into the one form the identity system hashes into a
-/// node.
+/// Turns a typed handle into the form the identity circuits hash into a node.
 ///
-/// This mirrors `solidity/contracts/identity/HandleNormalizer.sol` and
-/// `rust/identity/src/handle.rs` byte for byte. The three transforms
-/// are hand written; the rules they run and the vectors they are checked
-/// against are generated from `solidity/contracts/identity/handles.json`, so a
-/// difference between them fails a test instead of looking up a node the chain
-/// never wrote.
+/// A-Z fold to a-z and anything else invalid is refused, never repaired. It
+/// mirrors the circuits, Solidity and Rust; all run the `handles.json` vectors.
 
 import {
-  ALLOW_HYPHEN_GITHUB,
-  ALLOW_HYPHEN_GOOGLE,
-  ALLOW_HYPHEN_X,
-  ALLOW_UNDERSCORE_GITHUB,
-  ALLOW_UNDERSCORE_GOOGLE,
-  ALLOW_UNDERSCORE_X,
   ERROR_BADCHARACTER,
   ERROR_BADSHAPE,
   ERROR_EMPTY,
   ERROR_TOOLONG,
-  IS_EMAIL_GITHUB,
-  IS_EMAIL_GOOGLE,
-  IS_EMAIL_X,
-  MAX_LENGTH_GITHUB,
-  MAX_LENGTH_GOOGLE,
-  MAX_LENGTH_X,
-  PLATFORM_GITHUB_KEY,
-  PLATFORM_GOOGLE_KEY,
-  PLATFORM_X_KEY,
-  STRIP_LEADING_AT_GITHUB,
-  STRIP_LEADING_AT_GOOGLE,
-  STRIP_LEADING_AT_X,
+  PLATFORM_GITHUB,
+  PLATFORM_GOOGLE,
+  PLATFORM_X,
+  platform,
 } from './handleVectors.js'
 
 /// Why a handle was refused. The kinds match the Solidity errors and the Rust
@@ -52,13 +33,10 @@ const BAD_CHARACTER = () =>
 const BAD_SHAPE = () =>
   new HandleError(ERROR_BADSHAPE, 'the handle has an arrangement this platform does not allow')
 
-/// What one platform accepts. Held per platform, so a new platform is
-/// configuration rather than code.
+/// What one platform accepts, generated from `handles.json`.
 export interface Rules {
-  /** Bytes allowed after trimming and the `@` strip. */
+  /** Bytes allowed. */
   maxLength: number
-  /** Remove one leading `@`. X and GitHub do. An email keeps its own `@`. */
-  stripLeadingAt: boolean
   /** Validate as an address instead of a bare handle. */
   isEmail: boolean
   /** Allowed by X, not by GitHub. */
@@ -67,38 +45,13 @@ export interface Rules {
   allowHyphen: boolean
 }
 
-export const RULES_X: Rules = {
-  maxLength: MAX_LENGTH_X,
-  stripLeadingAt: STRIP_LEADING_AT_X,
-  isEmail: IS_EMAIL_X,
-  allowUnderscore: ALLOW_UNDERSCORE_X,
-  allowHyphen: ALLOW_HYPHEN_X,
-}
+export const RULES_X: Rules = PLATFORM_X.rules
+export const RULES_GITHUB: Rules = PLATFORM_GITHUB.rules
+export const RULES_GOOGLE: Rules = PLATFORM_GOOGLE.rules
 
-export const RULES_GITHUB: Rules = {
-  maxLength: MAX_LENGTH_GITHUB,
-  stripLeadingAt: STRIP_LEADING_AT_GITHUB,
-  isEmail: IS_EMAIL_GITHUB,
-  allowUnderscore: ALLOW_UNDERSCORE_GITHUB,
-  allowHyphen: ALLOW_HYPHEN_GITHUB,
-}
-
-export const RULES_GOOGLE: Rules = {
-  maxLength: MAX_LENGTH_GOOGLE,
-  stripLeadingAt: STRIP_LEADING_AT_GOOGLE,
-  isEmail: IS_EMAIL_GOOGLE,
-  allowUnderscore: ALLOW_UNDERSCORE_GOOGLE,
-  allowHyphen: ALLOW_HYPHEN_GOOGLE,
-}
-
-/// The rules for a platform key from the generated table: what the contracts
-/// were released with. The chain's owner can change a platform's rules, so a
-/// hash for a deposit should use `rulesOf`.
+/// The rules for a platform key from the generated table.
 export function rulesFor(platformKey: string): Rules | null {
-  if (platformKey === PLATFORM_X_KEY) return RULES_X
-  if (platformKey === PLATFORM_GITHUB_KEY) return RULES_GITHUB
-  if (platformKey === PLATFORM_GOOGLE_KEY) return RULES_GOOGLE
-  return null
+  return platform(platformKey)?.rules ?? null
 }
 
 /// The normalized handle, or a `HandleError` naming what was wrong.
@@ -107,24 +60,13 @@ export function normalize(raw: string, rules: Rules): string {
   // must be refused as bytes, the way Solidity sees it.
   const input = new TextEncoder().encode(raw)
 
-  // Trim ASCII spaces only. A tab or a newline is not whitespace to remove
-  // here; it is a byte the platform does not allow, and the character check
-  // below refuses it. Trimming it would accept "ali\tce" as "alice" here and
-  // refuse it on chain.
-  let start = 0
-  let end = input.length
-  while (start < end && input[start] === 0x20) start++
-  while (end > start && input[end - 1] === 0x20) end--
-
-  if (rules.stripLeadingAt && end > start && input[start] === 0x40) start++
-
-  const length = end - start
+  const length = input.length
   if (length === 0) throw EMPTY()
   if (length > rules.maxLength) throw TOO_LONG()
 
   const out = new Uint8Array(length)
   for (let i = 0; i < length; i++) {
-    let c = input[start + i]
+    let c = input[i]
     // Fold A-Z down. Nothing else changes, so two addresses that differ in more
     // than case stay two identities.
     if (c >= 0x41 && c <= 0x5a) c += 0x20

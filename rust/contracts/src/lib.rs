@@ -23,10 +23,9 @@
 //!   cross-network factory address, install it (and the keyless CREATE2
 //!   deployer it hangs off) where missing, and deploy protocol proxies
 //!   through it at name-derived CREATE3 addresses.
-//! - [`platform_verifier`] — the Platform Verifier initializer: which
-//!   contract serves which platform, and an `initialize` call built with the
-//!   Honk verifier's code hash read off chain and the rules
-//!   `PlatformVerifierBase` enforces checked first.
+//! - [`platform_verifier`] — the Platform Verifier initializer, checked
+//!   against its platform's circuit and `PlatformVerifierBase`'s rules.
+//! - [`bind_error`] — a refused `bind`, decoded by name.
 //! - [`circuits`] — the ceremony circuits' UltraHonk verifiers, vendored
 //!   from the pinned `libid-circuits` release: which circuit a platform
 //!   proves under, and the deploy of its verifier.
@@ -35,6 +34,7 @@
 //! already wired with a wallet.
 
 pub mod artifacts;
+pub mod bind_error;
 pub mod bindings;
 pub mod circuits;
 pub mod deploy;
@@ -43,6 +43,7 @@ pub mod factory;
 pub mod platform_verifier;
 
 pub use artifacts::Artifacts;
+pub use bind_error::BindError;
 pub use error::{
     Error,
     Result,

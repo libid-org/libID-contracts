@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
+import {HonkStub} from "./HonkStub.sol";
+import {TlsNotaryProof} from "../CeremonyPayloads.sol";
 import {Test} from "forge-std/Test.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
@@ -14,15 +16,11 @@ import {IHonkVerifier} from "../PlatformVerifierBase.sol";
 import {TlsNotaryVerifierBase} from "../TlsNotaryVerifierBase.sol";
 import {XPlatformVerifier} from "../XPlatformVerifier.sol";
 
-contract OkHonk is IHonkVerifier {
-    function verify(bytes calldata, bytes32[] calldata) external pure returns (bool) {
-        return true;
-    }
-}
-
 /// @notice The real body is COMMITTED and a decoy body is revealed after it.
 ///         Coverage tiles cleanly, so the direction looks honest.
 contract DecoyBodyTest is Test {
+    using AttestationBuilder for AttestationBuilder.Direction;
+
     XPlatformVerifier verifier;
     NotaryService notary;
     uint256 quote;
@@ -46,7 +44,7 @@ contract DecoyBodyTest is Test {
         notary = NotaryService(
             address(new ERC1967Proxy(address(ni), abi.encodeCall(NotaryService.initialize, (OWNER, vm.addr(KEY), FEE))))
         );
-        address honkAddr = address(new OkHonk());
+        address honkAddr = HonkStub.deploy(HonkStub.X);
         XPlatformVerifier vi = new XPlatformVerifier();
         verifier = XPlatformVerifier(
             address(
@@ -61,12 +59,6 @@ contract DecoyBodyTest is Test {
         );
         quote = verifier.quote();
         vm.deal(address(this), 10 ether);
-    }
-
-    function _sign(bytes memory a) private pure returns (bytes memory) {
-        bytes32 h = keccak256(abi.encodePacked("\x19Ethereum Signed Message:\n32", keccak256(a)));
-        (uint8 v, bytes32 r, bytes32 s) = vm.sign(KEY, h);
-        return abi.encodePacked(r, s, v);
     }
 
     /// head revealed | REAL refresh-grant body COMMITTED | decoy body revealed
@@ -116,11 +108,11 @@ contract DecoyBodyTest is Test {
         });
 
         bytes memory att = AttestationBuilder.encode(CeremonyProfile.AUTHORITY_X_API, T0, sent, recv);
-        return ICeremony.Attestation({attestedData: att, proof: _sign(att)});
+        return ICeremony.Attestation({attestedData: att, proof: AttestationBuilder.sign(KEY, att)});
     }
 
     function _identity() private pure returns (ICeremony.Attestation memory) {
-        bytes memory head = "GET /2/users/me HTTP/1.1\r\nhost: api.x.com\r\n\r\nauthorization: Bearer ";
+        bytes memory head = "GET /2/users/me HTTP/1.1\r\nhost: api.x.com\r\nauthorization: Bearer ";
         bytes memory bearer = "VICTIMBEARERTOKEN";
         bytes memory tail = "\r\nconnection: close\r\n\r\n";
         uint32 s0 = uint32(head.length);
@@ -133,21 +125,21 @@ contract DecoyBodyTest is Test {
             commitments: AttestationBuilder.one(AttestationBuilder.Commitment({start: s0, end: e0, value: ID_C})),
             length: l
         });
-        bytes memory body = '{"data":{"id":"2244994945","username":"victim"}}';
-        AttestationBuilder.Direction memory recv = AttestationBuilder.Direction({
-            revealed: AttestationBuilder.one(AttestationBuilder.Range({start: 0, value: body})),
-            commitments: AttestationBuilder.none(),
-            length: uint32(body.length)
-        });
+        // The anchor-only reveal: the id and handle committed, the anchors
+        // around them revealed, every other byte behind a commitment.
+        AttestationBuilder.Direction memory recv;
+        recv.commit('{"data":{', bytes32(uint256(0x5555))).reveal('"id":"')
+            .commit("2244994945", bytes32(uint256(0x3333))).reveal('","username":"')
+            .commit("victim", bytes32(uint256(0x4444))).reveal('"').commit("}}", bytes32(uint256(0x5555)));
         bytes memory att = AttestationBuilder.encode(CeremonyProfile.AUTHORITY_X_API, T0, sent, recv);
-        return ICeremony.Attestation({attestedData: att, proof: _sign(att)});
+        return ICeremony.Attestation({attestedData: att, proof: AttestationBuilder.sign(KEY, att)});
     }
 
     function _txData() private pure returns (bytes memory) {
         return abi.encode(address(0xBEEF));
     }
 
-    function _submission() private view returns (TlsNotaryVerifierBase.TlsNotaryProof memory s) {
+    function _submission() private view returns (TlsNotaryProof memory s) {
         s.ceremonyVersion = 1;
         s.operationDomain = DOMAIN;
         s.authorizationNonce = AUTH_NONCE;
@@ -157,11 +149,7 @@ contract DecoyBodyTest is Test {
         s.identitySession = _identity();
     }
 
-    function run(TlsNotaryVerifierBase.TlsNotaryProof memory s)
-        external
-        payable
-        returns (ICeremony.VerifiedClaim memory)
-    {
+    function run(TlsNotaryProof memory s) external payable returns (ICeremony.VerifiedClaim memory) {
         return verifier.verify{value: msg.value}(abi.encode(s));
     }
 
@@ -169,7 +157,7 @@ contract DecoyBodyTest is Test {
     ///      Coverage tiles, so the direction looks honest -- but `grant_type`
     ///      and `code_verifier` are read from bytes the platform never parsed.
     function test_aCommittedBodyWithARevealedDecoyIsRejected() public {
-        TlsNotaryVerifierBase.TlsNotaryProof memory s = _submission();
+        TlsNotaryProof memory s = _submission();
         // Was: returned the victim's userId and handle with the attacker's
         // clientIdentifier, while x.com had executed a refresh grant that no
         // verifier ever read.

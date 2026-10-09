@@ -83,7 +83,10 @@ by address and by code hash, and holds a Notary Service only if its profile
 notarizes anything. Its validity window is its profile's, compiled in, so the
 initializer takes none. `platform_verifier::Initializer`
 knows those rules: it reads the code hash off the chain, refuses what the
-contract would refuse, and builds the exact `initialize` call.
+contract would refuse, and builds the exact `initialize` call. Among those, a
+Honk verifier that is not its platform's circuit's (`Error::WrongCircuit`):
+the contract pins its circuit's runtime code hash (`circuitCodehash()`) and
+reverts `WrongCircuit`, and the initializer says so before any transaction.
 
 The Honk verifier is vendored here too, from the pinned `libid-circuits`
 release: bb's optimized verifier, one contract per circuit.
@@ -107,7 +110,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let artifacts = Artifacts::embedded();
     let (owner, notary, proof_verifier): (Address, Address, Address) = todo!();
 
-    // The circuit `x/v1` proves under is `bearer-link`; `PlatformVerifier::circuit`
+    // The circuit `x/v1` proves under is `bearer-link-x`; `PlatformVerifier::circuit`
     // says so, and this deploys its verifier.
     let honk_verifier =
         deploy_honk_verifier(&provider, &artifacts, PlatformVerifier::X.circuit(), None).await?;
@@ -139,8 +142,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-For a factory (CREATE3) deploy, `Initializer::call` returns the typed
-`initialize` call; `abi_encode` it into the proxy's init data.
+For a factory (CREATE3) deploy, `Initializer::call(&provider, &artifacts)`
+returns the typed `initialize` call; `abi_encode` it into the proxy's init
+data.
 
 Other entry points:
 
@@ -151,10 +155,19 @@ Other entry points:
   through it at name-derived CREATE3 addresses.
 - `circuits::version` — the `libid-circuits` release the vendored verifiers
   came from, for a consumer that names a deployment after its artifact.
-- `platform_verifier::codehash_at` — the code hash `setTrustRoots` wants
-  when a Platform Verifier is rotated onto a new circuit release.
+- `PlatformVerifier::circuit_codehash_at` — the code hash `setTrustRoots`
+  wants when a Platform Verifier is rotated onto a new circuit release,
+  refused (`Error::WrongCircuit`) unless the address holds that platform's
+  circuit's verifier. `platform_verifier::codehash_at` reads any address's
+  code hash, unchecked.
 - `Artifacts::method_identifiers` — selector extraction from the vendored
   `methodIdentifiers`.
+- `BindError::decode` — a refused `bind` by name (`HandleNotProved`,
+  `NotYourHandle`, `SumcheckFailed`, …), from the error sets of the
+  registry, the Proof Verifier, the Platform Verifiers, the Notary Service
+  and bb's Honk verifiers (`bindings::circuits::IHonkVerifierErrors`).
+- `bindings::ceremony::{TlsNotaryProof, GoogleProof}` — the payload a Platform
+  Verifier decodes; its `SolValue::abi_encode` is the `payload` `bind` takes.
 
 ## Testing
 

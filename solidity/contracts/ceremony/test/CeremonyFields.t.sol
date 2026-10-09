@@ -5,29 +5,6 @@ import {Test} from "forge-std/Test.sol";
 import {CeremonyFields} from "../CeremonyFields.sol";
 
 contract CeremonyFieldsTest is Test {
-    /// @dev The verifiers read through the `try*` readers and map every
-    ///      non-`One` outcome themselves; these wrappers give the tests the
-    ///      same one-result-or-revert shape over the same readers.
-    error Refused(CeremonyFields.Found found, string name);
-
-    function jsonString(bytes calldata d, string calldata n) external pure returns (bytes memory) {
-        (CeremonyFields.Found found, bytes memory v) =
-            CeremonyFields.tryNormalizedJsonString(CeremonyFields.normalizeJsonBytes(d), n);
-        if (found == CeremonyFields.Found.None) revert CeremonyFields.FieldNotFound(n);
-        if (found == CeremonyFields.Found.Several) revert CeremonyFields.AmbiguousField(n);
-        if (found != CeremonyFields.Found.One) revert Refused(found, n);
-        return v;
-    }
-
-    function jsonInteger(bytes calldata d, string calldata n) external pure returns (bytes memory) {
-        (CeremonyFields.Found found, bytes memory v) =
-            CeremonyFields.tryNormalizedJsonInteger(CeremonyFields.normalizeJsonBytes(d), n);
-        if (found == CeremonyFields.Found.None) revert CeremonyFields.FieldNotFound(n);
-        if (found == CeremonyFields.Found.Several) revert CeremonyFields.AmbiguousField(n);
-        if (found != CeremonyFields.Found.One) revert Refused(found, n);
-        return v;
-    }
-
     function valueOf(bytes calldata body, bytes calldata names, string calldata n)
         external
         pure
@@ -38,98 +15,6 @@ contract CeremonyFieldsTest is Test {
 
     function requireExactForm(bytes calldata body, bytes calldata names) external pure {
         CeremonyFields.requireExactForm(body, names);
-    }
-
-    // ─── JSON strings ───────────────────────────────────────────────
-
-    function test_readsAnXIdentityResponse() public view {
-        bytes memory body = bytes('{"data":{"id":"2244994945","username":"alice"}}');
-        assertEq(string(this.jsonString(body, "id")), "2244994945");
-        assertEq(string(this.jsonString(body, "username")), "alice");
-    }
-
-    /// @dev A display name carrying a lookalike field does NOT match, and the
-    ///      reason is ASM-PROV-06 rather than anything this library does: the
-    ///      platform returns well-formed JSON, so a quote inside a string value
-    ///      is escaped, and `\\"username\\":\\"` is not the unescaped delimiter
-    ///      `"username":"`. The real field still reads. Pinned because the
-    ///      whole template approach rests on it.
-    function test_anEscapedLookalikeIsNotAMatch() public view {
-        bytes memory body = bytes('{"name":"hi \\"username\\":\\"victim\\" ok","username":"alice"}');
-        assertEq(string(this.jsonString(body, "username")), "alice");
-    }
-
-    /// @dev The case REQ-COMMON-19A actually closes: the same field name at two
-    ///      nesting levels, both unescaped. Reading the first would let an
-    ///      envelope answer for the payload; reading the last would too.
-    ///      Refusing to answer is what closes it.
-    function test_refusesAFieldThatAppearsTwice() public {
-        bytes memory body = bytes('{"data":{"username":"alice"},"includes":{"username":"attacker"}}');
-        vm.expectRevert(abi.encodeWithSelector(CeremonyFields.AmbiguousField.selector, "username"));
-        this.jsonString(body, "username");
-    }
-
-    function test_refusesAMissingField() public {
-        vm.expectRevert(abi.encodeWithSelector(CeremonyFields.FieldNotFound.selector, "username"));
-        this.jsonString(bytes('{"id":"7"}'), "username");
-    }
-
-    function test_refusesAValueWithNoClosingQuote() public {
-        vm.expectRevert(abi.encodeWithSelector(Refused.selector, CeremonyFields.Found.Unterminated, "username"));
-        this.jsonString(bytes('{"username":"alice'), "username");
-    }
-
-    /// @dev The full delimiter includes the opening quote of the value, so a
-    ///      numeric `id` is simply not a match for the string template.
-    function test_aBareIntegerIsNotAStringField() public {
-        vm.expectRevert(abi.encodeWithSelector(CeremonyFields.FieldNotFound.selector, "id"));
-        this.jsonString(bytes('{"id":7}'), "id");
-    }
-
-    function test_readsAnEmptyValue() public view {
-        assertEq(this.jsonString(bytes('{"username":""}'), "username").length, 0);
-    }
-
-    // ─── JSON integers ──────────────────────────────────────────────
-
-    /// @dev GitHub's `/user.id` is a bare integer, and the terminator is what
-    ///      proves the revealed digits are the whole number rather than a
-    ///      prefix of a longer one.
-    function test_readsAGitHubIdWithEitherTerminator() public view {
-        assertEq(string(this.jsonInteger(bytes('{"id":1,"login":"octocat"}'), "id")), "1");
-        assertEq(string(this.jsonInteger(bytes('{"login":"octocat","id":583231}'), "id")), "583231");
-    }
-
-    function test_refusesAnyOtherTerminator() public {
-        // A space would let `123 456` read as `123`. Casting the literal to
-        // bytes1 is safe: one longer than a byte would not compile.
-        // forge-lint: disable-next-line(unsafe-typecast)
-        vm.expectRevert(abi.encodeWithSelector(CeremonyFields.BadIntegerTerminator.selector, "id", bytes1(" ")));
-        this.jsonInteger(bytes('{"id":123 456}'), "id");
-    }
-
-    function test_refusesANoncanonicalInteger() public {
-        vm.expectRevert(abi.encodeWithSelector(CeremonyFields.NoncanonicalInteger.selector, "id"));
-        this.jsonInteger(bytes('{"id":007,"a":1}'), "id");
-
-        // `-1`, `1.5` and `1e3` all fail: the first byte is not a digit, or the
-        // terminator is not `,`/`}`.
-        vm.expectRevert(abi.encodeWithSelector(CeremonyFields.NoncanonicalInteger.selector, "id"));
-        this.jsonInteger(bytes('{"id":-1}'), "id");
-        // Casting to bytes1 is safe, as above.
-        // forge-lint: disable-next-line(unsafe-typecast)
-        vm.expectRevert(abi.encodeWithSelector(CeremonyFields.BadIntegerTerminator.selector, "id", bytes1(".")));
-        this.jsonInteger(bytes('{"id":1.5}'), "id");
-    }
-
-    function test_zeroIsCanonical() public view {
-        assertEq(string(this.jsonInteger(bytes('{"id":0}'), "id")), "0");
-    }
-
-    function test_refusesAQuotedIntegerForTheIntegerTemplate() public {
-        // `"id":"1"` — the digits scan finds none after the delimiter.
-        vm.expectRevert(abi.encodeWithSelector(CeremonyFields.NoncanonicalInteger.selector, "id"));
-        this.jsonInteger(bytes('{"id":"1"}'), "id");
     }
 
     // ─── Form fields ────────────────────────────────────────────────
@@ -281,40 +166,44 @@ contract CeremonyFieldsTest is Test {
         assertFalse(CeremonyFields.isSerializerSafe(hex"c3a9")); // non-ASCII
     }
 
-    // ─── JSON whitespace ────────────────────────────────────────────
+    // ─── JSON whitespace ───────────────────────────────────────────
 
-    /// @dev JSON whitespace between tokens is not part of any token. The
-    ///      readers remove it before they look, so a pretty-printed member
-    ///      reads as its compact spelling does.
-    function test_readsMembersThroughJsonWhitespace() public view {
-        bytes memory body = bytes('{\n  "login" \t: "alice",\r\n  "id" : 123 \n}');
-        assertEq(string(this.jsonString(body, "login")), "alice");
-        assertEq(string(this.jsonInteger(body, "id")), "123");
+    function normalizeJsonBytes(bytes calldata d) external pure returns (bytes memory) {
+        return CeremonyFields.normalizeJsonBytes(d);
     }
 
-    /// @dev And a duplicate in another spelling is still a duplicate, for a
-    ///      string and for an integer alike.
-    function test_countsADuplicateInAnotherWhitespaceSpelling() public {
-        vm.expectRevert(abi.encodeWithSelector(CeremonyFields.AmbiguousField.selector, "login"));
-        this.jsonString(bytes('{"login":"alice","login" : "bob"}'), "login");
-        vm.expectRevert(abi.encodeWithSelector(CeremonyFields.AmbiguousField.selector, "id"));
-        this.jsonInteger(bytes('{"id":123,"id" : 456}'), "id");
+    /// @dev JSON whitespace touching a structural byte is not part of any
+    ///      token and goes, so a pretty-printed member reads as its compact
+    ///      spelling does.
+    function test_removesWhitespaceTouchingAStructuralByte() public view {
+        bytes memory body = bytes('{\n  "login" \t: "alice",\r\n  "id" : 123 \n}');
+        assertEq(this.normalizeJsonBytes(body), bytes('{"login":"alice","id":123}'));
+    }
+
+    /// @dev And a duplicate in another spelling is still a duplicate: the
+    ///      count the framing checks run sees two.
+    function test_countsADuplicateInAnotherWhitespaceSpelling() public view {
+        bytes memory body = this.normalizeJsonBytes(bytes('{"login":"alice","login" : "bob"}'));
+        assertEq(CeremonyFields.occurrences(body, bytes('"login":"')), 2);
+        body = this.normalizeJsonBytes(bytes('{"id":123,"id" : 456}'));
+        assertEq(CeremonyFields.occurrences(body, bytes('"id":')), 2);
     }
 
     /// @dev Only the four bytes JSON calls whitespace are removed. A vertical
-    ///      tab is not one of them, and a member spelled with it is no member.
-    function test_removesOnlyJsonWhitespace() public {
-        vm.expectRevert(abi.encodeWithSelector(CeremonyFields.FieldNotFound.selector, "login"));
-        this.jsonString(bytes.concat(bytes('{"login":'), hex"0b", bytes('"alice"}')), "login");
+    ///      tab is not one of them, and a member spelled with it stays
+    ///      spelled with it.
+    function test_removesOnlyJsonWhitespace() public view {
+        bytes memory body = bytes.concat(bytes('{"login":'), hex"0b", bytes('"alice"}'));
+        assertEq(this.normalizeJsonBytes(body), body);
+        assertEq(CeremonyFields.occurrences(this.normalizeJsonBytes(body), bytes('"login":"')), 0);
     }
 
     /// @dev Whitespace before a brace is JSON's and goes; whitespace between
-    ///      two runs of digits touches no structural byte, stays, and is the
-    ///      terminator the reader then refuses. `123 4` does not read as
-    ///      `1234`.
-    function test_stillRefusesDigitsAfterWhitespace() public {
-        assertEq(string(this.jsonInteger(bytes('{"id":123 }'), "id")), "123");
-        vm.expectRevert(abi.encodeWithSelector(CeremonyFields.BadIntegerTerminator.selector, "id", bytes1(0x20)));
-        this.jsonInteger(bytes('{"id":123 4}'), "id");
+    ///      two runs of digits touches no structural byte and stays. `123 4`
+    ///      does not read as `1234`.
+    function test_keepsWhitespaceBetweenTwoTokens() public view {
+        assertEq(this.normalizeJsonBytes(bytes('{"id":123 }')), bytes('{"id":123}'));
+        assertEq(this.normalizeJsonBytes(bytes('{"id":123 4}')), bytes('{"id":123 4}'));
+        assertEq(this.normalizeJsonBytes(bytes(" 1 ")), bytes(" 1 "));
     }
 }

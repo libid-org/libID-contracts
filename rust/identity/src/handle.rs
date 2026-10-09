@@ -1,10 +1,8 @@
-//! Turns a platform handle into the one form the identity system hashes into
-//! a node.
+//! Turns a typed handle into the form the identity circuits hash into a node.
 //!
-//! This mirrors `contracts/identity/HandleNormalizer.sol` byte for byte. The
-//! two are hand written and share nothing but the vector table in
-//! `contracts/identity/handles.json`, so a difference between them fails a test
-//! instead of looking up a node the chain never wrote.
+//! A-Z fold to a-z and anything else invalid is refused, never repaired. It
+//! mirrors the circuits' `lib/identity` and `HandleNormalizer.sol`; all three
+//! run the `handles.json` vector table.
 
 /// Why a handle was refused. The kinds match the Solidity errors and the
 /// TypeScript ones, because the vector table names which refusal it expects.
@@ -49,15 +47,11 @@ impl std::fmt::Display for HandleError {
 
 impl std::error::Error for HandleError {}
 
-/// What one platform accepts. Held per platform, so a new platform is
-/// configuration rather than code.
+/// What one platform accepts, generated from `handles.json`.
 #[derive(Debug, Clone, Copy)]
 pub struct Rules {
-    /// Bytes allowed after trimming and the `@` strip.
+    /// Bytes allowed.
     pub max_length: usize,
-    /// Remove one leading `@`. X and GitHub do. An email keeps its own `@`, so
-    /// Google does not.
-    pub strip_leading_at: bool,
     /// Validate as an address instead of a bare handle.
     pub is_email: bool,
     /// Allowed by X, not by GitHub.
@@ -70,74 +64,24 @@ use super::handle_vectors as v;
 
 impl Rules {
     /// X: letters, digits and underscore.
-    ///
-    /// Every field comes from the generated table rather than being restated
-    /// here. A deploy writes these rules on chain, so a value that drifted from
-    /// the Solidity side would put every handle on the platform on another
-    /// node — and the vector table cannot catch a difference no vector
-    /// exercises.
-    pub const X: Self = Self {
-        max_length: v::MAX_LENGTH_X,
-        strip_leading_at: v::STRIP_LEADING_AT_X,
-        is_email: v::IS_EMAIL_X,
-        allow_underscore: v::ALLOW_UNDERSCORE_X,
-        allow_hyphen: v::ALLOW_HYPHEN_X,
-    };
+    pub const X: Self = v::PLATFORM_X.rules;
 
     /// GitHub: letters, digits and hyphen.
-    pub const GITHUB: Self = Self {
-        max_length: v::MAX_LENGTH_GITHUB,
-        strip_leading_at: v::STRIP_LEADING_AT_GITHUB,
-        is_email: v::IS_EMAIL_GITHUB,
-        allow_underscore: v::ALLOW_UNDERSCORE_GITHUB,
-        allow_hyphen: v::ALLOW_HYPHEN_GITHUB,
-    };
+    pub const GITHUB: Self = v::PLATFORM_GITHUB.rules;
 
     /// Google: an address, used exactly as proved.
-    pub const GOOGLE: Self = Self {
-        max_length: v::MAX_LENGTH_GOOGLE,
-        strip_leading_at: v::STRIP_LEADING_AT_GOOGLE,
-        is_email: v::IS_EMAIL_GOOGLE,
-        allow_underscore: v::ALLOW_UNDERSCORE_GOOGLE,
-        allow_hyphen: v::ALLOW_HYPHEN_GOOGLE,
-    };
+    pub const GOOGLE: Self = v::PLATFORM_GOOGLE.rules;
 }
 
 /// The rules for a platform key (`"x"`, `"github"`, ...) from the generated
-/// table: what the contracts were released with. The chain's owner can change
-/// a platform's rules, so a hash for a deposit should use the rules
-/// `IdentityRegistry.rulesOf` returns.
+/// table.
 pub fn rules_for(platform_key: &str) -> Option<Rules> {
-    match platform_key {
-        v::PLATFORM_X_KEY => Some(Rules::X),
-        v::PLATFORM_GITHUB_KEY => Some(Rules::GITHUB),
-        v::PLATFORM_GOOGLE_KEY => Some(Rules::GOOGLE),
-        _ => None,
-    }
+    v::platform(platform_key).map(|p| p.rules)
 }
 
 /// The normalized handle, or the reason it was refused.
 pub fn normalize(raw: &str, rules: Rules) -> Result<String, HandleError> {
-    let input = raw.as_bytes();
-
-    // Trim ASCII spaces only. A tab or a newline is not whitespace to remove
-    // here; it is a byte the platform does not allow, and the character check
-    // below refuses it. Trimming it would accept "ali\tce" as "alice" here and
-    // refuse it in Solidity.
-    let mut start = 0usize;
-    let mut end = input.len();
-    while start < end && input[start] == b' ' {
-        start += 1;
-    }
-    while end > start && input[end - 1] == b' ' {
-        end -= 1;
-    }
-
-    if rules.strip_leading_at && end > start && input[start] == b'@' {
-        start += 1;
-    }
-
-    let slice = &input[start..end];
+    let slice = raw.as_bytes();
     if slice.is_empty() {
         return Err(HandleError::Empty);
     }
@@ -255,6 +199,26 @@ mod tests {
                 }
             }
         }
+    }
+
+    /// The generated constants carry the SHA-256 of this `handles.json`.
+    #[test]
+    fn the_generated_constants_come_from_this_table() {
+        use sha2::Digest as _;
+        let path = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../solidity/contracts/handles/handles.json"
+        );
+        let table = std::fs::read(path).expect("handles.json beside the crate");
+        let digest: String = sha2::Sha256::digest(&table)
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect();
+        assert_eq!(
+            digest,
+            crate::handle_vectors::TABLE_SHA256,
+            "handle_vectors.rs is stale: run scripts/regen-identity-handles.py"
+        );
     }
 
     /// The table must keep covering both outcomes. A regeneration that dropped

@@ -1,47 +1,30 @@
 #!/usr/bin/env bash
 # Vendor the ceremony circuits' UltraHonk verifiers from the pinned
-# libid-circuits release.
+# libid-circuits release into solidity/contracts/circuits/<Contract>.sol:
 #
-# A Honk verifier is not written here: bb derives it from a circuit's
-# verification key, and libid-circuits runs bb and ships the result in each
-# circuit's release tarball beside the vk. This script downloads those
-# tarballs, checks them, formats the Solidity under solidity/foundry.toml and
-# writes it to solidity/contracts/circuits/<Contract>.sol:
-#
-#   bearer-link  ->  BearerLinkHonkVerifier.sol   (the x and github profiles)
+#   bearer-link-x       ->  BearerLinkXHonkVerifier.sol       (the x profile)
+#   bearer-link-github  ->  BearerLinkGithubHonkVerifier.sol  (the github profile)
 #   oidc-google  ->  OidcGoogleHonkVerifier.sol   (the google profile)
 #
-# THE PIN is solidity/contracts/circuits/circuits.json: the release version
-# and, per circuit, the contract name and the tarball's sha256. The digests
-# are committed literals, so a download is checked against what this
-# repository says, never against a manifest that came down with it. The
-# release's manifest.json is fetched too, but only to be held to the pin —
-# it must name the same version and the same tarball digests — and then to
-# check every file inside a tarball the pin has already vouched for.
+# The pin is solidity/contracts/circuits/circuits.json: the release version
+# and each tarball's sha256. Downloads are checked against it, the release
+# manifest is held to it, and each circuit's handles-table.nr must be what
+# handles.json generates (`--compare-noir`). The sources are gitignored and
+# vendored before every build. Last, it writes the committed
+# CircuitCodehashes.sol, the runtime code hashes the Platform Verifiers pin.
 #
-# What ships is bb's optimized zero-knowledge verifier plus the one rewrite
-# libid-circuits makes, the rename off bb's fixed `HonkVerifier`; `forge fmt`
-# is the consumer's. So the written file is fmt(shipped) plus the banner
-# below. solidity/foundry.toml compiles it on the legacy pipeline: solc
-# cannot compile it via IR.
-#
-# The sources are NOT committed: they are gitignored like the forge
-# artifacts and the npm ABIs, because they are another repository's release
-# asset and the pin already says which bytes they must be. CI's forge-build
-# action runs this script before every `forge build` — tests, dry-runs and
-# publishes included — and a clone runs it once before its first build. So
-# every build starts from a download the pin has just checked, and there is
-# no committed copy for a hand edit or a stale vendor to live in.
-#
-# Moving the pin: download the new release's tarballs, read their sha256
-# with `shasum -a 256` (compare against the release page, not against a
-# manifest fetched by a script), write the version and the digests into
-# circuits.json, run this script, commit circuits.json.
+# Moving the pin: write the new version and digests (from the release page)
+# into circuits.json, run this script, commit circuits.json and
+# CircuitCodehashes.sol.
 #
 # Usage:
-#   scripts/vendor-circuit-verifiers.sh   # write the verifiers from the pin
+#   scripts/vendor-circuit-verifiers.sh                    # write the verifiers from the pin
+#   scripts/vendor-circuit-verifiers.sh --local <artifacts>
 #
-# Requires curl, jq, tar, forge and shasum or sha256sum.
+# --local takes the verifiers from a libid-circuits `scripts/build.sh --out
+# <artifacts>` build, for development only; the written files say so.
+#
+# Requires curl, jq, tar, forge, cast, python3 and shasum or sha256sum.
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -49,14 +32,20 @@ SOLIDITY="$REPO_ROOT/solidity"
 DEST_REL="contracts/circuits"
 DEST="$SOLIDITY/$DEST_REL"
 PIN="$DEST/circuits.json"
+CODEHASHES="CircuitCodehashes.sol"
 RELEASES="https://github.com/libid-org/libID-circuits/releases/download"
 
+LOCAL=""
+if [[ "${1:-}" == "--local" ]]; then
+    LOCAL="${2:?--local needs an artifacts directory}"
+    shift 2
+fi
 if [[ $# -gt 0 ]]; then
     echo "unknown argument: $1" >&2
     exit 2
 fi
 
-for tool in curl jq tar forge; do
+for tool in curl jq tar forge cast; do
     command -v "$tool" >/dev/null || { echo "$tool is required" >&2; exit 1; }
 done
 sha256() {
@@ -68,6 +57,106 @@ sha256() {
 }
 
 [[ -f "$PIN" ]] || { echo "no pin at $PIN" >&2; exit 1; }
+
+# The pin's circuits, read once: each one's name, contract and tarball sha256
+# ("null" until a release is pinned).
+CIRCUITS=() CONTRACTS=() DIGESTS=()
+while IFS=$'\t' read -r circuit contract digest; do
+    CIRCUITS+=("$circuit") CONTRACTS+=("$contract") DIGESTS+=("$digest")
+done < <(jq -r '.circuits | to_entries[] | "\(.key)\t\(.value.contract)\t\(.value.sha256)"' "$PIN")
+
+# The circuit in `$1` was compiled from this repository's handle table.
+require_table() {
+    local dir="$1" circuit="$2"
+    [[ -f "$dir/handles-table.nr" ]] ||
+        { echo "$circuit: no handles-table.nr; it predates the shipped handle table, or the build is not libid-circuits'" >&2; exit 1; }
+    python3 "$REPO_ROOT/scripts/regen-identity-handles.py" --compare-noir "$dir/handles-table.nr" >/dev/null || {
+        echo "$circuit was built from another handle table than contracts/handles/handles.json" >&2
+        echo "  regenerate: scripts/regen-identity-handles.py --noir-out <libid-circuits>/lib/identity/src/table.nr, then rebuild" >&2
+        exit 1
+    }
+}
+
+# The interchange-format checks and the formatting, shared by both modes.
+write_verifier() {
+    local src="$1" contract="$2" banner="$3" contracts
+    [[ -f "$src" ]] || { echo "no $contract.sol at $src" >&2; exit 1; }
+    contracts="$(grep -c '^contract ' "$src" || true)"
+    [[ "$contracts" == 1 ]] ||
+        { echo "$contract.sol: expected one contract, found $contracts" >&2; exit 1; }
+    grep -q "^contract $contract is IVerifier" "$src" ||
+        { echo "$contract.sol: its contract is not '$contract is IVerifier'" >&2; exit 1; }
+    if grep -q '^library ' "$src"; then
+        echo "$contract.sol: declares a library; the crate deploys verifiers unlinked" >&2
+        exit 1
+    fi
+    awk -v banner="$banner" '
+        !done && /^pragma / { print banner; done = 1 }
+        { print }
+    ' "$src" | (cd "$SOLIDITY" && forge fmt --raw - | forge fmt --raw -) > "$STAGE/$contract.sol"
+}
+
+# Write the runtime code hash (EXTCODEHASH) of each verifier just written.
+# Only the verifiers are compiled, so a stale constants file cannot block it.
+write_codehashes() {
+    local origin="$1" out="$DEST/$CODEHASHES" i name hash
+    local -a sources=()
+    for i in "${!CIRCUITS[@]}"; do
+        sources+=("$DEST_REL/${CONTRACTS[$i]}.sol")
+    done
+    (cd "$SOLIDITY" && forge build "${sources[@]}" >/dev/null)
+    {
+        echo "// SPDX-License-Identifier: MIT"
+        echo "pragma solidity ^0.8.24;"
+        echo
+        echo "// Generated by scripts/vendor-circuit-verifiers.sh from $origin. Do not edit."
+        echo
+        echo "/// @notice The runtime code hash of each circuit's vendored Honk verifier: what"
+        echo "///         EXTCODEHASH reports at any deployed copy. A Platform Verifier pins"
+        echo "///         its own circuit's and refuses every other verifier."
+        echo "library CircuitCodehashes {"
+        for i in "${!CIRCUITS[@]}"; do
+            name="$(tr 'a-z-' 'A-Z_' <<< "${CIRCUITS[$i]}")"
+            hash="$(jq -r '.deployedBytecode.object' "$SOLIDITY/out/${CONTRACTS[$i]}.sol/${CONTRACTS[$i]}.json" | cast keccak)"
+            echo "    /// \`${CONTRACTS[$i]}\`, the \`${CIRCUITS[$i]}\` circuit's verifier."
+            echo "    bytes32 internal constant $name = $hash;"
+        done
+        echo "}"
+    } | (cd "$SOLIDITY" && forge fmt --raw -) > "$out"
+    echo "==> runtime code hashes -> $DEST_REL/$CODEHASHES"
+}
+
+if [[ -n "$LOCAL" ]]; then
+    LOCAL="$(cd "$LOCAL" && pwd)"
+    STAGE="$(mktemp -d)"
+    trap 'rm -rf "$STAGE"' EXIT
+    # The libid-circuits commit, if the build left one; never the local path.
+    origin="a local libid-circuits build"
+    if [[ -f "$LOCAL/commit" ]]; then
+        commit="$(tr -cd '0-9a-f' < "$LOCAL/commit" | head -c 40)"
+        [[ -n "$commit" ]] && origin="a local libid-circuits build of commit $commit"
+    fi
+    for i in "${!CIRCUITS[@]}"; do
+        circuit="${CIRCUITS[$i]}" contract="${CONTRACTS[$i]}"
+        require_table "$LOCAL/$circuit" "$circuit"
+        write_verifier "$LOCAL/$circuit/$contract.sol" "$contract" \
+            "// UNRELEASED: $circuit, from $origin, by scripts/vendor-circuit-verifiers.sh --local.\n// Not pinned by circuits.json. Develop against it; never deploy it."
+        echo "==> $circuit -> $DEST_REL/$contract.sol (local, unpinned)"
+    done
+    cp "$STAGE"/*.sol "$DEST/"
+    write_codehashes "$origin (unreleased, unpinned)"
+    exit 0
+fi
+
+unreleased=""
+for i in "${!CIRCUITS[@]}"; do
+    [[ "${DIGESTS[$i]}" != null ]] || unreleased+="${unreleased:+ }${CIRCUITS[$i]}"
+done
+[[ -z "$unreleased" ]] || {
+    echo "circuits.json pins no release for: $unreleased" >&2
+    echo "  build libid-circuits and run: scripts/vendor-circuit-verifiers.sh --local <artifacts>" >&2
+    exit 1
+}
 VERSION="$(jq -r '.version' "$PIN")"
 [[ -n "$VERSION" && "$VERSION" != "null" ]] || { echo "no version in $PIN" >&2; exit 1; }
 TAG="v$VERSION"
@@ -84,7 +173,8 @@ released="$(jq -r '.version' "$WORK/manifest.json")"
 [[ "$released" == "$VERSION" ]] ||
     { echo "the $TAG manifest declares version '$released', the pin says $VERSION" >&2; exit 1; }
 
-while IFS=$'\t' read -r circuit contract want; do
+for i in "${!CIRCUITS[@]}"; do
+    circuit="${CIRCUITS[$i]}" contract="${CONTRACTS[$i]}" want="${DIGESTS[$i]}"
     tarball="libid-circuits-$VERSION-$circuit.tar.gz"
     curl -fsSL -o "$WORK/$tarball" "$RELEASES/$TAG/$tarball"
 
@@ -109,33 +199,11 @@ while IFS=$'\t' read -r circuit contract want; do
             { echo "$tarball: $name sha256 $file_got, the manifest says $file_want" >&2; exit 1; }
     done < <(jq -r --arg t "$tarball" '.tarballs[$t].files | to_entries[] | "\(.key)\t\(.value)"' "$WORK/manifest.json")
 
-    src="$WORK/$circuit/$contract.sol"
-    [[ -f "$src" ]] || { echo "$tarball: no $contract.sol inside" >&2; exit 1; }
-    # The interchange format, as libid-circuits' scripts/gen-verifier.sh
-    # promises it: one contract, under the pinned name, linking no library.
-    # A file that breaks it would compile to something the crate looks up
-    # under the wrong name, or cannot deploy without linking.
-    contracts="$(grep -c '^contract ' "$src" || true)"
-    [[ "$contracts" == 1 ]] ||
-        { echo "$contract.sol: expected one contract, found $contracts" >&2; exit 1; }
-    grep -q "^contract $contract is IVerifier" "$src" ||
-        { echo "$contract.sol: its contract is not '$contract is IVerifier'" >&2; exit 1; }
-    if grep -q '^library ' "$src"; then
-        echo "$contract.sol: declares a library; the crate deploys verifiers unlinked" >&2
-        exit 1
-    fi
-
-    # The banner goes after bb's license header, before the first pragma.
-    # Then forge fmt under this project's foundry.toml, which is the one
-    # step libid-circuits leaves to the consumer. Twice: forge fmt settles
-    # the long Yul `for` headers of bb's optimized verifier only on its
-    # second pass, and CI's `forge fmt --check` holds the file to the
-    # settled form.
-    awk -v banner="// Vendored from libid-circuits $TAG ($tarball) by scripts/vendor-circuit-verifiers.sh. Do not edit.\n// The pin is $DEST_REL/circuits.json; \`forge fmt\` is the only change to what shipped." '
-        !done && /^pragma / { print banner; done = 1 }
-        { print }
-    ' "$src" | (cd "$SOLIDITY" && forge fmt --raw - | forge fmt --raw -) > "$STAGE/$contract.sol"
+    require_table "$WORK/$circuit" "$circuit"
+    write_verifier "$WORK/$circuit/$contract.sol" "$contract" \
+        "// Vendored from libid-circuits $TAG ($tarball) by scripts/vendor-circuit-verifiers.sh. Do not edit.\n// The pin is $DEST_REL/circuits.json; \`forge fmt\` is the only change to what shipped."
     echo "==> $circuit -> $DEST_REL/$contract.sol"
-done < <(jq -r '.circuits | to_entries[] | "\(.key)\t\(.value.contract)\t\(.value.sha256)"' "$PIN")
+done
 
 cp "$STAGE"/*.sol "$DEST/"
+write_codehashes "libid-circuits $TAG"

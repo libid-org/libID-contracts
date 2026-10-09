@@ -23,9 +23,14 @@ contract XTranscripts is XPlatformVerifier {
     function identityTranscript(CeremonyAttestation.AttestedData memory data)
         external
         pure
-        returns (bytes32, string memory, string memory)
+        returns (bytes32, bytes32, bytes32)
     {
-        return _identityTranscript(data);
+        Commitments memory c = _identityTranscript(data);
+        return (c.bearer, c.id, c.handle);
+    }
+
+    function identityRequest(CeremonyAttestation.AttestedData memory data) external pure returns (bytes32) {
+        return _identityRequest(data);
     }
 }
 
@@ -42,9 +47,14 @@ contract GitHubTranscripts is GitHubPlatformVerifier {
     function identityTranscript(CeremonyAttestation.AttestedData memory data)
         external
         pure
-        returns (bytes32, string memory, string memory)
+        returns (bytes32, bytes32, bytes32)
     {
-        return _identityTranscript(data);
+        Commitments memory c = _identityTranscript(data);
+        return (c.bearer, c.id, c.handle);
+    }
+
+    function identityRequest(CeremonyAttestation.AttestedData memory data) external pure returns (bytes32) {
+        return _identityRequest(data);
     }
 }
 
@@ -67,9 +77,13 @@ contract RefTranscripts {
     function identityTranscript(CeremonyAttestation.AttestedData memory data)
         external
         view
-        returns (bytes32, string memory, string memory)
+        returns (bytes32, bytes32, bytes32)
     {
         return RefTranscript.identityTranscript(data, _profile());
+    }
+
+    function identityRequest(CeremonyAttestation.AttestedData memory data) external view returns (bytes32) {
+        return RefTranscript.identityRequest(data, _profile());
     }
 
     function _profile() private view returns (RefTranscript.Profile memory) {
@@ -115,24 +129,16 @@ contract LiveHelpers {
         return CeremonyAttestation.requireFramedCommitment(block_, prefix, suffix);
     }
 
+    function requireFramedInteger(CeremonyAttestation.DirectionBlock memory block_, bytes memory prefix)
+        external
+        pure
+        returns (CeremonyAttestation.RangeCommitment memory)
+    {
+        return CeremonyAttestation.requireFramedInteger(block_, prefix);
+    }
+
     function normalizeJsonBytes(bytes memory data) external pure returns (bytes memory) {
         return CeremonyFields.normalizeJsonBytes(data);
-    }
-
-    function tryJsonString(bytes memory data, string memory name)
-        external
-        pure
-        returns (CeremonyFields.Found, bytes memory)
-    {
-        return CeremonyFields.tryNormalizedJsonString(CeremonyFields.normalizeJsonBytes(data), name);
-    }
-
-    function tryJsonInteger(bytes memory data, string memory name)
-        external
-        pure
-        returns (CeremonyFields.Found, bytes memory)
-    {
-        return CeremonyFields.tryNormalizedJsonInteger(CeremonyFields.normalizeJsonBytes(data), name);
     }
 
     function requireExactForm(bytes memory body, bytes memory names) external pure {
@@ -186,24 +192,16 @@ contract RefHelpers {
         return RefCeremonyAttestation.requireFramedCommitment(block_, prefix, suffix);
     }
 
+    function requireFramedInteger(CeremonyAttestation.DirectionBlock memory block_, bytes memory prefix)
+        external
+        pure
+        returns (CeremonyAttestation.RangeCommitment memory)
+    {
+        return RefCeremonyAttestation.requireFramedInteger(block_, prefix);
+    }
+
     function normalizeJsonBytes(bytes memory data) external pure returns (bytes memory) {
         return RefCeremonyFields.normalizeJsonBytes(data);
-    }
-
-    function tryJsonString(bytes memory data, string memory name)
-        external
-        pure
-        returns (CeremonyFields.Found, bytes memory)
-    {
-        return RefCeremonyFields.tryJsonString(data, name);
-    }
-
-    function tryJsonInteger(bytes memory data, string memory name)
-        external
-        pure
-        returns (CeremonyFields.Found, bytes memory)
-    {
-        return RefCeremonyFields.tryJsonInteger(data, name);
     }
 
     function formField(bytes memory data, string memory name) external pure returns (bytes memory) {
@@ -707,7 +705,19 @@ library Gen {
                 head = bytes.concat(head, eol(r), line);
             }
         }
-        bytes memory end = chance(r, 95) ? bytes("\r\n\r\n") : oneOf(r, list("\r\n", "\r\n\r\ncookie: a", "\n\n"));
+        // Otherwise no head end, a second one, bytes after it, or a second
+        // request after it.
+        bytes memory end = chance(r, 92)
+            ? bytes("\r\n\r\n")
+            : oneOf(
+                r,
+                list(
+                    "\r\n",
+                    "\r\n\r\ncookie: a",
+                    "\n\n",
+                    "\r\n\r\nGET /2/users/me HTTP/1.1\r\nauthorization: Bearer y\r\n\r\n"
+                )
+            );
         tail = bytes.concat(tail, end);
         bytes memory bearer = chance(r, 98) ? bytes("TOKENTOKENTOKEN") : bytes("TOK\r\nEN");
         bytes memory t = bytes.concat(head, bearer, tail);
@@ -720,47 +730,112 @@ library Gen {
 
     // ─── Identity response ──────────────────────────────────────────
 
-    /// @dev A JSON response carrying the two members a profile reads, among
-    ///      others; revealed member by member with the rest committed, and
-    ///      bent: whitespace, a duplicate, a lookalike, a cut through a
-    ///      delimiter.
+    /// @dev One identity member as libid-rs reveals it: the anchor, the
+    ///      value, and the byte that closes it -- a quote, or the `,` or `}`
+    ///      that ends a bare integer.
+    struct Member {
+        bytes anchor;
+        bytes value;
+        bytes close;
+    }
+
+    /// @dev An anchor-only JSON response with two members, then bent: whitespace,
+    ///      decoys, quoting, moved value boundaries, cut anchors.
     function identityResponse(Rng memory r, bool integerId, bytes memory handleField)
         internal
         pure
         returns (CeremonyAttestation.DirectionBlock memory, uint32)
     {
         bytes memory ws = oneOf(r, list("", " ", "\n  ", "\t"));
-        bytes memory idValue = integerId
-            ? (chance(r, 80) ? bytes("293919812") : oneOf(r, list("0", "007", "12 3")))
-            : (chance(r, 80) ? bytes('"1051915704843333634"') : oneOf(r, list('""', '"7', "7")));
-        bytes memory idMember = abi.encodePacked('"id"', ws, ":", ws, idValue);
-        bytes memory handleMember =
-            abi.encodePacked('"', handleField, '"', ws, ":", ws, '"', oneOf(r, list("alice", "Bob_1", "", "a b")), '"');
         bool idFirst = chance(r, 50);
-        bytes memory first = idFirst ? idMember : handleMember;
-        bytes memory second = idFirst ? handleMember : idMember;
-        bytes memory sep = chance(r, 85) ? oneOf(r, list(",", ", ", ",\n  ")) : oneOf(r, list(ws, "}", " "));
+        Member memory id = idMember(r, integerId, ws, idFirst);
+        Member memory handle = Member({
+            anchor: abi.encodePacked('"', handleField, '"', ws, ":", ws, '"'),
+            value: oneOf(r, list("alice", "Bob_1", "", "a b")),
+            close: '"'
+        });
         bytes memory decoy = chance(r, 10)
             ? oneOf(r, list('"name":"\\"id\\":\\"1\\"",', abi.encodePacked('"', handleField, '":"x",'), '"id":5,'))
             : bytes("");
-        bytes memory prefix = bytes.concat('HTTP/1.1 200 OK\r\n\r\n{"data":{', decoy);
-        bytes memory t = bytes.concat(prefix, first, sep, second, ws, "}}");
-        // Each member revealed with the byte after it, which is what closes
-        // an integer; what lies between them committed or revealed.
-        uint256 a = prefix.length;
-        uint256 b = a + first.length + (sep.length == 0 ? 0 : 1);
-        uint256 c = a + first.length + sep.length;
-        uint256 d = c + second.length + ws.length + 1;
-        if (chance(r, 3)) t = mutate(r, t, '"{}:, \n0a');
-        if (d > t.length) d = t.length;
-        if (c > d) c = d;
-        if (b > c) b = c;
-        if (a > b) a = b;
-        uint8 middle = chance(r, 50) ? COMMIT : REVEAL;
-        CeremonyAttestation.DirectionBlock memory block_ = split(
-            r, t, marks(a, b, c, d), kinds(COMMIT, REVEAL, middle, REVEAL, COMMIT), chance(r, 25) ? 1 + pick(r, 2) : 0
+        // An integer id that comes first closes on its own comma; anything
+        // else is followed by one.
+        bytes memory sep = idFirst && integerId
+            ? oneOf(r, list("", " ", "\n  "))
+            : (chance(r, 85) ? oneOf(r, list(",", ", ", ",\n  ")) : oneOf(r, list(ws, "}", " ")));
+        bytes memory tail = !idFirst && integerId ? bytes("}") : bytes.concat(ws, "}}");
+        return members(
+            r,
+            'HTTP/1.1 200 OK\r\n\r\n{"data":{',
+            decoy,
+            idFirst ? id : handle,
+            sep,
+            idFirst ? handle : id,
+            tail,
+            chance(r, 25) ? 1 + pick(r, 2) : 0
         );
-        return (block_, length(r, t));
+    }
+
+    /// @dev The id member: a JSON string for X, a bare integer for GitHub --
+    ///      and now and then the other shape, which neither framing admits.
+    function idMember(Rng memory r, bool integerId, bytes memory ws, bool first)
+        internal
+        pure
+        returns (Member memory m)
+    {
+        bool quoted = integerId ? chance(r, 5) : !chance(r, 5);
+        m.anchor = abi.encodePacked('"id"', ws, ":", ws, quoted ? bytes('"') : bytes(""));
+        m.value = integerId
+            ? (chance(r, 80) ? bytes("293919812") : oneOf(r, list("0", "007", "12 3")))
+            : (chance(r, 80) ? bytes("1051915704843333634") : oneOf(r, list("", "7", "1 2")));
+        if (quoted) m.close = '"';
+        else m.close = first ? oneOf(r, list(",", " ,", ";")) : oneOf(r, list("}", "\n}", "]"));
+    }
+
+    /// @dev `head ‖ decoy ‖ first ‖ sep ‖ second ‖ tail`, laid out anchor-only,
+    ///      sometimes mutated; `extra` cuts split a segment.
+    function members(
+        Rng memory r,
+        bytes memory head,
+        bytes memory decoy,
+        Member memory first,
+        bytes memory sep,
+        Member memory second,
+        bytes memory tail,
+        uint256 extra
+    ) internal pure returns (CeremonyAttestation.DirectionBlock memory, uint32) {
+        bytes memory t = bytes.concat(
+            head, decoy, first.anchor, first.value, first.close, sep, second.anchor, second.value, second.close, tail
+        );
+        uint256[] memory bounds = new uint256[](9);
+        bounds[0] = head.length;
+        bounds[1] = bounds[0] + decoy.length;
+        bounds[2] = bounds[1] + first.anchor.length;
+        bounds[3] = bounds[2] + first.value.length;
+        bounds[4] = bounds[3] + first.close.length;
+        bounds[5] = bounds[4] + sep.length;
+        bounds[6] = bounds[5] + second.anchor.length;
+        bounds[7] = bounds[6] + second.value.length;
+        bounds[8] = bounds[7] + second.close.length;
+        // A value that takes its closing byte, or leaves its last behind.
+        if (chance(r, 5)) bounds[3] = chance(r, 50) ? bounds[3] + 1 : (bounds[3] == 0 ? 0 : bounds[3] - 1);
+        if (chance(r, 5)) bounds[7] = chance(r, 50) ? bounds[7] + 1 : bounds[7] - 1;
+        if (chance(r, 3)) t = mutate(r, t, '"{}:, \n0a');
+        for (uint256 i = 0; i < bounds.length; ++i) {
+            if (bounds[i] > t.length) bounds[i] = t.length;
+            if (i > 0 && bounds[i] < bounds[i - 1]) bounds[i] = bounds[i - 1];
+        }
+        uint8[] memory segmentKinds = new uint8[](10);
+        segmentKinds[0] = COMMIT;
+        segmentKinds[1] = chance(r, 50) ? REVEAL : COMMIT;
+        segmentKinds[2] = REVEAL;
+        segmentKinds[3] = COMMIT;
+        segmentKinds[4] = REVEAL;
+        segmentKinds[5] = chance(r, 50) ? COMMIT : REVEAL;
+        segmentKinds[6] = REVEAL;
+        segmentKinds[7] = COMMIT;
+        segmentKinds[8] = REVEAL;
+        segmentKinds[9] = COMMIT;
+        return (split(r, t, bounds, segmentKinds, extra), length(r, t));
     }
 }
 
@@ -889,30 +964,6 @@ contract TranscriptEquivalenceTest is Test {
     }
 
     /// forge-config: default.fuzz.runs = 2000
-    function testFuzz_jsonReadsMatchReference(uint256 seed) public view {
-        Gen.Rng memory r = Gen.Rng(seed);
-        string memory name = string(
-            r.oneOf(
-                Gen.list(
-                    "id",
-                    "login",
-                    "username",
-                    r.chance(50) ? bytes("") : bytes("a_member_name_long_enough_for_two_words")
-                )
-            )
-        );
-        bytes memory data = bytes.concat(
-            r.soup(' "{}:,1a', 12),
-            r.chance(70) ? abi.encodePacked('"', name, '"', r.soup(" :", 3), ":", r.soup(' "', 2)) : bytes(""),
-            r.soup(' "{}:,0123a\\', 16),
-            r.chance(30) ? abi.encodePacked('"', name, '":') : bytes(""),
-            r.soup(' "{}:,1a', 8)
-        );
-        _same(address(live), address(ref), abi.encodeCall(LiveHelpers.tryJsonString, (data, name)));
-        _same(address(live), address(ref), abi.encodeCall(LiveHelpers.tryJsonInteger, (data, name)));
-    }
-
-    /// forge-config: default.fuzz.runs = 2000
     function testFuzz_formReadsMatchReference(uint256 seed) public view {
         Gen.Rng memory r = Gen.Rng(seed);
         bytes memory names = r.oneOf(
@@ -993,6 +1044,76 @@ contract TranscriptEquivalenceTest is Test {
             address(live),
             address(ref),
             abi.encodeCall(LiveHelpers.requireFramedCommitment, (block_, '"access_token":"', '"'))
+        );
+    }
+
+    /// @dev The id's integer framing, on GitHub-shaped responses.
+    /// forge-config: default.fuzz.runs = 2000
+    function testFuzz_framedIntegerMatchesReference(uint256 seed) public view {
+        Gen.Rng memory r = Gen.Rng(seed);
+        (CeremonyAttestation.DirectionBlock memory block_,) = r.identityResponse(true, "login");
+        _same(address(live), address(ref), abi.encodeCall(LiveHelpers.requireFramedInteger, (block_, '"id":')));
+    }
+
+    /// @dev The string framing on the same responses' handle, and on X's.
+    /// forge-config: default.fuzz.runs = 2000
+    function testFuzz_framedValueMatchesReference(uint256 seed) public view {
+        Gen.Rng memory r = Gen.Rng(seed);
+        bool integerId = r.chance(50);
+        bytes memory handleField = integerId ? bytes("login") : bytes("username");
+        (CeremonyAttestation.DirectionBlock memory block_,) = r.identityResponse(integerId, handleField);
+        bytes memory prefix = abi.encodePacked('"', handleField, '":"');
+        _same(address(live), address(ref), abi.encodeCall(LiveHelpers.requireFramedCommitment, (block_, prefix, '"')));
+        _same(address(live), address(ref), abi.encodeCall(LiveHelpers.requireFramedCommitment, (block_, '"id":"', '"')));
+    }
+
+    /// @dev The generators above produce framings both sides accept, not
+    ///      only refusals.
+    function test_theFramingGeneratorsAcceptOften() public {
+        uint256 runs = 300;
+        uint256[5] memory accepted;
+        for (uint256 seed = 0; seed < runs; ++seed) {
+            // One call per seed, so each seed's memory is released with its frame.
+            bool[5] memory outcome = this.framingOutcomes(seed);
+            for (uint256 i = 0; i < 5; ++i) {
+                if (outcome[i]) ++accepted[i];
+            }
+        }
+        string[5] memory names = [
+            "framed commitment accepted, of 300",
+            "framed integer accepted, of 300",
+            "framed handle accepted, of 300",
+            "X identity session accepted, of 300",
+            "GitHub identity session accepted, of 300"
+        ];
+        for (uint256 i = 0; i < 5; ++i) {
+            emit log_named_uint(names[i], accepted[i]);
+            assertGt(accepted[i], i < 3 ? runs / 5 : runs / 10, names[i]);
+        }
+    }
+
+    /// @dev Which of the framings, and the whole identity sessions, one seed's
+    ///      transcripts pass, both implementations agreeing on each.
+    function framingOutcomes(uint256 seed) external view returns (bool[5] memory outcome) {
+        Gen.Rng memory r = Gen.Rng(seed);
+        (CeremonyAttestation.DirectionBlock memory token,) = r.tokenResponse();
+        outcome[0] = _same(
+            address(live),
+            address(ref),
+            abi.encodeCall(LiveHelpers.requireFramedCommitment, (token, '"access_token":"', '"'))
+        );
+        (CeremonyAttestation.DirectionBlock memory gh,) = r.identityResponse(true, "login");
+        outcome[1] = _same(address(live), address(ref), abi.encodeCall(LiveHelpers.requireFramedInteger, (gh, '"id":')));
+        outcome[2] = _same(
+            address(live), address(ref), abi.encodeCall(LiveHelpers.requireFramedCommitment, (gh, '"login":"', '"'))
+        );
+        outcome[3] = _same(
+            address(x), address(refX), abi.encodeCall(XTranscripts.identityTranscript, (_identitySession(r, false)))
+        );
+        outcome[4] = _same(
+            address(github),
+            address(refGitHub),
+            abi.encodeCall(XTranscripts.identityTranscript, (_identitySession(r, true)))
         );
     }
 
@@ -1141,22 +1262,55 @@ contract TranscriptEquivalenceTest is Test {
 
     // ─── The real sessions ──────────────────────────────────────────
 
-    /// @dev The two ceremonies the real-session suites verify, stage by
-    ///      stage: the honest path, where a divergence would cost users.
+    /// @dev The records libid-rs produces, stage by stage: the honest path,
+    ///      where a divergence would cost users.
+    function test_theLibidRsSessionsMatchReference() public view {
+        _real("contracts/ceremony/test/fixtures/x-ceremony-session.json", address(x), address(refX));
+        _real("contracts/ceremony/test/fixtures/github-ceremony-session.json", address(github), address(refGitHub));
+    }
+
+    /// @dev And the token session and identity request of the two captured
+    ///      ceremonies.
     function test_theRealSessionsMatchReference() public view {
+        _realRequests("contracts/ceremony/test/fixtures/x-ceremony-real.json", address(x), address(refX));
+        _realRequests("contracts/ceremony/test/fixtures/github-ceremony-real.json", address(github), address(refGitHub));
+    }
+
+    /// @dev Their identity responses predate the anchor-only reveal.
+    function test_theRealIdentityResponsesMatchReference() public {
+        vm.skip(
+            true,
+            "the *-ceremony-real.json identity responses predate the hashed identities: they reveal the id and handle; recapture under the anchor-only reveal"
+        );
         _real("contracts/ceremony/test/fixtures/x-ceremony-real.json", address(x), address(refX));
         _real("contracts/ceremony/test/fixtures/github-ceremony-real.json", address(github), address(refGitHub));
     }
 
     function _real(string memory path, address live_, address ref_) private view {
         string memory json = vm.readFile(path);
+        _realRequests(path, live_, ref_);
+        CeremonyAttestation.AttestedData memory identity =
+            this.decode(vm.parseJsonBytes(json, ".identity.attested_data"));
+        assertTrue(_same(live_, ref_, abi.encodeCall(XTranscripts.identityTranscript, (identity))));
+    }
+
+    /// @dev Both implementations accept the token session and the identity
+    ///      request, and agree on what they return.
+    function _realRequests(string memory path, address live_, address ref_) private view {
+        string memory json = vm.readFile(path);
         CeremonyAttestation.AttestedData memory token = this.decode(vm.parseJsonBytes(json, ".token.attested_data"));
         CeremonyAttestation.AttestedData memory identity =
             this.decode(vm.parseJsonBytes(json, ".identity.attested_data"));
         bytes32 digest = vm.parseJsonBytes32(json, ".authorization_digest");
         bytes32 nonce = vm.parseJsonBytes32(json, ".authorization_nonce");
-        assertTrue(_same(live_, ref_, abi.encodeCall(XTranscripts.tokenTranscript, (token, digest, nonce))));
-        assertTrue(_same(live_, ref_, abi.encodeCall(XTranscripts.identityTranscript, (identity))));
+        assertTrue(
+            _same(live_, ref_, abi.encodeCall(XTranscripts.tokenTranscript, (token, digest, nonce))),
+            "the token session is refused"
+        );
+        assertTrue(
+            _same(live_, ref_, abi.encodeCall(XTranscripts.identityRequest, (identity))),
+            "the identity request is refused"
+        );
     }
 
     function decode(bytes calldata data) external pure returns (CeremonyAttestation.AttestedData memory) {

@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-import {Strings} from "@openzeppelin/contracts/utils/Strings.sol";
-
+import {CircuitCodehashes} from "../circuits/CircuitCodehashes.sol";
 import {CeremonyAuthorization} from "./CeremonyAuthorization.sol";
+import {GoogleProof} from "./CeremonyPayloads.sol";
 import {CeremonyProfile} from "./CeremonyProfile.sol";
 import {INotaryService} from "./INotaryService.sol";
 import {IPlatformVerifier} from "./IPlatformVerifier.sol";
@@ -17,79 +17,25 @@ interface IGoogleJwtRoots {
 
 /// @title GooglePlatformVerifier — the `google/v1` profile.
 ///
-/// @notice A different shape from the other two: no notarized session, no
-///         Notary Service, no fee.
+/// @notice One proof over a signed ID Token: no notarized session, no Notary
+///         Service, no fee.
 ///
-/// @dev Google uses direct authentication-only OIDC. There is no token
-///      exchange, no client secret, no PKCE and no TLSNotary session; the
-///      evidence is a signed ID Token, and the whole ceremony reduces to one
-///      proof over it. So this profile's Attestation Count is ZERO, its path
-///      stops here rather than reaching a Notary Service, and it quotes and
-///      accepts no value at all. A path with nothing to verify carries none.
-///
-///      The Authorization Digest is bound the other way round from X and
-///      GitHub. They carry it through the PKCE verifier and this contract's
-///      counterpart recomputes it; Google carries it as the signed OIDC `nonce`
-///      and exposes it as a public proof input, which this contract compares
-///      against the digest it rebuilds from its own payload (REQ-COMMON-02A).
-///      Exactly one of the two methods, never both and never neither.
-///
-///      The Google `userId` is a digest. Google shows a `sub` only to the
-///      applications a user signs in to, so the circuit keeps it private and
-///      publishes `SHA256("libid.google-user-id" || sub)`, which this contract
-///      returns as `0x` and 64 lowercase hex digits (platform-ceremonies
-///      section 2.1).
-///
-///      Evidence time comes from the signed `exp` alone. It supplies BOTH
-///      `metadataObservedAt` and `proofValidUntil` (section 2.2), so the
-///      governance lifetime and skew the other profiles read do not apply
-///      here — a Google proof is bounded by what Google signed.
+/// @dev The digest is the signed OIDC `nonce`, a public input compared with
+///      the rebuilt digest (REQ-COMMON-02A). The circuit publishes the id node
+///      and the handle node; `exp` gives both `metadataObservedAt` and
+///      `proofValidUntil`.
 contract GooglePlatformVerifier is IPlatformVerifier, PlatformVerifierBase {
     /// @dev The public inputs REQ-PLAT-16B fixes, in the order it lists them.
     ///      The digest is 32 field elements of one byte each; the rest are
     ///      packed Fields.
     uint256 private constant OFF_DIGEST = 0;
     uint256 private constant OFF_AUDIENCE = 32; // 2 fields, 16 bytes each
-    uint256 private constant OFF_USER_ID = 34; // 2 fields, 16 bytes each
-    uint256 private constant OFF_EMAIL = 36; // 2 fields, 31 bytes each
+    uint256 private constant OFF_ID_NODE = 34; // 2 fields, 16 bytes each
+    uint256 private constant OFF_HANDLE_NODE = 36; // 2 fields, 16 bytes each
     uint256 private constant OFF_EXP = 38;
     uint256 private constant OFF_MODULUS = 39; // 18 limbs
     uint256 private constant MODULUS_LIMBS = 18;
     uint256 private constant PUBLIC_INPUTS = 57;
-
-    /// @notice What this profile decodes from its payload.
-    ///
-    /// @dev `abi.encode` of this struct is the payload for `google/v1`. No
-    ///      attestations: the evidence is a signed ID Token verified inside the
-    ///      circuit, and the contract sees only its public inputs -- which are
-    ///      therefore carried, unlike the TLSNotary profiles' where they are
-    ///      derived, and become authentic only once the proof verifies.
-    ///
-    /// @param ceremonyVersion    What the payload was built for. Checked against
-    ///                           this verifier's own first.
-    /// @param operationDomain    Into the digest, and returned for the Consumer
-    ///                           to judge.
-    /// @param authorizationNonce Into the digest.
-    /// @param transactionData    Into the digest, and returned opaque.
-    /// @param clientIdentifier   The `aud` bytes. Authenticated by hashing them
-    ///                           against a public input (REQ-PLAT-19A), because
-    ///                           the circuit publishes the audience as a hash
-    ///                           rather than packing a variable-length string;
-    ///                           the bytes cannot be recovered from the proof,
-    ///                           so they are carried and checked instead.
-    /// @param publicInputs       The circuit's 57 public inputs, in the order
-    ///                           REQ-PLAT-16B fixes.
-    /// @param proof              Verified under the artifact governance
-    ///                           selected, never one the caller names.
-    struct GoogleProof {
-        uint16 ceremonyVersion;
-        bytes32 operationDomain;
-        bytes32 authorizationNonce;
-        bytes transactionData;
-        bytes clientIdentifier;
-        bytes32[] publicInputs;
-        bytes proof;
-    }
 
     /// @custom:storage-location erc7201:libid.storage.GooglePlatformVerifier
     struct GoogleStorage {
@@ -157,6 +103,11 @@ contract GooglePlatformVerifier is IPlatformVerifier, PlatformVerifierBase {
         if (address(roots) == address(0)) revert ZeroAddress();
         _g().jwtRoots = roots;
         emit JwtRootsChanged(address(roots));
+    }
+
+    /// @dev `oidc-google`'s verifier, and no other.
+    function _circuitCodehash() internal pure override returns (bytes32) {
+        return CircuitCodehashes.OIDC_GOOGLE;
     }
 
     function _platform() internal pure override returns (bytes32) {
@@ -241,17 +192,15 @@ contract GooglePlatformVerifier is IPlatformVerifier, PlatformVerifierBase {
         // expiry buys a proportionally long lock on the name.
         _requireNotAhead(exp);
 
+        // The circuit's nodes, and a disclosure checked before the proof is paid for.
+        claimed.idNode = _hashFromHalves(p.publicInputs, OFF_ID_NODE);
+        claimed.handleNode = _hashFromHalves(p.publicInputs, OFF_HANDLE_NODE);
+        claimed.handle = _disclosed(p.handle, claimed.handleNode);
+
         // Every public input read above becomes authentic here, and the whole
         // transaction reverts if it does not; that is what makes reading them
         // first safe.
         _requireProof(p.proof, p.publicInputs);
-
-        // The digest the circuit computed over the signed `sub`. Fixed width,
-        // so never empty: the circuit alone refuses an empty `sub`.
-        claimed.userId = Strings.toHexString(uint256(_hashFromHalves(p.publicInputs, OFF_USER_ID)), 32);
-        // RAW bytes. Normalization is the Consumer's derivation on its own
-        // write path (REQ-PLAT-16B).
-        claimed.handle = string(_unpack(p.publicInputs, OFF_EMAIL, 2));
         claimed.metadataObservedAt = _onSharedScale(exp, _futureObservationAllowance());
         claimed.clientIdentifier = p.clientIdentifier;
         claimed.sessionId = digest;
@@ -275,57 +224,14 @@ contract GooglePlatformVerifier is IPlatformVerifier, PlatformVerifierBase {
     }
 
     /// @dev A SHA-256 digest as two big-endian 16-byte Fields: the signed
-    ///      `aud`'s, and the `userId`'s.
+    ///      `aud`'s, and the two nodes.
     function _hashFromHalves(bytes32[] memory publicInputs, uint256 offset) private pure returns (bytes32) {
         uint256 high = uint256(publicInputs[offset]);
         uint256 low = uint256(publicInputs[offset + 1]);
-        // Each half must fit the 128 bits it stands for, and the reason is the
-        // same one `_digestFromInputs` states: this contract cannot see the
-        // circuit's range constraints, so it does not rest on them.
-        //
-        // The failure is not cosmetic. `high` is shifted, so bits above its
-        // 128th fall off the top and several `high` values agree. `low` is
-        // NOT shifted, so bits above its 128th land in the high half -- one
-        // over-wide `low` alone can produce any 256-bit result: a free match
-        // against the audience hash, or any `userId` at all.
+        // An over-wide `low` would spill into the high half and match any digest.
         if (high >> 128 != 0) revert PublicInputOverwide(offset, high, 128);
         if (low >> 128 != 0) revert PublicInputOverwide(offset + 1, low, 128);
         return bytes32((high << 128) | low);
-    }
-
-    /// @dev The circuit packs 31 bytes per Field, big-endian, zero-padded past
-    ///      the real length. Unpacking and dropping the padding recovers the
-    ///      bytes without the caller supplying a copy to be checked against —
-    ///      one fewer value for a caller to choose.
-    function _unpack(bytes32[] memory publicInputs, uint256 offset, uint256 count)
-        private
-        pure
-        returns (bytes memory out)
-    {
-        bytes memory full = new bytes(count * 31);
-        for (uint256 f = 0; f < count; ++f) {
-            uint256 v = uint256(publicInputs[offset + f]);
-            // A field element holds more than the 31 bytes read below, and
-            // whatever sits above them is dropped in silence -- so the email
-            // this returns would not be the one the circuit proved. Refuse
-            // instead (REQ-COMMON-28 in spirit: no truncation).
-            if (v >> 248 != 0) revert PublicInputOverwide(offset + f, v, 248);
-            for (uint256 i = 0; i < 31; ++i) {
-                // Casting to uint8 takes the low byte on purpose: the shift
-                // brought byte `i` to the bottom, and the other iterations
-                // read the rest.
-                // forge-lint: disable-next-line(unsafe-typecast)
-                full[f * 31 + (30 - i)] = bytes1(uint8(v >> (8 * i)));
-            }
-        }
-        uint256 len = full.length;
-        while (len > 0 && full[len - 1] == 0) {
-            --len;
-        }
-        out = new bytes(len);
-        for (uint256 i = 0; i < len; ++i) {
-            out[i] = full[i];
-        }
     }
 
     function _requireTrustedModulus(bytes32[] memory publicInputs) private view {

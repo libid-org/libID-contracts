@@ -1,8 +1,5 @@
 //! Bindings for the handle escrow (`solidity/contracts/escrow/`): value held
-//! against a handle node until its holder in `IdentityRegistry` claims it, and
-//! refundable to each deposit's `refundTo` until then. `deposit` takes
-//! `keccak256(normalized handle)`, from `IdentityRegistry.handleHashOf` or
-//! computed locally.
+//! against a handle node until its holder claims it, refundable until then.
 
 /// Bindings for `escrow/HandleEscrow.sol`.
 #[allow(clippy::too_many_arguments, unused_attributes)]
@@ -14,17 +11,9 @@ mod escrow_inner {
         interface HandleEscrow {
             function initialize(address owner_, address registry_) external;
 
-            /// Pay a handle by its hash. A held node is paid straight through
-            /// (`Forwarded`); otherwise the value is escrowed (`Deposited`) and
-            /// `refundTo` can `refund` it until the holder claims. An unchecked
-            /// wrong hash funds a slot only `refund` recovers.
-            function deposit(
-                bytes32 platformId,
-                bytes32 handleHash,
-                address token,
-                uint256 amount,
-                address refundTo
-            ) external payable;
+            /// Pay a handle by its node: forwarded to a holder, otherwise
+            /// escrowed and refundable to `refundTo` until claimed.
+            function deposit(bytes32 handleNode, address token, uint256 amount, address refundTo) external payable;
 
             /// Take everything held for a node in each of `tokens`; holder
             /// only. Tokens with nothing held are skipped; reverts
@@ -57,7 +46,6 @@ mod escrow_inner {
                 address indexed token,
                 address indexed refundTo,
                 address depositor,
-                bytes32 platformId,
                 uint256 round,
                 uint256 amount
             );
@@ -68,7 +56,6 @@ mod escrow_inner {
                 address indexed token,
                 address indexed depositor,
                 address holder,
-                bytes32 platformId,
                 uint256 amount,
                 uint256 received
             );
@@ -107,8 +94,6 @@ mod escrow_inner {
             /// `refundTo` is zero or the escrow: nobody could refund.
             error BadRefundTo(address refundTo);
             error BadRecipient(address recipient);
-            /// Nobody holds the node and nothing new can bind on the platform.
-            error PlatformAcceptsNoBindings(bytes32 platformId);
             error NativeTransferFailed(address recipient, uint256 amount);
             /// A payout took more of the escrow's balance than it booked.
             error OverDebited(address token, uint256 booked, uint256 debited);

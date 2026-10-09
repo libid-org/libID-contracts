@@ -3,7 +3,6 @@ pragma solidity ^0.8.20;
 
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 
-import {IdentityNodes} from "../../identity/IdentityNodes.sol";
 import {IIdentityRegistry} from "../../identity/IIdentityRegistry.sol";
 
 /// @notice A one-token list for `HandleEscrow.claim`.
@@ -12,7 +11,7 @@ function one(address token) pure returns (address[] memory tokens) {
     tokens[0] = token;
 }
 
-/// @notice A registry whose holders are set directly; deposits go by hash.
+/// @notice A registry whose holders are set directly.
 contract SettableRegistry is IIdentityRegistry {
     mapping(bytes32 => address) public holderOf;
 
@@ -24,20 +23,20 @@ contract SettableRegistry is IIdentityRegistry {
         return (holderOf[handleNode], 0);
     }
 
-    function handleNodeOf(bytes32 platformId, string calldata handle) external pure returns (bytes32) {
-        return IdentityNodes.handleNode(platformId, handle);
+    /// The function `HandleEscrow` probes to tell this registry from `PreNodeRegistry`.
+    function resolveId(bytes32) external pure returns (address) {
+        return address(0);
+    }
+}
+
+/// @notice A registry whose `resolveId` takes a platform and an id rather than a node.
+contract PreNodeRegistry is IIdentityRegistry {
+    function handleBinding(bytes32) external pure returns (address holder, uint64 observedAt) {
+        return (address(0), 0);
     }
 
-    function handleHashOf(bytes32, string calldata handle) external pure returns (bytes32) {
-        return keccak256(bytes(handle));
-    }
-
-    function handleNodeOfHash(bytes32 platformId, bytes32 handleHash) external pure returns (bytes32) {
-        return IdentityNodes.handleNodeOfHash(platformId, handleHash);
-    }
-
-    function acceptsBindings(bytes32 platformId) external pure returns (bool) {
-        return platformId != bytes32(0);
+    function resolveId(bytes32, string calldata) external pure returns (address) {
+        return address(0);
     }
 }
 

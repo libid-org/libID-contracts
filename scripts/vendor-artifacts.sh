@@ -4,7 +4,9 @@
 # Runs `forge build` in solidity/ (submodules must be initialized), then copies
 # the artifact JSONs the crate needs from solidity/out into
 # rust/contracts/artifacts/<File>.sol/<Name>.json, pruned to the fields the
-# crate reads: bytecode.object and methodIdentifiers. No abi: the binding
+# crate reads: bytecode.object, deployedBytecode.object (the runtime code a
+# deployed copy's code hash is checked against) and methodIdentifiers. No
+# abi: the binding
 # drift tests (rust/contracts/src/bindings/mod.rs) read it from solidity/out,
 # so the published crate carries none. The circuits pin rides along as
 # circuits.json, so the crate can say which libid-circuits release its
@@ -41,7 +43,8 @@ ARTIFACTS=(
     "GooglePlatformVerifier:GooglePlatformVerifier"
     # circuits: the UltraHonk verifiers the Platform Verifiers pin, vendored
     # from the libid-circuits release by scripts/vendor-circuit-verifiers.sh
-    "BearerLinkHonkVerifier:BearerLinkHonkVerifier"
+    "BearerLinkXHonkVerifier:BearerLinkXHonkVerifier"
+    "BearerLinkGithubHonkVerifier:BearerLinkGithubHonkVerifier"
     "OidcGoogleHonkVerifier:OidcGoogleHonkVerifier"
     # identity
     "IdentityRegistry:IdentityRegistry"
@@ -86,6 +89,7 @@ for entry in "${ARTIFACTS[@]}"; do
     mkdir -p "$STAGE/$file.sol"
     jq -S '{
         bytecode: { object: .bytecode.object },
+        deployedBytecode: { object: .deployedBytecode.object },
         methodIdentifiers: .methodIdentifiers
     }' "$src" > "$STAGE/$file.sol/$contract.json"
 done

@@ -14,14 +14,9 @@ import {IIdentityRegistry} from "../identity/IIdentityRegistry.sol";
 address constant NATIVE_TOKEN = 0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE;
 
 /// @title HandleEscrow - send to a platform handle before anybody holds it.
-///
-/// @notice Holds value against the handle node `IdentityRegistry` binds. The
-///         node's holder claims it; until then each deposit's `refundTo`
-///         can take its own contribution back. Integrator notes, privacy and
-///         trust: `README.md` beside this file.
-///
-/// @dev - A held node is paid straight through; only an unheld node on a
-///        platform that `acceptsBindings` escrows.
+/// @notice Holds value against a handle node until its holder claims it; each
+///         deposit's `refundTo` can take its own contribution back until then.
+/// @dev - A held node is paid straight through; an unheld one escrows.
 ///      - A claim empties the slot and opens a new round, ending the old
 ///        round's refunds. Refunds have no delay and no pause gates them.
 ///      - Each token is one pool across all nodes; a payout that debits it by
@@ -66,7 +61,6 @@ contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable
         address indexed token,
         address indexed refundTo,
         address depositor,
-        bytes32 platformId,
         uint256 round,
         uint256 amount
     );
@@ -78,7 +72,6 @@ contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable
         address indexed token,
         address indexed depositor,
         address holder,
-        bytes32 platformId,
         uint256 amount,
         uint256 received
     );
@@ -127,8 +120,6 @@ contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable
     error BadRefundTo(address refundTo);
     /// A payout may not go to the zero address or this contract.
     error BadRecipient(address recipient);
-    /// Nobody holds the node and nothing new can bind on this platform.
-    error PlatformAcceptsNoBindings(bytes32 platformId);
     /// A payout took more of this contract's balance than it booked.
     error OverDebited(address token, uint256 booked, uint256 debited);
     /// The recipient refused the transfer.
@@ -147,8 +138,7 @@ contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable
         _disableInitializers();
     }
 
-    /// @dev Reverts `RegistryLacks` unless `registry_` answers like
-    ///      `IdentityRegistry`.
+    /// @dev Reverts `RegistryLacks` unless `registry_` answers like the node-keyed `IdentityRegistry`.
     function initialize(address owner_, IIdentityRegistry registry_) external initializer {
         if (address(registry_) == address(0)) revert NoRegistry();
         _requireAnswers(registry_);
@@ -166,16 +156,11 @@ contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable
 
     // ─── Depositing ─────────────────────────────────────────────────
 
-    /// @notice Pay `amount` of `token` to a handle, given as `keccak256` of its
-    ///         normalized form (`IdentityRegistry.handleHashOf`).
-    ///
-    /// @dev The hash cannot be checked: a wrong one funds a slot nobody can
-    ///      claim, which `refundTo` can refund. Both branches book what
-    ///      arrived, so fee-on-transfer tokens work; nothing arriving reverts
-    ///      `ZeroAmount`.
+    /// @notice Pay `amount` of `token` to a handle node (`IdentityRegistry.handleNodeOf`).
+    /// @dev Books what arrived. A wrong node funds a slot only `refundTo` can recover.
     /// @param token    An ERC-20, or `NATIVE`, when `amount` must equal `msg.value`.
     /// @param refundTo Who may refund an escrowed deposit; never zero or this contract.
-    function deposit(bytes32 platformId, bytes32 handleHash, address token, uint256 amount, address refundTo)
+    function deposit(bytes32 handleNode, address token, uint256 amount, address refundTo)
         external
         payable
         nonReentrant
@@ -190,25 +175,22 @@ contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable
         }
 
         HandleEscrowStorage storage $ = _s();
-        bytes32 node = $.registry.handleNodeOfHash(platformId, handleHash);
-        (address holder,) = $.registry.handleBinding(node);
+        (address holder,) = $.registry.handleBinding(handleNode);
         if (holder != address(0)) {
             if (holder == msg.sender) revert PayingYourself(holder);
             uint256 received = _move(token, msg.sender, holder, amount);
             if (received == 0) revert ZeroAmount();
-            emit Forwarded(node, token, msg.sender, holder, platformId, amount, received);
+            emit Forwarded(handleNode, token, msg.sender, holder, amount, received);
             return;
         }
-
-        if (!$.registry.acceptsBindings(platformId)) revert PlatformAcceptsNoBindings(platformId);
 
         uint256 credited = _move(token, msg.sender, address(this), amount);
         if (credited == 0) revert ZeroAmount();
 
-        uint256 round = $.round[node][token];
-        $.held[node][token] += credited;
-        $.contributions[node][token][round][refundTo] += credited;
-        emit Deposited(node, token, refundTo, msg.sender, platformId, round, credited);
+        uint256 round = $.round[handleNode][token];
+        $.held[handleNode][token] += credited;
+        $.contributions[handleNode][token][round][refundTo] += credited;
+        emit Deposited(handleNode, token, refundTo, msg.sender, round, credited);
     }
 
     // ─── Claiming ───────────────────────────────────────────────────
@@ -304,32 +286,18 @@ contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable
         if (!ok) revert NativeTransferFailed(to, amount);
     }
 
-    /// @dev Refuses a registry that does not answer the three calls the
-    ///      escrow makes in their shape: a two-word binding, a boolean, and a
-    ///      nonzero node that depends on the hash.
+    /// @dev Probed once at initialization: only the node-keyed registry has `resolveId(bytes32)`.
+    bytes4 private constant NODE_REGISTRY_PROBE = bytes4(keccak256("resolveId(bytes32)"));
+
+    /// @dev Refuses a registry that does not answer `handleBinding` and `NODE_REGISTRY_PROBE` in shape.
     function _requireAnswers(IIdentityRegistry registry_) private view {
         (bool ok, bytes memory result) =
             address(registry_).staticcall(abi.encodeCall(IIdentityRegistry.handleBinding, (bytes32(0))));
         if (!ok || result.length != 64) {
             revert RegistryLacks(address(registry_), IIdentityRegistry.handleBinding.selector);
         }
-
-        (ok, result) = address(registry_).staticcall(abi.encodeCall(IIdentityRegistry.acceptsBindings, (bytes32(0))));
-        if (!ok || result.length != 32 || abi.decode(result, (uint256)) > 1) {
-            revert RegistryLacks(address(registry_), IIdentityRegistry.acceptsBindings.selector);
-        }
-
-        bytes32 a = _handleNodeOfHashAnswer(registry_, bytes32(0));
-        bytes32 b = _handleNodeOfHashAnswer(registry_, bytes32(uint256(1)));
-        if (a == 0 || b == 0 || a == b) {
-            revert RegistryLacks(address(registry_), IIdentityRegistry.handleNodeOfHash.selector);
-        }
-    }
-
-    function _handleNodeOfHashAnswer(IIdentityRegistry registry_, bytes32 handleHash) private view returns (bytes32) {
-        (bool ok, bytes memory result) =
-            address(registry_).staticcall(abi.encodeCall(IIdentityRegistry.handleNodeOfHash, (bytes32(0), handleHash)));
-        return ok && result.length == 32 ? abi.decode(result, (bytes32)) : bytes32(0);
+        (ok, result) = address(registry_).staticcall(abi.encodeWithSelector(NODE_REGISTRY_PROBE, bytes32(0)));
+        if (!ok || result.length != 32) revert RegistryLacks(address(registry_), NODE_REGISTRY_PROBE);
     }
 
     // ─── Upgrade ────────────────────────────────────────────────────

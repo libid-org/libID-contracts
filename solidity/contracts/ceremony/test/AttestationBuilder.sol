@@ -1,6 +1,10 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
+import {Vm} from "forge-std/Vm.sol";
+
+import {ICeremony} from "../ICeremony.sol";
+
 /// @notice Builds platform-ceremonies section 4.1 attested data, for tests only.
 ///
 /// @dev The inverse of `CeremonyAttestation.decode`. Rust-versus-Solidity
@@ -8,6 +12,8 @@ pragma solidity ^0.8.24;
 ///      `CeremonyAttestation.t.sol`; this exists so a test can vary one field of
 ///      a session and watch a verifier refuse it.
 library AttestationBuilder {
+    Vm private constant VM = Vm(address(uint160(uint256(keccak256("hevm cheat code")))));
+
     /// @dev No `end`: a revealed range's length is its bytes, and the encoder
     ///      writes that length. A separate `end` would be a field a test could
     ///      set and watch do nothing.
@@ -90,5 +96,79 @@ library AttestationBuilder {
         out = new Commitment[](2);
         out[0] = a;
         out[1] = b;
+    }
+
+    /// @dev Appends `value` to `d` as a revealed range; returns `d` to chain.
+    function reveal(Direction memory d, bytes memory value) internal pure returns (Direction memory) {
+        Range[] memory grown = new Range[](d.revealed.length + 1);
+        for (uint256 i = 0; i < d.revealed.length; ++i) {
+            grown[i] = d.revealed[i];
+        }
+        grown[d.revealed.length] = Range({start: d.length, value: value});
+        d.revealed = grown;
+        d.length += uint32(value.length);
+        return d;
+    }
+
+    /// @dev `value` committed under `commitment` at the end of `d`. The
+    ///      bytes themselves are not recorded, only how many there are.
+    function commit(Direction memory d, bytes memory value, bytes32 commitment)
+        internal
+        pure
+        returns (Direction memory)
+    {
+        Commitment[] memory grown = new Commitment[](d.commitments.length + 1);
+        for (uint256 i = 0; i < d.commitments.length; ++i) {
+            grown[i] = d.commitments[i];
+        }
+        uint32 end = d.length + uint32(value.length);
+        grown[d.commitments.length] = Commitment({start: d.length, end: end, value: commitment});
+        d.commitments = grown;
+        d.length = end;
+        return d;
+    }
+
+    /// @dev `attested` signed by `key` as the Notary Service checks it: an
+    ///      EIP-191 signature over `keccak256(attested)`, as `r || s || v`.
+    function sign(uint256 key, bytes memory attested) internal pure returns (bytes memory) {
+        bytes32 ethHash = keccak256(abi.encodePacked("\x19Ethereum Signed Message:\n32", keccak256(attested)));
+        (uint8 v, bytes32 r, bytes32 s) = VM.sign(key, ethHash);
+        return abi.encodePacked(r, s, v);
+    }
+
+    /// @dev The attestation at `key` (`.token`, `.identity`) of a libid-rs
+    ///      session fixture.
+    function fixtureSession(string memory json, string memory key)
+        internal
+        pure
+        returns (ICeremony.Attestation memory)
+    {
+        return ICeremony.Attestation({
+            attestedData: VM.parseJsonBytes(json, string.concat(key, ".attested_data")),
+            proof: VM.parseJsonBytes(json, string.concat(key, ".notary_signature"))
+        });
+    }
+
+    /// @dev The 32-byte node a circuit writes into its public inputs as two
+    ///      16-byte halves, `[high, low]`, at `i` and `i + 1`.
+    function nodeAt(bytes32[] memory inputs, uint256 i) internal pure returns (bytes32) {
+        return bytes32((uint256(inputs[i]) << 128) | uint256(inputs[i + 1]));
+    }
+
+    /// @dev The offset of the first `needle` in `haystack`, or `max`.
+    function indexOf(bytes memory haystack, bytes memory needle) internal pure returns (uint256) {
+        if (needle.length > haystack.length) return type(uint256).max;
+        for (uint256 i = 0; i + needle.length <= haystack.length; ++i) {
+            bool same = true;
+            for (uint256 j = 0; j < needle.length && same; ++j) {
+                same = haystack[i + j] == needle[j];
+            }
+            if (same) return i;
+        }
+        return type(uint256).max;
+    }
+
+    function contains(bytes memory haystack, bytes memory needle) internal pure returns (bool) {
+        return indexOf(haystack, needle) != type(uint256).max;
     }
 }

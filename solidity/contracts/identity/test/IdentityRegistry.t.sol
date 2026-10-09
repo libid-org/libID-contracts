@@ -1,34 +1,30 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-import {Test, Vm} from "forge-std/Test.sol";
+import {Vm} from "forge-std/Test.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
-import {HandleNormalizer} from "../HandleNormalizer.sol";
-import {HandleVectors} from "../HandleVectors.sol";
-import {IIdentityRegistry} from "../IIdentityRegistry.sol";
+import {HandleNormalizer} from "../../handles/HandleNormalizer.sol";
+import {HandlePlatforms} from "../../handles/HandlePlatforms.sol";
 import {IdentityRegistry} from "../IdentityRegistry.sol";
-import {IdentityNodes} from "../IdentityNodes.sol";
 import {CeremonyProofVerifier} from "../../ceremony/CeremonyProofVerifier.sol";
 import {IPlatformVerifier} from "../../ceremony/IPlatformVerifier.sol";
 import {IProofVerifier} from "../../ceremony/IProofVerifier.sol";
+import {AttestationBuilder} from "../../ceremony/test/AttestationBuilder.sol";
+import {PrivacyScan} from "./PrivacyScan.sol";
 import {StubPlatformVerifier} from "./StubPlatformVerifier.sol";
+import {TestNodes} from "./TestNodes.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 
 /// @notice The identity contract, against a stubbed Platform Verifier.
-///
-/// @dev Every rule here belongs to the Consumer rather than to a platform, so
-///      one stub proves them for both platforms at once. What a real Platform
-///      Verifier checks — the attestations, the proof, the freshness window —
-///      has its own suite.
-contract IdentityRegistryTest is Test {
+contract IdentityRegistryTest is PrivacyScan {
     IdentityRegistry internal registry;
     CeremonyProofVerifier internal proofVerifier;
     StubPlatformVerifier internal xVerifier;
     StubPlatformVerifier internal githubVerifier;
 
-    bytes32 internal constant X = HandleVectors.PLATFORM_X;
-    bytes32 internal constant GITHUB = HandleVectors.PLATFORM_GITHUB;
+    bytes32 internal constant X = HandlePlatforms.PLATFORM_X;
+    bytes32 internal constant GITHUB = HandlePlatforms.PLATFORM_GITHUB;
 
     address internal alice = makeAddr("alice");
     address internal bob = makeAddr("bob");
@@ -61,11 +57,20 @@ contract IdentityRegistryTest is Test {
     /// The version every platform's first verifier lands on.
     uint16 internal constant V1 = 1;
 
-    /// Configure a platform's rules and its first verifier, the way a
-    /// deployment does. Caller supplies the prank.
+    /// Enable a platform: register its first verifier. Caller supplies the prank.
     function _wire(bytes32 platformId, address verifierAddr) internal {
-        registry.setPlatform(platformId, HandleVectors.rulesFor(platformId));
         proofVerifier.setVerifier(platformId, V1, IPlatformVerifier(verifierAddr));
+    }
+
+    /// The id node a circuit outputs for this id.
+    function _id(bytes32 platformId, string memory id) internal pure returns (bytes32) {
+        return TestNodes.idNode(platformId, id);
+    }
+
+    /// The handle node a circuit outputs for this handle, already folded.
+    /// @dev Calls the SHA-256 precompile: compute it before `vm.prank` or `vm.expectRevert`.
+    function _hn(bytes32 platformId, string memory folded) internal pure returns (bytes32) {
+        return TestNodes.handleNode(platformId, folded);
     }
 
     /// Who the next submission's Authorized Transaction Data names.
@@ -75,11 +80,7 @@ contract IdentityRegistryTest is Test {
     uint256 private nonce;
 
     /// Stage what the Platform Verifier reports, and who the submission names.
-    ///
-    /// @dev The stubs are written HERE rather than in `_submit`, because a test
-    ///      pranks between the two and `vm.prank` is spent on the next external
-    ///      call. Writing them later would spend it on the stub and send the
-    ///      bind from the test contract.
+    /// @dev Writes the stubs here, before any `vm.prank` the test sets for `_submit`.
     function _stage(string memory id, string memory handle, address target, uint64 at) internal {
         stagedTarget = target;
         xVerifier.set(id, handle);
@@ -91,6 +92,11 @@ contract IdentityRegistryTest is Test {
     /// The stub's payload for the staged target, under the ceremony version
     /// the stub will echo back.
     function _payload(uint16 ceremonyVersion) internal returns (bytes memory) {
+        return _payload(ceremonyVersion, "");
+    }
+
+    /// The same, disclosing `handle` (empty for a private submission).
+    function _payload(uint16 ceremonyVersion, string memory handle) internal returns (bytes memory) {
         return abi.encode(
             StubPlatformVerifier.StubPayload({
                 ceremonyVersion: ceremonyVersion,
@@ -100,23 +106,30 @@ contract IdentityRegistryTest is Test {
                 authorizationNonce: bytes32(++nonce),
                 // The free shape: these tests are about the binding rules, and
                 // a ceremony composed by hand pays no application.
-                transactionData: abi.encode(stagedTarget, uint256(0), address(0))
+                transactionData: abi.encode(stagedTarget, uint256(0), address(0)),
+                handle: handle
             })
         );
     }
 
-    /// Submit the staged bind. The caller supplies the prank, the way a
-    /// wallet supplies `msg.sender`.
-    function _submit(bytes32 platformId, bool publish) internal {
-        bytes memory payload = _payload(V1);
-        registry.bind(platformId, V1, payload, publish);
+    /// Submit the staged bind, disclosing `disclosed` (empty for a private bind). Caller supplies the prank.
+    function _submit(bytes32 platformId, string memory disclosed) internal {
+        bytes memory payload = _payload(V1, disclosed);
+        registry.bind(platformId, V1, payload);
     }
 
-    /// Stage and bind as `who`.
+    /// Stage and bind privately as `who`.
     function _bind(address who, string memory id, string memory handle, uint64 at) internal {
         _stage(id, handle, who, at);
         vm.prank(who);
-        _submit(X, false);
+        _submit(X, "");
+    }
+
+    /// Stage and bind as `who`, disclosing the handle as staged.
+    function _bindDisclosing(address who, string memory id, string memory handle, uint64 at) internal {
+        _stage(id, handle, who, at);
+        vm.prank(who);
+        _submit(X, handle);
     }
 
     // ─── Binding ────────────────────────────────────────────────────
@@ -124,14 +137,13 @@ contract IdentityRegistryTest is Test {
     function test_bindWritesBothMappings() public {
         _bind(alice, "123", "alice", 100);
 
-        assertEq(registry.resolveId(X, "123"), alice, "the id does not resolve");
+        assertEq(registry.resolveId(_id(X, "123")), alice, "the id does not resolve");
         assertEq(registry.resolveHandle(X, "alice"), alice, "the handle does not resolve");
     }
 
-    /// The write entry point is `bind`. The old `claim` selector reaches no
-    /// function, since there is no fallback, so a caller built against the old
-    /// ABI reverts; the payload it sent stays unspent and binds through `bind`.
-    function test_theClaimSelectorIsGone() public {
+    /// `claim` and the `bind` that took a publish flag reach no function, and the
+    /// payload stays unspent for `bind`.
+    function test_theOldSelectorsAreGone() public {
         _stage("123", "alice", alice, 100);
         bytes memory payload = _payload(V1);
 
@@ -139,10 +151,13 @@ contract IdentityRegistryTest is Test {
         (bool ok,) =
             address(registry).call(abi.encodeWithSignature("claim(bytes32,uint16,bytes,bool)", X, V1, payload, false));
         assertFalse(ok, "the claim selector still answers");
+        vm.prank(alice);
+        (ok,) = address(registry).call(abi.encodeWithSignature("bind(bytes32,uint16,bytes,bool)", X, V1, payload, true));
+        assertFalse(ok, "the publish-flag bind still answers");
         assertEq(registry.resolveHandle(X, "alice"), address(0));
 
         vm.prank(alice);
-        registry.bind(X, V1, payload, false);
+        registry.bind(X, V1, payload);
         assertEq(registry.resolveHandle(X, "alice"), alice, "the unspent payload does not bind");
     }
 
@@ -153,7 +168,7 @@ contract IdentityRegistryTest is Test {
 
         vm.prank(bob);
         vm.expectRevert(abi.encodeWithSelector(IdentityRegistry.NotProofTarget.selector, alice, bob));
-        _submit(X, false);
+        _submit(X, "");
     }
 
     /// Authorized Transaction Data naming nobody is data anybody could redirect
@@ -164,25 +179,43 @@ contract IdentityRegistryTest is Test {
 
         vm.prank(alice);
         vm.expectRevert(abi.encodeWithSelector(IdentityRegistry.NotProofTarget.selector, address(0), alice));
-        _submit(X, false);
+        _submit(X, "");
     }
 
-    function test_anUnconfiguredPlatformIsRefused() public {
+    function test_anUnknownPlatformIsRefused() public {
         bytes32 unknown = keccak256("nowhere");
         _stage("123", "alice", alice, 100);
 
         vm.prank(alice);
-        vm.expectRevert(abi.encodeWithSelector(IIdentityRegistry.UnknownPlatform.selector, unknown));
-        _submit(unknown, false);
+        vm.expectRevert(abi.encodeWithSelector(IdentityRegistry.UnknownPlatform.selector, unknown));
+        _submit(unknown, "");
     }
 
-    /// The handle is normalized on the way in, so the node comes from the same
-    /// transform every reader uses.
-    function test_theHandleIsNormalizedOnTheWayIn() public {
-        _bind(alice, "123", " @Alice_1 ", 100);
+    /// The binding is keyed by the folded node; a reader's spelling reaches it only through the fold.
+    function test_theRegistryKeysTheNodeTheCircuitFolded() public {
+        _bind(alice, "123", "Alice_1", 100);
 
-        assertEq(registry.resolveHandle(X, "alice_1"), alice);
-        assertEq(registry.resolveHandle(X, "@ALICE_1"), alice, "a reader's spelling should not matter");
+        (address holder,) = registry.handleBinding(_hn(X, "alice_1"));
+        assertEq(holder, alice, "the folded node");
+        assertEq(registry.resolveHandle(X, "ALICE_1"), alice, "a reader's case should not matter");
+        assertEq(registry.resolveHandle(X, "@alice_1"), address(0), "an @ is not part of a handle");
+    }
+
+    /// A node is bound as given: the hash of an unfolded handle is unreachable by any reader.
+    function test_theRegistryNeverRefoldsANodeItIsGiven() public {
+        bytes32 unfolded = TestNodes.handleNode(X, "Alice");
+        _stage("123", "Alice", alice, 100);
+        xVerifier.setNodes(_id(X, "123"), unfolded);
+        vm.prank(alice);
+        _submit(X, "");
+
+        (address holder,) = registry.handleBinding(unfolded);
+        assertEq(holder, alice, "the node as given");
+        assertEq(registry.resolveHandle(X, "Alice"), address(0), "the reader folds to another node");
+
+        vm.expectRevert(abi.encodeWithSelector(IdentityRegistry.NotYourHandle.selector, _hn(X, "alice")));
+        vm.prank(alice);
+        registry.publish(X, "Alice");
     }
 
     // ─── The watermark ──────────────────────────────────────────────
@@ -200,7 +233,7 @@ contract IdentityRegistryTest is Test {
         _stage("123", "shared", alice, 150);
         vm.prank(alice);
         vm.expectRevert(abi.encodeWithSelector(IdentityRegistry.StaleProof.selector, uint64(150), uint64(200)));
-        _submit(X, false);
+        _submit(X, "");
 
         assertEq(registry.resolveHandle(X, "shared"), bob, "the handle moved back");
     }
@@ -215,19 +248,15 @@ contract IdentityRegistryTest is Test {
         _stage("123", "alice", alice, 100);
         vm.prank(alice);
         vm.expectRevert(abi.encodeWithSelector(IdentityRegistry.StaleProof.selector, uint64(100), uint64(100)));
-        _submit(X, false);
+        _submit(X, "");
     }
 
-    /// A rename keeps the id and takes a new handle. A rename is invisible to
-    /// the chain until somebody proves the new state, and this second bind is
-    /// that proof — so the handle the identity left has to stop resolving, or a
-    /// payment meant for whoever has it now goes to the holder that renamed
-    /// away from it.
+    /// A rename retires the handle the identity left.
     function test_aRenameRetiresTheHandleTheIdentityLeft() public {
         _bind(alice, "123", "alice", 100);
         _bind(alice, "123", "alice2", 200);
 
-        assertEq(registry.resolveId(X, "123"), alice, "the id follows the identity");
+        assertEq(registry.resolveId(_id(X, "123")), alice, "the id follows the identity");
         assertEq(registry.resolveHandle(X, "alice2"), alice);
         assertEq(registry.resolveHandle(X, "alice"), address(0), "the handle it left no longer resolves");
     }
@@ -256,7 +285,7 @@ contract IdentityRegistryTest is Test {
         _stage("456", "alice", bob, 100);
         vm.prank(bob);
         vm.expectRevert(abi.encodeWithSelector(IdentityRegistry.StaleProof.selector, uint64(100), uint64(200)));
-        _submit(X, false);
+        _submit(X, "");
     }
 
     /// And a newer proof takes it as usual, so retiring frees the handle rather
@@ -275,87 +304,123 @@ contract IdentityRegistryTest is Test {
         _stage("123", "alice", alice, 0);
         vm.prank(alice);
         vm.expectRevert(IdentityRegistry.NoObservationTime.selector);
-        _submit(X, false);
+        _submit(X, "");
     }
 
-    /// Every shipped verifier refuses an empty id already. This is what keeps
-    /// that true for a verifier written later: without it, every identity such a
-    /// verifier reported would land on the single node `idNode(platformId, "")`
-    /// and each would take it from the one before.
-    function test_aBindWithNoIdIsRefused() public {
-        _stage("", "alice", alice, 100);
+    /// A zero id node is refused.
+    function test_aBindWithNoIdNodeIsRefused() public {
+        _stage("123", "alice", alice, 100);
+        xVerifier.setNodes(bytes32(0), _hn(X, "alice"));
         vm.prank(alice);
         vm.expectRevert(IdentityRegistry.NoId.selector);
-        _submit(X, false);
+        _submit(X, "");
     }
 
-    // ─── Platform configuration ─────────────────────────────────────
+    // ─── Platforms ──────────────────────────────────────────────────
+
+    /// A platform's rules and tags are the generated constants, verifier or not.
+    function test_aPlatformsRulesAndTagAreTheCircuitsOwn() public view {
+        bytes32[3] memory platforms = [X, GITHUB, HandlePlatforms.PLATFORM_GOOGLE];
+        for (uint256 i = 0; i < platforms.length; i++) {
+            bytes32 platformId = platforms[i];
+            assertEq(registry.handleTagOf(platformId), HandlePlatforms.handleTagFor(platformId));
+            assertEq(
+                keccak256(abi.encode(registry.rulesOf(platformId))),
+                keccak256(abi.encode(HandlePlatforms.rulesFor(platformId)))
+            );
+        }
+        assertEq(registry.handleTagOf(X), bytes("libid.x.handle"));
+    }
 
     // ─── The freshness signal ───────────────────────────────────────
 
-    /// All three resolvers answer an unwired platform the same way. A zero
-    /// address would tell a caller "nobody proved this" when the truth is
-    /// that the platform is not configured, and a zero cannot say which.
-    function test_everyResolverRefusesAnUnknownPlatform() public {
+    /// Every entry point that names a platform refuses an unknown one.
+    /// `resolveId` takes a node and answers nobody; `acceptsBindings` answers false.
+    function test_everyEntryPointRefusesAnUnknownPlatform() public {
         bytes32 unwired = keccak256("nowhere");
+        bytes32 idNode = _id(X, "123");
 
-        vm.expectRevert(abi.encodeWithSelector(IIdentityRegistry.UnknownPlatform.selector, unwired));
-        registry.resolveId(unwired, "123");
+        _stage("123", "alice", alice, 100);
+        vm.prank(alice);
+        vm.expectRevert(abi.encodeWithSelector(IdentityRegistry.UnknownPlatform.selector, unwired));
+        _submit(unwired, "");
+        vm.prank(alice);
+        vm.expectRevert(abi.encodeWithSelector(IdentityRegistry.UnknownPlatform.selector, unwired));
+        registry.publish(unwired, "alice");
+        assertFalse(registry.acceptsBindings(unwired));
+        vm.prank(alice);
+        vm.expectRevert(abi.encodeWithSelector(IdentityRegistry.UnknownPlatform.selector, unwired));
+        registry.unpublish(unwired);
+        vm.expectRevert(abi.encodeWithSelector(IdentityRegistry.UnknownPlatform.selector, unwired));
+        registry.publishedHandleOf(alice, unwired);
 
-        vm.expectRevert(abi.encodeWithSelector(IIdentityRegistry.UnknownPlatform.selector, unwired));
+        vm.expectRevert(abi.encodeWithSelector(IdentityRegistry.UnknownPlatform.selector, unwired));
         registry.resolveHandle(unwired, "alice");
 
-        vm.expectRevert(abi.encodeWithSelector(IIdentityRegistry.UnknownPlatform.selector, unwired));
-        registry.resolveHandleAndId(unwired, "alice", "123");
+        vm.expectRevert(abi.encodeWithSelector(IdentityRegistry.UnknownPlatform.selector, unwired));
+        registry.resolveHandleAndId(unwired, "alice", idNode);
 
-        vm.expectRevert(abi.encodeWithSelector(IIdentityRegistry.UnknownPlatform.selector, unwired));
+        vm.expectRevert(abi.encodeWithSelector(IdentityRegistry.UnknownPlatform.selector, unwired));
         registry.rulesOf(unwired);
-        vm.expectRevert(abi.encodeWithSelector(IIdentityRegistry.UnknownPlatform.selector, unwired));
-        registry.handleHashOf(unwired, "alice");
-        vm.expectRevert(abi.encodeWithSelector(IIdentityRegistry.UnknownPlatform.selector, unwired));
+        vm.expectRevert(abi.encodeWithSelector(IdentityRegistry.UnknownPlatform.selector, unwired));
+        registry.handleTagOf(unwired);
+        vm.expectRevert(abi.encodeWithSelector(IdentityRegistry.UnknownPlatform.selector, unwired));
         registry.handleNodeOf(unwired, "alice");
+
+        assertEq(registry.resolveId(keccak256("no such node")), address(0));
     }
 
-    /// `rulesOf` reports the rules as set now, `handleHashOf` is `keccak256` of the handle
-    /// normalized under them, and `handleNodeOf`/`handleNodeOfHash` name the node a proof of it
-    /// binds.
+    /// `rulesOf`, `handleTagOf` and `handleNodeOf` agree with the node a bind writes.
     function test_theHashingViewsAgreeWithWhatABindWrites() public {
-        assertEq(registry.rulesOf(X).maxLength, HandleVectors.rulesFor(X).maxLength);
-        bytes32 handleHash = registry.handleHashOf(X, "  @Alice ");
-        assertEq(handleHash, keccak256("alice"));
-        assertEq(registry.handleNodeOf(X, "  @Alice "), registry.handleNodeOfHash(X, handleHash));
-        assertEq(registry.handleNodeOfHash(X, handleHash), IdentityNodes.handleNode(X, "alice"));
+        assertEq(registry.rulesOf(X).maxLength, HandlePlatforms.rulesFor(X).maxLength);
+        assertEq(registry.handleTagOf(X), bytes("libid.x.handle"));
+        // `handles.json`: x, "alice".
+        bytes32 tableNode = 0x0bed64615b5776d2567a82467d7be0e266e02803910d694a72703ee2a4cc911a;
+        assertEq(registry.handleNodeOf(X, "Alice"), tableNode);
+        assertEq(registry.handleNodeOf(X, "alice"), _hn(X, "alice"));
 
         _bind(alice, "123", "alice", 100);
-        (address holder,) = registry.handleBinding(registry.handleNodeOfHash(X, handleHash));
+        (address holder,) = registry.handleBinding(registry.handleNodeOf(X, "ALICE"));
         assertEq(holder, alice);
     }
 
-    /// Text the rules of the moment refuse reverts with the normalizer's reason, where
-    /// `resolveHandle` answers nobody.
-    function test_theHashingViewsRefuseWhatTheCurrentRulesRefuse() public {
+    /// `handleNodeOf` reverts with the normalizer's reason where `resolveHandle` answers nobody.
+    function test_theHashingViewRefusesWhatTheRulesRefuse() public {
         bytes memory badChar =
-            abi.encodeWithSelector(IIdentityRegistry.UnusableHandle.selector, HandleNormalizer.Problem.BadChar);
-        vm.expectRevert(badChar);
-        registry.handleHashOf(X, "ali-ce");
+            abi.encodeWithSelector(HandleNormalizer.UnusableHandle.selector, HandleNormalizer.Problem.BadChar);
         vm.expectRevert(badChar);
         registry.handleNodeOf(X, "ali-ce");
+        vm.expectRevert(badChar);
+        registry.handleNodeOf(X, " alice");
+        vm.expectRevert(badChar);
+        registry.handleNodeOf(X, "@alice");
         assertEq(registry.resolveHandle(X, "ali-ce"), address(0));
 
-        vm.prank(owner);
-        registry.setPlatform(X, HandleVectors.rulesFor(GITHUB));
-        assertTrue(registry.rulesOf(X).allowHyphen);
-        assertEq(registry.handleHashOf(X, "ali-ce"), keccak256("ali-ce"));
-        vm.expectRevert(badChar);
-        registry.handleNodeOf(X, "alice_1");
+        // The same text is a handle where the rules allow it.
+        assertEq(registry.handleNodeOf(GITHUB, "ali-ce"), _hn(GITHUB, "ali-ce"));
     }
 
     function test_resolveHandleAndIdAgreesWhileOneIdentityHasBoth() public {
         _bind(alice, "123", "alice", 100);
 
-        (address holder, bool agrees) = registry.resolveHandleAndId(X, "alice", "123");
+        (address holder, bool agrees) = registry.resolveHandleAndId(X, "alice", _id(X, "123"));
         assertEq(holder, alice);
         assertTrue(agrees, "one identity has both, so they must agree");
+    }
+
+    /// An id node agrees with a handle only on the handle's platform: one
+    /// wallet holding an X handle and a GitHub id is two identities.
+    function test_resolveHandleAndIdDoesNotAgreeAcrossPlatforms() public {
+        _bind(alice, "123", "alice", 100);
+        _stage("123", "alice", alice, 100);
+        vm.prank(alice);
+        _submit(GITHUB, "");
+
+        (address holder, bool agrees) = registry.resolveHandleAndId(X, "alice", _id(GITHUB, "123"));
+        assertEq(holder, alice);
+        assertFalse(agrees, "a GitHub id node agreed with an X handle");
+        (, agrees) = registry.resolveHandleAndId(X, "alice", _id(X, "123"));
+        assertTrue(agrees);
     }
 
     /// The case the two mappings exist for: a consumer has a pair from two
@@ -364,7 +429,7 @@ contract IdentityRegistryTest is Test {
         _bind(alice, "123", "shared", 100);
         _bind(bob, "456", "shared", 200);
 
-        (address holder, bool agrees) = registry.resolveHandleAndId(X, "shared", "123");
+        (address holder, bool agrees) = registry.resolveHandleAndId(X, "shared", _id(X, "123"));
         assertEq(holder, bob, "the handle routes to whoever proved it last");
         assertFalse(agrees, "the caller's id belongs to a different holder now");
     }
@@ -374,131 +439,209 @@ contract IdentityRegistryTest is Test {
     function test_resolveHandleAndIdDoesNotAgreeOnAnUnknownId() public {
         _bind(alice, "123", "alice", 100);
 
-        (address holder, bool agrees) = registry.resolveHandleAndId(X, "alice", "999");
+        (address holder, bool agrees) = registry.resolveHandleAndId(X, "alice", _id(X, "999"));
         assertEq(holder, alice);
         assertFalse(agrees);
     }
 
-    // ─── Reverse resolution ─────────────────────────────────────────
+    // ─── Disclosure ─────────────────────────────────────────────────
 
-    function test_publishingIsOptional() public {
+    function test_aPrivateBindPublishesNothing() public {
+        vm.recordLogs();
         _bind(alice, "123", "alice", 100);
-        assertEq(bytes(registry.publishedHandleOf(alice, X)).length, 0, "nothing should be published by default");
 
+        assertEq(registry.publishedHandleOf(alice, X), "", "nothing should be published by default");
+        assertEq(_count(vm.getRecordedLogs(), IdentityRegistry.HandlePublished.selector), 0);
+    }
+
+    /// A disclosure at bind is checked against the proved node and stores the folded name.
+    function test_disclosingAtBindStoresTheNormalizedName() public {
+        _stage("123", "Alice", alice, 100);
+        bytes32 node = _hn(X, "alice");
+        vm.expectEmit(true, true, true, true, address(registry));
+        emit IdentityRegistry.HandlePublished(alice, X, node, "alice");
+        vm.prank(alice);
+        _submit(X, "ALICE");
+
+        assertEq(registry.publishedHandleOf(alice, X), "alice");
+    }
+
+    /// A bind discloses only the handle its own proof bound.
+    function test_aBindDisclosesOnlyTheHandleItsProofBound() public {
+        _bind(alice, "456", "alicia", 100);
         _stage("123", "alice", alice, 200);
+        bytes32 alicia = _hn(X, "alicia");
+        bytes32 proved = _hn(X, "alice");
+        vm.expectRevert(abi.encodeWithSelector(StubPlatformVerifier.HandleNotProved.selector, alicia, proved));
         vm.prank(alice);
-        _submit(X, true);
+        _submit(X, "alicia");
+
+        // The same wallet may still publish it.
+        vm.prank(alice);
+        registry.publish(X, "alicia");
+        assertEq(registry.publishedHandleOf(alice, X), "alicia");
+    }
+
+    /// `publish` discloses a handle the caller holds, in any case, without a new proof.
+    function test_publishDisclosesAHandleTheCallerHolds() public {
+        _bind(alice, "123", "alice", 100);
+
+        bytes32 node = _hn(X, "alice");
+        vm.expectEmit(true, true, true, true, address(registry));
+        emit IdentityRegistry.HandlePublished(alice, X, node, "alice");
+        vm.prank(alice);
+        registry.publish(X, "ALICE");
+
         assertEq(registry.publishedHandleOf(alice, X), "alice");
     }
 
-    /// Publishing is the one thing here a holder can undo, and it must not
-    /// depend on being able to log in again: for Google the published handle is
-    /// an email address, and withdrawing it should not require a fresh proof.
+    /// Publishing a handle whose node the caller does not hold is refused.
+    function test_publishingAHandleTheCallerDoesNotHoldIsRefused() public {
+        _bind(alice, "123", "alice", 100);
+        _bind(bob, "456", "bob", 100);
+
+        vm.expectRevert(abi.encodeWithSelector(IdentityRegistry.NotYourHandle.selector, _hn(X, "alice")));
+        vm.prank(bob);
+        registry.publish(X, "alice");
+
+        vm.expectRevert(abi.encodeWithSelector(IdentityRegistry.NotYourHandle.selector, _hn(X, "nobody")));
+        vm.prank(mallory);
+        registry.publish(X, "nobody");
+
+        assertEq(registry.publishedHandleOf(bob, X), "");
+        assertEq(registry.publishedHandleOf(mallory, X), "");
+    }
+
+    /// Text the rules refuse reverts with the normalizer's reason.
+    function test_publishingTextTheRulesRefuseRevertsWithTheNormalizersReason() public {
+        _bind(alice, "123", "alice", 100);
+
+        vm.startPrank(alice);
+        vm.expectRevert(
+            abi.encodeWithSelector(HandleNormalizer.UnusableHandle.selector, HandleNormalizer.Problem.BadChar)
+        );
+        registry.publish(X, " alice");
+        vm.expectRevert(
+            abi.encodeWithSelector(HandleNormalizer.UnusableHandle.selector, HandleNormalizer.Problem.BadChar)
+        );
+        registry.publish(X, "@alice");
+        vm.expectRevert(
+            abi.encodeWithSelector(HandleNormalizer.UnusableHandle.selector, HandleNormalizer.Problem.Empty)
+        );
+        registry.publish(X, "");
+        vm.expectRevert(abi.encodeWithSelector(IdentityRegistry.UnknownPlatform.selector, keccak256("nowhere")));
+        registry.publish(keccak256("nowhere"), "alice");
+        vm.stopPrank();
+    }
+
+    /// A disclosure the proof does not back reverts the whole bind and leaves the digest unspent.
+    function test_aBindDisclosingAHandleItDidNotProveWritesNothing() public {
+        _bind(bob, "456", "bob", 100);
+        _stage("123", "alice", alice, 200);
+        uint256 reuse = nonce + 1;
+        bytes32 proved = _hn(X, "alice");
+        bytes32 bobNode = _hn(X, "bob");
+        bytes32 aliciaNode = _hn(X, "alicia");
+
+        bytes memory payload = _payloadAt(reuse, "bob");
+        vm.expectRevert(abi.encodeWithSelector(StubPlatformVerifier.HandleNotProved.selector, bobNode, proved));
+        vm.prank(alice);
+        registry.bind(X, V1, payload);
+
+        payload = _payloadAt(reuse, "alicia");
+        vm.expectRevert(abi.encodeWithSelector(StubPlatformVerifier.HandleNotProved.selector, aliciaNode, proved));
+        vm.prank(alice);
+        registry.bind(X, V1, payload);
+
+        payload = _payloadAt(reuse, "@alice");
+        vm.prank(alice);
+        vm.expectRevert(
+            abi.encodeWithSelector(HandleNormalizer.UnusableHandle.selector, HandleNormalizer.Problem.BadChar)
+        );
+        registry.bind(X, V1, payload);
+
+        assertEq(registry.resolveId(_id(X, "123")), address(0), "the id was bound");
+        assertEq(registry.resolveHandle(X, "alice"), address(0), "the handle was bound");
+        assertEq(registry.identityCount(alice), 0, "the identity was listed");
+        assertEq(registry.publishedHandleOf(alice, X), "");
+        assertEq(registry.publishedHandleOf(bob, X), "");
+
+        payload = _payloadAt(reuse, "");
+        vm.prank(alice);
+        registry.bind(X, V1, payload);
+        assertEq(registry.resolveHandle(X, "alice"), alice, "the digest was spent");
+    }
+
+    /// One submission's payload under a chosen nonce.
+    function _payloadAt(uint256 authorizationNonce, string memory handle) internal view returns (bytes memory) {
+        return abi.encode(
+            StubPlatformVerifier.StubPayload({
+                ceremonyVersion: V1,
+                operationDomain: keccak256(bytes("libid.claim-identity")),
+                authorizationNonce: bytes32(authorizationNonce),
+                transactionData: abi.encode(stagedTarget, uint256(0), address(0)),
+                handle: handle
+            })
+        );
+    }
+
+    /// A published handle can be withdrawn without a fresh proof.
     function test_aPublishedHandleCanBeWithdrawn() public {
-        _stage("123", "alice", alice, 100);
-        vm.prank(alice);
-        _submit(X, true);
+        _bindDisclosing(alice, "123", "alice", 100);
         assertEq(registry.publishedHandleOf(alice, X), "alice");
 
+        vm.expectEmit(true, true, false, false, address(registry));
+        emit IdentityRegistry.HandleUnpublished(alice, X);
         vm.prank(alice);
         registry.unpublish(X);
-        assertEq(bytes(registry.publishedHandleOf(alice, X)).length, 0);
+        assertEq(registry.publishedHandleOf(alice, X), "");
     }
 
-    /// The binding survives. This withdraws a displayed string, not the proof
-    /// that binds the identity to its holder.
+    /// Withdrawing a published handle keeps the binding.
     function test_withdrawingAPublishedHandleKeepsTheBinding() public {
-        _stage("123", "alice", alice, 100);
-        vm.prank(alice);
-        _submit(X, true);
+        _bindDisclosing(alice, "123", "alice", 100);
 
         vm.prank(alice);
         registry.unpublish(X);
 
-        assertEq(registry.resolveId(X, "123"), alice);
+        assertEq(registry.resolveId(_id(X, "123")), alice);
         assertEq(registry.resolveHandle(X, "alice"), alice);
     }
 
-    /// Binding again with `publish: false` must NOT withdraw an earlier
-    /// publish — a caller re-proving after a rename should not silently drop a
-    /// handle because a flag defaulted, and withdrawing has its own door. It
-    /// must not leave the OLD handle on display either: the holder just proved
-    /// it has a different one.
-    function test_bindingAgainRefreshesAPublishedHandleRatherThanWithdrawingIt() public {
-        _stage("123", "alice", alice, 100);
-        vm.prank(alice);
-        _submit(X, true);
+    /// A bind without a disclosure neither withdraws nor rewrites the name, and logs nothing about it.
+    function test_aBindWithoutDisclosureLeavesTheNameAlone() public {
+        _bindDisclosing(alice, "123", "alice", 100);
 
-        _stage("123", "alice2", alice, 200);
-        vm.prank(alice);
-        _submit(X, false);
-
-        assertEq(registry.publishedHandleOf(alice, X), "alice2", "the display follows the handle it has");
-    }
-
-    /// The complement: a holder that never published does not start now.
-    function test_bindingWithoutPublishingStillPublishesNothing() public {
-        _bind(alice, "123", "alice", 100);
-        _bind(alice, "123", "alice2", 200);
-
-        assertEq(registry.publishedHandleOf(alice, X), "", "nothing was ever on display");
-    }
-
-    /// An indexer mirrors the published handles from the log alone, so the log
-    /// has to say whether the handle is on display. Only `unpublish` is
-    /// observable otherwise, and a publish would have to be guessed.
-    function test_theLogSaysWhetherTheHandleIsPublished() public {
-        _stage("123", "alice", alice, 100);
         vm.recordLogs();
-        vm.prank(alice);
-        _submit(X, true);
-        assertTrue(_lastBindPublished(), "published");
-
-        _stage("456", "bob", bob, 100);
-        vm.recordLogs();
-        vm.prank(bob);
-        _submit(X, false);
-        assertFalse(_lastBindPublished(), "not published");
-    }
-
-    /// The refresh is observable too, or an indexer would still show the
-    /// handle the holder renamed away from.
-    function test_theLogSaysPublishedWhenARefreshKeepsTheHandleOnDisplay() public {
-        _stage("123", "alice", alice, 100);
-        vm.prank(alice);
-        _submit(X, true);
-
-        _stage("123", "alice2", alice, 200);
-        vm.recordLogs();
-        vm.prank(alice);
-        _submit(X, false);
-
-        assertTrue(_lastBindPublished(), "the flag was false, the handle is still on display");
-    }
-
-    /// The `published` flag and the ceremony version out of the last
-    /// `IdentityBound` in the recorded logs.
-    function _lastBind() internal view returns (bool published, uint16 ceremonyVersion) {
+        _bind(alice, "123", "alice", 200);
         Vm.Log[] memory logs = vm.getRecordedLogs();
-        bytes32 topic = keccak256("IdentityBound(address,bytes32,bytes32,bytes32,string,string,uint64,bool,uint16)");
-        for (uint256 i = logs.length; i > 0; i--) {
-            if (logs[i - 1].topics[0] != topic) continue;
-            (,,,, published, ceremonyVersion) =
-                abi.decode(logs[i - 1].data, (bytes32, string, string, uint64, bool, uint16));
-            return (published, ceremonyVersion);
-        }
-        revert("no IdentityBound in the logs");
+        assertEq(_count(logs, IdentityRegistry.HandlePublished.selector), 0, "a private bind published");
+        assertEq(_count(logs, IdentityRegistry.HandleUnpublished.selector), 0, "a private bind withdrew");
+        assertEq(registry.publishedHandleOf(alice, X), "alice", "a re-proof dropped the name");
+
+        _bind(alice, "123", "alice2", 300);
+        assertEq(registry.publishedHandleOf(alice, X), "", "a name the holder renamed away from");
+
+        _bind(alice, "123", "alice", 400);
+        assertEq(registry.publishedHandleOf(alice, X), "alice", "the slot was rewritten");
     }
 
-    function _lastBindPublished() internal view returns (bool published) {
-        (published,) = _lastBind();
+    /// A second disclosure replaces the first: one name per wallet per platform.
+    function test_aSecondDisclosureReplacesTheFirst() public {
+        _bind(alice, "123", "alice", 100);
+        _bind(alice, "456", "alicia", 200);
+
+        vm.startPrank(alice);
+        registry.publish(X, "alice");
+        registry.publish(X, "Alicia");
+        vm.stopPrank();
+
+        assertEq(registry.publishedHandleOf(alice, X), "alicia");
     }
 
     /// One holder's withdrawal is its own. There is no path to another's.
     function test_withdrawingTouchesOnlyTheCallersRecord() public {
-        _stage("123", "alice", alice, 100);
-        vm.prank(alice);
-        _submit(X, true);
+        _bindDisclosing(alice, "123", "alice", 100);
 
         vm.prank(mallory);
         registry.unpublish(X);
@@ -509,9 +652,7 @@ contract IdentityRegistryTest is Test {
     /// The forward check ENS requires of its integrators, done here so an
     /// integrator cannot skip it.
     function test_publishedHandleOfGoesEmptyOnceTheHandleMovesOn() public {
-        _stage("123", "shared", alice, 100);
-        vm.prank(alice);
-        _submit(X, true);
+        _bindDisclosing(alice, "123", "shared", 100);
         assertEq(registry.publishedHandleOf(alice, X), "shared", "it resolves back, so it stands");
 
         // Bob proves the same handle. Alice's published handle now has another
@@ -519,11 +660,88 @@ contract IdentityRegistryTest is Test {
         _bind(bob, "456", "shared", 200);
         assertEq(registry.publishedHandleOf(alice, X), "", "it no longer resolves back");
 
-        // Proving it back without publishing finds the record still set.
-        _stage("123", "shared", alice, 300);
-        vm.prank(alice);
-        _submit(X, false);
+        // Proving it back without disclosing finds the record still set.
+        _bind(alice, "123", "shared", 300);
         assertEq(registry.publishedHandleOf(alice, X), "shared", "the record was untouched");
+    }
+
+    /// How many logs carry this event.
+    function _count(Vm.Log[] memory logs, bytes32 topic) internal pure returns (uint256 n) {
+        for (uint256 i = 0; i < logs.length; i++) {
+            if (logs[i].topics.length > 0 && logs[i].topics[0] == topic) n++;
+        }
+    }
+
+    // ─── Privacy ────────────────────────────────────────────────────
+
+    /// Long enough that a match inside a node or an address is not chance.
+    string internal constant SECRET_ID = "2244994945";
+    string internal constant SECRET_HANDLE = "Alice_Wonder1";
+    string internal constant SECRET_FOLDED = "alice_wonder1";
+
+    function _secrets() internal pure override returns (string[3] memory) {
+        return [SECRET_ID, SECRET_HANDLE, SECRET_FOLDED];
+    }
+
+    /// No log of a private bind carries a byte run of the id or the handle, raw or folded.
+    function test_aPrivateBindLogsNoByteOfTheIdOrTheHandle() public {
+        _stage(SECRET_ID, SECRET_HANDLE, alice, 100);
+        vm.recordLogs();
+        vm.prank(alice);
+        _submit(X, "");
+        _assertLogsHideTheSecrets(vm.getRecordedLogs());
+        assertEq(registry.resolveHandle(X, SECRET_HANDLE), alice, "the bind did not happen");
+    }
+
+    /// The log scan finds a disclosed handle in `HandlePublished`.
+    function test_theScanFindsADisclosedHandle() public {
+        _stage(SECRET_ID, SECRET_HANDLE, alice, 100);
+        vm.recordLogs();
+        vm.prank(alice);
+        _submit(X, SECRET_HANDLE);
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+
+        bool found;
+        for (uint256 i = 0; i < logs.length; i++) {
+            if (AttestationBuilder.contains(logs[i].data, bytes(SECRET_FOLDED))) {
+                assertEq(logs[i].topics[0], IdentityRegistry.HandlePublished.selector, "found it outside the event");
+                found = true;
+            }
+        }
+        assertTrue(found, "the disclosed handle is not in the logs");
+    }
+
+    /// No storage word a private bind wrote, on the registry or the Proof Verifier, holds the id or the handle.
+    function test_aPrivateBindStoresNoByteOfTheIdOrTheHandle() public {
+        _stage(SECRET_ID, SECRET_HANDLE, alice, 100);
+        vm.record();
+        vm.prank(alice);
+        _submit(X, "");
+
+        assertGt(_assertStorageHidesTheSecrets(address(registry)), 0, "the bind wrote nothing to check");
+        _assertStorageHidesTheSecrets(address(proofVerifier));
+
+        assertEq(registry.publishedHandleOf(alice, X), "");
+        IdentityRegistry.Identity memory a = registry.identitiesOf(alice, 0, 1)[0];
+        assertEq(a.idNode, _id(X, SECRET_ID));
+        assertEq(a.handleNode, _hn(X, SECRET_FOLDED));
+    }
+
+    /// The storage scan finds a disclosed name.
+    function test_theStorageScanFindsADisclosedName() public {
+        _stage(SECRET_ID, SECRET_HANDLE, alice, 100);
+        vm.record();
+        vm.prank(alice);
+        _submit(X, SECRET_HANDLE);
+
+        (, bytes32[] memory writes) = vm.accesses(address(registry));
+        bool found;
+        for (uint256 i = 0; i < writes.length; i++) {
+            bytes memory word = abi.encodePacked(vm.load(address(registry), writes[i]));
+            if (AttestationBuilder.contains(word, bytes(SECRET_FOLDED))) found = true;
+            assertFalse(AttestationBuilder.contains(word, bytes(SECRET_ID)), "the id is stored beside the name");
+        }
+        assertTrue(found, "the disclosed name is not in storage");
     }
 
     // ─── A holder's identities ──────────────────────────────────────
@@ -538,7 +756,7 @@ contract IdentityRegistryTest is Test {
         pure
         returns (bool)
     {
-        return a.platformId == platformId && keccak256(bytes(a.id)) == keccak256(bytes(id));
+        return a.platformId == platformId && a.idNode == _id(platformId, id);
     }
 
     /// Whether a page carries this identity.
@@ -567,12 +785,14 @@ contract IdentityRegistryTest is Test {
         revert("not listed");
     }
 
-    function test_aBindListsTheIdentityWithItsPlatformIdAndHandle() public {
+    function test_aBindListsTheIdentityWithItsPlatformAndNodes() public {
         _bind(alice, "123", "alice", 100);
 
         assertEq(registry.identityCount(alice), 1);
-        IdentityRegistry.Identity memory a = _identity(alice, X, "123");
-        assertEq(a.handle, "alice");
+        IdentityRegistry.Identity memory a = registry.identitiesOf(alice, 0, 1)[0];
+        assertEq(a.platformId, X);
+        assertEq(a.idNode, _id(X, "123"));
+        assertEq(a.handleNode, _hn(X, "alice"));
         assertTrue(a.handleCurrent);
         assertEq(registry.identityCount(bob), 0, "each holder keeps its own list");
     }
@@ -581,16 +801,17 @@ contract IdentityRegistryTest is Test {
         _bind(alice, "123", "alice", 100);
         _stage("123", "alice", alice, 200);
         vm.prank(alice);
-        _submit(GITHUB, false);
+        _submit(GITHUB, "");
 
         assertEq(registry.identityCount(alice), 2);
         assertTrue(_identity(alice, X, "123").handleCurrent);
         assertTrue(_identity(alice, GITHUB, "123").handleCurrent);
+        assertEq(_identity(alice, GITHUB, "123").handleNode, _hn(GITHUB, "alice"));
     }
 
-    function test_theListedHandleIsTheNormalizedOne() public {
-        _bind(alice, "123", "@Alice", 100);
-        assertEq(_identity(alice, X, "123").handle, "alice");
+    function test_theListedHandleNodeIsTheFoldedOne() public {
+        _bind(alice, "123", "Alice", 100);
+        assertEq(_identity(alice, X, "123").handleNode, _hn(X, "alice"));
     }
 
     function test_aHolderMayHaveSeveralIdentitiesOnOnePlatform() public {
@@ -598,8 +819,8 @@ contract IdentityRegistryTest is Test {
         _bind(alice, "456", "alicia", 200);
 
         assertEq(registry.identityCount(alice), 2);
-        assertEq(_identity(alice, X, "123").handle, "alice");
-        assertEq(_identity(alice, X, "456").handle, "alicia");
+        assertEq(_identity(alice, X, "123").handleNode, _hn(X, "alice"));
+        assertEq(_identity(alice, X, "456").handleNode, _hn(X, "alicia"));
     }
 
     function test_aRenameMovesTheHandleAndKeepsOneEntry() public {
@@ -608,7 +829,7 @@ contract IdentityRegistryTest is Test {
 
         assertEq(registry.identityCount(alice), 1);
         IdentityRegistry.Identity memory a = _identity(alice, X, "123");
-        assertEq(a.handle, "alicia");
+        assertEq(a.handleNode, _hn(X, "alicia"));
         assertTrue(a.handleCurrent);
     }
 
@@ -618,16 +839,14 @@ contract IdentityRegistryTest is Test {
         assertEq(registry.identityCount(alice), 1);
     }
 
-    /// The list is alice's: bob taking her handle changes what it resolves
-    /// to, and the entry says so, but the entry is still there with the
-    /// handle her identity was last known by.
+    /// Bob taking alice's handle leaves her entry listed, with `handleCurrent` false.
     function test_aHandleTakenElsewhereStaysListedAsStale() public {
         _bind(alice, "123", "shared", 100);
         _bind(bob, "456", "shared", 200);
 
         assertEq(registry.identityCount(alice), 1);
         IdentityRegistry.Identity memory a = _identity(alice, X, "123");
-        assertEq(a.handle, "shared");
+        assertEq(a.handleNode, _hn(X, "shared"));
         assertFalse(a.handleCurrent, "the handle resolves to bob now");
         assertTrue(_identity(bob, X, "456").handleCurrent);
     }
@@ -642,7 +861,7 @@ contract IdentityRegistryTest is Test {
         assertEq(registry.identityCount(alice), 2);
         assertFalse(_identity(alice, X, "123").handleCurrent);
         IdentityRegistry.Identity memory second = _identity(alice, X, "456");
-        assertEq(second.handle, "first");
+        assertEq(second.handleNode, _hn(X, "first"));
         assertTrue(second.handleCurrent);
     }
 
@@ -662,15 +881,15 @@ contract IdentityRegistryTest is Test {
         _bind(bob, "2", "two", 400);
 
         assertEq(registry.identityCount(alice), 2);
-        assertEq(_identity(alice, X, "1").handle, "one");
-        assertEq(_identity(alice, X, "3").handle, "three");
-        assertEq(_identity(bob, X, "2").handle, "two");
+        assertEq(_identity(alice, X, "1").handleNode, _hn(X, "one"));
+        assertEq(_identity(alice, X, "3").handleNode, _hn(X, "three"));
+        assertEq(_identity(bob, X, "2").handleNode, _hn(X, "two"));
 
         // And back: an identity returns to a list it left.
         _bind(alice, "2", "two", 500);
         assertEq(registry.identityCount(alice), 3);
         assertEq(registry.identityCount(bob), 0);
-        assertEq(_identity(alice, X, "2").handle, "two");
+        assertEq(_identity(alice, X, "2").handleNode, _hn(X, "two"));
     }
 
     function test_pagesClipToTheList() public {
@@ -693,24 +912,8 @@ contract IdentityRegistryTest is Test {
         assertTrue(_carries(first, X, "3") != _carries(second, X, "3"));
     }
 
-    /// The flag reads the nodes. Narrowing a platform's rules moves its
-    /// handles to other nodes, which `resolveHandle` sees at once and the list
-    /// does not.
-    function test_handleCurrentReadsTheNodesNotTheRules() public {
-        _bind(alice, "123", "with_score", 100);
-        HandleNormalizer.Rules memory rules = HandleVectors.rulesFor(X);
-        rules.allowUnderscore = false;
-        vm.prank(owner);
-        registry.setPlatform(X, rules);
-
-        assertEq(registry.resolveHandle(X, "with_score"), address(0));
-        assertTrue(_identity(alice, X, "123").handleCurrent);
-    }
-
-    /// After any sequence of binds: an identity nobody proved is in no
-    /// list, an identity somebody proved is in exactly one, the list of the
-    /// holder whose proof of it is newest, and a handle reported current
-    /// resolves to that holder and is current for no second identity.
+    /// After any sequence of binds, each proved identity is in exactly the newest prover's list,
+    /// and a current handle node is current for no second identity.
     function testFuzz_everyProvedIdentitySitsInExactlyOneList(bytes memory script) public {
         address[3] memory holders = [alice, bob, mallory];
         bytes32[2] memory platforms = [X, GITHUB];
@@ -724,7 +927,7 @@ contract IdentityRegistryTest is Test {
             address who = holders[a % 3];
             _stage(ids[b % 4], handles[(b / 4) % 4], who, ++at);
             vm.prank(who);
-            _submit(platforms[(a / 3) % 2], false);
+            _submit(platforms[(a / 3) % 2], "");
         }
 
         uint256 listed;
@@ -734,32 +937,27 @@ contract IdentityRegistryTest is Test {
             IdentityRegistry.Identity[] memory page = _identities(holders[w]);
             listed += page.length;
             for (uint256 i = 0; i < page.length; i++) {
-                assertEq(registry.resolveId(page[i].platformId, page[i].id), holders[w], "listed under its prover");
+                assertEq(registry.resolveId(page[i].idNode), holders[w], "listed under its prover");
                 for (uint256 j = 0; j < i; j++) {
-                    assertFalse(_is(page[j], page[i].platformId, page[i].id), "listed once");
+                    assertFalse(page[j].idNode == page[i].idNode, "listed once");
                 }
                 if (page[i].handleCurrent) {
-                    assertEq(
-                        registry.resolveHandle(page[i].platformId, page[i].handle),
-                        holders[w],
-                        "current, so it resolves"
-                    );
+                    (address holder,) = registry.handleBinding(page[i].handleNode);
+                    assertEq(holder, holders[w], "current, so it resolves");
                     current[currents++] = page[i];
                 }
             }
         }
         for (uint256 i = 0; i < currents; i++) {
             for (uint256 j = 0; j < i; j++) {
-                bool sameHandle = current[i].platformId == current[j].platformId
-                    && keccak256(bytes(current[i].handle)) == keccak256(bytes(current[j].handle));
-                assertFalse(sameHandle, "a handle is current for one identity");
+                assertFalse(current[i].handleNode == current[j].handleNode, "a handle is current for one identity");
             }
         }
 
         uint256 proved;
         for (uint256 p = 0; p < platforms.length; p++) {
             for (uint256 i = 0; i < ids.length; i++) {
-                if (registry.resolveId(platforms[p], ids[i]) != address(0)) proved++;
+                if (registry.resolveId(_id(platforms[p], ids[i])) != address(0)) proved++;
             }
         }
         assertEq(listed, proved, "every proved identity is listed, and nothing else");
@@ -773,6 +971,8 @@ contract IdentityRegistryTest is Test {
     /// zero address, which is the same answer as a handle nobody proved.
     function test_resolvingTextTheRulesRefuseAnswersNobody() public view {
         assertEq(registry.resolveHandle(X, "ali ce"), address(0), "a stray space");
+        assertEq(registry.resolveHandle(X, " alice"), address(0), "a leading space");
+        assertEq(registry.resolveHandle(X, "@alice"), address(0), "a leading @");
         assertEq(registry.resolveHandle(X, unicode"aliçe"), address(0), "a byte above 0x7f");
         assertEq(registry.resolveHandle(X, ""), address(0), "nothing at all");
         assertEq(registry.resolveHandle(X, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"), address(0), "too long");
@@ -782,69 +982,21 @@ contract IdentityRegistryTest is Test {
     /// `resolveHandleAndId` matters more: its documented job is to let a
     /// caller decide what to tell whoever is paying, not to refuse.
     function test_resolveHandleAndIdAnswersRatherThanRevertingOnAMalformedHandle() public view {
-        (address holder, bool idAgrees) = registry.resolveHandleAndId(X, "ali ce", "123");
+        (address holder, bool idAgrees) = registry.resolveHandleAndId(X, "ali ce", _id(X, "123"));
         assertEq(holder, address(0));
         assertFalse(idAgrees);
     }
 
-    /// An unwired platform still reverts. Zero would answer "nobody proved
-    /// this" to a question that was never asked, and the caller cannot tell the
-    /// two apart from an address.
-    function test_anUnwiredPlatformStillReverts() public {
-        bytes32 unknown = keccak256("nowhere");
-        vm.expectRevert(abi.encodeWithSelector(IIdentityRegistry.UnknownPlatform.selector, unknown));
-        registry.resolveHandle(unknown, "alice");
-    }
-
-    /// `bind` keeps reverting. A handle that arrives inside a proof and does
-    /// not normalize is a broken proof, and failing loudly is right.
-    function test_bindStillRefusesAHandleThatDoesNotNormalize() public {
-        _stage("123", "ali ce", alice, 100);
-        vm.prank(alice);
-        vm.expectRevert(HandleNormalizer.BadCharacter.selector);
-        _submit(X, false);
-    }
-
-    /// After the owner narrows a platform's rules, an already-written handle
-    /// sits on a node the forward resolver can no longer name.
-    /// `publishedHandleOf` must go with it: handing out a handle
-    /// `resolveHandle` refuses would contradict both its own promise and the
-    /// statement that entries moved by a rules change no longer answer the
-    /// public resolvers.
-    function test_publishedHandleOfGoesEmptyWhenTheRulesNoLongerAllowTheHandle() public {
-        _stage("123", "octo-cat", alice, 100);
-        vm.prank(alice);
-        _submit(GITHUB, true);
-        assertEq(registry.publishedHandleOf(alice, GITHUB), "octo-cat");
-
-        HandleNormalizer.Rules memory narrowed = HandleVectors.rulesFor(GITHUB);
-        narrowed.allowHyphen = false;
-        vm.prank(owner);
-        registry.setPlatform(GITHUB, narrowed);
-
-        assertEq(registry.resolveHandle(GITHUB, "octo-cat"), address(0), "the forward resolver cannot name it");
-        assertEq(registry.publishedHandleOf(alice, GITHUB), "", "so neither does the reverse one");
-
-        vm.prank(owner);
-        registry.setPlatform(GITHUB, HandleVectors.rulesFor(GITHUB));
-        assertEq(registry.publishedHandleOf(alice, GITHUB), "octo-cat", "the record was untouched");
-    }
-
     // ─── Node separation ────────────────────────────────────────────
 
-    /// A numeric handle and an id of the same digits must not collide.
-    /// Numeric handles are legal on X and old ids are short, so this is
-    /// reachable rather than theoretical.
+    /// A numeric handle and an id of the same digits land on different nodes.
     function test_aNumericHandleDoesNotCollideWithAnId() public {
-        assertTrue(
-            IdentityNodes.idNode(X, "12345") != IdentityNodes.handleNode(X, "12345"),
-            "an id node and a handle node collided"
-        );
+        assertTrue(_id(X, "12345") != _hn(X, "12345"), "an id node and a handle node collided");
 
         _bind(alice, "12345", "bob", 100);
         _bind(bob, "999", "12345", 100);
 
-        assertEq(registry.resolveId(X, "12345"), alice, "the id belongs to alice");
+        assertEq(registry.resolveId(_id(X, "12345")), alice, "the id belongs to alice");
         assertEq(registry.resolveHandle(X, "12345"), bob, "the handle belongs to bob");
     }
 
@@ -854,22 +1006,17 @@ contract IdentityRegistryTest is Test {
 
         _stage("123", "alice", bob, 100);
         vm.prank(bob);
-        _submit(GITHUB, false);
+        _submit(GITHUB, "");
 
         assertEq(registry.resolveHandle(X, "alice"), alice);
         assertEq(registry.resolveHandle(GITHUB, "alice"), bob);
+        assertEq(registry.resolveId(_id(X, "123")), alice);
+        assertEq(registry.resolveId(_id(GITHUB, "123")), bob);
     }
 
     // ─── Proof versions ─────────────────────────────────────────────
-    //
-    // A platform's proof can change shape without the identity behind it
-    // changing — X gaining OIDC, say. Both formats have to be accepted during
-    // a migration, so the Proof Verifier keys its verifiers by version and
-    // the rules are not keyed at all.
 
-    /// A binding belongs to the identity that proved it, not to the format the
-    /// proof was written in. Removing a version from the Supported Version Set
-    /// must not unbind anybody.
+    /// Retiring a version leaves its bindings resolving.
     function test_retiringAVersionLeavesItsBindingsResolving() public {
         _bind(alice, "123", "alice", 100);
 
@@ -877,13 +1024,10 @@ contract IdentityRegistryTest is Test {
         proofVerifier.setVerifier(X, V1, IPlatformVerifier(address(0)));
 
         assertEq(registry.resolveHandle(X, "alice"), alice, "the binding went with the format");
-        assertEq(registry.resolveId(X, "123"), alice);
+        assertEq(registry.resolveId(_id(X, "123")), alice);
     }
 
-    /// Which ceremony version proved a binding is logged and never stored.
-    /// By the time anybody asks, the proof has happened and the effect has
-    /// been applied; the question is an operator's, and the log answers it.
-    /// The binding itself is a holder and a watermark, nothing more.
+    /// The ceremony version that proved a binding is logged, not stored.
     function test_theLogRecordsWhichCeremonyVersionProvedIt() public {
         StubPlatformVerifier v2 = new StubPlatformVerifier(X, 0);
         vm.prank(owner);
@@ -896,80 +1040,79 @@ contract IdentityRegistryTest is Test {
 
         bytes memory payload = _payload(2);
         vm.prank(bob);
-        registry.bind(X, 2, payload, false);
+        registry.bind(X, 2, payload);
 
-        (address idHolder, uint64 idAt) = registry.idBinding(IdentityNodes.idNode(X, "456"));
-        (address handleHolder, uint64 handleAt) = registry.handleBinding(IdentityNodes.handleNode(X, "bob"));
+        (address idHolder, uint64 idAt) = registry.idBinding(_id(X, "456"));
+        (address handleHolder, uint64 handleAt) = registry.handleBinding(_hn(X, "bob"));
         assertEq(idHolder, bob, "the id node");
         assertEq(handleHolder, bob, "the handle node");
         assertEq(idAt, 100);
         assertEq(handleAt, 100);
 
-        (, uint16 logged) = _lastBind();
-        assertEq(logged, 2, "the log an indexer reads");
+        assertEq(_lastBindVersion(), 2, "the log an indexer reads");
+    }
+
+    /// The ceremony version from the last recorded `IdentityBound`.
+    function _lastBindVersion() internal view returns (uint16 ceremonyVersion) {
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+        bytes32 topic = keccak256("IdentityBound(address,bytes32,bytes32,bytes32,uint64,uint16)");
+        for (uint256 i = logs.length; i > 0; i--) {
+            if (logs[i - 1].topics[0] != topic) continue;
+            (,, ceremonyVersion) = abi.decode(logs[i - 1].data, (bytes32, uint64, uint16));
+            return ceremonyVersion;
+        }
+        revert("no IdentityBound in the logs");
     }
 
     // ─── A platform is not usable until it can verify ───────────────
 
-    /// Between `setPlatform` and `setVerifier` a platform has rules and
-    /// can verify nothing. Answering `address(0)` there would tell a caller
-    /// "nobody proved this" about a platform that is not wired yet.
+    /// A platform without a verifier does not resolve.
     function test_aPlatformWithoutAVerifierDoesNotResolve() public {
-        bytes32 fresh = keccak256("fresh");
-        vm.prank(owner);
-        registry.setPlatform(fresh, HandleVectors.rulesFor(X));
+        bytes32 google = HandlePlatforms.PLATFORM_GOOGLE;
+        bytes32 idNode = _id(google, "123");
+        bytes32 handleNode = _hn(google, "alice@gmail.com");
 
-        vm.expectRevert(abi.encodeWithSelector(IIdentityRegistry.UnknownPlatform.selector, fresh));
-        registry.resolveId(fresh, "123");
+        vm.expectRevert(abi.encodeWithSelector(IdentityRegistry.UnknownPlatform.selector, google));
+        registry.resolveHandle(google, "alice@gmail.com");
 
-        vm.expectRevert(abi.encodeWithSelector(IIdentityRegistry.UnknownPlatform.selector, fresh));
-        registry.resolveHandle(fresh, "alice");
+        vm.expectRevert(abi.encodeWithSelector(IdentityRegistry.UnknownPlatform.selector, google));
+        registry.resolveHandleAndId(google, "alice@gmail.com", idNode);
 
-        vm.expectRevert(abi.encodeWithSelector(IIdentityRegistry.UnknownPlatform.selector, fresh));
-        registry.resolveHandleAndId(fresh, "alice", "123");
-
-        // The hashing views answer, and agree with each other: a client
-        // normalizing under `rulesOf` reaches the node `handleNodeOf` names.
-        assertEq(registry.rulesOf(fresh).maxLength, HandleVectors.rulesFor(X).maxLength);
-        assertEq(registry.handleHashOf(fresh, "Alice"), keccak256("alice"));
-        assertEq(registry.handleNodeOf(fresh, "Alice"), registry.handleNodeOfHash(fresh, keccak256("alice")));
+        // The hashing views still answer.
+        assertEq(registry.rulesOf(google).maxLength, HandlePlatforms.rulesFor(google).maxLength);
+        assertEq(registry.handleTagOf(google), HandlePlatforms.handleTagFor(google));
+        assertEq(registry.handleNodeOf(google, "Alice@Gmail.com"), handleNode);
     }
 
-    /// And binding says the same thing, rather than naming a version the
-    /// caller never chose. The platform is configured here, so the Consumer
-    /// lets the bind through and the Proof Verifier is the one with nothing
-    /// to dispatch to.
+    /// Binding on it is refused by the Proof Verifier.
     function test_bindingOnAPlatformWithoutAVerifierIsRefused() public {
-        bytes32 fresh = keccak256("fresh");
-        vm.prank(owner);
-        registry.setPlatform(fresh, HandleVectors.rulesFor(X));
-
+        bytes32 google = HandlePlatforms.PLATFORM_GOOGLE;
         _stage("123", "alice", alice, 100);
         vm.prank(alice);
-        vm.expectRevert(abi.encodeWithSelector(CeremonyProofVerifier.UnknownVersion.selector, fresh, V1));
-        _submit(fresh, false);
+        vm.expectRevert(abi.encodeWithSelector(CeremonyProofVerifier.UnknownVersion.selector, google, V1));
+        _submit(google, "");
     }
 
-    /// A new bind needs rules and a verifier the Proof Verifier answers for; retiring the
-    /// last version stops new binds while bound identities keep resolving.
-    function test_acceptsBindingsNeedsRulesAndAVerifier() public {
+    /// `acceptsBindings` needs a known platform and a registered verifier; bound identities keep resolving.
+    function test_acceptsBindingsNeedsAKnownPlatformAndAVerifier() public {
+        bytes32 google = HandlePlatforms.PLATFORM_GOOGLE;
         assertTrue(registry.acceptsBindings(X));
-        (bytes32 noRules, bytes32 noVerifier) = (keccak256("no rules"), keccak256("no verifier"));
-        StubPlatformVerifier verifier = new StubPlatformVerifier(noRules, 0);
+        assertFalse(registry.acceptsBindings(google), "no verifier");
+
+        StubPlatformVerifier unknownVerifier = new StubPlatformVerifier(keccak256("nowhere"), 0);
+        StubPlatformVerifier googleVerifier = new StubPlatformVerifier(google, 0);
         vm.startPrank(owner);
-        proofVerifier.setVerifier(noRules, V1, IPlatformVerifier(address(verifier)));
-        registry.setPlatform(noVerifier, HandleVectors.rulesFor(X));
+        proofVerifier.setVerifier(keccak256("nowhere"), V1, IPlatformVerifier(address(unknownVerifier)));
+        proofVerifier.setVerifier(google, V1, IPlatformVerifier(address(googleVerifier)));
         vm.stopPrank();
-        assertFalse(registry.acceptsBindings(noRules));
-        assertFalse(registry.acceptsBindings(noVerifier));
+        assertFalse(registry.acceptsBindings(keccak256("nowhere")), "not in handles.json");
+        assertTrue(registry.acceptsBindings(google));
 
         IdentityRegistry bare = IdentityRegistry(
             address(
                 new ERC1967Proxy(address(new IdentityRegistry()), abi.encodeCall(IdentityRegistry.initialize, (owner)))
             )
         );
-        vm.prank(owner);
-        bare.setPlatform(X, HandleVectors.rulesFor(X));
         assertEq(address(bare.proofVerifier()), address(0));
         assertFalse(bare.acceptsBindings(X), "no Proof Verifier");
 
@@ -980,28 +1123,13 @@ contract IdentityRegistryTest is Test {
         assertEq(registry.resolveHandle(X, "alice"), alice);
     }
 
-    /// `setPlatform` writes field-wise now, so a rules change must leave the
-    /// platform exactly as wired as it was. Reintroducing the whole-struct
-    /// assignment would unconfigure every platform it touched.
-    function test_changingTheRulesLeavesThePlatformWired() public {
-        HandleNormalizer.Rules memory narrowed = HandleVectors.rulesFor(X);
-        narrowed.maxLength = 12;
-        vm.prank(owner);
-        registry.setPlatform(X, narrowed);
-
-        _stage("123", "alice", alice, 100);
-        vm.prank(alice);
-        _submit(X, false);
-        assertEq(registry.resolveHandle(X, "alice"), alice);
-    }
-
     /// A retired handle has no holder and keeps its watermark, so a proof
     /// older than the one that retired it cannot take the node back.
     function test_aRetiredHandleHasNoHolderAndKeepsItsWatermark() public {
         _bind(alice, "123", "alice", 100);
         _bind(alice, "123", "alice2", 200);
 
-        (address holder, uint64 at) = registry.handleBinding(IdentityNodes.handleNode(X, "alice"));
+        (address holder, uint64 at) = registry.handleBinding(_hn(X, "alice"));
         assertEq(holder, address(0), "the handle was retired");
         assertEq(at, 100, "the watermark stays");
     }
@@ -1017,29 +1145,27 @@ contract IdentityRegistryTest is Test {
         _stage("123", "alice", alice, 200);
         vm.prank(owner);
         vm.expectRevert(abi.encodeWithSelector(IdentityRegistry.NotProofTarget.selector, alice, owner));
-        _submit(X, false);
+        _submit(X, "");
 
-        assertEq(registry.resolveId(X, "123"), alice, "the binding moved");
+        assertEq(registry.resolveId(_id(X, "123")), alice, "the binding moved");
     }
 
-    /// Configuring a platform is the whole of the owner's power here, and it
-    /// reaches no existing binding. Replacing the verifier a version dispatches
-    /// to must not disturb a binding that the previous one's proof established.
-    function test_reconfiguringAPlatformLeavesBindingsAlone() public {
+    /// Replacing a version's verifier leaves existing bindings alone.
+    function test_replacingAVerifierLeavesBindingsAlone() public {
         _bind(alice, "123", "alice", 100);
 
         StubPlatformVerifier replacement = new StubPlatformVerifier(X, 0);
         vm.prank(owner);
         proofVerifier.setVerifier(X, V1, IPlatformVerifier(address(replacement)));
 
-        assertEq(registry.resolveId(X, "123"), alice);
+        assertEq(registry.resolveId(_id(X, "123")), alice);
         assertEq(registry.resolveHandle(X, "alice"), alice);
         assertEq(address(proofVerifier.verifierOf(X, V1)), address(replacement));
     }
 
-    function test_onlyTheOwnerConfiguresAPlatform() public {
+    function test_onlyTheOwnerSetsTheProofVerifier() public {
         vm.prank(alice);
         vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, alice));
-        registry.setPlatform(X, HandleVectors.rulesFor(X));
+        registry.setProofVerifier(IProofVerifier(address(0xBEEF)));
     }
 }

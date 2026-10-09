@@ -54,40 +54,29 @@ function read<T>(
   })
 }
 
-/// The platform's normalization rules as configured on chain now
-/// (`IdentityRegistry.rulesOf`).
+/// The platform's normalization rules (`IdentityRegistry.rulesOf`).
 export async function rulesOf(reader: RegistryReader, platformId: `0x${string}`): Promise<Rules> {
   const rules = await read<Rules>(reader, 'rulesOf', [platformId])
   return {
     maxLength: Number(rules.maxLength),
-    stripLeadingAt: rules.stripLeadingAt,
     isEmail: rules.isEmail,
     allowUnderscore: rules.allowUnderscore,
     allowHyphen: rules.allowHyphen,
   }
 }
 
-/// The holder that proved this id, or `null`.
+/// The holder that proved this id node (`idNode(platformKey, id)`), or `null`.
 export async function resolveId(
   reader: RegistryReader,
-  platformId: `0x${string}`,
-  id: string,
+  idNode: `0x${string}`,
 ): Promise<Address | null> {
-  const holder = await read<Address>(reader, 'resolveId', [platformId, id])
+  const holder = await read<Address>(reader, 'resolveId', [idNode])
   return holder === zeroAddress ? null : holder
 }
 
-/// The holder that last proved this handle, or `null`.
-///
-/// The handle is normalized on chain before it is looked up, so a caller may
-/// pass what was typed — including something that is not a handle at all.
-/// The contract is total in the handle: a string the platform's rules refuse
-/// answers the zero address, which is the same answer as a handle nobody has
-/// proved, and the one a search box wants.
-///
-/// A revert propagates. `UnknownPlatform` in particular means the platform is
-/// not configured, and answering "unbound" would bury a deployment mistake
-/// under a plausible result.
+/// The holder that last proved this handle, or `null`. The handle is
+/// normalized on chain, and text the rules refuse also answers `null`;
+/// reverts such as `UnknownPlatform` propagate.
 export async function resolveHandle(
   reader: RegistryReader,
   platformId: `0x${string}`,
@@ -97,12 +86,8 @@ export async function resolveHandle(
   return holder === zeroAddress ? null : holder
 }
 
-/// The handle to show for a holder, or `null`.
-///
-/// Forward-checked on chain: empty once the stored handle resolves somewhere
-/// else. ENS asks integrators to perform that check themselves and warns that
-/// skipping it displays an ENS primary name that no longer resolves back; here
-/// it cannot be skipped, because the contract does it.
+/// The handle to show for a holder, or `null`. Forward-checked on chain:
+/// empty once the stored handle resolves somewhere else.
 export async function publishedHandleOf(
   reader: RegistryReader,
   holder: Address,
@@ -115,37 +100,23 @@ export async function publishedHandleOf(
 export interface HandleAndIdResolution {
   /// The handle's holder, or `null`.
   holder: Address | null
-  /// True only when the id resolves to that same holder.
-  ///
-  /// False means the caller's `(handle, id)` pair comes from two moments:
-  /// somebody proved the handle after the caller learned who held it. That is
-  /// staleness, not corruption.
+  /// True only when the id node resolves to that same holder; false means
+  /// the handle was proved again since the caller learned the pair.
   idAgrees: boolean
 }
 
-/// Resolve a handle and report whether an id still agrees with it.
-///
-/// **Read this before signing, and do not let it block a transfer.** A handle
-/// that will not route is not a handle: sending to a handle means sending to
-/// whoever proved it last, which is what the handle now means. What the flag is
-/// for is telling whoever is paying that the identity they think they are
-/// paying is not the one that has the handle today — a decision they can only
-/// make beforehand.
-///
-/// Both halves are needed. A handle on its own has nothing to disagree with.
-///
-/// A handle the platform's rules reject resolves to `{holder: null, idAgrees:
-/// false}`, the same as one nobody has proved — see `resolveHandle`.
+/// Resolve a handle and report whether an id node still agrees with it.
+/// Read it before signing, to warn the payer; do not let it block a transfer.
 export async function resolveHandleAndId(
   reader: RegistryReader,
   platformId: `0x${string}`,
   handle: string,
-  id: string,
+  idNode: `0x${string}`,
 ): Promise<HandleAndIdResolution> {
   const [holder, idAgrees] = await read<[Address, boolean]>(reader, 'resolveHandleAndId', [
     platformId,
     handle,
-    id,
+    idNode,
   ])
 
   return { holder: holder === zeroAddress ? null : holder, idAgrees }
@@ -155,15 +126,11 @@ export async function resolveHandleAndId(
 export interface Identity {
   /// The platform the identity is on, as `platformId` derives it.
   platformId: `0x${string}`
-  /// The id, byte for byte as the platform issued it.
-  id: string
-  /// The handle this identity proved most recently, as normalized on chain.
-  handle: string
+  /// The node of the id. The id itself is never on chain.
+  idNode: `0x${string}`
+  /// The node of the handle this identity proved most recently.
+  handleNode: `0x${string}`
   /// True while the handle node still points back at this identity.
-  ///
-  /// False once another identity proves the same handle: the string stays as
-  /// the last thing this identity was known as, and the flag says not to route
-  /// by it.
   handleCurrent: boolean
 }
 
@@ -172,17 +139,8 @@ export async function identityCount(reader: RegistryReader, holder: Address): Pr
   return read<bigint>(reader, 'identityCount', [holder])
 }
 
-/// A page of a holder's identities, on every platform together:
-/// the indices `[from, from + limit)` of its list, counted from zero and
-/// clipped to the list. A `from` past the end answers an empty page. A reader
-/// that wants one platform filters a page by `platformId`.
-///
-/// Order is arbitrary and changes when an identity leaves the list, so two
-/// pages read across a removal may overlap or skip. A reader that needs every
-/// identity reads `identityCount` and the pages against one block.
-///
-/// A list is as long as its holder made it, and a call's gas is not. A caller
-/// enumerating a holder it did not choose keeps `limit` small and pages.
+/// The holder's identities at indices `[from, from + limit)`, clipped to the list.
+/// Order is arbitrary and changes on removal: read every page against one block.
 export async function identitiesOf(
   reader: RegistryReader,
   holder: Address,
@@ -190,10 +148,10 @@ export async function identitiesOf(
   limit: bigint,
 ): Promise<Identity[]> {
   const page = await read<readonly Identity[]>(reader, 'identitiesOf', [holder, from, limit])
-  return page.map(({ platformId, id, handle, handleCurrent }) => ({
+  return page.map(({ platformId, idNode, handleNode, handleCurrent }) => ({
     platformId,
-    id,
-    handle,
+    idNode,
+    handleNode,
     handleCurrent,
   }))
 }

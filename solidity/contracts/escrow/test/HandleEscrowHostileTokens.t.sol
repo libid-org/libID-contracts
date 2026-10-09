@@ -8,8 +8,9 @@ import {IERC20Errors} from "@openzeppelin/contracts/interfaces/draft-IERC6093.so
 import {ReentrancyGuardUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardUpgradeable.sol";
 
 import {HandleEscrow} from "../HandleEscrow.sol";
-import {IdentityNodes} from "../../identity/IdentityNodes.sol";
+import {HandlePlatforms} from "../../handles/HandlePlatforms.sol";
 import {IIdentityRegistry} from "../../identity/IIdentityRegistry.sol";
+import {TestNodes} from "../../identity/test/TestNodes.sol";
 import {
     BlocklistToken,
     FalseToken,
@@ -64,11 +65,9 @@ contract HookedParty is ITransferHooks {
 
 /// @notice Tokens that call back in, answer `false` or nothing, charge fees, blocklist or rebase.
 contract HandleEscrowHostileTokensTest is Test {
-    bytes32 internal constant PLATFORM = keccak256("x");
-    bytes32 internal constant HASH = keccak256("node");
-    bytes32 internal constant HASH2 = keccak256("node 2");
-    bytes32 internal immutable NODE = IdentityNodes.handleNodeOfHash(PLATFORM, HASH);
-    bytes32 internal immutable NODE2 = IdentityNodes.handleNodeOfHash(PLATFORM, HASH2);
+    bytes32 internal constant PLATFORM = HandlePlatforms.PLATFORM_X;
+    bytes32 internal immutable NODE = TestNodes.handleNode(PLATFORM, "alice");
+    bytes32 internal immutable NODE2 = TestNodes.handleNode(PLATFORM, "bob");
 
     HandleEscrow internal escrow;
     SettableRegistry internal registry;
@@ -94,7 +93,7 @@ contract HandleEscrowHostileTokensTest is Test {
         HookedParty party = new HookedParty(escrow, token, NODE);
         token.mint(address(party), 20 ether);
         bytes memory depositCall =
-            abi.encodeCall(HandleEscrow.deposit, (PLATFORM, HASH, address(token), 10 ether, address(party)));
+            abi.encodeCall(HandleEscrow.deposit, (NODE, address(token), 10 ether, address(party)));
         bytes memory claimCall = abi.encodeCall(HandleEscrow.claim, (NODE, one(address(token)), address(party)));
         bytes memory refundCall = abi.encodeCall(HandleEscrow.refund, (NODE, address(token), address(party)));
         bytes memory guard = abi.encodeWithSelector(ReentrancyGuardUpgradeable.ReentrancyGuardReentrantCall.selector);
@@ -116,13 +115,13 @@ contract HandleEscrowHostileTokensTest is Test {
     /// `false` fails the deposit and each payout whole; the books wait until the token pays again.
     function test_aTokenAnsweringFalseFailsWholeAndLeavesTheBooks() public {
         FalseToken token = new FalseToken();
-        _escrow(address(token), depositor, HASH, 10 ether);
+        _escrow(address(token), depositor, NODE, 10 ether);
         token.setFailing(true);
         bytes memory failed = abi.encodeWithSelector(SafeERC20.SafeERC20FailedOperation.selector, address(token));
 
         vm.startPrank(depositor);
         vm.expectRevert(failed);
-        escrow.deposit(PLATFORM, HASH, address(token), 1, depositor);
+        escrow.deposit(NODE, address(token), 1, depositor);
         vm.expectRevert(failed);
         escrow.refund(NODE, address(token), depositor);
         vm.stopPrank();
@@ -144,15 +143,15 @@ contract HandleEscrowHostileTokensTest is Test {
         token.mint(depositor, 25 ether);
         vm.startPrank(depositor);
         token.approve(address(escrow), type(uint256).max);
-        escrow.deposit(PLATFORM, HASH, address(token), 10 ether, depositor);
+        escrow.deposit(NODE, address(token), 10 ether, depositor);
         escrow.refund(NODE, address(token), depositor);
-        escrow.deposit(PLATFORM, HASH, address(token), 10 ether, depositor);
+        escrow.deposit(NODE, address(token), 10 ether, depositor);
         vm.stopPrank();
         registry.setHolder(NODE, holder);
         vm.prank(holder);
         escrow.claim(NODE, one(address(token)), holder);
         vm.prank(depositor);
-        escrow.deposit(PLATFORM, HASH, address(token), 5 ether, depositor);
+        escrow.deposit(NODE, address(token), 5 ether, depositor);
         assertEq(token.balanceOf(holder), 15 ether);
         assertEq(token.balanceOf(depositor), 10 ether);
         assertEq(token.balanceOf(address(escrow)), 0);
@@ -161,8 +160,8 @@ contract HandleEscrowHostileTokensTest is Test {
     /// A payout fee: the books release the whole amount, and the events report both.
     function test_aPayoutFeeIsReportedAsReleasedAndReceived() public {
         PayoutFeeToken token = new PayoutFeeToken();
-        _escrow(address(token), depositor, HASH, 100 ether);
-        _escrow(address(token), other, HASH2, 100 ether);
+        _escrow(address(token), depositor, NODE, 100 ether);
+        _escrow(address(token), other, NODE2, 100 ether);
 
         vm.expectEmit(address(escrow));
         emit HandleEscrow.Refunded(NODE, address(token), depositor, depositor, 0, 100 ether, 99 ether);
@@ -180,7 +179,7 @@ contract HandleEscrowHostileTokensTest is Test {
     /// A blocked recipient or holder fails the call whole; another recipient works.
     function test_aBlockedPartyFailsTheCallAndLeavesTheBooks() public {
         BlocklistToken token = new BlocklistToken();
-        _escrow(address(token), depositor, HASH, 10 ether);
+        _escrow(address(token), depositor, NODE, 10 ether);
         token.setBlocked(holder, true);
         token.setBlocked(depositor, true);
 
@@ -196,7 +195,7 @@ contract HandleEscrowHostileTokensTest is Test {
         vm.startPrank(other);
         token.approve(address(escrow), 1 ether);
         vm.expectRevert(abi.encodeWithSelector(BlocklistToken.Blocked.selector, holder));
-        escrow.deposit(PLATFORM, HASH, address(token), 1 ether, other);
+        escrow.deposit(NODE, address(token), 1 ether, other);
         vm.stopPrank();
 
         vm.prank(holder);
@@ -207,7 +206,7 @@ contract HandleEscrowHostileTokensTest is Test {
     /// KNOWN LIMITATION: a token blocking the escrow freezes every slot in it until it stops.
     function test_ACCEPTED_aTokenBlockingTheEscrowFreezesItsSlots() public {
         BlocklistToken token = new BlocklistToken();
-        _escrow(address(token), depositor, HASH, 10 ether);
+        _escrow(address(token), depositor, NODE, 10 ether);
         token.setBlocked(address(escrow), true);
         bytes memory blocked = abi.encodeWithSelector(BlocklistToken.Blocked.selector, address(escrow));
 
@@ -230,8 +229,8 @@ contract HandleEscrowHostileTokensTest is Test {
     /// one node from spending another's; only an upgrade can release the value.
     function test_ACCEPTED_aSenderFeeTokenDepositsButNeverPaysOut() public {
         SenderFeeToken token = new SenderFeeToken();
-        _escrow(address(token), depositor, HASH, 10 ether);
-        _escrow(address(token), other, HASH2, 10 ether);
+        _escrow(address(token), depositor, NODE, 10 ether);
+        _escrow(address(token), other, NODE2, 10 ether);
         bytes memory over =
             abi.encodeWithSelector(HandleEscrow.OverDebited.selector, address(token), 10 ether, 10.1 ether);
 
@@ -250,8 +249,8 @@ contract HandleEscrowHostileTokensTest is Test {
     /// KNOWN LIMITATION: a negative rebase shrinks the shared pool; the last withdrawal fails.
     function test_ACCEPTED_aNegativeRebaseStrandsTheLastWithdrawal() public {
         RebasingToken token = new RebasingToken();
-        _escrow(address(token), depositor, HASH, 10 ether);
-        _escrow(address(token), other, HASH2, 10 ether);
+        _escrow(address(token), depositor, NODE, 10 ether);
+        _escrow(address(token), other, NODE2, 10 ether);
         token.slash(address(escrow), 5 ether);
 
         vm.prank(depositor);
@@ -264,11 +263,11 @@ contract HandleEscrowHostileTokensTest is Test {
         escrow.refund(NODE2, address(token), other);
     }
 
-    function _escrow(address token, address from, bytes32 handleHash, uint256 amount) internal {
+    function _escrow(address token, address from, bytes32 node, uint256 amount) internal {
         TestERC20(token).mint(from, amount);
         vm.startPrank(from);
         TestERC20(token).approve(address(escrow), type(uint256).max);
-        escrow.deposit(PLATFORM, handleHash, token, amount, from);
+        escrow.deposit(node, token, amount, from);
         vm.stopPrank();
     }
 }

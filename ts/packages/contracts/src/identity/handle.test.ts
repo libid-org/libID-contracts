@@ -1,7 +1,9 @@
+import { createHash } from 'node:crypto'
+import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
-
 import { HandleError, normalize, RULES_GITHUB, RULES_GOOGLE, RULES_X, rulesFor } from './handle.js'
-import { HANDLE_VECTORS } from './handleVectors.js'
+
+import { HANDLE_VECTORS, TABLE_SHA256 } from './handleVectors.js'
 
 /// The shared handle vector table, run against the TypeScript normalizer.
 ///
@@ -49,5 +51,15 @@ describe('handle normalization', () => {
     expect(normalize('A.B+tag@Example.COM', RULES_GOOGLE)).toBe('a.b+tag@example.com')
     expect(normalize('Alice_1', RULES_X)).toBe('alice_1')
     expect(normalize('Octo-Cat', RULES_GITHUB)).toBe('octo-cat')
+  })
+})
+
+describe('the generated table', () => {
+  /// The constants carry the SHA-256 of this `handles.json`.
+  it('comes from this handles.json', () => {
+    const table = readFileSync(
+      new URL('../../../../../solidity/contracts/handles/handles.json', import.meta.url),
+    )
+    expect(createHash('sha256').update(table).digest('hex')).toBe(TABLE_SHA256)
   })
 })

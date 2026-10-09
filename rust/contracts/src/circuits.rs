@@ -18,7 +18,11 @@
 //! pins, beside the code hash it reads off the chain.
 
 use alloy::{
-    primitives::Address,
+    primitives::{
+        keccak256,
+        Address,
+        B256,
+    },
     providers::Provider,
 };
 
@@ -31,29 +35,28 @@ use crate::{
     },
 };
 
-/// One ceremony circuit, and so one vendored Honk verifier.
-///
-/// Two, not three: `oidc-google` proves the Google ID Token, and
-/// `bearer-link` ties a token exchange to an identity for X and GitHub
-/// alike, because their statements are the same.
+/// One ceremony circuit, and so one vendored Honk verifier, per platform.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Circuit {
-    /// The token-exchange circuit, shared by the `x/v1` and `github/v1`
-    /// profiles.
-    BearerLink,
+    /// X's token exchange, identity read and account keys, for `x/v1`.
+    BearerLinkX,
+    /// GitHub's, for `github/v1`.
+    BearerLinkGithub,
     /// The Google OIDC circuit, for `google/v1`.
     OidcGoogle,
 }
 
 impl Circuit {
     /// Every circuit the launch platforms verify under.
-    pub const ALL: [Self; 2] = [Self::BearerLink, Self::OidcGoogle];
+    pub const ALL: [Self; 3] =
+        [Self::BearerLinkX, Self::BearerLinkGithub, Self::OidcGoogle];
 
     /// The circuit's directory in the `libid-circuits` release, which is
     /// also its tarball's name and its key in `circuits.json`.
     pub const fn name(self) -> &'static str {
         match self {
-            Self::BearerLink => "bearer-link",
+            Self::BearerLinkX => "bearer-link-x",
+            Self::BearerLinkGithub => "bearer-link-github",
             Self::OidcGoogle => "oidc-google",
         }
     }
@@ -64,22 +67,40 @@ impl Circuit {
     /// project and one artifact path names one circuit.
     pub const fn contract(self) -> &'static str {
         match self {
-            Self::BearerLink => "BearerLinkHonkVerifier",
+            Self::BearerLinkX => "BearerLinkXHonkVerifier",
+            Self::BearerLinkGithub => "BearerLinkGithubHonkVerifier",
             Self::OidcGoogle => "OidcGoogleHonkVerifier",
         }
     }
 }
 
-/// The `libid-circuits` release the vendored verifiers came from, read from
-/// the pin `scripts/vendor-artifacts.sh` copies in as `circuits.json`.
+impl Circuit {
+    /// `keccak256` of the vendored runtime code: the `EXTCODEHASH` of every
+    /// deployed copy, since bb's verifier has no immutables.
+    pub fn runtime_codehash(self, artifacts: &Artifacts) -> Result<B256> {
+        Ok(keccak256(artifacts.deployed_bytecode_named(
+            self.contract(),
+            self.contract(),
+        )?))
+    }
+
+    /// The circuit whose vendored verifier has this code hash, if any.
+    pub fn with_runtime_codehash(
+        artifacts: &Artifacts,
+        codehash: B256,
+    ) -> Result<Option<Self>> {
+        for circuit in Self::ALL {
+            if circuit.runtime_codehash(artifacts)? == codehash {
+                return Ok(Some(circuit));
+            }
+        }
+        Ok(None)
+    }
+}
+
+/// The `libid-circuits` release the vendored verifiers came from (`circuits.json`).
 ///
-/// A Honk verifier IS its verification key, so a consumer that names a
-/// deployment after its artifact — a CREATE3 name, say — wants this in the
-/// name: a new circuits release is a different contract and must land at a
-/// different address rather than silently replace the old one.
-///
-/// Errors for an [`Artifacts::from_dir`] over a raw forge `out/`, which
-/// carries no pin.
+/// Errors for an [`Artifacts::from_dir`] over a raw forge `out/`, which carries no pin.
 pub fn version(artifacts: &Artifacts) -> Result<String> {
     let pin: serde_json::Value = artifacts.read_json("circuits.json")?;
     pin["version"]
@@ -127,20 +148,36 @@ mod tests {
         }
     }
 
-    /// The two circuits are distinct artifacts: a shared one would wire
-    /// both platforms to one verification key.
+    /// Each platform's circuit is a distinct artifact.
     #[test]
-    fn the_two_circuits_are_different_artifacts() {
+    fn the_circuits_are_different_artifacts() {
         let artifacts = Artifacts::embedded();
-        let [bearer, oidc] = Circuit::ALL;
-        assert_ne!(bearer.contract(), oidc.contract());
-        assert_ne!(
-            artifacts
-                .bytecode_hex(bearer.contract(), bearer.contract())
-                .unwrap(),
-            artifacts
-                .bytecode_hex(oidc.contract(), oidc.contract())
-                .unwrap()
+        for (i, a) in Circuit::ALL.iter().enumerate() {
+            for b in &Circuit::ALL[i + 1..] {
+                assert_ne!(a.contract(), b.contract());
+                assert_ne!(
+                    artifacts.bytecode_hex(a.contract(), a.contract()).unwrap(),
+                    artifacts.bytecode_hex(b.contract(), b.contract()).unwrap(),
+                    "{a:?} and {b:?}"
+                );
+            }
+        }
+    }
+
+    /// Each circuit's runtime code hash names it back, and no other.
+    #[test]
+    fn a_runtime_codehash_names_its_circuit() {
+        let artifacts = Artifacts::embedded();
+        for circuit in Circuit::ALL {
+            let codehash = circuit.runtime_codehash(&artifacts).unwrap();
+            assert_eq!(
+                Circuit::with_runtime_codehash(&artifacts, codehash).unwrap(),
+                Some(circuit)
+            );
+        }
+        assert_eq!(
+            Circuit::with_runtime_codehash(&artifacts, B256::ZERO).unwrap(),
+            None
         );
     }
 

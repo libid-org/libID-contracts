@@ -27,7 +27,7 @@ mod notary_service_inner {
     use alloy::sol;
 
     sol! {
-        #[sol(rpc)]
+        #[sol(rpc, abi)]
         interface NotaryService {
             /// `notary_` is the first trusted key; `fee_` may be zero (a
             /// deployment may meter at no charge, and the exact-value rule
@@ -53,6 +53,22 @@ mod notary_service_inner {
             event FeeChanged(uint256 previousFee, uint256 newFee);
             event NotaryTrustChanged(address indexed key, bool trusted);
             event FeesWithdrawn(address indexed to, uint256 amount);
+
+            // What `verify` and the operator calls can revert with.
+            error WrongFee(uint256 required, uint256 provided);
+            error UntrustedNotary(address recovered);
+            error MalformedSignature();
+            error Truncated();
+            error TrailingBytes(uint256 extra);
+            error EmptyRange(uint32 at);
+            error OutOfOrder(uint32 start, uint32 previousEnd);
+            error PastTranscriptEnd(uint32 end, uint32 length);
+            error CommitmentOverlapsRevealed(uint32 start, uint32 end);
+            error ZeroAddress();
+            error NothingToWithdraw();
+            error WithdrawalFailed(address to, uint256 amount);
+            error OwnableUnauthorizedAccount(address account);
+            error OwnableInvalidOwner(address owner);
         }
     }
 }
@@ -72,7 +88,7 @@ mod proof_verifier_inner {
     use alloy::sol;
 
     sol! {
-        #[sol(rpc)]
+        #[sol(rpc, abi)]
         interface CeremonyProofVerifier {
             function initialize(address owner_) external;
             /// Register (or, with the zero address, remove) the Platform
@@ -94,6 +110,15 @@ mod proof_verifier_inner {
             function acceptOwnership() external;
 
             event VerifierConfigured(bytes32 indexed platformId, uint16 indexed verifierVersion, address verifier);
+
+            /// No Platform Verifier is registered for the pair a `bind` named.
+            error UnknownVersion(bytes32 platformId, uint16 verifierVersion);
+            /// `setVerifier` was handed a verifier serving another platform.
+            error VerifierPlatformMismatch(bytes32 expected, bytes32 found);
+            /// The value attached is not the pair's quote.
+            error WrongValue(uint256 required, uint256 provided);
+            error OwnableUnauthorizedAccount(address account);
+            error OwnableInvalidOwner(address owner);
         }
     }
 }
@@ -201,7 +226,7 @@ mod tls_notary_platform_verifier_inner {
     use alloy::sol;
 
     sol! {
-        #[sol(rpc)]
+        #[sol(rpc, abi)]
         interface TlsNotaryPlatformVerifier {
             /// Derives so the built call can be compared and printed by the
             /// initializer that assembles it.
@@ -216,7 +241,7 @@ mod tls_notary_platform_verifier_inner {
             /// The identity platform this verifier serves: `keccak256` of the
             /// platform's bare name. The Proof Verifier refuses to register it
             /// under another platform.
-            function platformId() external view returns (bytes32);
+            function platformId() external pure returns (bytes32);
             /// What a submission must carry: one Notary Fee per attestation
             /// the profile requires — two, for a TLSNotary profile.
             function quote() external view returns (uint256);
@@ -226,6 +251,9 @@ mod tls_notary_platform_verifier_inner {
             /// The code hash of the artifact wired: the only handle on WHICH
             /// circuit a deployed bb verifier answers for.
             function honkVerifierCodehash() external view returns (bytes32);
+            /// The runtime code hash of the one Honk verifier this contract
+            /// accepts: its platform's circuit's, as compiled in.
+            function circuitCodehash() external pure returns (bytes32);
             function protocolParameters()
                 external
                 pure
@@ -239,8 +267,12 @@ mod tls_notary_platform_verifier_inner {
             function pendingOwner() external view returns (address);
             function transferOwnership(address newOwner) external;
             function acceptOwnership() external;
+            /// Always reverts; the contract declares it `pure`.
+            function renounceOwnership() external pure;
 
             event TrustRootsChanged(address notary, address honkVerifier, bytes32 honkVerifierCodehash);
+            event OwnershipTransferStarted(address indexed previousOwner, address indexed newOwner);
+            event OwnershipTransferred(address indexed previousOwner, address indexed newOwner);
 
             /// A profile that verifies no attestation holds a Notary Service,
             /// or one that verifies some holds none.
@@ -248,6 +280,61 @@ mod tls_notary_platform_verifier_inner {
             error ZeroAddress();
             /// The verifier at that address is not the artifact named.
             error WrongVerifierArtifact(bytes32 expected, bytes32 found);
+            /// The Honk verifier is not this platform's circuit's: `expected`
+            /// is `circuitCodehash()`, `found` the code hash at the address.
+            error WrongCircuit(bytes32 expected, bytes32 found);
+            // What `verify` can revert with.
+            error WrongValue(uint256 required, uint256 provided);
+            error WrongCeremonyVersion(uint16 expected, uint16 found);
+            error WrongAuthority(bytes32 expected, bytes32 found);
+            error TransactionDataTooLong(uint256 length);
+            error AttestationAhead(uint64 createdAt, uint64 blockTime, uint64 allowance);
+            error ProofExpired(uint64 validUntil, uint64 blockTime);
+            error ObservedInTheFuture(uint64 observedAt, uint64 limit);
+            /// The Honk verifier answered `false`.
+            error BadProof();
+            /// The disclosed handle hashes to `disclosed`, not the node the
+            /// proof bound.
+            error HandleNotProved(bytes32 disclosed, bytes32 proved);
+            /// The disclosed handle is text the platform's rules refuse;
+            /// `problem` is a `HandleNormalizer.Problem`.
+            error UnusableHandle(uint8 problem);
+            error UnknownPlatform(bytes32 platformId);
+            error OwnableUnauthorizedAccount(address account);
+            error OwnableInvalidOwner(address owner);
+            // The transcript checks of the two notarized sessions.
+            error CoverageGap(uint32 from, uint32 to);
+            error SpansOverlap(uint32 at);
+            error NotOneCommitment(uint256 count);
+            error ObsoleteLineFold(uint256 at);
+            error BareLineFeed(uint256 at);
+            error BareCarriageReturn(uint256 at);
+            error NotOneAuthorizationHeader(uint256 count);
+            error BadBearerFraming();
+            /// No commitment carries the framing the profile reads a value by.
+            error NoFramedCommitment();
+            /// The framing's prefix is revealed twice, or frames two
+            /// commitments.
+            error AmbiguousFraming();
+            /// The identity request's revealed bytes hold `heads` head ends
+            /// where one request holds exactly one.
+            error NotOneRequest(uint256 heads);
+            /// Bytes follow the identity request's head.
+            error BytesAfterRequest(uint256 count);
+            error AmbiguousField(string name);
+            error FieldNotFound(string name);
+            error MalformedForm(uint256 at);
+            error EmptyFormValue(string name);
+            error WrongRequestLine();
+            error CodeVerifierMismatch();
+            error ClientIdentifierNotSerializerSafe(bytes found);
+            error RequestLineNotAtOrigin(uint32 start);
+            error WrongTokenRequestLayout(uint256 revealedRanges, uint256 commitments);
+            error NoHeadBoundary(uint256 occurrences);
+            error WrongTokenRequestHead();
+            error ForbiddenRequestHeader(bytes name);
+            error WrongDeclaredBodyLength(uint256 declared, uint256 signed);
+            error WrongGrantType(bytes found);
         }
     }
 }
@@ -278,7 +365,7 @@ mod google_platform_verifier_inner {
     use alloy::sol;
 
     sol! {
-        #[sol(rpc)]
+        #[sol(rpc, abi)]
         interface GooglePlatformVerifier {
             #[derive(Debug, PartialEq, Eq)]
             function initialize(
@@ -290,10 +377,10 @@ mod google_platform_verifier_inner {
             ) external;
 
             /// `keccak256("google")`.
-            function platformId() external view returns (bytes32);
+            function platformId() external pure returns (bytes32);
             /// Always zero: the profile verifies nothing that charges, and
             /// `verify` refuses any value sent.
-            function quote() external view returns (uint256);
+            function quote() external pure returns (uint256);
 
             /// The root list the trusted moduli are read through.
             function jwtRoots() external view returns (address);
@@ -302,6 +389,9 @@ mod google_platform_verifier_inner {
             function notaryService() external view returns (address);
             function honkVerifier() external view returns (address);
             function honkVerifierCodehash() external view returns (bytes32);
+            /// The runtime code hash of the one Honk verifier this contract
+            /// accepts: its platform's circuit's, as compiled in.
+            function circuitCodehash() external pure returns (bytes32);
             function protocolParameters()
                 external
                 pure
@@ -312,25 +402,297 @@ mod google_platform_verifier_inner {
             function pendingOwner() external view returns (address);
             function transferOwnership(address newOwner) external;
             function acceptOwnership() external;
+            /// Always reverts; the contract declares it `pure`.
+            function renounceOwnership() external pure;
 
             event JwtRootsChanged(address roots);
             event TrustRootsChanged(address notary, address honkVerifier, bytes32 honkVerifierCodehash);
+            event OwnershipTransferStarted(address indexed previousOwner, address indexed newOwner);
+            event OwnershipTransferred(address indexed previousOwner, address indexed newOwner);
 
             error WrongNotaryForProfile(bytes32 platformId, address notary);
             error ZeroAddress();
             error WrongVerifierArtifact(bytes32 expected, bytes32 found);
+            /// The Honk verifier is not this platform's circuit's: `expected`
+            /// is `circuitCodehash()`, `found` the code hash at the address.
+            error WrongCircuit(bytes32 expected, bytes32 found);
+            // What `verify` can revert with.
+            error WrongValue(uint256 required, uint256 provided);
+            error WrongCeremonyVersion(uint16 expected, uint16 found);
+            error WrongAuthority(bytes32 expected, bytes32 found);
+            error TransactionDataTooLong(uint256 length);
+            error AttestationAhead(uint64 createdAt, uint64 blockTime, uint64 allowance);
+            error ProofExpired(uint64 validUntil, uint64 blockTime);
+            error ObservedInTheFuture(uint64 observedAt, uint64 limit);
+            /// The Honk verifier answered `false`.
+            error BadProof();
+            /// The disclosed handle hashes to `disclosed`, not the node the
+            /// proof bound.
+            error HandleNotProved(bytes32 disclosed, bytes32 proved);
+            /// The disclosed handle is text the platform's rules refuse;
+            /// `problem` is a `HandleNormalizer.Problem`.
+            error UnusableHandle(uint8 problem);
+            error UnknownPlatform(bytes32 platformId);
+            error OwnableUnauthorizedAccount(address account);
+            error OwnableInvalidOwner(address owner);
+            // The ID token's checks.
+            error AudienceMismatch();
+            error MissingClientIdentifier();
+            error DigestMismatch(bytes32 proved, bytes32 recomputed);
+            error ExpiryNotAUint64(uint256 value);
+            error PublicInputNotAByte(uint256 index, uint256 value);
+            error PublicInputOverwide(uint256 index, uint256 value, uint256 bits);
+            error TokenExpired(uint64 exp, uint64 blockTime);
+            error UntrustedModulus(bytes32 modulusHash);
+            error WrongPublicInputCount(uint256 expected, uint256 provided);
         }
     }
 }
 
 pub use google_platform_verifier_inner::GooglePlatformVerifier;
 
+/// The payloads `IdentityRegistry.bind` carries to a Platform Verifier, from
+/// `ceremony/ICeremonyPayloads.sol`. A payload is the struct's
+/// [`SolValue::abi_encode`](alloy::sol_types::SolValue::abi_encode), never a
+/// call to either function.
+#[allow(clippy::too_many_arguments, unused_attributes)]
+mod payloads_inner {
+    use alloy::sol;
+
+    sol! {
+        #[sol(abi)]
+        interface ICeremonyPayloads {
+            /// `ICeremony.Attestation`: the notarized bytes and the Notary
+            /// Service's authentication of them.
+            #[derive(Debug, PartialEq, Eq)]
+            struct Attestation {
+                bytes attestedData;
+                bytes proof;
+            }
+
+            /// `TlsNotaryProof`: the `x/v1` and `github/v1` payload. An
+            /// empty `handle` keeps the submission private.
+            #[derive(Debug, PartialEq, Eq)]
+            struct TlsNotaryProof {
+                uint16 ceremonyVersion;
+                bytes32 operationDomain;
+                bytes32 authorizationNonce;
+                bytes transactionData;
+                Attestation tokenSession;
+                Attestation identitySession;
+                bytes32 idNode;
+                bytes32 handleNode;
+                string handle;
+                bytes proof;
+            }
+
+            /// `GoogleProof` (`ceremony/CeremonyPayloads.sol`): the `google/v1` payload.
+            #[derive(Debug, PartialEq, Eq)]
+            struct GoogleProof {
+                uint16 ceremonyVersion;
+                bytes32 operationDomain;
+                bytes32 authorizationNonce;
+                bytes transactionData;
+                bytes clientIdentifier;
+                bytes32[] publicInputs;
+                string handle;
+                bytes proof;
+            }
+
+            function tlsNotaryProof(TlsNotaryProof calldata payload) external pure;
+            function googleProof(GoogleProof calldata payload) external pure;
+        }
+    }
+}
+
+pub use payloads_inner::ICeremonyPayloads::{
+    self as ICeremonyPayloads,
+    Attestation,
+    GoogleProof,
+    TlsNotaryProof,
+};
+
 #[cfg(test)]
 mod tests {
     use alloy::sol_types::SolCall;
 
     use super::*;
-    use crate::Artifacts;
+    use crate::{
+        bindings::drift::{
+            assert_binding_matches_artifact,
+            assert_shared_binding_matches_artifact,
+        },
+        Artifacts,
+    };
+
+    /// Inherited upgrade and initializer ABI, left to `proxy::IUUPSUpgradeable`,
+    /// and `verify`, which only a contract on the route calls.
+    const OMITTED: &[&str] = &[
+        "error AddressEmptyCode(address)",
+        "error ERC1967InvalidImplementation(address)",
+        "error ERC1967NonPayable()",
+        "error FailedCall()",
+        "error InvalidInitialization()",
+        "error NotInitializing()",
+        "error UUPSUnauthorizedCallContext()",
+        "error UUPSUnsupportedProxiableUUID(bytes32)",
+        "event Initialized(uint64)",
+        "event Upgraded(address)",
+        "function UPGRADE_INTERFACE_VERSION()",
+        "function proxiableUUID()",
+        "function upgradeToAndCall(address,bytes)",
+        "function verify(bytes)",
+    ];
+
+    /// Every error `verify` can revert with is bound, for both the X and
+    /// GitHub artifacts.
+    #[test]
+    fn the_platform_verifier_bindings_match_the_artifact_abis() {
+        let tls = TlsNotaryPlatformVerifier::abi::contract();
+        assert_binding_matches_artifact(
+            "XPlatformVerifier",
+            "XPlatformVerifier",
+            &tls,
+            OMITTED,
+        );
+        // GitHub's token request carries no `grant_type` to refuse.
+        assert_shared_binding_matches_artifact(
+            "GitHubPlatformVerifier",
+            "GitHubPlatformVerifier",
+            &tls,
+            OMITTED,
+            &["error WrongGrantType(bytes)"],
+        );
+        assert_binding_matches_artifact(
+            "GooglePlatformVerifier",
+            "GooglePlatformVerifier",
+            &GooglePlatformVerifier::abi::contract(),
+            OMITTED,
+        );
+    }
+
+    /// The Notary Service and Proof Verifier bind every error `bind` surfaces.
+    #[test]
+    fn the_route_bindings_match_the_artifact_abis() {
+        let route_omitted: Vec<&str> = OMITTED
+            .iter()
+            .copied()
+            .chain([
+                "event OwnershipTransferStarted(address,address)",
+                "event OwnershipTransferred(address,address)",
+                "function renounceOwnership()",
+            ])
+            .collect();
+        assert_binding_matches_artifact(
+            "NotaryService",
+            "NotaryService",
+            &NotaryService::abi::contract(),
+            &route_omitted
+                .iter()
+                .copied()
+                .filter(|item| *item != "function verify(bytes)")
+                .chain(["function verify(bytes,bytes)"])
+                .collect::<Vec<_>>(),
+        );
+        assert_binding_matches_artifact(
+            "CeremonyProofVerifier",
+            "CeremonyProofVerifier",
+            &CeremonyProofVerifier::abi::contract(),
+            &route_omitted
+                .iter()
+                .copied()
+                .filter(|item| *item != "function verify(bytes)")
+                .chain(["function verify(bytes32,uint16,bytes)"])
+                .collect::<Vec<_>>(),
+        );
+    }
+
+    /// The payload structs match the compiled interface's signatures.
+    #[test]
+    fn the_payload_bindings_match_the_artifact_abi() {
+        assert_binding_matches_artifact(
+            "ICeremonyPayloads",
+            "ICeremonyPayloads",
+            &ICeremonyPayloads::abi::contract(),
+            &[],
+        );
+    }
+
+    /// The X fixture encodes to the hash `x-ceremony-payload.json` pins.
+    #[test]
+    fn the_x_fixture_payload_encodes_to_the_pinned_bytes() {
+        use alloy::{
+            primitives::{
+                keccak256,
+                Bytes,
+                B256,
+            },
+            sol_types::SolValue,
+        };
+
+        let dir = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../solidity/contracts/ceremony/test/fixtures/"
+        );
+        let read = |name: &str| -> serde_json::Value {
+            let text = std::fs::read_to_string(format!("{dir}{name}")).unwrap();
+            serde_json::from_str(&text).unwrap()
+        };
+        let session = read("x-ceremony-session.json");
+        let proof = read("x-ceremony-session-proof.json");
+        let extra = read("x-ceremony-payload.json");
+        let str_of = |v: &serde_json::Value| v.as_str().unwrap().to_owned();
+        let bytes = |v: &serde_json::Value| str_of(v).parse::<Bytes>().unwrap();
+        let word = |v: &serde_json::Value| str_of(v).parse::<B256>().unwrap();
+
+        let payload = TlsNotaryProof {
+            ceremonyVersion: u16::try_from(session["ceremony_version"].as_u64().unwrap())
+                .unwrap(),
+            operationDomain: word(&session["operation_domain"]),
+            authorizationNonce: word(&session["authorization_nonce"]),
+            transactionData: bytes(&session["transaction_data"]),
+            tokenSession: Attestation {
+                attestedData: bytes(&session["token"]["attested_data"]),
+                proof: bytes(&session["token"]["notary_signature"]),
+            },
+            identitySession: Attestation {
+                attestedData: bytes(&session["identity"]["attested_data"]),
+                proof: bytes(&session["identity"]["notary_signature"]),
+            },
+            idNode: word(&extra["id_node"]),
+            handleNode: word(&extra["handle_node"]),
+            handle: str_of(&extra["handle"]),
+            proof: bytes(&proof["proof"]),
+        };
+
+        let encoded = payload.abi_encode();
+        assert_eq!(encoded.len() as u64, extra["length"].as_u64().unwrap());
+        assert_eq!(keccak256(&encoded), word(&extra["keccak256"]));
+        assert_eq!(TlsNotaryProof::abi_decode(&encoded).unwrap(), payload);
+    }
+
+    #[test]
+    fn a_google_payload_round_trips() {
+        use alloy::{
+            primitives::B256,
+            sol_types::SolValue,
+        };
+
+        let payload = GoogleProof {
+            ceremonyVersion: 1,
+            operationDomain: B256::repeat_byte(0x11),
+            authorizationNonce: B256::repeat_byte(0x22),
+            transactionData: vec![1, 2].into(),
+            clientIdentifier: b"aud".to_vec().into(),
+            publicInputs: vec![B256::repeat_byte(0x33), B256::repeat_byte(0x44)],
+            handle: "alice@gmail.com".into(),
+            proof: vec![0xde, 0xad].into(),
+        };
+        assert_eq!(
+            GoogleProof::abi_decode(&payload.abi_encode()).unwrap(),
+            payload
+        );
+    }
 
     /// A Platform Verifier binding and its vendored artifact come from one
     /// tree, so every bound selector is one the compiled contract answers.

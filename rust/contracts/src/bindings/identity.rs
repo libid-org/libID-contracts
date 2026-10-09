@@ -1,11 +1,8 @@
 //! Bindings for the identity registry (`solidity/contracts/identity/`):
 //! `IdentityRegistry`.
 
-/// Bindings for `identity/IdentityRegistry.sol`.
-///
-/// `Rules` mirrors `HandleNormalizer.Rules` — the normalization rules the
-/// contract stores per platform. Platform ids are `keccak256` of the
-/// platform key.
+/// Bindings for `identity/IdentityRegistry.sol`. Nodes are
+/// `SHA256(tag || value)`; `libid_identity` computes them off chain.
 #[allow(clippy::too_many_arguments, unused_attributes)]
 mod registry_inner {
     use alloy::sol;
@@ -16,23 +13,18 @@ mod registry_inner {
             #[derive(Debug, serde::Serialize, serde::Deserialize)]
             struct Rules {
                 uint16 maxLength;
-                bool stripLeadingAt;
                 bool isEmail;
                 bool allowUnderscore;
                 bool allowHyphen;
             }
 
-            /// One identity a holder proved, as its list reports it. `handle`
-            /// is the one the identity proved most recently, and
-            /// `handleCurrent` says whether the handle node still points back
-            /// at this identity: it stops doing so when another identity
-            /// proves the same handle, and the string stays as the last thing
-            /// the identity was known as.
+            /// One identity a holder proved. `handleCurrent` is whether
+            /// `handleNode` still points back at this identity.
             #[derive(Debug, serde::Serialize, serde::Deserialize)]
             struct Identity {
                 bytes32 platformId;
-                string id;
-                string handle;
+                bytes32 idNode;
+                bytes32 handleNode;
                 bool handleCurrent;
             }
 
@@ -53,45 +45,36 @@ mod registry_inner {
             /// Always reverts; the contract declares it `pure`.
             function renounceOwnership() external pure;
 
-            /// The rules half: what a handle on this platform means. It
-            /// does not vary by proof version — two versions normalizing
-            /// differently would put one handle on two nodes.
-            function setPlatform(bytes32 platformId, Rules calldata rules) external;
-
             /// Which contract holds the Supported Version Set. Registering a
             /// version is that contract's call, not this one's.
             function setProofVerifier(address verifier) external;
             function proofVerifier() external view returns (address);
 
-            /// The one write. The contract does not know what `payload` is:
-            /// it names a platform and this chain's verifier version for it,
-            /// and the Proof Verifier routes the bytes to the one contract
-            /// that decodes them. The value attached must equal `quoteBind`
-            /// for the same pair exactly.
-            function bind(bytes32 platformId, uint16 verifierVersion, bytes calldata payload, bool publish) external payable;
+            /// Bind the caller to a proved identity. `payload` is routed
+            /// opaque to the pair's Platform Verifier; the value must equal
+            /// `quoteBind`.
+            function bind(bytes32 platformId, uint16 verifierVersion, bytes calldata payload) external payable;
             function quoteBind(bytes32 platformId, uint16 verifierVersion) external view returns (uint256);
             function digestSpent(bytes32 digest) external view returns (bool);
+            /// Disclose the caller's handle; it must match the node it holds.
+            function publish(bytes32 platformId, string calldata handle) external;
             function unpublish(bytes32 platformId) external;
-            function resolveId(bytes32 platformId, string calldata id) external view returns (address);
+            /// The holder of an id node.
+            function resolveId(bytes32 idNode) external view returns (address);
             function resolveHandle(bytes32 platformId, string calldata handle) external view returns (address);
-            /// The handle's holder, and whether `id` resolves to that same
-            /// holder.
-            function resolveHandleAndId(bytes32 platformId, string calldata handle, string calldata id) external view returns (address holder, bool idAgrees);
+            /// The handle's holder, and whether `idNode` resolves to it too.
+            function resolveHandleAndId(bytes32 platformId, string calldata handle, bytes32 idNode) external view returns (address holder, bool idAgrees);
             /// The handle a holder published, while it still resolves back to
             /// that holder; empty otherwise.
             function publishedHandleOf(address holder, bytes32 platformId) external view returns (string memory);
-            /// The platform's rules as configured now, for local normalization.
-            function rulesOf(bytes32 platformId) external view returns (Rules memory);
-            /// Whether `bind` can bind a holder on this platform
-            /// now: rules, and a Proof Verifier that verifies it.
+            /// The platform's handle rules, for local normalization.
+            function rulesOf(bytes32 platformId) external pure returns (Rules memory);
+            /// The tag the platform's handle nodes are hashed under.
+            function handleTagOf(bytes32 platformId) external pure returns (bytes memory);
+            /// Whether `bind` accepts this platform now.
             function acceptsBindings(bytes32 platformId) external view returns (bool);
-            /// `keccak256` of the normalized handle: what `HandleEscrow.deposit`
-            /// takes. Reverts `UnknownPlatform` or `UnusableHandle`.
-            function handleHashOf(bytes32 platformId, string calldata handle) external view returns (bytes32 handleHash);
-            /// The node a handle hashes to now; reverts as `handleHashOf` does.
-            function handleNodeOf(bytes32 platformId, string calldata handle) external view returns (bytes32 handleNode);
-            /// The node of a handle given as its hash, as `bind` binds it.
-            function handleNodeOfHash(bytes32 platformId, bytes32 handleHash) external pure returns (bytes32);
+            /// The node a handle is bound under (`HandleEscrow.deposit` takes it).
+            function handleNodeOf(bytes32 platformId, string calldata handle) external pure returns (bytes32 handleNode);
 
             /// How many identities a holder has, on every platform together.
             function identityCount(address holder) external view returns (uint256);
@@ -102,24 +85,23 @@ mod registry_inner {
             /// identity reads `identityCount` and the pages in one block.
             function identitiesOf(address holder, uint256 from, uint256 limit) external view returns (Identity[] memory);
 
-            /// Carries the ceremony version that proved the binding -- logged,
-            /// never stored, because nothing on chain acts on it and an
-            /// operator asking which bindings a version touched reads the log.
-            /// What the ceremony authenticated beyond the binding rides on
-            /// `CeremonyBound` instead.
+            /// The two nodes a binding wrote, and the proving version.
             event IdentityBound(
                 address indexed holder,
                 bytes32 indexed idNode,
                 bytes32 indexed handleNode,
                 bytes32 platformId,
-                string id,
-                string handle,
                 uint64 observedAt,
-                bool published,
                 uint16 ceremonyVersion
             );
-            /// A platform not configured, or one nothing verifies and on
-            /// which nothing was ever bound.
+            /// A holder disclosed its handle on a platform as its name there.
+            event HandlePublished(
+                address indexed holder,
+                bytes32 indexed platformId,
+                bytes32 indexed handleNode,
+                string handle
+            );
+            /// A platform `handles.json` does not name, or one never bound.
             error UnknownPlatform(bytes32 platformId);
             /// Text the platform's rules refuse; `problem` is a
             /// `HandleNormalizer.Problem`.
@@ -128,8 +110,7 @@ mod registry_inner {
             event OwnershipTransferStarted(address indexed previousOwner, address indexed newOwner);
             event OwnershipTransferred(address indexed previousOwner, address indexed newOwner);
 
-            // What `bind` can revert with: its own refusals, and the
-            // normalizer's, for a proved handle the rules refuse.
+            // What `bind` can revert with, besides `UnusableHandle` above.
             error ZeroAddress();
             error ForeignOperationDomain(bytes32 operationDomain);
             error DigestAlreadySpent(bytes32 digest);
@@ -141,17 +122,15 @@ mod registry_inner {
             error NotProofTarget(address proved, address caller);
             error NoObservationTime();
             error NoId();
+            error NoHandle();
             error StaleProof(uint64 observedAt, uint64 known);
-            error EmptyHandle();
-            error HandleTooLong();
-            error BadCharacter();
-            error BadShape();
+            /// The disclosed handle is not one the caller holds.
+            error NotYourHandle(bytes32 handleNode);
             error OwnableUnauthorizedAccount(address account);
             error OwnableInvalidOwner(address owner);
             error ReentrancyGuardReentrantCall();
 
             event HandleRetired(bytes32 indexed platformId, bytes32 indexed handleNode, address indexed holder);
-            event PlatformConfigured(bytes32 indexed platformId);
             event ProofVerifierConfigured(address verifier);
             /// The service fee a binding's own Authorized Transaction Data named
             /// was delivered. Emitted only when there is one.

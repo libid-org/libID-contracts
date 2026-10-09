@@ -119,13 +119,27 @@ abstract contract HonkVerifierEncodingTest is Test {
     }
 }
 
-contract BearerLinkHonkVerifierEncodingTest is HonkVerifierEncodingTest {
+contract BearerLinkXHonkVerifierEncodingTest is HonkVerifierEncodingTest {
     function _artifact() internal pure override returns (string memory) {
-        return "BearerLinkHonkVerifier.sol:BearerLinkHonkVerifier";
+        return "BearerLinkXHonkVerifier.sol:BearerLinkXHonkVerifier";
     }
 
     function _fixture() internal pure override returns (string memory) {
-        return "contracts/circuits/test/fixtures/bearer-link-proof.json";
+        return "contracts/circuits/test/fixtures/bearer-link-x-proof.json";
+    }
+
+    function _gasCap() internal pure override returns (uint64) {
+        return 1_500_000;
+    }
+}
+
+contract BearerLinkGithubHonkVerifierEncodingTest is HonkVerifierEncodingTest {
+    function _artifact() internal pure override returns (string memory) {
+        return "BearerLinkGithubHonkVerifier.sol:BearerLinkGithubHonkVerifier";
+    }
+
+    function _fixture() internal pure override returns (string memory) {
+        return "contracts/circuits/test/fixtures/bearer-link-github-proof.json";
     }
 
     function _gasCap() internal pure override returns (uint64) {

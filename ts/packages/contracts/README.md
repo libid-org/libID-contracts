@@ -1,9 +1,10 @@
 # @libid/contracts
 
 Typed, viem-ready ABIs for the libid identity stack (NotaryService,
-CeremonyProofVerifier, GoogleJwtRoots, IdentityRegistry, LibidFactory, WTIA9), a
-call builder for every state-changing function, and the identity helper layer:
-handle normalization and resolution.
+CeremonyProofVerifier, GoogleJwtRoots, IdentityRegistry, HandleEscrow,
+HandleResolver, LibidFactory, WTIA9), the errors a bind can revert with, a call
+builder for every state-changing function, and the identity helper layer:
+handle normalization, node derivation and resolution.
 
 Both `src/abis/` and `src/calls/` are generated from the forge artifacts
 (`solidity/out`) by `scripts/codegen.mjs`, and neither is committed — CI
@@ -12,7 +13,7 @@ regenerates them before every build, test and publish. Each ABI is exported
 each call builder reads its arguments off that ABI, so adding a write function
 to a contract produces its wrapper instead of requiring someone to remember to
 write one. The handle vector table in `src/identity/handleVectors.ts` is
-generated from `solidity/contracts/identity/handles.json` by
+generated from `solidity/contracts/handles/handles.json` by
 `scripts/regen-identity-handles.py`.
 
 ```sh
@@ -79,6 +80,7 @@ const rotate = calls.googleJwtRoots.rotate(roots, fee, attestedData, proof)
 import {
   identitiesOf,
   identityCount,
+  idNode,
   platformId,
   publishedHandleOf,
   resolveHandle,
@@ -90,11 +92,12 @@ const reader = { client, address: IDENTITY_REGISTRY }
 const x = platformId(PLATFORM_X_KEY)
 
 // The holder that last proved a handle, or null. Pass what was typed —
-// normalization happens on chain.
-const holder = await resolveHandle(reader, x, '@Alice')
+// normalization happens on chain: case folds, and text the rules refuse
+// (an `@`, a space) answers null like a handle nobody proved.
+const holder = await resolveHandle(reader, x, 'Alice')
 
 // Before sending funds: does the id still agree with the handle?
-const { idAgrees } = await resolveHandleAndId(reader, x, 'alice', '42')
+const { idAgrees } = await resolveHandleAndId(reader, x, 'alice', idNode(PLATFORM_X_KEY, '42'))
 
 // The handle a holder displays, forward-checked on chain.
 const handle = await publishedHandleOf(reader, holder!, x)
@@ -104,48 +107,99 @@ const handle = await publishedHandleOf(reader, holder!, x)
 // read the count and the pages against one block when every identity matters.
 const total = await identityCount(reader, holder!)
 const identities = await identitiesOf(reader, holder!, 0n, 50n)
-// [{ platformId: x, id: '42', handle: 'alice', handleCurrent: true }, …]
+// [{ platformId: x, idNode: '0x…', handleNode: '0x…', handleCurrent: true }, …]
+// Nodes, never the id or handle: those are on chain only if published.
 ```
 
 ## Binding an identity
 
 A binding is one of the generated builders: the platform, this chain's verifier
-version for it, the opaque payload the ceremony produced, and whether to
-publish the handle. The value is what `quoteBind` returns for the same pair.
-An EOA sends it directly, a smart wallet wraps it in its own execute:
+version for it, and the opaque payload the ceremony produced. The payload
+carries the handle to publish, or none for a private binding: its Platform
+Verifier checks a disclosed handle against the node the proof bound. The value
+is what `quoteBind` returns for the same pair. An EOA sends it directly, a smart
+wallet wraps it in its own execute:
 
 ```ts
 import { calls } from '@libid/contracts/calls'
 
+const github = platformId(PLATFORM_GITHUB_KEY)
 const fee = await client.readContract({
   address: IDENTITY_REGISTRY,
   abi: identityRegistryAbi,
   functionName: 'quoteBind',
-  args: [platformId(PLATFORM_GITHUB_KEY), 1],
+  args: [github, 1],
 })
-const call = calls.identityRegistry.bind(IDENTITY_REGISTRY, fee, platformId(PLATFORM_GITHUB_KEY), 1, payload, true)
+const call = calls.identityRegistry.bind(IDENTITY_REGISTRY, fee, github, 1, payload)
 // call = { to, value, data } — sign and send from the address the payload names.
 ```
 
+The payload is one struct, `abi.encode`d, in the shape its Platform Verifier
+decodes. `encodeTlsNotaryProof` builds the X and GitHub one and
+`encodeGoogleProof` the Google one; both read the struct types from the
+generated `ceremonyPayloadsAbi`:
+
+```ts
+import { encodeTlsNotaryProof } from '@libid/contracts'
+
+const payload = encodeTlsNotaryProof({
+  ceremonyVersion: 1,
+  operationDomain, authorizationNonce, transactionData,
+  tokenSession, identitySession,   // { attestedData, proof } each
+  idNode, handleNode,
+  handle: '',                      // or the handle to publish
+  proof,
+})
+```
+
+A refused bind reverts with an error from whichever contract on its route
+refused it. `bindErrorsAbi` carries all of them — the registry's, the Proof
+Verifier's, the three Platform Verifiers', the Notary Service's and the Honk
+verifiers' — so one call names any of them:
+
+```ts
+import { decodeErrorResult } from 'viem'
+import { bindErrorsAbi } from '@libid/contracts/abis'
+
+const { errorName, args } = decodeErrorResult({ abi: bindErrorsAbi, data: revertData })
+// 'HandleNotProved', [disclosed, proved]: the payload's handle is not the proved one.
+```
+
+The Honk verifiers raise their failures (`SumcheckFailed()` and the like)
+from bb's generated assembly, with no entry in their own ABI;
+`honkVerifierErrorsAbi` declares them under bb's names, and `bindErrorsAbi`
+includes it.
+
 ## Normalizing a handle locally
+
+A–Z fold to a–z and nothing else changes: no byte is trimmed and no `@` is
+stripped. Text the rules refuse throws rather than being repaired.
 
 ```ts
 import { normalize, RULES_X, HandleError } from '@libid/contracts/identity'
 
-normalize(' @Alice_1 ', RULES_X) // 'alice_1'
-// Throws HandleError (with a kind matching the on-chain error) on refusal.
+normalize('Alice_1', RULES_X) // 'alice_1'
+normalize(' @Alice_1 ', RULES_X) // throws HandleError: a space and an `@` are refused
+// On chain the same refusal is `UnusableHandle(problem)`, where `problem` is `kind + 1`
+// (`HandleNormalizer.Problem`, whose 0 is `None`).
 ```
 
 ## Deriving a handle node
 
-Hash locally, so the handle text never reaches an RPC:
+Hash locally, so the handle text never reaches an RPC. A node is
+`SHA256(tag || value)`, the one the platform's circuit outputs: the handle
+normalized under the platform's handle tag, the id exactly as the platform
+sent it under its user-id tag. Both take the platform key, not its id:
 
 ```ts
-import { handleHash, handleNode, platformId, PLATFORM_GOOGLE_KEY, rulesOf } from '@libid/contracts/identity'
+import { checkId, handleNode, idNode, PLATFORM_GOOGLE_KEY } from '@libid/contracts/identity'
 
-const google = platformId(PLATFORM_GOOGLE_KEY)
-const hash = handleHash('Alice@Gmail.com', await rulesOf(reader, google)) // HandleEscrow.deposit
-const node = handleNode(google, hash) // handleBinding, escrowed, claim, refund
+// HandleEscrow.deposit, handleBinding, escrowed, claim, refund
+const node = handleNode(PLATFORM_GOOGLE_KEY, 'Alice@Gmail.com')
+// idBinding, resolveId, resolveHandleAndId
+const id = idNode(PLATFORM_GOOGLE_KEY, '100000000000000000001')
+// Throws HandleError for an id no circuit would hash; ids are never normalized.
+checkId(PLATFORM_GOOGLE_KEY, '100000000000000000001')
 ```
 
 ## Development

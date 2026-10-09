@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
+import {HonkStub} from "./HonkStub.sol";
 import {Test} from "forge-std/Test.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
@@ -10,29 +11,18 @@ import {CeremonyProofVerifier} from "../CeremonyProofVerifier.sol";
 import {NotaryService} from "../NotaryService.sol";
 import {XPlatformVerifier} from "../XPlatformVerifier.sol";
 import {GitHubPlatformVerifier} from "../GitHubPlatformVerifier.sol";
-import {GooglePlatformVerifier, IGoogleJwtRoots} from "../GooglePlatformVerifier.sol";
+import {GooglePlatformVerifier} from "../GooglePlatformVerifier.sol";
 import {INotaryService} from "../INotaryService.sol";
 import {IHonkVerifier} from "../PlatformVerifierBase.sol";
 import {IPlatformVerifier} from "../IPlatformVerifier.sol";
 import {IProofVerifier} from "../IProofVerifier.sol";
 import {IdentityRegistry} from "../../identity/IdentityRegistry.sol";
 import {GoogleJwtRoots} from "../GoogleJwtRoots.sol";
-import {HandleVectors} from "../../identity/HandleVectors.sol";
-import {IdentityNodes} from "../../identity/IdentityNodes.sol";
+import {HandlePlatforms} from "../../handles/HandlePlatforms.sol";
+import {TestNodes} from "../../identity/test/TestNodes.sol";
 import {StubPlatformVerifier} from "../../identity/test/StubPlatformVerifier.sol";
 import {AttestationBuilder} from "./AttestationBuilder.sol";
-
-contract RHonk is IHonkVerifier {
-    function verify(bytes calldata, bytes32[] calldata) external pure returns (bool) {
-        return true;
-    }
-}
-
-contract RRoots is IGoogleJwtRoots {
-    function trustedHashExpiresAt(bytes32) external pure returns (uint256) {
-        return 0;
-    }
-}
+import {TrustingJwtRoots} from "./TrustingJwtRoots.sol";
 
 /// @notice Every deployed contract survives an upgrade, refuses one from a
 ///         stranger, and cannot be initialized twice or on its implementation.
@@ -44,7 +34,7 @@ contract UpgradeSafetyTest is Test {
     bytes32 constant REENTRANCY_SLOT = 0x9b779b17422d0df92223018b32b4d1fa46e071723d6817e2486d003becc55f00;
     bytes32 constant REGISTRY_ROOT = 0x3e5d6a26bfa3232a8c483e2003eb4b3008d01c0d1cf6c69b6ad133fd72694000;
     bytes32 constant ROOTS_ROOT = 0x7f78ff13201a03086d4b08e3085224c34a9fc247d0f67d11acd0db52976eb300;
-    bytes32 constant X = HandleVectors.PLATFORM_X;
+    bytes32 constant X = HandlePlatforms.PLATFORM_X;
 
     function _slot(string memory ns) internal pure returns (bytes32) {
         return keccak256(abi.encode(uint256(keccak256(bytes(ns))) - 1)) & ~bytes32(uint256(0xff));
@@ -139,7 +129,7 @@ contract UpgradeSafetyTest is Test {
 
     function test_upgrade_XPlatformVerifier() public {
         NotaryService ns = _notaryService();
-        RHonk honk = new RHonk();
+        IHonkVerifier honk = IHonkVerifier(HonkStub.deploy(HonkStub.X));
         XPlatformVerifier impl = new XPlatformVerifier();
         vm.expectRevert(Initializable.InvalidInitialization.selector);
         impl.initialize(OWNER, ns, honk, address(honk).codehash);
@@ -173,7 +163,7 @@ contract UpgradeSafetyTest is Test {
 
     function test_upgrade_GitHubPlatformVerifier() public {
         NotaryService ns = _notaryService();
-        RHonk honk = new RHonk();
+        IHonkVerifier honk = IHonkVerifier(HonkStub.deploy(HonkStub.GITHUB));
         GitHubPlatformVerifier impl = new GitHubPlatformVerifier();
         vm.expectRevert(Initializable.InvalidInitialization.selector);
         impl.initialize(OWNER, ns, honk, address(honk).codehash);
@@ -203,8 +193,8 @@ contract UpgradeSafetyTest is Test {
     // ─── Google ─────────────────────────────────────────────────────
 
     function test_upgrade_GooglePlatformVerifier() public {
-        RHonk honk = new RHonk();
-        RRoots roots = new RRoots();
+        IHonkVerifier honk = IHonkVerifier(HonkStub.deploy(HonkStub.GOOGLE));
+        TrustingJwtRoots roots = new TrustingJwtRoots();
         GooglePlatformVerifier impl = new GooglePlatformVerifier();
         vm.expectRevert(Initializable.InvalidInitialization.selector);
         impl.initialize(OWNER, INotaryService(address(0)), honk, address(honk).codehash, roots);
@@ -386,17 +376,16 @@ contract UpgradeSafetyTest is Test {
                 ceremonyVersion: 1,
                 operationDomain: keccak256(bytes("libid.claim-identity")),
                 authorizationNonce: bytes32(nonce),
-                transactionData: abi.encode(who, uint256(0), address(0))
+                transactionData: abi.encode(who, uint256(0), address(0)),
+                handle: "alice"
             })
         );
         vm.prank(who);
-        registry.bind(X, 1, payload, true);
+        registry.bind(X, 1, payload);
     }
 
     function test_upgrade_IdentityRegistry() public {
         _registry();
-        vm.prank(OWNER);
-        registry.setPlatform(X, HandleVectors.rulesFor(X));
         _bindAs(alice, 1);
         bytes32 digest = stub.lastDigest();
 
@@ -407,18 +396,18 @@ contract UpgradeSafetyTest is Test {
         registry.upgradeToAndCall(address(impl2), "");
         assertEq(_implOf(address(registry)), address(impl2));
 
-        assertEq(registry.resolveId(X, "2244994945"), alice);
+        assertEq(registry.resolveId(TestNodes.idNode(X, "2244994945")), alice);
         assertEq(registry.resolveHandle(X, "alice"), alice);
         assertEq(registry.publishedHandleOf(alice, X), "alice");
         assertEq(registry.identityCount(alice), 1);
-        assertEq(registry.identitiesOf(alice, 0, 1)[0].handle, "alice");
+        assertEq(registry.identitiesOf(alice, 0, 1)[0].handleNode, TestNodes.handleNode(X, "alice"));
         assertTrue(registry.digestSpent(digest));
         assertEq(address(registry.proofVerifier()), address(proofVerifier));
         assertEq(registry.owner(), OWNER);
         // and the contract still works after the upgrade (newer watermark)
         stub.setObservedAt(1_780_000_000);
         _bindAs(alice, 2);
-        (, uint64 at) = registry.idBinding(IdentityNodes.idNode(X, "2244994945"));
+        (, uint64 at) = registry.idBinding(TestNodes.idNode(X, "2244994945"));
         assertEq(at, 1_780_000_000);
     }
 
@@ -426,36 +415,20 @@ contract UpgradeSafetyTest is Test {
         _bindAs(who, nonce);
     }
 
-    /// The four fields the lists added sit at namespace words +9 to +12, after
-    /// `spentDigests` at +8. A field slipped in ahead of them would pass every
-    /// functional test on a fresh deployment and read a live proxy's lists out
-    /// of the wrong words.
+    /// The list's words sit at namespace words +8 and +9, after `spentDigests`
+    /// at +7, and `platformOfId` at +10.
     function test_theListsSitAtTheWordsAfterEveryOlderField() public {
         _registry();
-        vm.prank(OWNER);
-        registry.setPlatform(X, HandleVectors.rulesFor(X));
         _bindAs(alice, 1);
 
         uint256 root = uint256(REGISTRY_ROOT);
-        bytes32 idNode = IdentityNodes.idNode(X, "2244994945");
-        bytes32 handleNode = IdentityNodes.handleNode(X, "alice");
+        bytes32 idNode = TestNodes.idNode(X, "2244994945");
 
-        bytes32 list = keccak256(abi.encode(alice, root + 9));
+        bytes32 list = keccak256(abi.encode(alice, root + 8));
         assertEq(uint256(vm.load(address(registry), list)), 1, "nodes: the list holds one identity");
         assertEq(vm.load(address(registry), keccak256(abi.encode(list))), idNode, "nodes: and it is this one");
-        assertEq(uint256(vm.load(address(registry), keccak256(abi.encode(idNode, root + 10)))), 1, "position");
-        bytes32 key = keccak256(abi.encode(idNode, root + 11));
-        assertEq(vm.load(address(registry), key), X, "idPreimages: the platform");
-        assertEq(
-            vm.load(address(registry), bytes32(uint256(key) + 1)),
-            abi.decode(abi.encodePacked("2244994945", new bytes(21), hex"14"), (bytes32)),
-            "idPreimages: the id, a short string with its doubled length in the low byte"
-        );
-        assertEq(
-            vm.load(address(registry), keccak256(abi.encode(handleNode, root + 12))),
-            abi.decode(abi.encodePacked("alice", new bytes(26), hex"0a"), (bytes32)),
-            "handlePreimages"
-        );
+        assertEq(uint256(vm.load(address(registry), keccak256(abi.encode(idNode, root + 9)))), 1, "position");
+        assertEq(vm.load(address(registry), keccak256(abi.encode(idNode, root + 10))), X, "platformOfId");
     }
 
     /// `Binding` once carried a `version` (uint32 at byte offset 28). Stale bits
@@ -464,9 +437,7 @@ contract UpgradeSafetyTest is Test {
     /// write path never made has no list entry for another wallet to take over.
     function test_bindingStaleVersionWordIsIgnored() public {
         _registry();
-        vm.prank(OWNER);
-        registry.setPlatform(X, HandleVectors.rulesFor(X));
-        bytes32 idNode = IdentityNodes.idNode(X, "2244994945");
+        bytes32 idNode = TestNodes.idNode(X, "2244994945");
         bytes32 slot = keccak256(abi.encode(idNode, uint256(REGISTRY_ROOT) + 0));
         address bob = address(0xB0B);
         uint256 word = uint256(uint160(bob)) | (uint256(1_900_000_000) << 160) | (uint256(7) << 224);

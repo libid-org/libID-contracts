@@ -1,50 +1,28 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-/// @notice Turns a platform handle into the one form the identity system
-///         hashes into a node.
-///
-/// @dev The transform is closed. It reads bytes, it does not fold Unicode, and
-///      it never consults a table outside this file. Handles on the supported
-///      platforms are ASCII, so a closed transform gives Solidity, Rust and
-///      TypeScript the same answer with no shared library between them.
-///
-///      Normalization runs on the write path, not only in a client. The handle
-///      arrives inside a proof, so the contract must derive the node itself. A
-///      caller that supplied a pre-hashed node could name any handle it liked.
-///
-///      Every rule below is exercised by the vector table in
-///      `contracts/identity/handles.json`, which Rust and TypeScript run too.
+/// @notice Turns a handle a caller typed into the one form the identity
+///         circuits hash into a node.
+/// @dev Folds A-Z to a-z and refuses anything else outside the rules; never trims.
+///      Must match the circuits byte for byte: `handles.json` vectors test both.
 library HandleNormalizer {
-    /// Nothing is left after the transform.
-    error EmptyHandle();
-    /// More bytes than the platform allows.
-    error HandleTooLong();
-    /// A byte the platform does not allow.
-    error BadCharacter();
-    /// Allowed bytes in an arrangement the platform does not allow.
-    error BadShape();
+    /// Text the platform's rules refuse, with the reason.
+    error UnusableHandle(Problem problem);
 
-    /// @notice What one platform accepts. Stored per platform, so a new
-    ///         platform is configuration rather than code.
-    ///
-    /// @param maxLength       Bytes allowed after trimming and the `@` strip.
-    /// @param stripLeadingAt  Remove one leading `@`. X and GitHub do. An email
-    ///                        keeps its own `@`, so Google does not.
+    /// @notice What one platform accepts; see `HandlePlatforms` for each platform's.
+    /// @param maxLength       Bytes allowed.
     /// @param isEmail         Validate as an address instead of a bare handle.
     /// @param allowUnderscore Allowed by X, not by GitHub.
     /// @param allowHyphen     Allowed by GitHub, not by X. A hyphen may not
     ///                        start or end the handle, and two may not touch.
     struct Rules {
         uint16 maxLength;
-        bool stripLeadingAt;
         bool isEmail;
         bool allowUnderscore;
         bool allowHyphen;
     }
 
-    /// @notice What was wrong with a handle, for the readers that answer rather
-    ///         than revert.
+    /// @notice What was wrong with a handle.
     enum Problem {
         None,
         Empty,
@@ -53,57 +31,27 @@ library HandleNormalizer {
         Shape
     }
 
-    /// @notice The normalized handle, or a revert naming what was wrong.
-    ///
-    /// @dev The write path. A handle that arrives inside a proof and does not
-    ///      normalize is a broken proof, and failing loudly is right.
+    /// @notice The normalized handle, or `UnusableHandle` naming what was wrong.
     function normalize(string memory raw, Rules memory rules) internal pure returns (string memory out) {
         Problem problem;
         (problem, out) = tryNormalize(raw, rules);
-        if (problem == Problem.Empty) revert EmptyHandle();
-        if (problem == Problem.TooLong) revert HandleTooLong();
-        if (problem == Problem.BadChar) revert BadCharacter();
-        if (problem == Problem.Shape) revert BadShape();
+        if (problem != Problem.None) revert UnusableHandle(problem);
     }
 
     /// @notice The same transform, reporting instead of reverting.
-    ///
-    /// @dev The read path. A resolver is asked "who holds this text", and text
-    ///      nobody could hold answers "nobody". A caller resolving whatever
-    ///      was typed must be able to tell that from a platform it cannot
-    ///      reach, and a stray space in a recipient field must not revert the
-    ///      transaction around it.
     function tryNormalize(string memory raw, Rules memory rules)
         internal
         pure
         returns (Problem problem, string memory normalized)
     {
         bytes memory input = bytes(raw);
-
-        // Trim ASCII spaces only. A tab or a newline is not whitespace to be
-        // removed here; it is a byte the platform does not allow, and the
-        // character check below refuses it. Trimming it instead would accept
-        // "ali\tce" as "alice" in one language and refuse it in another.
-        uint256 start = 0;
-        uint256 end = input.length;
-        while (start < end && input[start] == 0x20) {
-            start++;
-        }
-        while (end > start && input[end - 1] == 0x20) {
-            end--;
-        }
-
-        if (rules.stripLeadingAt && end > start && input[start] == 0x40) {
-            start++;
-        }
-
-        uint256 length = end - start;
+        uint256 length = input.length;
         if (length == 0) return (Problem.Empty, "");
         if (length > rules.maxLength) return (Problem.TooLong, "");
 
         bytes memory out = new bytes(length);
         for (uint256 i = 0; i < length; i++) {
-            bytes1 c = input[start + i];
+            bytes1 c = input[i];
             // Fold A-Z down. Nothing else changes, so two addresses that differ
             // in more than case stay two identities.
             if (c >= 0x41 && c <= 0x5A) {
@@ -121,8 +69,8 @@ library HandleNormalizer {
         return (Problem.None, string(out));
     }
 
-    /// @dev One byte, after folding. Anything outside the platform's set is a
-    ///      `BadCharacter`, including every byte above 0x7f, so a multi-byte
+    /// @dev One byte, after folding. Anything outside the platform's set is
+    ///      `Problem.BadChar`, including every byte above 0x7f, so a multi-byte
     ///      character can never reach a node.
     function _allowed(bytes1 c, Rules memory rules) private pure returns (bool) {
         if (c >= 0x61 && c <= 0x7A) return true; // a-z
@@ -158,5 +106,31 @@ library HandleNormalizer {
             if (value[i] == 0x2D && value[i - 1] == 0x2D) return false;
         }
         return true;
+    }
+
+    /// @notice A handle, normalized, and its node. Reverts as `normalize` does.
+    function nodeOf(string memory raw, Rules memory rules, bytes memory tag)
+        internal
+        pure
+        returns (string memory normalized, bytes32 handleNode)
+    {
+        normalized = normalize(raw, rules);
+        handleNode = node(tag, normalized);
+    }
+
+    /// @notice `nodeOf`, reporting instead of reverting.
+    function tryNodeOf(string memory raw, Rules memory rules, bytes memory tag)
+        internal
+        pure
+        returns (Problem problem, bytes32 handleNode)
+    {
+        string memory normalized;
+        (problem, normalized) = tryNormalize(raw, rules);
+        if (problem == Problem.None) handleNode = node(tag, normalized);
+    }
+
+    /// @notice `SHA256(tag || normalized)`: the node a normalized handle is bound under.
+    function node(bytes memory tag, string memory normalized) internal pure returns (bytes32) {
+        return sha256(abi.encodePacked(tag, normalized));
     }
 }

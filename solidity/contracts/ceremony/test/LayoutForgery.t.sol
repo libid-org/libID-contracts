@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
+import {HonkStub} from "./HonkStub.sol";
+import {TlsNotaryProof} from "../CeremonyPayloads.sol";
 import {Test} from "forge-std/Test.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
@@ -12,16 +14,11 @@ import {ICeremony} from "../ICeremony.sol";
 import {INotaryService} from "../INotaryService.sol";
 import {NotaryService} from "../NotaryService.sol";
 import {IHonkVerifier} from "../PlatformVerifierBase.sol";
-import {TlsNotaryVerifierBase} from "../TlsNotaryVerifierBase.sol";
 import {XPlatformVerifier} from "../XPlatformVerifier.sol";
 
-contract Honk3 is IHonkVerifier {
-    function verify(bytes calldata, bytes32[] calldata) external pure returns (bool) {
-        return true;
-    }
-}
-
 contract LayoutForgeryTest is Test {
+    using AttestationBuilder for AttestationBuilder.Direction;
+
     XPlatformVerifier verifier;
     NotaryService notary;
     uint256 quote;
@@ -49,7 +46,7 @@ contract LayoutForgeryTest is Test {
                 )
             )
         );
-        address honkAddr = address(new Honk3());
+        address honkAddr = HonkStub.deploy(HonkStub.X);
         XPlatformVerifier vImpl = new XPlatformVerifier();
         verifier = XPlatformVerifier(
             address(
@@ -64,12 +61,6 @@ contract LayoutForgeryTest is Test {
         );
         quote = verifier.quote();
         vm.deal(address(this), 100 ether);
-    }
-
-    function _sign(bytes memory attested) private pure returns (bytes memory) {
-        bytes32 ethHash = keccak256(abi.encodePacked("\x19Ethereum Signed Message:\n32", keccak256(attested)));
-        (uint8 v, bytes32 r, bytes32 s) = vm.sign(NOTARY_KEY, ethHash);
-        return abi.encodePacked(r, s, v);
     }
 
     /// Wholly honest token session. ONE revealed sent range, which is what
@@ -123,7 +114,7 @@ contract LayoutForgeryTest is Test {
         });
 
         bytes memory attested = AttestationBuilder.encode(CeremonyProfile.AUTHORITY_X_API, T0, sent, received);
-        return ICeremony.Attestation({attestedData: attested, proof: _sign(attested)});
+        return ICeremony.Attestation({attestedData: attested, proof: AttestationBuilder.sign(NOTARY_KEY, attested)});
     }
 
     /// The identity session. The SENT side is wholly honest and exactly
@@ -147,7 +138,7 @@ contract LayoutForgeryTest is Test {
         returns (ICeremony.Attestation memory)
     {
         bytes memory head = abi.encodePacked(
-            "GET /2/users/me HTTP/1.1\r\nhost: api.x.com\r\n", "\r\nauthorization: Bearer "
+            "GET /2/users/me HTTP/1.1\r\nhost: api.x.com", "\r\nauthorization: Bearer "
         );
         bytes memory bearer = "TOKENTOKENTOKEN";
         bytes memory tail = "\r\n\r\n";
@@ -164,14 +155,14 @@ contract LayoutForgeryTest is Test {
             length: sentLen
         });
         bytes memory attested = AttestationBuilder.encode(CeremonyProfile.AUTHORITY_X_API, T0, sent, received);
-        return ICeremony.Attestation({attestedData: attested, proof: _sign(attested)});
+        return ICeremony.Attestation({attestedData: attested, proof: AttestationBuilder.sign(NOTARY_KEY, attested)});
     }
 
     function _txData() private pure returns (bytes memory) {
         return abi.encode(address(0xBEEF));
     }
 
-    function _submission() private pure returns (TlsNotaryVerifierBase.TlsNotaryProof memory s) {
+    function _submission() private pure returns (TlsNotaryProof memory s) {
         s.ceremonyVersion = 1;
         s.operationDomain = DOMAIN;
         s.authorizationNonce = AUTH_NONCE;
@@ -179,32 +170,14 @@ contract LayoutForgeryTest is Test {
         s.proof = hex"00";
     }
 
-    function run(TlsNotaryVerifierBase.TlsNotaryProof memory s)
-        external
-        payable
-        returns (ICeremony.VerifiedClaim memory)
-    {
+    function run(TlsNotaryProof memory s) external payable returns (ICeremony.VerifiedClaim memory) {
         return verifier.verify{value: msg.value}(abi.encode(s));
     }
 
     /// A response whose revealed ranges are spliced must not read as a document.
-    ///
-    /// @dev Was: returned userId 44196397, spliced out of the display name,
-    ///      while the account's real id is 999. Reading fields from a
-    ///      CONCATENATION of revealed ranges discarded every offset, so
-    ///      disjoint fragments joined into a document that never existed on the
-    ///      wire -- and the duplicate-delimiter check had nothing to fire on,
-    ///      because the genuine member was not in the buffer at all.
-    ///
-    ///      COVERAGE is what closes it, and that is worth being exact about.
-    ///      The fragments have to be disjoint for the splice to say anything
-    ///      new, and disjoint means a gap -- which `requireExactCoverage`
-    ///      refuses before any reader runs. The per-range read is the second
-    ///      line, for a TILED response whose members sit in different ranges;
-    ///      `XPlatformVerifier.t.sol` proves that one, because it cannot be
-    ///      reached from here.
+    /// @dev The gap between the fragments fails `requireExactCoverage`.
     function test_aSplicedResponseCannotForgeAnIdentity() public {
-        TlsNotaryVerifierBase.TlsNotaryProof memory s = _submission();
+        TlsNotaryProof memory s = _submission();
         s.tokenSession = _honestToken();
         s.identitySession = _identity(_seamIdentity());
         vm.expectPartialRevert(CeremonyAttestation.CoverageGap.selector);
@@ -249,21 +222,18 @@ contract LayoutForgeryTest is Test {
             length: total
         });
         bytes memory attested = AttestationBuilder.encode(CeremonyProfile.AUTHORITY_X_API, T0, sent, received);
-        return ICeremony.Attestation({attestedData: attested, proof: _sign(attested)});
+        return ICeremony.Attestation({attestedData: attested, proof: AttestationBuilder.sign(NOTARY_KEY, attested)});
     }
 
     function _honestIdentityRecv() private pure returns (AttestationBuilder.Direction memory received) {
-        bytes memory body = '{"data":{"id":"2244994945","username":"alice"}}';
-        received = AttestationBuilder.Direction({
-            revealed: AttestationBuilder.one(AttestationBuilder.Range({start: 0, value: body})),
-            commitments: AttestationBuilder.none(),
-            length: uint32(body.length)
-        });
+        received.commit('{"data":{', bytes32(uint256(0x5555))).reveal('"id":"')
+            .commit("2244994945", bytes32(uint256(0x3333))).reveal('","username":"')
+            .commit("alice", bytes32(uint256(0x4444))).reveal('"').commit("}}", bytes32(uint256(0x5555)));
     }
 
     /// The request line must BEGIN the transcript, not merely be listed first.
     function test_aPlantedRequestLineIsRejected() public {
-        TlsNotaryVerifierBase.TlsNotaryProof memory s = _submission();
+        TlsNotaryProof memory s = _submission();
         s.tokenSession = _unanchoredToken();
         s.identitySession = _identity(_honestIdentityRecv());
         // Was: returned clientIdentifier "victimapp", read out of a header value

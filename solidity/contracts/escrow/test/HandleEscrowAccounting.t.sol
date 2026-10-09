@@ -9,8 +9,9 @@ import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.s
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 import {HandleEscrow, NATIVE_TOKEN} from "../HandleEscrow.sol";
-import {IdentityNodes} from "../../identity/IdentityNodes.sol";
+import {HandlePlatforms} from "../../handles/HandlePlatforms.sol";
 import {IIdentityRegistry} from "../../identity/IIdentityRegistry.sol";
+import {TestNodes} from "../../identity/test/TestNodes.sol";
 import {FeeToken, NoReturnToken, SettableRegistry, TestERC20, one} from "./EscrowMocks.sol";
 
 // The native token as the escrow names it.
@@ -19,14 +20,13 @@ address constant NATIVE = NATIVE_TOKEN;
 /// @notice Drives random deposits, refunds, joins, retirements and claims, and models each
 ///         `refundTo`'s refundable contribution.
 contract EscrowHandler is CommonBase, StdCheats, StdUtils {
-    bytes32 internal constant PLATFORM = keccak256("x");
+    bytes32 internal constant PLATFORM = HandlePlatforms.PLATFORM_X;
     uint256 internal constant TOKENS = 4;
 
     HandleEscrow public immutable ESCROW;
     SettableRegistry public immutable REGISTRY;
     address[3] public depositors;
     address[TOKENS] public tokens;
-    bytes32[2] public hashes;
     bytes32[2] public nodes;
     address[2] public holders;
 
@@ -37,9 +37,7 @@ contract EscrowHandler is CommonBase, StdCheats, StdUtils {
         (ESCROW, REGISTRY) = (escrow_, registry_);
         depositors = [makeAddr("depositor 1"), makeAddr("depositor 2"), makeAddr("depositor 3")];
         tokens = [NATIVE, address(new TestERC20()), address(new FeeToken()), address(new NoReturnToken())];
-        hashes = [keccak256("node a"), keccak256("node b")];
-        nodes =
-            [IdentityNodes.handleNodeOfHash(PLATFORM, hashes[0]), IdentityNodes.handleNodeOfHash(PLATFORM, hashes[1])];
+        nodes = [TestNodes.handleNode(PLATFORM, "alice"), TestNodes.handleNode(PLATFORM, "bob")];
         holders = [makeAddr("holder 1"), makeAddr("holder 2")];
     }
 
@@ -62,7 +60,7 @@ contract EscrowHandler is CommonBase, StdCheats, StdUtils {
             NoReturnToken(token).approve(address(ESCROW), amount);
         }
         vm.prank(from);
-        ESCROW.deposit{value: token == NATIVE ? amount : 0}(PLATFORM, hashes[nodeSeed % 2], token, amount, refundTo);
+        ESCROW.deposit{value: token == NATIVE ? amount : 0}(node, token, amount, refundTo);
         if (REGISTRY.holderOf(node) == address(0)) modelled[node][token][refundTo] += delivered;
     }
 

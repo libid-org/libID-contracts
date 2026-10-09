@@ -9,6 +9,7 @@ import {CeremonyAttestation} from "./CeremonyAttestation.sol";
 import {CeremonyProfile} from "./CeremonyProfile.sol";
 import {ICeremony} from "./ICeremony.sol";
 import {INotaryService} from "./INotaryService.sol";
+import {HandlePlatforms} from "../handles/HandlePlatforms.sol";
 
 /// @dev The bb-generated proof verifier for this platform's circuit.
 interface IHonkVerifier {
@@ -83,6 +84,10 @@ abstract contract PlatformVerifierBase is ICeremony, Initializable, UUPSUpgradea
     error ZeroAddress();
     /// @dev The verifier at that address is not the artifact governance named.
     error WrongVerifierArtifact(bytes32 expected, bytes32 found);
+    /// @dev The verifier at that address is not this platform's circuit's.
+    error WrongCircuit(bytes32 expected, bytes32 found);
+    /// @dev The disclosed handle does not hash to the proof's handle node.
+    error HandleNotProved(bytes32 disclosed, bytes32 proved);
 
     // OpenZeppelin's initializer convention -- `__Contract_init`, so a child's
     // initializer reads which base each call sets up -- over mixedCase.
@@ -115,6 +120,11 @@ abstract contract PlatformVerifierBase is ICeremony, Initializable, UUPSUpgradea
         return _base().honkVerifierCodehash;
     }
 
+    /// @notice The runtime code hash of this platform's vendored circuit verifier.
+    function circuitCodehash() external pure returns (bytes32) {
+        return _circuitCodehash();
+    }
+
     /// @notice The validity window this verifier enforces, in seconds: the
     ///         values its profile fixes (REQ-PARAM-01).
     function protocolParameters()
@@ -125,11 +135,8 @@ abstract contract PlatformVerifierBase is ICeremony, Initializable, UUPSUpgradea
         return (_proofLifetime(), _maxFutureAttestationSkew(), _futureObservationAllowance());
     }
 
-    /// @dev The caller names the artifact it means to wire, by code hash, and
-    ///      the call fails if the address does not hold it. REQ-COMMON-45 asks
-    ///      for the EXACT artifact governance selected; an address alone does
-    ///      not say which circuit answers behind it, and a mismatch found at
-    ///      the first user's proof is found in production.
+    /// @dev The Honk verifier must hold `honkVerifierCodehash_` (REQ-COMMON-45)
+    ///      and be this platform's circuit's, `circuitCodehash()` (`WrongCircuit`).
     function setTrustRoots(INotaryService notary_, IHonkVerifier honkVerifier_, bytes32 honkVerifierCodehash_)
         external
         onlyOwner
@@ -140,6 +147,18 @@ abstract contract PlatformVerifierBase is ICeremony, Initializable, UUPSUpgradea
     /// @dev The platform this verifier answers for. Asked during
     ///      initialization, so it must not read storage.
     function _platform() internal pure virtual returns (bytes32);
+
+    /// @dev This platform's `CircuitCodehashes` constant.
+    function _circuitCodehash() internal pure virtual returns (bytes32);
+
+    /// @dev The disclosed handle, normalized, or empty for a private submission.
+    ///      Reverts unless it hashes to `handleNode` under the platform's rules.
+    function _disclosed(string memory handle, bytes32 handleNode) internal pure returns (string memory normalized) {
+        if (bytes(handle).length == 0) return "";
+        bytes32 node;
+        (normalized, node) = HandlePlatforms.handleNodeOf(_platform(), handle);
+        if (node != handleNode) revert HandleNotProved(node, handleNode);
+    }
 
     /// @dev The ceremony version this verifier implements: the protocol
     ///      revision the Authorization Digest binds, hardcoded here because it
@@ -205,6 +224,8 @@ abstract contract PlatformVerifierBase is ICeremony, Initializable, UUPSUpgradea
         }
         bytes32 found = address(honkVerifier_).codehash;
         if (found != honkVerifierCodehash_) revert WrongVerifierArtifact(honkVerifierCodehash_, found);
+        bytes32 circuit = _circuitCodehash();
+        if (found != circuit) revert WrongCircuit(circuit, found);
 
         _base().notary = notary_;
         _base().honkVerifier = honkVerifier_;

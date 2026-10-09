@@ -10,7 +10,7 @@ it, then run this script. Up to three files are written and never drift apart:
 
 An output is skipped with a note until its target directory appears. The
 Platform Verifiers are hand written in Solidity and READ these constants, the
-way `HandleNormalizer` reads `HandleVectors`. Only the values come from here.
+way `IdentityRegistry` reads `HandlePlatforms`. Only the values come from here.
 That is the point: four components must produce the same bytes, and a
 disagreement between them is silent -- a Consumer dispatching on one string and
 a verifier registered under another simply never meet.
@@ -475,8 +475,8 @@ def gen_sol(spec: dict[str, Any]) -> str:
 
     lines += [
         "",
-        "    /// @dev The two identity members a Platform Verifier reads out of the",
-        "    ///      revealed response bytes (REQ-PLAT-51).",
+        "    /// @dev The two identity members a Platform Verifier finds as",
+        "    ///      commitments by their revealed anchors (REQ-PLAT-51).",
         "",
     ]
     for profile in profiles:
