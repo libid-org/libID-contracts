@@ -257,6 +257,10 @@ contract IdentityRegistry is
         return (b.holder, b.observedAt);
     }
 
+    function nodeKeyed() external pure returns (bool) {
+        return true;
+    }
+
     // ─── Events ─────────────────────────────────────────────────────
 
     /// @notice An identity was bound. It carries the two nodes and nothing

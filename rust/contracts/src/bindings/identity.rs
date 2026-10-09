@@ -42,6 +42,8 @@ mod registry_inner {
             /// The holder that last proved a handle node, and when. A zero
             /// holder: nobody proved it, or it was retired.
             function handleBinding(bytes32 handleNode) external view returns (address holder, uint64 observedAt);
+            /// True: identities are keyed by the nodes a circuit outputs.
+            function nodeKeyed() external pure returns (bool);
             /// The operation domain a binding's authorization names.
             function OPERATION_DOMAIN() external view returns (bytes32);
 

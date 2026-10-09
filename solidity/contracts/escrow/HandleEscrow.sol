@@ -300,26 +300,20 @@ contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable
         if (!ok) revert NativeTransferFailed(to, amount);
     }
 
-    /// @dev `IdentityRegistry.resolveId(bytes32 idNode)`: a function only the
-    ///      registry that keys identities by node has. The registry before it
-    ///      answers `handleBinding` in the same shape, under keys that are not
-    ///      the nodes a depositor pays, so the one call the escrow makes cannot
-    ///      tell the two apart. The escrow never calls this; it is probed
-    ///      once, by selector, at initialization, and so is not on
-    ///      `IIdentityRegistry`.
-    bytes4 private constant NODE_REGISTRY_PROBE = bytes4(keccak256("resolveId(bytes32)"));
-
     /// @dev Refuses a registry that does not answer the one call the escrow
-    ///      makes in its shape, a two-word binding, or that does not answer
-    ///      `NODE_REGISTRY_PROBE` with one word.
+    ///      makes in its shape, a two-word binding, or that does not state
+    ///      `nodeKeyed()`. The registry before it answers `handleBinding` in
+    ///      the same shape, under keys that are not the nodes a depositor pays.
     function _requireAnswers(IIdentityRegistry registry_) private view {
         (bool ok, bytes memory result) =
             address(registry_).staticcall(abi.encodeCall(IIdentityRegistry.handleBinding, (bytes32(0))));
         if (!ok || result.length != 64) {
             revert RegistryLacks(address(registry_), IIdentityRegistry.handleBinding.selector);
         }
-        (ok, result) = address(registry_).staticcall(abi.encodeWithSelector(NODE_REGISTRY_PROBE, bytes32(0)));
-        if (!ok || result.length != 32) revert RegistryLacks(address(registry_), NODE_REGISTRY_PROBE);
+        (ok, result) = address(registry_).staticcall(abi.encodeCall(IIdentityRegistry.nodeKeyed, ()));
+        if (!ok || result.length != 32 || abi.decode(result, (uint256)) != 1) {
+            revert RegistryLacks(address(registry_), IIdentityRegistry.nodeKeyed.selector);
+        }
     }
 
     // ─── Upgrade ────────────────────────────────────────────────────

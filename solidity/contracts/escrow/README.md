@@ -46,8 +46,8 @@ escrow.refund(handleNode, token, recipient);   // refundTo, while unclaimed
 ## Deploying
 
 - `initialize` reverts `RegistryLacks` unless the registry answers
-  `handleBinding`, and `resolveId(bytes32)`, which only the registry that
-  keys identities by node has. The escrow is deployed against that registry;
+  `handleBinding`, and `nodeKeyed()` with true, which only the registry that
+  keys identities by node does. The escrow is deployed against that registry;
   one deployed against the registry before it is not upgraded onto it.
 - The escrow keeps that `IdentityRegistry` for life. There is no setter, so no
   key can point claims elsewhere; deploy the escrow once the registry sits at
