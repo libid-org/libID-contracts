@@ -19,8 +19,7 @@ must match what the table states: the stored nodes are the independent
 reference every language is tested against, so a wrong one is refused before
 it is copied anywhere.
 
-An output is skipped with a note until its target directory appears. The normalizer
-itself is hand written in each language. Only the constants and the vectors
+The normalizer itself is hand written in each language. Only the constants and the vectors
 come from here. That is the point: several implementations, one vector table,
 so a difference between them fails a test instead of writing a different key
 on chain.
@@ -45,9 +44,6 @@ SOURCE = SOLIDITY_ROOT / "contracts" / "handles" / "handles.json"
 
 SOL_OUT = SOLIDITY_ROOT / "contracts" / "handles" / "HandlePlatforms.sol"
 SOL_VECTORS_OUT = SOLIDITY_ROOT / "contracts" / "handles" / "HandleVectors.sol"
-# An output is skipped (with a note) while its parent directory is absent, so
-# `--check` holds only the outputs that exist to account. Both the Rust and
-# the TypeScript packages are live today.
 RUST_OUT = REPO_ROOT / "rust" / "identity" / "src" / "handle_vectors.rs"
 TS_OUT = REPO_ROOT / "ts" / "packages" / "contracts" / "src" / "identity" / "handleVectors.ts"
 
@@ -104,33 +100,26 @@ def check_tags(spec: dict[str, Any]) -> None:
 
 
 def check_nodes(spec: dict[str, Any]) -> None:
-    """Refuse a table whose stored nodes are not SHA256(tag || value)."""
+    """Refuse a table whose stored nodes are not SHA256(tag || value).
+
+    A handle vector is hashed by its output under the handle tag, an id
+    vector by its input under the user-id tag; a refused vector of either
+    kind carries no node.
+    """
     tags = {p["key"]: p["tags"] for p in spec["platforms"]}
-    for vec in spec["vectors"]:
-        if "output" not in vec:
-            if "handleNode" in vec:
-                raise SystemExit(f"ERROR: refused vector {vec['input']!r} carries a node")
+    cases = [(vec, "handle", "handleNode", vec.get("output")) for vec in spec["vectors"]] + [
+        (vec, "userId", "idNode", None if "error" in vec else vec["input"]) for vec in spec["idVectors"]
+    ]
+    for vec, tag, field, value in cases:
+        if value is None:
+            if field in vec:
+                raise SystemExit(f"ERROR: refused {vec['platform']} {vec['input']!r} carries {field}")
             continue
-        want = "0x" + hashlib.sha256(
-            (tags[vec["platform"]]["handle"] + vec["output"]).encode()
-        ).hexdigest()
-        if vec.get("handleNode") != want:
+        want = "0x" + hashlib.sha256((tags[vec["platform"]][tag] + value).encode()).hexdigest()
+        if vec.get(field) != want:
             raise SystemExit(
-                f"ERROR: {vec['platform']} {vec['input']!r}: handleNode is not "
-                f"SHA256(tag || output); expected {want}"
-            )
-    for vec in spec["idVectors"]:
-        if "error" in vec:
-            if "idNode" in vec:
-                raise SystemExit(f"ERROR: refused id {vec['input']!r} carries a node")
-            continue
-        want = "0x" + hashlib.sha256(
-            (tags[vec["platform"]]["userId"] + vec["input"]).encode()
-        ).hexdigest()
-        if vec.get("idNode") != want:
-            raise SystemExit(
-                f"ERROR: {vec['platform']} id {vec['input']!r}: idNode is not "
-                f"SHA256(tag || id); expected {want}"
+                f"ERROR: {vec['platform']} {vec['input']!r}: {field} is not "
+                f"SHA256(tag || value); expected {want}"
             )
 
 
@@ -944,26 +933,16 @@ def main() -> int:
             print(f"{path} matches handles.json {digest}")
         return 0
 
-    outputs = []
-    skipped = []
-    outputs.append((SOL_OUT, sol_formatted(gen_sol(spec, digest))))
-    outputs.append((SOL_VECTORS_OUT, sol_formatted(gen_sol_vectors(spec, digest))))
-    # Emit an output only once its package directory exists (both do today).
-    for path, gen in ((RUST_OUT, gen_rust), (TS_OUT, gen_ts)):
-        if path.parent.exists():
-            outputs.append((path, gen(spec, digest)))
-        else:
-            skipped.append(path)
+    outputs = [
+        (SOL_OUT, sol_formatted(gen_sol(spec, digest))),
+        (SOL_VECTORS_OUT, sol_formatted(gen_sol_vectors(spec, digest))),
+        (RUST_OUT, gen_rust(spec, digest)),
+        (TS_OUT, gen_ts(spec, digest)),
+    ]
     if args.noir_out is not None:
         table = args.noir_out.resolve()
         outputs.append((table, noir_formatted(gen_noir(spec, digest))))
         outputs.append((table.with_name("table_tests.nr"), noir_formatted(gen_noir_tests(spec, digest))))
-
-    for path in skipped:
-        print(
-            f"note: skipping {path.relative_to(REPO_ROOT)} — "
-            f"{path.parent.relative_to(REPO_ROOT)} does not exist yet"
-        )
 
     if args.check:
         stale = [

@@ -48,6 +48,13 @@ runs:
       shell: bash
       run: ./scripts/vendor-circuit-verifiers.sh
 
+    # The vendor step rewrites CircuitCodehashes.sol from the verifiers it
+    # just wrote, so the drift test in HonkVerifiers.t.sol would compare the
+    # file with itself. The committed file must be what the pin vendors.
+    - name: CircuitCodehashes.sol matches the vendored verifiers
+      shell: bash
+      run: git diff --exit-code solidity/contracts/circuits/CircuitCodehashes.sol
+
     # `solidity/lib/**` hashes the checked-out submodule trees, so bumping a
     # submodule pointer changes the key. The foundry version is in the key too:
     # artifacts embed solc metadata, and a stale `out/` from another compiler

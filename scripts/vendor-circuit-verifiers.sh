@@ -97,6 +97,13 @@ sha256() {
 
 [[ -f "$PIN" ]] || { echo "no pin at $PIN" >&2; exit 1; }
 
+# The pin's circuits, read once: each one's name, contract and tarball sha256
+# ("null" until a release is pinned).
+CIRCUITS=() CONTRACTS=() DIGESTS=()
+while IFS=$'\t' read -r circuit contract digest; do
+    CIRCUITS+=("$circuit") CONTRACTS+=("$contract") DIGESTS+=("$digest")
+done < <(jq -r '.circuits | to_entries[] | "\(.key)\t\(.value.contract)\t\(.value.sha256)"' "$PIN")
+
 # The circuit in `$1` was compiled from this repository's handle table.
 require_table() {
     local dir="$1" circuit="$2"
@@ -134,14 +141,14 @@ write_verifier() {
 # compiler settings alone) and hashed as EXTCODEHASH reports a deployed copy
 # -- bb's verifier has no immutables. Only the verifiers are compiled, so a
 # stale or missing constants file never stands in the way of writing a new
-# one. `forge test` (CircuitCodehashes.t.sol) fails when the committed file
-# and the vendored verifiers disagree.
+# one. `forge test` (HonkVerifiers.t.sol) fails when the committed file and
+# the vendored verifiers disagree.
 write_codehashes() {
-    local origin="$1" out="$DEST/$CODEHASHES" circuit contract name hash
+    local origin="$1" out="$DEST/$CODEHASHES" i name hash
     local -a sources=()
-    while IFS=$'\t' read -r circuit contract; do
-        sources+=("$DEST_REL/$contract.sol")
-    done < <(jq -r '.circuits | to_entries[] | "\(.key)\t\(.value.contract)"' "$PIN")
+    for i in "${!CIRCUITS[@]}"; do
+        sources+=("$DEST_REL/${CONTRACTS[$i]}.sol")
+    done
     (cd "$SOLIDITY" && forge build "${sources[@]}" >/dev/null)
     {
         echo "// SPDX-License-Identifier: MIT"
@@ -153,12 +160,12 @@ write_codehashes() {
         echo "///         EXTCODEHASH reports at any deployed copy. A Platform Verifier pins"
         echo "///         its own circuit's and refuses every other verifier."
         echo "library CircuitCodehashes {"
-        while IFS=$'\t' read -r circuit contract; do
-            name="$(tr 'a-z-' 'A-Z_' <<< "$circuit")"
-            hash="$(jq -r '.deployedBytecode.object' "$SOLIDITY/out/$contract.sol/$contract.json" | cast keccak)"
-            echo "    /// \`$contract\`, the \`$circuit\` circuit's verifier."
+        for i in "${!CIRCUITS[@]}"; do
+            name="$(tr 'a-z-' 'A-Z_' <<< "${CIRCUITS[$i]}")"
+            hash="$(jq -r '.deployedBytecode.object' "$SOLIDITY/out/${CONTRACTS[$i]}.sol/${CONTRACTS[$i]}.json" | cast keccak)"
+            echo "    /// \`${CONTRACTS[$i]}\`, the \`${CIRCUITS[$i]}\` circuit's verifier."
             echo "    bytes32 internal constant $name = $hash;"
-        done < <(jq -r '.circuits | to_entries[] | "\(.key)\t\(.value.contract)"' "$PIN")
+        done
         echo "}"
     } | (cd "$SOLIDITY" && forge fmt --raw -) > "$out"
     echo "==> runtime code hashes -> $DEST_REL/$CODEHASHES"
@@ -175,18 +182,22 @@ if [[ -n "$LOCAL" ]]; then
         commit="$(tr -cd '0-9a-f' < "$LOCAL/commit" | head -c 40)"
         [[ -n "$commit" ]] && origin="a local libid-circuits build of commit $commit"
     fi
-    while IFS=$'\t' read -r circuit contract; do
+    for i in "${!CIRCUITS[@]}"; do
+        circuit="${CIRCUITS[$i]}" contract="${CONTRACTS[$i]}"
         require_table "$LOCAL/$circuit" "$circuit"
         write_verifier "$LOCAL/$circuit/$contract.sol" "$contract" \
             "// UNRELEASED: $circuit, from $origin, by scripts/vendor-circuit-verifiers.sh --local.\n// Not pinned by circuits.json. Develop against it; never deploy it."
         echo "==> $circuit -> $DEST_REL/$contract.sol (local, unpinned)"
-    done < <(jq -r '.circuits | to_entries[] | "\(.key)\t\(.value.contract)"' "$PIN")
+    done
     cp "$STAGE"/*.sol "$DEST/"
     write_codehashes "$origin (unreleased, unpinned)"
     exit 0
 fi
 
-unreleased="$(jq -r '[.circuits | to_entries[] | select(.value.sha256 == null) | .key] | join(" ")' "$PIN")"
+unreleased=""
+for i in "${!CIRCUITS[@]}"; do
+    [[ "${DIGESTS[$i]}" != null ]] || unreleased+="${unreleased:+ }${CIRCUITS[$i]}"
+done
 [[ -z "$unreleased" ]] || {
     echo "circuits.json pins no release for: $unreleased" >&2
     echo "  build libid-circuits and run: scripts/vendor-circuit-verifiers.sh --local <artifacts>" >&2
@@ -208,7 +219,8 @@ released="$(jq -r '.version' "$WORK/manifest.json")"
 [[ "$released" == "$VERSION" ]] ||
     { echo "the $TAG manifest declares version '$released', the pin says $VERSION" >&2; exit 1; }
 
-while IFS=$'\t' read -r circuit contract want; do
+for i in "${!CIRCUITS[@]}"; do
+    circuit="${CIRCUITS[$i]}" contract="${CONTRACTS[$i]}" want="${DIGESTS[$i]}"
     tarball="libid-circuits-$VERSION-$circuit.tar.gz"
     curl -fsSL -o "$WORK/$tarball" "$RELEASES/$TAG/$tarball"
 
@@ -237,7 +249,7 @@ while IFS=$'\t' read -r circuit contract want; do
     write_verifier "$WORK/$circuit/$contract.sol" "$contract" \
         "// Vendored from libid-circuits $TAG ($tarball) by scripts/vendor-circuit-verifiers.sh. Do not edit.\n// The pin is $DEST_REL/circuits.json; \`forge fmt\` is the only change to what shipped."
     echo "==> $circuit -> $DEST_REL/$contract.sol"
-done < <(jq -r '.circuits | to_entries[] | "\(.key)\t\(.value.contract)\t\(.value.sha256)"' "$PIN")
+done
 
 cp "$STAGE"/*.sol "$DEST/"
 write_codehashes "libid-circuits $TAG"
