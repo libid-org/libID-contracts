@@ -99,6 +99,17 @@ To move it, download the new release's tarballs, take their digests with
 scripts/vendor-circuit-verifiers.sh   # rewrite the verifiers from the pin
 ```
 
+A change spanning both repositories lands in this order:
+
+1. Cut a libID-circuits pre-release tag from the circuits PR branch.
+2. Pin it in `circuits.json` (version and sha256s).
+3. This repository's CI goes green and its PR merges.
+4. libID-circuits moves `contracts.ref` to the merged commit on main, and
+   its PR merges.
+
+A squash merge of the circuits PR must keep the tagged tree identical apart
+from `contracts.ref`, so the pinned release still matches main.
+
 CI's forge-build action runs the same script before every build, test,
 dry-run and publish, refusing any tarball whose digest is not the pin's; a
 release cannot ship a verifier that is not what the pinned circuits release
