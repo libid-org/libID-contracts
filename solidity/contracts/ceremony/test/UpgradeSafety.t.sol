@@ -17,7 +17,7 @@ import {IPlatformVerifier} from "../IPlatformVerifier.sol";
 import {IProofVerifier} from "../IProofVerifier.sol";
 import {IdentityRegistry} from "../../identity/IdentityRegistry.sol";
 import {GoogleJwtRoots} from "../GoogleJwtRoots.sol";
-import {HandleVectors} from "../../handles/HandleVectors.sol";
+import {HandlePlatforms} from "../../handles/HandlePlatforms.sol";
 import {TestNodes} from "../../identity/test/TestNodes.sol";
 import {StubPlatformVerifier} from "../../identity/test/StubPlatformVerifier.sol";
 import {AttestationBuilder} from "./AttestationBuilder.sol";
@@ -44,7 +44,7 @@ contract UpgradeSafetyTest is Test {
     bytes32 constant REENTRANCY_SLOT = 0x9b779b17422d0df92223018b32b4d1fa46e071723d6817e2486d003becc55f00;
     bytes32 constant REGISTRY_ROOT = 0x3e5d6a26bfa3232a8c483e2003eb4b3008d01c0d1cf6c69b6ad133fd72694000;
     bytes32 constant ROOTS_ROOT = 0x7f78ff13201a03086d4b08e3085224c34a9fc247d0f67d11acd0db52976eb300;
-    bytes32 constant X = HandleVectors.PLATFORM_X;
+    bytes32 constant X = HandlePlatforms.PLATFORM_X;
 
     function _slot(string memory ns) internal pure returns (bytes32) {
         return keccak256(abi.encode(uint256(keccak256(bytes(ns))) - 1)) & ~bytes32(uint256(0xff));

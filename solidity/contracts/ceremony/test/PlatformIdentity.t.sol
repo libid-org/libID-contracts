@@ -4,7 +4,7 @@ pragma solidity ^0.8.24;
 import {Test} from "forge-std/Test.sol";
 
 import {CeremonyProfile} from "../CeremonyProfile.sol";
-import {HandleVectors} from "../../handles/HandleVectors.sol";
+import {HandlePlatforms} from "../../handles/HandlePlatforms.sol";
 import {TestNodes} from "../../identity/test/TestNodes.sol";
 
 /// @notice One platform id per platform, and libID namespaces only its own things.
@@ -21,9 +21,9 @@ contract PlatformIdentityTest is Test {
     ///      and leaves the derivation to the profile author, so this repository
     ///      pins it.
     function test_theTwoTablesAgree() public pure {
-        assertEq(HandleVectors.PLATFORM_X, CeremonyProfile.PLATFORM_X, "x");
-        assertEq(HandleVectors.PLATFORM_GITHUB, CeremonyProfile.PLATFORM_GITHUB, "github");
-        assertEq(HandleVectors.PLATFORM_GOOGLE, CeremonyProfile.PLATFORM_GOOGLE, "google");
+        assertEq(HandlePlatforms.PLATFORM_X, CeremonyProfile.PLATFORM_X, "x");
+        assertEq(HandlePlatforms.PLATFORM_GITHUB, CeremonyProfile.PLATFORM_GITHUB, "github");
+        assertEq(HandlePlatforms.PLATFORM_GOOGLE, CeremonyProfile.PLATFORM_GOOGLE, "google");
     }
 
     function test_aPlatformIdIsTheBareName() public pure {
@@ -37,12 +37,12 @@ contract PlatformIdentityTest is Test {
     ///      one per platform and kind, so no two platforms and no id and
     ///      handle share a key.
     function test_theNodeTagsArePinned() public pure {
-        assertEq(HandleVectors.USER_ID_TAG_X, bytes("libid.x.user-id"));
-        assertEq(HandleVectors.HANDLE_TAG_X, bytes("libid.x.handle"));
-        assertEq(HandleVectors.USER_ID_TAG_GITHUB, bytes("libid.github.user-id"));
-        assertEq(HandleVectors.HANDLE_TAG_GITHUB, bytes("libid.github.handle"));
-        assertEq(HandleVectors.USER_ID_TAG_GOOGLE, bytes("libid.google.user-id"));
-        assertEq(HandleVectors.HANDLE_TAG_GOOGLE, bytes("libid.google.handle"));
+        assertEq(HandlePlatforms.USER_ID_TAG_X, bytes("libid.x.user-id"));
+        assertEq(HandlePlatforms.HANDLE_TAG_X, bytes("libid.x.handle"));
+        assertEq(HandlePlatforms.USER_ID_TAG_GITHUB, bytes("libid.github.user-id"));
+        assertEq(HandlePlatforms.HANDLE_TAG_GITHUB, bytes("libid.github.handle"));
+        assertEq(HandlePlatforms.USER_ID_TAG_GOOGLE, bytes("libid.google.user-id"));
+        assertEq(HandlePlatforms.HANDLE_TAG_GOOGLE, bytes("libid.google.handle"));
     }
 
     /// @dev A node is the circuit's `SHA256(tag || value)`. Pinned against

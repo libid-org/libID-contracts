@@ -70,8 +70,10 @@ python3 scripts/regen-identity-handles.py          # rewrite generated outputs
 python3 scripts/regen-identity-handles.py --check  # verify nothing drifted
 ```
 
-This generates `solidity/contracts/handles/HandleVectors.sol`,
-`rust/identity/src/handle_vectors.rs` and
+This generates `solidity/contracts/handles/HandlePlatforms.sol` (the
+platform ids, rules and tags the contracts read),
+`solidity/contracts/handles/HandleVectors.sol` (the vector table, for tests
+only), `rust/identity/src/handle_vectors.rs` and
 `ts/packages/contracts/src/identity/handleVectors.ts`; CI's handle-tables job
 fails when any of them drifts from `handles.json`.
 

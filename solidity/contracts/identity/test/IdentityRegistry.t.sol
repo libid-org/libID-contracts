@@ -5,7 +5,7 @@ import {Test, Vm} from "forge-std/Test.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
 import {HandleNormalizer} from "../../handles/HandleNormalizer.sol";
-import {HandleVectors} from "../../handles/HandleVectors.sol";
+import {HandlePlatforms} from "../../handles/HandlePlatforms.sol";
 import {IdentityRegistry} from "../IdentityRegistry.sol";
 import {CeremonyProofVerifier} from "../../ceremony/CeremonyProofVerifier.sol";
 import {IPlatformVerifier} from "../../ceremony/IPlatformVerifier.sol";
@@ -28,8 +28,8 @@ contract IdentityRegistryTest is Test {
     StubPlatformVerifier internal xVerifier;
     StubPlatformVerifier internal githubVerifier;
 
-    bytes32 internal constant X = HandleVectors.PLATFORM_X;
-    bytes32 internal constant GITHUB = HandleVectors.PLATFORM_GITHUB;
+    bytes32 internal constant X = HandlePlatforms.PLATFORM_X;
+    bytes32 internal constant GITHUB = HandlePlatforms.PLATFORM_GITHUB;
 
     address internal alice = makeAddr("alice");
     address internal bob = makeAddr("bob");
@@ -224,7 +224,7 @@ contract IdentityRegistryTest is Test {
     /// would output -- the hash of an unfolded handle -- binds as given, and
     /// no text a reader can type reaches it: every reader folds first.
     function test_theRegistryNeverRefoldsANodeItIsGiven() public {
-        bytes32 unfolded = sha256(abi.encodePacked(HandleVectors.handleTagFor(X), "Alice"));
+        bytes32 unfolded = sha256(abi.encodePacked(HandlePlatforms.handleTagFor(X), "Alice"));
         _stage("123", "Alice", alice, 100);
         xVerifier.setNodes(_id(X, "123"), unfolded);
         vm.prank(alice);
@@ -351,13 +351,13 @@ contract IdentityRegistryTest is Test {
     /// platform `handles.json` names, verifier or not, and has nothing an owner
     /// could set.
     function test_aPlatformsRulesAndTagAreTheCircuitsOwn() public view {
-        bytes32[3] memory platforms = [X, GITHUB, HandleVectors.PLATFORM_GOOGLE];
+        bytes32[3] memory platforms = [X, GITHUB, HandlePlatforms.PLATFORM_GOOGLE];
         for (uint256 i = 0; i < platforms.length; i++) {
             bytes32 platformId = platforms[i];
-            assertEq(registry.handleTagOf(platformId), HandleVectors.handleTagFor(platformId));
+            assertEq(registry.handleTagOf(platformId), HandlePlatforms.handleTagFor(platformId));
             assertEq(
                 keccak256(abi.encode(registry.rulesOf(platformId))),
-                keccak256(abi.encode(HandleVectors.rulesFor(platformId)))
+                keccak256(abi.encode(HandlePlatforms.rulesFor(platformId)))
             );
         }
         assertEq(registry.handleTagOf(X), bytes("libid.x.handle"));
@@ -409,7 +409,7 @@ contract IdentityRegistryTest is Test {
     /// `handleNodeOf` names the node a proof of the handle binds: the shared
     /// table's node for it, whatever case it was typed in.
     function test_theHashingViewsAgreeWithWhatABindWrites() public {
-        assertEq(registry.rulesOf(X).maxLength, HandleVectors.rulesFor(X).maxLength);
+        assertEq(registry.rulesOf(X).maxLength, HandlePlatforms.rulesFor(X).maxLength);
         assertEq(registry.handleTagOf(X), bytes("libid.x.handle"));
         // `handles.json`: x, "alice".
         bytes32 tableNode = 0x0bed64615b5776d2567a82467d7be0e266e02803910d694a72703ee2a4cc911a;
@@ -1225,7 +1225,7 @@ contract IdentityRegistryTest is Test {
     /// can verify nothing. Answering `address(0)` there would tell a caller
     /// "nobody proved this" about a platform that cannot bind yet.
     function test_aPlatformWithoutAVerifierDoesNotResolve() public {
-        bytes32 google = HandleVectors.PLATFORM_GOOGLE;
+        bytes32 google = HandlePlatforms.PLATFORM_GOOGLE;
         bytes32 idNode = _id(google, "123");
         bytes32 handleNode = _hn(google, "alice@gmail.com");
 
@@ -1237,8 +1237,8 @@ contract IdentityRegistryTest is Test {
 
         // The hashing views answer: a client folding under `rulesOf` and
         // hashing under `handleTagOf` reaches the node `handleNodeOf` names.
-        assertEq(registry.rulesOf(google).maxLength, HandleVectors.rulesFor(google).maxLength);
-        assertEq(registry.handleTagOf(google), HandleVectors.handleTagFor(google));
+        assertEq(registry.rulesOf(google).maxLength, HandlePlatforms.rulesFor(google).maxLength);
+        assertEq(registry.handleTagOf(google), HandlePlatforms.handleTagFor(google));
         assertEq(registry.handleNodeOf(google, "Alice@Gmail.com"), handleNode);
     }
 
@@ -1247,7 +1247,7 @@ contract IdentityRegistryTest is Test {
     /// bind through and the Proof Verifier is the one with nothing to
     /// dispatch to.
     function test_bindingOnAPlatformWithoutAVerifierIsRefused() public {
-        bytes32 google = HandleVectors.PLATFORM_GOOGLE;
+        bytes32 google = HandlePlatforms.PLATFORM_GOOGLE;
         _stage("123", "alice", alice, 100);
         vm.prank(alice);
         vm.expectRevert(abi.encodeWithSelector(CeremonyProofVerifier.UnknownVersion.selector, google, V1));
@@ -1258,7 +1258,7 @@ contract IdentityRegistryTest is Test {
     /// answers for: registering one enables the platform, retiring the last
     /// version withdraws it, and bound identities keep resolving.
     function test_acceptsBindingsNeedsAKnownPlatformAndAVerifier() public {
-        bytes32 google = HandleVectors.PLATFORM_GOOGLE;
+        bytes32 google = HandlePlatforms.PLATFORM_GOOGLE;
         assertTrue(registry.acceptsBindings(X));
         assertFalse(registry.acceptsBindings(google), "no verifier");
 

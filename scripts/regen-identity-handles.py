@@ -4,7 +4,8 @@
 `solidity/contracts/handles/handles.json` is the single source of truth. Edit
 it, then run this script. These files are written and never drift apart:
 
-    solidity/contracts/handles/HandleVectors.sol          # Solidity constants + vectors
+    solidity/contracts/handles/HandlePlatforms.sol        # Solidity constants (production)
+    solidity/contracts/handles/HandleVectors.sol          # Solidity vectors (tests)
     rust/identity/src/handle_vectors.rs                    # Rust constants + vectors
     ts/packages/contracts/src/identity/handleVectors.ts    # TypeScript constants + vectors
     <libid-circuits>/lib/identity/src/table.nr             # Noir constants + vector tests,
@@ -42,7 +43,8 @@ REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 SOLIDITY_ROOT = REPO_ROOT / "solidity"
 SOURCE = SOLIDITY_ROOT / "contracts" / "handles" / "handles.json"
 
-SOL_OUT = SOLIDITY_ROOT / "contracts" / "handles" / "HandleVectors.sol"
+SOL_OUT = SOLIDITY_ROOT / "contracts" / "handles" / "HandlePlatforms.sol"
+SOL_VECTORS_OUT = SOLIDITY_ROOT / "contracts" / "handles" / "HandleVectors.sol"
 # An output is skipped (with a note) while its parent directory is absent, so
 # `--check` holds only the outputs that exist to account. Both the Rust and
 # the TypeScript packages are live today.
@@ -198,9 +200,8 @@ def error_index(errors: list[dict[str, Any]], key: str) -> int:
 
 
 def gen_sol(spec: dict[str, Any], digest: str) -> str:
+    """The constants production code reads."""
     platforms = spec["platforms"]
-    errors = spec["errors"]
-    vectors = spec["vectors"]
 
     lines = [
         "// SPDX-License-Identifier: MIT",
@@ -210,12 +211,12 @@ def gen_sol(spec: dict[str, Any], digest: str) -> str:
         "",
         'import {HandleNormalizer} from "./HandleNormalizer.sol";',
         "",
-        "/// @notice Platform ids and the shared handle vector table.",
+        "/// @notice Each platform `handles.json` names: its id, its handle rules and",
+        "///         its node tags, as the production contracts read them.",
         "///",
-        "/// @dev The vectors are here rather than in the test file because Rust and",
-        "///      TypeScript run the same table. A normalizer that disagrees with",
-        "///      another language fails a test instead of writing a different node.",
-        "library HandleVectors {",
+        "/// @dev The vector table the languages share is `HandleVectors`, which",
+        "///      only tests read.",
+        "library HandlePlatforms {",
         "    /// @notice `handles.json` names no such platform.",
         "    error UnknownPlatform(bytes32 platformId);",
         "",
@@ -320,6 +321,30 @@ def gen_sol(spec: dict[str, Any], digest: str) -> str:
     lines.append("    }")
     lines.append("")
 
+    lines.append("}")
+    return "\n".join(lines) + "\n"
+
+
+def gen_sol_vectors(spec: dict[str, Any], digest: str) -> str:
+    """The test vectors, apart from the constants production code reads."""
+    errors = spec["errors"]
+    vectors = spec["vectors"]
+
+    lines = [
+        "// SPDX-License-Identifier: MIT",
+        "pragma solidity ^0.8.20;",
+        "",
+        header("//").rstrip("\n"),
+        f"// Table SHA-256: 0x{digest} (HandlePlatforms.TABLE_SHA256).",
+        "",
+        "/// @notice The shared handle vector table, for tests.",
+        "///",
+        "/// @dev The vectors are here rather than in a test file because Rust and",
+        "///      TypeScript run the same table. A normalizer that disagrees with",
+        "///      another language fails a test instead of writing a different node.",
+        "///      Production code reads `HandlePlatforms` and never this file.",
+        "library HandleVectors {",
+    ]
     lines.append("    /// One case from the shared table.")
     lines.append("    struct Vector {")
     lines.append("        string platform;")
@@ -835,6 +860,7 @@ def main() -> int:
     outputs = []
     skipped = []
     outputs.append((SOL_OUT, sol_formatted(gen_sol(spec, digest))))
+    outputs.append((SOL_VECTORS_OUT, sol_formatted(gen_sol_vectors(spec, digest))))
     # Emit an output only once its package directory exists (both do today).
     for path, gen in ((RUST_OUT, gen_rust), (TS_OUT, gen_ts)):
         if path.parent.exists():

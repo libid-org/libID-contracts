@@ -8,7 +8,7 @@ import {IERC20Errors} from "@openzeppelin/contracts/interfaces/draft-IERC6093.so
 import {ReentrancyGuardUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardUpgradeable.sol";
 
 import {HandleEscrow} from "../HandleEscrow.sol";
-import {HandleVectors} from "../../handles/HandleVectors.sol";
+import {HandlePlatforms} from "../../handles/HandlePlatforms.sol";
 import {IIdentityRegistry} from "../../identity/IIdentityRegistry.sol";
 import {TestNodes} from "../../identity/test/TestNodes.sol";
 import {
@@ -65,7 +65,7 @@ contract HookedParty is ITransferHooks {
 
 /// @notice Tokens that call back in, answer `false` or nothing, charge fees, blocklist or rebase.
 contract HandleEscrowHostileTokensTest is Test {
-    bytes32 internal constant PLATFORM = HandleVectors.PLATFORM_X;
+    bytes32 internal constant PLATFORM = HandlePlatforms.PLATFORM_X;
     bytes32 internal immutable NODE = TestNodes.handleNode(PLATFORM, "alice");
     bytes32 internal immutable NODE2 = TestNodes.handleNode(PLATFORM, "bob");
 

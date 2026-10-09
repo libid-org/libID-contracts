@@ -9,7 +9,7 @@ import {ReentrancyGuardUpgradeable} from "@openzeppelin/contracts-upgradeable/ut
 import {ICeremony} from "../ceremony/ICeremony.sol";
 import {IProofVerifier} from "../ceremony/IProofVerifier.sol";
 import {HandleNormalizer} from "../handles/HandleNormalizer.sol";
-import {HandleVectors} from "../handles/HandleVectors.sol";
+import {HandlePlatforms} from "../handles/HandlePlatforms.sol";
 import {IIdentityRegistry} from "./IIdentityRegistry.sol";
 import {IdentityList} from "./IdentityList.sol";
 
@@ -51,7 +51,7 @@ import {IdentityList} from "./IdentityList.sol";
 ///      this. Read the guarantee above as "under honest configuration"; the
 ///      trust boundary is the owner key, and it is the same one every
 ///      upgradeable contract here has. Which platforms exist, and their rules
-///      and tags, are NOT among the owner's levers: they are `HandleVectors`'
+///      and tags, are NOT among the owner's levers: they are `HandlePlatforms`'
 ///      constants, generated from the same `handles.json` the circuits that
 ///      key bindings are built from, so this contract cannot disclose or
 ///      resolve under rules no circuit used.
@@ -443,7 +443,7 @@ contract IdentityRegistry is
 
         _write(platformId, claimed.idNode, claimed.handleNode, claimed.metadataObservedAt, claimed.ceremonyVersion);
         if (bytes(claimed.handle).length != 0) {
-            bytes32 disclosed = HandleNormalizer.node(HandleVectors.handleTagFor(platformId), claimed.handle);
+            bytes32 disclosed = HandleNormalizer.node(HandlePlatforms.handleTagFor(platformId), claimed.handle);
             if (disclosed != claimed.handleNode) revert DisclosureMismatch(disclosed, claimed.handleNode);
             _name(platformId, claimed.handleNode, claimed.handle);
         }
@@ -538,8 +538,9 @@ contract IdentityRegistry is
     ///      `handleNodeOf` does, and `UnknownPlatform`.
     function publish(bytes32 platformId, string calldata handle) external {
         _requireKnown(platformId);
-        (string memory normalized, bytes32 handleNode) =
-            HandleNormalizer.nodeOf(handle, HandleVectors.rulesFor(platformId), HandleVectors.handleTagFor(platformId));
+        (string memory normalized, bytes32 handleNode) = HandleNormalizer.nodeOf(
+            handle, HandlePlatforms.rulesFor(platformId), HandlePlatforms.handleTagFor(platformId)
+        );
         if (_s().handleBindings[handleNode].holder != msg.sender) revert NotYourHandle(handleNode);
         _name(platformId, handleNode, normalized);
     }
@@ -566,9 +567,9 @@ contract IdentityRegistry is
         returns (HandleNormalizer.Problem problem, bytes32 handleNode)
     {
         string memory normalized;
-        (problem, normalized) = HandleNormalizer.tryNormalize(handle, HandleVectors.rulesFor(platformId));
+        (problem, normalized) = HandleNormalizer.tryNormalize(handle, HandlePlatforms.rulesFor(platformId));
         if (problem == HandleNormalizer.Problem.None) {
-            handleNode = HandleNormalizer.node(HandleVectors.handleTagFor(platformId), normalized);
+            handleNode = HandleNormalizer.node(HandlePlatforms.handleTagFor(platformId), normalized);
         }
     }
 
@@ -577,7 +578,7 @@ contract IdentityRegistry is
     /// @dev A platform is one `handles.json` names: its rules and tags are the
     ///      generated constants, and there is nothing to configure.
     function _requireKnown(bytes32 platformId) private pure {
-        if (!HandleVectors.knows(platformId)) revert UnknownPlatform(platformId);
+        if (!HandlePlatforms.knows(platformId)) revert UnknownPlatform(platformId);
     }
 
     /// @dev A resolver answers for a platform that is known and either has
@@ -601,13 +602,13 @@ contract IdentityRegistry is
     /// @notice The rules a handle on this platform normalizes with.
     function rulesOf(bytes32 platformId) external pure returns (HandleNormalizer.Rules memory) {
         _requireKnown(platformId);
-        return HandleVectors.rulesFor(platformId);
+        return HandlePlatforms.rulesFor(platformId);
     }
 
     /// @notice The tag this platform's handle nodes are hashed under.
     function handleTagOf(bytes32 platformId) external pure returns (bytes memory) {
         _requireKnown(platformId);
-        return HandleVectors.handleTagFor(platformId);
+        return HandlePlatforms.handleTagFor(platformId);
     }
 
     /// @notice The node a handle is bound under, from the handle as typed.
@@ -625,7 +626,7 @@ contract IdentityRegistry is
 
     /// @notice Whether a platform can be bound right now.
     function acceptsBindings(bytes32 platformId) external view returns (bool) {
-        if (!HandleVectors.knows(platformId)) return false;
+        if (!HandlePlatforms.knows(platformId)) return false;
         IProofVerifier pv = _s().proofVerifier;
         return address(pv) != address(0) && pv.verifiesPlatform(platformId);
     }
@@ -652,7 +653,7 @@ contract IdentityRegistry is
         _requireKnown(platformId);
         string memory published = _s().published[holder][platformId];
         if (bytes(published).length == 0) return "";
-        bytes32 handleNode = HandleNormalizer.node(HandleVectors.handleTagFor(platformId), published);
+        bytes32 handleNode = HandleNormalizer.node(HandlePlatforms.handleTagFor(platformId), published);
         if (_s().handleBindings[handleNode].holder != holder) return "";
         return published;
     }

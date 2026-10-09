@@ -10,7 +10,7 @@ import {CeremonyProfile} from "./CeremonyProfile.sol";
 import {ICeremony} from "./ICeremony.sol";
 import {INotaryService} from "./INotaryService.sol";
 import {HandleNormalizer} from "../handles/HandleNormalizer.sol";
-import {HandleVectors} from "../handles/HandleVectors.sol";
+import {HandlePlatforms} from "../handles/HandlePlatforms.sol";
 
 /// @dev The bb-generated proof verifier for this platform's circuit.
 interface IHonkVerifier {
@@ -168,7 +168,7 @@ abstract contract PlatformVerifierBase is ICeremony, Initializable, UUPSUpgradea
         if (bytes(handle).length == 0) return "";
         bytes32 node;
         (normalized, node) = HandleNormalizer.nodeOf(
-            handle, HandleVectors.rulesFor(_platform()), HandleVectors.handleTagFor(_platform())
+            handle, HandlePlatforms.rulesFor(_platform()), HandlePlatforms.handleTagFor(_platform())
         );
         if (node != handleNode) revert HandleNotProved(node, handleNode);
     }

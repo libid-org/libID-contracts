@@ -9,7 +9,7 @@ import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.s
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 import {HandleEscrow, NATIVE_TOKEN} from "../HandleEscrow.sol";
-import {HandleVectors} from "../../handles/HandleVectors.sol";
+import {HandlePlatforms} from "../../handles/HandlePlatforms.sol";
 import {IIdentityRegistry} from "../../identity/IIdentityRegistry.sol";
 import {TestNodes} from "../../identity/test/TestNodes.sol";
 import {FeeToken, NoReturnToken, SettableRegistry, TestERC20, one} from "./EscrowMocks.sol";
@@ -20,7 +20,7 @@ address constant NATIVE = NATIVE_TOKEN;
 /// @notice Drives random deposits, refunds, joins, retirements and claims, and models each
 ///         `refundTo`'s refundable contribution.
 contract EscrowHandler is CommonBase, StdCheats, StdUtils {
-    bytes32 internal constant PLATFORM = HandleVectors.PLATFORM_X;
+    bytes32 internal constant PLATFORM = HandlePlatforms.PLATFORM_X;
     uint256 internal constant TOKENS = 4;
 
     HandleEscrow public immutable ESCROW;

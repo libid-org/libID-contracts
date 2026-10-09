@@ -8,6 +8,7 @@ import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Ini
 import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 
 import {HandleNormalizer} from "../../handles/HandleNormalizer.sol";
+import {HandlePlatforms} from "../../handles/HandlePlatforms.sol";
 import {HandleVectors} from "../../handles/HandleVectors.sol";
 import {IdentityRegistry} from "../../identity/IdentityRegistry.sol";
 import {IIdentityRegistry} from "../../identity/IIdentityRegistry.sol";
@@ -147,9 +148,9 @@ contract HandleEscrowTest is Test {
     HandleEscrow internal escrow;
     TestERC20 internal token;
 
-    bytes32 internal constant X = HandleVectors.PLATFORM_X;
-    bytes32 internal constant GITHUB = HandleVectors.PLATFORM_GITHUB;
-    bytes32 internal constant GOOGLE = HandleVectors.PLATFORM_GOOGLE;
+    bytes32 internal constant X = HandlePlatforms.PLATFORM_X;
+    bytes32 internal constant GITHUB = HandlePlatforms.PLATFORM_GITHUB;
+    bytes32 internal constant GOOGLE = HandlePlatforms.PLATFORM_GOOGLE;
     uint16 internal constant V1 = 1;
 
     address internal alice = makeAddr("alice");

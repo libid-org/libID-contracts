@@ -4,7 +4,7 @@ pragma solidity ^0.8.24;
 import {CeremonyAuthorization} from "../../ceremony/CeremonyAuthorization.sol";
 import {IPlatformVerifier} from "../../ceremony/IPlatformVerifier.sol";
 import {HandleNormalizer} from "../../handles/HandleNormalizer.sol";
-import {HandleVectors} from "../../handles/HandleVectors.sol";
+import {HandlePlatforms} from "../../handles/HandlePlatforms.sol";
 
 /// @notice Stands in for a Platform Verifier.
 ///
@@ -120,9 +120,10 @@ contract StubPlatformVerifier is IPlatformVerifier {
         view
         returns (bytes memory idTag, bytes memory handleTag, HandleNormalizer.Rules memory rules)
     {
-        bytes32 known = PLATFORM == HandleVectors.PLATFORM_GITHUB || PLATFORM == HandleVectors.PLATFORM_GOOGLE
+        bytes32 known = PLATFORM == HandlePlatforms.PLATFORM_GITHUB || PLATFORM == HandlePlatforms.PLATFORM_GOOGLE
             ? PLATFORM
-            : HandleVectors.PLATFORM_X;
-        return (HandleVectors.userIdTagFor(known), HandleVectors.handleTagFor(known), HandleVectors.rulesFor(known));
+            : HandlePlatforms.PLATFORM_X;
+        return
+            (HandlePlatforms.userIdTagFor(known), HandlePlatforms.handleTagFor(known), HandlePlatforms.rulesFor(known));
     }
 }

@@ -22,7 +22,7 @@ library HandleNormalizer {
     error UnusableHandle(Problem problem);
 
     /// @notice What one platform accepts. Each platform's rules are a
-    ///         `HandleVectors` constant generated from `handles.json`, the
+    ///         `HandlePlatforms` constant generated from `handles.json`, the
     ///         table its circuit folds handles with; a new platform is a
     ///         `handles.json` entry and a circuit of its own.
     ///

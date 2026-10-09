@@ -3,6 +3,7 @@ pragma solidity ^0.8.20;
 
 import {Test} from "forge-std/Test.sol";
 import {HandleNormalizer} from "../HandleNormalizer.sol";
+import {HandlePlatforms} from "../HandlePlatforms.sol";
 import {HandleVectors} from "../HandleVectors.sol";
 
 /// @notice The shared handle vector table, run against the Solidity normalizer.
@@ -15,7 +16,7 @@ contract HandleNormalizerTest is Test {
     /// The rules the table names a platform by, from the generated table the
     /// deploy installs: a second copy here could drift from it unnoticed.
     function _rules(string memory platform) internal pure returns (HandleNormalizer.Rules memory) {
-        return HandleVectors.rulesFor(keccak256(bytes(platform)));
+        return HandlePlatforms.rulesFor(keccak256(bytes(platform)));
     }
 
     /// Exposed so `vm.expectRevert` has an external call to watch.
@@ -53,7 +54,7 @@ contract HandleNormalizerTest is Test {
                 assertEq(v.handleNode, bytes32(0), string.concat("refused vector ", vm.toString(i), " names a node"));
                 continue;
             }
-            bytes memory tag = HandleVectors.handleTagFor(keccak256(bytes(v.platform)));
+            bytes memory tag = HandlePlatforms.handleTagFor(keccak256(bytes(v.platform)));
             assertEq(
                 sha256(abi.encodePacked(tag, v.output)),
                 v.handleNode,
@@ -122,8 +123,8 @@ contract HandleNormalizerTest is Test {
     function test_theGeneratedConstantsComeFromThisTable() public view {
         assertEq(
             sha256(vm.readFileBinary("contracts/handles/handles.json")),
-            HandleVectors.TABLE_SHA256,
-            "HandleVectors.sol is stale: run scripts/regen-identity-handles.py"
+            HandlePlatforms.TABLE_SHA256,
+            "HandlePlatforms.sol is stale: run scripts/regen-identity-handles.py"
         );
     }
 }

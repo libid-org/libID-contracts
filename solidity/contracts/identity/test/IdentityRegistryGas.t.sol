@@ -4,7 +4,7 @@ pragma solidity ^0.8.24;
 import {Test} from "forge-std/Test.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
-import {HandleVectors} from "../../handles/HandleVectors.sol";
+import {HandlePlatforms} from "../../handles/HandlePlatforms.sol";
 import {IdentityRegistry} from "../IdentityRegistry.sol";
 import {TestNodes} from "./TestNodes.sol";
 import {CeremonyProofVerifier} from "../../ceremony/CeremonyProofVerifier.sol";
@@ -26,7 +26,7 @@ contract IdentityRegistryGasTest is Test {
     CeremonyProofVerifier internal proofVerifier;
     StubPlatformVerifier internal xVerifier;
 
-    bytes32 internal constant X = HandleVectors.PLATFORM_X;
+    bytes32 internal constant X = HandlePlatforms.PLATFORM_X;
     uint16 internal constant V1 = 1;
     uint256 internal constant FEW = 4;
     uint256 internal constant MANY = 1000;
