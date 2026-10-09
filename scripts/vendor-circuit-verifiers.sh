@@ -46,7 +46,9 @@
 # --local takes the verifiers from a libid-circuits `scripts/build.sh --out
 # <artifacts>` instead of a release. Nothing vouches for those bytes but the
 # build you ran, so it is for developing against an unreleased circuit, never
-# for a deploy; the written files say so.
+# for a deploy; the written files say so. Their banner names the circuit and,
+# if `<artifacts>/commit` holds one, the libid-circuits commit it was built
+# from -- never the local path.
 #
 # Either way, each circuit ships the Noir table its rules and tags were
 # compiled from (`handles-table.nr`), and it must be the table this
@@ -123,10 +125,17 @@ if [[ -n "$LOCAL" ]]; then
     LOCAL="$(cd "$LOCAL" && pwd)"
     STAGE="$(mktemp -d)"
     trap 'rm -rf "$STAGE"' EXIT
+    # Where the build came from, without the path it sits at on this machine:
+    # the libid-circuits commit, when the build left one in a `commit` file.
+    origin="a local libid-circuits build"
+    if [[ -f "$LOCAL/commit" ]]; then
+        commit="$(tr -cd '0-9a-f' < "$LOCAL/commit" | head -c 40)"
+        [[ -n "$commit" ]] && origin="a local libid-circuits build of commit $commit"
+    fi
     while IFS=$'\t' read -r circuit contract; do
         require_table "$LOCAL/$circuit" "$circuit"
         write_verifier "$LOCAL/$circuit/$contract.sol" "$contract" \
-            "// UNRELEASED: from a local libid-circuits build ($LOCAL/$circuit) by scripts/vendor-circuit-verifiers.sh --local.\n// Not pinned by circuits.json. Develop against it; never deploy it."
+            "// UNRELEASED: $circuit, from $origin, by scripts/vendor-circuit-verifiers.sh --local.\n// Not pinned by circuits.json. Develop against it; never deploy it."
         echo "==> $circuit -> $DEST_REL/$contract.sol (local, unpinned)"
     done < <(jq -r '.circuits | to_entries[] | "\(.key)\t\(.value.contract)"' "$PIN")
     cp "$STAGE"/*.sol "$DEST/"
