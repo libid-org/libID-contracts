@@ -163,10 +163,20 @@ library CeremonyAttestation {
         JsonIntegerEnd
     }
 
-    /// @notice Every revealed byte of a direction, joined in order, with the
+    /// @notice A direction with every revealed byte joined in order and the
     ///         JSON whitespace removed: what the framed readers count a
-    ///         prefix in.
-    function normalizedRevealed(DirectionBlock memory block_) internal pure returns (bytes memory) {
+    ///         prefix in. `framing` derives both from the block.
+    struct Framing {
+        DirectionBlock block_;
+        bytes normalized;
+    }
+
+    function framing(DirectionBlock memory block_) internal pure returns (Framing memory f) {
+        f.block_ = block_;
+        f.normalized = _normalizedRevealed(block_);
+    }
+
+    function _normalizedRevealed(DirectionBlock memory block_) private pure returns (bytes memory) {
         return CeremonyFields.normalizeJsonBytes(concatRevealed(block_));
     }
 
@@ -192,20 +202,17 @@ library CeremonyAttestation {
         pure
         returns (RangeCommitment memory framed)
     {
-        return _framed(block_, normalizedRevealed(block_), prefix, Terminator.Suffix, suffix);
+        return _framed(block_, _normalizedRevealed(block_), prefix, Terminator.Suffix, suffix);
     }
 
     /// @notice `requireFramedCommitment`, for a caller reading several values
-    ///         out of one direction. `normalized` must be
-    ///         `normalizedRevealed(block_)`: the uniqueness of the prefix is
-    ///         counted in it.
-    function requireFramedCommitment(
-        DirectionBlock memory block_,
-        bytes memory normalized,
-        bytes memory prefix,
-        bytes memory suffix
-    ) internal pure returns (RangeCommitment memory framed) {
-        return _framed(block_, normalized, prefix, Terminator.Suffix, suffix);
+    ///         out of one direction's `framing`.
+    function requireFramedCommitment(Framing memory f, bytes memory prefix, bytes memory suffix)
+        internal
+        pure
+        returns (RangeCommitment memory framed)
+    {
+        return _framed(f.block_, f.normalized, prefix, Terminator.Suffix, suffix);
     }
 
     /// @notice The one commitment framed as a bare JSON integer's digits:
@@ -217,22 +224,12 @@ library CeremonyAttestation {
     ///      number rather than a prefix of a longer one; a commitment that
     ///      stops mid-number is followed by a digit, and frames nothing. The
     ///      digits themselves are the circuit's to check.
-    function requireFramedInteger(DirectionBlock memory block_, bytes memory prefix)
+    function requireFramedInteger(Framing memory f, bytes memory prefix)
         internal
         pure
         returns (RangeCommitment memory framed)
     {
-        return _framed(block_, normalizedRevealed(block_), prefix, Terminator.JsonIntegerEnd, "");
-    }
-
-    /// @notice `requireFramedInteger`, with `normalized` as
-    ///         `requireFramedCommitment` takes it.
-    function requireFramedInteger(DirectionBlock memory block_, bytes memory normalized, bytes memory prefix)
-        internal
-        pure
-        returns (RangeCommitment memory framed)
-    {
-        return _framed(block_, normalized, prefix, Terminator.JsonIntegerEnd, "");
+        return _framed(f.block_, f.normalized, prefix, Terminator.JsonIntegerEnd, "");
     }
 
     /// @dev The framed lookup both readers share. The prefix at most once in

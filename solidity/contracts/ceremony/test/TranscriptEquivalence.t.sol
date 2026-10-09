@@ -134,7 +134,7 @@ contract LiveHelpers {
         pure
         returns (CeremonyAttestation.RangeCommitment memory)
     {
-        return CeremonyAttestation.requireFramedInteger(block_, prefix);
+        return CeremonyAttestation.requireFramedInteger(CeremonyAttestation.framing(block_), prefix);
     }
 
     function normalizeJsonBytes(bytes memory data) external pure returns (bytes memory) {

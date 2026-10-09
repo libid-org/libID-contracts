@@ -906,7 +906,9 @@ contract GitHubPlatformVerifierTest is RealTlsNotaryProofTest {
         assertEq(sha256(bytes.concat("OctoCat", _blinder(json, ".identity_link_witness.handle.blinder"))), handle);
 
         CeremonyAttestation.AttestedData memory data = this.decode(vm.parseJsonBytes(json, ".identity.attested_data"));
-        assertEq(CeremonyAttestation.requireFramedInteger(data.received, '"id":').commitment, id);
+        assertEq(
+            CeremonyAttestation.requireFramedInteger(CeremonyAttestation.framing(data.received), '"id":').commitment, id
+        );
         assertEq(CeremonyAttestation.requireFramedCommitment(data.received, '"login":"', '"').commitment, handle);
     }
 
