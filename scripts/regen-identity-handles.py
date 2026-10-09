@@ -8,8 +8,8 @@ it, then run this script. These files are written and never drift apart:
     solidity/contracts/handles/HandleVectors.sol          # Solidity vectors (tests)
     rust/identity/src/handle_vectors.rs                    # Rust constants + vectors
     ts/packages/contracts/src/identity/handleVectors.ts    # TypeScript constants + vectors
-    <libid-circuits>/lib/identity/src/table.nr             # Noir constants + vector tests,
-                                                           # with --noir-out <that path>
+    <libid-circuits>/lib/identity/src/table.nr             # Noir constants, with --noir-out <that path>
+    <libid-circuits>/lib/identity/src/table_tests.nr       # Noir vector tests, beside it
 
 Every output carries the SHA-256 of handles.json, so a consumer holding a
 generated file from one table and a contract from another can tell.
@@ -634,20 +634,37 @@ def noir_bytes(value: bytes) -> str:
     return "[" + ", ".join(f"0x{b:02x}" for b in value) + "]"
 
 
-def gen_noir(spec: dict[str, Any], digest: str) -> str:
-    """The circuit library's constants and one test per vector.
+NOIR_ESCAPES = {0x09: "\\t", 0x0A: "\\n", 0x22: '\\"'}
 
-    A refused vector is a `should_fail_with` test on the reason every other
-    language gives. A value longer than the platform allows does not fit the
-    circuit's buffer at all; its test hands the buffer's worth of bytes with
-    the true length, which is the claim a dishonest witness would make.
-    """
-    platforms = spec["platforms"]
+
+def noir_string(value: bytes) -> str | None:
+    """`value` as a Noir string literal, or None when it holds a byte a
+    literal cannot spell plainly: a backslash, a control byte other than tab
+    and newline, or anything above 0x7e."""
+    out = []
+    for b in value:
+        if b in NOIR_ESCAPES:
+            out.append(NOIR_ESCAPES[b])
+        elif 0x20 <= b <= 0x7E and b != 0x5C:
+            out.append(chr(b))
+        else:
+            return None
+    return '"' + "".join(out) + '"'
+
+
+def noir_halves(node: str) -> str:
+    """A node from the table as the `[high, low]` Fields `node_halves` returns."""
+    return f"[0x{node[2:34]}, 0x{node[34:]}]"
+
+
+def gen_noir(spec: dict[str, Any], digest: str) -> str:
+    """The circuit library's constants: what every circuit compiles against,
+    and what a circuits release ships as `handles-table.nr`."""
     lines = [
         header("//").rstrip("\n"),
         "",
-        "// Platform tags, rules and the shared vector table, for the identity",
-        "// circuits. The algorithm is lib.nr's; these are its inputs and its tests.",
+        "// Platform tags and rules, for the identity circuits. The algorithm is",
+        "// lib.nr's; table_tests.nr runs it against the shared vector table.",
         "",
         "use crate::{HandleRules, IdRules};",
         "",
@@ -655,7 +672,7 @@ def gen_noir(spec: dict[str, Any], digest: str) -> str:
         f'pub global TABLE_SHA256: str<64> = "{digest}";',
         "",
     ]
-    for p in platforms:
+    for p in spec["platforms"]:
         name = p["key"].upper()
         id_tag = p["tags"]["userId"].encode()
         handle_tag = p["tags"]["handle"].encode()
@@ -681,36 +698,58 @@ def gen_noir(spec: dict[str, Any], digest: str) -> str:
             "};",
             "",
         ]
+    return "\n".join(lines).rstrip("\n") + "\n"
 
-    by_key = {p["key"]: p for p in platforms}
 
-    def buffer(value: bytes, size: int) -> str:
+def gen_noir_tests(spec: dict[str, Any], digest: str) -> str:
+    """One Noir test per vector, run against lib.nr's algorithm.
+
+    A refused vector is a `should_fail_with` test on the reason every other
+    language gives. A value longer than the platform allows does not fit the
+    circuit's buffer at all; its test hands the buffer's worth of bytes with
+    the true length, which is the claim a dishonest witness would make.
+    """
+    by_key = {p["key"]: p for p in spec["platforms"]}
+    lines = [
+        header("//").rstrip("\n"),
+        f"// Table SHA-256: {digest} (table::TABLE_SHA256).",
+        "",
+        "// The shared vector table, run against lib.nr's algorithm.",
+        "",
+        "use crate::{check_id, node_halves, normalize_handle, table};",
+        "use crate::testing::padded;",
+        "",
+    ]
+
+    def buffer(value: bytes, size: int) -> list[str]:
+        """The padded witness, as a string literal when one spells it."""
         kept = value[:size]
-        return noir_bytes(kept + bytes(size - len(kept)))
+        literal = noir_string(kept)
+        if literal is not None:
+            return [f"    let raw: [u8; {size}] = padded({literal}.as_bytes());"]
+        return [
+            f"    // {json.dumps(value.decode(), ensure_ascii=False)}",
+            f"    let raw: [u8; {size}] = {noir_bytes(kept + bytes(size - len(kept)))};",
+        ]
 
-    # The tests. Each runs the hand-written algorithm on the table's input.
     for i, vec in enumerate(spec["vectors"]):
         name = vec["platform"].upper()
         size = by_key[vec["platform"]]["maxLength"]
         raw = vec["input"].encode()
-        tag_len = len(by_key[vec["platform"]]["tags"]["handle"].encode())
         attr = "#[test]"
         if "error" in vec:
             attr = f'#[test(should_fail_with = "handle {NOIR_ERRORS[vec["error"]]}")]'
         lines.append(attr)
         lines.append(f"fn handle_{vec['platform']}_{i}() {{")
-        lines.append(f"    // {json.dumps(vec['input'], ensure_ascii=False)}")
-        lines.append(f"    let raw: [u8; {size}] = {buffer(raw, size)};")
+        lines += buffer(raw, size)
         lines.append(
-            f"    let out = crate::normalize_handle(raw, {len(raw)}, HANDLE_RULES_{name});"
+            f"    let out = normalize_handle(raw, {len(raw)}, table::HANDLE_RULES_{name});"
         )
         if "output" in vec:
-            node = bytes.fromhex(vec["handleNode"][2:])
             lines.append(
-                f"    let node = crate::tagged_hash::<{tag_len}, {size}, {tag_len + size}>"
-                f"(HANDLE_TAG_{name}, out, {len(raw)});"
+                f"    assert(node_halves(table::HANDLE_TAG_{name}, out, {len(raw)})"
+                f" == {noir_halves(vec['handleNode'])});"
             )
-            lines.append(f"    assert(node == {noir_bytes(node)});")
         else:
             lines.append("    let _ = out;")
         lines.append("}")
@@ -720,22 +759,18 @@ def gen_noir(spec: dict[str, Any], digest: str) -> str:
         name = vec["platform"].upper()
         size, _, _ = id_flags(by_key[vec["platform"]])
         raw = vec["input"].encode()
-        tag_len = len(by_key[vec["platform"]]["tags"]["userId"].encode())
         attr = "#[test]"
         if "error" in vec:
             attr = f'#[test(should_fail_with = "id {NOIR_ERRORS[vec["error"]]}")]'
         lines.append(attr)
         lines.append(f"fn id_{vec['platform']}_{i}() {{")
-        lines.append(f"    // {json.dumps(vec['input'], ensure_ascii=False)}")
-        lines.append(f"    let raw: [u8; {size}] = {buffer(raw, size)};")
-        lines.append(f"    crate::check_id(raw, {len(raw)}, ID_RULES_{name});")
+        lines += buffer(raw, size)
+        lines.append(f"    check_id(raw, {len(raw)}, table::ID_RULES_{name});")
         if "idNode" in vec:
-            node = bytes.fromhex(vec["idNode"][2:])
             lines.append(
-                f"    let node = crate::tagged_hash::<{tag_len}, {size}, {tag_len + size}>"
-                f"(USER_ID_TAG_{name}, raw, {len(raw)});"
+                f"    assert(node_halves(table::USER_ID_TAG_{name}, raw, {len(raw)})"
+                f" == {noir_halves(vec['idNode'])});"
             )
-            lines.append(f"    assert(node == {noir_bytes(node)});")
         lines.append("}")
         lines.append("")
     return "\n".join(lines).rstrip("\n") + "\n"
@@ -744,12 +779,30 @@ def gen_noir(spec: dict[str, Any], digest: str) -> str:
 def noir_shape(text: str) -> str:
     """Noir source with formatting and comments removed: whitespace, `//`
     comments, and the trailing commas `nargo fmt` adds, so two renderings of
-    one table compare equal and only what the circuit compiles is compared."""
+    one table compare equal and only what the circuit compiles is compared.
+    String literals are kept byte for byte."""
     import re
 
-    code = "\n".join(line.split("//", 1)[0] for line in text.splitlines())
-    flat = "".join(code.split())
-    return re.sub(r",([\]\})])", r"\1", flat)
+    out = []
+    i = 0
+    while i < len(text):
+        c = text[i]
+        if c == '"':
+            j = i + 1
+            while text[j] != '"':
+                j += 2 if text[j] == "\\" else 1
+            out.append(text[i : j + 1])
+            i = j + 1
+        elif text.startswith("//", i):
+            i = text.find("\n", i)
+            if i == -1:
+                break
+        elif c.isspace():
+            i += 1
+        else:
+            out.append(c)
+            i += 1
+    return re.sub(r",([\]\})])", r"\1", "".join(out))
 
 
 def noir_formatted(text: str) -> str:
@@ -823,14 +876,20 @@ def main() -> int:
         "--noir-out",
         type=pathlib.Path,
         help="Also write (or, with --check, compare) the Noir table at this path,"
-        " normally <libid-circuits>/lib/identity/src/table.nr.",
+        " normally <libid-circuits>/lib/identity/src/table.nr, and its vector"
+        " tests beside it as table_tests.nr.",
     )
     parser.add_argument(
         "--compare-noir",
         type=pathlib.Path,
-        help="Exit non-zero unless this Noir table (a circuits release's"
-        " handles-table.nr) is what this handles.json generates. Formatting is"
-        " ignored, so no nargo is needed.",
+        help="Exit non-zero unless this Noir table (lib/identity/src/table.nr, or"
+        " a circuits release's handles-table.nr) is what this handles.json"
+        " generates. Formatting is ignored, so no nargo is needed.",
+    )
+    parser.add_argument(
+        "--compare-noir-tests",
+        type=pathlib.Path,
+        help="Likewise for the vector tests, lib/identity/src/table_tests.nr.",
     )
     args = parser.parse_args()
 
@@ -845,16 +904,21 @@ def main() -> int:
     check_nodes(spec)
     digest = table_sha256(raw)
 
-    if args.compare_noir is not None:
-        shipped = args.compare_noir.read_text(encoding="utf-8")
-        if noir_shape(shipped) != noir_shape(gen_noir(spec, digest)):
-            print(
-                f"ERROR: {args.compare_noir} is not the Noir table this handles.json generates;"
-                " the circuits were built from another table, or the table was edited by hand",
-                file=sys.stderr,
-            )
-            return 1
-        print(f"{args.compare_noir} matches handles.json {digest}")
+    compared = [
+        (path, gen)
+        for path, gen in ((args.compare_noir, gen_noir), (args.compare_noir_tests, gen_noir_tests))
+        if path is not None
+    ]
+    if compared:
+        for path, gen in compared:
+            if noir_shape(path.read_text(encoding="utf-8")) != noir_shape(gen(spec, digest)):
+                print(
+                    f"ERROR: {path} is not the Noir this handles.json generates;"
+                    " the circuits were built from another table, or the file was edited by hand",
+                    file=sys.stderr,
+                )
+                return 1
+            print(f"{path} matches handles.json {digest}")
         return 0
 
     outputs = []
@@ -868,7 +932,9 @@ def main() -> int:
         else:
             skipped.append(path)
     if args.noir_out is not None:
-        outputs.append((args.noir_out.resolve(), noir_formatted(gen_noir(spec, digest))))
+        table = args.noir_out.resolve()
+        outputs.append((table, noir_formatted(gen_noir(spec, digest))))
+        outputs.append((table.with_name("table_tests.nr"), noir_formatted(gen_noir_tests(spec, digest))))
 
     for path in skipped:
         print(
