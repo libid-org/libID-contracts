@@ -160,8 +160,28 @@ library CeremonyAttestation {
         JsonIntegerEnd
     }
 
-    /// @notice A direction's revealed bytes, joined, without JSON whitespace.
-    function normalizedRevealed(DirectionBlock memory block_) internal pure returns (bytes memory) {
+    /// @notice A direction's block and its revealed bytes, joined, without JSON whitespace.
+    /// @dev `anchors[i]`: the revealed range ending where commitment `i`
+    ///      starts, without JSON whitespace, if `anchored[i]`.
+    struct Framing {
+        DirectionBlock block_;
+        bytes normalized;
+        bytes[] anchors;
+        bool[] anchored;
+    }
+
+    function framing(DirectionBlock memory block_) internal pure returns (Framing memory f) {
+        f.block_ = block_;
+        f.normalized = _normalizedRevealed(block_);
+        uint256 n = block_.commitments.length;
+        f.anchors = new bytes[](n);
+        f.anchored = new bool[](n);
+        for (uint256 i = 0; i < n; ++i) {
+            (f.anchored[i], f.anchors[i]) = _anchor(block_, block_.commitments[i].start);
+        }
+    }
+
+    function _normalizedRevealed(DirectionBlock memory block_) private pure returns (bytes memory) {
         return CeremonyFields.normalizeJsonBytes(concatRevealed(block_));
     }
 
@@ -172,50 +192,37 @@ library CeremonyAttestation {
         pure
         returns (RangeCommitment memory framed)
     {
-        return _framed(block_, normalizedRevealed(block_), prefix, Terminator.Suffix, suffix);
+        return _framed(framing(block_), prefix, Terminator.Suffix, suffix);
     }
 
-    /// @notice `requireFramedCommitment` with `normalized` =
-    ///         `normalizedRevealed(block_)`, for several reads of one direction.
-    function requireFramedCommitment(
-        DirectionBlock memory block_,
-        bytes memory normalized,
-        bytes memory prefix,
-        bytes memory suffix
-    ) internal pure returns (RangeCommitment memory framed) {
-        return _framed(block_, normalized, prefix, Terminator.Suffix, suffix);
+    /// @notice `requireFramedCommitment`, for several reads of one `framing`.
+    function requireFramedCommitment(Framing memory f, bytes memory prefix, bytes memory suffix)
+        internal
+        pure
+        returns (RangeCommitment memory framed)
+    {
+        return _framed(f, prefix, Terminator.Suffix, suffix);
     }
 
     /// @notice The one commitment after revealed `prefix` and before a revealed
     ///         `,` or `}`, so the committed digits are the whole number.
-    function requireFramedInteger(DirectionBlock memory block_, bytes memory prefix)
+    function requireFramedInteger(Framing memory f, bytes memory prefix)
         internal
         pure
         returns (RangeCommitment memory framed)
     {
-        return _framed(block_, normalizedRevealed(block_), prefix, Terminator.JsonIntegerEnd, "");
-    }
-
-    /// @notice `requireFramedInteger`, with `normalized` as
-    ///         `requireFramedCommitment` takes it.
-    function requireFramedInteger(DirectionBlock memory block_, bytes memory normalized, bytes memory prefix)
-        internal
-        pure
-        returns (RangeCommitment memory framed)
-    {
-        return _framed(block_, normalized, prefix, Terminator.JsonIntegerEnd, "");
+        return _framed(f, prefix, Terminator.JsonIntegerEnd, "");
     }
 
     /// @dev The prefix at most once in `normalized`, then exactly one commitment
     ///      anchored by it and ended by the terminator.
-    function _framed(
-        DirectionBlock memory block_,
-        bytes memory normalized,
-        bytes memory prefix,
-        Terminator terminator,
-        bytes memory suffix
-    ) private pure returns (RangeCommitment memory) {
-        if (CeremonyFields.occurrences(normalized, prefix) > 1) revert AmbiguousFraming();
+    function _framed(Framing memory f, bytes memory prefix, Terminator terminator, bytes memory suffix)
+        private
+        pure
+        returns (RangeCommitment memory)
+    {
+        if (CeremonyFields.occurrences(f.normalized, prefix) > 1) revert AmbiguousFraming();
+        DirectionBlock memory block_ = f.block_;
 
         bytes32 suffixHash = keccak256(suffix);
         uint256 found = type(uint256).max;
@@ -225,7 +232,7 @@ library CeremonyAttestation {
             // anchor, and its bytes with the JSON whitespace removed end with
             // the prefix. One range, never a join: a prefix assembled across a
             // seam is one the platform never wrote in one piece.
-            if (!_anchoredBy(block_, c.start, prefix)) continue;
+            if (!f.anchored[i] || !_endsWith(f.anchors[i], prefix)) continue;
             if (terminator == Terminator.Suffix) {
                 bytes memory after_ = _revealedSlice(block_, c.end, c.end + uint32(suffix.length));
                 if (keccak256(after_) != suffixHash) continue;
@@ -257,24 +264,26 @@ library CeremonyAttestation {
         return false;
     }
 
-    /// @dev Whether a revealed range ends exactly at `at` and, JSON whitespace
-    ///      removed, ends with `prefix`. The whitespace stays revealed at its
-    ///      offsets -- the range is the wire -- and is only ignored to compare.
-    function _anchoredBy(DirectionBlock memory block_, uint32 at, bytes memory prefix) private pure returns (bool) {
+    /// @dev The first revealed range ending exactly at `at`, JSON whitespace
+    ///      removed. The whitespace stays revealed at its offsets -- the range
+    ///      is the wire -- and is only ignored to compare.
+    function _anchor(DirectionBlock memory block_, uint32 at) private pure returns (bool, bytes memory) {
         for (uint256 i = 0; i < block_.revealed.length; ++i) {
             RevealedRange memory range = block_.revealed[i];
-            if (range.end != at) continue;
-            bytes memory normalized = CeremonyFields.normalizeJsonBytes(range.value);
-            if (normalized.length < prefix.length) return false;
-            bytes32 tail;
-            // The last `prefix.length` bytes, in bounds by the length check above.
-            assembly ("memory-safe") {
-                let size := mload(prefix)
-                tail := keccak256(add(add(normalized, 0x20), sub(mload(normalized), size)), size)
-            }
-            return tail == keccak256(prefix);
+            if (range.end == at) return (true, CeremonyFields.normalizeJsonBytes(range.value));
         }
-        return false;
+        return (false, "");
+    }
+
+    function _endsWith(bytes memory normalized, bytes memory prefix) private pure returns (bool) {
+        if (normalized.length < prefix.length) return false;
+        bytes32 tail;
+        // The last `prefix.length` bytes, in bounds by the length check above.
+        assembly ("memory-safe") {
+            let size := mload(prefix)
+            tail := keccak256(add(add(normalized, 0x20), sub(mload(normalized), size)), size)
+        }
+        return tail == keccak256(prefix);
     }
 
     /// @notice REQ-COMMON-35, -39 and -40 for an identity request that commits

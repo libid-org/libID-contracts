@@ -34,7 +34,7 @@ contract XPlatformVerifier is TlsNotaryVerifierBase {
     }
 
     /// @dev `bearer-link-x`'s verifier, and no other.
-    function _circuitCodehash() internal pure override returns (bytes32) {
+    function _circuitCodehash() internal pure virtual override returns (bytes32) {
         return CircuitCodehashes.BEARER_LINK_X;
     }
 

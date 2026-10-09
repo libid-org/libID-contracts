@@ -8,10 +8,12 @@
 /// package ships separately from the repository it currently lives in, so it
 /// carries no configuration of its own and reaches for nothing outside itself.
 
-import { type Address, keccak256, type PublicClient, toHex, zeroAddress } from 'viem'
+import { type Address, keccak256, type PublicClient, toHex, zeroAddress, zeroHash } from 'viem'
 
 import { identityRegistryAbi } from '../abis/identityRegistry.js'
-import type { Rules } from './handle.js'
+import { HandleError, type Rules } from './handle.js'
+import { PLATFORMS } from './handleVectors.js'
+import { handleNode } from './node.js'
 
 /// A platform key (`'x'`, `'github'`, ...), refusing at compile time a value
 /// typed as hex: an id passed where a key belongs would be hashed again into a
@@ -74,16 +76,41 @@ export async function resolveId(
   return holder === zeroAddress ? null : holder
 }
 
-/// The holder that last proved this handle, or `null`. The handle is
-/// normalized on chain, and text the rules refuse also answers `null`;
-/// reverts such as `UnknownPlatform` propagate.
+/// `resolveHandleNodeAndId` for a handle as typed: only its node is sent.
+/// Text the rules refuse is sent as the zero node, so the platform check still runs.
+async function resolveNodes(
+  reader: RegistryReader,
+  id: `0x${string}`,
+  handle: string,
+  idNode: `0x${string}`,
+): Promise<HandleAndIdResolution> {
+  const keys = PLATFORMS.find((p) => platformId(p.key) === id.toLowerCase())
+  let node: `0x${string}` = zeroHash
+  if (keys !== undefined) {
+    try {
+      node = handleNode(keys.key, handle)
+    } catch (e) {
+      if (!(e instanceof HandleError)) throw e
+    }
+  }
+  const [holder, idAgrees] = await read<[Address, boolean]>(reader, 'resolveHandleNodeAndId', [
+    id,
+    node,
+    idNode,
+  ])
+  if (keys === undefined) throw new Error(`platform ${id} is not in this package's handle table`)
+  return { holder: holder === zeroAddress ? null : holder, idAgrees }
+}
+
+/// The holder that last proved this handle, or `null`. Only the handle's node
+/// is sent; text the rules refuse also answers `null`. Reverts such as
+/// `UnknownPlatform` propagate.
 export async function resolveHandle(
   reader: RegistryReader,
   platformId: `0x${string}`,
   handle: string,
 ): Promise<Address | null> {
-  const holder = await read<Address>(reader, 'resolveHandle', [platformId, handle])
-  return holder === zeroAddress ? null : holder
+  return (await resolveNodes(reader, platformId, handle, zeroHash)).holder
 }
 
 /// The handle to show for a holder, or `null`. Forward-checked on chain:
@@ -107,26 +134,21 @@ export interface HandleAndIdResolution {
 
 /// Resolve a handle and report whether an id node still agrees with it.
 /// Read it before signing, to warn the payer; do not let it block a transfer.
+/// A handle the rules reject resolves to `{holder: null, idAgrees: false}`.
 export async function resolveHandleAndId(
   reader: RegistryReader,
   platformId: `0x${string}`,
   handle: string,
   idNode: `0x${string}`,
 ): Promise<HandleAndIdResolution> {
-  const [holder, idAgrees] = await read<[Address, boolean]>(reader, 'resolveHandleAndId', [
-    platformId,
-    handle,
-    idNode,
-  ])
-
-  return { holder: holder === zeroAddress ? null : holder, idAgrees }
+  return resolveNodes(reader, platformId, handle, idNode)
 }
 
 /// One identity a holder proved, as the holder's list reports it.
 export interface Identity {
   /// The platform the identity is on, as `platformId` derives it.
   platformId: `0x${string}`
-  /// The node of the id. The id itself is never on chain.
+  /// The node of the id, an unsalted hash anyone can test a guess against.
   idNode: `0x${string}`
   /// The node of the handle this identity proved most recently.
   handleNode: `0x${string}`

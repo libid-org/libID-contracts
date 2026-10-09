@@ -12,6 +12,7 @@ import {IPlatformVerifier} from "../../ceremony/IPlatformVerifier.sol";
 import {IProofVerifier} from "../../ceremony/IProofVerifier.sol";
 import {AttestationBuilder} from "../../ceremony/test/AttestationBuilder.sol";
 import {PrivacyScan} from "./PrivacyScan.sol";
+import {HandleDisclosure} from "../../ceremony/PlatformVerifierBase.sol";
 import {StubPlatformVerifier} from "./StubPlatformVerifier.sol";
 import {TestNodes} from "./TestNodes.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
@@ -359,6 +360,9 @@ contract IdentityRegistryTest is PrivacyScan {
 
         vm.expectRevert(abi.encodeWithSelector(IdentityRegistry.UnknownPlatform.selector, unwired));
         registry.resolveHandleAndId(unwired, "alice", idNode);
+        bytes32 handleNode = _hn(X, "alice");
+        vm.expectRevert(abi.encodeWithSelector(IdentityRegistry.UnknownPlatform.selector, unwired));
+        registry.resolveHandleNodeAndId(unwired, handleNode, idNode);
 
         vm.expectRevert(abi.encodeWithSelector(IdentityRegistry.UnknownPlatform.selector, unwired));
         registry.rulesOf(unwired);
@@ -421,6 +425,24 @@ contract IdentityRegistryTest is PrivacyScan {
         assertFalse(agrees, "a GitHub id node agreed with an X handle");
         (, agrees) = registry.resolveHandleAndId(X, "alice", _id(X, "123"));
         assertTrue(agrees);
+        // The node-taking view answers the same.
+        (holder, agrees) = registry.resolveHandleNodeAndId(X, _hn(X, "alice"), _id(GITHUB, "123"));
+        assertEq(holder, alice);
+        assertFalse(agrees);
+        (, agrees) = registry.resolveHandleNodeAndId(X, _hn(X, "alice"), _id(X, "123"));
+        assertTrue(agrees);
+    }
+
+    /// A handle node proved on GitHub is unknown on X, whatever id comes with it.
+    function test_resolveHandleNodeAndIdRefusesAHandleNodeFromAnotherPlatform() public {
+        _bind(alice, "123", "alice", 100);
+        _stage("456", "gh-alice", alice, 100);
+        vm.prank(alice);
+        _submit(GITHUB, "");
+
+        (address holder, bool agrees) = registry.resolveHandleNodeAndId(X, _hn(GITHUB, "gh-alice"), _id(X, "123"));
+        assertEq(holder, address(0), "a GitHub handle node resolved on X");
+        assertFalse(agrees, "a GitHub handle node agreed with an X id");
     }
 
     /// The case the two mappings exist for: a consumer has a pair from two
@@ -472,7 +494,7 @@ contract IdentityRegistryTest is PrivacyScan {
         _stage("123", "alice", alice, 200);
         bytes32 alicia = _hn(X, "alicia");
         bytes32 proved = _hn(X, "alice");
-        vm.expectRevert(abi.encodeWithSelector(StubPlatformVerifier.HandleNotProved.selector, alicia, proved));
+        vm.expectRevert(abi.encodeWithSelector(HandleDisclosure.HandleNotProved.selector, alicia, proved));
         vm.prank(alice);
         _submit(X, "alicia");
 
@@ -544,12 +566,12 @@ contract IdentityRegistryTest is PrivacyScan {
         bytes32 aliciaNode = _hn(X, "alicia");
 
         bytes memory payload = _payloadAt(reuse, "bob");
-        vm.expectRevert(abi.encodeWithSelector(StubPlatformVerifier.HandleNotProved.selector, bobNode, proved));
+        vm.expectRevert(abi.encodeWithSelector(HandleDisclosure.HandleNotProved.selector, bobNode, proved));
         vm.prank(alice);
         registry.bind(X, V1, payload);
 
         payload = _payloadAt(reuse, "alicia");
-        vm.expectRevert(abi.encodeWithSelector(StubPlatformVerifier.HandleNotProved.selector, aliciaNode, proved));
+        vm.expectRevert(abi.encodeWithSelector(HandleDisclosure.HandleNotProved.selector, aliciaNode, proved));
         vm.prank(alice);
         registry.bind(X, V1, payload);
 

@@ -35,6 +35,8 @@ mod registry_inner {
             /// The holder that last proved a handle node, and when. A zero
             /// holder: nobody proved it, or it was retired.
             function handleBinding(bytes32 handleNode) external view returns (address holder, uint64 observedAt);
+            /// True: identities are keyed by the nodes a circuit outputs.
+            function nodeKeyed() external pure returns (bool);
             /// The operation domain a binding's authorization names.
             function OPERATION_DOMAIN() external view returns (bytes32);
 
@@ -64,6 +66,8 @@ mod registry_inner {
             function resolveHandle(bytes32 platformId, string calldata handle) external view returns (address);
             /// The handle's holder, and whether `idNode` resolves to it too.
             function resolveHandleAndId(bytes32 platformId, string calldata handle, bytes32 idNode) external view returns (address holder, bool idAgrees);
+            /// `resolveHandleAndId` for a handle node computed off chain.
+            function resolveHandleNodeAndId(bytes32 platformId, bytes32 handleNode, bytes32 idNode) external view returns (address holder, bool idAgrees);
             /// The handle a holder published, while it still resolves back to
             /// that holder; empty otherwise.
             function publishedHandleOf(address holder, bytes32 platformId) external view returns (string memory);

@@ -2,7 +2,6 @@
 pragma solidity ^0.8.24;
 
 import {HonkStub} from "./HonkStub.sol";
-import {TlsNotaryProof} from "../CeremonyPayloads.sol";
 import {Test} from "forge-std/Test.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
@@ -139,7 +138,7 @@ contract DecoyBodyTest is Test {
         return abi.encode(address(0xBEEF));
     }
 
-    function _submission() private view returns (TlsNotaryProof memory s) {
+    function _submission() private view returns (TlsNotaryVerifierBase.TlsNotaryProof memory s) {
         s.ceremonyVersion = 1;
         s.operationDomain = DOMAIN;
         s.authorizationNonce = AUTH_NONCE;
@@ -149,7 +148,11 @@ contract DecoyBodyTest is Test {
         s.identitySession = _identity();
     }
 
-    function run(TlsNotaryProof memory s) external payable returns (ICeremony.VerifiedClaim memory) {
+    function run(TlsNotaryVerifierBase.TlsNotaryProof memory s)
+        external
+        payable
+        returns (ICeremony.VerifiedClaim memory)
+    {
         return verifier.verify{value: msg.value}(abi.encode(s));
     }
 
@@ -157,7 +160,7 @@ contract DecoyBodyTest is Test {
     ///      Coverage tiles, so the direction looks honest -- but `grant_type`
     ///      and `code_verifier` are read from bytes the platform never parsed.
     function test_aCommittedBodyWithARevealedDecoyIsRejected() public {
-        TlsNotaryProof memory s = _submission();
+        TlsNotaryVerifierBase.TlsNotaryProof memory s = _submission();
         // Was: returned the victim's userId and handle with the attacker's
         // clientIdentifier, while x.com had executed a refresh grant that no
         // verifier ever read.

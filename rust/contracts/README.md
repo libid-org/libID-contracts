@@ -155,10 +155,10 @@ Other entry points:
   through it at name-derived CREATE3 addresses.
 - `circuits::version` — the `libid-circuits` release the vendored verifiers
   came from, for a consumer that names a deployment after its artifact.
-- `PlatformVerifier::circuit_codehash_at` — the code hash `setTrustRoots`
-  wants when a Platform Verifier is rotated onto a new circuit release,
-  refused (`Error::WrongCircuit`) unless the address holds that platform's
-  circuit's verifier. `platform_verifier::codehash_at` reads any address's
+- `PlatformVerifier::rotation_codehash_at` — the code hash `setTrustRoots`
+  wants on a deployed Platform Verifier, refused (`Error::WrongCircuit`)
+  unless the address holds the verifier whose code hash the proxy's
+  `circuitCodehash()` pins. `platform_verifier::codehash_at` reads any address's
   code hash, unchecked.
 - `Artifacts::method_identifiers` — selector extraction from the vendored
   `methodIdentifiers`.
@@ -166,6 +166,8 @@ Other entry points:
   `NotYourHandle`, `SumcheckFailed`, …), from the error sets of the
   registry, the Proof Verifier, the Platform Verifiers, the Notary Service
   and bb's Honk verifiers (`bindings::circuits::IHonkVerifierErrors`).
+  `contracts()` lists every contract that declares the error; a revert does
+  not say which one raised it.
 - `bindings::ceremony::{TlsNotaryProof, GoogleProof}` — the payload a Platform
   Verifier decodes; its `SolValue::abi_encode` is the `payload` `bind` takes.
 

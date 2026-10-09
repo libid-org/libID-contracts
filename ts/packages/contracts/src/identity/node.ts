@@ -1,5 +1,6 @@
 /// The keys a binding is stored under, `SHA256(tag || value)`, computed
-/// locally so the handle or id never reaches an RPC.
+/// locally so the handle or id never reaches an RPC. Unsalted: anyone can
+/// test a guess.
 
 import { concat, type Hex, sha256, toHex } from 'viem'
 

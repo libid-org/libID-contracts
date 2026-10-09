@@ -94,6 +94,10 @@ contract IdentityRegistry is
         return (b.holder, b.observedAt);
     }
 
+    function nodeKeyed() external pure returns (bool) {
+        return true;
+    }
+
     // ─── Events ─────────────────────────────────────────────────────
 
     /// @notice An identity was bound. A disclosed handle is in `HandlePublished`.
@@ -374,8 +378,9 @@ contract IdentityRegistry is
         return address(pv) != address(0) && pv.verifiesPlatform(platformId);
     }
 
-    /// @notice The holder of an id node. An id node is
-    ///         `SHA256(user-id tag || id)`; the id is never stored.
+    /// @notice The holder of an id node. An id node is the unsalted
+    ///         `SHA256(user-id tag || id)`, so a guess can be tested; the id
+    ///         is never stored.
     function resolveId(bytes32 idNode) external view returns (address) {
         return _s().idBindings[idNode].holder;
     }
@@ -429,7 +434,29 @@ contract IdentityRegistry is
     {
         _requireUsable(platformId);
         (HandleNormalizer.Problem problem, bytes32 handleNode) = HandlePlatforms.tryHandleNodeOf(platformId, handle);
-        holder = problem == HandleNormalizer.Problem.None ? _s().handleBindings[handleNode].holder : address(0);
+        if (problem != HandleNormalizer.Problem.None) return (address(0), false);
+        return _resolveNodeAndId(platformId, handleNode, idNode);
+    }
+
+    /// @notice `resolveHandleAndId` for a handle node computed off chain, so
+    ///         the handle itself never reaches the RPC. A node proved on
+    ///         another platform resolves as an unknown handle does.
+    function resolveHandleNodeAndId(bytes32 platformId, bytes32 handleNode, bytes32 idNode)
+        external
+        view
+        returns (address holder, bool idAgrees)
+    {
+        _requireUsable(platformId);
+        if (_s().platformOfId[_s().idNodeByHandle[handleNode]] != platformId) return (address(0), false);
+        return _resolveNodeAndId(platformId, handleNode, idNode);
+    }
+
+    function _resolveNodeAndId(bytes32 platformId, bytes32 handleNode, bytes32 idNode)
+        private
+        view
+        returns (address holder, bool idAgrees)
+    {
+        holder = _s().handleBindings[handleNode].holder;
         idAgrees =
             holder != address(0) && _s().idBindings[idNode].holder == holder && _s().platformOfId[idNode] == platformId;
     }

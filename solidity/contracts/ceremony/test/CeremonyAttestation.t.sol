@@ -258,7 +258,7 @@ contract CeremonyAttestationTest is Test {
     // ─── A bare integer's framing ───────────────────────────────────
 
     function framedInteger(CeremonyAttestation.DirectionBlock memory block_) external pure returns (bytes32) {
-        return CeremonyAttestation.requireFramedInteger(block_, '"id":').commitment;
+        return CeremonyAttestation.requireFramedInteger(CeremonyAttestation.framing(block_), '"id":').commitment;
     }
 
     /// `d` as the decoder hands it to a verifier, in the received direction.

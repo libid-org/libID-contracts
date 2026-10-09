@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-import {TlsNotaryProof} from "../CeremonyPayloads.sol";
 import {Test} from "forge-std/Test.sol";
 
 import {AttestationBuilder} from "./AttestationBuilder.sol";
 import {ICeremony} from "../ICeremony.sol";
 import {ICeremonyPayloads} from "../ICeremonyPayloads.sol";
+import {TlsNotaryVerifierBase} from "../TlsNotaryVerifierBase.sol";
 
 /// @notice The X fixture's payload encodes to the hash in
 ///         `x-ceremony-payload.json`, which the Rust and TS encoders also reach.
@@ -15,7 +15,7 @@ contract PayloadEncodingTest is Test {
     string constant PROOF = "contracts/ceremony/test/fixtures/x-ceremony-session-proof.json";
     string constant PAYLOAD = "contracts/ceremony/test/fixtures/x-ceremony-payload.json";
 
-    function _payload() internal view returns (TlsNotaryProof memory p) {
+    function _payload() internal view returns (TlsNotaryVerifierBase.TlsNotaryProof memory p) {
         string memory session = vm.readFile(SESSION);
         string memory extra = vm.readFile(PAYLOAD);
         p.ceremonyVersion = uint16(vm.parseJsonUint(session, ".ceremony_version"));
@@ -45,18 +45,18 @@ contract PayloadEncodingTest is Test {
     }
 
     /// The nodes the fixture names are the proof's outputs, `[high, low]` at
-    /// fields 68 to 71, so the pinned payload is one the verifier accepts.
+    /// fields 8 to 11, so the pinned payload is one the verifier accepts.
     function test_theNodesAreTheProofsOutputs() public view {
         bytes32[] memory inputs = vm.parseJsonBytes32Array(vm.readFile(PROOF), ".public_inputs");
         string memory extra = vm.readFile(PAYLOAD);
-        assertEq(AttestationBuilder.nodeAt(inputs, 68), vm.parseJsonBytes32(extra, ".id_node"));
-        assertEq(AttestationBuilder.nodeAt(inputs, 70), vm.parseJsonBytes32(extra, ".handle_node"));
+        assertEq(AttestationBuilder.nodeAt(inputs, 8), vm.parseJsonBytes32(extra, ".id_node"));
+        assertEq(AttestationBuilder.nodeAt(inputs, 10), vm.parseJsonBytes32(extra, ".handle_node"));
     }
 
     /// The interface's ABI is the struct's: its arguments encode as the
     /// payload does.
     function test_theInterfaceArgumentsAreThePayload() public view {
-        TlsNotaryProof memory p = _payload();
+        TlsNotaryVerifierBase.TlsNotaryProof memory p = _payload();
         assertEq(
             abi.encodeCall(ICeremonyPayloads.tlsNotaryProof, (p)),
             abi.encodePacked(ICeremonyPayloads.tlsNotaryProof.selector, abi.encode(p))

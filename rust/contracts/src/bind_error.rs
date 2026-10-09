@@ -18,8 +18,10 @@ use crate::bindings::{
     identity::IdentityRegistry::IdentityRegistryErrors,
 };
 
-/// A `bind` revert, decoded by the first contract on the route whose error
-/// set declares its selector.
+/// A `bind` revert, decoded by the first error set on the route that
+/// declares its selector. Many selectors are declared by several contracts,
+/// so the variant names the error set, not the contract that reverted;
+/// [`BindError::contracts`] lists every contract that could have.
 pub enum BindError {
     /// `IdentityRegistry`.
     Registry(IdentityRegistryErrors),
@@ -94,24 +96,56 @@ impl BindError {
     }
 }
 
+/// Whether an error set declares a selector.
+type Declares = fn([u8; 4]) -> bool;
+
+/// The route's error sets, in the order `decode` tries them.
+const ROUTE: [(&str, Declares); 6] = [
+    ("IdentityRegistry", IdentityRegistryErrors::valid_selector),
+    (
+        "CeremonyProofVerifier",
+        CeremonyProofVerifierErrors::valid_selector,
+    ),
+    (
+        "TlsNotaryPlatformVerifier",
+        TlsNotaryPlatformVerifierErrors::valid_selector,
+    ),
+    (
+        "GooglePlatformVerifier",
+        GooglePlatformVerifierErrors::valid_selector,
+    ),
+    ("NotaryService", NotaryServiceErrors::valid_selector),
+    ("HonkVerifier", IHonkVerifierErrorsErrors::valid_selector),
+];
+
 impl BindError {
-    /// The contract whose error set decoded it.
-    pub fn contract(&self) -> &'static str {
+    /// Every contract on the route that declares this error. A revert does
+    /// not say which one raised it.
+    pub fn contracts(&self) -> Vec<&'static str> {
+        let selector = self.selector();
+        ROUTE
+            .iter()
+            .filter(|(_, declares)| declares(selector))
+            .map(|(name, _)| *name)
+            .collect()
+    }
+
+    fn selector(&self) -> [u8; 4] {
         match self {
-            Self::Registry(_) => "IdentityRegistry",
-            Self::ProofVerifier(_) => "CeremonyProofVerifier",
-            Self::TlsNotaryVerifier(_) => "TlsNotaryPlatformVerifier",
-            Self::GoogleVerifier(_) => "GooglePlatformVerifier",
-            Self::NotaryService(_) => "NotaryService",
-            Self::HonkVerifier(_) => "HonkVerifier",
+            Self::Registry(e) => e.selector(),
+            Self::ProofVerifier(e) => e.selector(),
+            Self::TlsNotaryVerifier(e) => e.selector(),
+            Self::GoogleVerifier(e) => e.selector(),
+            Self::NotaryService(e) => e.selector(),
+            Self::HonkVerifier(e) => e.selector(),
         }
     }
 }
 
-/// Contract and signature; the generated enums carry no `Debug`.
+/// Candidate contracts and signature; the generated enums carry no `Debug`.
 impl std::fmt::Debug for BindError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}::{}", self.contract(), self.signature())
+        write!(f, "{}::{}", self.contracts().join("|"), self.signature())
     }
 }
 
@@ -213,7 +247,7 @@ mod tests {
     fn names_a_honk_verifier_refusal() {
         let error =
             BindError::decode(&revert("SumcheckFailed()", vec![])).expect("decodes");
-        assert_eq!(error.contract(), "HonkVerifier");
+        assert_eq!(error.contracts(), ["HonkVerifier"]);
         assert_eq!(error.name(), "SumcheckFailed");
 
         let data = revert(
@@ -239,10 +273,75 @@ mod tests {
         );
     }
 
+    /// A selector several contracts declare names them all, not the first.
+    #[test]
+    fn a_shared_error_names_every_contract_that_declares_it() {
+        let data = revert("UnknownPlatform(bytes32)", BOUND.abi_encode());
+        let error = BindError::decode(&data).expect("decodes");
+        assert_eq!(
+            error.contracts(),
+            [
+                "IdentityRegistry",
+                "TlsNotaryPlatformVerifier",
+                "GooglePlatformVerifier"
+            ]
+        );
+        let data = revert("NotYourHandle(bytes32)", BOUND.abi_encode());
+        assert_eq!(
+            BindError::decode(&data).expect("decodes").contracts(),
+            ["IdentityRegistry"]
+        );
+    }
+
     /// A selector no contract on the route declares decodes to nothing.
     #[test]
     fn an_undeclared_selector_decodes_to_none() {
         assert!(BindError::decode(&revert("NoSuchError()", vec![])).is_none());
         assert!(BindError::decode(&[]).is_none());
+    }
+
+    /// TypeScript's `bindErrorsAbi` is built from `bindRoute` in
+    /// `codegen.mjs`. It lists the same contracts in the order `decode`
+    /// tries them, with X's and GitHub's verifiers under the one binding.
+    #[test]
+    fn the_typescript_bind_route_is_the_one_decode_tries() {
+        let codegen = std::fs::read_to_string(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../ts/packages/contracts/scripts/codegen.mjs"
+        ))
+        .expect("codegen.mjs");
+        let (_, route) = codegen
+            .split_once("const bindRoute = [")
+            .expect("bindRoute");
+        let (route, _) = route.split_once("\n]").expect("the end of bindRoute");
+        let ts: Vec<&str> = route.lines().filter_map(|l| l.split('\'').nth(3)).collect();
+
+        let source = include_str!("bind_error.rs");
+        let (_, decode) = source.split_once("pub fn decode(").expect("decode");
+        let (decode, _) = decode.split_once("\n    }\n").expect("the end of decode");
+        let rust: Vec<&str> = decode
+            .lines()
+            .filter_map(|l| l.split_once("Errors::abi_decode"))
+            .filter_map(|(head, _)| head.rsplit(' ').next())
+            .collect();
+        let named: Vec<&str> = ROUTE
+            .iter()
+            .map(|(name, _)| match *name {
+                "HonkVerifier" => "IHonkVerifierErrors",
+                other => other,
+            })
+            .collect();
+        assert_eq!(rust, named, "ROUTE is not the order decode tries");
+
+        let rust: Vec<&str> = rust
+            .into_iter()
+            .flat_map(|binding| match binding {
+                "TlsNotaryPlatformVerifier" => {
+                    vec!["XPlatformVerifier", "GitHubPlatformVerifier"]
+                }
+                other => vec![other],
+            })
+            .collect();
+        assert_eq!(rust, ts);
     }
 }

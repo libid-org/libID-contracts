@@ -29,6 +29,7 @@ pub use handle::{
 pub use id::{
     check_id,
     id_rules_for,
+    IdError,
     IdRules,
 };
 #[cfg(feature = "node")]

@@ -16,6 +16,28 @@ interface IHonkVerifier {
     function verify(bytes calldata proof, bytes32[] calldata publicInputs) external view returns (bool);
 }
 
+/// @notice The check every verifier makes of a disclosed handle.
+library HandleDisclosure {
+    /// @dev The handle the payload discloses does not hash to the handle node
+    ///      the proof bound. Disclose the handle the platform shows for this
+    ///      account, as it shows it.
+    error HandleNotProved(bytes32 disclosed, bytes32 proved);
+
+    /// @dev The disclosed handle, normalized, or empty when none is disclosed.
+    ///      Reverts unless it hashes to `handleNode` under the platform's rules.
+    function check(bytes32 platform, string memory handle, bytes32 handleNode)
+        internal
+        pure
+        returns (string memory normalized)
+    {
+        if (bytes(handle).length != 0) {
+            bytes32 node;
+            (normalized, node) = HandlePlatforms.handleNodeOf(platform, handle);
+            if (node != handleNode) revert HandleNotProved(node, handleNode);
+        }
+    }
+}
+
 /// @title PlatformVerifierBase
 /// @notice What every Platform Verifier owes, whichever platform it serves.
 ///
@@ -86,8 +108,6 @@ abstract contract PlatformVerifierBase is ICeremony, Initializable, UUPSUpgradea
     error WrongVerifierArtifact(bytes32 expected, bytes32 found);
     /// @dev The verifier at that address is not this platform's circuit's.
     error WrongCircuit(bytes32 expected, bytes32 found);
-    /// @dev The disclosed handle does not hash to the proof's handle node.
-    error HandleNotProved(bytes32 disclosed, bytes32 proved);
 
     // OpenZeppelin's initializer convention -- `__Contract_init`, so a child's
     // initializer reads which base each call sets up -- over mixedCase.
@@ -121,6 +141,7 @@ abstract contract PlatformVerifierBase is ICeremony, Initializable, UUPSUpgradea
     }
 
     /// @notice The runtime code hash of this platform's vendored circuit verifier.
+    ///         `verify` reverts `WrongCircuit` while `honkVerifierCodehash()` differs.
     function circuitCodehash() external pure returns (bytes32) {
         return _circuitCodehash();
     }
@@ -150,15 +171,6 @@ abstract contract PlatformVerifierBase is ICeremony, Initializable, UUPSUpgradea
 
     /// @dev This platform's `CircuitCodehashes` constant.
     function _circuitCodehash() internal pure virtual returns (bytes32);
-
-    /// @dev The disclosed handle, normalized, or empty for a private submission.
-    ///      Reverts unless it hashes to `handleNode` under the platform's rules.
-    function _disclosed(string memory handle, bytes32 handleNode) internal pure returns (string memory normalized) {
-        if (bytes(handle).length == 0) return "";
-        bytes32 node;
-        (normalized, node) = HandlePlatforms.handleNodeOf(_platform(), handle);
-        if (node != handleNode) revert HandleNotProved(node, handleNode);
-    }
 
     /// @dev The ceremony version this verifier implements: the protocol
     ///      revision the Authorization Digest binds, hardcoded here because it
@@ -314,11 +326,13 @@ abstract contract PlatformVerifierBase is ICeremony, Initializable, UUPSUpgradea
         if (observedAt > limit) revert ObservedInTheFuture(observedAt, limit);
     }
 
-    /// @dev Verify the proof under the artifact governance selected. Without
-    ///      this, every public input the surrounding checks compare is a number
-    ///      the caller wrote down (REQ-COMMON-45).
+    /// @dev Verify the proof under the stored verifier, which must still be this
+    ///      implementation's circuit's (REQ-COMMON-45).
     function _requireProof(bytes memory proof, bytes32[] memory publicInputs) internal view {
-        if (!_base().honkVerifier.verify(proof, publicInputs)) revert BadProof();
+        IHonkVerifier verifier = _base().honkVerifier;
+        bytes32 circuit = _circuitCodehash();
+        if (address(verifier).codehash != circuit) revert WrongCircuit(circuit, address(verifier).codehash);
+        if (!verifier.verify(proof, publicInputs)) revert BadProof();
     }
 
     /// @dev Required by UUPS -- only the owner can upgrade.

@@ -133,8 +133,12 @@ if [[ -n "$LOCAL" ]]; then
     # The libid-circuits commit, if the build left one; never the local path.
     origin="a local libid-circuits build"
     if [[ -f "$LOCAL/commit" ]]; then
-        commit="$(tr -cd '0-9a-f' < "$LOCAL/commit" | head -c 40)"
-        [[ -n "$commit" ]] && origin="a local libid-circuits build of commit $commit"
+        commit="$(< "$LOCAL/commit")"
+        [[ "$commit" =~ ^[0-9a-f]{40}(-dirty)?$ ]] || {
+            echo "$LOCAL/commit is not <40-hex>[-dirty]; rebuild with libid-circuits' build.sh" >&2
+            exit 1
+        }
+        origin="a local libid-circuits build of commit $commit"
     fi
     for i in "${!CIRCUITS[@]}"; do
         circuit="${CIRCUITS[$i]}" contract="${CONTRACTS[$i]}"

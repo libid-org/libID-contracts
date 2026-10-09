@@ -286,18 +286,18 @@ contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable
         if (!ok) revert NativeTransferFailed(to, amount);
     }
 
-    /// @dev Probed once at initialization: only the node-keyed registry has `resolveId(bytes32)`.
-    bytes4 private constant NODE_REGISTRY_PROBE = bytes4(keccak256("resolveId(bytes32)"));
-
-    /// @dev Refuses a registry that does not answer `handleBinding` and `NODE_REGISTRY_PROBE` in shape.
+    /// @dev Refuses a registry that does not answer `handleBinding` in shape or
+    ///      does not state `nodeKeyed()`.
     function _requireAnswers(IIdentityRegistry registry_) private view {
         (bool ok, bytes memory result) =
             address(registry_).staticcall(abi.encodeCall(IIdentityRegistry.handleBinding, (bytes32(0))));
         if (!ok || result.length != 64) {
             revert RegistryLacks(address(registry_), IIdentityRegistry.handleBinding.selector);
         }
-        (ok, result) = address(registry_).staticcall(abi.encodeWithSelector(NODE_REGISTRY_PROBE, bytes32(0)));
-        if (!ok || result.length != 32) revert RegistryLacks(address(registry_), NODE_REGISTRY_PROBE);
+        (ok, result) = address(registry_).staticcall(abi.encodeCall(IIdentityRegistry.nodeKeyed, ()));
+        if (!ok || result.length != 32 || abi.decode(result, (uint256)) != 1) {
+            revert RegistryLacks(address(registry_), IIdentityRegistry.nodeKeyed.selector);
+        }
     }
 
     // ─── Upgrade ────────────────────────────────────────────────────

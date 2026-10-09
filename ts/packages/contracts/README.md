@@ -91,9 +91,10 @@ import {
 const reader = { client, address: IDENTITY_REGISTRY }
 const x = platformId(PLATFORM_X_KEY)
 
-// The holder that last proved a handle, or null. Pass what was typed —
-// normalization happens on chain: case folds, and text the rules refuse
-// (an `@`, a space) answers null like a handle nobody proved.
+// The holder that last proved a handle, or null. Pass what was typed: it is
+// normalized and hashed here, with the registry's rules, and only the node
+// reaches the RPC. Case folds, and text the rules refuse (an `@`, a space)
+// answers null like a handle nobody proved.
 const holder = await resolveHandle(reader, x, 'Alice')
 
 // Before sending funds: does the id still agree with the handle?
@@ -115,7 +116,7 @@ const identities = await identitiesOf(reader, holder!, 0n, 50n)
 
 A binding is one of the generated builders: the platform, this chain's verifier
 version for it, and the opaque payload the ceremony produced. The payload
-carries the handle to publish, or none for a private binding: its Platform
+carries the handle to publish, or none to leave it undisclosed: its Platform
 Verifier checks a disclosed handle against the node the proof bound. The value
 is what `quoteBind` returns for the same pair. An EOA sends it directly, a smart
 wallet wraps it in its own execute:
@@ -189,7 +190,8 @@ normalize(' @Alice_1 ', RULES_X) // throws HandleError: a space and an `@` are r
 Hash locally, so the handle text never reaches an RPC. A node is
 `SHA256(tag || value)`, the one the platform's circuit outputs: the handle
 normalized under the platform's handle tag, the id exactly as the platform
-sent it under its user-id tag. Both take the platform key, not its id:
+sent it under its user-id tag. The hash is unsalted, so anyone can test a
+guess against a node. Both take the platform key, not its id:
 
 ```ts
 import { checkId, handleNode, idNode, PLATFORM_GOOGLE_KEY } from '@libid/contracts/identity'

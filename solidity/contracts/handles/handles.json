@@ -47,8 +47,11 @@
       "id": {
         "maxLength": 20,
         "shape": "decimal",
-        "leadingZero": true,
-        "note": "X user ids are decimal strings of up to 20 digits."
+        "leadingZero": false,
+        "note": [
+          "X user ids are decimal strings of up to 20 digits, written without a",
+          "leading zero."
+        ]
       }
     },
     {
@@ -416,9 +419,20 @@
     },
     {
       "platform": "x",
+      "input": "0",
+      "note": "0 alone is not a leading zero.",
+      "idNode": "0xec5465b57bae1d48ebc1fe214f8209caf9804813931fd6b02b34b22f6b2ec7cd"
+    },
+    {
+      "platform": "x",
+      "input": "0123",
+      "error": "BadShape",
+      "note": "X ids are numbers, written without a leading zero."
+    },
+    {
+      "platform": "x",
       "input": "00123",
-      "note": "X ids are strings, and a string may start with 0.",
-      "idNode": "0xb956fd3511a9d1b0e365593cc0548b0d6170ecac1d45b0596a53b9beffe59b2f"
+      "error": "BadShape"
     },
     {
       "platform": "x",

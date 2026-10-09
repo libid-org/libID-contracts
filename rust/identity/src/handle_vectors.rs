@@ -48,7 +48,7 @@ pub struct Platform {
 }
 
 /// SHA-256 of the handles.json this file was generated from.
-pub const TABLE_SHA256: &str = "bacafa6023dd82852f753efa04635b36899b881f5d37fe15260e7dd532272560";
+pub const TABLE_SHA256: &str = "5d4c0d0db7fbab4307f7ae93add39f99344cded07e5bc8fef662369619940029";
 
 /// keccak256 of this string is the platform id.
 pub const PLATFORM_X_KEY: &str = "x";
@@ -71,7 +71,7 @@ pub const PLATFORM_X: Platform = Platform {
     id_rules: crate::IdRules {
         max_length: 20,
         decimal: true,
-        leading_zero: true,
+        leading_zero: false,
     },
 };
 /// github, as `handles.json` states it.
@@ -515,7 +515,7 @@ pub const VECTORS: [Vector; 48] = [
 ];
 
 /// Every id case, shared with TypeScript and Noir.
-pub const ID_VECTORS: [IdVector; 22] = [
+pub const ID_VECTORS: [IdVector; 24] = [
     IdVector {
         platform: "x",
         input: "2244994945",
@@ -532,10 +532,24 @@ pub const ID_VECTORS: [IdVector; 22] = [
     },
     IdVector {
         platform: "x",
-        input: "00123",
+        input: "0",
         accepted: true,
         error_kind: 0,
-        id_node: "0xb956fd3511a9d1b0e365593cc0548b0d6170ecac1d45b0596a53b9beffe59b2f",
+        id_node: "0xec5465b57bae1d48ebc1fe214f8209caf9804813931fd6b02b34b22f6b2ec7cd",
+    },
+    IdVector {
+        platform: "x",
+        input: "0123",
+        accepted: false,
+        error_kind: 3,
+        id_node: "",
+    },
+    IdVector {
+        platform: "x",
+        input: "00123",
+        accepted: false,
+        error_kind: 3,
+        id_node: "",
     },
     IdVector {
         platform: "x",

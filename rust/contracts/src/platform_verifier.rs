@@ -105,13 +105,45 @@ impl PlatformVerifier {
         artifacts: &Artifacts,
         address: Address,
     ) -> Result<B256> {
+        let pinned = self.circuit().runtime_codehash(artifacts)?;
+        self.pinned_codehash_at(provider, artifacts, address, pinned)
+            .await
+    }
+
+    /// The code hash at `address`, required to be the `circuitCodehash()` the
+    /// Platform Verifier at `proxy` pins, for `setTrustRoots` on a deployed proxy.
+    pub async fn rotation_codehash_at<P: Provider>(
+        self,
+        provider: &P,
+        artifacts: &Artifacts,
+        proxy: Address,
+        address: Address,
+    ) -> Result<B256> {
+        let pinned = TlsNotaryPlatformVerifier::new(proxy, provider)
+            .circuitCodehash()
+            .call()
+            .await
+            .map_err(|e| Error::Rpc {
+                detail: format!("failed to read circuitCodehash() at {proxy}: {e}"),
+            })?;
+        self.pinned_codehash_at(provider, artifacts, address, pinned)
+            .await
+    }
+
+    async fn pinned_codehash_at<P: Provider>(
+        self,
+        provider: &P,
+        artifacts: &Artifacts,
+        address: Address,
+        pinned: B256,
+    ) -> Result<B256> {
         let codehash = codehash_at(provider, address).await?;
-        let expected = self.circuit();
-        if codehash != expected.runtime_codehash(artifacts)? {
+        if codehash != pinned {
             return Err(Error::WrongCircuit {
                 contract: self.contract(),
                 address,
-                expected,
+                expected_codehash: pinned,
+                expected: Circuit::with_runtime_codehash(artifacts, pinned)?,
                 found: Circuit::with_runtime_codehash(artifacts, codehash)?,
                 codehash,
             });

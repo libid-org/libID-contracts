@@ -6,8 +6,7 @@ import {CeremonyProfile} from "./CeremonyProfile.sol";
 import {CeremonyAuthorization} from "./CeremonyAuthorization.sol";
 import {CeremonyFields} from "./CeremonyFields.sol";
 import {IPlatformVerifier} from "./IPlatformVerifier.sol";
-import {PlatformVerifierBase} from "./PlatformVerifierBase.sol";
-import {TlsNotaryProof} from "./CeremonyPayloads.sol";
+import {HandleDisclosure, PlatformVerifierBase} from "./PlatformVerifierBase.sol";
 
 /// @title TlsNotaryVerifierBase
 /// @notice The flow both TLSNotary profiles share: two notarized sessions, one
@@ -18,15 +17,15 @@ import {TlsNotaryProof} from "./CeremonyPayloads.sol";
 ///      lines, token fields and checks, and identity field framing. The proof
 ///      is verified last, once its commitments are tied to the attestations.
 abstract contract TlsNotaryVerifierBase is IPlatformVerifier, PlatformVerifierBase {
-    /// @dev The bearer-link circuit's public inputs: two bearer commitments one
-    ///      byte per field, then id and handle commitments and nodes as `[high, low]`.
-    uint256 internal constant PUBLIC_INPUTS = 72;
+    /// @dev The bearer-link circuit's public inputs: two bearer commitments, id and
+    ///      handle commitments, then the two nodes, each as `[high, low]` halves.
+    uint256 internal constant PUBLIC_INPUTS = 12;
     uint256 internal constant OFF_TOKEN_COMMITMENT = 0;
-    uint256 internal constant OFF_IDENTITY_COMMITMENT = 32;
-    uint256 internal constant OFF_ID_COMMITMENT = 64;
-    uint256 internal constant OFF_HANDLE_COMMITMENT = 66;
-    uint256 internal constant OFF_ID_NODE = 68;
-    uint256 internal constant OFF_HANDLE_NODE = 70;
+    uint256 internal constant OFF_IDENTITY_COMMITMENT = 2;
+    uint256 internal constant OFF_ID_COMMITMENT = 4;
+    uint256 internal constant OFF_HANDLE_COMMITMENT = 6;
+    uint256 internal constant OFF_ID_NODE = 8;
+    uint256 internal constant OFF_HANDLE_NODE = 10;
 
     /// @dev What frames the committed bearer in the token response. Every other
     ///      response byte is hidden, so without these the committed range is
@@ -40,6 +39,32 @@ abstract contract TlsNotaryVerifierBase is IPlatformVerifier, PlatformVerifierBa
 
     bytes internal constant ACCESS_TOKEN_PREFIX = '"access_token":"';
     bytes internal constant ACCESS_TOKEN_SUFFIX = '"';
+
+    /// @notice The `x/v1` and `github/v1` payload, as `abi.encode` of this struct.
+    /// @dev The client identifier and public inputs are derived from the
+    ///      attestations, so the payload does not carry them.
+    /// @param ceremonyVersion    Checked against the verifier's own first.
+    /// @param operationDomain    Into the digest; returned (REQ-COMMON-06A).
+    /// @param authorizationNonce Into the digest and the PKCE verifier; the replay nullifier.
+    /// @param transactionData    Into the digest; returned opaque (REQ-COMMON-06B).
+    /// @param tokenSession       The notarized token exchange.
+    /// @param identitySession    The notarized identity read.
+    /// @param idNode             `SHA256(user-id tag || id)`, bound by the proof.
+    /// @param handleNode         `SHA256(handle tag || fold(handle))`, bound by the proof.
+    /// @param handle             Empty, or the handle to disclose; must hash to `handleNode`.
+    /// @param proof              The Honk proof.
+    struct TlsNotaryProof {
+        uint16 ceremonyVersion;
+        bytes32 operationDomain;
+        bytes32 authorizationNonce;
+        bytes transactionData;
+        Attestation tokenSession;
+        Attestation identitySession;
+        bytes32 idNode;
+        bytes32 handleNode;
+        string handle;
+        bytes proof;
+    }
 
     error WrongRequestLine();
     error CodeVerifierMismatch();
@@ -144,7 +169,7 @@ abstract contract TlsNotaryVerifierBase is IPlatformVerifier, PlatformVerifierBa
         _requireCeremonyVersion(p.ceremonyVersion);
         // A disclosure is checked against the node the payload claims, before
         // anything is paid or proved: the proof below is what binds that node.
-        claimed.handle = _disclosed(p.handle, p.handleNode);
+        claimed.handle = HandleDisclosure.check(_platform(), p.handle, p.handleNode);
 
         // The digest, rebuilt from what was decoded, this verifier's own
         // version, and the chain it runs on. Never trusted for its content:
@@ -312,19 +337,12 @@ abstract contract TlsNotaryVerifierBase is IPlatformVerifier, PlatformVerifierBa
         CeremonyAttestation.requireExactCoverage(data.received, data.recvTranscriptLength);
         (string memory idField, IdShape idShape, string memory handleField) = _identityFields();
         // Joined and normalized once; both reads count their prefix in it.
-        bytes memory normalized = CeremonyAttestation.normalizedRevealed(data.received);
+        CeremonyAttestation.Framing memory f = CeremonyAttestation.framing(data.received);
         id = idShape == IdShape.JsonString
-            ? CeremonyAttestation.requireFramedCommitment(
-                data.received, normalized, abi.encodePacked('"', idField, '":"'), '"'
-            )
-            .commitment
-            : CeremonyAttestation.requireFramedInteger(data.received, normalized, abi.encodePacked('"', idField, '":'))
-            .commitment;
+            ? CeremonyAttestation.requireFramedCommitment(f, abi.encodePacked('"', idField, '":"'), '"').commitment
+            : CeremonyAttestation.requireFramedInteger(f, abi.encodePacked('"', idField, '":')).commitment;
         handle =
-        CeremonyAttestation.requireFramedCommitment(
-            data.received, normalized, abi.encodePacked('"', handleField, '":"'), '"'
-        )
-        .commitment;
+        CeremonyAttestation.requireFramedCommitment(f, abi.encodePacked('"', handleField, '":"'), '"').commitment;
     }
 
     // ─── Helpers ────────────────────────────────────────────────────
@@ -337,10 +355,8 @@ abstract contract TlsNotaryVerifierBase is IPlatformVerifier, PlatformVerifierBa
         returns (bytes32[] memory inputs)
     {
         inputs = new bytes32[](PUBLIC_INPUTS);
-        for (uint256 i = 0; i < 32; ++i) {
-            inputs[OFF_TOKEN_COMMITMENT + i] = bytes32(uint256(uint8(tokenCommitment[i])));
-            inputs[OFF_IDENTITY_COMMITMENT + i] = bytes32(uint256(uint8(identity.bearer[i])));
-        }
+        _halves(inputs, OFF_TOKEN_COMMITMENT, tokenCommitment);
+        _halves(inputs, OFF_IDENTITY_COMMITMENT, identity.bearer);
         _halves(inputs, OFF_ID_COMMITMENT, identity.id);
         _halves(inputs, OFF_HANDLE_COMMITMENT, identity.handle);
         _halves(inputs, OFF_ID_NODE, idNode);

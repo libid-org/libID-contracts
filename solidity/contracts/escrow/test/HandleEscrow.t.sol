@@ -18,7 +18,16 @@ import {CeremonyProofVerifier} from "../../ceremony/CeremonyProofVerifier.sol";
 import {IPlatformVerifier} from "../../ceremony/IPlatformVerifier.sol";
 import {IProofVerifier} from "../../ceremony/IProofVerifier.sol";
 import {HandleEscrow, NATIVE_TOKEN} from "../HandleEscrow.sol";
-import {FeeToken, InertToken, PreNodeRegistry, RejectEther, SettableRegistry, TestERC20, one} from "./EscrowMocks.sol";
+import {
+    FeeToken,
+    InertToken,
+    NotNodeKeyedRegistry,
+    PreNodeRegistry,
+    RejectEther,
+    SettableRegistry,
+    TestERC20,
+    one
+} from "./EscrowMocks.sol";
 
 // The native token as the escrow names it.
 address constant NATIVE = NATIVE_TOKEN;
@@ -639,9 +648,10 @@ contract HandleEscrowTest is Test {
         _assertLacks(makeAddr("no code"), IIdentityRegistry.handleBinding.selector);
         _assertLacks(address(new RegistryWithAOneWordFallback()), IIdentityRegistry.handleBinding.selector);
         _assertLacks(address(new RegistryWithASilentFallback()), IIdentityRegistry.handleBinding.selector);
-        // Answers `handleBinding` but lacks `resolveId(bytes32)`.
-        _assertLacks(address(new PreNodeRegistry()), IdentityRegistry.resolveId.selector);
-        _assertLacks(address(new RegistryWithHandleBindingOnly()), IdentityRegistry.resolveId.selector);
+        // Answers `handleBinding` but does not state `nodeKeyed`.
+        _assertLacks(address(new PreNodeRegistry()), IIdentityRegistry.nodeKeyed.selector);
+        _assertLacks(address(new RegistryWithHandleBindingOnly()), IIdentityRegistry.nodeKeyed.selector);
+        _assertLacks(address(new NotNodeKeyedRegistry()), IIdentityRegistry.nodeKeyed.selector);
         // The two functions in their shapes are all it asks.
         _deploy(address(new SettableRegistry()));
 

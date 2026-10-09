@@ -644,6 +644,49 @@ def noir_halves(node: str) -> str:
     return f"[0x{node[2:34]}, 0x{node[34:]}]"
 
 
+def fold_byte(b: int) -> int:
+    """A-Z down to a-z; every other byte unchanged."""
+    return b + 0x20 if 0x41 <= b <= 0x5A else b
+
+
+EMAIL_EXTRA = b".+-_@"
+
+
+def handle_byte_table(platform: dict[str, Any]) -> list[int]:
+    """Each byte of a raw handle as the circuit reads it: folded when the
+    platform allows the folded byte, 0 when it refuses it. No platform allows
+    0, so 0 is the refusal.
+
+    The rule is the one every normalizer states by hand: a-z and 0-9, then
+    the email set or the platform's underscore and hyphen, each byte checked
+    after the fold.
+    """
+    flags = handle_flags(platform)
+    extra = set(EMAIL_EXTRA) if flags["isEmail"] else set()
+    if not flags["isEmail"]:
+        if flags["allowUnderscore"]:
+            extra.add(0x5F)
+        if flags["allowHyphen"]:
+            extra.add(0x2D)
+    table = []
+    for b in range(256):
+        c = fold_byte(b)
+        allowed = 0x61 <= c <= 0x7A or 0x30 <= c <= 0x39 or c in extra
+        table.append(c if allowed else 0)
+    if table[0] != 0:
+        raise SystemExit(f"ERROR: {platform['key']} allows the byte 0, which the Noir table uses as its refusal")
+    return table
+
+
+def id_byte_table(platform: dict[str, Any]) -> list[bool]:
+    """Whether the platform allows each byte in an id: the digits for a
+    decimal id, otherwise printable ASCII without '"' or '\\'."""
+    _, decimal, _ = id_flags(platform)
+    if decimal:
+        return [0x30 <= b <= 0x39 for b in range(256)]
+    return [0x20 <= b <= 0x7E and b not in (0x22, 0x5C) for b in range(256)]
+
+
 def gen_noir(spec: dict[str, Any], digest: str) -> str:
     """The circuit library's constants: what every circuit compiles against,
     and what a circuits release ships as `handles-table.nr`."""
@@ -652,6 +695,11 @@ def gen_noir(spec: dict[str, Any], digest: str) -> str:
         "",
         "// Platform tags and rules, for the identity circuits. The algorithm is",
         "// lib.nr's; table_tests.nr runs it against the shared vector table.",
+        "//",
+        "// Each platform's byte rules are two 256-entry tables indexed by the raw",
+        "// byte, so a circuit checks a byte with one lookup: HANDLE_BYTES_<P> holds",
+        "// the folded byte, or 0 where the platform refuses it, and ID_BYTES_<P>",
+        "// whether the platform allows the byte in an id.",
         "",
         "use crate::{HandleRules, IdRules};",
         "",
@@ -663,7 +711,7 @@ def gen_noir(spec: dict[str, Any], digest: str) -> str:
         name = p["key"].upper()
         id_tag = p["tags"]["userId"].encode()
         handle_tag = p["tags"]["handle"].encode()
-        max_len, decimal, leading = id_flags(p)
+        max_len, _, leading = id_flags(p)
         is_email = p.get("shape") == "email"
         lines += [
             f"/// `{p['tags']['userId']}`",
@@ -672,16 +720,19 @@ def gen_noir(spec: dict[str, Any], digest: str) -> str:
             f"pub global HANDLE_TAG_{name}: [u8; {len(handle_tag)}] = {noir_bytes(handle_tag)};",
             f"pub global MAX_HANDLE_{name}: u32 = {p['maxLength']};",
             f"pub global MAX_ID_{name}: u32 = {max_len};",
+            f"pub global HANDLE_BYTES_{name}: [u8; 256] = {noir_bytes(bytes(handle_byte_table(p)))};",
+            f"pub global ID_BYTES_{name}: [bool; 256] = "
+            f"[{', '.join(str(ok).lower() for ok in id_byte_table(p))}];",
             f"pub global HANDLE_RULES_{name}: HandleRules = HandleRules {{",
             f"    max_len: {p['maxLength']},",
-            f"    allow_underscore: {str(bool(p.get('allowUnderscore')) and not is_email).lower()},",
             f"    allow_hyphen: {str(bool(p.get('allowHyphen')) and not is_email).lower()},",
             f"    is_email: {str(is_email).lower()},",
+            f"    bytes: HANDLE_BYTES_{name},",
             "};",
             f"pub global ID_RULES_{name}: IdRules = IdRules {{",
             f"    max_len: {max_len},",
-            f"    decimal: {str(decimal).lower()},",
             f"    leading_zero: {str(leading).lower()},",
+            f"    bytes: ID_BYTES_{name},",
             "};",
             "",
         ]

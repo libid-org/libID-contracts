@@ -4,7 +4,44 @@
 //! and run the same `idVectors` table.
 
 use super::handle_vectors as v;
-use crate::HandleError;
+
+/// Why no circuit would hash an id. The kinds are the handle table's.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum IdError {
+    /// No bytes at all.
+    Empty,
+    /// More bytes than the platform allows.
+    TooLong,
+    /// A byte the platform does not allow.
+    BadCharacter,
+    /// A leading zero the platform does not allow.
+    BadShape,
+}
+
+impl IdError {
+    /// The index the vector table uses for this kind.
+    pub const fn kind(self) -> u8 {
+        match self {
+            Self::Empty => v::ERROR_EMPTY,
+            Self::TooLong => v::ERROR_TOOLONG,
+            Self::BadCharacter => v::ERROR_BADCHARACTER,
+            Self::BadShape => v::ERROR_BADSHAPE,
+        }
+    }
+}
+
+impl std::fmt::Display for IdError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::Empty => "the id is empty",
+            Self::TooLong => "the id is too long for this platform",
+            Self::BadCharacter => "the id has a byte this platform does not allow",
+            Self::BadShape => "the id has a leading zero",
+        })
+    }
+}
+
+impl std::error::Error for IdError {}
 
 /// What a platform allows in an id.
 #[derive(Debug, Clone, Copy)]
@@ -32,13 +69,13 @@ pub fn id_rules_for(platform_key: &str) -> Option<IdRules> {
 }
 
 /// Accept an id exactly as given, or say why no circuit would hash it.
-pub fn check_id(id: &str, rules: IdRules) -> Result<(), HandleError> {
+pub fn check_id(id: &str, rules: IdRules) -> Result<(), IdError> {
     let bytes = id.as_bytes();
     if bytes.is_empty() {
-        return Err(HandleError::Empty);
+        return Err(IdError::Empty);
     }
     if bytes.len() > rules.max_length {
-        return Err(HandleError::TooLong);
+        return Err(IdError::TooLong);
     }
     let allowed = |b: u8| {
         if rules.decimal {
@@ -48,10 +85,10 @@ pub fn check_id(id: &str, rules: IdRules) -> Result<(), HandleError> {
         }
     };
     if !bytes.iter().all(|&b| allowed(b)) {
-        return Err(HandleError::BadCharacter);
+        return Err(IdError::BadCharacter);
     }
     if !rules.leading_zero && bytes.len() > 1 && bytes[0] == b'0' {
-        return Err(HandleError::BadShape);
+        return Err(IdError::BadShape);
     }
     Ok(())
 }
@@ -60,6 +97,18 @@ pub fn check_id(id: &str, rules: IdRules) -> Result<(), HandleError> {
 mod tests {
     use super::*;
     use crate::handle_vectors::ID_VECTORS;
+
+    /// TypeScript's `checkId` words its refusals the same way.
+    #[test]
+    fn an_id_refusal_names_the_id() {
+        let refused = |id| check_id(id, IdRules::GITHUB).unwrap_err().to_string();
+        assert_eq!(refused(""), "the id is empty");
+        assert_eq!(
+            refused("12a"),
+            "the id has a byte this platform does not allow"
+        );
+        assert_eq!(refused("012"), "the id has a leading zero");
+    }
 
     #[test]
     fn every_id_vector_matches_the_shared_table() {

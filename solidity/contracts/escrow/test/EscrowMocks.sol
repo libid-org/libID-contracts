@@ -23,20 +23,22 @@ contract SettableRegistry is IIdentityRegistry {
         return (holderOf[handleNode], 0);
     }
 
-    /// The function `HandleEscrow` probes to tell this registry from `PreNodeRegistry`.
-    function resolveId(bytes32) external pure returns (address) {
-        return address(0);
+    function nodeKeyed() external pure virtual returns (bool) {
+        return true;
     }
 }
 
-/// @notice A registry whose `resolveId` takes a platform and an id rather than a node.
-contract PreNodeRegistry is IIdentityRegistry {
+/// @notice A registry that answers `handleBinding` but has no `nodeKeyed`.
+contract PreNodeRegistry {
     function handleBinding(bytes32) external pure returns (address holder, uint64 observedAt) {
         return (address(0), 0);
     }
+}
 
-    function resolveId(bytes32, string calldata) external pure returns (address) {
-        return address(0);
+/// @notice Answers `nodeKeyed` with false.
+contract NotNodeKeyedRegistry is SettableRegistry {
+    function nodeKeyed() external pure override returns (bool) {
+        return false;
     }
 }
 

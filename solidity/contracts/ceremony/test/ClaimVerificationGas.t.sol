@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-import {TlsNotaryProof} from "../CeremonyPayloads.sol";
 import {Test} from "forge-std/Test.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
@@ -13,6 +12,7 @@ import {IPlatformVerifier} from "../IPlatformVerifier.sol";
 import {NotaryService} from "../NotaryService.sol";
 import {IHonkVerifier} from "../PlatformVerifierBase.sol";
 import {XPlatformVerifier} from "../XPlatformVerifier.sol";
+import {TlsNotaryVerifierBase} from "../TlsNotaryVerifierBase.sol";
 
 /// @notice The gas of each verifier's `verify` on a real claim (`vm.lastCallGas`),
 ///         recorded in `snapshots/claim-verification.json` by
@@ -104,7 +104,7 @@ contract ClaimVerificationGasTest is Test {
         string memory proof = vm.readFile(proofFixture);
         bytes32[] memory inputs = vm.parseJsonBytes32Array(proof, ".public_inputs");
 
-        TlsNotaryProof memory p;
+        TlsNotaryVerifierBase.TlsNotaryProof memory p;
         p.ceremonyVersion = uint16(vm.parseJsonUint(session, ".ceremony_version"));
         p.operationDomain = vm.parseJsonBytes32(session, ".operation_domain");
         p.authorizationNonce = vm.parseJsonBytes32(session, ".authorization_nonce");
@@ -117,9 +117,9 @@ contract ClaimVerificationGasTest is Test {
             attestedData: vm.parseJsonBytes(session, ".identity.attested_data"),
             proof: vm.parseJsonBytes(session, ".identity.notary_signature")
         });
-        // The nodes the circuit output, `[high, low]` at fields 68 to 71.
-        p.idNode = AttestationBuilder.nodeAt(inputs, 68);
-        p.handleNode = AttestationBuilder.nodeAt(inputs, 70);
+        // The nodes the circuit output, `[high, low]` at fields 8 to 11.
+        p.idNode = AttestationBuilder.nodeAt(inputs, 8);
+        p.handleNode = AttestationBuilder.nodeAt(inputs, 10);
         p.proof = vm.parseJsonBytes(proof, ".proof");
         bytes memory payload = abi.encode(p);
 

@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-import {GoogleProof, TlsNotaryProof} from "./CeremonyPayloads.sol";
+import {GooglePlatformVerifier} from "./GooglePlatformVerifier.sol";
+import {TlsNotaryVerifierBase} from "./TlsNotaryVerifierBase.sol";
 
 /// @title ICeremonyPayloads
 /// @notice The payloads the Platform Verifiers decode, as an ABI clients encode
@@ -10,8 +11,8 @@ import {GoogleProof, TlsNotaryProof} from "./CeremonyPayloads.sol";
 ///      an artifact the TypeScript and Rust encoders are checked against.
 interface ICeremonyPayloads {
     /// @notice The `x/v1` and `github/v1` payload.
-    function tlsNotaryProof(TlsNotaryProof calldata payload) external pure;
+    function tlsNotaryProof(TlsNotaryVerifierBase.TlsNotaryProof calldata payload) external pure;
 
     /// @notice The `google/v1` payload.
-    function googleProof(GoogleProof calldata payload) external pure;
+    function googleProof(GooglePlatformVerifier.GoogleProof calldata payload) external pure;
 }
