@@ -471,8 +471,7 @@ mod payloads_inner {
             }
 
             /// `TlsNotaryVerifierBase.TlsNotaryProof`: the `x/v1` and
-            /// `github/v1` payload. An empty `handle` keeps the submission
-            /// private.
+            /// `github/v1` payload. An empty `handle` discloses none.
             #[derive(Debug, PartialEq, Eq)]
             struct TlsNotaryProof {
                 uint16 ceremonyVersion;

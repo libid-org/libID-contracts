@@ -23,7 +23,7 @@ library HandleDisclosure {
     ///      account, as it shows it.
     error HandleNotProved(bytes32 disclosed, bytes32 proved);
 
-    /// @dev The disclosed handle, normalized, or empty for a private submission.
+    /// @dev The disclosed handle, normalized, or empty when none is disclosed.
     ///      Reverts unless it hashes to `handleNode` under the platform's rules.
     function check(bytes32 platform, string memory handle, bytes32 handleNode)
         internal

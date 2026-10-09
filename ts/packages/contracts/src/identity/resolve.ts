@@ -148,7 +148,7 @@ export async function resolveHandleAndId(
 export interface Identity {
   /// The platform the identity is on, as `platformId` derives it.
   platformId: `0x${string}`
-  /// The node of the id. The id itself is never on chain.
+  /// The node of the id, an unsalted hash anyone can test a guess against.
   idNode: `0x${string}`
   /// The node of the handle this identity proved most recently.
   handleNode: `0x${string}`

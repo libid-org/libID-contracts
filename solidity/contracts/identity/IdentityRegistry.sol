@@ -378,8 +378,9 @@ contract IdentityRegistry is
         return address(pv) != address(0) && pv.verifiesPlatform(platformId);
     }
 
-    /// @notice The holder of an id node. An id node is
-    ///         `SHA256(user-id tag || id)`; the id is never stored.
+    /// @notice The holder of an id node. An id node is the unsalted
+    ///         `SHA256(user-id tag || id)`, so a guess can be tested; the id
+    ///         is never stored.
     function resolveId(bytes32 idNode) external view returns (address) {
         return _s().idBindings[idNode].holder;
     }

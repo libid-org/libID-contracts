@@ -55,10 +55,13 @@ escrow.refund(handleNode, token, recipient);   // refundTo, while unclaimed
 
 ## Privacy and trust
 
-A node keeps the handle out of the sender's calldata but is not secret: anyone
-can hash a guess. Claiming discloses nothing either: the holder's binding is
-keyed by the same node, and its handle stays private unless the holder
-publishes it.
+A node keeps the handle text out of the sender's calldata, but it is an
+unsalted tagged SHA-256, so anyone can test a guess against it. The bind's
+attestation also makes the id's and the handle's byte lengths public, in its
+commitment offsets. GitHub ids are sequential, so a GitHub id node is in effect
+public. Claiming adds nothing: the holder's binding is keyed by the same node.
+A binding that publishes no handle keeps it undisclosed, not unlinkable: every
+use of a node links to every other.
 
 Every key that can change what `handleBinding` answers can take escrowed value
 through an ordinary identity binding: the `IdentityRegistry`,
