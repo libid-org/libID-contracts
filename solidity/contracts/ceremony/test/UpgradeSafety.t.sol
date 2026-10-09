@@ -11,7 +11,7 @@ import {CeremonyProofVerifier} from "../CeremonyProofVerifier.sol";
 import {NotaryService} from "../NotaryService.sol";
 import {XPlatformVerifier} from "../XPlatformVerifier.sol";
 import {GitHubPlatformVerifier} from "../GitHubPlatformVerifier.sol";
-import {GooglePlatformVerifier, IGoogleJwtRoots} from "../GooglePlatformVerifier.sol";
+import {GooglePlatformVerifier} from "../GooglePlatformVerifier.sol";
 import {INotaryService} from "../INotaryService.sol";
 import {IHonkVerifier} from "../PlatformVerifierBase.sol";
 import {IPlatformVerifier} from "../IPlatformVerifier.sol";
