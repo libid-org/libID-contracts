@@ -54,8 +54,7 @@ mod notary_service_inner {
             event NotaryTrustChanged(address indexed key, bool trusted);
             event FeesWithdrawn(address indexed to, uint256 amount);
 
-            // What `verify` can revert with, out of a `bind` that reached it,
-            // and what the operator calls can.
+            // What `verify` and the operator calls can revert with.
             error WrongFee(uint256 required, uint256 provided);
             error UntrustedNotary(address recovered);
             error MalformedSignature();
@@ -284,9 +283,7 @@ mod tls_notary_platform_verifier_inner {
             /// The Honk verifier is not this platform's circuit's: `expected`
             /// is `circuitCodehash()`, `found` the code hash at the address.
             error WrongCircuit(bytes32 expected, bytes32 found);
-            // What `verify` can revert with, so a consumer decodes a refused
-            // claim by name: the base's checks, the disclosed handle's, and
-            // `UnusableHandle` for a disclosure the rules refuse.
+            // What `verify` can revert with.
             error WrongValue(uint256 required, uint256 provided);
             error WrongCeremonyVersion(uint16 expected, uint16 found);
             error WrongAuthority(bytes32 expected, bytes32 found);
@@ -419,9 +416,7 @@ mod google_platform_verifier_inner {
             /// The Honk verifier is not this platform's circuit's: `expected`
             /// is `circuitCodehash()`, `found` the code hash at the address.
             error WrongCircuit(bytes32 expected, bytes32 found);
-            // What `verify` can revert with, so a consumer decodes a refused
-            // claim by name: the base's checks, the disclosed handle's, and
-            // `UnusableHandle` for a disclosure the rules refuse.
+            // What `verify` can revert with.
             error WrongValue(uint256 required, uint256 provided);
             error WrongCeremonyVersion(uint16 expected, uint16 found);
             error WrongAuthority(bytes32 expected, bytes32 found);
@@ -457,14 +452,9 @@ mod google_platform_verifier_inner {
 pub use google_platform_verifier_inner::GooglePlatformVerifier;
 
 /// The payloads `IdentityRegistry.bind` carries to a Platform Verifier, from
-/// `ceremony/ICeremonyPayloads.sol`.
-///
-/// `bind` takes a payload as opaque bytes and the Platform Verifier the
-/// route ends at `abi.decode`s it as one struct. `ICeremonyPayloads` takes
-/// each struct in a function nothing calls, so the structs reach an ABI, and
-/// a test holds these to it. A payload is the struct's
-/// [`SolValue::abi_encode`](alloy::sol_types::SolValue::abi_encode) —
-/// `abi.encode(p)` — and never a call to either function.
+/// `ceremony/ICeremonyPayloads.sol`. A payload is the struct's
+/// [`SolValue::abi_encode`](alloy::sol_types::SolValue::abi_encode), never a
+/// call to either function.
 #[allow(clippy::too_many_arguments, unused_attributes)]
 mod payloads_inner {
     use alloy::sol;
@@ -480,9 +470,8 @@ mod payloads_inner {
                 bytes proof;
             }
 
-            /// `TlsNotaryProof` (`ceremony/CeremonyPayloads.sol`): the `x/v1` and
-            /// `github/v1` payload. `handle` is empty for a private
-            /// submission; otherwise it must hash to `handleNode`.
+            /// `TlsNotaryProof`: the `x/v1` and `github/v1` payload. An
+            /// empty `handle` keeps the submission private.
             #[derive(Debug, PartialEq, Eq)]
             struct TlsNotaryProof {
                 uint16 ceremonyVersion;
@@ -555,9 +544,8 @@ mod tests {
         "function verify(bytes)",
     ];
 
-    /// Every error `verify` can revert with is bound, so a refused claim
-    /// decodes by name; one interface serves the X and GitHub contracts, and
-    /// both artifacts must agree with it.
+    /// Every error `verify` can revert with is bound, for both the X and
+    /// GitHub artifacts.
     #[test]
     fn the_platform_verifier_bindings_match_the_artifact_abis() {
         let tls = TlsNotaryPlatformVerifier::abi::contract();
@@ -583,8 +571,7 @@ mod tests {
         );
     }
 
-    /// The Notary Service and the Proof Verifier bind every error a `bind`
-    /// can surface from them, so `BindError` decodes it.
+    /// The Notary Service and Proof Verifier bind every error `bind` surfaces.
     #[test]
     fn the_route_bindings_match_the_artifact_abis() {
         let route_omitted: Vec<&str> = OMITTED
@@ -620,9 +607,7 @@ mod tests {
         );
     }
 
-    /// The payload structs are the ones the verifiers decode: the interface
-    /// that takes them compiles to these function signatures, tuple types
-    /// included.
+    /// The payload structs match the compiled interface's signatures.
     #[test]
     fn the_payload_bindings_match_the_artifact_abi() {
         assert_binding_matches_artifact(
@@ -633,9 +618,7 @@ mod tests {
         );
     }
 
-    /// The X fixture, encoded here, is the bytes solc encodes for it:
-    /// `x-ceremony-payload.json` pins their hash, and `PayloadEncoding.t.sol`
-    /// and the TypeScript encoder are held to the same one.
+    /// The X fixture encodes to the hash `x-ceremony-payload.json` pins.
     #[test]
     fn the_x_fixture_payload_encodes_to_the_pinned_bytes() {
         use alloy::{

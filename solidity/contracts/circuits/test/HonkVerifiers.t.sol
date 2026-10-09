@@ -100,9 +100,7 @@ contract HonkVerifiersTest is Test {
         assertNotEq(github, oidc, "GitHub and Google would verify under one circuit");
     }
 
-    /// Each bearer-link verifier accepts its own circuit's proof and refuses
-    /// the other's: two verification keys, so no proof of one platform's
-    /// rules passes as the other's.
+    /// Each bearer-link verifier accepts its own circuit's proof and refuses the other's.
     function test_eachBearerLinkVerifierRefusesTheOtherPlatformsProof() public view {
         assertTrue(_accepts(bearerLinkX, X_PROOF), "X refuses its own proof");
         assertTrue(_accepts(bearerLinkGithub, GITHUB_PROOF), "GitHub refuses its own proof");
@@ -168,19 +166,14 @@ contract HonkVerifiersTest is Test {
         assertNotEq(gh.honkVerifierCodehash(), g.honkVerifierCodehash(), "one artifact for GitHub and Google");
     }
 
-    /// @dev The constants the Platform Verifiers pin are the code hashes of
-    ///      the verifiers vendored beside them. `vendor-circuit-verifiers.sh`
-    ///      writes both; this fails while either is stale, so a re-vendor
-    ///      that is not committed with its constants does not pass.
+    /// @dev The pinned codehashes are those of the vendored verifiers.
     function test_theCommittedCodehashesAreTheVendoredVerifiers() public view {
         assertEq(address(bearerLinkX).codehash, CircuitCodehashes.BEARER_LINK_X, "bearer-link-x");
         assertEq(address(bearerLinkGithub).codehash, CircuitCodehashes.BEARER_LINK_GITHUB, "bearer-link-github");
         assertEq(address(oidcGoogle).codehash, CircuitCodehashes.OIDC_GOOGLE, "oidc-google");
     }
 
-    /// @dev Each Platform Verifier refuses at initialization every vendored
-    ///      verifier but its own circuit's, the other bearer-link circuit's
-    ///      included.
+    /// @dev Each Platform Verifier refuses every vendored verifier but its own circuit's.
     function test_eachPlatformVerifierRefusesTheOtherCircuits() public {
         _refuses(address(new XPlatformVerifier()), bearerLinkGithub, CircuitCodehashes.BEARER_LINK_X);
         _refuses(address(new XPlatformVerifier()), oidcGoogle, CircuitCodehashes.BEARER_LINK_X);

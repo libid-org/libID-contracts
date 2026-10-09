@@ -20,11 +20,8 @@ pub enum Error {
         /// Which rule, and which contract.
         detail: String,
     },
-    /// A Platform Verifier initializer pinning a Honk verifier that is not
-    /// its platform's circuit: the code at `address` is another circuit's
-    /// verifier (`found`), or none the crate vendors (`found` is `None`).
-    /// The contract refuses the same with `WrongCircuit`; this says so
-    /// before any transaction.
+    /// A Platform Verifier initializer pins a Honk verifier that is not its
+    /// platform's circuit (the contract's `WrongCircuit`, caught off chain).
     #[error(
         "initializer error: {contract}: the Honk verifier at {address} (code hash {codehash}) \
          is {}, not the {} circuit's",

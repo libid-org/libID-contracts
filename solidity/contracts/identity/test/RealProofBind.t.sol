@@ -22,14 +22,8 @@ import {IdentityRegistry} from "../IdentityRegistry.sol";
 import {PrivacyScan} from "./PrivacyScan.sol";
 import {TestNodes} from "./TestNodes.sol";
 
-/// @notice A platform's identity bound through the whole deployed stack with
-///         a real proof: the registry over the Proof Verifier over the
-///         platform's Platform Verifier over the circuit's own Honk verifier.
-///
-/// @dev Each platform supplies its fixture, the plaintext the fixture proves
-///      and the nodes Python's hashlib computes for them; the checks are
-///      shared. Every fixture's Authorized Transaction Data is the registry's
-///      own triple `(0xBEEF, 0, 0)`, so it binds unedited.
+/// @notice A platform's identity bound through the whole deployed stack with a real proof.
+/// @dev Each fixture's Authorized Transaction Data is the registry's own `(0xBEEF, 0, 0)`.
 abstract contract RealProofBindBase is PrivacyScan {
     IdentityRegistry registry;
     CeremonyProofVerifier proofVerifier;
@@ -41,28 +35,24 @@ abstract contract RealProofBindBase is PrivacyScan {
 
     function _platform() internal pure virtual returns (bytes32);
 
-    /// The payload over the fixture, disclosing `handle` (empty for a private
-    /// submission).
+    /// The payload over the fixture, disclosing `handle` (empty when private).
     function _payload(string memory handle) internal view virtual returns (bytes memory);
 
     function _idNode() internal pure virtual returns (bytes32);
 
     function _handleNode() internal pure virtual returns (bytes32);
 
-    /// The contracts whose storage a bind may write, besides the registry and
-    /// the Proof Verifier.
+    /// The contracts a bind may write besides the registry and the Proof Verifier.
     function _verifiers() internal view virtual returns (address[] memory);
 
-    /// The proof's public inputs, and where the id node's `[high, low]`
-    /// halves start; the handle node's follow.
+    /// The proof's public inputs, and where the id node's `[high, low]` halves start.
     function _publicInputs() internal view virtual returns (bytes32[] memory);
 
     function _idNodeAt() internal pure virtual returns (uint256);
 
     // ─── The stack ──────────────────────────────────────────────────
 
-    /// The Proof Verifier and the registry, with `verifier` as the platform's
-    /// version 1.
+    /// The Proof Verifier and the registry, with `verifier` as version 1.
     function _deployStack(address verifier) internal {
         proofVerifier = CeremonyProofVerifier(
             address(
@@ -92,10 +82,7 @@ abstract contract RealProofBindBase is PrivacyScan {
 
     // ─── Bind, privately ────────────────────────────────────────────
 
-    /// @dev A private bind with a real proof. Nothing it writes or logs
-    ///      carries the id or the handle, in any case: not the events' topics
-    ///      or data, not a storage slot of the registry or the verifiers, not
-    ///      the calldata.
+    /// @dev A private bind leaves no byte of the id or the handle in logs, storage or calldata.
     function test_bindsPrivatelyAndDisclosesNothing() public {
         bytes memory payload = _payload("");
         assertFalse(_containsAny(payload), "the payload carries an id or handle");
@@ -123,11 +110,7 @@ abstract contract RealProofBindBase is PrivacyScan {
 
     // ─── Disclose in the payload ────────────────────────────────────
 
-    /// @dev Disclosing in the payload: the Platform Verifier checks the
-    ///      handle against the node its real proof bound and returns it
-    ///      folded, and the registry names the holder by it. The folded
-    ///      handle is then in the logs, which is also what says the scan in
-    ///      the private test can see one.
+    /// @dev A handle disclosed in the payload is checked against the proved node and stored folded.
     function test_bindsAndPublishesInOneCall() public {
         bytes memory payload = _payload(_secrets()[1]);
         vm.recordLogs();
@@ -144,8 +127,7 @@ abstract contract RealProofBindBase is PrivacyScan {
         assertTrue(seen, "a disclosure logs the handle");
     }
 
-    /// @dev A disclosure the real proof does not back is refused by the
-    ///      Platform Verifier, before anything is written.
+    /// @dev A disclosure the proof does not back is refused before anything is written.
     function test_refusesToBindAHandleTheProofDidNotBind() public {
         (string memory other, bytes32 otherNode) = _otherHandle();
         bytes memory payload = _payload(other);
@@ -156,8 +138,7 @@ abstract contract RealProofBindBase is PrivacyScan {
         assertEq(registry.resolveId(_idNode()), address(0));
     }
 
-    /// A handle the platform's rules accept and the proof did not bind, and
-    /// its node by hashlib.
+    /// A handle the rules accept that the proof did not bind, and its node.
     function _otherHandle() internal pure virtual returns (string memory, bytes32);
 
     /// @dev The nodes this test names are the ones the proof outputs.
@@ -168,9 +149,7 @@ abstract contract RealProofBindBase is PrivacyScan {
     }
 }
 
-/// @notice The notarized platforms' fixtures: libid-rs's `ceremony_fixtures`
-///         records and the proof bb made of their witness, under a notary
-///         trusting the fixture's key.
+/// @notice The notarized platforms' fixtures, under a notary trusting the fixture's key.
 abstract contract RealTlsNotaryBind is RealProofBindBase {
     uint256 constant NOTARY_KEY = 0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80;
     uint256 constant NOTARY_FEE = 0.001 ether;
@@ -246,9 +225,7 @@ abstract contract RealTlsNotaryBind is RealProofBindBase {
     }
 }
 
-/// @notice X: the account is `Alice_1`, id `2244994945`, proved by the
-///         `x-ceremony-session` fixture; and the publish path after a private
-///         bind.
+/// @notice X: `Alice_1`, id `2244994945`, from the `x-ceremony-session` fixture.
 contract RealProofBindTest is RealTlsNotaryBind {
     bytes32 constant X = CeremonyProfile.PLATFORM_X;
     /// hashlib.sha256(b"libid.x.user-id2244994945")
@@ -297,8 +274,7 @@ contract RealProofBindTest is RealTlsNotaryBind {
 
     // ─── Publish ────────────────────────────────────────────────────
 
-    /// @dev The holder discloses its handle in any case; the registry checks
-    ///      it hashes to the bound node and stores the folded form.
+    /// @dev The disclosed handle, in any case, is stored folded.
     function test_publishesTheHandleFolded() public {
         _bind(_payload(""));
         vm.expectEmit(address(registry));
@@ -323,9 +299,7 @@ contract RealProofBindTest is RealTlsNotaryBind {
     }
 }
 
-/// @notice GitHub: the account is `OctoCat`, id `583231`, proved by the
-///         `github-ceremony-session` fixture through the vendored
-///         bearer-link-github verifier.
+/// @notice GitHub: `OctoCat`, id `583231`, from the `github-ceremony-session` fixture.
 contract RealProofBindGitHubTest is RealTlsNotaryBind {
     function _platform() internal pure override returns (bytes32) {
         return CeremonyProfile.PLATFORM_GITHUB;
@@ -371,10 +345,8 @@ contract RealProofBindGitHubTest is RealTlsNotaryBind {
     }
 }
 
-/// @notice Google: the account is `Fixture@Example.com`, sub
-///         `100000000000000000001`, proved by `google-ceremony-proof.json`
-///         through the vendored oidc-google verifier, over a token signed by a
-///         synthetic key the root list here trusts.
+/// @notice Google: `Fixture@Example.com`, sub `100000000000000000001`, from
+///         `google-ceremony-proof.json` over a synthetic signing key.
 contract RealProofBindGoogleTest is RealProofBindBase {
     string constant PROOF = "contracts/ceremony/test/fixtures/google-ceremony-proof.json";
     /// The signed `exp` of the fixture's token.
@@ -447,8 +419,7 @@ contract RealProofBindGoogleTest is RealProofBindBase {
         return abi.encode(_proof(handle));
     }
 
-    /// The `google/v1` payload the proof was made for: its nonce is the
-    /// Authorization Digest of these fields on chain 31337.
+    /// The `google/v1` payload the proof was made for, on chain 31337.
     function _proof(string memory handle) internal view returns (GoogleProof memory s) {
         string memory json = vm.readFile(PROOF);
         s.ceremonyVersion = 1;
@@ -470,9 +441,7 @@ contract RealProofBindGoogleTest is RealProofBindBase {
         return 34;
     }
 
-    /// @dev The proof binds the handle node: a payload naming another one,
-    ///      privately so no disclosure check runs first, fails the Honk
-    ///      verifier's sumcheck and binds nothing.
+    /// @dev A private payload naming another handle node fails the Honk verifier.
     function test_anotherHandleNodeFailsTheProof() public {
         GoogleProof memory s = _proof("");
         s.publicInputs[HANDLE_LOW] ^= bytes32(uint256(1));

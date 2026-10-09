@@ -10,35 +10,13 @@ import {HandleDisclosure, PlatformVerifierBase} from "./PlatformVerifierBase.sol
 import {TlsNotaryProof} from "./CeremonyPayloads.sol";
 
 /// @title TlsNotaryVerifierBase
-/// @notice The shape both TLSNotary profiles share: two notarized sessions, one
-///         hidden bearer linking them, and one proof, under the platform's own
-///         circuit, binding that link and the committed id and handle to the
+/// @notice The flow both TLSNotary profiles share: two notarized sessions, one
+///         hidden bearer linking them, and one proof under the platform's own
+///         circuit binding that link and the committed id and handle to the
 ///         two nodes the payload claims.
-///
-/// @dev `x/v1` and `github/v1` state the same relation and differ only in
-///      constants and two reads, so the flow lives here once. What a subclass
-///      supplies is exactly what genuinely differs:
-///
-///        the platform id and its two authorities — GitHub's exchange is served
-///        by one host and its identity read by another, so an authority is per
-///        SESSION rather than per profile;
-///        the two request lines;
-///        the token body's field list, which the base holds the whole body to;
-///        any value check on the token body beyond the base's — X compares
-///        `grant_type`, GitHub adds none;
-///        how the identity commitments are framed — X's `id` is a JSON
-///        string, GitHub's a bare integer.
-///
-///      What differs and is not code is the circuit. Each platform has its
-///      own, carrying its handle rules and node tags, and the subclass's
-///      deployment pins that circuit's Honk verifier. The public-input layout
-///      below is the same for both, so the pin is what keeps an X proof from
-///      keying a GitHub binding.
-///
-///      Order matters in one place. The proof is verified LAST, once the
-///      commitments it links are known to be the ones the attestations carried;
-///      verifying it earlier would prove a relation between numbers nobody had
-///      tied to a session yet.
+/// @dev Subclasses supply the platform, per-session authorities, request
+///      lines, token fields and checks, and identity field framing. The proof
+///      is verified last, once its commitments are tied to the attestations.
 abstract contract TlsNotaryVerifierBase is IPlatformVerifier, PlatformVerifierBase {
     /// @dev The bearer-link circuit's public inputs, in its order: the two
     ///      bearer commitments, the id and handle commitments and the two
@@ -124,29 +102,15 @@ abstract contract TlsNotaryVerifierBase is IPlatformVerifier, PlatformVerifierBa
     ///      X compares `grant_type`; GitHub adds none.
     function _checkTokenBody(CeremonyFields.Form memory form) internal pure virtual {}
 
-    /// @dev Which shape a platform's immutable identifier takes in its identity
-    ///      response. X quotes it; GitHub sends a bare integer, whose
-    ///      terminator is what proves the committed digits are the whole
-    ///      number rather than a prefix of a longer one.
+    /// @dev How a platform's id appears in its identity response: X quotes it,
+    ///      GitHub sends a bare integer.
     enum IdShape {
         JsonString,
         JsonInteger
     }
 
     /// @dev The two identity members whose commitments this profile frames, as
-    ///      DATA rather than as a reading routine.
-    ///
-    ///      A hook handed the direction block could concatenate its revealed
-    ///      ranges, index them positionally, or read `revealed[0]` -- and each
-    ///      of those has broken this verifier before. Concatenation discards
-    ///      every offset, so a prover revealing disjoint fragments gets them
-    ///      joined into a document that never crossed the wire. Positional
-    ///      reads take whichever range the prover put first.
-    ///
-    ///      Declaring the field names and leaving the reading to the base makes
-    ///      all three unwritable rather than forbidden by a comment. A new
-    ///      profile supplies two strings and a shape; it never touches an
-    ///      attestation.
+    ///      data, so a subclass never reads an attestation itself.
     function _identityFields()
         internal
         pure
@@ -195,9 +159,7 @@ abstract contract TlsNotaryVerifierBase is IPlatformVerifier, PlatformVerifierBa
         (uint64 observedAt, bytes32 tokenCommitment) = _tokenSession(digest, p, fee, claimed);
         Commitments memory identity = _identitySession(p, fee);
 
-        // Built, not compared. The proof verifies against the commitments the
-        // notary signed and the nodes the payload claims, so the nodes leave
-        // here only as the keys of the values the platform committed.
+        // Built, not compared: the notary-signed commitments and the claimed nodes.
         _requireProof(p.proof, _publicInputs(tokenCommitment, identity, p.idNode, p.handleNode));
         claimed.idNode = p.idNode;
         claimed.handleNode = p.handleNode;
@@ -304,10 +266,8 @@ abstract contract TlsNotaryVerifierBase is IPlatformVerifier, PlatformVerifierBa
         return _identityTranscript(data);
     }
 
-    /// @dev Every transcript check of the identity session, request then
-    ///      response; `data` must come from `_authenticate`. Returns the
-    ///      committed bearer, id and handle, which the circuit opens. The id
-    ///      and the handle are never read here: they are not revealed.
+    /// @dev Every transcript check of the identity session; `data` must come
+    ///      from `_authenticate`. Returns the committed bearer, id and handle.
     function _identityTranscript(CeremonyAttestation.AttestedData memory data)
         internal
         pure
@@ -333,12 +293,8 @@ abstract contract TlsNotaryVerifierBase is IPlatformVerifier, PlatformVerifierBa
             revert WrongRequestLine();
         }
 
-        // Coverage, one request, the line-anchored uniqueness scan and the
-        // framing bytes, together. They are one property: the scan reads only
-        // revealed bytes, so without coverage a prover hides a second
-        // authorization header in a gap and the count still says one; and it
-        // counts lines of one head, so the session carries that head alone,
-        // as the token session carries its one request.
+        // Coverage, one request, the header scan and the framing, together:
+        // the scan reads only revealed bytes.
         (CeremonyAttestation.RangeCommitment memory bearer, bytes memory revealed) =
             CeremonyAttestation.requireBearerHeaderRequest(data.sent, data.sentTranscriptLength);
         _checkIdentityHead(revealed);
@@ -346,32 +302,14 @@ abstract contract TlsNotaryVerifierBase is IPlatformVerifier, PlatformVerifierBa
     }
 
     /// @dev The identity session's received direction: tiled, with the id and
-    ///      the handle each one commitment framed by its revealed anchors.
-    ///      Returns the two commitments.
+    ///      the handle each one commitment between revealed anchors.
     function _identityResponse(CeremonyAttestation.AttestedData memory data)
         internal
         pure
         returns (bytes32 id, bytes32 handle)
     {
-        // Tiled, and the two values hidden. Every response byte is revealed or
-        // committed, and the id and the handle are each one commitment, found
-        // by the revealed anchors immediately around it: `"username":"` before
-        // and `"` after, or `"id":` before and the `,` or `}` that ends a bare
-        // integer after. JSON whitespace inside an anchor is the platform's
-        // (GitHub writes `"id": 583231,`) and is ignored to compare.
-        //
-        // What this establishes, and what it cannot. Each anchor appears once
-        // in the revealed bytes and frames exactly one commitment, so the
-        // circuit opens the range the anchors name and no other. But every
-        // reader here scans REVEALED bytes, and a commitment is invisible to
-        // all of them: a response that genuinely names an authoritative field
-        // twice lets a prover hide the real member behind one commitment and
-        // frame the one it chose. Uniqueness is a property of the document,
-        // and this establishes it over a part. What stands in for it is
-        // ASM-PROV-06 -- the platform emits each authoritative field exactly
-        // once -- plus the platform's JSON escaping, which keeps a delimiter
-        // out of any value the account controls. Neither is checked here, and
-        // neither can be.
+        // Each anchor is revealed once and frames one commitment. A duplicate
+        // hidden behind a commitment is not detectable here (ASM-PROV-06).
         CeremonyAttestation.requireExactCoverage(data.received, data.recvTranscriptLength);
         (string memory idField, IdShape idShape, string memory handleField) = _identityFields();
         // Joined and normalized once; both reads count their prefix in it.
@@ -385,14 +323,8 @@ abstract contract TlsNotaryVerifierBase is IPlatformVerifier, PlatformVerifierBa
 
     // ─── Helpers ────────────────────────────────────────────────────
 
-    /// @dev The circuit's public inputs, as this verifier derives them.
-    ///
-    ///      The two bearer commitments, token first, then the id and handle
-    ///      commitments and the two nodes, each as `[high, low]` halves. The
-    ///      circuit fixes that order; this contract fixes where the values
-    ///      come from -- the commitments from the attestations it just
-    ///      authenticated, the nodes from the claim it is about to return --
-    ///      so the proof binds exactly what leaves (REQ-PLAT-32C, REQ-PLAT-52B).
+    /// @dev The circuit's public inputs, from the authenticated commitments and
+    ///      the returned nodes (REQ-PLAT-32C, REQ-PLAT-52B).
     function _publicInputs(bytes32 tokenCommitment, Commitments memory identity, bytes32 idNode, bytes32 handleNode)
         private
         pure

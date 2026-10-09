@@ -4,18 +4,7 @@ pragma solidity ^0.8.24;
 /// @title IHonkVerifierErrors
 /// @notice What a vendored Honk verifier reverts with, as an ABI a client can
 ///         decode against.
-///
-/// @dev bb's generated verifier declares no errors: it reverts from assembly
-///      with selectors held in `*_SELECTOR` constants, so its artifact's ABI
-///      is silent about them. A refused proof reaches a `bind` caller
-///      unchanged through the Platform Verifier, and these declarations,
-///      under bb's own names, are what name it. Nothing implements this
-///      interface.
-///
-///      The names are bb's, `MODEXP_FAILED` included: a selector is the hash
-///      of the name, so another spelling would decode nothing. The Rust and
-///      TypeScript packages each check that these selectors are exactly the
-///      `*_SELECTOR` constants of the vendored verifiers.
+/// @dev bb reverts from assembly and declares no errors. The names are bb's, so the selectors match.
 interface IHonkVerifierErrors {
     /// A proof coordinate limb is not below the limb bound.
     error ValueGeLimbMax();
@@ -27,8 +16,7 @@ interface IHonkVerifierErrors {
     error SumcheckFailed();
     /// The Shplemini opening does not verify.
     error ShpleminiFailed();
-    /// The proof is not the length the circuit's `logN` implies; raised
-    /// before anything else.
+    /// The proof is not the length the circuit's `logN` implies.
     error ProofLengthWrongWithLogN(uint256 logN, uint256 actualLength, uint256 expectedLength);
     /// The public inputs are not the circuit's count.
     error PublicInputsLengthWrong();

@@ -1,29 +1,10 @@
 //! Deploying a launch Platform Verifier: which contract serves which
-//! platform, what it initializes with, and the rules its `initialize`
-//! enforces — checked here, off chain, before a transaction is built.
+//! platform, and its `initialize` rules checked off chain first.
 //!
-//! `PlatformVerifierBase.__PlatformVerifierBase_init` refuses three things a
-//! deployer would otherwise rediscover at the proxy's constructor revert:
-//! a Notary Service that does not match what the profile notarizes (a
-//! TLSNotary profile must hold one, Google must hold none), a code hash
-//! that is zero, `keccak256("")` or not the hash of the code at the Honk
-//! verifier's address, and a zero owner or root list. The validity window is
-//! not among them: each verifier reads its profile's from `CeremonyProfile`,
-//! so a deployment supplies none. [`Initializer::call`] reads the code hash off the chain,
-//! requires it to be the platform's own circuit's verifier — the contract
-//! pins that runtime code hash too, and reverts `WrongCircuit` otherwise —
-//! checks the rest, and builds the exact `initialize` call;
-//! [`deploy_platform_verifier`] puts the implementation behind a fresh
-//! ERC1967 proxy with it.
-//!
-//! The Honk verifier a Platform Verifier pins is vendored here too
-//! ([`circuits`](crate::circuits)): bb-generated in `libid-circuits` from
-//! the circuit's verification key, deployed by
-//! [`deploy_honk_verifier`](crate::circuits::deploy_honk_verifier). Which
-//! circuit a platform proves under is [`PlatformVerifier::circuit`]; the
-//! contract pins whichever address governance names, by address AND by
-//! code hash, and [`Initializer::call`] refuses an address holding any
-//! other circuit's verifier.
+//! [`Initializer::call`] reads the Honk verifier's code hash, requires it to
+//! be the platform's own circuit ([`PlatformVerifier::circuit`]), and builds
+//! the `initialize` call; [`deploy_platform_verifier`] puts the
+//! implementation behind a fresh ERC1967 proxy with it.
 
 use alloy::{
     primitives::{
@@ -115,14 +96,9 @@ impl PlatformVerifier {
 }
 
 impl PlatformVerifier {
-    /// The code hash at `address`, required to be the hash of `artifacts`'
-    /// runtime code for this platform's [`circuit`](Self::circuit): what
-    /// `initialize` takes beside a Honk verifier.
-    ///
-    /// [`Error::WrongCircuit`] when the address holds another circuit's
-    /// verifier, or code that is no vendored verifier at all — which the
-    /// contract refuses too, since X's and GitHub's circuits share one
-    /// public-input layout. [`Error::Rpc`] when it holds no code.
+    /// The code hash at `address`, required to be this platform's
+    /// [`circuit`](Self::circuit) verifier's ([`Error::WrongCircuit`]
+    /// otherwise, [`Error::Rpc`] when there is no code).
     pub async fn circuit_codehash_at<P: Provider>(
         self,
         provider: &P,
@@ -299,19 +275,9 @@ impl Initializer {
         }
     }
 
-    /// Build the `initialize` call: [`check`](Self::check), then read the
-    /// code hash of the Honk verifier through `provider`, require it to be
-    /// the hash of `artifacts`' runtime code for this platform's
-    /// [`circuit`](PlatformVerifier::circuit), and pin it.
-    ///
-    /// Fails when the address holds no code — the contract would refuse the
-    /// resulting hash, and a verifier that is not deployed yet is the
-    /// mis-wiring the check exists to catch — and with
-    /// [`Error::WrongCircuit`] when it holds another circuit's verifier, or
-    /// code that is no vendored verifier at all. The contract refuses the
-    /// same (`WrongCircuit`): X's and GitHub's circuits share one
-    /// public-input layout, and the wrong one would key bindings under the
-    /// other platform's tags.
+    /// Build the `initialize` call: [`check`](Self::check), then pin the
+    /// Honk verifier's code hash from
+    /// [`circuit_codehash_at`](PlatformVerifier::circuit_codehash_at).
     pub async fn call<P: Provider>(
         &self,
         provider: &P,
@@ -374,14 +340,9 @@ pub async fn codehash_at<P: Provider>(provider: &P, address: Address) -> Result<
     Ok(keccak256(&code))
 }
 
-/// Deploy the verifier's implementation from `artifacts` and put it behind
-/// a fresh ERC1967 proxy initialized with `init` — the code hash read off
-/// the chain and checked against the circuit's verifier in `artifacts`, the
-/// rules checked first. Returns the proxy address, which is
-/// the Platform Verifier a Proof Verifier registers with `setVerifier`.
-///
-/// `sender` opts into explicit nonce management (see
-/// [`deploy_contract_from`](crate::deploy::deploy_contract_from)).
+/// Deploy the verifier's implementation behind a fresh ERC1967 proxy
+/// initialized with `init`, and return the proxy address. `sender` opts into
+/// explicit nonces ([`deploy_contract_from`](crate::deploy::deploy_contract_from)).
 pub async fn deploy_platform_verifier<P: Provider>(
     provider: &P,
     artifacts: &Artifacts,

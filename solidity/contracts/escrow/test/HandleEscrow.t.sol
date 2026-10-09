@@ -224,8 +224,7 @@ contract HandleEscrowTest is Test {
         }
     }
 
-    /// A `hashlib.sha256(b"libid.x.handlealice_1")` literal, so the registry, the test helper and the
-    /// generated table cannot drift together and still pass.
+    /// Pinned to a `hashlib.sha256(b"libid.x.handlealice_1")` literal.
     function test_theNodeDerivationIsPinned() public view {
         bytes32 pinned = 0xe09c4f5bfbbc723bc35701ea9d718a1c5edb29b1ed5bb0cb0fabb3c43d8136af;
         assertEq(registry.handleNodeOf(X, "Alice_1"), pinned);

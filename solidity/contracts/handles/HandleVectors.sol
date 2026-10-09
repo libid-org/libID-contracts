@@ -7,10 +7,8 @@ pragma solidity ^0.8.20;
 
 /// @notice The shared handle vector table, for tests.
 ///
-/// @dev The vectors are here rather than in a test file because Rust and
-///      TypeScript run the same table. A normalizer that disagrees with
-///      another language fails a test instead of writing a different node.
-///      Production code reads `HandlePlatforms` and never this file.
+/// @dev Rust and TypeScript run the same table; production code never
+///      reads this file.
 library HandleVectors {
     /// One case from the shared table.
     struct Vector {

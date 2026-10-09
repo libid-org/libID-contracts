@@ -94,11 +94,9 @@ contract XPlatformVerifierTest is RealTlsNotaryProofTest {
     /// Whatever else the response hides: the status, the other members.
     bytes32 constant OTHER = bytes32(uint256(0x5555));
 
-    /// The two nodes of the fixture account, from Python's hashlib rather
-    /// than any implementation here:
+    /// The fixture account's nodes, from Python's hashlib:
     ///   hashlib.sha256(b"libid.x.user-id2244994945")
-    ///   hashlib.sha256(b"libid.x.handlealice_1")
-    /// The second is the FOLDED handle: the account is `Alice_1`.
+    ///   hashlib.sha256(b"libid.x.handlealice_1")  (`Alice_1`, folded)
     bytes32 constant ID_NODE = 0x68291869976ffad2abf3e933ec9ab2623395ff8b3b9242e655e1da3ef43d4f94;
     bytes32 constant HANDLE_NODE = 0xe09c4f5bfbbc723bc35701ea9d718a1c5edb29b1ed5bb0cb0fabb3c43d8136af;
 
@@ -264,10 +262,8 @@ contract XPlatformVerifierTest is RealTlsNotaryProofTest {
             ).commit("TOKENTOKENTOKEN", IDENTITY_COMMITMENT).reveal("\r\nconnection: close\r\n\r\n");
     }
 
-    /// The identity response as libid-rs lays it out: the anchors around the
-    /// id and the handle revealed, each value committed on its own, and every
-    /// other byte -- the status line included -- behind a commitment of its
-    /// own. The values are never on chain; only their lengths are.
+    /// The identity response: anchors revealed, id and handle each committed,
+    /// every other byte committed.
     function _identityResponse(bytes memory id, bytes memory handle)
         private
         pure
@@ -704,9 +700,7 @@ contract XPlatformVerifierTest is RealTlsNotaryProofTest {
         assertEq(f.sessionId, digest);
     }
 
-    /// @dev The identity response hides the id and the handle: the record
-    ///      carries neither, in any case, anywhere in its bytes. Only the
-    ///      anchors around them are revealed.
+    /// @dev The record carries neither the id nor the handle, in any case.
     function test_theIdentityRecordRevealsNeitherTheIdNorTheHandle() public view {
         bytes memory attested = vm.parseJsonBytes(vm.readFile(RUST_SESSION), ".identity.attested_data");
         assertFalse(AttestationBuilder.contains(attested, "2244994945"), "the id");
@@ -716,12 +710,8 @@ contract XPlatformVerifierTest is RealTlsNotaryProofTest {
         assertTrue(AttestationBuilder.contains(attested, '"username":"'), "the handle's anchor");
     }
 
-    /// @dev The opening libid-rs wrote beside the records opens the
-    ///      commitments the notary signed, under tlsn's construction: SHA-256
-    ///      over the value and then its 16-byte blinder. Asserted against the
-    ///      signed record, not against a hash of ours, since the circuit's
-    ///      openings rest on that construction. And the framing finds exactly
-    ///      those two commitments in the record.
+    /// @dev The fixture opening, SHA-256(value || blinder), matches the signed
+    ///      commitments, and the framing finds exactly those two.
     function test_theWitnessOpensTheCommitmentsTheFramingFinds() public view {
         string memory json = vm.readFile(RUST_SESSION);
         assertEq(vm.parseJsonString(json, ".identity_link_witness.id.value"), "2244994945");
@@ -792,13 +782,8 @@ contract XPlatformVerifierTest is RealTlsNotaryProofTest {
 
     string constant REAL_SESSION = "contracts/ceremony/test/fixtures/x-ceremony-real.json";
 
-    /// @dev A ceremony that actually ran: two MPC-TLS sessions against
-    ///      api.x.com on 2026-09-11, signed as the key this suite trusts
-    ///      (libid-rs `examples/capture_ceremony.rs`).
-    ///      Its token session and identity request are laid out as the profile
-    ///      lays them out today, and verify: authenticated by the notary, from
-    ///      the pinned authorities, and through every transcript check of
-    ///      those directions -- the one-request rule included.
+    /// @dev A captured ceremony (libid-rs `examples/capture_ceremony.rs`):
+    ///      its token session and identity request pass every transcript check.
     function test_theRealTokenSessionAndIdentityRequestVerify() public {
         string memory json = vm.readFile(REAL_SESSION);
         ICeremony.Attestation memory token = AttestationBuilder.fixtureSession(json, ".token");
@@ -820,11 +805,8 @@ contract XPlatformVerifierTest is RealTlsNotaryProofTest {
         assertEq(transcripts.identityRequest(identityData), identityData.sent.commitments[0].commitment);
     }
 
-    /// @dev The whole record, which needs the identity response too. That
-    ///      response reveals the id and the handle, which the anchor-only
-    ///      framing refuses: no committed value sits behind either anchor. It
-    ///      verifies again once recaptured with the anchors alone revealed and
-    ///      a proof made of its witness.
+    /// @dev The whole captured record: its response reveals the id and handle,
+    ///      which the anchor-only framing refuses.
     function test_verifiesTheRecordsACeremonyProduced() public {
         vm.skip(
             true,
@@ -844,9 +826,8 @@ contract XPlatformVerifierTest is RealTlsNotaryProofTest {
 
     // ─── The identity request ───────────────────────────────────────
 
-    /// @dev The identity session carries exactly one HTTP request, as the
-    ///      token session does: a second one after it is refused before any
-    ///      header is counted, with or without a credential of its own.
+    /// @dev A second HTTP request in the identity session is refused, with
+    ///      or without a credential.
     function test_rejectsASecondRequestOnTheIdentitySession() public {
         TlsNotaryProof memory s = _payload();
         s.identitySession = _identityAttestationWithHead(
@@ -982,14 +963,8 @@ contract XPlatformVerifierTest is RealTlsNotaryProofTest {
         this.run{value: quote}(_payload());
     }
 
-    /// @dev `maxFutureAttestationSkew` and `futureObservationAllowance` are two
-    ///      numbers for two jobs -- how far ahead a notary's clock may read,
-    ///      and how far ahead the watermark may sit. No launch profile fixes an
-    ///      allowance below its skew, so a profile made for the purpose shows
-    ///      that passing the first says nothing about the second: an
-    ///      attestation inside the skew but past the allowance would write a
-    ///      watermark in the future, and every honest later proof of that name
-    ///      would read as stale until the clock caught up.
+    /// @dev An attestation inside `maxFutureAttestationSkew` but past
+    ///      `futureObservationAllowance` is refused; a test profile sets allowance < skew.
     function test_rejectsAnAttestationPastTheObservationAllowanceButInsideTheSkew() public {
         SkewPastAllowance window = new SkewPastAllowance();
         vm.warp(T0 - window.SKEW());
@@ -1059,9 +1034,8 @@ contract XPlatformVerifierTest is RealTlsNotaryProofTest {
 
     // ─── The identity fields ────────────────────────────────────────
 
-    /// @dev Each case below is a response the notary signed, laid out by a
-    ///      prover choosing what to reveal. The framing has to name the one
-    ///      commitment behind each anchor, or refuse.
+    /// @dev Signed responses laid out by the prover: the framing names the one
+    ///      commitment behind each anchor, or refuses.
 
     function _refusedFraming(AttestationBuilder.Direction memory received, bytes4 error_) private {
         TlsNotaryProof memory s = _payload();
@@ -1076,10 +1050,7 @@ contract XPlatformVerifierTest is RealTlsNotaryProofTest {
             .reveal('"').commit(",", OTHER);
     }
 
-    /// @dev The key revealed in two pieces with a commitment between them.
-    ///      The range ending where the handle commitment starts is `":"`,
-    ///      which is not the anchor: an anchor is one revealed run, never a
-    ///      join across a hidden seam.
+    /// @dev The key revealed in two pieces around a commitment is no anchor.
     function test_refusesAHandleAnchorSplitAroundACommittedGap() public {
         AttestationBuilder.Direction memory received = _upToTheHandle();
         received.reveal('"user').commit("name", OTHER).reveal('":"').commit("Alice_1", HANDLE_COMMITMENT).reveal('"')
@@ -1113,9 +1084,7 @@ contract XPlatformVerifierTest is RealTlsNotaryProofTest {
         _refusedFraming(received, CeremonyAttestation.NoFramedCommitment.selector);
     }
 
-    /// @dev The anchors revealed and the value revealed between them: the
-    ///      handle is on chain, and there is no commitment for the circuit to
-    ///      open. Refused rather than read.
+    /// @dev A value revealed between its anchors is refused, not read.
     function test_refusesARevealedHandle() public {
         AttestationBuilder.Direction memory received = _upToTheHandle();
         received.reveal('"username":"Alice_1"').commit("}}", OTHER);
@@ -1192,17 +1161,8 @@ contract XPlatformVerifierTest is RealTlsNotaryProofTest {
         _refusedFraming(received, CeremonyAttestation.CoverageGap.selector);
     }
 
-    /// @dev What this framing does NOT catch, asserted so the assumption it
-    ///      rests on is visible and fails loudly if the reasoning changes.
-    ///
-    ///      Every reader scans revealed bytes, so a member behind a COMMITMENT
-    ///      is invisible to all of them. A response that genuinely names an
-    ///      authoritative field twice lets a prover hide the real member in a
-    ///      commitment and frame the one it chose. Reaching this requires the
-    ///      PLATFORM to emit the field twice; ASM-PROV-06 assumes it does not,
-    ///      and JSON escaping keeps a `","username":"` delimiter out of any
-    ///      value the account controls. This fixture writes the bytes
-    ///      directly, which no serializer would produce.
+    /// @dev Not caught: a duplicate member hidden in a commitment (ASM-PROV-06
+    ///      assumes the platform never emits one).
     function test_acceptsAnIdentityResponseHidingADuplicateMember() public {
         AttestationBuilder.Direction memory received = _upToTheHandle();
         // `"username":"victim",` sits behind a commitment; the prover frames
@@ -1214,14 +1174,7 @@ contract XPlatformVerifierTest is RealTlsNotaryProofTest {
         assertEq(this.run{value: quote}(s).handleNode, HANDLE_NODE);
     }
 
-    /// @dev The other thing anchors alone cannot say: WHICH object a member
-    ///      belongs to. X nests the account in `data`, and the anchors here
-    ///      frame a `username` in another object, with the `data` member
-    ///      hidden. The revealed bytes are `"id":"`, `"`, `"username":"` and
-    ///      `"`, exactly as in an honest response, so this is accepted at the
-    ///      framing layer. It too rests on ASM-PROV-06: X's `/2/users/me`
-    ///      emits one `username`, the account's, so there is no other object
-    ///      carrying one to frame.
+    /// @dev Not caught: which object a framed member belongs to (ASM-PROV-06).
     function test_acceptsAnAnchorInAnotherObject() public {
         AttestationBuilder.Direction memory received;
         received.commit('HTTP/1.1 200 OK\r\n\r\n{"data":{', OTHER).reveal('"id":"').commit("2244994945", ID_COMMITMENT)

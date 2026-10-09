@@ -155,10 +155,8 @@ impl Artifacts {
             .collect()
     }
 
-    /// Runtime bytecode — what a deployment leaves at its address — where
-    /// the source file and contract names differ. Equal to the code a
-    /// deployed copy holds only for a contract with no immutables, which
-    /// the Honk verifiers are. Only their artifacts carry it.
+    /// Runtime bytecode where the source file and contract names differ.
+    /// Matches deployed code only for contracts without immutables.
     pub fn deployed_bytecode_named(&self, file: &str, contract: &str) -> Result<Bytes> {
         let hex_str = self.object_hex(file, contract, "deployedBytecode")?;
         let bytes = hex::decode(&hex_str).map_err(|e| Error::Artifact {

@@ -1,12 +1,5 @@
-//! The keys a binding is stored under: `SHA256(tag || value)`.
-//!
-//! The identity circuits compute these and the registry stores what they
-//! output; nothing on chain recomputes them from plaintext except a
-//! disclosure check. A wallet, an indexer or an escrow payer holding what a
-//! user typed computes the same key here: normalize the handle (or check the
-//! id), then hash it under the platform's tag. The tags come from the
-//! generated table, and the vector table pins every node, computed
-//! independently with Python's hashlib.
+//! The keys a binding is stored under: `SHA256(tag || value)`, the same
+//! nodes the identity circuits output. The vector table pins every node.
 
 use sha2::{
     Digest,
@@ -32,9 +25,8 @@ fn tagged(tag: &str, value: &str) -> [u8; 32] {
     hasher.finalize().into()
 }
 
-/// The node a handle is bound under, from the handle as a user typed it, or
-/// why no binding can have one. `None` for a platform this table does not
-/// know.
+/// The node a typed handle is bound under, or why it has none. `None` for
+/// an unknown platform.
 pub fn handle_node(
     platform_key: &str,
     raw: &str,

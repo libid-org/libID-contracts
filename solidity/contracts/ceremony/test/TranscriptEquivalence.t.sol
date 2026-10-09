@@ -739,12 +739,8 @@ library Gen {
         bytes close;
     }
 
-    /// @dev A JSON response carrying the two members a profile reads: the
-    ///      anchors and closing bytes revealed, the values and every other
-    ///      byte committed, as the anchor-only reveal lays it out. Then bent:
-    ///      whitespace in and around an anchor, a decoy member revealed or
-    ///      hidden, a quoted integer or a bare string, a value boundary moved
-    ///      a byte, a cut through an anchor.
+    /// @dev An anchor-only JSON response with two members, then bent: whitespace,
+    ///      decoys, quoting, moved value boundaries, cut anchors.
     function identityResponse(Rng memory r, bool integerId, bytes memory handleField)
         internal
         pure
@@ -795,12 +791,8 @@ library Gen {
         else m.close = first ? oneOf(r, list(",", " ,", ";")) : oneOf(r, list("}", "\n}", "]"));
     }
 
-    /// @dev `head ‖ decoy ‖ first ‖ sep ‖ second ‖ tail`, laid out as the
-    ///      anchor-only reveal does: the head committed, the decoy revealed or
-    ///      hidden, each member's anchor revealed, its value committed and its
-    ///      close revealed, the separator either, the tail committed. Now and
-    ///      then a value boundary moves a byte and the bytes are mutated;
-    ///      `extra` further cuts split a segment.
+    /// @dev `head ‖ decoy ‖ first ‖ sep ‖ second ‖ tail`, laid out anchor-only,
+    ///      sometimes mutated; `extra` cuts split a segment.
     function members(
         Rng memory r,
         bytes memory head,
@@ -1075,10 +1067,8 @@ contract TranscriptEquivalenceTest is Test {
         _same(address(live), address(ref), abi.encodeCall(LiveHelpers.requireFramedCommitment, (block_, '"id":"', '"')));
     }
 
-    /// @dev How often the generators above produce a framing both sides
-    ///      accept. Fuzz runs cannot count across runs, so this walks seeds
-    ///      itself: an equivalence that only ever compares two refusals
-    ///      proves nothing about what is accepted.
+    /// @dev The generators above produce framings both sides accept, not
+    ///      only refusals.
     function test_theFramingGeneratorsAcceptOften() public {
         uint256 runs = 300;
         uint256[5] memory accepted;
@@ -1279,9 +1269,8 @@ contract TranscriptEquivalenceTest is Test {
         _real("contracts/ceremony/test/fixtures/github-ceremony-session.json", address(github), address(refGitHub));
     }
 
-    /// @dev And the two ceremonies that ran against the platforms: the token
-    ///      session and the identity request, which the captures lay out as
-    ///      the profiles do today.
+    /// @dev And the token session and identity request of the two captured
+    ///      ceremonies.
     function test_theRealSessionsMatchReference() public view {
         _realRequests("contracts/ceremony/test/fixtures/x-ceremony-real.json", address(x), address(refX));
         _realRequests("contracts/ceremony/test/fixtures/github-ceremony-real.json", address(github), address(refGitHub));

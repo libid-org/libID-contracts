@@ -1,14 +1,7 @@
-/// Turns a handle a user typed into the one form the identity circuits hash
-/// into a node.
+/// Turns a typed handle into the form the identity circuits hash into a node.
 ///
-/// The transform refuses rather than repairs: A-Z fold to a-z, and nothing is
-/// trimmed or stripped. It mirrors the circuits' `lib/identity`,
-/// `solidity/contracts/handles/HandleNormalizer.sol` and
-/// `rust/identity/src/handle.rs` byte for byte. The transforms are hand
-/// written; the rules they run and the vectors they are checked
-/// against are generated from `solidity/contracts/handles/handles.json`, so a
-/// difference between them fails a test instead of looking up a node the chain
-/// never wrote.
+/// A-Z fold to a-z and anything else invalid is refused, never repaired. It
+/// mirrors the circuits, Solidity and Rust; all run the `handles.json` vectors.
 
 import {
   ERROR_BADCHARACTER,
@@ -40,9 +33,7 @@ const BAD_CHARACTER = () =>
 const BAD_SHAPE = () =>
   new HandleError(ERROR_BADSHAPE, 'the handle has an arrangement this platform does not allow')
 
-/// What one platform accepts. Each platform's rules are a generated
-/// constant from `handles.json`, the table its circuit folds handles with; a
-/// new platform is a `handles.json` entry and a circuit of its own.
+/// What one platform accepts, generated from `handles.json`.
 export interface Rules {
   /** Bytes allowed. */
   maxLength: number
@@ -58,8 +49,7 @@ export const RULES_X: Rules = PLATFORM_X.rules
 export const RULES_GITHUB: Rules = PLATFORM_GITHUB.rules
 export const RULES_GOOGLE: Rules = PLATFORM_GOOGLE.rules
 
-/// The rules for a platform key from the generated table. They are frozen at
-/// launch: the circuits that key bindings carry them.
+/// The rules for a platform key from the generated table.
 export function rulesFor(platformKey: string): Rules | null {
   return platform(platformKey)?.rules ?? null
 }

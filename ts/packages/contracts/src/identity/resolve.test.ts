@@ -183,9 +183,7 @@ describe('listing the identities a holder proved', () => {
     })
   })
 
-  /// The contract answers a struct array. Each entry arrives as an `Identity`
-  /// with its four fields -- nodes, never plaintext -- and nothing else, so a caller can compare and
-  /// serialize a page without knowing how the tuple was decoded.
+  /// Each struct arrives as an `Identity` with exactly its four fields.
   it('maps the struct array into identities', async () => {
     const readContract = vi.fn().mockResolvedValue([
       { platformId: X, idNode: ID_42, handleNode: ALICE_NODE, handleCurrent: true },

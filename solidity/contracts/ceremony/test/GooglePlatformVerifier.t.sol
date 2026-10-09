@@ -41,11 +41,8 @@ contract GooglePlatformVerifierTest is Test {
     /// The id node the oidc-google circuit outputs for `SUB`:
     ///   hashlib.sha256(b"libid.google.user-id123456789012345678901")
     bytes32 constant USER_ID = 0xa83e66b34468315fb68c3098b3c521b749aafb1db3390cb53ec03a8db139f2c7;
-    // The handle node it outputs for the mixed-case address
-    // `A.B+tag@Example.COM`, which it folds before hashing:
+    // The handle node for `A.B+tag@Example.COM`; only case folds:
     //   hashlib.sha256(b"libid.google.handlea.b+tag@example.com")
-    // The dot and the +tag stay; only case folds. The address itself never
-    // reaches this contract.
     bytes32 constant HANDLE_NODE = 0x40169b5cc6400158aeef2a13b73a14fc36e5e1df8595572b8fe282a269f26dd4;
     /// The signed `exp` of the real proof's token.
     uint64 constant REAL_EXP = 1_893_456_000;
@@ -217,9 +214,8 @@ contract GooglePlatformVerifierTest is Test {
         assertEq(f.metadataObservedAt, EXP - GOOGLE_ALLOWANCE);
     }
 
-    /// @dev The handle node is the circuit's, read from its two halves and
-    ///      returned as read. Folding and the Google rules are the circuit's:
-    ///      the real-proof test shows a mixed-case address arriving folded.
+    /// @dev The handle node is read from the proof's two halves and returned
+    ///      as read; folding is the circuit's.
     function test_returnsTheHandleNodeTheCircuitOutputs() public {
         GoogleProof memory s = _payload();
         s.publicInputs[36] = bytes32(uint256(0x02));

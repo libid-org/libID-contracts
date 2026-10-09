@@ -56,8 +56,7 @@ function read<T>(
   })
 }
 
-/// The platform's normalization rules as the registry answers them
-/// (`IdentityRegistry.rulesOf`): the generated `handles.json` constants.
+/// The platform's normalization rules (`IdentityRegistry.rulesOf`).
 export async function rulesOf(reader: RegistryReader, platformId: `0x${string}`): Promise<Rules> {
   const rules = await read<Rules>(reader, 'rulesOf', [platformId])
   return {
@@ -124,13 +123,8 @@ export async function resolveHandle(
   return (await resolveNodes(reader, platformId, handle, zeroHash)).holder
 }
 
-/// The handle to show for a holder, or `null`.
-///
-/// Forward-checked on chain: empty once the stored handle resolves somewhere
-/// else. ENS asks integrators to perform that check themselves and warns that
-/// skipping it displays an ENS primary name that no longer resolves back; here
-/// it cannot be skipped, because the contract does it. A revert propagates:
-/// `UnknownPlatform` means `handles.json` names no such platform.
+/// The handle to show for a holder, or `null`. Forward-checked on chain:
+/// empty once the stored handle resolves somewhere else.
 export async function publishedHandleOf(
   reader: RegistryReader,
   holder: Address,
@@ -143,11 +137,8 @@ export async function publishedHandleOf(
 export interface HandleAndIdResolution {
   /// The handle's holder, or `null`.
   holder: Address | null
-  /// True only when the id node resolves to that same holder.
-  ///
-  /// False means the caller's `(handle, id)` pair comes from two moments:
-  /// somebody proved the handle after the caller learned who held it. That is
-  /// staleness, not corruption.
+  /// True only when the id node resolves to that same holder; false means
+  /// the handle was proved again since the caller learned the pair.
   idAgrees: boolean
 }
 
@@ -180,14 +171,9 @@ export interface Identity {
   platformId: `0x${string}`
   /// The node of the id. The id itself is never on chain.
   idNode: `0x${string}`
-  /// The node of the handle this identity proved most recently. The handle is
-  /// on chain only if its holder published it (`publishedHandleOf`).
+  /// The node of the handle this identity proved most recently.
   handleNode: `0x${string}`
   /// True while the handle node still points back at this identity.
-  ///
-  /// False once another identity proves the same handle: the node stays as
-  /// the last thing this identity was known as, and the flag says not to route
-  /// by it.
   handleCurrent: boolean
 }
 
@@ -196,17 +182,8 @@ export async function identityCount(reader: RegistryReader, holder: Address): Pr
   return read<bigint>(reader, 'identityCount', [holder])
 }
 
-/// A page of a holder's identities, on every platform together:
-/// the indices `[from, from + limit)` of its list, counted from zero and
-/// clipped to the list. A `from` past the end answers an empty page. A reader
-/// that wants one platform filters a page by `platformId`.
-///
-/// Order is arbitrary and changes when an identity leaves the list, so two
-/// pages read across a removal may overlap or skip. A reader that needs every
-/// identity reads `identityCount` and the pages against one block.
-///
-/// A list is as long as its holder made it, and a call's gas is not. A caller
-/// enumerating a holder it did not choose keeps `limit` small and pages.
+/// The holder's identities at indices `[from, from + limit)`, clipped to the list.
+/// Order is arbitrary and changes on removal: read every page against one block.
 export async function identitiesOf(
   reader: RegistryReader,
   holder: Address,

@@ -6,9 +6,7 @@ pragma solidity ^0.8.20;
 ///         identities by node; every other read and the registry's errors are
 ///         on `IdentityRegistry` itself.
 interface IIdentityRegistry {
-    /// @notice The holder of this handle node, and when it was last proved.
-    ///         The holder is zero if never proved or retired; a retired node
-    ///         keeps its `observedAt`.
+    /// @notice The holder of this handle node (zero if none), and when it was last proved.
     function handleBinding(bytes32 handleNode) external view returns (address holder, uint64 observedAt);
 
     /// @notice True: the keys `handleBinding` takes are the handle nodes a

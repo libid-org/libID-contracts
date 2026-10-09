@@ -14,15 +14,9 @@ import {IIdentityRegistry} from "../identity/IIdentityRegistry.sol";
 address constant NATIVE_TOKEN = 0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE;
 
 /// @title HandleEscrow - send to a platform handle before anybody holds it.
-///
-/// @notice Holds value against the handle node `IdentityRegistry` binds. The
-///         node's holder claims it; until then each deposit's `refundTo`
-///         can take its own contribution back. Integrator notes, privacy and
-///         trust: `README.md` beside this file.
-///
+/// @notice Holds value against a handle node until its holder claims it; each
+///         deposit's `refundTo` can take its own contribution back until then.
 /// @dev - A held node is paid straight through; an unheld one escrows.
-///        The node names its platform through its tag, so a deposit names no
-///        platform of its own to contradict it.
 ///      - A claim empties the slot and opens a new round, ending the old
 ///        round's refunds. Refunds have no delay and no pause gates them.
 ///      - Each token is one pool across all nodes; a payout that debits it by
@@ -144,9 +138,7 @@ contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable
         _disableInitializers();
     }
 
-    /// @dev Reverts `RegistryLacks` unless `registry_` answers like
-    ///      `IdentityRegistry` -- the one that keys identities by node; the
-    ///      escrow is deployed against that registry, never upgraded onto it.
+    /// @dev Reverts `RegistryLacks` unless `registry_` answers like the node-keyed `IdentityRegistry`.
     function initialize(address owner_, IIdentityRegistry registry_) external initializer {
         if (address(registry_) == address(0)) revert NoRegistry();
         _requireAnswers(registry_);
@@ -164,14 +156,8 @@ contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable
 
     // ─── Depositing ─────────────────────────────────────────────────
 
-    /// @notice Pay `amount` of `token` to a handle, given as its node
-    ///         (`IdentityRegistry.handleNodeOf`, or the same
-    ///         `SHA256(handle tag || normalized handle)` computed off chain).
-    ///
-    /// @dev The node cannot be checked: a wrong one, or one on a platform
-    ///      that no longer binds, funds a slot nobody can claim, which
-    ///      `refundTo` can refund. Both branches book what arrived, so
-    ///      fee-on-transfer tokens work; nothing arriving reverts `ZeroAmount`.
+    /// @notice Pay `amount` of `token` to a handle node (`IdentityRegistry.handleNodeOf`).
+    /// @dev Books what arrived. A wrong node funds a slot only `refundTo` can recover.
     /// @param token    An ERC-20, or `NATIVE`, when `amount` must equal `msg.value`.
     /// @param refundTo Who may refund an escrowed deposit; never zero or this contract.
     function deposit(bytes32 handleNode, address token, uint256 amount, address refundTo)

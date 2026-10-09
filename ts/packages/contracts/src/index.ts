@@ -1,8 +1,5 @@
-/// @libid/contracts — typed viem-ready ABIs for every contract, a call builder
-/// for every state-changing function, the identity helper layer, and encoders
-/// for the payloads `bind` carries. Subpath imports work too:
-/// `@libid/contracts/abis`, `@libid/contracts/calls`,
-/// `@libid/contracts/identity` and `@libid/contracts/ceremony`.
+/// @libid/contracts — viem-ready ABIs, call builders, identity helpers and
+/// `bind` payload encoders. Subpaths: `/abis`, `/calls`, `/identity`, `/ceremony`.
 
 export * from './abis/index.js'
 export type { Call } from './call.js'

@@ -7,14 +7,8 @@ import {HandlePlatforms} from "../HandlePlatforms.sol";
 import {HandleVectors} from "../HandleVectors.sol";
 
 /// @notice The shared handle vector table, run against the Solidity normalizer.
-///
-/// @dev The circuits, Rust and TypeScript run the same table from the same
-///      JSON. That is the whole guard: several hand-written normalizers, one
-///      set of cases, so an implementation that disagrees fails here instead of
-///      naming a different node on chain.
 contract HandleNormalizerTest is Test {
-    /// The rules the table names a platform by, from the generated table the
-    /// deploy installs: a second copy here could drift from it unnoticed.
+    /// The rules the table names a platform by, from the generated table.
     function _rules(string memory platform) internal pure returns (HandleNormalizer.Rules memory) {
         return HandlePlatforms.rulesFor(keccak256(bytes(platform)));
     }
@@ -41,10 +35,7 @@ contract HandleNormalizerTest is Test {
         }
     }
 
-    /// An accepted vector carries the node its output hashes to under the
-    /// platform's handle tag: the node a circuit outputs and the registry keys
-    /// a binding by. The circuits, Rust and TypeScript check the same column,
-    /// so a tag or a hash that disagrees anywhere fails somewhere.
+    /// An accepted vector hashes to its handle node under the platform's handle tag.
     function test_everyAcceptedVectorHashesToItsHandleNode() public pure {
         HandleVectors.Vector[] memory vectors = HandleVectors.all();
         uint256 checked;
@@ -65,9 +56,7 @@ contract HandleNormalizerTest is Test {
         assertTrue(checked > 0, "no accepted vector was checked");
     }
 
-    /// The vector table names WHICH refusal, not merely that one happened. A
-    /// bare `expectRevert` would pass when the normalizer refused for the wrong
-    /// reason, and the reason is what the implementations must agree on.
+    /// The refusal a vector expects, so a refusal for the wrong reason fails.
     function _refusal(uint8 kind) internal pure returns (bytes memory) {
         HandleNormalizer.Problem problem;
         if (kind == HandleVectors.ERROR_EMPTY) problem = HandleNormalizer.Problem.Empty;
@@ -82,8 +71,7 @@ contract HandleNormalizerTest is Test {
         return abi.encodeWithSelector(HandleNormalizer.UnusableHandle.selector, HandleNormalizer.Problem.BadChar);
     }
 
-    /// The table must keep covering both outcomes. A regeneration that dropped
-    /// every refusal would leave the test green and prove nothing.
+    /// The table covers both accepted and refused handles.
     function test_theTableCoversBothOutcomes() public pure {
         HandleVectors.Vector[] memory vectors = HandleVectors.all();
         uint256 accepted;
@@ -97,17 +85,14 @@ contract HandleNormalizerTest is Test {
         assertEq(vectors.length, HandleVectors.COUNT, "the table lost cases");
     }
 
-    /// Case folding is the only change to an accepted handle. Anything else
-    /// could map the handles of two identities onto one node.
+    /// Case folding is the only change to an accepted handle.
     function test_foldingIsTheOnlyChange() public view {
         assertEq(this.normalize("A.B+tag@Example.COM", "google"), "a.b+tag@example.com");
         assertEq(this.normalize("Alice_1", "x"), "alice_1");
         assertEq(this.normalize("Octo-Cat", "github"), "octo-cat");
     }
 
-    /// The normalizer refuses rather than repairs. A space or a leading at sign is
-    /// not stripped into a handle: the circuit hashes the bytes the platform
-    /// sent, and a repaired copy would name a node nobody proved.
+    /// The normalizer refuses padding and a leading at sign rather than stripping them.
     function test_paddingAndALeadingAtAreRefusedNotStripped() public {
         vm.expectRevert(_badChar());
         this.normalize(" alice", "x");
@@ -117,9 +102,7 @@ contract HandleNormalizerTest is Test {
         this.normalize("octocat ", "github");
     }
 
-    /// @dev The generated constants name the table they came from by its
-    ///      SHA-256. Checked against the file itself, so a hand edit of
-    ///      either, or a regeneration skipped, fails here.
+    /// @dev The generated constants carry the SHA-256 of this handles.json.
     function test_theGeneratedConstantsComeFromThisTable() public view {
         assertEq(
             sha256(vm.readFileBinary("contracts/handles/handles.json")),

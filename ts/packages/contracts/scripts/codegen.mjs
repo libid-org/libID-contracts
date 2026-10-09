@@ -41,16 +41,13 @@ const contracts = [
     exportName: 'ceremonyProofVerifierAbi',
   },
   { file: 'GoogleJwtRoots.sol', name: 'GoogleJwtRoots', exportName: 'googleJwtRootsAbi' },
-  // No contract implements it: its two functions take the payload structs the
-  // Platform Verifiers decode, so their tuple types reach an ABI.
-  // `src/payloads.ts` encodes against it.
+  // No contract implements it; it carries the payload structs into an ABI.
   {
     file: 'ICeremonyPayloads.sol',
     name: 'ICeremonyPayloads',
     exportName: 'ceremonyPayloadsAbi',
   },
-  // No contract implements it: the errors bb's Honk verifiers raise from
-  // assembly, under bb's names, which their own artifacts do not declare.
+  // No contract implements it: the errors bb's Honk verifiers raise.
   {
     file: 'IHonkVerifierErrors.sol',
     name: 'IHonkVerifierErrors',
@@ -60,17 +57,9 @@ const contracts = [
   { file: 'WTIA9.sol', name: 'WTIA9', exportName: 'wtia9Abi' },
 ]
 
-// Every contract a `bind` passes through, in the order the call reaches them:
-// the registry, the Proof Verifier it dispatches to, the Platform Verifier the
-// version routes to, and the Notary Service a notarized session is
-// authenticated through. A revert from any of them comes back out of `bind`
-// unchanged, so their errors together are what decodes one. `bindErrorsAbi`
-// carries each once, by signature. The Honk verifier the Platform Verifier
-// calls is last: bb's generated code reverts from assembly with selectors its
-// own artifact does not declare (`SumcheckFailed()` among them), so their
-// names come from `IHonkVerifierErrors`, which declares them under bb's names.
-// Rust's `BindError::decode` tries the same list; a test there fails when the
-// two differ.
+// Every contract a `bind` passes through, in call order; a revert from any
+// comes back out of `bind` unchanged. The Honk verifier's errors come from
+// `IHonkVerifierErrors`, since bb's artifacts declare none.
 const bindRoute = [
   ['IdentityRegistry.sol', 'IdentityRegistry'],
   ['CeremonyProofVerifier.sol', 'CeremonyProofVerifier'],
@@ -143,8 +132,7 @@ export const ${exportName} = ${body} as const satisfies Abi
     `${banner(route)}
 import type { Abi } from 'viem'
 
-/// Every error a \`bind\` can revert with, from each contract on its route,
-/// each signature once: what \`decodeErrorResult\` needs to name a refused bind.
+/// Every error a \`bind\` can revert with, each signature once.
 export const bindErrorsAbi = ${JSON.stringify(bindErrors(), null, 2)} as const satisfies Abi
 `,
   )

@@ -35,10 +35,7 @@ use crate::{
     },
 };
 
-/// One ceremony circuit, and so one vendored Honk verifier.
-///
-/// One per platform: each circuit carries its platform's handle rules and
-/// node tags, so an X proof cannot key a GitHub binding.
+/// One ceremony circuit, and so one vendored Honk verifier, per platform.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Circuit {
     /// X's token exchange, identity read and account keys, for `x/v1`.
@@ -78,11 +75,8 @@ impl Circuit {
 }
 
 impl Circuit {
-    /// The code hash a deployed copy of this circuit's verifier has:
-    /// `keccak256` of the vendored runtime code, which is what `EXTCODEHASH`
-    /// reports at its address. bb's verifier has no immutables, so every
-    /// copy deployed from the vendored creation code holds exactly these
-    /// bytes.
+    /// `keccak256` of the vendored runtime code: the `EXTCODEHASH` of every
+    /// deployed copy, since bb's verifier has no immutables.
     pub fn runtime_codehash(self, artifacts: &Artifacts) -> Result<B256> {
         Ok(keccak256(artifacts.deployed_bytecode_named(
             self.contract(),
@@ -104,16 +98,9 @@ impl Circuit {
     }
 }
 
-/// The `libid-circuits` release the vendored verifiers came from, read from
-/// the pin `scripts/vendor-artifacts.sh` copies in as `circuits.json`.
+/// The `libid-circuits` release the vendored verifiers came from (`circuits.json`).
 ///
-/// A Honk verifier IS its verification key, so a consumer that names a
-/// deployment after its artifact — a CREATE3 name, say — wants this in the
-/// name: a new circuits release is a different contract and must land at a
-/// different address rather than silently replace the old one.
-///
-/// Errors for an [`Artifacts::from_dir`] over a raw forge `out/`, which
-/// carries no pin.
+/// Errors for an [`Artifacts::from_dir`] over a raw forge `out/`, which carries no pin.
 pub fn version(artifacts: &Artifacts) -> Result<String> {
     let pin: serde_json::Value = artifacts.read_json("circuits.json")?;
     pin["version"]
@@ -161,9 +148,7 @@ mod tests {
         }
     }
 
-    /// The circuits are distinct artifacts: a shared one would wire two
-    /// platforms to one verification key, and one platform's proof would key
-    /// the other's bindings.
+    /// Each platform's circuit is a distinct artifact.
     #[test]
     fn the_circuits_are_different_artifacts() {
         let artifacts = Artifacts::embedded();

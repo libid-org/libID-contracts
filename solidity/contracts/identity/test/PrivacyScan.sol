@@ -7,13 +7,8 @@ import {AttestationBuilder} from "../../ceremony/test/AttestationBuilder.sol";
 
 /// @notice The scan a private bind is held to: no byte run of the id or the
 ///         handle, raw or folded, in a log or a storage word it wrote.
-///
-/// @dev "Private" means not disclosed, not unguessable: anyone holding a
-///      candidate can hash it and look it up. What a private bind must not do
-///      is put the id or the handle on chain itself.
 abstract contract PrivacyScan is Test {
-    /// The id, the handle as the platform sent it, and the handle folded:
-    /// the bytes a private bind must leave nowhere.
+    /// The id, the handle as sent, and the handle folded.
     function _secrets() internal pure virtual returns (string[3] memory);
 
     /// Whether `data` carries the id, the handle as sent, or the handle folded.
@@ -40,8 +35,7 @@ abstract contract PrivacyScan is Test {
         }
     }
 
-    /// No storage word `target` wrote since `vm.record` carries a secret.
-    /// Returns how many words were scanned.
+    /// No storage word `target` wrote since `vm.record` carries a secret; returns the count scanned.
     function _assertStorageHidesTheSecrets(address target) internal view returns (uint256 scanned) {
         (, bytes32[] memory writes) = vm.accesses(target);
         for (uint256 i = 0; i < writes.length; ++i) {

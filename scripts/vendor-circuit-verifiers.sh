@@ -1,67 +1,28 @@
 #!/usr/bin/env bash
 # Vendor the ceremony circuits' UltraHonk verifiers from the pinned
-# libid-circuits release.
-#
-# A Honk verifier is not written here: bb derives it from a circuit's
-# verification key, and libid-circuits runs bb and ships the result in each
-# circuit's release tarball beside the vk. This script downloads those
-# tarballs, checks them, formats the Solidity under solidity/foundry.toml and
-# writes it to solidity/contracts/circuits/<Contract>.sol:
+# libid-circuits release into solidity/contracts/circuits/<Contract>.sol:
 #
 #   bearer-link-x       ->  BearerLinkXHonkVerifier.sol       (the x profile)
 #   bearer-link-github  ->  BearerLinkGithubHonkVerifier.sol  (the github profile)
 #   oidc-google  ->  OidcGoogleHonkVerifier.sol   (the google profile)
 #
-# THE PIN is solidity/contracts/circuits/circuits.json: the release version
-# and, per circuit, the contract name and the tarball's sha256. The digests
-# are committed literals, so a download is checked against what this
-# repository says, never against a manifest that came down with it. The
-# release's manifest.json is fetched too, but only to be held to the pin —
-# it must name the same version and the same tarball digests — and then to
-# check every file inside a tarball the pin has already vouched for.
+# The pin is solidity/contracts/circuits/circuits.json: the release version
+# and each tarball's sha256. Downloads are checked against it, the release
+# manifest is held to it, and each circuit's handles-table.nr must be what
+# handles.json generates (`--compare-noir`). The sources are gitignored and
+# vendored before every build. Last, it writes the committed
+# CircuitCodehashes.sol, the runtime code hashes the Platform Verifiers pin.
 #
-# What ships is bb's optimized zero-knowledge verifier plus the one rewrite
-# libid-circuits makes, the rename off bb's fixed `HonkVerifier`; `forge fmt`
-# is the consumer's. So the written file is fmt(shipped) plus the banner
-# below. solidity/foundry.toml compiles it on the legacy pipeline: solc
-# cannot compile it via IR.
-#
-# The sources are NOT committed: they are gitignored like the forge
-# artifacts and the npm ABIs, because they are another repository's release
-# asset and the pin already says which bytes they must be. CI's forge-build
-# action runs this script before every `forge build` — tests, dry-runs and
-# publishes included — and a clone runs it once before its first build. So
-# every build starts from a download the pin has just checked, and there is
-# no committed copy for a hand edit or a stale vendor to live in.
-#
-# Moving the pin: download the new release's tarballs, read their sha256
-# with `shasum -a 256` (compare against the release page, not against a
-# manifest fetched by a script), write the version and the digests into
-# circuits.json, run this script, commit circuits.json.
+# Moving the pin: write the new version and digests (from the release page)
+# into circuits.json, run this script, commit circuits.json and
+# CircuitCodehashes.sol.
 #
 # Usage:
 #   scripts/vendor-circuit-verifiers.sh                    # write the verifiers from the pin
 #   scripts/vendor-circuit-verifiers.sh --local <artifacts>
 #
 # --local takes the verifiers from a libid-circuits `scripts/build.sh --out
-# <artifacts>` instead of a release. Nothing vouches for those bytes but the
-# build you ran, so it is for developing against an unreleased circuit, never
-# for a deploy; the written files say so. Their banner names the circuit and,
-# if `<artifacts>/commit` holds one, the libid-circuits commit it was built
-# from -- never the local path.
-#
-# Either way, each circuit ships the Noir table its rules and tags were
-# compiled from (`handles-table.nr`), and it must be the table this
-# repository's contracts/handles/handles.json generates: a circuit built from
-# another table keys handles differently from the registry that stores them.
-# The comparison is the generator's (`--compare-noir`), so a hand edit of the
-# shipped table is caught, not only a stale label.
-#
-# Last, it writes contracts/circuits/CircuitCodehashes.sol: each verifier's
-# runtime code hash, which the Platform Verifiers pin on chain. That file IS
-# committed -- the contracts import it -- and `forge test` fails while it
-# disagrees with the verifiers vendored beside it, so moving the pin is: run
-# this script, commit circuits.json and CircuitCodehashes.sol together.
+# <artifacts>` build, for development only; the written files say so.
 #
 # Requires curl, jq, tar, forge, cast, python3 and shasum or sha256sum.
 set -euo pipefail
@@ -135,14 +96,8 @@ write_verifier() {
     ' "$src" | (cd "$SOLIDITY" && forge fmt --raw - | forge fmt --raw -) > "$STAGE/$contract.sol"
 }
 
-# The runtime code hash of each verifier just written, as the constants the
-# Platform Verifiers pin: compiled under solidity/foundry.toml (the legacy
-# pipeline, no CBOR metadata, so the bytes depend on the source and the
-# compiler settings alone) and hashed as EXTCODEHASH reports a deployed copy
-# -- bb's verifier has no immutables. Only the verifiers are compiled, so a
-# stale or missing constants file never stands in the way of writing a new
-# one. `forge test` (HonkVerifiers.t.sol) fails when the committed file and
-# the vendored verifiers disagree.
+# Write the runtime code hash (EXTCODEHASH) of each verifier just written.
+# Only the verifiers are compiled, so a stale constants file cannot block it.
 write_codehashes() {
     local origin="$1" out="$DEST/$CODEHASHES" i name hash
     local -a sources=()
@@ -175,8 +130,7 @@ if [[ -n "$LOCAL" ]]; then
     LOCAL="$(cd "$LOCAL" && pwd)"
     STAGE="$(mktemp -d)"
     trap 'rm -rf "$STAGE"' EXIT
-    # Where the build came from, without the path it sits at on this machine:
-    # the libid-circuits commit, when the build left one in a `commit` file.
+    # The libid-circuits commit, if the build left one; never the local path.
     origin="a local libid-circuits build"
     if [[ -f "$LOCAL/commit" ]]; then
         commit="$(tr -cd '0-9a-f' < "$LOCAL/commit" | head -c 40)"

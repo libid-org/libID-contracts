@@ -4,12 +4,8 @@ pragma solidity ^0.8.24;
 import {CeremonyAttestation} from "../CeremonyAttestation.sol";
 import {CeremonyProfile} from "../CeremonyProfile.sol";
 
-/// @notice A reference implementation of the transcript checks of
-///         `CeremonyAttestation` in plain byte loops, for the differential
-///         tests in `TranscriptEquivalence.t.sol`.
-/// @dev Errors are declared here with the signatures of the originals, so a
-///      revert carries the same data. Types are the live library's, so one
-///      input feeds both implementations.
+/// @notice `CeremonyAttestation`'s transcript checks in plain byte loops, for
+///         `TranscriptEquivalence.t.sol`. Errors match the originals.
 library RefCeremonyAttestation {
     error CoverageGap(uint32 from, uint32 to);
     error SpansOverlap(uint32 at);
@@ -30,24 +26,8 @@ library RefCeremonyAttestation {
 
     // ─── Framing, over the transcript rebuilt ───────────────────────
     //
-    // Not the production algorithm in byte loops: production walks the list
-    // of ranges, finds the one ending at a commitment, normalizes it and
-    // compares its tail. This rebuilds the transcript as a byte map -- each
-    // offset revealed (with its byte and its range), committed, or unknown --
-    // and reads every rule off the map with a forward, streaming
-    // normalization. Both read the same rule, stated in
-    // `CeremonyAttestation.requireFramedCommitment`:
-    //
-    //   - the prefix occurs at most once in the revealed bytes joined, JSON
-    //     whitespace removed;
-    //   - a commitment is framed when the revealed range that ends exactly at
-    //     its start ends, whitespace removed, with the prefix -- one range,
-    //     never a join -- and, for a string, the suffix is revealed right
-    //     after it, joins allowed; for an integer, the range that starts
-    //     exactly at its end begins, whitespace aside, with `,` or `}`;
-    //   - exactly one commitment is framed.
-    //
-    // Blocks are ascending, nonempty and disjoint, as `decode` returns them.
+    // Rebuilds the transcript as a byte map and reads the rule of
+    // `CeremonyAttestation.requireFramedCommitment` off it.
 
     uint8 private constant UNKNOWN = 0;
     uint8 private constant REVEALED = 1;
@@ -405,10 +385,7 @@ library RefCeremonyFields {
     error MalformedForm(uint256 at);
     error EmptyFormValue(string name);
 
-    /// @dev Streaming: a whitespace run is held back until the byte after it
-    ///      decides it. It goes when that byte, or the last byte kept before
-    ///      it, is structural; a run the data ends on goes when the last byte
-    ///      kept is structural.
+    /// @dev Streaming: drops a whitespace run next to a structural byte.
     function normalizeJsonBytes(bytes memory data) internal pure returns (bytes memory out) {
         out = new bytes(data.length);
         uint256 n;
@@ -560,11 +537,8 @@ library RefCeremonyFields {
     }
 }
 
-/// @notice The transcript checks `TlsNotaryVerifierBase` runs on each session:
-///         everything between authenticating an attestation and reading its
-///         time, in the same order, so a revert carries the same data.
-/// @dev A profile's hooks are parameters here: `Profile` carries the
-///      constants `XPlatformVerifier` and `GitHubPlatformVerifier` return.
+/// @notice The transcript checks `TlsNotaryVerifierBase` runs on each session,
+///         in the same order; `Profile` carries a verifier's hook constants.
 library RefTranscript {
     error WrongRequestLine();
     error CodeVerifierMismatch();

@@ -7,8 +7,7 @@ import { describe, expect, it } from 'vitest'
 
 import { bindErrorsAbi, honkVerifierErrorsAbi } from './index.js'
 
-// The selector from the Solidity signature itself, not from the ABI under
-// test, so the two cannot agree by sharing a mistake.
+// The selector from the signature itself, independent of the ABI under test.
 const selector = (signature: string) => slice(keccak256(toBytes(signature)), 0, 4)
 const selectorOf = (e: { name: string; inputs: readonly { type: string }[] }) =>
   selector(`${e.name}(${e.inputs.map((i) => i.type).join(',')})`)
@@ -18,8 +17,7 @@ const PROVED = `0x${'e2'.repeat(32)}` as const
 
 describe('bindErrorsAbi', () => {
   it('names a Platform Verifier refusal that comes back out of bind', () => {
-    // What `bind` reverts with when the disclosed handle is not the one the
-    // proof bound: the Platform Verifier's revert data, passed through.
+    // The Platform Verifier's revert for a disclosed handle the proof did not bind.
     const data = concatHex([selector('HandleNotProved(bytes32,bytes32)'), DISCLOSED, PROVED])
 
     expect(decodeErrorResult({ abi: bindErrorsAbi, data })).toEqual({
@@ -54,9 +52,7 @@ describe('bindErrorsAbi', () => {
     expect(new Set(signatures).size).toBe(signatures.length)
   })
 
-  // bb's verifiers revert from assembly with the selectors their `*_SELECTOR`
-  // constants hold. `IHonkVerifierErrors` declares exactly those, across every
-  // vendored verifier, and the bind route carries each.
+  // `IHonkVerifierErrors` declares exactly the vendored verifiers' `*_SELECTOR`s.
   it('names every error the vendored Honk verifiers raise, and no other', () => {
     const circuits = join(
       dirname(fileURLToPath(import.meta.url)),

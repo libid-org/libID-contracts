@@ -284,10 +284,7 @@ contract CeremonyBindTest is Test {
 
     // ─── The nodes are the verifier's ───────────────────────────────
 
-    /// @dev The circuit folds the handle and outputs its node; the Consumer
-    ///      keys the binding by that node and hashes nothing itself. A
-    ///      mixed-case handle reaches the node of its folded form, and any
-    ///      spelling a reader folds to it resolves.
+    /// @dev A mixed-case handle binds the node of its folded form.
     function test_bindsTheNodeTheVerifierFolded() public {
         verifier.set("2244994945", "Alice_1");
         _bind(_payload(WALLET, bytes32(uint256(12))), FEE);
@@ -296,8 +293,7 @@ contract CeremonyBindTest is Test {
         assertEq(registry.resolveHandle(PLATFORM, "ALICE_1"), WALLET);
     }
 
-    /// @dev Whatever node the verifier reports is the key, as reported. A
-    ///      Consumer re-deriving it from plaintext would need the plaintext.
+    /// @dev The binding is keyed by the nodes the verifier reports, as reported.
     function test_storesTheNodesItIsGiven() public {
         bytes32 idNode = keccak256("an id node");
         bytes32 handleNode = keccak256("a handle node");
@@ -309,9 +305,7 @@ contract CeremonyBindTest is Test {
         assertEq(holder, WALLET);
     }
 
-    /// @dev Every shipped circuit outputs a SHA-256 node, never zero. A verifier
-    ///      written later that reported zero would put every identity it saw on
-    ///      one node, each taking it from the one before.
+    /// @dev A zero id node is refused.
     function test_rejectsAnEmptyIdNode() public {
         verifier.setNodes(bytes32(0), keccak256("a handle node"));
         bytes memory p = _payload(WALLET, bytes32(uint256(13)));

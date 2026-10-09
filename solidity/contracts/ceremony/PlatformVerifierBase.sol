@@ -110,9 +110,7 @@ abstract contract PlatformVerifierBase is ICeremony, Initializable, UUPSUpgradea
     error ZeroAddress();
     /// @dev The verifier at that address is not the artifact governance named.
     error WrongVerifierArtifact(bytes32 expected, bytes32 found);
-    /// @dev The verifier at that address is not this platform's circuit's:
-    ///      `expected` is the runtime code hash of the vendored verifier this
-    ///      contract was compiled against, `found` the code hash there.
+    /// @dev The verifier at that address is not this platform's circuit's.
     error WrongCircuit(bytes32 expected, bytes32 found);
 
     // OpenZeppelin's initializer convention -- `__Contract_init`, so a child's
@@ -165,21 +163,8 @@ abstract contract PlatformVerifierBase is ICeremony, Initializable, UUPSUpgradea
         return (_proofLifetime(), _maxFutureAttestationSkew(), _futureObservationAllowance());
     }
 
-    /// @dev The caller names the artifact it means to wire, by code hash, and
-    ///      the call fails if the address does not hold it. REQ-COMMON-45 asks
-    ///      for the EXACT artifact governance selected; an address alone does
-    ///      not say which circuit answers behind it, and a mismatch found at
-    ///      the first user's proof is found in production.
-    ///
-    ///      And the artifact must be THIS platform's circuit's (`WrongCircuit`).
-    ///      X's and GitHub's circuits share one public-input layout, so a
-    ///      TLSNotary verifier wired to the other platform's Honk verifier
-    ///      would accept that circuit's proofs, whose nodes hash the id and
-    ///      handle under the other platform's tags and rules. The code hash
-    ///      the address holds must be `circuitCodehash()`, the vendored
-    ///      verifier's, so a different circuit or circuit release is a new
-    ///      implementation, not a rotation. The `libid-contracts` crate makes
-    ///      the same check off chain before any transaction.
+    /// @dev The Honk verifier must hold `honkVerifierCodehash_` (REQ-COMMON-45)
+    ///      and be this platform's circuit's, `circuitCodehash()` (`WrongCircuit`).
     function setTrustRoots(INotaryService notary_, IHonkVerifier honkVerifier_, bytes32 honkVerifierCodehash_)
         external
         onlyOwner
@@ -191,9 +176,7 @@ abstract contract PlatformVerifierBase is ICeremony, Initializable, UUPSUpgradea
     ///      initialization, so it must not read storage.
     function _platform() internal pure virtual returns (bytes32);
 
-    /// @dev The runtime code hash of this platform's circuit's Honk verifier:
-    ///      a `CircuitCodehashes` constant, generated from the vendored
-    ///      verifier.
+    /// @dev This platform's `CircuitCodehashes` constant.
     function _circuitCodehash() internal pure virtual returns (bytes32);
 
     /// @dev The ceremony version this verifier implements: the protocol

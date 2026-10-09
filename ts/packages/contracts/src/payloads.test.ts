@@ -11,9 +11,7 @@ import {
   type TlsNotaryProof,
 } from './payloads.js'
 
-// The fixtures the Solidity suite reads, so the three languages encode one
-// set of values. `x-ceremony-payload.json` pins solc's encoding of them
-// (PayloadEncoding.t.sol).
+// The Solidity suite's fixtures; `x-ceremony-payload.json` pins solc's encoding.
 const fixtures = new URL('../../../../solidity/contracts/ceremony/test/fixtures/', import.meta.url)
 const read = (name: string) => JSON.parse(readFileSync(new URL(name, fixtures), 'utf8'))
 

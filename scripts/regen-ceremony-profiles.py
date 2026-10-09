@@ -475,9 +475,8 @@ def gen_sol(spec: dict[str, Any]) -> str:
 
     lines += [
         "",
-        "    /// @dev The two identity members whose values a Platform Verifier finds",
-        "    ///      as commitments, by the revealed anchors around them (REQ-PLAT-51).",
-        "    ///      The values stay committed; the platform's circuit opens them.",
+        "    /// @dev The two identity members a Platform Verifier finds as",
+        "    ///      commitments by their revealed anchors (REQ-PLAT-51).",
         "",
     ]
     for profile in profiles:

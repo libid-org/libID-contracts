@@ -17,33 +17,13 @@ interface IGoogleJwtRoots {
 
 /// @title GooglePlatformVerifier — the `google/v1` profile.
 ///
-/// @notice A different shape from the other two: no notarized session, no
-///         Notary Service, no fee.
+/// @notice One proof over a signed ID Token: no notarized session, no Notary
+///         Service, no fee.
 ///
-/// @dev Google uses direct authentication-only OIDC. There is no token
-///      exchange, no client secret, no PKCE and no TLSNotary session; the
-///      evidence is a signed ID Token, and the whole ceremony reduces to one
-///      proof over it. So this profile's Attestation Count is ZERO, its path
-///      stops here rather than reaching a Notary Service, and it quotes and
-///      accepts no value at all. A path with nothing to verify carries none.
-///
-///      The Authorization Digest is bound the other way round from X and
-///      GitHub. They carry it through the PKCE verifier and this contract's
-///      counterpart recomputes it; Google carries it as the signed OIDC `nonce`
-///      and exposes it as a public proof input, which this contract compares
-///      against the digest it rebuilds from its own payload (REQ-COMMON-02A).
-///      Exactly one of the two methods, never both and never neither.
-///
-///      Neither the `sub` nor the address leaves the circuit. It publishes
-///      the id node `SHA256("libid.google.user-id" || sub)` and the handle
-///      node `SHA256("libid.google.handle" || fold(email))`, the address
-///      checked against the Google rules and folded there, and this contract
-///      returns both as it read them.
-///
-///      Evidence time comes from the signed `exp` alone. It supplies BOTH
-///      `metadataObservedAt` and `proofValidUntil` (section 2.2), so the
-///      governance lifetime and skew the other profiles read do not apply
-///      here — a Google proof is bounded by what Google signed.
+/// @dev The digest is the signed OIDC `nonce`, a public input compared with
+///      the rebuilt digest (REQ-COMMON-02A). The circuit publishes the id node
+///      and the handle node; `exp` gives both `metadataObservedAt` and
+///      `proofValidUntil`.
 contract GooglePlatformVerifier is IPlatformVerifier, PlatformVerifierBase {
     /// @dev The public inputs REQ-PLAT-16B fixes, in the order it lists them.
     ///      The digest is 32 field elements of one byte each; the rest are
@@ -212,9 +192,7 @@ contract GooglePlatformVerifier is IPlatformVerifier, PlatformVerifierBase {
         // expiry buys a proportionally long lock on the name.
         _requireNotAhead(exp);
 
-        // The nodes the circuit computed over the signed `sub` and the folded
-        // address, and a disclosure checked against the handle node before
-        // the proof's cost is paid.
+        // The circuit's nodes, and a disclosure checked before the proof is paid for.
         claimed.idNode = _hashFromHalves(p.publicInputs, OFF_ID_NODE);
         claimed.handleNode = _hashFromHalves(p.publicInputs, OFF_HANDLE_NODE);
         claimed.handle = HandleDisclosure.check(_platform(), p.handle, claimed.handleNode);
@@ -250,15 +228,7 @@ contract GooglePlatformVerifier is IPlatformVerifier, PlatformVerifierBase {
     function _hashFromHalves(bytes32[] memory publicInputs, uint256 offset) private pure returns (bytes32) {
         uint256 high = uint256(publicInputs[offset]);
         uint256 low = uint256(publicInputs[offset + 1]);
-        // Each half must fit the 128 bits it stands for, and the reason is the
-        // same one `_digestFromInputs` states: this contract cannot see the
-        // circuit's range constraints, so it does not rest on them.
-        //
-        // The failure is not cosmetic. `high` is shifted, so bits above its
-        // 128th fall off the top and several `high` values agree. `low` is
-        // NOT shifted, so bits above its 128th land in the high half -- one
-        // over-wide `low` alone can produce any 256-bit result: a free match
-        // against the audience hash, or any node at all.
+        // An over-wide `low` would spill into the high half and match any digest.
         if (high >> 128 != 0) revert PublicInputOverwide(offset, high, 128);
         if (low >> 128 != 0) revert PublicInputOverwide(offset + 1, low, 128);
         return bytes32((high << 128) | low);

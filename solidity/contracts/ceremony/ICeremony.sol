@@ -33,51 +33,17 @@ interface ICeremony {
         bytes proof;
     }
 
-    /// @notice What a Platform Verifier returns on acceptance, and nothing but a
-    ///         rejection otherwise (REQ-COMMON-06). The Proof Verifier forwards
-    ///         it unchanged.
-    ///
-    /// @dev A Consumer trusts these fields the way it trusts the verifier that
-    ///      produced them: the verifier extracted every one from evidence it
-    ///      authenticated, and the Consumer holds that verifier by an
-    ///      owner-set address.
-    ///
-    /// @param sessionId           One ceremony, as a 32-byte handle: the
-    ///                            Authorization Digest the verifier rebuilt and
-    ///                            the proof opened against. Returned so the
-    ///                            Consumer records the one that was actually
-    ///                            used (REQ-COMMON-03) -- it is the ceremony's
-    ///                            replay nullifier, and the key an indexer joins
-    ///                            one ceremony's logs on.
-    /// @param operationDomain     Authenticated. The Consumer MUST reject one it
-    ///                            does not own, and MUST select its handler by
-    ///                            this before decoding `transactionData`
-    ///                            (REQ-COMMON-06A).
+    /// @notice What a Platform Verifier returns on acceptance (REQ-COMMON-06);
+    ///         the Proof Verifier forwards it unchanged.
+    /// @param sessionId           The Authorization Digest; the ceremony's replay nullifier (REQ-COMMON-03).
+    /// @param operationDomain     The Consumer rejects one it does not own (REQ-COMMON-06A).
     /// @param transactionData     Opaque bytes; the Consumer decodes them.
-    /// @param ceremonyVersion     The ceremony version the verifier supports and
-    ///                            the digest binds. Not the verifier version the
-    ///                            Consumer routed on: that one is this chain's
-    ///                            slot number and means nothing off it.
-    /// @param clientIdentifier    The exact authenticated bytes, never a digest:
-    ///                            one representation across platforms lets a
-    ///                            Consumer compare and display it without
-    ///                            knowing which platform produced it
-    ///                            (REQ-COMMON-16).
-    /// @param idNode              `SHA256(user-id tag || id)`: the key of the
-    ///                            canonical, immutable platform identifier,
-    ///                            which never leaves the circuit.
-    /// @param handleNode          `SHA256(handle tag || fold(handle))`: the key
-    ///                            of the handle, normalized in the circuit
-    ///                            from the bytes the platform sent. The
-    ///                            handle itself never reaches the chain unless
-    ///                            its holder discloses it.
-    /// @param handle              The handle the submission disclosed,
-    ///                            normalized, or empty for a private one. The
-    ///                            Platform Verifier has checked that it hashes
-    ///                            to `handleNode`.
-    /// @param metadataObservedAt  The monotone metadata watermark: when the
-    ///                            platform stated the identity, on the scale
-    ///                            every profile shares.
+    /// @param ceremonyVersion     The ceremony version the digest binds, not the routing version.
+    /// @param clientIdentifier    The exact authenticated bytes, never a digest (REQ-COMMON-16).
+    /// @param idNode              `SHA256(user-id tag || id)`.
+    /// @param handleNode          `SHA256(handle tag || fold(handle))`.
+    /// @param handle              The disclosed handle, normalized, or empty; hashes to `handleNode`.
+    /// @param metadataObservedAt  When the platform stated the identity.
     struct VerifiedClaim {
         bytes32 sessionId;
         bytes32 operationDomain;

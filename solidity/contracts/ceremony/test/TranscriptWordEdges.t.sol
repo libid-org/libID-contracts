@@ -535,10 +535,8 @@ contract TranscriptWordEdgesTest is Test {
         length = uint32(t.length);
     }
 
-    /// @dev An identity response with a pad member revealed with the first
-    ///      anchor, so both anchors and the bytes that close each value move
-    ///      through a word. The values are committed, as the anchor-only reveal
-    ///      lays them out.
+    /// @dev An anchor-only identity response with a pad member that moves the
+    ///      anchors through a word.
     function _edgeIdentityResponse(Gen.Rng memory r, bool integerId, bytes memory handleField)
         private
         pure

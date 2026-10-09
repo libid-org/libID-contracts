@@ -120,9 +120,7 @@ contract IdentityRegistryGasTest is Test {
         return vm.lastCallGas().gasTotalUsed;
     }
 
-    /// A bind made out to `who`, from cold storage. It discloses the handle,
-    /// so the disclosure path is measured with the bind and every holder has
-    /// a name for `publishedHandleOf` to read and `unpublish` to clear.
+    /// A cold bind made out to `who` that discloses the handle.
     function _prove(address who, string memory id, string memory handle) internal {
         xVerifier.set(id, handle);
         xVerifier.setObservedAt(++clock);

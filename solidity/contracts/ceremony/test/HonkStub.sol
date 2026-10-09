@@ -6,14 +6,7 @@ import {Vm} from "forge-std/Vm.sol";
 import {IHonkVerifier} from "../PlatformVerifierBase.sol";
 
 /// @notice A platform's real Honk verifier, with its answer set by the test.
-///
-/// @dev A Platform Verifier accepts only its own circuit's verifier, by
-///      runtime code hash, so a stand-in contract cannot be wired at all.
-///      This deploys the vendored verifier itself -- the code the pin names --
-///      and mocks `verify` on that address, so a test that is not about the
-///      proof reaches the checks it is about, and one that is can set the
-///      answer to `false`. A call still reaches the address, so `expectCall`
-///      sees it.
+/// @dev Deploys the vendored verifier (its code hash is pinned) and mocks `verify`.
 library HonkStub {
     Vm private constant VM = Vm(address(uint160(uint256(keccak256("hevm cheat code")))));
 

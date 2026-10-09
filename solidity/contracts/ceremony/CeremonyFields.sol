@@ -2,26 +2,12 @@
 pragma solidity ^0.8.24;
 
 /// @title CeremonyFields
-/// @notice The byte searches and the JSON whitespace removal the transcript
-///         checks run over revealed bytes, and holding a form body to exactly
-///         the fields it should carry.
-///
-/// @dev Nothing here parses a document. ceremony-common section 9 says so
-///      plainly: no complete HTTP request grammar, no complete HTTP response
-///      grammar, no complete JSON grammar is proved or parsed anywhere in the
-///      protocol. A JSON delimiter is matched by its exact template, a form
-///      field by its own boundary template, and that is all.
-///
-///      What makes a template safe to trust is REQ-COMMON-19A: the Platform
-///      Verifier must reject a transcript in which a field's full delimiter
-///      matches at more than one position. An authenticated response carries
-///      text the account holder chooses -- a display name, a bio -- and that
-///      text can embed a lookalike field. Reading the first match would let it
-///      answer for the real one; reading the last would too. Refusing to answer
-///      at all is what closes it, which `occurrences` lets a caller do.
+/// @notice Byte searches and JSON whitespace removal over revealed bytes, and
+///         holding a form body to exactly the fields it should carry.
+/// @dev Parses no document: templates only. A delimiter matching more than
+///      once is refused via `occurrences` (REQ-COMMON-19A).
 library CeremonyFields {
-    /// @dev The form names the field more than once, so no reading of it is
-    ///      authoritative (REQ-COMMON-19A).
+    /// @dev The form names the field more than once (REQ-COMMON-19A).
     error AmbiguousField(string name);
     /// @dev The form does not name the field.
     error FieldNotFound(string name);
@@ -57,30 +43,10 @@ library CeremonyFields {
     uint256 private constant SERIALIZER_SAFE = (((1 << 26) - 1) << 0x41) | (((1 << 26) - 1) << 0x61)
         | (((1 << 10) - 1) << 0x30) | (1 << 0x2a) | (1 << 0x2e) | (1 << 0x5f) | (1 << 0x2d);
 
-    /// @notice `data` with the JSON whitespace that touches a structural
-    ///         byte removed.
-    ///
-    /// @dev The four bytes JSON lets a writer put between tokens (RFC 8259
-    ///      section 2): space, tab, line feed, carriage return. GitHub
-    ///      pretty-prints `/user` for the media type the profile pins, so the
-    ///      compact delimiters `CeremonyAttestation`'s framing checks match
-    ///      are a grammar, not the bytes on the wire. Removing the whitespace
-    ///      first, the way `CeremonyAttestation.normalizeHeaderBytes` does for
-    ///      a request head, leaves every check its one exact template and
-    ///      makes a member in any spelling the same member -- so a duplicate
-    ///      spelled with spaces is still counted as one.
-    ///
-    ///      Only a run that touches `:` `,` `{` `}` `[` or `]` on either side
-    ///      goes, which is exactly where JSON puts insignificant whitespace.
-    ///      A run between two tokens stays: `123 456` must not read as
-    ///      `123456`, and a trailing space after digits must still be the
-    ///      byte the terminator check judges. Stateless on purpose, with no
-    ///      notion of being inside a string: a reader with one is a reader a
-    ///      prover desynchronises by cutting a revealed range mid-value, and a
-    ///      needle then hides where the reader believes a string is open. No
-    ///      needle can be manufactured by this either -- one needs unescaped
-    ///      quotes, and this removes none -- and nothing this reads carries
-    ///      whitespace beside a structural byte inside its value.
+    /// @notice `data` without JSON whitespace (space, tab, LF, CR) that
+    ///         touches a structural byte `:` `,` `{` `}` `[` `]`.
+    /// @dev Stateless, with no notion of being inside a string, so a range cut
+    ///      mid-value cannot desynchronise it.
     function normalizeJsonBytes(bytes memory data) internal pure returns (bytes memory out) {
         out = new bytes(data.length);
         uint256 n;

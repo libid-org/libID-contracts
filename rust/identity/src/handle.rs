@@ -1,12 +1,8 @@
-//! Turns a handle a caller typed into the one form the identity circuits hash
-//! into a node.
+//! Turns a typed handle into the form the identity circuits hash into a node.
 //!
-//! The transform refuses rather than repairs: A-Z fold to a-z, and nothing is
-//! trimmed or stripped. It mirrors the circuits' `lib/identity` and
-//! `contracts/handles/HandleNormalizer.sol` byte for byte. They are hand
-//! written and share nothing but the vector table in
-//! `contracts/handles/handles.json`, so a difference between them fails a test
-//! instead of looking up a node the chain never wrote.
+//! A-Z fold to a-z and anything else invalid is refused, never repaired. It
+//! mirrors the circuits' `lib/identity` and `HandleNormalizer.sol`; all three
+//! run the `handles.json` vector table.
 
 /// Why a handle was refused. The kinds match the Solidity errors and the
 /// TypeScript ones, because the vector table names which refusal it expects.
@@ -51,9 +47,7 @@ impl std::fmt::Display for HandleError {
 
 impl std::error::Error for HandleError {}
 
-/// What one platform accepts. Each platform's rules are a generated
-/// constant from `handles.json`, the table its circuit folds handles with; a
-/// new platform is a `handles.json` entry and a circuit of its own.
+/// What one platform accepts, generated from `handles.json`.
 #[derive(Debug, Clone, Copy)]
 pub struct Rules {
     /// Bytes allowed.
@@ -69,8 +63,7 @@ pub struct Rules {
 use super::handle_vectors as v;
 
 impl Rules {
-    /// X: letters, digits and underscore. Each platform's rules are the
-    /// generated table's, never restated here.
+    /// X: letters, digits and underscore.
     pub const X: Self = v::PLATFORM_X.rules;
 
     /// GitHub: letters, digits and hyphen.
@@ -81,8 +74,7 @@ impl Rules {
 }
 
 /// The rules for a platform key (`"x"`, `"github"`, ...) from the generated
-/// table. They are frozen at launch: the circuits that key bindings carry
-/// them, so no deployment can run others.
+/// table.
 pub fn rules_for(platform_key: &str) -> Option<Rules> {
     v::platform(platform_key).map(|p| p.rules)
 }
@@ -209,8 +201,7 @@ mod tests {
         }
     }
 
-    /// The generated constants name the table they came from by its SHA-256,
-    /// checked against the file in this repository.
+    /// The generated constants carry the SHA-256 of this `handles.json`.
     #[test]
     fn the_generated_constants_come_from_this_table() {
         use sha2::Digest as _;

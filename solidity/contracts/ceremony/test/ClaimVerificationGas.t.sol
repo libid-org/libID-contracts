@@ -14,29 +14,9 @@ import {NotaryService} from "../NotaryService.sol";
 import {IHonkVerifier} from "../PlatformVerifierBase.sol";
 import {XPlatformVerifier} from "../XPlatformVerifier.sol";
 
-/// @notice The gas of each verifier's `verify` on a real claim, recorded in
-///         `snapshots/claim-verification.json`.
-///
-/// @dev Each number is what the `verify` frame used (`vm.lastCallGas`), not
-///      what the test spends around it. `FOUNDRY_PROFILE=gas forge test`
-///      records them under Osaka, the rules eden-testnet executes. A default
-///      run makes the same calls under cancun and leaves the file as it is.
-///
-///      The X and GitHub sessions are the records libid-rs's
-///      `ceremony_fixtures` produces, laid out as the anchor-only reveal lays
-///      them out -- the id and handle each committed, their anchors revealed
-///      -- with the proof bb made of each session's witness. Nothing is
-///      re-signed: the real Honk verifier checks a valid proof of exactly the
-///      commitments the notary signed, and the nodes the payload names are
-///      the ones that proof outputs. The captured ceremonies reveal the id and
-///      handle, which the framing refuses, so they are not measured until
-///      they are recaptured.
-///
-///      Wired as eden-testnet runs them: Platform Verifiers behind proxies and
-///      no Notary Fee. `quote` runs right before `verify`, as the Proof
-///      Verifier calls it, so what the quote reads is warm as it is on chain.
-///      The Honk verifiers are deployed from their artifacts, for the reason
-///      `HonkVerifiersTest` gives.
+/// @notice The gas of each verifier's `verify` on a real claim (`vm.lastCallGas`),
+///         recorded in `snapshots/claim-verification.json` by
+///         `FOUNDRY_PROFILE=gas forge test`, under Osaka as eden-testnet runs.
 contract ClaimVerificationGasTest is Test {
     string constant GROUP = "claim-verification";
 

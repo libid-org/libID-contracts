@@ -106,11 +106,9 @@ library CeremonyAttestation {
     error NoFramedCommitment();
     /// @dev More than one is, so the framing identifies nothing.
     error AmbiguousFraming();
-    /// @dev The revealed bytes of a request direction hold `heads` head
-    ///      boundaries (`\r\n\r\n`) where one HTTP request holds exactly one.
+    /// @dev The revealed request bytes hold `heads` head boundaries, not one.
     error NotOneRequest(uint256 heads);
-    /// @dev `count` bytes follow the head of a request that has no body: the
-    ///      session carries more than the one request.
+    /// @dev `count` bytes follow the head of a bodiless request.
     error BytesAfterRequest(uint256 count);
 
     /// @notice Parse and shape-check the attested data.
@@ -155,9 +153,8 @@ library CeremonyAttestation {
     ///      uncounted, and the platform answering to whichever it honoured.
     bytes internal constant AUTHORIZATION_NEEDLE = "\r\nauthorization:";
 
-    /// @dev What ends a framed commitment: a revealed range that starts at its
-    ///      end with exact bytes, or one whose first byte past JSON whitespace
-    ///      is the `,` or `}` that closes a bare JSON integer.
+    /// @dev What ends a framed commitment: exact suffix bytes, or the `,` or `}`
+    ///      closing a bare JSON integer.
     enum Terminator {
         Suffix,
         JsonIntegerEnd
@@ -180,23 +177,8 @@ library CeremonyAttestation {
         return CeremonyFields.normalizeJsonBytes(concatRevealed(block_));
     }
 
-    /// @notice The one commitment framed by these revealed bytes, JSON
-    ///         whitespace aside.
-    ///
-    /// @dev For a direction that is NOT exactly covered, where several ranges
-    ///      are hidden and only the anchors around one of them are revealed.
-    ///      The X token response is that case: the bearer is committed, the
-    ///      `"access_token":"` delimiter and its closing quote are revealed,
-    ///      and every other response byte sits behind a commitment of its own.
-    ///
-    ///      The framing is what IDENTIFIES the bearer, not its being the only
-    ///      commitment. Without it a received direction revealing nothing at
-    ///      all leaves the committed range indistinguishable from a
-    ///      `refresh_token` value, or any other substring the prover chose to
-    ///      commit (REQ-PLAT-57, REQ-PLAT-58).
-    ///
-    ///      Exactly one commitment may carry the framing. Two would leave
-    ///      nothing to say which the circuit opened.
+    /// @notice The one commitment framed by revealed `prefix` and `suffix`, JSON
+    ///         whitespace aside; the framing identifies it (REQ-PLAT-57, REQ-PLAT-58).
     function requireFramedCommitment(DirectionBlock memory block_, bytes memory prefix, bytes memory suffix)
         internal
         pure
@@ -232,12 +214,8 @@ library CeremonyAttestation {
         return _framed(f.block_, f.normalized, prefix, Terminator.JsonIntegerEnd, "");
     }
 
-    /// @dev The framed lookup both readers share. The prefix at most once in
-    ///      `normalized`, which is everything revealed with JSON whitespace
-    ///      removed: a second one, in any spelling, is a second place the
-    ///      framing could point, whether or not a commitment sits behind it.
-    ///      Then exactly one commitment anchored by the prefix and ended by the
-    ///      terminator.
+    /// @dev The prefix at most once in `normalized`, then exactly one commitment
+    ///      anchored by it and ended by the terminator.
     function _framed(
         DirectionBlock memory block_,
         bytes memory normalized,
@@ -307,25 +285,10 @@ library CeremonyAttestation {
         return false;
     }
 
-    /// @notice Every check REQ-COMMON-35, -39 and -40 require of an
-    ///         identity-session request that commits a credential in an HTTP
-    ///         `Authorization` header, and that the session carries that one
-    ///         request and nothing after it (`requireOneBodilessRequest`).
-    ///
-    /// @dev At launch that is X's `/2/users/me` request and GitHub's `/user`
-    ///      request, and nothing else. A token request carries its credential
-    ///      as a form field, where there is no header line to count and none
-    ///      to frame, so none of the three reaches one.
-    ///
-    ///      The three are one call because they are one property, and two of
-    ///      them are worthless alone. The uniqueness scan counts the needle
-    ///      across REVEALED bytes only, so a byte covered by nothing is a byte
-    ///      it never reads: without coverage a prover hides a second
-    ///      authorization header in a gap, the count stays at one, and the
-    ///      platform honours whichever header it likes.
-    ///
-    /// @return commitment The committed bearer range, which the caller then
-    ///         matches against the circuit's identity-bearer public input.
+    /// @notice REQ-COMMON-35, -39 and -40 for an identity request that commits
+    ///         its credential in one `Authorization` header, and nothing after it.
+    /// @dev Coverage first: the header count reads revealed bytes only.
+    /// @return commitment The committed bearer range.
     /// @return revealed   `concatRevealed(block_)`, the bytes the count read.
     function requireBearerHeaderRequest(DirectionBlock memory block_, uint32 length)
         internal
@@ -344,26 +307,8 @@ library CeremonyAttestation {
         requireCrlfLineEndings(revealed);
         requireOneBodilessRequest(block_, revealed, length);
 
-        // Counted over the CONCATENATION, not per range.
-        //
-        // Per range was wrong in the unsafe direction. The prover picks where
-        // the reveals are cut, so cutting one through the middle of a second
-        // `\r\nauthorization:` makes neither half contain the needle: two
-        // header lines, count of one, and the platform answers to whichever
-        // bearer it honoured -- someone else's. Confirmed by proof of concept.
-        //
-        // Joining regions can manufacture a match at a seam, and that is the
-        // direction to err in: a false seam over-rejects an honest session,
-        // which fails closed. Missing a real header does not.
-        //
-        // Locating a value stays per range -- see `requireFramedCommitment`,
-        // whose anchor is one revealed range, never a join. Counting and
-        // locating want opposite things: a count must not miss, a locate must
-        // not splice.
-        // Counted once. Filling the error argument with a second call would
-        // rescan the whole revealed transcript, so every rejected submission
-        // would pay twice for the check that rejected it -- on a buffer the
-        // prover sizes.
+        // Counted over the join, so a reveal cut through a header cannot hide it;
+        // a false match at a seam fails closed.
         uint256 headers = _countNeedle(revealed);
         if (headers != 1) revert NotOneAuthorizationHeader(headers);
 
@@ -377,28 +322,10 @@ library CeremonyAttestation {
         }
     }
 
-    /// @notice The direction carries exactly one HTTP request with no body,
-    ///         as the token session carries exactly one request with its form.
-    ///
-    /// @dev `revealed` must be `concatRevealed(block_)`, with the direction
-    ///      already exactly covered and its line endings already CRLF. Three
-    ///      conditions, each over bytes the notary signed:
-    ///
-    ///        exactly one head boundary in the revealed bytes joined;
-    ///        nothing revealed after it, since the request has no body;
-    ///        the last revealed range ending at the signed transcript length,
-    ///        so no commitment follows it either.
-    ///
-    ///      Everything revealed then lies inside the one head, and so does
-    ///      every committed range, since the last revealed range ends the
-    ///      transcript -- the authorization line included.
-    ///      A header the caller reads out of `revealed` is a header of the
-    ///      request the platform answered, and the platform answered nothing
-    ///      else on this session.
-    ///
-    ///      Counted over the join, as the authorization count is: a boundary
-    ///      cut across two ranges is still one, and a seam can only add one,
-    ///      which refuses rather than accepts.
+    /// @notice The direction carries exactly one bodiless HTTP request.
+    /// @dev `revealed` is `concatRevealed(block_)`, covered and CRLF-checked: one
+    ///      head boundary, nothing revealed after it, and the last range ending
+    ///      the transcript.
     function requireOneBodilessRequest(DirectionBlock memory block_, bytes memory revealed, uint32 length)
         internal
         pure
@@ -415,10 +342,6 @@ library CeremonyAttestation {
 
     /// @notice How many head boundaries (`\r\n\r\n`) `data` holds, overlapping
     ///         ones included, and the offset of the first, or `max` for none.
-    ///
-    /// @dev The one count both sessions' request checks read: the token
-    ///      request requires one with its form after it, the identity request
-    ///      one with nothing after it.
     function headBoundaries(bytes memory data) internal pure returns (uint256 count, uint256 first) {
         first = type(uint256).max;
         // Every boundary begins with a CR, so only those offsets are tried.

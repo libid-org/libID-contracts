@@ -1,10 +1,7 @@
 //! The rules a platform's user id must meet before it is hashed into a node.
 //!
-//! Ids are never normalized: the circuit hashes the id exactly as the
-//! platform sent it, so a caller computing an id node must start from those
-//! bytes. These checks refuse what no circuit would have hashed, mirroring
-//! the circuits' `lib/identity` `check_id`, and run the same `idVectors`
-//! table.
+//! Ids are never normalized; these checks mirror the circuits' `check_id`
+//! and run the same `idVectors` table.
 
 use super::handle_vectors as v;
 use crate::HandleError;
@@ -34,8 +31,7 @@ pub fn id_rules_for(platform_key: &str) -> Option<IdRules> {
     v::platform(platform_key).map(|p| p.id_rules)
 }
 
-/// Accept an id exactly as given, or say why no circuit would hash it. The
-/// refusal kinds are the handle's, in the same order.
+/// Accept an id exactly as given, or say why no circuit would hash it.
 pub fn check_id(id: &str, rules: IdRules) -> Result<(), HandleError> {
     let bytes = id.as_bytes();
     if bytes.is_empty() {
