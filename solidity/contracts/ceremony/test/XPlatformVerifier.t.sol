@@ -5,7 +5,6 @@ import {XTranscripts} from "./TranscriptEquivalence.t.sol";
 import {CircuitCodehashes} from "../../circuits/CircuitCodehashes.sol";
 import {HonkStub} from "./HonkStub.sol";
 import {TlsNotaryProof} from "../CeremonyPayloads.sol";
-import {Test} from "forge-std/Test.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
 import {AttestationBuilder} from "./AttestationBuilder.sol";
@@ -13,9 +12,9 @@ import {CeremonyAttestation} from "../CeremonyAttestation.sol";
 import {CeremonyAuthorization} from "../CeremonyAuthorization.sol";
 import {CeremonyFields} from "../CeremonyFields.sol";
 import {CeremonyProfile} from "../CeremonyProfile.sol";
-import {GitHubPlatformVerifier} from "../GitHubPlatformVerifier.sol";
 import {ICeremony} from "../ICeremony.sol";
 import {INotaryService} from "../INotaryService.sol";
+import {RealTlsNotaryProofTest} from "./RealTlsNotaryProof.sol";
 import {NotaryService} from "../NotaryService.sol";
 import {IHonkVerifier, PlatformVerifierBase} from "../PlatformVerifierBase.sol";
 import {TlsNotaryVerifierBase} from "../TlsNotaryVerifierBase.sol";
@@ -57,7 +56,7 @@ contract SkewPastAllowance is PlatformVerifierBase {
 
 /// @notice The `x/v1` path end to end: two attestations, a real notary
 ///         signature over each, and every check the profile assigns here.
-contract XPlatformVerifierTest is Test {
+contract XPlatformVerifierTest is RealTlsNotaryProofTest {
     using AttestationBuilder for AttestationBuilder.Range;
     using AttestationBuilder for AttestationBuilder.Direction;
 
@@ -68,8 +67,6 @@ contract XPlatformVerifierTest is Test {
     /// `expectRevert` before the call under test ever runs.
     uint256 quote;
 
-    address constant OWNER = address(0xA11CE);
-    uint256 constant NOTARY_KEY = 0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80;
     uint256 constant FEE = 0.001 ether;
     uint64 constant LIFETIME = CeremonyProfile.PROOF_LIFETIME_SECONDS_X;
     uint64 constant SKEW = CeremonyProfile.MAX_FUTURE_ATTESTATION_SKEW_SECONDS_X;
@@ -130,16 +127,6 @@ contract XPlatformVerifierTest is Test {
 
     // ─── Building a session ─────────────────────────────────────────
 
-    function _sign(bytes memory attested) private pure returns (bytes memory) {
-        return _signWith(NOTARY_KEY, attested);
-    }
-
-    function _signWith(uint256 key, bytes memory attested) private pure returns (bytes memory) {
-        bytes32 ethHash = keccak256(abi.encodePacked("\x19Ethereum Signed Message:\n32", keccak256(attested)));
-        (uint8 v, bytes32 r, bytes32 s) = vm.sign(key, ethHash);
-        return abi.encodePacked(r, s, v);
-    }
-
     /// The head the browser sends: the two headers the profile requires, and
     /// two it does not compare.
     bytes constant TOKEN_HEADERS =
@@ -197,7 +184,7 @@ contract XPlatformVerifierTest is Test {
         received = _tokenResponse(bearerFraming);
 
         bytes memory attested = AttestationBuilder.encode(CeremonyProfile.AUTHORITY_X_API, T0, sent, received);
-        return ICeremony.Attestation({attestedData: attested, proof: _sign(attested)});
+        return ICeremony.Attestation({attestedData: attested, proof: AttestationBuilder.sign(NOTARY_KEY, attested)});
     }
 
     /// A token response shaped like the real one:
@@ -292,7 +279,7 @@ contract XPlatformVerifierTest is Test {
         returns (ICeremony.Attestation memory)
     {
         bytes memory attested = AttestationBuilder.encode(CeremonyProfile.AUTHORITY_X_API, T0, sent, received);
-        return ICeremony.Attestation({attestedData: attested, proof: _sign(attested)});
+        return ICeremony.Attestation({attestedData: attested, proof: AttestationBuilder.sign(NOTARY_KEY, attested)});
     }
 
     /// The honest identity request around a response of the test's choosing.
@@ -310,7 +297,7 @@ contract XPlatformVerifierTest is Test {
 
     /// The `x/v1` payload the fixtures are made for. Public inputs are not in
     /// it: the verifier derives them from the two attestations.
-    function _payload() private view returns (TlsNotaryProof memory s) {
+    function _payload() internal view override returns (TlsNotaryProof memory s) {
         string memory verifierValue = string(CeremonyAuthorization.codeVerifier(digest, AUTH_NONCE));
         s.ceremonyVersion = 1;
         s.operationDomain = DOMAIN;
@@ -486,7 +473,9 @@ contract XPlatformVerifierTest is Test {
             "abc", "https%3A%2F%2Fapp.example%2Fcb;code_verifier=EVILEVILEVILEVILEVILEVILEVILEVILEVILEVIL0"
         );
         TlsNotaryProof memory s = _payloadWithBody(body);
-        vm.expectRevert(abi.encodeWithSelector(CeremonyFields.MalformedForm.selector, _indexOf(body, ";")));
+        vm.expectRevert(
+            abi.encodeWithSelector(CeremonyFields.MalformedForm.selector, AttestationBuilder.indexOf(body, ";"))
+        );
         this.run{value: quote}(s);
     }
 
@@ -496,7 +485,9 @@ contract XPlatformVerifierTest is Test {
     function test_rejectsATokenBodyWithALowercaseEscape() public {
         bytes memory body = _honestTokenBody("abc", "https%3a%2F%2Fapp.example%2Fcb");
         TlsNotaryProof memory s = _payloadWithBody(body);
-        vm.expectRevert(abi.encodeWithSelector(CeremonyFields.MalformedForm.selector, _indexOf(body, "%3a")));
+        vm.expectRevert(
+            abi.encodeWithSelector(CeremonyFields.MalformedForm.selector, AttestationBuilder.indexOf(body, "%3a"))
+        );
         this.run{value: quote}(s);
     }
 
@@ -524,7 +515,7 @@ contract XPlatformVerifierTest is Test {
     function test_rejectsAnUntrustedNotary() public {
         TlsNotaryProof memory s = _payload();
         bytes memory attested = s.identitySession.attestedData;
-        s.identitySession.proof = _signWith(0xB0B, attested);
+        s.identitySession.proof = AttestationBuilder.sign(0xB0B, attested);
         vm.expectPartialRevert(NotaryService.UntrustedNotary.selector);
         this.run{value: quote}(s);
     }
@@ -686,8 +677,8 @@ contract XPlatformVerifierTest is Test {
         assertEq(uint64(vm.parseJsonUint(json, ".created_at")), T0);
 
         TlsNotaryProof memory s = _payload();
-        s.tokenSession = _rustSession(json, ".token");
-        s.identitySession = _rustSession(json, ".identity");
+        s.tokenSession = AttestationBuilder.fixtureSession(json, ".token");
+        s.identitySession = AttestationBuilder.fixtureSession(json, ".identity");
         ICeremony.VerifiedClaim memory f = this.run{value: quote}(s);
         assertEq(f.idNode, ID_NODE);
         assertEq(f.handleNode, HANDLE_NODE);
@@ -700,11 +691,11 @@ contract XPlatformVerifierTest is Test {
     ///      anchors around them are revealed.
     function test_theIdentityRecordRevealsNeitherTheIdNorTheHandle() public view {
         bytes memory attested = vm.parseJsonBytes(vm.readFile(RUST_SESSION), ".identity.attested_data");
-        assertFalse(_contains(attested, "2244994945"), "the id");
-        assertFalse(_contains(attested, "Alice_1"), "the handle");
-        assertFalse(_contains(attested, "alice_1"), "the folded handle");
-        assertTrue(_contains(attested, '"id":"'), "the id's anchor");
-        assertTrue(_contains(attested, '"username":"'), "the handle's anchor");
+        assertFalse(AttestationBuilder.contains(attested, "2244994945"), "the id");
+        assertFalse(AttestationBuilder.contains(attested, "Alice_1"), "the handle");
+        assertFalse(AttestationBuilder.contains(attested, "alice_1"), "the folded handle");
+        assertTrue(AttestationBuilder.contains(attested, '"id":"'), "the id's anchor");
+        assertTrue(AttestationBuilder.contains(attested, '"username":"'), "the handle's anchor");
     }
 
     /// @dev The opening libid-rs wrote beside the records opens the
@@ -732,50 +723,30 @@ contract XPlatformVerifierTest is Test {
         return CeremonyAttestation.decode(attested);
     }
 
-    function _blinder(string memory json, string memory key) private pure returns (bytes memory b) {
-        b = vm.parseJsonBytes(json, key);
-        assertEq(b.length, 16, "tlsn's blinder is 16 bytes");
-    }
-
-    function _rustSession(string memory json, string memory key) private pure returns (ICeremony.Attestation memory) {
-        return ICeremony.Attestation({
-            attestedData: vm.parseJsonBytes(json, string.concat(key, ".attested_data")),
-            proof: vm.parseJsonBytes(json, string.concat(key, ".notary_signature"))
-        });
-    }
-
     string constant RUST_SESSION_PROOF = "contracts/ceremony/test/fixtures/x-ceremony-session-proof.json";
-    string constant GITHUB_SESSION = "contracts/ceremony/test/fixtures/github-ceremony-session.json";
-    string constant GITHUB_SESSION_PROOF = "contracts/ceremony/test/fixtures/github-ceremony-session-proof.json";
 
-    /// The error the bearer-link verifier raises for a sumcheck round that
-    /// does not hold. That verifier never returns false: it refuses by
-    /// reverting, and `verify` passes the revert through. A public input
-    /// other than the one proved fails here too, since every input enters
-    /// the sumcheck through the public-input delta.
-    error SumcheckFailed();
+    function _platformVerifier() internal view override returns (PlatformVerifierBase) {
+        return verifier;
+    }
 
-    /// The low byte of proof word 29, the first sumcheck coefficient in bb's
-    /// ZK layout. Flipping its low bit leaves a field element, which the
-    /// sumcheck refuses. A flipped curve point would instead make the
-    /// verifier's precompile call burn all the gas it is given.
-    uint256 constant FLIPPED_PROOF_BYTE = 29 * 32 + 31;
+    function _notary() internal view override returns (INotaryService) {
+        return INotaryService(address(notary));
+    }
 
-    /// `RUST_SESSION`'s records with the proof bb made of their witness, and
-    /// the circuit's own verifier wired in place of the stub. Returns that
-    /// verifier and the public inputs bb proved.
-    function _realProofPayload() private returns (TlsNotaryProof memory s, address circuit, bytes32[] memory proved) {
-        circuit = vm.deployCode("BearerLinkXHonkVerifier.sol:BearerLinkXHonkVerifier");
-        vm.prank(OWNER);
-        verifier.setTrustRoots(INotaryService(address(notary)), IHonkVerifier(circuit), circuit.codehash);
+    function _circuitArtifact() internal pure override returns (string memory) {
+        return "BearerLinkXHonkVerifier.sol:BearerLinkXHonkVerifier";
+    }
 
-        string memory session = vm.readFile(RUST_SESSION);
-        string memory proof = vm.readFile(RUST_SESSION_PROOF);
-        s = _payload();
-        s.tokenSession = _rustSession(session, ".token");
-        s.identitySession = _rustSession(session, ".identity");
-        s.proof = vm.parseJsonBytes(proof, ".proof");
-        proved = vm.parseJsonBytes32Array(proof, ".public_inputs");
+    function _session() internal pure override returns (string memory) {
+        return RUST_SESSION;
+    }
+
+    function _proofFile() internal pure override returns (string memory) {
+        return RUST_SESSION_PROOF;
+    }
+
+    function _otherSession() internal pure override returns (string memory) {
+        return "contracts/ceremony/test/fixtures/github-ceremony-session.json";
     }
 
     /// @dev Stage A's acceptance. The circuit's own verifier, a real proof of
@@ -801,161 +772,6 @@ contract XPlatformVerifierTest is Test {
         assertEq(f.metadataObservedAt, T0 - ALLOWANCE);
     }
 
-    function test_refusesARealProofWithOneByteFlipped() public {
-        (TlsNotaryProof memory s,,) = _realProofPayload();
-        s.proof[FLIPPED_PROOF_BYTE] ^= 0x01;
-        vm.expectRevert(SumcheckFailed.selector);
-        this.run{value: quote}(s);
-    }
-
-    // ─── What the real proof binds ──────────────────────────────────
-
-    /// @dev The nodes leave only through the proof's public inputs, so a
-    ///      payload claiming any other id node is a proof of nothing.
-    function test_refusesARealProofUnderAnotherIdNode() public {
-        (TlsNotaryProof memory s,,) = _realProofPayload();
-        s.idNode ^= bytes32(uint256(1));
-        vm.expectRevert(SumcheckFailed.selector);
-        this.run{value: quote}(s);
-    }
-
-    function test_refusesARealProofUnderAnotherHandleNode() public {
-        (TlsNotaryProof memory s,,) = _realProofPayload();
-        // The node of `bob`, a handle that is not this account's.
-        s.handleNode = sha256("libid.x.handlebob");
-        vm.expectRevert(SumcheckFailed.selector);
-        this.run{value: quote}(s);
-    }
-
-    /// @dev Both nodes are real; in each other's place they bind nothing.
-    function test_refusesARealProofWithItsNodesSwapped() public {
-        (TlsNotaryProof memory s,,) = _realProofPayload();
-        (s.idNode, s.handleNode) = (s.handleNode, s.idNode);
-        vm.expectRevert(SumcheckFailed.selector);
-        this.run{value: quote}(s);
-    }
-
-    /// @dev Each commitment the circuit opens comes from the record, so a
-    ///      record whose commitment is another session's -- here the GitHub
-    ///      fixture's, re-signed by the notary this suite trusts so every
-    ///      check before the proof passes -- leaves the proof opening nothing.
-    function test_refusesARealProofOverAnotherSessionsHandleCommitment() public {
-        _refuseOverASubstitutedCommitment(".identity", ".identity_link_witness.handle.commitment");
-    }
-
-    function test_refusesARealProofOverAnotherSessionsIdCommitment() public {
-        _refuseOverASubstitutedCommitment(".identity", ".identity_link_witness.id.commitment");
-    }
-
-    function test_refusesARealProofOverAnotherSessionsIdentityBearer() public {
-        _refuseOverASubstitutedCommitment(".identity", ".identity_link_witness.identity_bearer.commitment");
-    }
-
-    function test_refusesARealProofOverAnotherSessionsTokenBearer() public {
-        _refuseOverASubstitutedCommitment(".token", ".identity_link_witness.token_bearer.commitment");
-    }
-
-    /// `key`'s commitment in this suite's record replaced by the GitHub
-    /// fixture's, the record re-signed, and the proof refused.
-    function _refuseOverASubstitutedCommitment(string memory session, string memory key) private {
-        (TlsNotaryProof memory s,,) = _realProofPayload();
-        bytes32 ours = vm.parseJsonBytes32(vm.readFile(RUST_SESSION), key);
-        bytes32 theirs = vm.parseJsonBytes32(vm.readFile(GITHUB_SESSION), key);
-        if (keccak256(bytes(session)) == keccak256(".token")) {
-            s.tokenSession = _resigned(s.tokenSession.attestedData, ours, theirs, bytes32(0), bytes32(0));
-        } else {
-            s.identitySession = _resigned(s.identitySession.attestedData, ours, theirs, bytes32(0), bytes32(0));
-        }
-        vm.expectRevert(SumcheckFailed.selector);
-        this.run{value: quote}(s);
-    }
-
-    /// @dev The id and handle commitments exchanged in the record. The
-    ///      framing still finds one behind each anchor, so the verifier puts
-    ///      the handle's commitment where the circuit opens an id, and the
-    ///      proof refuses it.
-    function test_refusesARealProofWithTheIdAndHandleCommitmentsSwapped() public {
-        (TlsNotaryProof memory s,,) = _realProofPayload();
-        string memory json = vm.readFile(RUST_SESSION);
-        bytes32 id = vm.parseJsonBytes32(json, ".identity_link_witness.id.commitment");
-        bytes32 handle = vm.parseJsonBytes32(json, ".identity_link_witness.handle.commitment");
-        s.identitySession = _resigned(s.identitySession.attestedData, id, handle, handle, id);
-        vm.expectRevert(SumcheckFailed.selector);
-        this.run{value: quote}(s);
-    }
-
-    /// @dev Another platform's identity session, as signed, is refused
-    ///      before the proof: the notary authenticated GitHub's host, and this
-    ///      verifier pins X's.
-    function test_refusesAnotherPlatformsIdentitySession() public {
-        (TlsNotaryProof memory s,,) = _realProofPayload();
-        s.identitySession = _rustSession(vm.readFile(GITHUB_SESSION), ".identity");
-        vm.expectPartialRevert(PlatformVerifierBase.WrongAuthority.selector);
-        this.run{value: quote}(s);
-    }
-
-    /// @dev A GitHub proof, with its nodes, over X's sessions: a proof under
-    ///      another verification key, of other commitments, refused by X's.
-    function test_refusesAGitHubProofUnderTheXCircuit() public {
-        (TlsNotaryProof memory s,,) = _realProofPayload();
-        string memory github = vm.readFile(GITHUB_SESSION_PROOF);
-        s.proof = vm.parseJsonBytes(github, ".proof");
-        bytes32[] memory proved = vm.parseJsonBytes32Array(github, ".public_inputs");
-        s.idNode = bytes32((uint256(proved[68]) << 128) | uint256(proved[69]));
-        s.handleNode = bytes32((uint256(proved[70]) << 128) | uint256(proved[71]));
-        vm.expectRevert(SumcheckFailed.selector);
-        this.run{value: quote}(s);
-    }
-
-    /// @dev And the other way: this suite's X sessions and X proof, sent to a
-    ///      GitHub verifier wired to the GitHub circuit, are refused at the
-    ///      first session, whose authority is X's.
-    function test_aGitHubVerifierRefusesAnXCeremony() public {
-        (TlsNotaryProof memory s,,) = _realProofPayload();
-        address circuit = vm.deployCode("BearerLinkGithubHonkVerifier.sol:BearerLinkGithubHonkVerifier");
-        GitHubPlatformVerifier github = GitHubPlatformVerifier(
-            address(
-                new ERC1967Proxy(
-                    address(new GitHubPlatformVerifier()),
-                    abi.encodeCall(
-                        GitHubPlatformVerifier.initialize,
-                        (OWNER, INotaryService(address(notary)), IHonkVerifier(circuit), circuit.codehash)
-                    )
-                )
-            )
-        );
-        uint256 value = github.quote();
-        vm.expectPartialRevert(PlatformVerifierBase.WrongAuthority.selector);
-        github.verify{value: value}(abi.encode(s));
-    }
-
-    /// `attested` with the 32-byte commitment `a` replaced by `aTo` and, when
-    /// `b` is nonzero, `b` by `bTo`, re-signed by the notary this suite
-    /// trusts. Each must occur exactly once.
-    function _resigned(bytes memory attested, bytes32 a, bytes32 aTo, bytes32 b, bytes32 bTo)
-        private
-        pure
-        returns (ICeremony.Attestation memory)
-    {
-        uint256 atA = _onlyOffsetOf(attested, abi.encodePacked(a));
-        uint256 atB = b == bytes32(0) ? type(uint256).max : _onlyOffsetOf(attested, abi.encodePacked(b));
-        for (uint256 i = 0; i < 32; ++i) {
-            attested[atA + i] = aTo[i];
-            if (atB != type(uint256).max) attested[atB + i] = bTo[i];
-        }
-        return ICeremony.Attestation({attestedData: attested, proof: _sign(attested)});
-    }
-
-    function _onlyOffsetOf(bytes memory haystack, bytes memory needle) private pure returns (uint256 at) {
-        at = _indexOf(haystack, needle);
-        assertTrue(at != type(uint256).max, "commitment not in the record");
-        bytes memory rest = new bytes(haystack.length - at - 1);
-        for (uint256 i = 0; i < rest.length; ++i) {
-            rest[i] = haystack[at + 1 + i];
-        }
-        assertEq(_indexOf(rest, needle), type(uint256).max, "commitment twice in the record");
-    }
-
     string constant REAL_SESSION = "contracts/ceremony/test/fixtures/x-ceremony-real.json";
 
     /// @dev A ceremony that actually ran: two MPC-TLS sessions against
@@ -967,8 +783,8 @@ contract XPlatformVerifierTest is Test {
     ///      those directions -- the one-request rule included.
     function test_theRealTokenSessionAndIdentityRequestVerify() public {
         string memory json = vm.readFile(REAL_SESSION);
-        ICeremony.Attestation memory token = _rustSession(json, ".token");
-        ICeremony.Attestation memory identity = _rustSession(json, ".identity");
+        ICeremony.Attestation memory token = AttestationBuilder.fixtureSession(json, ".token");
+        ICeremony.Attestation memory identity = AttestationBuilder.fixtureSession(json, ".identity");
         CeremonyAttestation.AttestedData memory tokenData = notary.verify{value: FEE}(token.attestedData, token.proof);
         CeremonyAttestation.AttestedData memory identityData =
             notary.verify{value: FEE}(identity.attestedData, identity.proof);
@@ -1001,8 +817,8 @@ contract XPlatformVerifierTest is Test {
         vm.warp(vm.parseJsonUint(json, ".identity.created_at") + 60);
 
         TlsNotaryProof memory s = _payload();
-        s.tokenSession = _rustSession(json, ".token");
-        s.identitySession = _rustSession(json, ".identity");
+        s.tokenSession = AttestationBuilder.fixtureSession(json, ".token");
+        s.identitySession = AttestationBuilder.fixtureSession(json, ".identity");
         ICeremony.VerifiedClaim memory f = this.run{value: quote}(s);
         assertEq(string(f.clientIdentifier), "MnY0bnJ6VzFGY2hVNmF2N2RFWkg6MTpjaQ");
         assertEq(f.sessionId, digest);
@@ -1447,7 +1263,7 @@ contract XPlatformVerifierTest is Test {
         });
 
         bytes memory attested = AttestationBuilder.encode(CeremonyProfile.AUTHORITY_X_API, T0, sent, received);
-        return ICeremony.Attestation({attestedData: attested, proof: _sign(attested)});
+        return ICeremony.Attestation({attestedData: attested, proof: AttestationBuilder.sign(NOTARY_KEY, attested)});
     }
 
     // ─── The token response anchors (REQ-PLAT-57, TEST-PLAT-22) ─────
@@ -1511,7 +1327,8 @@ contract XPlatformVerifierTest is Test {
         for (uint256 i = 0; i < 32; ++i) {
             attested[i] = evil[i];
         }
-        s.identitySession = ICeremony.Attestation({attestedData: attested, proof: _sign(attested)});
+        s.identitySession =
+            ICeremony.Attestation({attestedData: attested, proof: AttestationBuilder.sign(NOTARY_KEY, attested)});
         vm.expectPartialRevert(PlatformVerifierBase.WrongAuthority.selector);
         this.run{value: quote}(s);
     }
@@ -1557,7 +1374,7 @@ contract XPlatformVerifierTest is Test {
 
     function test_aRejectionAtTheSecondSessionLeavesNoFee() public {
         TlsNotaryProof memory s = _payload();
-        s.identitySession.proof = _signWith(0xB0B, s.identitySession.attestedData);
+        s.identitySession.proof = AttestationBuilder.sign(0xB0B, s.identitySession.attestedData);
         vm.expectPartialRevert(NotaryService.UntrustedNotary.selector);
         this.run{value: quote}(s);
         assertEq(address(notary).balance, 0, "the first fee stayed delivered");
@@ -1599,7 +1416,7 @@ contract XPlatformVerifierTest is Test {
         });
         bytes memory a = AttestationBuilder.encode(CeremonyProfile.AUTHORITY_X_API, T0, sent, _tokenResponse(true));
         TlsNotaryProof memory s = _payload();
-        s.tokenSession = ICeremony.Attestation({attestedData: a, proof: _sign(a)});
+        s.tokenSession = ICeremony.Attestation({attestedData: a, proof: AttestationBuilder.sign(NOTARY_KEY, a)});
         vm.expectRevert(abi.encodeWithSelector(TlsNotaryVerifierBase.NoHeadBoundary.selector, 0));
         this.run{value: quote}(s);
     }
@@ -1624,7 +1441,7 @@ contract XPlatformVerifierTest is Test {
         });
         bytes memory a = AttestationBuilder.encode(CeremonyProfile.AUTHORITY_X_API, T0, sent, _tokenResponse(true));
         TlsNotaryProof memory s = _payload();
-        s.tokenSession = ICeremony.Attestation({attestedData: a, proof: _sign(a)});
+        s.tokenSession = ICeremony.Attestation({attestedData: a, proof: AttestationBuilder.sign(NOTARY_KEY, a)});
         vm.expectRevert(TlsNotaryVerifierBase.WrongRequestLine.selector);
         this.run{value: quote}(s);
     }
@@ -1682,7 +1499,7 @@ contract XPlatformVerifierTest is Test {
             length: uint32(whole.length)
         });
         bytes memory a = AttestationBuilder.encode(CeremonyProfile.AUTHORITY_X_API, T0, sent, _tokenResponse(true));
-        return ICeremony.Attestation({attestedData: a, proof: _sign(a)});
+        return ICeremony.Attestation({attestedData: a, proof: AttestationBuilder.sign(NOTARY_KEY, a)});
     }
 
     /// That session under a header block of the test's choosing, declaring the
@@ -1705,32 +1522,10 @@ contract XPlatformVerifierTest is Test {
     ///      test in this file at once and name none of them as the reason.
     function test_theFixtureHeadCarriesTheProfilesRequiredHeaders() public pure {
         assertTrue(
-            _contains(_tokenHead(TOKEN_HEADERS, 0), abi.encodePacked(CeremonyProfile.X_TOKEN_REQUIRED_HEADERS, "\r\n"))
+            AttestationBuilder.contains(
+                _tokenHead(TOKEN_HEADERS, 0), abi.encodePacked(CeremonyProfile.X_TOKEN_REQUIRED_HEADERS, "\r\n")
+            )
         );
-    }
-
-    function _indexOf(bytes memory haystack, bytes memory needle) private pure returns (uint256) {
-        if (needle.length > haystack.length) return type(uint256).max;
-        for (uint256 i = 0; i + needle.length <= haystack.length; ++i) {
-            bool same = true;
-            for (uint256 j = 0; j < needle.length && same; ++j) {
-                same = haystack[i + j] == needle[j];
-            }
-            if (same) return i;
-        }
-        return type(uint256).max;
-    }
-
-    function _contains(bytes memory haystack, bytes memory needle) private pure returns (bool) {
-        if (needle.length > haystack.length) return false;
-        for (uint256 i = 0; i + needle.length <= haystack.length; ++i) {
-            bool same = true;
-            for (uint256 j = 0; j < needle.length && same; ++j) {
-                same = haystack[i + j] == needle[j];
-            }
-            if (same) return true;
-        }
-        return false;
     }
 
     /// @dev REQ-COMMON-21B: the media type selects the platform's request
@@ -2005,7 +1800,7 @@ contract XPlatformVerifierTest is Test {
         });
         bytes memory a = AttestationBuilder.encode(CeremonyProfile.AUTHORITY_X_API, T0, sent, _tokenResponse(true));
         TlsNotaryProof memory s = _payload();
-        s.tokenSession = ICeremony.Attestation({attestedData: a, proof: _sign(a)});
+        s.tokenSession = ICeremony.Attestation({attestedData: a, proof: AttestationBuilder.sign(NOTARY_KEY, a)});
         vm.expectRevert(abi.encodeWithSelector(TlsNotaryVerifierBase.RequestLineNotAtOrigin.selector, uint32(10)));
         this.run{value: quote}(s);
     }
@@ -2017,7 +1812,7 @@ contract XPlatformVerifierTest is Test {
         });
         bytes memory a = AttestationBuilder.encode(CeremonyProfile.AUTHORITY_X_API, T0, sent, _tokenResponse(true));
         TlsNotaryProof memory s = _payload();
-        s.tokenSession = ICeremony.Attestation({attestedData: a, proof: _sign(a)});
+        s.tokenSession = ICeremony.Attestation({attestedData: a, proof: AttestationBuilder.sign(NOTARY_KEY, a)});
         vm.expectRevert(abi.encodeWithSelector(TlsNotaryVerifierBase.RequestLineNotAtOrigin.selector, type(uint32).max));
         this.run{value: quote}(s);
     }
@@ -2038,7 +1833,7 @@ contract XPlatformVerifierTest is Test {
         });
         bytes memory a = AttestationBuilder.encode(CeremonyProfile.AUTHORITY_X_API, T0, _honestTokenSent(), recv);
         TlsNotaryProof memory s = _payload();
-        s.tokenSession = ICeremony.Attestation({attestedData: a, proof: _sign(a)});
+        s.tokenSession = ICeremony.Attestation({attestedData: a, proof: AttestationBuilder.sign(NOTARY_KEY, a)});
         vm.expectRevert(CeremonyAttestation.AmbiguousFraming.selector);
         this.run{value: quote}(s);
     }
@@ -2071,7 +1866,7 @@ contract XPlatformVerifierTest is Test {
             a[i] = 0;
         }
         a[39] = 0x01;
-        s.identitySession = ICeremony.Attestation({attestedData: a, proof: _sign(a)});
+        s.identitySession = ICeremony.Attestation({attestedData: a, proof: AttestationBuilder.sign(NOTARY_KEY, a)});
         assertEq(this.run{value: quote}(s).metadataObservedAt, T0 - ALLOWANCE);
     }
 

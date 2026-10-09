@@ -61,12 +61,6 @@ contract DecoyBodyTest is Test {
         vm.deal(address(this), 10 ether);
     }
 
-    function _sign(bytes memory a) private pure returns (bytes memory) {
-        bytes32 h = keccak256(abi.encodePacked("\x19Ethereum Signed Message:\n32", keccak256(a)));
-        (uint8 v, bytes32 r, bytes32 s) = vm.sign(KEY, h);
-        return abi.encodePacked(r, s, v);
-    }
-
     /// head revealed | REAL refresh-grant body COMMITTED | decoy body revealed
     function _decoyToken() private view returns (ICeremony.Attestation memory) {
         bytes memory decoy = abi.encodePacked(
@@ -114,7 +108,7 @@ contract DecoyBodyTest is Test {
         });
 
         bytes memory att = AttestationBuilder.encode(CeremonyProfile.AUTHORITY_X_API, T0, sent, recv);
-        return ICeremony.Attestation({attestedData: att, proof: _sign(att)});
+        return ICeremony.Attestation({attestedData: att, proof: AttestationBuilder.sign(KEY, att)});
     }
 
     function _identity() private pure returns (ICeremony.Attestation memory) {
@@ -138,7 +132,7 @@ contract DecoyBodyTest is Test {
             .commit("2244994945", bytes32(uint256(0x3333))).reveal('","username":"')
             .commit("victim", bytes32(uint256(0x4444))).reveal('"').commit("}}", bytes32(uint256(0x5555)));
         bytes memory att = AttestationBuilder.encode(CeremonyProfile.AUTHORITY_X_API, T0, sent, recv);
-        return ICeremony.Attestation({attestedData: att, proof: _sign(att)});
+        return ICeremony.Attestation({attestedData: att, proof: AttestationBuilder.sign(KEY, att)});
     }
 
     function _txData() private pure returns (bytes memory) {

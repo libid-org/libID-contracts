@@ -4,6 +4,7 @@ pragma solidity ^0.8.24;
 import {TlsNotaryProof} from "../CeremonyPayloads.sol";
 import {Test} from "forge-std/Test.sol";
 
+import {AttestationBuilder} from "./AttestationBuilder.sol";
 import {ICeremony} from "../ICeremony.sol";
 import {ICeremonyPayloads} from "../ICeremonyPayloads.sol";
 
@@ -51,10 +52,8 @@ contract PayloadEncodingTest is Test {
     function test_theNodesAreTheProofsOutputs() public view {
         bytes32[] memory inputs = vm.parseJsonBytes32Array(vm.readFile(PROOF), ".public_inputs");
         string memory extra = vm.readFile(PAYLOAD);
-        assertEq(bytes32((uint256(inputs[68]) << 128) | uint256(inputs[69])), vm.parseJsonBytes32(extra, ".id_node"));
-        assertEq(
-            bytes32((uint256(inputs[70]) << 128) | uint256(inputs[71])), vm.parseJsonBytes32(extra, ".handle_node")
-        );
+        assertEq(AttestationBuilder.nodeAt(inputs, 68), vm.parseJsonBytes32(extra, ".id_node"));
+        assertEq(AttestationBuilder.nodeAt(inputs, 70), vm.parseJsonBytes32(extra, ".handle_node"));
     }
 
     /// The interface's ABI is the struct's: its arguments encode as the

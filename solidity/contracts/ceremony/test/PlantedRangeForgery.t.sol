@@ -64,12 +64,6 @@ contract PlantedRangeForgeryTest is Test {
         vm.deal(address(this), 100 ether);
     }
 
-    function _sign(bytes memory attested) private pure returns (bytes memory) {
-        bytes32 ethHash = keccak256(abi.encodePacked("\x19Ethereum Signed Message:\n32", keccak256(attested)));
-        (uint8 v, bytes32 r, bytes32 s) = vm.sign(NOTARY_KEY, ethHash);
-        return abi.encodePacked(r, s, v);
-    }
-
     function _tokenResponse() private pure returns (AttestationBuilder.Direction memory received) {
         bytes memory prefix = '"access_token":"';
         uint32 headEnd = 17;
@@ -117,7 +111,7 @@ contract PlantedRangeForgeryTest is Test {
         });
 
         bytes memory attested = AttestationBuilder.encode(CeremonyProfile.AUTHORITY_X_API, T0, sent, _tokenResponse());
-        return ICeremony.Attestation({attestedData: attested, proof: _sign(attested)});
+        return ICeremony.Attestation({attestedData: attested, proof: AttestationBuilder.sign(NOTARY_KEY, attested)});
     }
 
     function _honestIdentity() private pure returns (ICeremony.Attestation memory) {
@@ -144,7 +138,7 @@ contract PlantedRangeForgeryTest is Test {
             .commit("2244994945", bytes32(uint256(0x3333))).reveal('","username":"')
             .commit("alice", bytes32(uint256(0x4444))).reveal('"').commit("}}", bytes32(uint256(0x5555)));
         bytes memory attested = AttestationBuilder.encode(CeremonyProfile.AUTHORITY_X_API, T0, sent, received);
-        return ICeremony.Attestation({attestedData: attested, proof: _sign(attested)});
+        return ICeremony.Attestation({attestedData: attested, proof: AttestationBuilder.sign(NOTARY_KEY, attested)});
     }
 
     function _txData() private pure returns (bytes memory) {
@@ -200,7 +194,7 @@ contract PlantedRangeForgeryTest is Test {
         AttestationBuilder.Direction memory sent =
             AttestationBuilder.Direction({revealed: rs, commitments: AttestationBuilder.none(), length: e3});
         bytes memory attested = AttestationBuilder.encode(CeremonyProfile.AUTHORITY_X_API, T0, sent, _tokenResponse());
-        return ICeremony.Attestation({attestedData: attested, proof: _sign(attested)});
+        return ICeremony.Attestation({attestedData: attested, proof: AttestationBuilder.sign(NOTARY_KEY, attested)});
     }
 
     function test_skeptic2_perFieldLayoutIsRejected() public {

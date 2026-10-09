@@ -63,12 +63,6 @@ contract LayoutForgeryTest is Test {
         vm.deal(address(this), 100 ether);
     }
 
-    function _sign(bytes memory attested) private pure returns (bytes memory) {
-        bytes32 ethHash = keccak256(abi.encodePacked("\x19Ethereum Signed Message:\n32", keccak256(attested)));
-        (uint8 v, bytes32 r, bytes32 s) = vm.sign(NOTARY_KEY, ethHash);
-        return abi.encodePacked(r, s, v);
-    }
-
     /// Wholly honest token session. ONE revealed sent range, which is what
     /// `_tokenBody` requires -- two would revert `WrongTokenRequestLayout`
     /// before the identity session this file exists to exercise ever runs.
@@ -120,7 +114,7 @@ contract LayoutForgeryTest is Test {
         });
 
         bytes memory attested = AttestationBuilder.encode(CeremonyProfile.AUTHORITY_X_API, T0, sent, received);
-        return ICeremony.Attestation({attestedData: attested, proof: _sign(attested)});
+        return ICeremony.Attestation({attestedData: attested, proof: AttestationBuilder.sign(NOTARY_KEY, attested)});
     }
 
     /// The identity session. The SENT side is wholly honest and exactly
@@ -161,7 +155,7 @@ contract LayoutForgeryTest is Test {
             length: sentLen
         });
         bytes memory attested = AttestationBuilder.encode(CeremonyProfile.AUTHORITY_X_API, T0, sent, received);
-        return ICeremony.Attestation({attestedData: attested, proof: _sign(attested)});
+        return ICeremony.Attestation({attestedData: attested, proof: AttestationBuilder.sign(NOTARY_KEY, attested)});
     }
 
     function _txData() private pure returns (bytes memory) {
@@ -243,7 +237,7 @@ contract LayoutForgeryTest is Test {
             length: total
         });
         bytes memory attested = AttestationBuilder.encode(CeremonyProfile.AUTHORITY_X_API, T0, sent, received);
-        return ICeremony.Attestation({attestedData: attested, proof: _sign(attested)});
+        return ICeremony.Attestation({attestedData: attested, proof: AttestationBuilder.sign(NOTARY_KEY, attested)});
     }
 
     function _honestIdentityRecv() private pure returns (AttestationBuilder.Direction memory received) {

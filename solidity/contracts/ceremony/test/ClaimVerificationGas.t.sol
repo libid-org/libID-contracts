@@ -5,6 +5,7 @@ import {TlsNotaryProof} from "../CeremonyPayloads.sol";
 import {Test} from "forge-std/Test.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
+import {AttestationBuilder} from "./AttestationBuilder.sol";
 import {GitHubPlatformVerifier} from "../GitHubPlatformVerifier.sol";
 import {ICeremony} from "../ICeremony.sol";
 import {INotaryService} from "../INotaryService.sol";
@@ -137,8 +138,8 @@ contract ClaimVerificationGasTest is Test {
             proof: vm.parseJsonBytes(session, ".identity.notary_signature")
         });
         // The nodes the circuit output, `[high, low]` at fields 68 to 71.
-        p.idNode = bytes32((uint256(inputs[68]) << 128) | uint256(inputs[69]));
-        p.handleNode = bytes32((uint256(inputs[70]) << 128) | uint256(inputs[71]));
+        p.idNode = AttestationBuilder.nodeAt(inputs, 68);
+        p.handleNode = AttestationBuilder.nodeAt(inputs, 70);
         p.proof = vm.parseJsonBytes(proof, ".proof");
         bytes memory payload = abi.encode(p);
 
