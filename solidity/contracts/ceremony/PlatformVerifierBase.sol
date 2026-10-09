@@ -126,7 +126,9 @@ abstract contract PlatformVerifierBase is ICeremony, Initializable, UUPSUpgradea
 
     /// @notice The runtime code hash of the one Honk verifier this contract
     ///         accepts: its platform's circuit's, as vendored when it was
-    ///         compiled. `honkVerifierCodehash()` is always this value.
+    ///         compiled. `honkVerifierCodehash()` differs from it only after an
+    ///         upgrade that pins another circuit, until `setTrustRoots` wires
+    ///         that circuit's verifier; `verify` reverts `WrongCircuit` meanwhile.
     function circuitCodehash() external pure returns (bytes32) {
         return _circuitCodehash();
     }
@@ -341,9 +343,14 @@ abstract contract PlatformVerifierBase is ICeremony, Initializable, UUPSUpgradea
 
     /// @dev Verify the proof under the artifact governance selected. Without
     ///      this, every public input the surrounding checks compare is a number
-    ///      the caller wrote down (REQ-COMMON-45).
+    ///      the caller wrote down (REQ-COMMON-45). The artifact must still be
+    ///      this implementation's circuit's: an upgrade can change
+    ///      `_circuitCodehash()` without touching the stored verifier.
     function _requireProof(bytes memory proof, bytes32[] memory publicInputs) internal view {
-        if (!_base().honkVerifier.verify(proof, publicInputs)) revert BadProof();
+        IHonkVerifier verifier = _base().honkVerifier;
+        bytes32 circuit = _circuitCodehash();
+        if (address(verifier).codehash != circuit) revert WrongCircuit(circuit, address(verifier).codehash);
+        if (!verifier.verify(proof, publicInputs)) revert BadProof();
     }
 
     /// @dev Required by UUPS -- only the owner can upgrade.

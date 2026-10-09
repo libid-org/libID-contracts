@@ -105,8 +105,8 @@ release cannot ship a verifier that is not what the pinned circuits release
 shipped.
 
 Each Platform Verifier also pins its own circuit's verifier on chain, by
-runtime code hash: `initialize` and `setTrustRoots` revert `WrongCircuit`
-for any other code. The hashes are constants in
+runtime code hash: `initialize`, `setTrustRoots` and `verify` revert
+`WrongCircuit` for any other code. The hashes are constants in
 `solidity/contracts/circuits/CircuitCodehashes.sol`, which the script writes
 after the verifiers (it compiles them under `foundry.toml`; the bytecode
 carries no metadata, so it depends on the source and the compiler settings

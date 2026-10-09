@@ -54,6 +54,13 @@ contract SkewPastAllowance is PlatformVerifierBase {
     }
 }
 
+/// @notice An upgrade that pins another circuit, wired to nothing new.
+contract XPinningGitHubsCircuit is XPlatformVerifier {
+    function _circuitCodehash() internal pure override returns (bytes32) {
+        return CircuitCodehashes.BEARER_LINK_GITHUB;
+    }
+}
+
 /// @notice The `x/v1` path end to end: two attestations, a real notary
 ///         signature over each, and every check the profile assigns here.
 contract XPlatformVerifierTest is RealTlsNotaryProofTest {
@@ -593,6 +600,21 @@ contract XPlatformVerifierTest is RealTlsNotaryProofTest {
         HonkStub.answer(honk, false);
         TlsNotaryProof memory s = _payload();
         vm.expectRevert(PlatformVerifierBase.BadProof.selector);
+        this.run{value: quote}(s);
+    }
+
+    /// An upgrade that changes the pinned circuit leaves the wired verifier
+    /// unusable until `setTrustRoots` wires that circuit's.
+    function test_rejectsAProofAfterAnUpgradeRepinsTheCircuit() public {
+        address repinned = address(new XPinningGitHubsCircuit());
+        vm.prank(OWNER);
+        verifier.upgradeToAndCall(repinned, "");
+        TlsNotaryProof memory s = _payload();
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                PlatformVerifierBase.WrongCircuit.selector, CircuitCodehashes.BEARER_LINK_GITHUB, honk.codehash
+            )
+        );
         this.run{value: quote}(s);
     }
 
