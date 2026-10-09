@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-import {TlsNotaryProof} from "../CeremonyPayloads.sol";
 import {Test} from "forge-std/Test.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
@@ -13,6 +12,7 @@ import {IPlatformVerifier} from "../IPlatformVerifier.sol";
 import {NotaryService} from "../NotaryService.sol";
 import {IHonkVerifier} from "../PlatformVerifierBase.sol";
 import {XPlatformVerifier} from "../XPlatformVerifier.sol";
+import {TlsNotaryVerifierBase} from "../TlsNotaryVerifierBase.sol";
 
 /// @notice The gas of each verifier's `verify` on a real claim (`vm.lastCallGas`),
 ///         recorded in `snapshots/claim-verification.json` by
@@ -104,7 +104,7 @@ contract ClaimVerificationGasTest is Test {
         string memory proof = vm.readFile(proofFixture);
         bytes32[] memory inputs = vm.parseJsonBytes32Array(proof, ".public_inputs");
 
-        TlsNotaryProof memory p;
+        TlsNotaryVerifierBase.TlsNotaryProof memory p;
         p.ceremonyVersion = uint16(vm.parseJsonUint(session, ".ceremony_version"));
         p.operationDomain = vm.parseJsonBytes32(session, ".operation_domain");
         p.authorizationNonce = vm.parseJsonBytes32(session, ".authorization_nonce");

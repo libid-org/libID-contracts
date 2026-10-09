@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-import {GoogleProof, TlsNotaryProof} from "../../ceremony/CeremonyPayloads.sol";
 import {Vm} from "forge-std/Test.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
@@ -21,6 +20,7 @@ import {XPlatformVerifier} from "../../ceremony/XPlatformVerifier.sol";
 import {IdentityRegistry} from "../IdentityRegistry.sol";
 import {PrivacyScan} from "./PrivacyScan.sol";
 import {TestNodes} from "./TestNodes.sol";
+import {TlsNotaryVerifierBase} from "../../ceremony/TlsNotaryVerifierBase.sol";
 
 /// @notice A platform's identity bound through the whole deployed stack with a real proof.
 /// @dev Each fixture's Authorized Transaction Data is the registry's own `(0xBEEF, 0, 0)`.
@@ -188,7 +188,7 @@ abstract contract RealTlsNotaryBind is RealProofBindBase {
     /// The fixture's payload, naming its own transaction data.
     function _payload(string memory handle) internal view override returns (bytes memory) {
         string memory session = vm.readFile(_session());
-        TlsNotaryProof memory p;
+        TlsNotaryVerifierBase.TlsNotaryProof memory p;
         p.ceremonyVersion = uint16(vm.parseJsonUint(session, ".ceremony_version"));
         p.operationDomain = vm.parseJsonBytes32(session, ".operation_domain");
         p.authorizationNonce = vm.parseJsonBytes32(session, ".authorization_nonce");
@@ -420,7 +420,7 @@ contract RealProofBindGoogleTest is RealProofBindBase {
     }
 
     /// The `google/v1` payload the proof was made for, on chain 31337.
-    function _proof(string memory handle) internal view returns (GoogleProof memory s) {
+    function _proof(string memory handle) internal view returns (GooglePlatformVerifier.GoogleProof memory s) {
         string memory json = vm.readFile(PROOF);
         s.ceremonyVersion = 1;
         s.operationDomain = keccak256(bytes("libid.claim-identity"));
@@ -443,7 +443,7 @@ contract RealProofBindGoogleTest is RealProofBindBase {
 
     /// @dev A private payload naming another handle node fails the Honk verifier.
     function test_anotherHandleNodeFailsTheProof() public {
-        GoogleProof memory s = _proof("");
+        GooglePlatformVerifier.GoogleProof memory s = _proof("");
         s.publicInputs[HANDLE_LOW] ^= bytes32(uint256(1));
         bytes memory payload = abi.encode(s);
         vm.prank(BINDER);

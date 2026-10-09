@@ -4,11 +4,11 @@ pragma solidity ^0.8.24;
 import {Test} from "forge-std/Test.sol";
 
 import {AttestationBuilder} from "./AttestationBuilder.sol";
-import {TlsNotaryProof} from "../CeremonyPayloads.sol";
 import {ICeremony} from "../ICeremony.sol";
 import {INotaryService} from "../INotaryService.sol";
 import {IPlatformVerifier} from "../IPlatformVerifier.sol";
 import {IHonkVerifier, PlatformVerifierBase} from "../PlatformVerifierBase.sol";
+import {TlsNotaryVerifierBase} from "../TlsNotaryVerifierBase.sol";
 
 /// @notice Real-proof tests for a TLSNotary Platform Verifier, wired with the
 ///         circuit's own verifier; each suite supplies its verifier and fixtures.
@@ -32,7 +32,7 @@ abstract contract RealTlsNotaryProofTest is Test {
 
     /// The suite's honest payload, which the fixtures' records replace the
     /// sessions of.
-    function _payload() internal view virtual returns (TlsNotaryProof memory);
+    function _payload() internal view virtual returns (TlsNotaryVerifierBase.TlsNotaryProof memory);
 
     /// The circuit's Honk verifier, as `vm.deployCode` names its artifact.
     function _circuitArtifact() internal pure virtual returns (string memory);
@@ -49,7 +49,10 @@ abstract contract RealTlsNotaryProofTest is Test {
 
     /// `_session()`'s records with their real proof and the circuit's verifier
     /// wired in; returns that verifier and the proved public inputs.
-    function _realProofPayload() internal returns (TlsNotaryProof memory s, address circuit, bytes32[] memory proved) {
+    function _realProofPayload()
+        internal
+        returns (TlsNotaryVerifierBase.TlsNotaryProof memory s, address circuit, bytes32[] memory proved)
+    {
         circuit = vm.deployCode(_circuitArtifact());
         vm.prank(OWNER);
         _platformVerifier().setTrustRoots(_notary(), IHonkVerifier(circuit), circuit.codehash);
@@ -64,7 +67,7 @@ abstract contract RealTlsNotaryProofTest is Test {
     }
 
     /// `s` sent to the verifier under test, which must refuse it with `reason`.
-    function _refuses(TlsNotaryProof memory s, bytes4 reason) internal {
+    function _refuses(TlsNotaryVerifierBase.TlsNotaryProof memory s, bytes4 reason) internal {
         IPlatformVerifier verifier = IPlatformVerifier(address(_platformVerifier()));
         uint256 value = verifier.quote();
         bytes memory payload = abi.encode(s);
@@ -73,7 +76,7 @@ abstract contract RealTlsNotaryProofTest is Test {
     }
 
     function test_refusesARealProofWithOneByteFlipped() public {
-        (TlsNotaryProof memory s,,) = _realProofPayload();
+        (TlsNotaryVerifierBase.TlsNotaryProof memory s,,) = _realProofPayload();
         s.proof[FLIPPED_PROOF_BYTE] ^= 0x01;
         _refuses(s, SumcheckFailed.selector);
     }
@@ -82,7 +85,7 @@ abstract contract RealTlsNotaryProofTest is Test {
 
     /// @dev A payload naming other nodes, or the two swapped, fails the proof.
     function test_refusesARealProofUnderNodesItDidNotProve() public {
-        (TlsNotaryProof memory s,,) = _realProofPayload();
+        (TlsNotaryVerifierBase.TlsNotaryProof memory s,,) = _realProofPayload();
         (bytes32 idNode, bytes32 handleNode) = (s.idNode, s.handleNode);
 
         s.idNode = idNode ^ bytes32(uint256(1));
@@ -106,7 +109,7 @@ abstract contract RealTlsNotaryProofTest is Test {
         ];
         string memory ours = vm.readFile(_session());
         string memory theirs = vm.readFile(_otherSession());
-        (TlsNotaryProof memory s,,) = _realProofPayload();
+        (TlsNotaryVerifierBase.TlsNotaryProof memory s,,) = _realProofPayload();
         for (uint256 i = 0; i < substituted.length; ++i) {
             (string memory session, string memory key) = (substituted[i][0], substituted[i][1]);
             s.tokenSession = AttestationBuilder.fixtureSession(ours, ".token");
@@ -127,7 +130,7 @@ abstract contract RealTlsNotaryProofTest is Test {
     /// @dev The id and handle commitments swapped in the record: the proof
     ///      refuses it.
     function test_refusesARealProofWithTheIdAndHandleCommitmentsSwapped() public {
-        (TlsNotaryProof memory s,,) = _realProofPayload();
+        (TlsNotaryVerifierBase.TlsNotaryProof memory s,,) = _realProofPayload();
         string memory json = vm.readFile(_session());
         bytes32 id = vm.parseJsonBytes32(json, ".identity_link_witness.id.commitment");
         bytes32 handle = vm.parseJsonBytes32(json, ".identity_link_witness.handle.commitment");
@@ -137,7 +140,7 @@ abstract contract RealTlsNotaryProofTest is Test {
 
     /// @dev The other platform's identity session is refused by its host.
     function test_refusesAnotherPlatformsIdentitySession() public {
-        (TlsNotaryProof memory s,,) = _realProofPayload();
+        (TlsNotaryVerifierBase.TlsNotaryProof memory s,,) = _realProofPayload();
         s.identitySession = AttestationBuilder.fixtureSession(vm.readFile(_otherSession()), ".identity");
         _refuses(s, PlatformVerifierBase.WrongAuthority.selector);
     }

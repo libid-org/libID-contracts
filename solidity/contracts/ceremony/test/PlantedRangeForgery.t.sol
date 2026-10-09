@@ -2,7 +2,6 @@
 pragma solidity ^0.8.24;
 
 import {HonkStub} from "./HonkStub.sol";
-import {TlsNotaryProof} from "../CeremonyPayloads.sol";
 import {Test} from "forge-std/Test.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
@@ -16,6 +15,7 @@ import {NotaryService} from "../NotaryService.sol";
 import {IHonkVerifier} from "../PlatformVerifierBase.sol";
 import {XPlatformVerifier} from "../XPlatformVerifier.sol";
 import {HandleNormalizer} from "../../handles/HandleNormalizer.sol";
+import {TlsNotaryVerifierBase} from "../TlsNotaryVerifierBase.sol";
 
 contract PlantedRangeForgeryTest is Test {
     using AttestationBuilder for AttestationBuilder.Direction;
@@ -145,7 +145,7 @@ contract PlantedRangeForgeryTest is Test {
         return abi.encode(address(0xBEEF));
     }
 
-    function _base() private pure returns (TlsNotaryProof memory s) {
+    function _base() private pure returns (TlsNotaryVerifierBase.TlsNotaryProof memory s) {
         s.ceremonyVersion = 1;
         s.operationDomain = DOMAIN;
         s.authorizationNonce = AUTH_NONCE;
@@ -153,7 +153,11 @@ contract PlantedRangeForgeryTest is Test {
         s.proof = hex"00";
     }
 
-    function run(TlsNotaryProof memory s) external payable returns (ICeremony.VerifiedClaim memory) {
+    function run(TlsNotaryVerifierBase.TlsNotaryProof memory s)
+        external
+        payable
+        returns (ICeremony.VerifiedClaim memory)
+    {
         return verifier.verify{value: msg.value}(abi.encode(s));
     }
 
@@ -161,7 +165,7 @@ contract PlantedRangeForgeryTest is Test {
     /// body never revealed, planted header value read as "the body".
     /// A refresh grant dressed up with a planted header must not verify.
     function test_aPlantedTokenRequestIsRejected() public {
-        TlsNotaryProof memory s = _base();
+        TlsNotaryVerifierBase.TlsNotaryProof memory s = _base();
         s.tokenSession = _plantedHeaderToken();
         s.identitySession = _honestIdentity();
         // Was: accepted a refresh grant. The compared `grant_type` came from a
@@ -198,7 +202,7 @@ contract PlantedRangeForgeryTest is Test {
     }
 
     function test_skeptic2_perFieldLayoutIsRejected() public {
-        TlsNotaryProof memory s = _base();
+        TlsNotaryVerifierBase.TlsNotaryProof memory s = _base();
         s.tokenSession = _perFieldToken();
         s.identitySession = _honestIdentity();
         // The per-field runs leave the delimiters between them uncovered, so

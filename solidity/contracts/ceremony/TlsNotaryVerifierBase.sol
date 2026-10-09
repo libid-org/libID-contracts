@@ -7,7 +7,6 @@ import {CeremonyAuthorization} from "./CeremonyAuthorization.sol";
 import {CeremonyFields} from "./CeremonyFields.sol";
 import {IPlatformVerifier} from "./IPlatformVerifier.sol";
 import {HandleDisclosure, PlatformVerifierBase} from "./PlatformVerifierBase.sol";
-import {TlsNotaryProof} from "./CeremonyPayloads.sol";
 
 /// @title TlsNotaryVerifierBase
 /// @notice The flow both TLSNotary profiles share: two notarized sessions, one
@@ -40,6 +39,32 @@ abstract contract TlsNotaryVerifierBase is IPlatformVerifier, PlatformVerifierBa
 
     bytes internal constant ACCESS_TOKEN_PREFIX = '"access_token":"';
     bytes internal constant ACCESS_TOKEN_SUFFIX = '"';
+
+    /// @notice The `x/v1` and `github/v1` payload, as `abi.encode` of this struct.
+    /// @dev The client identifier and public inputs are derived from the
+    ///      attestations, so the payload does not carry them.
+    /// @param ceremonyVersion    Checked against the verifier's own first.
+    /// @param operationDomain    Into the digest; returned (REQ-COMMON-06A).
+    /// @param authorizationNonce Into the digest and the PKCE verifier; the replay nullifier.
+    /// @param transactionData    Into the digest; returned opaque (REQ-COMMON-06B).
+    /// @param tokenSession       The notarized token exchange.
+    /// @param identitySession    The notarized identity read.
+    /// @param idNode             `SHA256(user-id tag || id)`, bound by the proof.
+    /// @param handleNode         `SHA256(handle tag || fold(handle))`, bound by the proof.
+    /// @param handle             Empty, or the handle to disclose; must hash to `handleNode`.
+    /// @param proof              The Honk proof.
+    struct TlsNotaryProof {
+        uint16 ceremonyVersion;
+        bytes32 operationDomain;
+        bytes32 authorizationNonce;
+        bytes transactionData;
+        Attestation tokenSession;
+        Attestation identitySession;
+        bytes32 idNode;
+        bytes32 handleNode;
+        string handle;
+        bytes proof;
+    }
 
     error WrongRequestLine();
     error CodeVerifierMismatch();

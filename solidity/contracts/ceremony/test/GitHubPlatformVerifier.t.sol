@@ -3,7 +3,6 @@ pragma solidity ^0.8.24;
 
 import {GitHubTranscripts} from "./TranscriptEquivalence.t.sol";
 import {HonkStub} from "./HonkStub.sol";
-import {TlsNotaryProof} from "../CeremonyPayloads.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
 import {AttestationBuilder} from "./AttestationBuilder.sol";
@@ -230,7 +229,7 @@ contract GitHubPlatformVerifierTest is RealTlsNotaryProofTest {
     }
 
     /// The `github/v1` payload the fixtures are made for.
-    function _payload() internal view override returns (TlsNotaryProof memory s) {
+    function _payload() internal view override returns (TlsNotaryVerifierBase.TlsNotaryProof memory s) {
         s.ceremonyVersion = 1;
         s.operationDomain = DOMAIN;
         s.authorizationNonce = AUTH_NONCE;
@@ -242,7 +241,11 @@ contract GitHubPlatformVerifierTest is RealTlsNotaryProofTest {
         s.handleNode = HANDLE_NODE;
     }
 
-    function run(TlsNotaryProof memory s) external payable returns (ICeremony.VerifiedClaim memory) {
+    function run(TlsNotaryVerifierBase.TlsNotaryProof memory s)
+        external
+        payable
+        returns (ICeremony.VerifiedClaim memory)
+    {
         return verifier.verify{value: msg.value}(abi.encode(s));
     }
 
@@ -277,14 +280,18 @@ contract GitHubPlatformVerifierTest is RealTlsNotaryProofTest {
     /// The payload with its exchange composed over `body`: the head declares
     /// the body's length and the response is the honest one, so the form
     /// check is what a test of it exercises.
-    function _withExchangeBody(bytes memory body) private view returns (TlsNotaryProof memory) {
+    function _withExchangeBody(bytes memory body) private view returns (TlsNotaryVerifierBase.TlsNotaryProof memory) {
         return _withExchange(_exchangeHead(body.length), body);
     }
 
     /// The payload with its exchange composed over `head` and `body` as given,
     /// so a test can misdeclare the length or add a header and watch the
     /// verifier refuse it.
-    function _withExchange(bytes memory head, bytes memory body) private view returns (TlsNotaryProof memory s) {
+    function _withExchange(bytes memory head, bytes memory body)
+        private
+        view
+        returns (TlsNotaryVerifierBase.TlsNotaryProof memory s)
+    {
         s = _payload();
         AttestationBuilder.Direction memory sent = _wholeSent(abi.encodePacked(head, body));
         bytes memory a = AttestationBuilder.encode(CeremonyProfile.AUTHORITY_GITHUB, T0, sent, _exchangeResponse());
@@ -300,7 +307,7 @@ contract GitHubPlatformVerifierTest is RealTlsNotaryProofTest {
             CeremonyAuthorization.codeVerifier(digest, AUTH_NONCE),
             "&client_secret=0123456789abcdef0123456789abcdef"
         );
-        TlsNotaryProof memory s = _withExchangeBody(body);
+        TlsNotaryVerifierBase.TlsNotaryProof memory s = _withExchangeBody(body);
         vm.expectRevert(abi.encodeWithSelector(CeremonyFields.MalformedForm.selector, 0));
         this.run{value: quote}(s);
     }
@@ -310,7 +317,8 @@ contract GitHubPlatformVerifierTest is RealTlsNotaryProofTest {
     ///      it.
     function test_rejectsAnExchangeCarryingAGrantType() public {
         bytes memory honest = _exchangeBody();
-        TlsNotaryProof memory s = _withExchangeBody(abi.encodePacked(honest, "&grant_type=authorization_code"));
+        TlsNotaryVerifierBase.TlsNotaryProof memory s =
+            _withExchangeBody(abi.encodePacked(honest, "&grant_type=authorization_code"));
         vm.expectRevert(abi.encodeWithSelector(CeremonyFields.MalformedForm.selector, honest.length));
         this.run{value: quote}(s);
     }
@@ -319,7 +327,7 @@ contract GitHubPlatformVerifierTest is RealTlsNotaryProofTest {
     ///      endpoint receives only the authorization-code request.
     function test_rejectsAnExchangeCarryingARefreshToken() public {
         bytes memory honest = _exchangeBody();
-        TlsNotaryProof memory s =
+        TlsNotaryVerifierBase.TlsNotaryProof memory s =
             _withExchangeBody(abi.encodePacked(honest, "&refresh_token=ghr_16C7e42F292c6912E7710c838347Ae178B4a"));
         vm.expectRevert(abi.encodeWithSelector(CeremonyFields.MalformedForm.selector, honest.length));
         this.run{value: quote}(s);
@@ -329,7 +337,7 @@ contract GitHubPlatformVerifierTest is RealTlsNotaryProofTest {
     ///      the sixth pair begins, whatever its name.
     function test_rejectsAnExchangeCarryingADeviceCode() public {
         bytes memory honest = _exchangeBody();
-        TlsNotaryProof memory s =
+        TlsNotaryVerifierBase.TlsNotaryProof memory s =
             _withExchangeBody(abi.encodePacked(honest, "&device_code=3584d83530557fdd1f46af8289938c8ef79f9dc5"));
         vm.expectRevert(abi.encodeWithSelector(CeremonyFields.MalformedForm.selector, honest.length));
         this.run{value: quote}(s);
@@ -341,7 +349,7 @@ contract GitHubPlatformVerifierTest is RealTlsNotaryProofTest {
     ///      the verifier and compares byte for byte.
     function test_rejectsAnExchangeWithAPaddedVerifier() public {
         bytes memory padded = abi.encodePacked(CeremonyAuthorization.codeVerifier(digest, AUTH_NONCE), "%3D%3D");
-        TlsNotaryProof memory s = _withExchangeBody(_exchangeBodyWithVerifier(padded));
+        TlsNotaryVerifierBase.TlsNotaryProof memory s = _withExchangeBody(_exchangeBodyWithVerifier(padded));
         vm.expectRevert(TlsNotaryVerifierBase.CodeVerifierMismatch.selector);
         this.run{value: quote}(s);
     }
@@ -353,7 +361,7 @@ contract GitHubPlatformVerifierTest is RealTlsNotaryProofTest {
         for (uint256 i = 0; i < short.length; ++i) {
             short[i] = codeVerifier[i];
         }
-        TlsNotaryProof memory s = _withExchangeBody(_exchangeBodyWithVerifier(short));
+        TlsNotaryVerifierBase.TlsNotaryProof memory s = _withExchangeBody(_exchangeBodyWithVerifier(short));
         vm.expectRevert(TlsNotaryVerifierBase.CodeVerifierMismatch.selector);
         this.run{value: quote}(s);
     }
@@ -362,7 +370,7 @@ contract GitHubPlatformVerifierTest is RealTlsNotaryProofTest {
     ///      refused where the second `client_id=` stands in place of `code=`.
     function test_rejectsAnExchangeWithADuplicateField() public {
         bytes memory first = "client_id=Iv1.8a61f9b3a7aba766&";
-        TlsNotaryProof memory s = _withExchangeBody(abi.encodePacked(first, _exchangeBody()));
+        TlsNotaryVerifierBase.TlsNotaryProof memory s = _withExchangeBody(abi.encodePacked(first, _exchangeBody()));
         vm.expectRevert(abi.encodeWithSelector(CeremonyFields.MalformedForm.selector, first.length));
         this.run{value: quote}(s);
     }
@@ -373,7 +381,7 @@ contract GitHubPlatformVerifierTest is RealTlsNotaryProofTest {
     ///      sixth pair here, refused like any other.
     function test_rejectsAnExchangeWithAnEncodedDuplicateName() public {
         bytes memory honest = _exchangeBody();
-        TlsNotaryProof memory s =
+        TlsNotaryVerifierBase.TlsNotaryProof memory s =
             _withExchangeBody(abi.encodePacked(honest, "&code%5Fverifier=EVILEVILEVILEVILEVILEVILEVILEVILEVILEVIL0"));
         vm.expectRevert(abi.encodeWithSelector(CeremonyFields.MalformedForm.selector, honest.length));
         this.run{value: quote}(s);
@@ -381,7 +389,7 @@ contract GitHubPlatformVerifierTest is RealTlsNotaryProofTest {
 
     /// @dev REQ-PLAT-61, TEST-PLAT-12: each field once with a NONEMPTY value.
     function test_rejectsAnExchangeWithAnEmptyValue() public {
-        TlsNotaryProof memory s =
+        TlsNotaryVerifierBase.TlsNotaryProof memory s =
             _withExchangeBody(_exchangeBody("", "https%3A%2F%2Fa.example", "0123456789abcdef0123456789abcdef"));
         vm.expectRevert(abi.encodeWithSelector(CeremonyFields.EmptyFormValue.selector, "code"));
         this.run{value: quote}(s);
@@ -394,7 +402,7 @@ contract GitHubPlatformVerifierTest is RealTlsNotaryProofTest {
             "client_id=Iv1.8a61f9b3a7aba766&code=abc&redirect_uri=https%3A%2F%2Fa.example&code_verifier=",
             CeremonyAuthorization.codeVerifier(digest, AUTH_NONCE)
         );
-        TlsNotaryProof memory s = _withExchangeBody(body);
+        TlsNotaryVerifierBase.TlsNotaryProof memory s = _withExchangeBody(body);
         vm.expectRevert(abi.encodeWithSelector(CeremonyFields.MalformedForm.selector, body.length));
         this.run{value: quote}(s);
     }
@@ -403,7 +411,7 @@ contract GitHubPlatformVerifierTest is RealTlsNotaryProofTest {
     ///      the delimiter that would begin a sixth pair.
     function test_rejectsAnExchangeWithATrailingAmpersand() public {
         bytes memory honest = _exchangeBody();
-        TlsNotaryProof memory s = _withExchangeBody(abi.encodePacked(honest, "&"));
+        TlsNotaryVerifierBase.TlsNotaryProof memory s = _withExchangeBody(abi.encodePacked(honest, "&"));
         vm.expectRevert(abi.encodeWithSelector(CeremonyFields.MalformedForm.selector, honest.length));
         this.run{value: quote}(s);
     }
@@ -417,7 +425,7 @@ contract GitHubPlatformVerifierTest is RealTlsNotaryProofTest {
         bytes memory body = _exchangeBody(
             "abc", "https%3A%2F%2Fa.example", "0123456789abcdef;code_verifier=EVILEVILEVILEVILEVILEVILEVILEVILEVILEVIL0"
         );
-        TlsNotaryProof memory s = _withExchangeBody(body);
+        TlsNotaryVerifierBase.TlsNotaryProof memory s = _withExchangeBody(body);
         vm.expectRevert(
             abi.encodeWithSelector(CeremonyFields.MalformedForm.selector, AttestationBuilder.indexOf(body, ";"))
         );
@@ -427,7 +435,7 @@ contract GitHubPlatformVerifierTest is RealTlsNotaryProofTest {
     /// @dev REQ-PLAT-61, TEST-PLAT-12: a raw `=` inside a value, likewise.
     function test_rejectsAnExchangeWithARawEqualsInAValue() public {
         bytes memory body = _exchangeBody("abc=def", "https%3A%2F%2Fa.example", "0123456789abcdef0123456789abcdef");
-        TlsNotaryProof memory s = _withExchangeBody(body);
+        TlsNotaryVerifierBase.TlsNotaryProof memory s = _withExchangeBody(body);
         vm.expectRevert(
             abi.encodeWithSelector(CeremonyFields.MalformedForm.selector, AttestationBuilder.indexOf(body, "=def"))
         );
@@ -439,7 +447,7 @@ contract GitHubPlatformVerifierTest is RealTlsNotaryProofTest {
     ///      redirect and refused as noncanonical.
     function test_rejectsAnExchangeWithALowercaseEscape() public {
         bytes memory body = _exchangeBody("abc", "https%3a%2F%2Fa.example", "0123456789abcdef0123456789abcdef");
-        TlsNotaryProof memory s = _withExchangeBody(body);
+        TlsNotaryVerifierBase.TlsNotaryProof memory s = _withExchangeBody(body);
         vm.expectRevert(
             abi.encodeWithSelector(CeremonyFields.MalformedForm.selector, AttestationBuilder.indexOf(body, "%3a"))
         );
@@ -452,7 +460,7 @@ contract GitHubPlatformVerifierTest is RealTlsNotaryProofTest {
     ///      credential is held to the same alphabet.
     function test_rejectsAnExchangeWithAnEscapeTheSerializerWritesBare() public {
         bytes memory body = _exchangeBody("%61bc", "https%3A%2F%2Fa.example", "0123456789abcdef0123456789abcdef");
-        TlsNotaryProof memory s = _withExchangeBody(body);
+        TlsNotaryVerifierBase.TlsNotaryProof memory s = _withExchangeBody(body);
         vm.expectRevert(
             abi.encodeWithSelector(CeremonyFields.MalformedForm.selector, AttestationBuilder.indexOf(body, "%61"))
         );
@@ -478,7 +486,7 @@ contract GitHubPlatformVerifierTest is RealTlsNotaryProofTest {
     ///      should EQUAL is the Prover's comparison, not this verifier's,
     ///      and what they decode to is read by nothing here.
     function test_acceptsAnExchangeWithEscapedBytesInTheCodeAndRedirect() public {
-        TlsNotaryProof memory s = _withExchangeBody(
+        TlsNotaryVerifierBase.TlsNotaryProof memory s = _withExchangeBody(
             _exchangeBody("caf%C3%A9", "https%3A%2F%2Fa.example%2F%E2%82%AC", "0123456789abcdef0123456789abcdef")
         );
         assertEq(this.run{value: quote}(s).handleNode, HANDLE_NODE);
@@ -493,7 +501,8 @@ contract GitHubPlatformVerifierTest is RealTlsNotaryProofTest {
         string[3] memory secrets =
             ["0123456789abcdef+0123456789abcdef", "%090123456789abcdef", "0123456789abcdef%C3%A9"];
         for (uint256 i = 0; i < secrets.length; ++i) {
-            TlsNotaryProof memory s = _withExchangeBody(_exchangeBody("abc", "https%3A%2F%2Fa.example", secrets[i]));
+            TlsNotaryVerifierBase.TlsNotaryProof memory s =
+                _withExchangeBody(_exchangeBody("abc", "https%3A%2F%2Fa.example", secrets[i]));
             assertEq(this.run{value: quote}(s).handleNode, HANDLE_NODE);
         }
     }
@@ -501,7 +510,7 @@ contract GitHubPlatformVerifierTest is RealTlsNotaryProofTest {
     /// @dev TEST-PLAT-12: a credential of every ASCII byte the serializer
     ///      escapes, including the delimiters, is one value.
     function test_acceptsACredentialOfEscapedDelimiters() public {
-        TlsNotaryProof memory s = _withExchangeBody(
+        TlsNotaryVerifierBase.TlsNotaryProof memory s = _withExchangeBody(
             _exchangeBody("abc", "https%3A%2F%2Fa.example", "%21%22%23%24%25%26%27%28%29%2B%2C%2F%3A%3B%3D%7E")
         );
         assertEq(this.run{value: quote}(s).handleNode, HANDLE_NODE);
@@ -517,7 +526,7 @@ contract GitHubPlatformVerifierTest is RealTlsNotaryProofTest {
             CeremonyAuthorization.codeVerifier(digest, AUTH_NONCE),
             "&client_secret=0123456789abcdef0123456789abcdef"
         );
-        TlsNotaryProof memory s = _withExchangeBody(body);
+        TlsNotaryVerifierBase.TlsNotaryProof memory s = _withExchangeBody(body);
         vm.expectRevert(
             abi.encodeWithSelector(TlsNotaryVerifierBase.ClientIdentifierNotSerializerSafe.selector, bytes("my%2Bapp"))
         );
@@ -532,7 +541,7 @@ contract GitHubPlatformVerifierTest is RealTlsNotaryProofTest {
             CeremonyAuthorization.codeVerifier(digest, AUTH_NONCE),
             "&client_secret=0123456789abcdef0123456789abcdef"
         );
-        TlsNotaryProof memory s = _withExchangeBody(body);
+        TlsNotaryVerifierBase.TlsNotaryProof memory s = _withExchangeBody(body);
         vm.expectRevert(abi.encodeWithSelector(CeremonyFields.EmptyFormValue.selector, "client_id"));
         this.run{value: quote}(s);
     }
@@ -542,7 +551,7 @@ contract GitHubPlatformVerifierTest is RealTlsNotaryProofTest {
     ///      did not parse.
     function test_rejectsAnExchangeUnderdeclaringItsBody() public {
         bytes memory body = _exchangeBody();
-        TlsNotaryProof memory s = _withExchange(_exchangeHead(body.length - 10), body);
+        TlsNotaryVerifierBase.TlsNotaryProof memory s = _withExchange(_exchangeHead(body.length - 10), body);
         vm.expectRevert(
             abi.encodeWithSelector(
                 TlsNotaryVerifierBase.WrongDeclaredBodyLength.selector, body.length - 10, body.length
@@ -557,7 +566,7 @@ contract GitHubPlatformVerifierTest is RealTlsNotaryProofTest {
     function test_rejectsAForbiddenHeaderOnTheExchange() public {
         bytes memory body = _exchangeBody();
         bytes memory headers = abi.encodePacked(EXCHANGE_HEADERS, "authorization: Basic bXlDbGllbnQtMTpzM2NyZXQ=\r\n");
-        TlsNotaryProof memory s = _withExchange(_exchangeHead(headers, body.length), body);
+        TlsNotaryVerifierBase.TlsNotaryProof memory s = _withExchange(_exchangeHead(headers, body.length), body);
         vm.expectRevert(
             abi.encodeWithSelector(TlsNotaryVerifierBase.ForbiddenRequestHeader.selector, bytes("authorization"))
         );
@@ -567,7 +576,7 @@ contract GitHubPlatformVerifierTest is RealTlsNotaryProofTest {
     /// @dev TEST-PLAT-12: `+` is the serializer's spelling of a space, and a
     ///      code carrying one is still one value.
     function test_acceptsAnExchangeWithAPlusInAValue() public {
-        TlsNotaryProof memory s =
+        TlsNotaryVerifierBase.TlsNotaryProof memory s =
             _withExchangeBody(_exchangeBody("abc+def", "https%3A%2F%2Fa.example", "0123456789abcdef0123456789abcdef"));
         assertEq(this.run{value: quote}(s).handleNode, HANDLE_NODE);
     }
@@ -576,7 +585,7 @@ contract GitHubPlatformVerifierTest is RealTlsNotaryProofTest {
     ///      value. `%26` and `%3D` are bytes of the credential to every form
     ///      parser, and the exact form never decodes them into a pair.
     function test_acceptsAnExchangeWithEncodedDelimitersInAValue() public {
-        TlsNotaryProof memory s =
+        TlsNotaryVerifierBase.TlsNotaryProof memory s =
             _withExchangeBody(_exchangeBody("abc", "https%3A%2F%2Fa.example", "0123%26code_verifier%3DEVIL"));
         assertEq(this.run{value: quote}(s).handleNode, HANDLE_NODE);
     }
@@ -587,14 +596,14 @@ contract GitHubPlatformVerifierTest is RealTlsNotaryProofTest {
     ///      read. A profile pinning one authority would accept an identity
     ///      attestation from the exchange host, or the reverse.
     function test_rejectsTheExchangeFromTheApiHost() public {
-        TlsNotaryProof memory s = _payload();
+        TlsNotaryVerifierBase.TlsNotaryProof memory s = _payload();
         s.tokenSession = _exchange(CeremonyProfile.AUTHORITY_GITHUB_API);
         vm.expectPartialRevert(PlatformVerifierBase.WrongAuthority.selector);
         this.run{value: quote}(s);
     }
 
     function test_rejectsTheIdentityReadFromTheExchangeHost() public {
-        TlsNotaryProof memory s = _payload();
+        TlsNotaryVerifierBase.TlsNotaryProof memory s = _payload();
         s.identitySession = _identity(CeremonyProfile.AUTHORITY_GITHUB);
         vm.expectPartialRevert(PlatformVerifierBase.WrongAuthority.selector);
         this.run{value: quote}(s);
@@ -603,14 +612,14 @@ contract GitHubPlatformVerifierTest is RealTlsNotaryProofTest {
     // ─── The bare-integer id (REQ-PLAT-51) ──────────────────────────
 
     function _refusedFraming(AttestationBuilder.Direction memory received, bytes4 error_) private {
-        TlsNotaryProof memory s = _payload();
+        TlsNotaryVerifierBase.TlsNotaryProof memory s = _payload();
         s.identitySession = _identityReceiving(received, CeremonyProfile.AUTHORITY_GITHUB_API);
         vm.expectPartialRevert(error_);
         this.run{value: quote}(s);
     }
 
     function _accepted(AttestationBuilder.Direction memory received) private returns (ICeremony.VerifiedClaim memory) {
-        TlsNotaryProof memory s = _payload();
+        TlsNotaryVerifierBase.TlsNotaryProof memory s = _payload();
         s.identitySession = _identityReceiving(received, CeremonyProfile.AUTHORITY_GITHUB_API);
         return this.run{value: quote}(s);
     }
@@ -743,7 +752,7 @@ contract GitHubPlatformVerifierTest is RealTlsNotaryProofTest {
     // ─── Shared duties still hold ───────────────────────────────────
 
     function test_rejectsAnExchangeRetargetedToAnotherDigest() public {
-        TlsNotaryProof memory s = _payload();
+        TlsNotaryVerifierBase.TlsNotaryProof memory s = _payload();
         s.authorizationNonce = bytes32(uint256(AUTH_NONCE) ^ 1);
         vm.expectRevert(TlsNotaryVerifierBase.CodeVerifierMismatch.selector);
         this.run{value: quote}(s);
@@ -758,7 +767,7 @@ contract GitHubPlatformVerifierTest is RealTlsNotaryProofTest {
     ///      line-anchored count. The identity attestation is rebuilt with the
     ///      extra header in its revealed head so the count sees two.
     function test_rejectsASecondAuthorizationHeaderOnTheIdentityRead() public {
-        TlsNotaryProof memory s = _payload();
+        TlsNotaryVerifierBase.TlsNotaryProof memory s = _payload();
         s.identitySession = _identityWithHeadPrefix("authorization: Bearer stolen\r\n");
         vm.expectPartialRevert(CeremonyAttestation.NotOneAuthorizationHeader.selector);
         this.run{value: quote}(s);
@@ -769,7 +778,7 @@ contract GitHubPlatformVerifierTest is RealTlsNotaryProofTest {
     ///      `bearer` left it uncounted, and a leaked personal token in it would
     ///      have named someone else's account under this exchange's bearer.
     function test_rejectsASecondAuthorizationHeaderOfAnotherSchemeOnTheIdentityRead() public {
-        TlsNotaryProof memory s = _payload();
+        TlsNotaryVerifierBase.TlsNotaryProof memory s = _payload();
         s.identitySession = _identityWithHeadPrefix("Authorization: token ghp_stolen\r\n");
         vm.expectPartialRevert(CeremonyAttestation.NotOneAuthorizationHeader.selector);
         this.run{value: quote}(s);
@@ -778,7 +787,7 @@ contract GitHubPlatformVerifierTest is RealTlsNotaryProofTest {
     /// @dev The identity read carries exactly one HTTP request, as the token
     ///      exchange does.
     function test_rejectsASecondRequestOnTheIdentityRead() public {
-        TlsNotaryProof memory s = _payload();
+        TlsNotaryVerifierBase.TlsNotaryProof memory s = _payload();
         s.identitySession = _identityWithHead(
             "GET /user HTTP/1.1\r\nhost: api.github.com\r\nauthorization: Bearer ",
             "\r\n\r\nGET /user HTTP/1.1\r\nhost: api.github.com\r\nauthorization: token ghp_OTHER\r\n\r\n"
@@ -790,7 +799,7 @@ contract GitHubPlatformVerifierTest is RealTlsNotaryProofTest {
     /// @dev And `cookie`, the other credential a platform might honour over
     ///      the bearer, is refused on the identity read by name.
     function test_rejectsACookieOnTheIdentityRead() public {
-        TlsNotaryProof memory s = _payload();
+        TlsNotaryVerifierBase.TlsNotaryProof memory s = _payload();
         s.identitySession = _identityWithHeadPrefix("cookie: user_session=stolen\r\n");
         vm.expectRevert(abi.encodeWithSelector(TlsNotaryVerifierBase.ForbiddenRequestHeader.selector, bytes("cookie")));
         this.run{value: quote}(s);
@@ -799,7 +808,7 @@ contract GitHubPlatformVerifierTest is RealTlsNotaryProofTest {
     /// @dev The identity request with the headers the browser sends, in its order
     ///      (`host`, `authorization`, `accept`, `user-agent`, `x-github-api-version`, `connection`).
     function test_verifiesTheIdentityRequestTheBrowserSends() public {
-        TlsNotaryProof memory s = _payload();
+        TlsNotaryVerifierBase.TlsNotaryProof memory s = _payload();
         s.identitySession = _identityWithHead(
             "GET /user HTTP/1.1\r\nhost: api.github.com\r\nauthorization: Bearer ",
             "\r\naccept: application/vnd.github+json\r\n"
@@ -852,7 +861,7 @@ contract GitHubPlatformVerifierTest is RealTlsNotaryProofTest {
             "the fixture carries GitHub's pretty-printed response"
         );
 
-        TlsNotaryProof memory s = _payload();
+        TlsNotaryVerifierBase.TlsNotaryProof memory s = _payload();
         s.tokenSession = AttestationBuilder.fixtureSession(json, ".token");
         s.identitySession = AttestationBuilder.fixtureSession(json, ".identity");
         ICeremony.VerifiedClaim memory f = this.run{value: quote}(s);
@@ -925,7 +934,7 @@ contract GitHubPlatformVerifierTest is RealTlsNotaryProofTest {
     /// @dev A real proof through the circuit's verifier outputs the hashlib
     ///      nodes for `583231` and `octocat` (folded from `OctoCat`).
     function test_verifiesARealProofOfTheRecordsLibidRsProduces() public {
-        (TlsNotaryProof memory s, address circuit, bytes32[] memory proved) = _realProofPayload();
+        (TlsNotaryVerifierBase.TlsNotaryProof memory s, address circuit, bytes32[] memory proved) = _realProofPayload();
         assertEq(proved.length, 12);
         vm.expectCall(circuit, abi.encodeCall(IHonkVerifier.verify, (s.proof, proved)));
         ICeremony.VerifiedClaim memory f = this.run{value: quote}(s);
@@ -942,7 +951,7 @@ contract GitHubPlatformVerifierTest is RealTlsNotaryProofTest {
     /// @dev And this suite's GitHub sessions and proof, sent to an X verifier
     ///      wired to the X circuit, are refused at the first session.
     function test_anXVerifierRefusesAGitHubCeremony() public {
-        (TlsNotaryProof memory s,,) = _realProofPayload();
+        (TlsNotaryVerifierBase.TlsNotaryProof memory s,,) = _realProofPayload();
         address circuit = vm.deployCode("BearerLinkXHonkVerifier.sol:BearerLinkXHonkVerifier");
         XPlatformVerifier x = XPlatformVerifier(
             address(
@@ -1008,7 +1017,7 @@ contract GitHubPlatformVerifierTest is RealTlsNotaryProofTest {
         assertEq(vm.parseJsonBytes32(json, ".authorization_digest"), digest, "bound to this suite's digest");
         vm.warp(vm.parseJsonUint(json, ".identity.created_at") + 60);
 
-        TlsNotaryProof memory s = _payload();
+        TlsNotaryVerifierBase.TlsNotaryProof memory s = _payload();
         s.tokenSession = AttestationBuilder.fixtureSession(json, ".token");
         s.identitySession = AttestationBuilder.fixtureSession(json, ".identity");
         ICeremony.VerifiedClaim memory f = this.run{value: quote}(s);
@@ -1018,7 +1027,7 @@ contract GitHubPlatformVerifierTest is RealTlsNotaryProofTest {
 
     /// @dev The wrong authority is still refused before any field is read.
     function test_rejectsAnIdentityReadFromTheWrongAuthority() public {
-        TlsNotaryProof memory s = _payload();
+        TlsNotaryVerifierBase.TlsNotaryProof memory s = _payload();
         bytes memory attested = s.identitySession.attestedData;
         attested[0] = bytes1(uint8(attested[0]) ^ 0x01);
         s.identitySession =
@@ -1070,7 +1079,7 @@ contract GitHubPlatformVerifierTest is RealTlsNotaryProofTest {
             length: 40 + uint32(whole.length)
         });
         bytes memory a = AttestationBuilder.encode(CeremonyProfile.AUTHORITY_GITHUB, T0, sent, _exchangeResponse());
-        TlsNotaryProof memory s = _payload();
+        TlsNotaryVerifierBase.TlsNotaryProof memory s = _payload();
         s.tokenSession = ICeremony.Attestation({attestedData: a, proof: AttestationBuilder.sign(NOTARY_KEY, a)});
         vm.expectRevert(abi.encodeWithSelector(TlsNotaryVerifierBase.RequestLineNotAtOrigin.selector, uint32(40)));
         this.run{value: quote}(s);
@@ -1092,7 +1101,7 @@ contract GitHubPlatformVerifierTest is RealTlsNotaryProofTest {
             length: wholeEnd + 8
         });
         bytes memory a = AttestationBuilder.encode(CeremonyProfile.AUTHORITY_GITHUB, T0, sent, _exchangeResponse());
-        TlsNotaryProof memory s = _payload();
+        TlsNotaryVerifierBase.TlsNotaryProof memory s = _payload();
         s.tokenSession = ICeremony.Attestation({attestedData: a, proof: AttestationBuilder.sign(NOTARY_KEY, a)});
         vm.expectRevert(abi.encodeWithSelector(TlsNotaryVerifierBase.WrongTokenRequestLayout.selector, 1, 1));
         this.run{value: quote}(s);
@@ -1112,7 +1121,7 @@ contract GitHubPlatformVerifierTest is RealTlsNotaryProofTest {
         );
         AttestationBuilder.Direction memory sent = _wholeSent(abi.encodePacked(head, body));
         bytes memory a = AttestationBuilder.encode(CeremonyProfile.AUTHORITY_GITHUB, T0, sent, _exchangeResponse());
-        TlsNotaryProof memory s = _payload();
+        TlsNotaryVerifierBase.TlsNotaryProof memory s = _payload();
         s.tokenSession = ICeremony.Attestation({attestedData: a, proof: AttestationBuilder.sign(NOTARY_KEY, a)});
         vm.expectRevert(TlsNotaryVerifierBase.WrongTokenRequestHead.selector);
         this.run{value: quote}(s);
@@ -1130,7 +1139,7 @@ contract GitHubPlatformVerifierTest is RealTlsNotaryProofTest {
         );
         AttestationBuilder.Direction memory sent = _wholeSent(abi.encodePacked(head, body));
         bytes memory a = AttestationBuilder.encode(CeremonyProfile.AUTHORITY_GITHUB, T0, sent, _exchangeResponse());
-        TlsNotaryProof memory s = _payload();
+        TlsNotaryVerifierBase.TlsNotaryProof memory s = _payload();
         s.tokenSession = ICeremony.Attestation({attestedData: a, proof: AttestationBuilder.sign(NOTARY_KEY, a)});
         ICeremony.VerifiedClaim memory f = this.run{value: quote}(s);
         assertEq(f.handleNode, HANDLE_NODE);
@@ -1160,14 +1169,14 @@ contract GitHubPlatformVerifierTest is RealTlsNotaryProofTest {
             length: 80
         });
         bytes memory a = AttestationBuilder.encode(CeremonyProfile.AUTHORITY_GITHUB, T0, _exchangeSent(), received);
-        TlsNotaryProof memory s = _payload();
+        TlsNotaryVerifierBase.TlsNotaryProof memory s = _payload();
         s.tokenSession = ICeremony.Attestation({attestedData: a, proof: AttestationBuilder.sign(NOTARY_KEY, a)});
         vm.expectRevert(CeremonyAttestation.NoFramedCommitment.selector);
         this.run{value: quote}(s);
     }
 
     function test_rejectsAPayloadForAnotherCeremonyVersion() public {
-        TlsNotaryProof memory s = _payload();
+        TlsNotaryVerifierBase.TlsNotaryProof memory s = _payload();
         s.ceremonyVersion = 2;
         vm.expectRevert(abi.encodeWithSelector(PlatformVerifierBase.WrongCeremonyVersion.selector, 1, 2));
         this.run{value: quote}(s);
@@ -1183,7 +1192,7 @@ contract GitHubPlatformVerifierTest is RealTlsNotaryProofTest {
             expected[2 * k] = bytes32(uint256(wide[k]) / 2 ** 128);
             expected[2 * k + 1] = bytes32(uint256(wide[k]) % 2 ** 128);
         }
-        TlsNotaryProof memory s = _payload();
+        TlsNotaryVerifierBase.TlsNotaryProof memory s = _payload();
         vm.expectCall(address(honk), abi.encodeCall(IHonkVerifier.verify, (s.proof, expected)));
         this.run{value: quote}(s);
     }

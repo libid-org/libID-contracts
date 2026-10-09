@@ -3,7 +3,6 @@ pragma solidity ^0.8.24;
 
 import {CircuitCodehashes} from "../circuits/CircuitCodehashes.sol";
 import {CeremonyAuthorization} from "./CeremonyAuthorization.sol";
-import {GoogleProof} from "./CeremonyPayloads.sol";
 import {CeremonyProfile} from "./CeremonyProfile.sol";
 import {INotaryService} from "./INotaryService.sol";
 import {IPlatformVerifier} from "./IPlatformVerifier.sol";
@@ -36,6 +35,27 @@ contract GooglePlatformVerifier is IPlatformVerifier, PlatformVerifierBase {
     uint256 private constant OFF_MODULUS = 39; // 18 limbs
     uint256 private constant MODULUS_LIMBS = 18;
     uint256 private constant PUBLIC_INPUTS = 57;
+
+    /// @notice The `google/v1` payload, as `abi.encode` of this struct.
+    /// @dev Public inputs are carried, and authentic only once the proof verifies.
+    /// @param ceremonyVersion    Checked against the verifier's own first.
+    /// @param operationDomain    Into the digest; returned.
+    /// @param authorizationNonce Into the digest.
+    /// @param transactionData    Into the digest; returned opaque.
+    /// @param clientIdentifier   The `aud` bytes, checked against their public-input hash (REQ-PLAT-19A).
+    /// @param publicInputs       The circuit's 57 public inputs (REQ-PLAT-16B order).
+    /// @param handle             Empty, or the address to disclose; must hash to the handle node.
+    /// @param proof              The Honk proof.
+    struct GoogleProof {
+        uint16 ceremonyVersion;
+        bytes32 operationDomain;
+        bytes32 authorizationNonce;
+        bytes transactionData;
+        bytes clientIdentifier;
+        bytes32[] publicInputs;
+        string handle;
+        bytes proof;
+    }
 
     /// @custom:storage-location erc7201:libid.storage.GooglePlatformVerifier
     struct GoogleStorage {
