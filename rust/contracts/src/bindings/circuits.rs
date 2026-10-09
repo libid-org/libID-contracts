@@ -2,8 +2,9 @@
 //! `solidity/contracts/circuits`: the one call a Platform Verifier makes of
 //! them, and the error that says which circuit a deployed one answers for.
 
-/// Bindings for a bb-generated UltraHonk verifier — `BearerLinkHonkVerifier`
-/// and `OidcGoogleHonkVerifier`, one interface for both.
+/// Bindings for a bb-generated UltraHonk verifier — one interface for the
+/// three circuits' verifiers: `BearerLinkXHonkVerifier`,
+/// `BearerLinkGithubHonkVerifier` and `OidcGoogleHonkVerifier`.
 ///
 /// `verify` is the whole surface a Platform Verifier uses
 /// (`IHonkVerifier` in `PlatformVerifierBase.sol`). The error is the one
