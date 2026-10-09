@@ -75,7 +75,7 @@ impl BindError {
     }
 
     /// The error's name, as Solidity declares it: `HandleNotProved`,
-    /// `DisclosureMismatch`.
+    /// `NotYourHandle`.
     pub fn name(&self) -> &'static str {
         let signature = self.signature();
         signature
@@ -186,17 +186,14 @@ mod tests {
 
     #[test]
     fn names_a_registry_refusal() {
-        let data = revert(
-            "DisclosureMismatch(bytes32,bytes32)",
-            (DISCLOSED, BOUND).abi_encode_params(),
-        );
+        let data = revert("NotYourHandle(bytes32)", (BOUND,).abi_encode_params());
         let error = BindError::decode(&data).expect("decodes");
-        assert_eq!(error.name(), "DisclosureMismatch");
+        assert_eq!(error.name(), "NotYourHandle");
         match error {
             BindError::Registry(
-                IdentityRegistry::IdentityRegistryErrors::DisclosureMismatch(e),
+                IdentityRegistry::IdentityRegistryErrors::NotYourHandle(e),
             ) => {
-                assert_eq!((e.disclosed, e.bound), (DISCLOSED, BOUND));
+                assert_eq!(e.handleNode, BOUND);
             }
             other => panic!("decoded as {other}"),
         }

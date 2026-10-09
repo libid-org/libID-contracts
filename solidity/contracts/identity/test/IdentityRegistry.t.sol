@@ -624,29 +624,6 @@ contract IdentityRegistryTest is PrivacyScan {
         assertEq(registry.resolveHandle(X, "alice"), alice, "the digest was spent");
     }
 
-    /// The registry owns the name slot, so it does not take a verifier's word
-    /// that a returned handle names the returned node: it hashes the handle
-    /// under the platform's tag and refuses a mismatch, writing nothing.
-    function test_aDisclosureThatDoesNotNameTheBoundNodeIsRefused() public {
-        bytes32 idNode = _id(X, "123");
-        bytes32 bound = _hn(X, "alice");
-        bytes32 disclosed = _hn(X, "bob");
-        _stage("123", "alice", alice, 100);
-        xVerifier.setNodes(idNode, bound);
-
-        vm.prank(alice);
-        vm.expectRevert(abi.encodeWithSelector(IdentityRegistry.DisclosureMismatch.selector, disclosed, bound));
-        _submit(X, "bob");
-
-        assertEq(registry.resolveId(idNode), address(0), "the id was bound");
-        assertEq(registry.publishedHandleOf(alice, X), "", "the name was written");
-
-        // The same verifier's matching disclosure is stored.
-        vm.prank(alice);
-        _submit(X, "alice");
-        assertEq(registry.publishedHandleOf(alice, X), "alice");
-    }
-
     /// One submission's payload under a chosen nonce, so a test can submit
     /// the same ceremony with different disclosures.
     function _payloadAt(uint256 authorizationNonce, string memory handle) internal view returns (bytes memory) {

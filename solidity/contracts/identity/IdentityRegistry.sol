@@ -354,12 +354,6 @@ contract IdentityRegistry is
     /// since passed to someone else. Disclose the handle the platform shows
     /// for your account, as it shows it.
     error NotYourHandle(bytes32 handleNode);
-    /// The Platform Verifier returned a disclosed handle that does not hash,
-    /// under the platform's tag, to the handle node it returned with it. A
-    /// verifier that checked its disclosure never returns this pair; the name
-    /// slot is written only with a handle that names the node it is stored
-    /// against.
-    error DisclosureMismatch(bytes32 disclosed, bytes32 bound);
 
     // ─── Setup ──────────────────────────────────────────────────────
 
@@ -401,10 +395,8 @@ contract IdentityRegistry is
     ///      **A disclosed handle comes with the claim.** The payload may carry
     ///      the handle; the Platform Verifier checked it against the handle
     ///      node its proof bound and returns it normalized, and it becomes the
-    ///      caller's name on the platform, as `publish` would make it. The name
-    ///      slot is this contract's, so it hashes the returned handle under the
-    ///      platform's tag once more and refuses one that does not name the
-    ///      returned node (`DisclosureMismatch`).
+    ///      caller's name on the platform, as `publish` would make it. The
+    ///      handle is taken from the Platform Verifier as its nodes are.
     function bind(bytes32 platformId, uint16 verifierVersion, bytes calldata payload) external payable nonReentrant {
         _requireKnown(platformId);
 
@@ -442,11 +434,7 @@ contract IdentityRegistry is
         if (claimed.metadataObservedAt == 0) revert NoObservationTime();
 
         _write(platformId, claimed.idNode, claimed.handleNode, claimed.metadataObservedAt, claimed.ceremonyVersion);
-        if (bytes(claimed.handle).length != 0) {
-            bytes32 disclosed = HandleNormalizer.node(HandlePlatforms.handleTagFor(platformId), claimed.handle);
-            if (disclosed != claimed.handleNode) revert DisclosureMismatch(disclosed, claimed.handleNode);
-            _name(platformId, claimed.handleNode, claimed.handle);
-        }
+        if (bytes(claimed.handle).length != 0) _name(platformId, claimed.handleNode, claimed.handle);
 
         emit CeremonyBound(claimed.sessionId, msg.sender, platformId, claimed.clientIdentifier);
 

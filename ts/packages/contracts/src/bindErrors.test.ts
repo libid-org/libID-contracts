@@ -32,10 +32,7 @@ describe('bindErrorsAbi', () => {
   it('names the errors of every contract on the route', () => {
     const cases: [string, `0x${string}`][] = [
       ['UnknownPlatform', concatHex([selector('UnknownPlatform(bytes32)'), PROVED])],
-      [
-        'DisclosureMismatch',
-        concatHex([selector('DisclosureMismatch(bytes32,bytes32)'), DISCLOSED, PROVED]),
-      ],
+      ['NotYourHandle', concatHex([selector('NotYourHandle(bytes32)'), PROVED])],
       ['NoFramedCommitment', selector('NoFramedCommitment()')],
       ['AmbiguousFraming', selector('AmbiguousFraming()')],
       ['UnusableHandle', concatHex([selector('UnusableHandle(uint8)'), pad('0x03')])],

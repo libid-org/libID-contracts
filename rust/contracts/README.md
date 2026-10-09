@@ -163,7 +163,7 @@ Other entry points:
 - `Artifacts::method_identifiers` — selector extraction from the vendored
   `methodIdentifiers`.
 - `BindError::decode` — a refused `bind` by name (`HandleNotProved`,
-  `DisclosureMismatch`, `SumcheckFailed`, …), from the error sets of the
+  `NotYourHandle`, `SumcheckFailed`, …), from the error sets of the
   registry, the Proof Verifier, the Platform Verifiers, the Notary Service
   and bb's Honk verifiers (`bindings::circuits::IHonkVerifierErrors`).
 - `bindings::ceremony::{TlsNotaryProof, GoogleProof}` — the payload a Platform

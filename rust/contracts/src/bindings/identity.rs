@@ -149,9 +149,6 @@ mod registry_inner {
             error StaleProof(uint64 observedAt, uint64 known);
             /// The disclosed handle is not one the caller holds.
             error NotYourHandle(bytes32 handleNode);
-            /// The Platform Verifier returned a handle that does not hash to
-            /// the handle node it returned with it; nothing is written.
-            error DisclosureMismatch(bytes32 disclosed, bytes32 bound);
             error OwnableUnauthorizedAccount(address account);
             error OwnableInvalidOwner(address owner);
             error ReentrancyGuardReentrantCall();
