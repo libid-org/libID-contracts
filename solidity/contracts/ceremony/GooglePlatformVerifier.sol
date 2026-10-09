@@ -2,6 +2,7 @@
 pragma solidity ^0.8.24;
 
 import {CeremonyAuthorization} from "./CeremonyAuthorization.sol";
+import {GoogleProof} from "./CeremonyPayloads.sol";
 import {CeremonyProfile} from "./CeremonyProfile.sol";
 import {INotaryService} from "./INotaryService.sol";
 import {IPlatformVerifier} from "./IPlatformVerifier.sol";
@@ -54,44 +55,6 @@ contract GooglePlatformVerifier is IPlatformVerifier, PlatformVerifierBase {
     uint256 private constant OFF_MODULUS = 39; // 18 limbs
     uint256 private constant MODULUS_LIMBS = 18;
     uint256 private constant PUBLIC_INPUTS = 57;
-
-    /// @notice What this profile decodes from its payload.
-    ///
-    /// @dev `abi.encode` of this struct is the payload for `google/v1`. No
-    ///      attestations: the evidence is a signed ID Token verified inside the
-    ///      circuit, and the contract sees only its public inputs -- which are
-    ///      therefore carried, unlike the TLSNotary profiles' where they are
-    ///      derived, and become authentic only once the proof verifies.
-    ///
-    /// @param ceremonyVersion    What the payload was built for. Checked against
-    ///                           this verifier's own first.
-    /// @param operationDomain    Into the digest, and returned for the Consumer
-    ///                           to judge.
-    /// @param authorizationNonce Into the digest.
-    /// @param transactionData    Into the digest, and returned opaque.
-    /// @param clientIdentifier   The `aud` bytes. Authenticated by hashing them
-    ///                           against a public input (REQ-PLAT-19A), because
-    ///                           the circuit publishes the audience as a hash
-    ///                           rather than packing a variable-length string;
-    ///                           the bytes cannot be recovered from the proof,
-    ///                           so they are carried and checked instead.
-    /// @param publicInputs       The circuit's 57 public inputs, in the order
-    ///                           REQ-PLAT-16B fixes.
-    /// @param handle             Empty for a private submission. Otherwise the
-    ///                           address to disclose as the holder's name; it
-    ///                           must hash to the proof's handle node.
-    /// @param proof              Verified under the artifact governance
-    ///                           selected, never one the caller names.
-    struct GoogleProof {
-        uint16 ceremonyVersion;
-        bytes32 operationDomain;
-        bytes32 authorizationNonce;
-        bytes transactionData;
-        bytes clientIdentifier;
-        bytes32[] publicInputs;
-        string handle;
-        bytes proof;
-    }
 
     /// @custom:storage-location erc7201:libid.storage.GooglePlatformVerifier
     struct GoogleStorage {

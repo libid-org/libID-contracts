@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
+import {GoogleProof, TlsNotaryProof} from "../../ceremony/CeremonyPayloads.sol";
 import {Test, Vm} from "forge-std/Test.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
@@ -14,7 +15,6 @@ import {IPlatformVerifier} from "../../ceremony/IPlatformVerifier.sol";
 import {IProofVerifier} from "../../ceremony/IProofVerifier.sol";
 import {NotaryService} from "../../ceremony/NotaryService.sol";
 import {IHonkVerifier, PlatformVerifierBase} from "../../ceremony/PlatformVerifierBase.sol";
-import {TlsNotaryVerifierBase} from "../../ceremony/TlsNotaryVerifierBase.sol";
 import {XPlatformVerifier} from "../../ceremony/XPlatformVerifier.sol";
 import {IdentityRegistry} from "../IdentityRegistry.sol";
 
@@ -238,7 +238,7 @@ abstract contract RealTlsNotaryBind is RealProofBindBase {
     /// The fixture's payload, naming its own transaction data.
     function _payload(string memory handle) internal view override returns (bytes memory) {
         string memory session = vm.readFile(_session());
-        TlsNotaryVerifierBase.TlsNotaryProof memory p;
+        TlsNotaryProof memory p;
         p.ceremonyVersion = uint16(vm.parseJsonUint(session, ".ceremony_version"));
         p.operationDomain = vm.parseJsonBytes32(session, ".operation_domain");
         p.authorizationNonce = vm.parseJsonBytes32(session, ".authorization_nonce");
@@ -504,7 +504,7 @@ contract RealProofBindGoogleTest is RealProofBindBase {
 
     /// The `google/v1` payload the proof was made for: its nonce is the
     /// Authorization Digest of these fields on chain 31337.
-    function _proof(string memory handle) internal view returns (GooglePlatformVerifier.GoogleProof memory s) {
+    function _proof(string memory handle) internal view returns (GoogleProof memory s) {
         string memory json = vm.readFile(PROOF);
         s.ceremonyVersion = 1;
         s.operationDomain = keccak256(bytes("libid.claim-identity"));
@@ -527,7 +527,7 @@ contract RealProofBindGoogleTest is RealProofBindBase {
     ///      privately so no disclosure check runs first, fails the Honk
     ///      verifier's sumcheck and binds nothing.
     function test_anotherHandleNodeFailsTheProof() public {
-        GooglePlatformVerifier.GoogleProof memory s = _proof("");
+        GoogleProof memory s = _proof("");
         s.publicInputs[HANDLE_LOW] ^= bytes32(uint256(1));
         bytes memory payload = abi.encode(s);
         vm.prank(BINDER);

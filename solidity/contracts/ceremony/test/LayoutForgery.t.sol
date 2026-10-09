@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
+import {TlsNotaryProof} from "../CeremonyPayloads.sol";
 import {Test} from "forge-std/Test.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
@@ -12,7 +13,6 @@ import {ICeremony} from "../ICeremony.sol";
 import {INotaryService} from "../INotaryService.sol";
 import {NotaryService} from "../NotaryService.sol";
 import {IHonkVerifier} from "../PlatformVerifierBase.sol";
-import {TlsNotaryVerifierBase} from "../TlsNotaryVerifierBase.sol";
 import {XPlatformVerifier} from "../XPlatformVerifier.sol";
 
 contract Honk3 is IHonkVerifier {
@@ -173,7 +173,7 @@ contract LayoutForgeryTest is Test {
         return abi.encode(address(0xBEEF));
     }
 
-    function _submission() private pure returns (TlsNotaryVerifierBase.TlsNotaryProof memory s) {
+    function _submission() private pure returns (TlsNotaryProof memory s) {
         s.ceremonyVersion = 1;
         s.operationDomain = DOMAIN;
         s.authorizationNonce = AUTH_NONCE;
@@ -181,11 +181,7 @@ contract LayoutForgeryTest is Test {
         s.proof = hex"00";
     }
 
-    function run(TlsNotaryVerifierBase.TlsNotaryProof memory s)
-        external
-        payable
-        returns (ICeremony.VerifiedClaim memory)
-    {
+    function run(TlsNotaryProof memory s) external payable returns (ICeremony.VerifiedClaim memory) {
         return verifier.verify{value: msg.value}(abi.encode(s));
     }
 
@@ -207,7 +203,7 @@ contract LayoutForgeryTest is Test {
     ///      `XPlatformVerifier.t.sol` proves that one, because it cannot be
     ///      reached from here.
     function test_aSplicedResponseCannotForgeAnIdentity() public {
-        TlsNotaryVerifierBase.TlsNotaryProof memory s = _submission();
+        TlsNotaryProof memory s = _submission();
         s.tokenSession = _honestToken();
         s.identitySession = _identity(_seamIdentity());
         vm.expectPartialRevert(CeremonyAttestation.CoverageGap.selector);
@@ -263,7 +259,7 @@ contract LayoutForgeryTest is Test {
 
     /// The request line must BEGIN the transcript, not merely be listed first.
     function test_aPlantedRequestLineIsRejected() public {
-        TlsNotaryVerifierBase.TlsNotaryProof memory s = _submission();
+        TlsNotaryProof memory s = _submission();
         s.tokenSession = _unanchoredToken();
         s.identitySession = _identity(_honestIdentityRecv());
         // Was: returned clientIdentifier "victimapp", read out of a header value

@@ -468,7 +468,7 @@ mod payloads_inner {
                 bytes proof;
             }
 
-            /// `TlsNotaryVerifierBase.TlsNotaryProof`: the `x/v1` and
+            /// `TlsNotaryProof` (`ceremony/CeremonyPayloads.sol`): the `x/v1` and
             /// `github/v1` payload. `handle` is empty for a private
             /// submission; otherwise it must hash to `handleNode`.
             #[derive(Debug, PartialEq, Eq)]
@@ -485,7 +485,7 @@ mod payloads_inner {
                 bytes proof;
             }
 
-            /// `GooglePlatformVerifier.GoogleProof`: the `google/v1` payload.
+            /// `GoogleProof` (`ceremony/CeremonyPayloads.sol`): the `google/v1` payload.
             #[derive(Debug, PartialEq, Eq)]
             struct GoogleProof {
                 uint16 ceremonyVersion;

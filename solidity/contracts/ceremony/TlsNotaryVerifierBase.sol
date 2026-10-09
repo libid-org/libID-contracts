@@ -7,6 +7,7 @@ import {CeremonyAuthorization} from "./CeremonyAuthorization.sol";
 import {CeremonyFields} from "./CeremonyFields.sol";
 import {IPlatformVerifier} from "./IPlatformVerifier.sol";
 import {PlatformVerifierBase} from "./PlatformVerifierBase.sol";
+import {TlsNotaryProof} from "./CeremonyPayloads.sol";
 
 /// @title TlsNotaryVerifierBase
 /// @notice The shape both TLSNotary profiles share: two notarized sessions, one
@@ -63,59 +64,6 @@ abstract contract TlsNotaryVerifierBase is IPlatformVerifier, PlatformVerifierBa
 
     bytes internal constant ACCESS_TOKEN_PREFIX = '"access_token":"';
     bytes internal constant ACCESS_TOKEN_SUFFIX = '"';
-
-    /// @notice What a TLSNotary profile decodes from its payload.
-    ///
-    /// @dev `abi.encode` of this struct is the payload for `x/v1` and
-    ///      `github/v1`. The two profiles share one shape because they state
-    ///      the same relation; platform separation is the route that reached
-    ///      this contract, the authorities each subclass pins, and the circuit
-    ///      its Honk verifier answers for, not the struct's name, which the
-    ///      encoding does not carry.
-    ///
-    ///      It carries no platform id and no chain id: this verifier knows the
-    ///      first and reads the second. It carries no public inputs and no
-    ///      client identifier: both are DERIVED from the attestations, so a
-    ///      caller's copy would be a second representation of a fact this
-    ///      verifier already holds. The two sessions are named rather than
-    ///      listed, because they are not interchangeable.
-    ///
-    /// @param ceremonyVersion    What the payload was built for. Checked against
-    ///                           this verifier's own before anything is paid.
-    /// @param operationDomain    Into the digest, and returned for the Consumer
-    ///                           to judge (REQ-COMMON-06A).
-    /// @param authorizationNonce Into the digest, making it unique and therefore
-    ///                           its own replay nullifier, and into the PKCE
-    ///                           verifier the digest is carried under. There is
-    ///                           no second salt beside it (REQ-COMMON-12).
-    /// @param transactionData    Into the digest, and returned opaque
-    ///                           (REQ-COMMON-06B).
-    /// @param tokenSession       The token exchange, notarized.
-    /// @param identitySession    The identity read, notarized. Its response
-    ///                           reveals only the anchors around the id and
-    ///                           the handle; both values are committed.
-    /// @param idNode             `SHA256(user-id tag || id)`, as the prover
-    ///                           claims it. The proof binds it to the committed
-    ///                           id; nothing else vouches for it.
-    /// @param handleNode         `SHA256(handle tag || fold(handle))`, bound to
-    ///                           the committed handle the same way.
-    /// @param handle             Empty for a private submission. Otherwise the
-    ///                           handle to disclose as the holder's name; it
-    ///                           must hash to `handleNode` (`_disclosed`).
-    /// @param proof              Verified under the artifact governance
-    ///                           selected, never one the caller names.
-    struct TlsNotaryProof {
-        uint16 ceremonyVersion;
-        bytes32 operationDomain;
-        bytes32 authorizationNonce;
-        bytes transactionData;
-        Attestation tokenSession;
-        Attestation identitySession;
-        bytes32 idNode;
-        bytes32 handleNode;
-        string handle;
-        bytes proof;
-    }
 
     error WrongRequestLine();
     error CodeVerifierMismatch();

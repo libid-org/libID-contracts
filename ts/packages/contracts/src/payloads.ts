@@ -30,10 +30,10 @@ function inputs<N extends PayloadName>(name: N): Inputs<N> {
 const TLS_NOTARY_PROOF = inputs('tlsNotaryProof')
 const GOOGLE_PROOF = inputs('googleProof')
 
-/// `TlsNotaryVerifierBase.TlsNotaryProof`: the `x/v1` and `github/v1` payload.
+/// `TlsNotaryProof` (`ceremony/CeremonyPayloads.sol`): the `x/v1` and `github/v1` payload.
 export type TlsNotaryProof = AbiParameterToPrimitiveType<(typeof TLS_NOTARY_PROOF)[0]>
 
-/// `GooglePlatformVerifier.GoogleProof`: the `google/v1` payload.
+/// `GoogleProof` (`ceremony/CeremonyPayloads.sol`): the `google/v1` payload.
 export type GoogleProof = AbiParameterToPrimitiveType<(typeof GOOGLE_PROOF)[0]>
 
 /// The `x/v1` or `github/v1` payload, as the verifier decodes it.
