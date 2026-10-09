@@ -6,7 +6,7 @@ import {CeremonyProfile} from "./CeremonyProfile.sol";
 import {CeremonyAuthorization} from "./CeremonyAuthorization.sol";
 import {CeremonyFields} from "./CeremonyFields.sol";
 import {IPlatformVerifier} from "./IPlatformVerifier.sol";
-import {PlatformVerifierBase} from "./PlatformVerifierBase.sol";
+import {HandleDisclosure, PlatformVerifierBase} from "./PlatformVerifierBase.sol";
 import {TlsNotaryProof} from "./CeremonyPayloads.sol";
 
 /// @title TlsNotaryVerifierBase
@@ -181,7 +181,7 @@ abstract contract TlsNotaryVerifierBase is IPlatformVerifier, PlatformVerifierBa
         _requireCeremonyVersion(p.ceremonyVersion);
         // A disclosure is checked against the node the payload claims, before
         // anything is paid or proved: the proof below is what binds that node.
-        claimed.handle = _disclosed(p.handle, p.handleNode);
+        claimed.handle = HandleDisclosure.check(_platform(), p.handle, p.handleNode);
 
         // The digest, rebuilt from what was decoded, this verifier's own
         // version, and the chain it runs on. Never trusted for its content:

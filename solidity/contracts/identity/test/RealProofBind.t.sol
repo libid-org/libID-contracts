@@ -16,7 +16,7 @@ import {INotaryService} from "../../ceremony/INotaryService.sol";
 import {IPlatformVerifier} from "../../ceremony/IPlatformVerifier.sol";
 import {IProofVerifier} from "../../ceremony/IProofVerifier.sol";
 import {NotaryService} from "../../ceremony/NotaryService.sol";
-import {IHonkVerifier, PlatformVerifierBase} from "../../ceremony/PlatformVerifierBase.sol";
+import {HandleDisclosure, IHonkVerifier} from "../../ceremony/PlatformVerifierBase.sol";
 import {XPlatformVerifier} from "../../ceremony/XPlatformVerifier.sol";
 import {IdentityRegistry} from "../IdentityRegistry.sol";
 import {PrivacyScan} from "./PrivacyScan.sol";
@@ -150,7 +150,7 @@ abstract contract RealProofBindBase is PrivacyScan {
         (string memory other, bytes32 otherNode) = _otherHandle();
         bytes memory payload = _payload(other);
         uint256 value = registry.quoteBind(_platform(), 1);
-        vm.expectRevert(abi.encodeWithSelector(PlatformVerifierBase.HandleNotProved.selector, otherNode, _handleNode()));
+        vm.expectRevert(abi.encodeWithSelector(HandleDisclosure.HandleNotProved.selector, otherNode, _handleNode()));
         vm.prank(BINDER);
         registry.bind{value: value}(_platform(), 1, payload);
         assertEq(registry.resolveId(_idNode()), address(0));

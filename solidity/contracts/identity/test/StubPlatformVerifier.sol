@@ -3,6 +3,7 @@ pragma solidity ^0.8.24;
 
 import {CeremonyAuthorization} from "../../ceremony/CeremonyAuthorization.sol";
 import {IPlatformVerifier} from "../../ceremony/IPlatformVerifier.sol";
+import {HandleDisclosure} from "../../ceremony/PlatformVerifierBase.sol";
 import {HandlePlatforms} from "../../handles/HandlePlatforms.sol";
 import {TestNodes} from "./TestNodes.sol";
 
@@ -32,10 +33,6 @@ contract StubPlatformVerifier is IPlatformVerifier {
         bytes transactionData;
         string handle;
     }
-
-    /// @dev `PlatformVerifierBase.HandleNotProved`, so a test reads one
-    ///      selector whichever verifier refused.
-    error HandleNotProved(bytes32 disclosed, bytes32 proved);
 
     bytes32 private immutable PLATFORM;
     uint256 public fee;
@@ -104,13 +101,7 @@ contract StubPlatformVerifier is IPlatformVerifier {
             bytes32 known = HandlePlatforms.knows(PLATFORM) ? PLATFORM : HandlePlatforms.PLATFORM_X;
             c.idNode = TestNodes.idNode(known, userId);
             (, c.handleNode) = HandlePlatforms.handleNodeOf(known, handle);
-            // The real verifiers' disclosure check: the disclosed handle,
-            // normalized, must hash to the handle node.
-            if (bytes(p.handle).length != 0) {
-                (string memory normalized, bytes32 node) = HandlePlatforms.handleNodeOf(known, p.handle);
-                if (node != c.handleNode) revert HandleNotProved(node, c.handleNode);
-                c.handle = normalized;
-            }
+            c.handle = HandleDisclosure.check(known, p.handle, c.handleNode);
         }
         c.metadataObservedAt = observedAt;
     }

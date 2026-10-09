@@ -16,6 +16,32 @@ interface IHonkVerifier {
     function verify(bytes calldata proof, bytes32[] calldata publicInputs) external view returns (bool);
 }
 
+/// @notice The check every verifier makes of a disclosed handle.
+library HandleDisclosure {
+    /// @dev The handle the payload discloses does not hash to the handle node
+    ///      the proof bound. Disclose the handle the platform shows for this
+    ///      account, as it shows it.
+    error HandleNotProved(bytes32 disclosed, bytes32 proved);
+
+    /// @dev The handle a payload discloses, checked against the handle node
+    ///      its proof bound: normalized with the platform's rules and hashed
+    ///      under its tag, both `handles.json`'s and so the circuit's own.
+    ///      Returns the normalized handle, or empty for a private submission.
+    ///      Text the rules refuse reverts `UnusableHandle`, the registry's
+    ///      shape for the same refusal.
+    function check(bytes32 platform, string memory handle, bytes32 handleNode)
+        internal
+        pure
+        returns (string memory normalized)
+    {
+        if (bytes(handle).length != 0) {
+            bytes32 node;
+            (normalized, node) = HandlePlatforms.handleNodeOf(platform, handle);
+            if (node != handleNode) revert HandleNotProved(node, handleNode);
+        }
+    }
+}
+
 /// @title PlatformVerifierBase
 /// @notice What every Platform Verifier owes, whichever platform it serves.
 ///
@@ -88,10 +114,6 @@ abstract contract PlatformVerifierBase is ICeremony, Initializable, UUPSUpgradea
     ///      `expected` is the runtime code hash of the vendored verifier this
     ///      contract was compiled against, `found` the code hash there.
     error WrongCircuit(bytes32 expected, bytes32 found);
-    /// @dev The handle the payload discloses does not hash to the handle node
-    ///      the proof bound. Disclose the handle the platform shows for this
-    ///      account, as it shows it.
-    error HandleNotProved(bytes32 disclosed, bytes32 proved);
 
     // OpenZeppelin's initializer convention -- `__Contract_init`, so a child's
     // initializer reads which base each call sets up -- over mixedCase.
@@ -173,19 +195,6 @@ abstract contract PlatformVerifierBase is ICeremony, Initializable, UUPSUpgradea
     ///      a `CircuitCodehashes` constant, generated from the vendored
     ///      verifier.
     function _circuitCodehash() internal pure virtual returns (bytes32);
-
-    /// @dev The handle a payload discloses, checked against the handle node
-    ///      its proof bound: normalized with the platform's rules and hashed
-    ///      under its tag, both `handles.json`'s and so the circuit's own.
-    ///      Returns the normalized handle, or empty for a private submission.
-    ///      Text the rules refuse reverts `UnusableHandle`, the registry's
-    ///      shape for the same refusal.
-    function _disclosed(string memory handle, bytes32 handleNode) internal pure returns (string memory normalized) {
-        if (bytes(handle).length == 0) return "";
-        bytes32 node;
-        (normalized, node) = HandlePlatforms.handleNodeOf(_platform(), handle);
-        if (node != handleNode) revert HandleNotProved(node, handleNode);
-    }
 
     /// @dev The ceremony version this verifier implements: the protocol
     ///      revision the Authorization Digest binds, hardcoded here because it

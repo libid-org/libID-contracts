@@ -7,7 +7,7 @@ import {GoogleProof} from "./CeremonyPayloads.sol";
 import {CeremonyProfile} from "./CeremonyProfile.sol";
 import {INotaryService} from "./INotaryService.sol";
 import {IPlatformVerifier} from "./IPlatformVerifier.sol";
-import {IHonkVerifier, PlatformVerifierBase} from "./PlatformVerifierBase.sol";
+import {HandleDisclosure, IHonkVerifier, PlatformVerifierBase} from "./PlatformVerifierBase.sol";
 
 /// @dev Where the deployment keeps the Google signing keys it trusts:
 ///      `GoogleJwtRoots`, kept beside this verifier.
@@ -217,7 +217,7 @@ contract GooglePlatformVerifier is IPlatformVerifier, PlatformVerifierBase {
         // the proof's cost is paid.
         claimed.idNode = _hashFromHalves(p.publicInputs, OFF_ID_NODE);
         claimed.handleNode = _hashFromHalves(p.publicInputs, OFF_HANDLE_NODE);
-        claimed.handle = _disclosed(p.handle, claimed.handleNode);
+        claimed.handle = HandleDisclosure.check(_platform(), p.handle, claimed.handleNode);
 
         // Every public input read above becomes authentic here, and the whole
         // transaction reverts if it does not; that is what makes reading them

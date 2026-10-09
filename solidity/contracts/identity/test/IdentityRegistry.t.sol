@@ -12,6 +12,7 @@ import {IPlatformVerifier} from "../../ceremony/IPlatformVerifier.sol";
 import {IProofVerifier} from "../../ceremony/IProofVerifier.sol";
 import {AttestationBuilder} from "../../ceremony/test/AttestationBuilder.sol";
 import {PrivacyScan} from "./PrivacyScan.sol";
+import {HandleDisclosure} from "../../ceremony/PlatformVerifierBase.sol";
 import {StubPlatformVerifier} from "./StubPlatformVerifier.sol";
 import {TestNodes} from "./TestNodes.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
@@ -517,7 +518,7 @@ contract IdentityRegistryTest is PrivacyScan {
         _stage("123", "alice", alice, 200);
         bytes32 alicia = _hn(X, "alicia");
         bytes32 proved = _hn(X, "alice");
-        vm.expectRevert(abi.encodeWithSelector(StubPlatformVerifier.HandleNotProved.selector, alicia, proved));
+        vm.expectRevert(abi.encodeWithSelector(HandleDisclosure.HandleNotProved.selector, alicia, proved));
         vm.prank(alice);
         _submit(X, "alicia");
 
@@ -596,12 +597,12 @@ contract IdentityRegistryTest is PrivacyScan {
         bytes32 aliciaNode = _hn(X, "alicia");
 
         bytes memory payload = _payloadAt(reuse, "bob");
-        vm.expectRevert(abi.encodeWithSelector(StubPlatformVerifier.HandleNotProved.selector, bobNode, proved));
+        vm.expectRevert(abi.encodeWithSelector(HandleDisclosure.HandleNotProved.selector, bobNode, proved));
         vm.prank(alice);
         registry.bind(X, V1, payload);
 
         payload = _payloadAt(reuse, "alicia");
-        vm.expectRevert(abi.encodeWithSelector(StubPlatformVerifier.HandleNotProved.selector, aliciaNode, proved));
+        vm.expectRevert(abi.encodeWithSelector(HandleDisclosure.HandleNotProved.selector, aliciaNode, proved));
         vm.prank(alice);
         registry.bind(X, V1, payload);
 

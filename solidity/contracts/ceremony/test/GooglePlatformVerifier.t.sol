@@ -11,7 +11,7 @@ import {CeremonyProfile} from "../CeremonyProfile.sol";
 import {GooglePlatformVerifier, IGoogleJwtRoots} from "../GooglePlatformVerifier.sol";
 import {ICeremony} from "../ICeremony.sol";
 import {INotaryService} from "../INotaryService.sol";
-import {IHonkVerifier, PlatformVerifierBase} from "../PlatformVerifierBase.sol";
+import {HandleDisclosure, IHonkVerifier, PlatformVerifierBase} from "../PlatformVerifierBase.sol";
 import {TrustingJwtRoots} from "./TrustingJwtRoots.sol";
 import {TestNodes} from "../../identity/test/TestNodes.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
@@ -241,7 +241,7 @@ contract GooglePlatformVerifierTest is Test {
         GoogleProof memory s = _payload();
         s.handle = "other@example.com";
         bytes32 other = TestNodes.handleNode(CeremonyProfile.PLATFORM_GOOGLE, "other@example.com");
-        vm.expectRevert(abi.encodeWithSelector(PlatformVerifierBase.HandleNotProved.selector, other, HANDLE_NODE));
+        vm.expectRevert(abi.encodeWithSelector(HandleDisclosure.HandleNotProved.selector, other, HANDLE_NODE));
         this.run(s);
     }
 
