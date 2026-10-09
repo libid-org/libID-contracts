@@ -79,6 +79,8 @@ mod registry_inner {
             /// The handle's holder, and whether `idNode` resolves to that same
             /// holder.
             function resolveHandleAndId(bytes32 platformId, string calldata handle, bytes32 idNode) external view returns (address holder, bool idAgrees);
+            /// `resolveHandleAndId` for a handle node computed off chain.
+            function resolveHandleNodeAndId(bytes32 platformId, bytes32 handleNode, bytes32 idNode) external view returns (address holder, bool idAgrees);
             /// The handle a holder published, while it still resolves back to
             /// that holder; empty otherwise.
             function publishedHandleOf(address holder, bytes32 platformId) external view returns (string memory);

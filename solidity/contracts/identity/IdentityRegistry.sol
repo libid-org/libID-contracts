@@ -667,7 +667,27 @@ contract IdentityRegistry is
     {
         _requireUsable(platformId);
         (HandleNormalizer.Problem problem, bytes32 handleNode) = HandlePlatforms.tryHandleNodeOf(platformId, handle);
-        holder = problem == HandleNormalizer.Problem.None ? _s().handleBindings[handleNode].holder : address(0);
+        if (problem != HandleNormalizer.Problem.None) return (address(0), false);
+        return _resolveNodeAndId(platformId, handleNode, idNode);
+    }
+
+    /// @notice `resolveHandleAndId` for a handle node computed off chain, so
+    ///         the handle itself never reaches the RPC.
+    function resolveHandleNodeAndId(bytes32 platformId, bytes32 handleNode, bytes32 idNode)
+        external
+        view
+        returns (address holder, bool idAgrees)
+    {
+        _requireUsable(platformId);
+        return _resolveNodeAndId(platformId, handleNode, idNode);
+    }
+
+    function _resolveNodeAndId(bytes32 platformId, bytes32 handleNode, bytes32 idNode)
+        private
+        view
+        returns (address holder, bool idAgrees)
+    {
+        holder = _s().handleBindings[handleNode].holder;
         idAgrees =
             holder != address(0) && _s().idBindings[idNode].holder == holder && _s().platformOfId[idNode] == platformId;
     }

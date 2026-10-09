@@ -4,6 +4,7 @@ import {
   ContractFunctionRevertedError,
   type PublicClient,
   zeroAddress,
+  zeroHash,
 } from 'viem'
 import { describe, expect, it, vi } from 'vitest'
 
@@ -28,6 +29,16 @@ function reader(readContract: ReturnType<typeof vi.fn>): RegistryReader {
     client: { readContract } as unknown as PublicClient,
     address: CONTRACT,
   }
+}
+
+/// A registry whose `resolveHandleNodeAndId` answers `holder` for any node.
+function registry(holder: Address = zeroAddress, idAgrees = false) {
+  return vi.fn().mockResolvedValue([holder, idAgrees])
+}
+
+/// Every argument the RPC was sent, flattened.
+function sent(readContract: ReturnType<typeof vi.fn>): unknown[] {
+  return readContract.mock.calls.flatMap(([request]) => request.args)
 }
 
 const X = platformId(PLATFORM_X_KEY)
@@ -59,7 +70,7 @@ describe('resolving a handle', () => {
   })
 
   it('reads the holder that last proved a handle', async () => {
-    const readContract = vi.fn().mockResolvedValue(ALICE)
+    const readContract = registry(ALICE)
     expect(await resolveHandle(reader(readContract), X, 'alice')).toBe(ALICE)
   })
 
@@ -67,18 +78,22 @@ describe('resolving a handle', () => {
   /// `0x000…0` invites sending funds to it.
   it('reports an unbound handle as null rather than the zero address', async () => {
     const readContract = vi.fn().mockResolvedValue(zeroAddress)
-
     expect(await resolveId(reader(readContract), ID_42)).toBeNull()
-    expect(await resolveHandle(reader(readContract), X, 'nobody')).toBeNull()
+    expect(await resolveHandle(reader(registry()), X, 'nobody')).toBeNull()
   })
 
-  /// The handle goes to the chain as it was typed: normalization happens
-  /// there, so the node a reader computes is the node a writer wrote.
-  it('passes the handle through unnormalized', async () => {
-    const readContract = vi.fn().mockResolvedValue(ALICE)
-    await resolveHandle(reader(readContract), X, '  @Alice ')
+  /// The handle is normalized and hashed here, under the rules the registry
+  /// applies, so only its node reaches the RPC.
+  it('sends the handle node, never the handle', async () => {
+    const readContract = registry(ALICE)
+    await resolveHandle(reader(readContract), X, 'Alice')
 
-    expect(readContract.mock.calls[0][0].args[1]).toBe('  @Alice ')
+    expect(readContract.mock.calls[0][0]).toMatchObject({
+      functionName: 'resolveHandleNodeAndId',
+      args: [X, ALICE_NODE, zeroHash],
+    })
+    expect(sent(readContract)).not.toContain('Alice')
+    expect(sent(readContract)).not.toContain('alice')
   })
 })
 
@@ -105,12 +120,14 @@ describe('resolving a holder back to a handle', () => {
 
 describe('checking a handle against an id', () => {
   it('agrees when both point at one holder', async () => {
-    const readContract = vi.fn().mockResolvedValue([ALICE, true])
+    const readContract = registry(ALICE, true)
 
     expect(await resolveHandleAndId(reader(readContract), X, 'alice', ID_42)).toEqual({
       holder: ALICE,
       idAgrees: true,
     })
+    expect(readContract).toHaveBeenCalledTimes(1)
+    expect(sent(readContract)).toEqual([X, ALICE_NODE, ID_42])
   })
 
   /// The case the two mappings exist for. The handle still resolves — and the
@@ -118,31 +135,28 @@ describe('checking a handle against an id', () => {
   /// handle now means — but the caller learns its id is out of date and can
   /// say so before anybody signs.
   it('still resolves the handle when the id disagrees', async () => {
-    const readContract = vi.fn().mockResolvedValue([ALICE, false])
-    const resolution = await resolveHandleAndId(reader(readContract), X, 'alice', ID_42)
+    const resolution = await resolveHandleAndId(reader(registry(ALICE, false)), X, 'alice', ID_42)
 
     expect(resolution.holder).toBe(ALICE)
     expect(resolution.idAgrees).toBe(false)
   })
 
   it('reports no holder for a handle nobody has proved', async () => {
-    const readContract = vi.fn().mockResolvedValue([zeroAddress, false])
-    const resolution = await resolveHandleAndId(reader(readContract), X, 'nobody', ID_42)
+    const resolution = await resolveHandleAndId(reader(registry()), X, 'nobody', ID_42)
 
     expect(resolution.holder).toBeNull()
     expect(resolution.idAgrees).toBe(false)
   })
 
   it('treats a handle the rules reject as unbound', async () => {
-    // The contract is total in the handle: it answers about a string no
-    // handle could be rather than reverting, so this is an ordinary zero
-    // answer.
-    const readContract = vi.fn().mockResolvedValue([zeroAddress, false])
+    const readContract = registry()
 
     expect(await resolveHandleAndId(reader(readContract), X, 'not a handle', ID_42)).toEqual({
       holder: null,
       idAgrees: false,
     })
+    // The zero node: the platform check runs, and nothing is bound there.
+    expect(sent(readContract)).toEqual([X, zeroHash, ID_42])
   })
 })
 
@@ -205,9 +219,11 @@ describe('a handle that cannot be normalized', () => {
   /// a search box needs, since the alternative is a rejected promise on every
   /// keystroke that has not finished being typed.
   it('reads as unbound', async () => {
-    const readContract = vi.fn().mockResolvedValue(zeroAddress)
+    const readContract = registry()
 
     expect(await resolveHandle(reader(readContract), X, 'not a handle')).toBeNull()
+    // The zero node: the platform check runs, and nothing is bound there.
+    expect(sent(readContract)).toEqual([X, zeroHash, zeroHash])
   })
 
   /// An unconfigured platform is a deployment mistake, not an answer about a

@@ -91,9 +91,10 @@ import {
 const reader = { client, address: IDENTITY_REGISTRY }
 const x = platformId(PLATFORM_X_KEY)
 
-// The holder that last proved a handle, or null. Pass what was typed —
-// normalization happens on chain: case folds, and text the rules refuse
-// (an `@`, a space) answers null like a handle nobody proved.
+// The holder that last proved a handle, or null. Pass what was typed: it is
+// normalized and hashed here, with the registry's rules, and only the node
+// reaches the RPC. Case folds, and text the rules refuse (an `@`, a space)
+// answers null like a handle nobody proved.
 const holder = await resolveHandle(reader, x, 'Alice')
 
 // Before sending funds: does the id still agree with the handle?

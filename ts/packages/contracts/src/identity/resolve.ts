@@ -8,10 +8,12 @@
 /// package ships separately from the repository it currently lives in, so it
 /// carries no configuration of its own and reaches for nothing outside itself.
 
-import { type Address, keccak256, type PublicClient, toHex, zeroAddress } from 'viem'
+import { type Address, keccak256, type PublicClient, toHex, zeroAddress, zeroHash } from 'viem'
 
 import { identityRegistryAbi } from '../abis/identityRegistry.js'
-import type { Rules } from './handle.js'
+import { HandleError, type Rules } from './handle.js'
+import { PLATFORMS } from './handleVectors.js'
+import { handleNode } from './node.js'
 
 /// A platform key (`'x'`, `'github'`, ...), refusing at compile time a value
 /// typed as hex: an id passed where a key belongs would be hashed again into a
@@ -75,13 +77,41 @@ export async function resolveId(
   return holder === zeroAddress ? null : holder
 }
 
+/// `IdentityRegistry.resolveHandleNodeAndId` for a handle as typed: the handle
+/// is normalized and hashed here, with the registry's rules and tag, and only
+/// its node is sent. Text the rules refuse is sent as the zero node, which
+/// nothing is bound under, so the registry's platform check still runs.
+async function resolveNodes(
+  reader: RegistryReader,
+  id: `0x${string}`,
+  handle: string,
+  idNode: `0x${string}`,
+): Promise<HandleAndIdResolution> {
+  const keys = PLATFORMS.find((p) => platformId(p.key) === id)
+  let node: `0x${string}` = zeroHash
+  if (keys !== undefined) {
+    try {
+      node = handleNode(keys.key, handle)
+    } catch (e) {
+      if (!(e instanceof HandleError)) throw e
+    }
+  }
+  const [holder, idAgrees] = await read<[Address, boolean]>(reader, 'resolveHandleNodeAndId', [
+    id,
+    node,
+    idNode,
+  ])
+  if (keys === undefined) throw new Error(`platform ${id} is not in this package's handle table`)
+  return { holder: holder === zeroAddress ? null : holder, idAgrees }
+}
+
 /// The holder that last proved this handle, or `null`.
 ///
-/// The handle is normalized on chain before it is looked up, so a caller may
-/// pass what was typed — including something that is not a handle at all.
-/// The contract is total in the handle: a string the platform's rules refuse
-/// answers the zero address, which is the same answer as a handle nobody has
-/// proved, and the one a search box wants.
+/// The handle is normalized and hashed here, with the rules the registry
+/// applies, and only its node is sent: a caller may pass what was typed —
+/// including something that is not a handle at all. Text the platform's rules
+/// refuse answers `null`, the same answer as a handle nobody has proved, and
+/// the one a search box wants.
 ///
 /// A revert propagates. `UnknownPlatform` in particular means `handles.json`
 /// names no such platform or no verifier serves it yet, and answering
@@ -91,8 +121,7 @@ export async function resolveHandle(
   platformId: `0x${string}`,
   handle: string,
 ): Promise<Address | null> {
-  const holder = await read<Address>(reader, 'resolveHandle', [platformId, handle])
-  return holder === zeroAddress ? null : holder
+  return (await resolveNodes(reader, platformId, handle, zeroHash)).holder
 }
 
 /// The handle to show for a holder, or `null`.
@@ -133,21 +162,16 @@ export interface HandleAndIdResolution {
 ///
 /// Both halves are needed. A handle on its own has nothing to disagree with.
 ///
-/// A handle the platform's rules reject resolves to `{holder: null, idAgrees:
-/// false}`, the same as one nobody has proved — see `resolveHandle`.
+/// Only nodes are sent, as `resolveHandle` sends them. A handle the
+/// platform's rules reject resolves to `{holder: null, idAgrees: false}`, the
+/// same as one nobody has proved.
 export async function resolveHandleAndId(
   reader: RegistryReader,
   platformId: `0x${string}`,
   handle: string,
   idNode: `0x${string}`,
 ): Promise<HandleAndIdResolution> {
-  const [holder, idAgrees] = await read<[Address, boolean]>(reader, 'resolveHandleAndId', [
-    platformId,
-    handle,
-    idNode,
-  ])
-
-  return { holder: holder === zeroAddress ? null : holder, idAgrees }
+  return resolveNodes(reader, platformId, handle, idNode)
 }
 
 /// One identity a holder proved, as the holder's list reports it.

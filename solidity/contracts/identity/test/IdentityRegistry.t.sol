@@ -397,6 +397,9 @@ contract IdentityRegistryTest is PrivacyScan {
 
         vm.expectRevert(abi.encodeWithSelector(IdentityRegistry.UnknownPlatform.selector, unwired));
         registry.resolveHandleAndId(unwired, "alice", idNode);
+        bytes32 handleNode = _hn(X, "alice");
+        vm.expectRevert(abi.encodeWithSelector(IdentityRegistry.UnknownPlatform.selector, unwired));
+        registry.resolveHandleNodeAndId(unwired, handleNode, idNode);
 
         vm.expectRevert(abi.encodeWithSelector(IdentityRegistry.UnknownPlatform.selector, unwired));
         registry.rulesOf(unwired);
@@ -462,6 +465,12 @@ contract IdentityRegistryTest is PrivacyScan {
         assertEq(holder, alice);
         assertFalse(agrees, "a GitHub id node agreed with an X handle");
         (, agrees) = registry.resolveHandleAndId(X, "alice", _id(X, "123"));
+        assertTrue(agrees);
+        // The node-taking view answers the same.
+        (holder, agrees) = registry.resolveHandleNodeAndId(X, _hn(X, "alice"), _id(GITHUB, "123"));
+        assertEq(holder, alice);
+        assertFalse(agrees);
+        (, agrees) = registry.resolveHandleNodeAndId(X, _hn(X, "alice"), _id(X, "123"));
         assertTrue(agrees);
     }
 
