@@ -93,7 +93,7 @@ abstract contract RealProofBindBase is PrivacyScan {
         emit log_named_uint("bind gas", vm.lastCallGas().gasTotalUsed);
 
         _assertLogsHideTheSecrets(vm.getRecordedLogs());
-        _assertStorageHidesTheSecrets(address(registry));
+        assertGt(_assertStorageHidesTheSecrets(address(registry)), 0, "the bind wrote nothing to check");
         _assertStorageHidesTheSecrets(address(proofVerifier));
         address[] memory verifiers = _verifiers();
         for (uint256 i = 0; i < verifiers.length; ++i) {
