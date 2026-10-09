@@ -155,10 +155,10 @@ Other entry points:
   through it at name-derived CREATE3 addresses.
 - `circuits::version` — the `libid-circuits` release the vendored verifiers
   came from, for a consumer that names a deployment after its artifact.
-- `PlatformVerifier::circuit_codehash_at` — the code hash `setTrustRoots`
-  wants when a Platform Verifier is rotated onto a new circuit release,
-  refused (`Error::WrongCircuit`) unless the address holds that platform's
-  circuit's verifier. `platform_verifier::codehash_at` reads any address's
+- `PlatformVerifier::rotation_codehash_at` — the code hash `setTrustRoots`
+  wants on a deployed Platform Verifier, refused (`Error::WrongCircuit`)
+  unless the address holds the verifier whose code hash the proxy's
+  `circuitCodehash()` pins. `platform_verifier::codehash_at` reads any address's
   code hash, unchecked.
 - `Artifacts::method_identifiers` — selector extraction from the vendored
   `methodIdentifiers`.

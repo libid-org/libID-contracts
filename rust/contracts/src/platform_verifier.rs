@@ -117,7 +117,7 @@ impl PlatformVerifier {
 impl PlatformVerifier {
     /// The code hash at `address`, required to be the hash of `artifacts`'
     /// runtime code for this platform's [`circuit`](Self::circuit): what
-    /// `initialize` and `setTrustRoots` take beside a Honk verifier.
+    /// `initialize` takes beside a Honk verifier.
     ///
     /// [`Error::WrongCircuit`] when the address holds another circuit's
     /// verifier, or code that is no vendored verifier at all — which the
@@ -129,13 +129,47 @@ impl PlatformVerifier {
         artifacts: &Artifacts,
         address: Address,
     ) -> Result<B256> {
+        let pinned = self.circuit().runtime_codehash(artifacts)?;
+        self.pinned_codehash_at(provider, artifacts, address, pinned)
+            .await
+    }
+
+    /// The code hash at `address`, required to be the `circuitCodehash()`
+    /// the Platform Verifier at `proxy` pins: what `setTrustRoots` takes
+    /// beside a Honk verifier on a deployed proxy, including one upgraded
+    /// to a circuit release these `artifacts` predate. `artifacts` only name
+    /// the circuit found in an [`Error::WrongCircuit`].
+    pub async fn rotation_codehash_at<P: Provider>(
+        self,
+        provider: &P,
+        artifacts: &Artifacts,
+        proxy: Address,
+        address: Address,
+    ) -> Result<B256> {
+        let pinned = TlsNotaryPlatformVerifier::new(proxy, provider)
+            .circuitCodehash()
+            .call()
+            .await
+            .map_err(|e| Error::Rpc {
+                detail: format!("failed to read circuitCodehash() at {proxy}: {e}"),
+            })?;
+        self.pinned_codehash_at(provider, artifacts, address, pinned)
+            .await
+    }
+
+    async fn pinned_codehash_at<P: Provider>(
+        self,
+        provider: &P,
+        artifacts: &Artifacts,
+        address: Address,
+        pinned: B256,
+    ) -> Result<B256> {
         let codehash = codehash_at(provider, address).await?;
-        let expected = self.circuit();
-        if codehash != expected.runtime_codehash(artifacts)? {
+        if codehash != pinned {
             return Err(Error::WrongCircuit {
                 contract: self.contract(),
                 address,
-                expected,
+                expected: self.circuit(),
                 found: Circuit::with_runtime_codehash(artifacts, codehash)?,
                 codehash,
             });

@@ -531,6 +531,7 @@ async fn deploys_and_initializes_every_platform_verifier() {
     };
     let proof_verifier = CeremonyProofVerifier::new(proof_verifier_proxy, &provider);
 
+    let mut github_proxy = Address::ZERO;
     for init in [
         Initializer::X(tls(bearer_link_x)),
         Initializer::GitHub(tls(bearer_link_github)),
@@ -559,6 +560,9 @@ async fn deploys_and_initializes_every_platform_verifier() {
             .await
             .unwrap_or_else(|e| panic!("{verifier:?}: {e}"));
         assert!(!provider.get_code_at(proxy).await.unwrap().is_empty());
+        if verifier == PlatformVerifier::GitHub {
+            github_proxy = proxy;
+        }
 
         // The quote is what the Proof Verifier forwards whole: one Notary
         // Fee per attestation the profile requires.
@@ -701,18 +705,18 @@ async fn deploys_and_initializes_every_platform_verifier() {
             && err.to_string().contains("bearer-link-x"),
         "{err}"
     );
-    // The rotation path runs the same check: the hash `setTrustRoots`
-    // takes is handed out only for the platform's own circuit.
+    // The rotation path checks against the circuit the deployed proxy pins:
+    // the hash `setTrustRoots` takes is handed out only for that circuit.
     assert_eq!(
         PlatformVerifier::GitHub
-            .circuit_codehash_at(&provider, &artifacts, bearer_link_github)
+            .rotation_codehash_at(&provider, &artifacts, github_proxy, bearer_link_github)
             .await
             .unwrap(),
         codehash_at(&provider, bearer_link_github).await.unwrap()
     );
     assert!(matches!(
         PlatformVerifier::GitHub
-            .circuit_codehash_at(&provider, &artifacts, bearer_link_x)
+            .rotation_codehash_at(&provider, &artifacts, github_proxy, bearer_link_x)
             .await,
         Err(Error::WrongCircuit {
             found: Some(Circuit::BearerLinkX),
