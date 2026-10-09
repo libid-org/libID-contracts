@@ -28,8 +28,7 @@ contract SettableRegistry is IIdentityRegistry {
     }
 }
 
-/// @notice Shaped like the registry before identities were keyed by node:
-///         `handleBinding` answers alike, and nothing states `nodeKeyed`.
+/// @notice A registry that answers `handleBinding` but has no `nodeKeyed`.
 contract PreNodeRegistry {
     function handleBinding(bytes32) external pure returns (address holder, uint64 observedAt) {
         return (address(0), 0);

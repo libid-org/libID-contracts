@@ -286,10 +286,8 @@ contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable
         if (!ok) revert NativeTransferFailed(to, amount);
     }
 
-    /// @dev Refuses a registry that does not answer the one call the escrow
-    ///      makes in its shape, a two-word binding, or that does not state
-    ///      `nodeKeyed()`. The registry before it answers `handleBinding` in
-    ///      the same shape, under keys that are not the nodes a depositor pays.
+    /// @dev Refuses a registry that does not answer `handleBinding` in shape or
+    ///      does not state `nodeKeyed()`.
     function _requireAnswers(IIdentityRegistry registry_) private view {
         (bool ok, bytes memory result) =
             address(registry_).staticcall(abi.encodeCall(IIdentityRegistry.handleBinding, (bytes32(0))));

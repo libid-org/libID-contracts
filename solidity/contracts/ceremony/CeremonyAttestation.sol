@@ -160,9 +160,7 @@ library CeremonyAttestation {
         JsonIntegerEnd
     }
 
-    /// @notice A direction with every revealed byte joined in order and the
-    ///         JSON whitespace removed: what the framed readers count a
-    ///         prefix in. `framing` derives both from the block.
+    /// @notice A direction's block and its revealed bytes, joined, without JSON whitespace.
     struct Framing {
         DirectionBlock block_;
         bytes normalized;
@@ -187,8 +185,7 @@ library CeremonyAttestation {
         return _framed(block_, _normalizedRevealed(block_), prefix, Terminator.Suffix, suffix);
     }
 
-    /// @notice `requireFramedCommitment`, for a caller reading several values
-    ///         out of one direction's `framing`.
+    /// @notice `requireFramedCommitment`, for several reads of one `framing`.
     function requireFramedCommitment(Framing memory f, bytes memory prefix, bytes memory suffix)
         internal
         pure
@@ -197,15 +194,8 @@ library CeremonyAttestation {
         return _framed(f.block_, f.normalized, prefix, Terminator.Suffix, suffix);
     }
 
-    /// @notice The one commitment framed as a bare JSON integer's digits:
-    ///         `prefix` revealed before it, and after it a revealed range
-    ///         that, JSON whitespace aside, starts with the `,` or `}` that
-    ///         ends the number.
-    ///
-    /// @dev The terminator is what proves the committed digits are the whole
-    ///      number rather than a prefix of a longer one; a commitment that
-    ///      stops mid-number is followed by a digit, and frames nothing. The
-    ///      digits themselves are the circuit's to check.
+    /// @notice The one commitment after revealed `prefix` and before a revealed
+    ///         `,` or `}`, so the committed digits are the whole number.
     function requireFramedInteger(Framing memory f, bytes memory prefix)
         internal
         pure

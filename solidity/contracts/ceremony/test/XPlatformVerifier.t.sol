@@ -576,9 +576,7 @@ contract XPlatformVerifierTest is RealTlsNotaryProofTest {
         this.run{value: quote}(s);
     }
 
-    /// The 12 public inputs, written out independently of the verifier: the
-    /// two bearer commitments, the id and handle commitments and this suite's
-    /// two nodes, each as `[high, low]` halves.
+    /// The 12 public inputs, written out independently of the verifier.
     function _expectedInputs(bytes32 token, bytes32 identity, bytes32 id, bytes32 handle)
         private
         pure
@@ -757,14 +755,8 @@ contract XPlatformVerifierTest is RealTlsNotaryProofTest {
         return "contracts/ceremony/test/fixtures/github-ceremony-session.json";
     }
 
-    /// @dev Stage A's acceptance. The circuit's own verifier, a real proof of
-    ///      the records libid-rs produced, and the nodes out are the ones
-    ///      Python's hashlib computes for `2244994945` and `alice_1`: the
-    ///      platform sent `Alice_1`, and the circuit folded it.
-    ///
-    ///      The stub accepts any public inputs, so only this says the 12 the
-    ///      verifier builds from the two sessions and the payload are the ones
-    ///      the circuit proved.
+    /// @dev A real proof through the circuit's verifier outputs the hashlib
+    ///      nodes for `2244994945` and `alice_1` (folded from `Alice_1`).
     function test_verifiesARealProofOfTheRecordsLibidRsProduces() public {
         (TlsNotaryProof memory s, address circuit, bytes32[] memory proved) = _realProofPayload();
         assertEq(proved.length, 12);

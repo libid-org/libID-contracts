@@ -110,11 +110,8 @@ impl PlatformVerifier {
             .await
     }
 
-    /// The code hash at `address`, required to be the `circuitCodehash()`
-    /// the Platform Verifier at `proxy` pins: what `setTrustRoots` takes
-    /// beside a Honk verifier on a deployed proxy, including one upgraded
-    /// to a circuit release these `artifacts` predate. `artifacts` only name
-    /// the circuit found in an [`Error::WrongCircuit`].
+    /// The code hash at `address`, required to be the `circuitCodehash()` the
+    /// Platform Verifier at `proxy` pins, for `setTrustRoots` on a deployed proxy.
     pub async fn rotation_codehash_at<P: Provider>(
         self,
         provider: &P,

@@ -648,8 +648,7 @@ contract HandleEscrowTest is Test {
         _assertLacks(makeAddr("no code"), IIdentityRegistry.handleBinding.selector);
         _assertLacks(address(new RegistryWithAOneWordFallback()), IIdentityRegistry.handleBinding.selector);
         _assertLacks(address(new RegistryWithASilentFallback()), IIdentityRegistry.handleBinding.selector);
-        // The registry before identities were keyed by node answers
-        // `handleBinding` too; it does not state `nodeKeyed`.
+        // Answers `handleBinding` but does not state `nodeKeyed`.
         _assertLacks(address(new PreNodeRegistry()), IIdentityRegistry.nodeKeyed.selector);
         _assertLacks(address(new RegistryWithHandleBindingOnly()), IIdentityRegistry.nodeKeyed.selector);
         _assertLacks(address(new NotNodeKeyedRegistry()), IIdentityRegistry.nodeKeyed.selector);

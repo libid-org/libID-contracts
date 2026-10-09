@@ -76,10 +76,8 @@ export async function resolveId(
   return holder === zeroAddress ? null : holder
 }
 
-/// `IdentityRegistry.resolveHandleNodeAndId` for a handle as typed: the handle
-/// is normalized and hashed here, with the registry's rules and tag, and only
-/// its node is sent. Text the rules refuse is sent as the zero node, which
-/// nothing is bound under, so the registry's platform check still runs.
+/// `resolveHandleNodeAndId` for a handle as typed: only its node is sent.
+/// Text the rules refuse is sent as the zero node, so the platform check still runs.
 async function resolveNodes(
   reader: RegistryReader,
   id: `0x${string}`,
@@ -104,17 +102,9 @@ async function resolveNodes(
   return { holder: holder === zeroAddress ? null : holder, idAgrees }
 }
 
-/// The holder that last proved this handle, or `null`.
-///
-/// The handle is normalized and hashed here, with the rules the registry
-/// applies, and only its node is sent: a caller may pass what was typed —
-/// including something that is not a handle at all. Text the platform's rules
-/// refuse answers `null`, the same answer as a handle nobody has proved, and
-/// the one a search box wants.
-///
-/// A revert propagates. `UnknownPlatform` in particular means `handles.json`
-/// names no such platform or no verifier serves it yet, and answering
-/// "unbound" would bury a deployment mistake under a plausible result.
+/// The holder that last proved this handle, or `null`. Only the handle's node
+/// is sent; text the rules refuse also answers `null`. Reverts such as
+/// `UnknownPlatform` propagate.
 export async function resolveHandle(
   reader: RegistryReader,
   platformId: `0x${string}`,
@@ -143,19 +133,8 @@ export interface HandleAndIdResolution {
 }
 
 /// Resolve a handle and report whether an id node still agrees with it.
-///
-/// **Read this before signing, and do not let it block a transfer.** A handle
-/// that will not route is not a handle: sending to a handle means sending to
-/// whoever proved it last, which is what the handle now means. What the flag is
-/// for is telling whoever is paying that the identity they think they are
-/// paying is not the one that has the handle today — a decision they can only
-/// make beforehand.
-///
-/// Both halves are needed. A handle on its own has nothing to disagree with.
-///
-/// Only nodes are sent, as `resolveHandle` sends them. A handle the
-/// platform's rules reject resolves to `{holder: null, idAgrees: false}`, the
-/// same as one nobody has proved.
+/// Read it before signing, to warn the payer; do not let it block a transfer.
+/// A handle the rules reject resolves to `{holder: null, idAgrees: false}`.
 export async function resolveHandleAndId(
   reader: RegistryReader,
   platformId: `0x${string}`,

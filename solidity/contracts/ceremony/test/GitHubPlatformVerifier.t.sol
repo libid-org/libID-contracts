@@ -1173,11 +1173,8 @@ contract GitHubPlatformVerifierTest is RealTlsNotaryProofTest {
         this.run{value: quote}(s);
     }
 
-    /// @dev REQ-PLAT-52B: the 12 inputs the proof is checked against are
-    ///      built from the two attestations and the payload's nodes, written
-    ///      out here independently of the verifier: the bearer commitments,
-    ///      the id and login commitments and the two nodes, each as
-    ///      `[high, low]` halves.
+    /// @dev REQ-PLAT-52B: the 12 public inputs, built here independently of
+    ///      the verifier.
     function test_provesAgainstTheCommitmentsTheNotarySigned() public {
         bytes32[] memory expected = new bytes32[](12);
         bytes32[6] memory wide =

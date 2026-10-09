@@ -18,9 +18,8 @@ import {TlsNotaryProof} from "./CeremonyPayloads.sol";
 ///      lines, token fields and checks, and identity field framing. The proof
 ///      is verified last, once its commitments are tied to the attestations.
 abstract contract TlsNotaryVerifierBase is IPlatformVerifier, PlatformVerifierBase {
-    /// @dev The bearer-link circuit's public inputs, in its order: the two
-    ///      bearer commitments, the id and handle commitments and the two
-    ///      nodes, each as two 16-byte big-endian halves `[high, low]`.
+    /// @dev The bearer-link circuit's public inputs: two bearer commitments, id and
+    ///      handle commitments, then the two nodes, each as `[high, low]` halves.
     uint256 internal constant PUBLIC_INPUTS = 12;
     uint256 internal constant OFF_TOKEN_COMMITMENT = 0;
     uint256 internal constant OFF_IDENTITY_COMMITMENT = 2;

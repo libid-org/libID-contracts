@@ -13,20 +13,7 @@ import {PlatformVerifierBase} from "../../ceremony/PlatformVerifierBase.sol";
 import {CircuitCodehashes} from "../CircuitCodehashes.sol";
 
 /// @notice The vendored Honk verifiers are what the Platform Verifiers pin.
-///
-/// @dev A bb verifier embeds its verification key as code and exposes no
-///      getter, so nothing here can ask it WHICH circuit it answers for. What
-///      it does say is the `logN` a wrong-length proof comes back with, and
-///      what each accepts. The two bearer-link circuits differ only in their
-///      platform rules, tags and bearer caps, so they may share a `logN`; a
-///      real proof of one refused by the other is what separates them. Either check catches
-///      a release whose tarballs were swapped, or a vendor run that wrote one
-///      circuit's verifier under another's name.
-///
-///      The verifiers are deployed from their artifacts, not imported: they
-///      compile on the legacy pipeline (see foundry.toml), and a test that
-///      imported one would compile the Platform Verifiers beside it on that
-///      pipeline too, which is not what ships.
+/// @dev Deployed from artifacts, not imported: they compile on the legacy pipeline.
 contract HonkVerifiersTest is Test {
     /// The error a Honk verifier raises for a proof of the wrong length.
     error ProofLengthWrongWithLogN(uint256 logN, uint256 actualLength, uint256 expectedLength);

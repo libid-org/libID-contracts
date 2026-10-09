@@ -23,12 +23,8 @@ library HandleDisclosure {
     ///      account, as it shows it.
     error HandleNotProved(bytes32 disclosed, bytes32 proved);
 
-    /// @dev The handle a payload discloses, checked against the handle node
-    ///      its proof bound: normalized with the platform's rules and hashed
-    ///      under its tag, both `handles.json`'s and so the circuit's own.
-    ///      Returns the normalized handle, or empty for a private submission.
-    ///      Text the rules refuse reverts `UnusableHandle`, the registry's
-    ///      shape for the same refusal.
+    /// @dev The disclosed handle, normalized, or empty for a private submission.
+    ///      Reverts unless it hashes to `handleNode` under the platform's rules.
     function check(bytes32 platform, string memory handle, bytes32 handleNode)
         internal
         pure
@@ -144,11 +140,8 @@ abstract contract PlatformVerifierBase is ICeremony, Initializable, UUPSUpgradea
         return _base().honkVerifierCodehash;
     }
 
-    /// @notice The runtime code hash of the one Honk verifier this contract
-    ///         accepts: its platform's circuit's, as vendored when it was
-    ///         compiled. `honkVerifierCodehash()` differs from it only after an
-    ///         upgrade that pins another circuit, until `setTrustRoots` wires
-    ///         that circuit's verifier; `verify` reverts `WrongCircuit` meanwhile.
+    /// @notice The runtime code hash of this platform's vendored circuit verifier.
+    ///         `verify` reverts `WrongCircuit` while `honkVerifierCodehash()` differs.
     function circuitCodehash() external pure returns (bytes32) {
         return _circuitCodehash();
     }
@@ -333,11 +326,8 @@ abstract contract PlatformVerifierBase is ICeremony, Initializable, UUPSUpgradea
         if (observedAt > limit) revert ObservedInTheFuture(observedAt, limit);
     }
 
-    /// @dev Verify the proof under the artifact governance selected. Without
-    ///      this, every public input the surrounding checks compare is a number
-    ///      the caller wrote down (REQ-COMMON-45). The artifact must still be
-    ///      this implementation's circuit's: an upgrade can change
-    ///      `_circuitCodehash()` without touching the stored verifier.
+    /// @dev Verify the proof under the stored verifier, which must still be this
+    ///      implementation's circuit's (REQ-COMMON-45).
     function _requireProof(bytes memory proof, bytes32[] memory publicInputs) internal view {
         IHonkVerifier verifier = _base().honkVerifier;
         bytes32 circuit = _circuitCodehash();
