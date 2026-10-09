@@ -77,25 +77,10 @@ impl BindError {
     /// The error's name, as Solidity declares it: `HandleNotProved`,
     /// `DisclosureMismatch`.
     pub fn name(&self) -> &'static str {
-        // Every variant was decoded from a selector its set declares, so
-        // the lookup always answers.
-        match self {
-            Self::Registry(e) => IdentityRegistryErrors::name_by_selector(e.selector()),
-            Self::ProofVerifier(e) => {
-                CeremonyProofVerifierErrors::name_by_selector(e.selector())
-            }
-            Self::TlsNotaryVerifier(e) => {
-                TlsNotaryPlatformVerifierErrors::name_by_selector(e.selector())
-            }
-            Self::GoogleVerifier(e) => {
-                GooglePlatformVerifierErrors::name_by_selector(e.selector())
-            }
-            Self::NotaryService(e) => NotaryServiceErrors::name_by_selector(e.selector()),
-            Self::HonkVerifier(e) => {
-                IHonkVerifierErrorsErrors::name_by_selector(e.selector())
-            }
-        }
-        .unwrap_or("unknown")
+        let signature = self.signature();
+        signature
+            .split_once('(')
+            .map_or(signature, |(name, _)| name)
     }
 
     /// The error's Solidity signature: `HandleNotProved(bytes32,bytes32)`.
