@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
+import {GitHubTranscripts} from "./TranscriptEquivalence.t.sol";
 import {HonkStub} from "./HonkStub.sol";
 import {TlsNotaryProof} from "../CeremonyPayloads.sol";
 import {Test} from "forge-std/Test.sol";
@@ -1146,15 +1147,41 @@ contract GitHubPlatformVerifierTest is Test {
 
     /// @dev A ceremony that actually ran: two MPC-TLS sessions against
     ///      github.com and api.github.com on 2026-09-17, signed as the key
-    ///      this suite trusts (libid-rs `examples/capture_ceremony.rs`). Its
-    ///      identity response reveals the login and the id, which the
-    ///      anchor-only framing refuses: no committed value sits behind either
-    ///      anchor. It verifies again once recaptured with the anchors alone
-    ///      revealed and a proof made of its witness.
+    ///      this suite trusts (libid-rs `examples/capture_ceremony.rs`).
+    ///      Its token session and identity request are laid out as the profile
+    ///      lays them out today, and verify: authenticated by the notary, from
+    ///      the pinned authorities, and through every transcript check of
+    ///      those directions -- the one-request rule included.
+    function test_theRealTokenSessionAndIdentityRequestVerify() public {
+        string memory json = vm.readFile(REAL_SESSION);
+        ICeremony.Attestation memory token = _rustSession(json, ".token");
+        ICeremony.Attestation memory identity = _rustSession(json, ".identity");
+        CeremonyAttestation.AttestedData memory tokenData = notary.verify{value: FEE}(token.attestedData, token.proof);
+        CeremonyAttestation.AttestedData memory identityData =
+            notary.verify{value: FEE}(identity.attestedData, identity.proof);
+        assertEq(tokenData.authorityId, CeremonyProfile.AUTHORITY_GITHUB);
+        assertEq(identityData.authorityId, CeremonyProfile.AUTHORITY_GITHUB_API);
+
+        GitHubTranscripts transcripts = new GitHubTranscripts();
+        (bytes memory clientId, bytes32 tokenCommitment) = transcripts.tokenTranscript(
+            tokenData,
+            vm.parseJsonBytes32(json, ".authorization_digest"),
+            vm.parseJsonBytes32(json, ".authorization_nonce")
+        );
+        assertEq(string(clientId), "Iv23lioEM9NAR9vO8CmT");
+        assertTrue(tokenCommitment != bytes32(0));
+        assertEq(transcripts.identityRequest(identityData), identityData.sent.commitments[0].commitment);
+    }
+
+    /// @dev The whole record, which needs the identity response too. That
+    ///      response reveals the login and the id, which the anchor-only
+    ///      framing refuses: no committed value sits behind either anchor. It
+    ///      verifies again once recaptured with the anchors alone revealed and
+    ///      a proof made of its witness.
     function test_verifiesTheRecordsACeremonyProduced() public {
         vm.skip(
             true,
-            "github-ceremony-real.json predates the hashed identities: it reveals the id and login; recapture with libid-rs capture_ceremony under the anchor-only reveal"
+            "github-ceremony-real.json's identity response predates the hashed identities: it reveals the id and login; recapture with libid-rs capture_ceremony under the anchor-only reveal"
         );
         string memory json = vm.readFile(REAL_SESSION);
         assertEq(vm.parseJsonBytes32(json, ".authorization_digest"), digest, "bound to this suite's digest");

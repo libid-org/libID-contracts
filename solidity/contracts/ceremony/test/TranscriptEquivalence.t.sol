@@ -28,6 +28,10 @@ contract XTranscripts is XPlatformVerifier {
         Commitments memory c = _identityTranscript(data);
         return (c.bearer, c.id, c.handle);
     }
+
+    function identityRequest(CeremonyAttestation.AttestedData memory data) external pure returns (bytes32) {
+        return _identityRequest(data);
+    }
 }
 
 /// @notice `GitHubPlatformVerifier`'s, likewise.
@@ -47,6 +51,10 @@ contract GitHubTranscripts is GitHubPlatformVerifier {
     {
         Commitments memory c = _identityTranscript(data);
         return (c.bearer, c.id, c.handle);
+    }
+
+    function identityRequest(CeremonyAttestation.AttestedData memory data) external pure returns (bytes32) {
+        return _identityRequest(data);
     }
 }
 
@@ -72,6 +80,10 @@ contract RefTranscripts {
         returns (bytes32, bytes32, bytes32)
     {
         return RefTranscript.identityTranscript(data, _profile());
+    }
+
+    function identityRequest(CeremonyAttestation.AttestedData memory data) external view returns (bytes32) {
+        return RefTranscript.identityRequest(data, _profile());
     }
 
     function _profile() private view returns (RefTranscript.Profile memory) {
@@ -1267,11 +1279,19 @@ contract TranscriptEquivalenceTest is Test {
         _real("contracts/ceremony/test/fixtures/github-ceremony-session.json", address(github), address(refGitHub));
     }
 
-    /// @dev And the two ceremonies that ran against the platforms.
-    function test_theRealSessionsMatchReference() public {
+    /// @dev And the two ceremonies that ran against the platforms: the token
+    ///      session and the identity request, which the captures lay out as
+    ///      the profiles do today.
+    function test_theRealSessionsMatchReference() public view {
+        _realRequests("contracts/ceremony/test/fixtures/x-ceremony-real.json", address(x), address(refX));
+        _realRequests("contracts/ceremony/test/fixtures/github-ceremony-real.json", address(github), address(refGitHub));
+    }
+
+    /// @dev Their identity responses predate the anchor-only reveal.
+    function test_theRealIdentityResponsesMatchReference() public {
         vm.skip(
             true,
-            "the *-ceremony-real.json captures predate the hashed identities and reveal the id and handle; recapture under the anchor-only reveal"
+            "the *-ceremony-real.json identity responses predate the hashed identities: they reveal the id and handle; recapture under the anchor-only reveal"
         );
         _real("contracts/ceremony/test/fixtures/x-ceremony-real.json", address(x), address(refX));
         _real("contracts/ceremony/test/fixtures/github-ceremony-real.json", address(github), address(refGitHub));
@@ -1279,13 +1299,29 @@ contract TranscriptEquivalenceTest is Test {
 
     function _real(string memory path, address live_, address ref_) private view {
         string memory json = vm.readFile(path);
+        _realRequests(path, live_, ref_);
+        CeremonyAttestation.AttestedData memory identity =
+            this.decode(vm.parseJsonBytes(json, ".identity.attested_data"));
+        assertTrue(_same(live_, ref_, abi.encodeCall(XTranscripts.identityTranscript, (identity))));
+    }
+
+    /// @dev Both implementations accept the token session and the identity
+    ///      request, and agree on what they return.
+    function _realRequests(string memory path, address live_, address ref_) private view {
+        string memory json = vm.readFile(path);
         CeremonyAttestation.AttestedData memory token = this.decode(vm.parseJsonBytes(json, ".token.attested_data"));
         CeremonyAttestation.AttestedData memory identity =
             this.decode(vm.parseJsonBytes(json, ".identity.attested_data"));
         bytes32 digest = vm.parseJsonBytes32(json, ".authorization_digest");
         bytes32 nonce = vm.parseJsonBytes32(json, ".authorization_nonce");
-        assertTrue(_same(live_, ref_, abi.encodeCall(XTranscripts.tokenTranscript, (token, digest, nonce))));
-        assertTrue(_same(live_, ref_, abi.encodeCall(XTranscripts.identityTranscript, (identity))));
+        assertTrue(
+            _same(live_, ref_, abi.encodeCall(XTranscripts.tokenTranscript, (token, digest, nonce))),
+            "the token session is refused"
+        );
+        assertTrue(
+            _same(live_, ref_, abi.encodeCall(XTranscripts.identityRequest, (identity))),
+            "the identity request is refused"
+        );
     }
 
     function decode(bytes calldata data) external pure returns (CeremonyAttestation.AttestedData memory) {

@@ -314,6 +314,14 @@ abstract contract TlsNotaryVerifierBase is IPlatformVerifier, PlatformVerifierBa
         pure
         returns (Commitments memory committed)
     {
+        committed.bearer = _identityRequest(data);
+        (committed.id, committed.handle) = _identityResponse(data);
+    }
+
+    /// @dev The identity session's sent direction: the request line, one
+    ///      bodiless request, its one authorization header framing the
+    ///      committed bearer, and no forbidden header. Returns that bearer.
+    function _identityRequest(CeremonyAttestation.AttestedData memory data) internal pure returns (bytes32) {
         // REQ-COMMON-21A: the path separates operations on the same server.
         // Anchored at the origin for the same reason as the token request --
         // the lowest-offset revealed range is wherever the prover put it.
@@ -334,9 +342,18 @@ abstract contract TlsNotaryVerifierBase is IPlatformVerifier, PlatformVerifierBa
         // as the token session carries its one request.
         (CeremonyAttestation.RangeCommitment memory bearer, bytes memory revealed) =
             CeremonyAttestation.requireBearerHeaderRequest(data.sent, data.sentTranscriptLength);
-        committed.bearer = bearer.commitment;
         _checkIdentityHead(revealed);
+        return bearer.commitment;
+    }
 
+    /// @dev The identity session's received direction: tiled, with the id and
+    ///      the handle each one commitment framed by its revealed anchors.
+    ///      Returns the two commitments.
+    function _identityResponse(CeremonyAttestation.AttestedData memory data)
+        internal
+        pure
+        returns (bytes32 id, bytes32 handle)
+    {
         // Tiled, and the two values hidden. Every response byte is revealed or
         // committed, and the id and the handle are each one commitment, found
         // by the revealed anchors immediately around it: `"username":"` before
@@ -360,14 +377,14 @@ abstract contract TlsNotaryVerifierBase is IPlatformVerifier, PlatformVerifierBa
         (string memory idField, IdShape idShape, string memory handleField) = _identityFields();
         // Joined and normalized once; both reads count their prefix in it.
         bytes memory normalized = CeremonyAttestation.normalizedRevealed(data.received);
-        committed.id = idShape == IdShape.JsonString
+        id = idShape == IdShape.JsonString
             ? CeremonyAttestation.requireFramedCommitment(
                 data.received, normalized, abi.encodePacked('"', idField, '":"'), '"'
             )
             .commitment
             : CeremonyAttestation.requireFramedInteger(data.received, normalized, abi.encodePacked('"', idField, '":'))
             .commitment;
-        committed.handle =
+        handle =
         CeremonyAttestation.requireFramedCommitment(
             data.received, normalized, abi.encodePacked('"', handleField, '":"'), '"'
         )

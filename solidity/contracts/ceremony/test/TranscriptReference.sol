@@ -666,6 +666,16 @@ library RefTranscript {
         pure
         returns (bytes32 bearerCommitment, bytes32 idCommitment, bytes32 handleCommitment)
     {
+        bearerCommitment = identityRequest(data, profile);
+        (idCommitment, handleCommitment) = identityResponse(data, profile);
+    }
+
+    /// @dev `_identityRequest`: the committed bearer.
+    function identityRequest(CeremonyAttestation.AttestedData memory data, Profile memory profile)
+        internal
+        pure
+        returns (bytes32 bearerCommitment)
+    {
         if (data.sent.revealed.length == 0 || data.sent.revealed[0].start != 0) {
             revert RequestLineNotAtOrigin(data.sent.revealed.length == 0
                     ? type(uint32).max
@@ -679,7 +689,14 @@ library RefTranscript {
             RefCeremonyAttestation.requireBearerHeaderRequest(data.sent, data.sentTranscriptLength);
         bearerCommitment = bearer.commitment;
         _checkIdentityHead(RefCeremonyAttestation.concatRevealed(data.sent));
+    }
 
+    /// @dev `_identityResponse`: the committed id and handle.
+    function identityResponse(CeremonyAttestation.AttestedData memory data, Profile memory profile)
+        internal
+        pure
+        returns (bytes32 idCommitment, bytes32 handleCommitment)
+    {
         RefCeremonyAttestation.requireExactCoverage(data.received, data.recvTranscriptLength);
         idCommitment = profile.idIsInteger
             ? RefCeremonyAttestation.requireFramedInteger(data.received, abi.encodePacked('"', profile.idField, '":'))
