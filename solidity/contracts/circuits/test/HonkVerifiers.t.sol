@@ -18,8 +18,8 @@ import {CircuitCodehashes} from "../CircuitCodehashes.sol";
 ///      getter, so nothing here can ask it WHICH circuit it answers for. What
 ///      it does say is the `logN` a wrong-length proof comes back with, and
 ///      what each accepts. The two bearer-link circuits differ only in their
-///      platform rules and tags, so they may share a `logN`; a real proof of
-///      one refused by the other is what separates them. Either check catches
+///      platform rules, tags and bearer caps, so they may share a `logN`; a
+///      real proof of one refused by the other is what separates them. Either check catches
 ///      a release whose tarballs were swapped, or a vendor run that wrote one
 ///      circuit's verifier under another's name.
 ///

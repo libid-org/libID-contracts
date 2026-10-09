@@ -41,16 +41,15 @@ import {TlsNotaryProof} from "./CeremonyPayloads.sol";
 ///      tied to a session yet.
 abstract contract TlsNotaryVerifierBase is IPlatformVerifier, PlatformVerifierBase {
     /// @dev The bearer-link circuit's public inputs, in its order: the two
-    ///      bearer commitments one byte per field, then the id and handle
-    ///      commitments and the two nodes, each as two 16-byte big-endian
-    ///      halves `[high, low]`.
-    uint256 internal constant PUBLIC_INPUTS = 72;
+    ///      bearer commitments, the id and handle commitments and the two
+    ///      nodes, each as two 16-byte big-endian halves `[high, low]`.
+    uint256 internal constant PUBLIC_INPUTS = 12;
     uint256 internal constant OFF_TOKEN_COMMITMENT = 0;
-    uint256 internal constant OFF_IDENTITY_COMMITMENT = 32;
-    uint256 internal constant OFF_ID_COMMITMENT = 64;
-    uint256 internal constant OFF_HANDLE_COMMITMENT = 66;
-    uint256 internal constant OFF_ID_NODE = 68;
-    uint256 internal constant OFF_HANDLE_NODE = 70;
+    uint256 internal constant OFF_IDENTITY_COMMITMENT = 2;
+    uint256 internal constant OFF_ID_COMMITMENT = 4;
+    uint256 internal constant OFF_HANDLE_COMMITMENT = 6;
+    uint256 internal constant OFF_ID_NODE = 8;
+    uint256 internal constant OFF_HANDLE_NODE = 10;
 
     /// @dev What frames the committed bearer in the token response. Every other
     ///      response byte is hidden, so without these the committed range is
@@ -395,23 +394,20 @@ abstract contract TlsNotaryVerifierBase is IPlatformVerifier, PlatformVerifierBa
 
     /// @dev The circuit's public inputs, as this verifier derives them.
     ///
-    ///      The two bearer commitments as 64 field elements of one byte each,
-    ///      token first, then the id and handle commitments and the two nodes
-    ///      as `[high, low]` halves. The circuit fixes that order; this
-    ///      contract fixes where the values come from -- the commitments from
-    ///      the attestations it just authenticated, the nodes from the claim
-    ///      it is about to return -- so the proof binds exactly what leaves
-    ///      (REQ-PLAT-32C, REQ-PLAT-52B).
+    ///      The two bearer commitments, token first, then the id and handle
+    ///      commitments and the two nodes, each as `[high, low]` halves. The
+    ///      circuit fixes that order; this contract fixes where the values
+    ///      come from -- the commitments from the attestations it just
+    ///      authenticated, the nodes from the claim it is about to return --
+    ///      so the proof binds exactly what leaves (REQ-PLAT-32C, REQ-PLAT-52B).
     function _publicInputs(bytes32 tokenCommitment, Commitments memory identity, bytes32 idNode, bytes32 handleNode)
         private
         pure
         returns (bytes32[] memory inputs)
     {
         inputs = new bytes32[](PUBLIC_INPUTS);
-        for (uint256 i = 0; i < 32; ++i) {
-            inputs[OFF_TOKEN_COMMITMENT + i] = bytes32(uint256(uint8(tokenCommitment[i])));
-            inputs[OFF_IDENTITY_COMMITMENT + i] = bytes32(uint256(uint8(identity.bearer[i])));
-        }
+        _halves(inputs, OFF_TOKEN_COMMITMENT, tokenCommitment);
+        _halves(inputs, OFF_IDENTITY_COMMITMENT, identity.bearer);
         _halves(inputs, OFF_ID_COMMITMENT, identity.id);
         _halves(inputs, OFF_HANDLE_COMMITMENT, identity.handle);
         _halves(inputs, OFF_ID_NODE, idNode);

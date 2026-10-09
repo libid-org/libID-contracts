@@ -946,7 +946,7 @@ contract GitHubPlatformVerifierTest is RealTlsNotaryProofTest {
     ///      `OctoCat`, and the circuit folded it.
     function test_verifiesARealProofOfTheRecordsLibidRsProduces() public {
         (TlsNotaryProof memory s, address circuit, bytes32[] memory proved) = _realProofPayload();
-        assertEq(proved.length, 72);
+        assertEq(proved.length, 12);
         vm.expectCall(circuit, abi.encodeCall(IHonkVerifier.verify, (s.proof, proved)));
         ICeremony.VerifiedClaim memory f = this.run{value: quote}(s);
         assertEq(f.idNode, 0x475902b27989feb395b9b0cd3156aa573a9676c13155b8e7e3ddaf3e77181847, "hashlib idNode");
@@ -1204,21 +1204,18 @@ contract GitHubPlatformVerifierTest is RealTlsNotaryProofTest {
         this.run{value: quote}(s);
     }
 
-    /// @dev REQ-PLAT-52B: the 72 inputs the proof is checked against are
+    /// @dev REQ-PLAT-52B: the 12 inputs the proof is checked against are
     ///      built from the two attestations and the payload's nodes, written
-    ///      out here independently of the verifier: the bearer commitments a
-    ///      byte per field, then the id and login commitments and the two
-    ///      nodes as `[high, low]` halves.
+    ///      out here independently of the verifier: the bearer commitments,
+    ///      the id and login commitments and the two nodes, each as
+    ///      `[high, low]` halves.
     function test_provesAgainstTheCommitmentsTheNotarySigned() public {
-        bytes32[] memory expected = new bytes32[](72);
-        for (uint256 i = 0; i < 32; ++i) {
-            expected[i] = bytes32(uint256(uint8(TOKEN_COMMITMENT[i])));
-            expected[32 + i] = bytes32(uint256(uint8(IDENTITY_COMMITMENT[i])));
-        }
-        bytes32[4] memory wide = [ID_COMMITMENT, HANDLE_COMMITMENT, ID_NODE, HANDLE_NODE];
-        for (uint256 k = 0; k < 4; ++k) {
-            expected[64 + 2 * k] = bytes32(uint256(wide[k]) / 2 ** 128);
-            expected[65 + 2 * k] = bytes32(uint256(wide[k]) % 2 ** 128);
+        bytes32[] memory expected = new bytes32[](12);
+        bytes32[6] memory wide =
+            [TOKEN_COMMITMENT, IDENTITY_COMMITMENT, ID_COMMITMENT, HANDLE_COMMITMENT, ID_NODE, HANDLE_NODE];
+        for (uint256 k = 0; k < 6; ++k) {
+            expected[2 * k] = bytes32(uint256(wide[k]) / 2 ** 128);
+            expected[2 * k + 1] = bytes32(uint256(wide[k]) % 2 ** 128);
         }
         TlsNotaryProof memory s = _payload();
         vm.expectCall(address(honk), abi.encodeCall(IHonkVerifier.verify, (s.proof, expected)));

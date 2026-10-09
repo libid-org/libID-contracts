@@ -137,9 +137,9 @@ contract ClaimVerificationGasTest is Test {
             attestedData: vm.parseJsonBytes(session, ".identity.attested_data"),
             proof: vm.parseJsonBytes(session, ".identity.notary_signature")
         });
-        // The nodes the circuit output, `[high, low]` at fields 68 to 71.
-        p.idNode = AttestationBuilder.nodeAt(inputs, 68);
-        p.handleNode = AttestationBuilder.nodeAt(inputs, 70);
+        // The nodes the circuit output, `[high, low]` at fields 8 to 11.
+        p.idNode = AttestationBuilder.nodeAt(inputs, 8);
+        p.handleNode = AttestationBuilder.nodeAt(inputs, 10);
         p.proof = vm.parseJsonBytes(proof, ".proof");
         bytes memory payload = abi.encode(p);
 

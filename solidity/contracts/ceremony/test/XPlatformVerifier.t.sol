@@ -573,23 +573,19 @@ contract XPlatformVerifierTest is RealTlsNotaryProofTest {
         this.run{value: quote}(s);
     }
 
-    /// The 72 public inputs, written out independently of the verifier: the
-    /// two bearer commitments a byte per field, then the id and handle
-    /// commitments and this suite's two nodes as `[high, low]` halves.
+    /// The 12 public inputs, written out independently of the verifier: the
+    /// two bearer commitments, the id and handle commitments and this suite's
+    /// two nodes, each as `[high, low]` halves.
     function _expectedInputs(bytes32 token, bytes32 identity, bytes32 id, bytes32 handle)
         private
         pure
         returns (bytes32[] memory expected)
     {
-        expected = new bytes32[](72);
-        for (uint256 i = 0; i < 32; ++i) {
-            expected[i] = bytes32(uint256(uint8(token[i])));
-            expected[32 + i] = bytes32(uint256(uint8(identity[i])));
-        }
-        bytes32[4] memory wide = [id, handle, ID_NODE, HANDLE_NODE];
-        for (uint256 k = 0; k < 4; ++k) {
-            expected[64 + 2 * k] = bytes32(uint256(wide[k]) / 2 ** 128);
-            expected[65 + 2 * k] = bytes32(uint256(wide[k]) % 2 ** 128);
+        expected = new bytes32[](12);
+        bytes32[6] memory wide = [token, identity, id, handle, ID_NODE, HANDLE_NODE];
+        for (uint256 k = 0; k < 6; ++k) {
+            expected[2 * k] = bytes32(uint256(wide[k]) / 2 ** 128);
+            expected[2 * k + 1] = bytes32(uint256(wide[k]) % 2 ** 128);
         }
     }
 
@@ -754,12 +750,12 @@ contract XPlatformVerifierTest is RealTlsNotaryProofTest {
     ///      Python's hashlib computes for `2244994945` and `alice_1`: the
     ///      platform sent `Alice_1`, and the circuit folded it.
     ///
-    ///      The stub accepts any public inputs, so only this says the 72 the
+    ///      The stub accepts any public inputs, so only this says the 12 the
     ///      verifier builds from the two sessions and the payload are the ones
     ///      the circuit proved.
     function test_verifiesARealProofOfTheRecordsLibidRsProduces() public {
         (TlsNotaryProof memory s, address circuit, bytes32[] memory proved) = _realProofPayload();
-        assertEq(proved.length, 72);
+        assertEq(proved.length, 12);
         vm.expectCall(circuit, abi.encodeCall(IHonkVerifier.verify, (s.proof, proved)));
         ICeremony.VerifiedClaim memory f = this.run{value: quote}(s);
         assertEq(f.idNode, 0x68291869976ffad2abf3e933ec9ab2623395ff8b3b9242e655e1da3ef43d4f94, "hashlib idNode");

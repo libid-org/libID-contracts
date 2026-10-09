@@ -48,12 +48,12 @@ contract PayloadEncodingTest is Test {
     }
 
     /// The nodes the fixture names are the proof's outputs, `[high, low]` at
-    /// fields 68 to 71, so the pinned payload is one the verifier accepts.
+    /// fields 8 to 11, so the pinned payload is one the verifier accepts.
     function test_theNodesAreTheProofsOutputs() public view {
         bytes32[] memory inputs = vm.parseJsonBytes32Array(vm.readFile(PROOF), ".public_inputs");
         string memory extra = vm.readFile(PAYLOAD);
-        assertEq(AttestationBuilder.nodeAt(inputs, 68), vm.parseJsonBytes32(extra, ".id_node"));
-        assertEq(AttestationBuilder.nodeAt(inputs, 70), vm.parseJsonBytes32(extra, ".handle_node"));
+        assertEq(AttestationBuilder.nodeAt(inputs, 8), vm.parseJsonBytes32(extra, ".id_node"));
+        assertEq(AttestationBuilder.nodeAt(inputs, 10), vm.parseJsonBytes32(extra, ".handle_node"));
     }
 
     /// The interface's ABI is the struct's: its arguments encode as the

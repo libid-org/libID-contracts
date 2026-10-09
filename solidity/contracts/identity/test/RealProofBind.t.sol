@@ -240,9 +240,9 @@ abstract contract RealTlsNotaryBind is RealProofBindBase {
         return vm.parseJsonBytes32Array(vm.readFile(_proofFile()), ".public_inputs");
     }
 
-    /// `[high, low]` at fields 68 to 71.
+    /// `[high, low]` at fields 8 to 11.
     function _idNodeAt() internal pure override returns (uint256) {
-        return 68;
+        return 8;
     }
 }
 
