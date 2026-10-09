@@ -16,20 +16,13 @@ use sha2::{
 use super::handle_vectors as v;
 use crate::{
     check_id,
-    id_rules_for,
     normalize,
-    rules_for,
     HandleError,
 };
 
 /// The tags a platform's nodes are hashed under: `(user id, handle)`.
 pub fn tags_for(platform_key: &str) -> Option<(&'static str, &'static str)> {
-    match platform_key {
-        v::PLATFORM_X_KEY => Some((v::USER_ID_TAG_X, v::HANDLE_TAG_X)),
-        v::PLATFORM_GITHUB_KEY => Some((v::USER_ID_TAG_GITHUB, v::HANDLE_TAG_GITHUB)),
-        v::PLATFORM_GOOGLE_KEY => Some((v::USER_ID_TAG_GOOGLE, v::HANDLE_TAG_GOOGLE)),
-        _ => None,
-    }
+    v::platform(platform_key).map(|p| (p.user_id_tag, p.handle_tag))
 }
 
 fn tagged(tag: &str, value: &str) -> [u8; 32] {
@@ -46,16 +39,14 @@ pub fn handle_node(
     platform_key: &str,
     raw: &str,
 ) -> Option<Result<[u8; 32], HandleError>> {
-    let (_, tag) = tags_for(platform_key)?;
-    let rules = rules_for(platform_key)?;
-    Some(normalize(raw, rules).map(|normalized| tagged(tag, &normalized)))
+    let p = v::platform(platform_key)?;
+    Some(normalize(raw, p.rules).map(|normalized| tagged(p.handle_tag, &normalized)))
 }
 
 /// The node a user id is bound under. The id is hashed exactly as given.
 pub fn id_node(platform_key: &str, id: &str) -> Option<Result<[u8; 32], HandleError>> {
-    let (tag, _) = tags_for(platform_key)?;
-    let rules = id_rules_for(platform_key)?;
-    Some(check_id(id, rules).map(|()| tagged(tag, id)))
+    let p = v::platform(platform_key)?;
+    Some(check_id(id, p.id_rules).map(|()| tagged(p.user_id_tag, id)))
 }
 
 #[cfg(test)]

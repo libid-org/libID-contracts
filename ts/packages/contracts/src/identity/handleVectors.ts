@@ -3,6 +3,9 @@
 
 /// Platform ids and the shared handle vector table.
 
+import type { Rules } from './handle.js'
+import type { IdRules } from './node.js'
+
 export interface HandleVector {
   platform: string
   input: string
@@ -24,6 +27,18 @@ export interface IdVector {
   idNode: string
 }
 
+/** A platform `handles.json` names: its key, its node tags and its rules. */
+export interface Platform {
+  /** keccak256 of this string is the platform id. */
+  key: string
+  /** An id node is SHA256 of this tag, then the id. */
+  userIdTag: string
+  /** A handle node is SHA256 of this tag, then the normalized handle. */
+  handleTag: string
+  rules: Rules
+  idRules: IdRules
+}
+
 /** SHA-256 of the handles.json this file was generated from. */
 export const TABLE_SHA256 = 'bacafa6023dd82852f753efa04635b36899b881f5d37fe15260e7dd532272560'
 
@@ -34,62 +49,50 @@ export const PLATFORM_GITHUB_KEY = 'github'
 /** keccak256 of this string is the platform id. */
 export const PLATFORM_GOOGLE_KEY = 'google'
 
-/** Bytes a x handle may have after normalization. */
-export const MAX_LENGTH_X = 15
-/** Bytes a github handle may have after normalization. */
-export const MAX_LENGTH_GITHUB = 39
-/** Bytes a google handle may have after normalization. */
-export const MAX_LENGTH_GOOGLE = 62
+export const PLATFORM_X: Platform = {
+  key: PLATFORM_X_KEY,
+  userIdTag: 'libid.x.user-id',
+  handleTag: 'libid.x.handle',
+  rules: {
+    maxLength: 15,
+    isEmail: false,
+    allowUnderscore: true,
+    allowHyphen: false,
+  },
+  idRules: { maxLength: 20, decimal: true, leadingZero: true },
+}
+export const PLATFORM_GITHUB: Platform = {
+  key: PLATFORM_GITHUB_KEY,
+  userIdTag: 'libid.github.user-id',
+  handleTag: 'libid.github.handle',
+  rules: {
+    maxLength: 39,
+    isEmail: false,
+    allowUnderscore: false,
+    allowHyphen: true,
+  },
+  idRules: { maxLength: 20, decimal: true, leadingZero: false },
+}
+export const PLATFORM_GOOGLE: Platform = {
+  key: PLATFORM_GOOGLE_KEY,
+  userIdTag: 'libid.google.user-id',
+  handleTag: 'libid.google.handle',
+  rules: {
+    maxLength: 62,
+    isEmail: true,
+    allowUnderscore: false,
+    allowHyphen: false,
+  },
+  idRules: { maxLength: 31, decimal: false, leadingZero: true },
+}
 
-/** An id node is SHA256 of this tag, then the id. */
-export const USER_ID_TAG_X = 'libid.x.user-id'
-/** A handle node is SHA256 of this tag, then the normalized handle. */
-export const HANDLE_TAG_X = 'libid.x.handle'
-/** Bytes a x id may have. */
-export const MAX_ID_LENGTH_X = 20
-/** The id is ASCII digits; otherwise printable ASCII without a quote or backslash. */
-export const ID_DECIMAL_X = true
-/** The id may start with `0` when longer than one byte. */
-export const ID_LEADING_ZERO_X = true
-/** An id node is SHA256 of this tag, then the id. */
-export const USER_ID_TAG_GITHUB = 'libid.github.user-id'
-/** A handle node is SHA256 of this tag, then the normalized handle. */
-export const HANDLE_TAG_GITHUB = 'libid.github.handle'
-/** Bytes a github id may have. */
-export const MAX_ID_LENGTH_GITHUB = 20
-/** The id is ASCII digits; otherwise printable ASCII without a quote or backslash. */
-export const ID_DECIMAL_GITHUB = true
-/** The id may start with `0` when longer than one byte. */
-export const ID_LEADING_ZERO_GITHUB = false
-/** An id node is SHA256 of this tag, then the id. */
-export const USER_ID_TAG_GOOGLE = 'libid.google.user-id'
-/** A handle node is SHA256 of this tag, then the normalized handle. */
-export const HANDLE_TAG_GOOGLE = 'libid.google.handle'
-/** Bytes a google id may have. */
-export const MAX_ID_LENGTH_GOOGLE = 31
-/** The id is ASCII digits; otherwise printable ASCII without a quote or backslash. */
-export const ID_DECIMAL_GOOGLE = false
-/** The id may start with `0` when longer than one byte. */
-export const ID_LEADING_ZERO_GOOGLE = true
+/** Every platform, in table order. */
+export const PLATFORMS: readonly Platform[] = [PLATFORM_X, PLATFORM_GITHUB, PLATFORM_GOOGLE]
 
-/** Validate as an address instead of a bare handle. */
-export const IS_EMAIL_X = false
-/** Allow `_`. */
-export const ALLOW_UNDERSCORE_X = true
-/** Allow `-`, but not leading, trailing or doubled. */
-export const ALLOW_HYPHEN_X = false
-/** Validate as an address instead of a bare handle. */
-export const IS_EMAIL_GITHUB = false
-/** Allow `_`. */
-export const ALLOW_UNDERSCORE_GITHUB = false
-/** Allow `-`, but not leading, trailing or doubled. */
-export const ALLOW_HYPHEN_GITHUB = true
-/** Validate as an address instead of a bare handle. */
-export const IS_EMAIL_GOOGLE = true
-/** Allow `_`. */
-export const ALLOW_UNDERSCORE_GOOGLE = false
-/** Allow `-`, but not leading, trailing or doubled. */
-export const ALLOW_HYPHEN_GOOGLE = false
+/** The platform with this key, if the table names it. */
+export function platform(key: string): Platform | undefined {
+  return PLATFORMS.find((p) => p.key === key)
+}
 
 export const ERROR_EMPTY = 0
 export const ERROR_TOOLONG = 1

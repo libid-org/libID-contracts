@@ -25,10 +25,6 @@ library HandlePlatforms {
     /// keccak256(bytes("google"))
     bytes32 internal constant PLATFORM_GOOGLE = keccak256(bytes("google"));
 
-    uint256 internal constant MAX_LENGTH_X = 15;
-    uint256 internal constant MAX_LENGTH_GITHUB = 39;
-    uint256 internal constant MAX_LENGTH_GOOGLE = 62;
-
     /// `libid.x.user-id`: an id node is SHA256 of this, then the id.
     bytes internal constant USER_ID_TAG_X = "libid.x.user-id";
     /// `libid.x.handle`: a handle node is SHA256 of this, then the
@@ -77,15 +73,52 @@ library HandlePlatforms {
     ///      keep their own copy. Reverts on an unknown platform rather
     ///      than returning a permissive default, because a wrong rule
     ///      set writes wrong nodes.
-    function rulesFor(bytes32 platformId) internal pure returns (HandleNormalizer.Rules memory) {
+    function rulesFor(bytes32 platformId) internal pure returns (HandleNormalizer.Rules memory rules) {
+        (rules,) = _handleKeys(platformId);
+    }
+
+    /// The handle typed text names on a platform, normalized with its
+    /// rules, and the node it is bound under, hashed under its tag.
+    ///
+    /// @dev Reverts `UnusableHandle` for text the rules refuse, and
+    ///      `UnknownPlatform`.
+    function handleNodeOf(bytes32 platformId, string memory raw)
+        internal
+        pure
+        returns (string memory normalized, bytes32 handleNode)
+    {
+        (HandleNormalizer.Rules memory rules, bytes memory tag) = _handleKeys(platformId);
+        return HandleNormalizer.nodeOf(raw, rules, tag);
+    }
+
+    /// `handleNodeOf`, reporting what the rules refuse instead of reverting.
+    ///
+    /// @dev Reverts `UnknownPlatform`.
+    function tryHandleNodeOf(bytes32 platformId, string memory raw)
+        internal
+        pure
+        returns (HandleNormalizer.Problem problem, bytes32 handleNode)
+    {
+        (HandleNormalizer.Rules memory rules, bytes memory tag) = _handleKeys(platformId);
+        return HandleNormalizer.tryNodeOf(raw, rules, tag);
+    }
+
+    function _handleKeys(bytes32 platformId)
+        private
+        pure
+        returns (HandleNormalizer.Rules memory rules, bytes memory tag)
+    {
         if (platformId == PLATFORM_X) {
-            return HandleNormalizer.Rules({maxLength: 15, isEmail: false, allowUnderscore: true, allowHyphen: false});
+            rules = HandleNormalizer.Rules({maxLength: 15, isEmail: false, allowUnderscore: true, allowHyphen: false});
+            return (rules, HANDLE_TAG_X);
         }
         if (platformId == PLATFORM_GITHUB) {
-            return HandleNormalizer.Rules({maxLength: 39, isEmail: false, allowUnderscore: false, allowHyphen: true});
+            rules = HandleNormalizer.Rules({maxLength: 39, isEmail: false, allowUnderscore: false, allowHyphen: true});
+            return (rules, HANDLE_TAG_GITHUB);
         }
         if (platformId == PLATFORM_GOOGLE) {
-            return HandleNormalizer.Rules({maxLength: 62, isEmail: true, allowUnderscore: false, allowHyphen: false});
+            rules = HandleNormalizer.Rules({maxLength: 62, isEmail: true, allowUnderscore: false, allowHyphen: false});
+            return (rules, HANDLE_TAG_GOOGLE);
         }
         revert UnknownPlatform(platformId);
     }

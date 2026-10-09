@@ -538,9 +538,7 @@ contract IdentityRegistry is
     ///      `handleNodeOf` does, and `UnknownPlatform`.
     function publish(bytes32 platformId, string calldata handle) external {
         _requireKnown(platformId);
-        (string memory normalized, bytes32 handleNode) = HandleNormalizer.nodeOf(
-            handle, HandlePlatforms.rulesFor(platformId), HandlePlatforms.handleTagFor(platformId)
-        );
+        (string memory normalized, bytes32 handleNode) = HandlePlatforms.handleNodeOf(platformId, handle);
         if (_s().handleBindings[handleNode].holder != msg.sender) revert NotYourHandle(handleNode);
         _name(platformId, handleNode, normalized);
     }
@@ -558,19 +556,6 @@ contract IdentityRegistry is
     function _name(bytes32 platformId, bytes32 handleNode, string memory handle) private {
         _s().published[msg.sender][platformId] = handle;
         emit HandlePublished(msg.sender, platformId, handleNode, handle);
-    }
-
-    /// @dev The node typed text names on a platform, or why it names none.
-    function _tryNodeOf(bytes32 platformId, string calldata handle)
-        private
-        pure
-        returns (HandleNormalizer.Problem problem, bytes32 handleNode)
-    {
-        string memory normalized;
-        (problem, normalized) = HandleNormalizer.tryNormalize(handle, HandlePlatforms.rulesFor(platformId));
-        if (problem == HandleNormalizer.Problem.None) {
-            handleNode = HandleNormalizer.node(HandlePlatforms.handleTagFor(platformId), normalized);
-        }
     }
 
     // ─── Guards ─────────────────────────────────────────────────────
@@ -619,7 +604,7 @@ contract IdentityRegistry is
     ///      escrow deposit is keyed by it.
     function handleNodeOf(bytes32 platformId, string calldata handle) external pure returns (bytes32) {
         _requireKnown(platformId);
-        (HandleNormalizer.Problem problem, bytes32 handleNode) = _tryNodeOf(platformId, handle);
+        (HandleNormalizer.Problem problem, bytes32 handleNode) = HandlePlatforms.tryHandleNodeOf(platformId, handle);
         if (problem != HandleNormalizer.Problem.None) revert HandleNormalizer.UnusableHandle(problem);
         return handleNode;
     }
@@ -641,7 +626,7 @@ contract IdentityRegistry is
     ///         can have.
     function resolveHandle(bytes32 platformId, string calldata handle) external view returns (address) {
         _requireUsable(platformId);
-        (HandleNormalizer.Problem problem, bytes32 handleNode) = _tryNodeOf(platformId, handle);
+        (HandleNormalizer.Problem problem, bytes32 handleNode) = HandlePlatforms.tryHandleNodeOf(platformId, handle);
         if (problem != HandleNormalizer.Problem.None) return address(0);
         return _s().handleBindings[handleNode].holder;
     }
@@ -689,7 +674,7 @@ contract IdentityRegistry is
         returns (address holder, bool idAgrees)
     {
         _requireUsable(platformId);
-        (HandleNormalizer.Problem problem, bytes32 handleNode) = _tryNodeOf(platformId, handle);
+        (HandleNormalizer.Problem problem, bytes32 handleNode) = HandlePlatforms.tryHandleNodeOf(platformId, handle);
         holder = problem == HandleNormalizer.Problem.None ? _s().handleBindings[handleNode].holder : address(0);
         idAgrees =
             holder != address(0) && _s().idBindings[idNode].holder == holder && _s().platformOfId[idNode] == platformId;

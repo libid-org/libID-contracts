@@ -150,6 +150,18 @@ library HandleNormalizer {
         handleNode = node(tag, normalized);
     }
 
+    /// @notice `nodeOf`, reporting instead of reverting: what was wrong with
+    ///         the handle, or `Problem.None` and its node.
+    function tryNodeOf(string memory raw, Rules memory rules, bytes memory tag)
+        internal
+        pure
+        returns (Problem problem, bytes32 handleNode)
+    {
+        string memory normalized;
+        (problem, normalized) = tryNormalize(raw, rules);
+        if (problem == Problem.None) handleNode = node(tag, normalized);
+    }
+
     /// @notice `SHA256(tag || normalized)`: the node a normalized handle is
     ///         bound under. The one place this contract set writes the
     ///         formula the circuits compute.

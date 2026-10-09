@@ -159,7 +159,9 @@ async fn deploys_the_identity_stack_behind_proxies() {
             .await
             .unwrap()
             .as_ref(),
-        libid_identity::handle_vectors::HANDLE_TAG_GITHUB.as_bytes()
+        libid_identity::handle_vectors::PLATFORM_GITHUB
+            .handle_tag
+            .as_bytes()
     );
 
     // The root list points at the Notary Service, quotes its fee, and starts

@@ -74,21 +74,14 @@ def as_lines(note: Any) -> list[str]:
     return textwrap.wrap(str(note), width=68)
 
 
-def rule_flags(platform: dict[str, Any]) -> tuple[tuple[str, bool, str], ...]:
-    """The normalizer's boolean rules for one platform, as (name, value, doc).
-
-    Every language reads this, so a flag added here reaches all three outputs
-    at once. Restating the list per generator is the drift this file exists to
-    prevent.
-    """
-    return (
-        ("IS_EMAIL", platform.get("shape") == "email",
-         "Validate as an address instead of a bare handle."),
-        ("ALLOW_UNDERSCORE", bool(platform.get("allowUnderscore", False)),
-         "Allow `_`."),
-        ("ALLOW_HYPHEN", bool(platform.get("allowHyphen", False)),
-         "Allow `-`, but not leading, trailing or doubled."),
-    )
+def handle_flags(platform: dict[str, Any]) -> dict[str, bool]:
+    """The normalizer's boolean rules for one platform. Every generator reads
+    them here, so a flag added here reaches every output at once."""
+    return {
+        "isEmail": platform.get("shape") == "email",
+        "allowUnderscore": bool(platform.get("allowUnderscore", False)),
+        "allowHyphen": bool(platform.get("allowHyphen", False)),
+    }
 
 
 def table_sha256(raw: bytes) -> str:
@@ -236,13 +229,6 @@ def gen_sol(spec: dict[str, Any], digest: str) -> str:
 
     for p in platforms:
         name = p["key"].upper()
-        lines.append(
-            f"    uint256 internal constant MAX_LENGTH_{name} = {p['maxLength']};"
-        )
-    lines.append("")
-
-    for p in platforms:
-        name = p["key"].upper()
         lines.append(f'    /// `{p["tags"]["userId"]}`: an id node is SHA256 of this, then the id.')
         lines.append(f'    bytes internal constant USER_ID_TAG_{name} = "{p["tags"]["userId"]}";')
         lines.append(f'    /// `{p["tags"]["handle"]}`: a handle node is SHA256 of this, then the')
@@ -282,45 +268,59 @@ def gen_sol(spec: dict[str, Any], digest: str) -> str:
     lines.append("        revert UnknownPlatform(platformId);")
     lines.append("    }")
     lines.append("")
-
-    lines.append(
-        "    /// The normalizer rules for a platform, as `handles.json` states"
-    )
-    lines.append("    /// them.")
-    lines.append("    ///")
-    lines.append(
-        "    /// @dev Generated so a deploy, a test and a consumer cannot each"
-    )
-    lines.append(
-        "    ///      keep their own copy. Reverts on an unknown platform rather"
-    )
-    lines.append(
-        "    ///      than returning a permissive default, because a wrong rule"
-    )
-    lines.append("    ///      set writes wrong nodes.")
-    lines.append(
-        "    function rulesFor(bytes32 platformId) internal pure"
-        " returns (HandleNormalizer.Rules memory) {"
-    )
+    lines += [
+        "    /// The normalizer rules for a platform, as `handles.json` states",
+        "    /// them.",
+        "    ///",
+        "    /// @dev Generated so a deploy, a test and a consumer cannot each",
+        "    ///      keep their own copy. Reverts on an unknown platform rather",
+        "    ///      than returning a permissive default, because a wrong rule",
+        "    ///      set writes wrong nodes.",
+        "    function rulesFor(bytes32 platformId) internal pure returns (HandleNormalizer.Rules memory rules) {",
+        "        (rules,) = _handleKeys(platformId);",
+        "    }",
+        "",
+        "    /// The handle typed text names on a platform, normalized with its",
+        "    /// rules, and the node it is bound under, hashed under its tag.",
+        "    ///",
+        "    /// @dev Reverts `UnusableHandle` for text the rules refuse, and",
+        "    ///      `UnknownPlatform`.",
+        "    function handleNodeOf(bytes32 platformId, string memory raw)",
+        "        internal",
+        "        pure",
+        "        returns (string memory normalized, bytes32 handleNode)",
+        "    {",
+        "        (HandleNormalizer.Rules memory rules, bytes memory tag) = _handleKeys(platformId);",
+        "        return HandleNormalizer.nodeOf(raw, rules, tag);",
+        "    }",
+        "",
+        "    /// `handleNodeOf`, reporting what the rules refuse instead of reverting.",
+        "    ///",
+        "    /// @dev Reverts `UnknownPlatform`.",
+        "    function tryHandleNodeOf(bytes32 platformId, string memory raw)",
+        "        internal",
+        "        pure",
+        "        returns (HandleNormalizer.Problem problem, bytes32 handleNode)",
+        "    {",
+        "        (HandleNormalizer.Rules memory rules, bytes memory tag) = _handleKeys(platformId);",
+        "        return HandleNormalizer.tryNodeOf(raw, rules, tag);",
+        "    }",
+        "",
+        "    function _handleKeys(bytes32 platformId)",
+        "        private",
+        "        pure",
+        "        returns (HandleNormalizer.Rules memory rules, bytes memory tag)",
+        "    {",
+    ]
     for p in platforms:
         name = p["key"].upper()
-        is_email = str(p.get("shape") == "email").lower()
+        flags = ", ".join(f"{k}: {str(v).lower()}" for k, v in handle_flags(p).items())
         lines.append(f"        if (platformId == PLATFORM_{name}) {{")
-        lines.append("            return HandleNormalizer.Rules({")
-        lines.append(f"                maxLength: {p['maxLength']},")
-        lines.append(f"                isEmail: {is_email},")
-        lines.append(
-            f"                allowUnderscore: {str(p.get('allowUnderscore', False)).lower()},"
-        )
-        lines.append(
-            f"                allowHyphen: {str(p.get('allowHyphen', False)).lower()}"
-        )
-        lines.append("            });")
+        lines.append(f"            rules = HandleNormalizer.Rules({{maxLength: {p['maxLength']}, {flags}}});")
+        lines.append(f"            return (rules, HANDLE_TAG_{name});")
         lines.append("        }")
     lines.append("        revert UnknownPlatform(platformId);")
     lines.append("    }")
-    lines.append("")
-
     lines.append("}")
     return "\n".join(lines) + "\n"
 
@@ -422,6 +422,20 @@ def gen_rust(spec: dict[str, Any], digest: str) -> str:
         "    pub id_node: &'static str,",
         "}",
         "",
+        "/// A platform `handles.json` names: its key, its node tags and its rules.",
+        "pub struct Platform {",
+        "    /// keccak256 of this string is the platform id.",
+        "    pub key: &'static str,",
+        "    /// An id node is SHA256 of this tag, then the id.",
+        "    pub user_id_tag: &'static str,",
+        "    /// A handle node is SHA256 of this tag, then the normalized handle.",
+        "    pub handle_tag: &'static str,",
+        "    /// What a handle may be.",
+        "    pub rules: crate::Rules,",
+        "    /// What an id may be.",
+        "    pub id_rules: crate::IdRules,",
+        "}",
+        "",
         "/// SHA-256 of the handles.json this file was generated from.",
         f'pub const TABLE_SHA256: &str = "{digest}";',
         "",
@@ -435,38 +449,41 @@ def gen_rust(spec: dict[str, Any], digest: str) -> str:
     lines.append("")
 
     for p in platforms:
-        lines.append(f"/// Bytes a {p['key']} handle may have after normalization.")
-        lines.append(
-            f"pub const MAX_LENGTH_{p['key'].upper()}: usize = {p['maxLength']};"
-        )
-    lines.append("")
-
-    for p in platforms:
         name = p["key"].upper()
-        lines.append(f"/// An id node is SHA256 of this tag, then the id.")
-        lines.append(f'pub const USER_ID_TAG_{name}: &str = "{p["tags"]["userId"]}";')
-        lines.append(f"/// A handle node is SHA256 of this tag, then the normalized handle.")
-        lines.append(f'pub const HANDLE_TAG_{name}: &str = "{p["tags"]["handle"]}";')
         max_len, decimal, leading = id_flags(p)
-        lines.append(f"/// Bytes a {p['key']} id may have.")
-        lines.append(f"pub const MAX_ID_LENGTH_{name}: usize = {max_len};")
-        lines.append("/// The id is ASCII digits; otherwise printable ASCII without `\"` or `\\`.")
-        lines.append(f"pub const ID_DECIMAL_{name}: bool = {'true' if decimal else 'false'};")
-        lines.append("/// The id may start with `0` when longer than one byte.")
-        lines.append(f"pub const ID_LEADING_ZERO_{name}: bool = {'true' if leading else 'false'};")
-    lines.append("")
-
-    # The normalizer's rules, generated rather than restated. A Rust copy that
-    # drifted from the circuit's would key every handle on that platform
-    # differently from the chain that stores it.
-    for p in platforms:
-        name = p["key"].upper()
-        for flag, value, doc in rule_flags(p):
-            lines.append(f"/// {doc}")
-            lines.append(
-                f"pub const {flag}_{name}: bool = {'true' if value else 'false'};"
-            )
-    lines.append("")
+        rules = handle_flags(p)
+        lines += [
+            f"/// {p['key']}, as `handles.json` states it.",
+            f"pub const PLATFORM_{name}: Platform = Platform {{",
+            f"    key: PLATFORM_{name}_KEY,",
+            f'    user_id_tag: "{p["tags"]["userId"]}",',
+            f'    handle_tag: "{p["tags"]["handle"]}",',
+            "    rules: crate::Rules {",
+            f"        max_length: {p['maxLength']},",
+            f"        is_email: {str(rules['isEmail']).lower()},",
+            f"        allow_underscore: {str(rules['allowUnderscore']).lower()},",
+            f"        allow_hyphen: {str(rules['allowHyphen']).lower()},",
+            "    },",
+            "    id_rules: crate::IdRules {",
+            f"        max_length: {max_len},",
+            f"        decimal: {str(decimal).lower()},",
+            f"        leading_zero: {str(leading).lower()},",
+            "    },",
+            "};",
+        ]
+    lines += [
+        "",
+        "/// Every platform, in table order.",
+        f"pub static PLATFORMS: [Platform; {len(platforms)}] = ["
+        + ", ".join(f"PLATFORM_{p['key'].upper()}" for p in platforms)
+        + "];",
+        "",
+        "/// The platform with this key, if the table names it.",
+        "pub fn platform(key: &str) -> Option<&'static Platform> {",
+        "    PLATFORMS.iter().find(|p| p.key == key)",
+        "}",
+        "",
+    ]
 
     for i, err in enumerate(errors):
         lines.append(f"/// {err['note']}")
@@ -516,6 +533,9 @@ def gen_ts(spec: dict[str, Any], digest: str) -> str:
         "",
         "/// Platform ids and the shared handle vector table.",
         "",
+        "import type { Rules } from './handle.js'",
+        "import type { IdRules } from './node.js'",
+        "",
         "export interface HandleVector {",
         "  platform: string",
         "  input: string",
@@ -537,56 +557,59 @@ def gen_ts(spec: dict[str, Any], digest: str) -> str:
         "  idNode: string",
         "}",
         "",
+        "/** A platform `handles.json` names: its key, its node tags and its rules. */",
+        "export interface Platform {",
+        "  /** keccak256 of this string is the platform id. */",
+        "  key: string",
+        "  /** An id node is SHA256 of this tag, then the id. */",
+        "  userIdTag: string",
+        "  /** A handle node is SHA256 of this tag, then the normalized handle. */",
+        "  handleTag: string",
+        "  rules: Rules",
+        "  idRules: IdRules",
+        "}",
+        "",
         "/** SHA-256 of the handles.json this file was generated from. */",
         f"export const TABLE_SHA256 = '{digest}'",
         "",
     ]
 
     for p in platforms:
-        lines.append(
-            f"/** keccak256 of this string is the platform id. */"
-        )
-        lines.append(
-            f"export const PLATFORM_{p['key'].upper()}_KEY = '{p['key']}'"
-        )
-    lines.append("")
-
-    for p in platforms:
-        lines.append(
-            f"/** Bytes a {p['key']} handle may have after normalization. */"
-        )
-        lines.append(
-            f"export const MAX_LENGTH_{p['key'].upper()} = {p['maxLength']}"
-        )
+        lines.append("/** keccak256 of this string is the platform id. */")
+        lines.append(f"export const PLATFORM_{p['key'].upper()}_KEY = '{p['key']}'")
     lines.append("")
 
     for p in platforms:
         name = p["key"].upper()
         max_len, decimal, leading = id_flags(p)
-        lines.append("/** An id node is SHA256 of this tag, then the id. */")
-        lines.append(f"export const USER_ID_TAG_{name} = '{p['tags']['userId']}'")
-        lines.append("/** A handle node is SHA256 of this tag, then the normalized handle. */")
-        lines.append(f"export const HANDLE_TAG_{name} = '{p['tags']['handle']}'")
-        lines.append(f"/** Bytes a {p['key']} id may have. */")
-        lines.append(f"export const MAX_ID_LENGTH_{name} = {max_len}")
-        lines.append("/** The id is ASCII digits; otherwise printable ASCII without a quote or backslash. */")
-        lines.append(f"export const ID_DECIMAL_{name} = {'true' if decimal else 'false'}")
-        lines.append("/** The id may start with `0` when longer than one byte. */")
-        lines.append(f"export const ID_LEADING_ZERO_{name} = {'true' if leading else 'false'}")
-    lines.append("")
-
-    # The normalizer's rules, generated rather than restated, exactly as Rust
-    # and Solidity take them. A hardcoded copy here would key a handle
-    # differently from the chain that stores it, and the vector table catches
-    # that only where a case happens to exercise the flag.
-    for p in platforms:
-        name = p["key"].upper()
-        for flag, value, doc in rule_flags(p):
-            lines.append(f"/** {doc} */")
-            lines.append(
-                f"export const {flag}_{name} = {'true' if value else 'false'}"
-            )
-    lines.append("")
+        rules = handle_flags(p)
+        lines += [
+            f"export const PLATFORM_{name}: Platform = {{",
+            f"  key: PLATFORM_{name}_KEY,",
+            f"  userIdTag: '{p['tags']['userId']}',",
+            f"  handleTag: '{p['tags']['handle']}',",
+            "  rules: {",
+            f"    maxLength: {p['maxLength']},",
+            f"    isEmail: {str(rules['isEmail']).lower()},",
+            f"    allowUnderscore: {str(rules['allowUnderscore']).lower()},",
+            f"    allowHyphen: {str(rules['allowHyphen']).lower()},",
+            "  },",
+            f"  idRules: {{ maxLength: {max_len}, decimal: {str(decimal).lower()}, leadingZero: {str(leading).lower()} }},",
+            "}",
+        ]
+    lines += [
+        "",
+        "/** Every platform, in table order. */",
+        "export const PLATFORMS: readonly Platform[] = ["
+        + ", ".join(f"PLATFORM_{p['key'].upper()}" for p in platforms)
+        + "]",
+        "",
+        "/** The platform with this key, if the table names it. */",
+        "export function platform(key: string): Platform | undefined {",
+        "  return PLATFORMS.find((p) => p.key === key)",
+        "}",
+        "",
+    ]
 
     for i, err in enumerate(errors):
         lines.append(f"export const ERROR_{err['key'].upper()} = {i}")

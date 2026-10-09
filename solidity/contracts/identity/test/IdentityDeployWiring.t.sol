@@ -41,20 +41,28 @@ contract IdentityDeployWiringTest is Test {
 
     /// The rules come from the generated table, so a change to `handles.json`
     /// reaches the registry without anybody editing it.
-    function test_theGeneratedRulesAreTheHandlesJsonOnes() public pure {
+    function test_theGeneratedRulesAreTheHandlesJsonOnes() public view {
+        string memory table = vm.readFile("contracts/handles/handles.json");
+        for (uint256 i = 0; i < 3; ++i) {
+            string memory at = string.concat(".platforms[", vm.toString(i), "]");
+            bytes32 platformId = keccak256(bytes(vm.parseJsonString(table, string.concat(at, ".key"))));
+            assertEq(
+                HandlePlatforms.rulesFor(platformId).maxLength,
+                vm.parseJsonUint(table, string.concat(at, ".maxLength")),
+                string.concat(at, " length")
+            );
+        }
+
         HandleNormalizer.Rules memory x = HandlePlatforms.rulesFor(HandlePlatforms.PLATFORM_X);
-        assertEq(x.maxLength, uint16(HandlePlatforms.MAX_LENGTH_X), "X length");
         assertTrue(x.allowUnderscore, "X allows underscore");
         assertFalse(x.allowHyphen, "X allows no hyphen");
         assertFalse(x.isEmail, "X is not an email");
 
         HandleNormalizer.Rules memory gh = HandlePlatforms.rulesFor(HandlePlatforms.PLATFORM_GITHUB);
-        assertEq(gh.maxLength, uint16(HandlePlatforms.MAX_LENGTH_GITHUB), "GitHub length");
         assertTrue(gh.allowHyphen, "GitHub allows hyphen");
         assertFalse(gh.allowUnderscore, "GitHub allows no underscore");
 
         HandleNormalizer.Rules memory g = HandlePlatforms.rulesFor(HandlePlatforms.PLATFORM_GOOGLE);
-        assertEq(g.maxLength, uint16(HandlePlatforms.MAX_LENGTH_GOOGLE), "Google length");
         assertTrue(g.isEmail, "Google is an email");
         assertFalse(g.allowUnderscore || g.allowHyphen, "an email's charset is its own");
     }

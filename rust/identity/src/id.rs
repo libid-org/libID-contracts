@@ -22,33 +22,16 @@ pub struct IdRules {
 
 impl IdRules {
     /// X: decimal strings.
-    pub const X: Self = Self {
-        max_length: v::MAX_ID_LENGTH_X,
-        decimal: v::ID_DECIMAL_X,
-        leading_zero: v::ID_LEADING_ZERO_X,
-    };
+    pub const X: Self = v::PLATFORM_X.id_rules;
     /// GitHub: JSON integers.
-    pub const GITHUB: Self = Self {
-        max_length: v::MAX_ID_LENGTH_GITHUB,
-        decimal: v::ID_DECIMAL_GITHUB,
-        leading_zero: v::ID_LEADING_ZERO_GITHUB,
-    };
+    pub const GITHUB: Self = v::PLATFORM_GITHUB.id_rules;
     /// Google: the OIDC `sub`.
-    pub const GOOGLE: Self = Self {
-        max_length: v::MAX_ID_LENGTH_GOOGLE,
-        decimal: v::ID_DECIMAL_GOOGLE,
-        leading_zero: v::ID_LEADING_ZERO_GOOGLE,
-    };
+    pub const GOOGLE: Self = v::PLATFORM_GOOGLE.id_rules;
 }
 
 /// The id rules for a platform key, from the generated table.
 pub fn id_rules_for(platform_key: &str) -> Option<IdRules> {
-    match platform_key {
-        v::PLATFORM_X_KEY => Some(IdRules::X),
-        v::PLATFORM_GITHUB_KEY => Some(IdRules::GITHUB),
-        v::PLATFORM_GOOGLE_KEY => Some(IdRules::GOOGLE),
-        _ => None,
-    }
+    v::platform(platform_key).map(|p| p.id_rules)
 }
 
 /// Accept an id exactly as given, or say why no circuit would hash it. The

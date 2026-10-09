@@ -33,6 +33,20 @@ pub struct IdVector {
     pub id_node: &'static str,
 }
 
+/// A platform `handles.json` names: its key, its node tags and its rules.
+pub struct Platform {
+    /// keccak256 of this string is the platform id.
+    pub key: &'static str,
+    /// An id node is SHA256 of this tag, then the id.
+    pub user_id_tag: &'static str,
+    /// A handle node is SHA256 of this tag, then the normalized handle.
+    pub handle_tag: &'static str,
+    /// What a handle may be.
+    pub rules: crate::Rules,
+    /// What an id may be.
+    pub id_rules: crate::IdRules,
+}
+
 /// SHA-256 of the handles.json this file was generated from.
 pub const TABLE_SHA256: &str = "bacafa6023dd82852f753efa04635b36899b881f5d37fe15260e7dd532272560";
 
@@ -43,62 +57,65 @@ pub const PLATFORM_GITHUB_KEY: &str = "github";
 /// keccak256 of this string is the platform id.
 pub const PLATFORM_GOOGLE_KEY: &str = "google";
 
-/// Bytes a x handle may have after normalization.
-pub const MAX_LENGTH_X: usize = 15;
-/// Bytes a github handle may have after normalization.
-pub const MAX_LENGTH_GITHUB: usize = 39;
-/// Bytes a google handle may have after normalization.
-pub const MAX_LENGTH_GOOGLE: usize = 62;
+/// x, as `handles.json` states it.
+pub const PLATFORM_X: Platform = Platform {
+    key: PLATFORM_X_KEY,
+    user_id_tag: "libid.x.user-id",
+    handle_tag: "libid.x.handle",
+    rules: crate::Rules {
+        max_length: 15,
+        is_email: false,
+        allow_underscore: true,
+        allow_hyphen: false,
+    },
+    id_rules: crate::IdRules {
+        max_length: 20,
+        decimal: true,
+        leading_zero: true,
+    },
+};
+/// github, as `handles.json` states it.
+pub const PLATFORM_GITHUB: Platform = Platform {
+    key: PLATFORM_GITHUB_KEY,
+    user_id_tag: "libid.github.user-id",
+    handle_tag: "libid.github.handle",
+    rules: crate::Rules {
+        max_length: 39,
+        is_email: false,
+        allow_underscore: false,
+        allow_hyphen: true,
+    },
+    id_rules: crate::IdRules {
+        max_length: 20,
+        decimal: true,
+        leading_zero: false,
+    },
+};
+/// google, as `handles.json` states it.
+pub const PLATFORM_GOOGLE: Platform = Platform {
+    key: PLATFORM_GOOGLE_KEY,
+    user_id_tag: "libid.google.user-id",
+    handle_tag: "libid.google.handle",
+    rules: crate::Rules {
+        max_length: 62,
+        is_email: true,
+        allow_underscore: false,
+        allow_hyphen: false,
+    },
+    id_rules: crate::IdRules {
+        max_length: 31,
+        decimal: false,
+        leading_zero: true,
+    },
+};
 
-/// An id node is SHA256 of this tag, then the id.
-pub const USER_ID_TAG_X: &str = "libid.x.user-id";
-/// A handle node is SHA256 of this tag, then the normalized handle.
-pub const HANDLE_TAG_X: &str = "libid.x.handle";
-/// Bytes a x id may have.
-pub const MAX_ID_LENGTH_X: usize = 20;
-/// The id is ASCII digits; otherwise printable ASCII without `"` or `\`.
-pub const ID_DECIMAL_X: bool = true;
-/// The id may start with `0` when longer than one byte.
-pub const ID_LEADING_ZERO_X: bool = true;
-/// An id node is SHA256 of this tag, then the id.
-pub const USER_ID_TAG_GITHUB: &str = "libid.github.user-id";
-/// A handle node is SHA256 of this tag, then the normalized handle.
-pub const HANDLE_TAG_GITHUB: &str = "libid.github.handle";
-/// Bytes a github id may have.
-pub const MAX_ID_LENGTH_GITHUB: usize = 20;
-/// The id is ASCII digits; otherwise printable ASCII without `"` or `\`.
-pub const ID_DECIMAL_GITHUB: bool = true;
-/// The id may start with `0` when longer than one byte.
-pub const ID_LEADING_ZERO_GITHUB: bool = false;
-/// An id node is SHA256 of this tag, then the id.
-pub const USER_ID_TAG_GOOGLE: &str = "libid.google.user-id";
-/// A handle node is SHA256 of this tag, then the normalized handle.
-pub const HANDLE_TAG_GOOGLE: &str = "libid.google.handle";
-/// Bytes a google id may have.
-pub const MAX_ID_LENGTH_GOOGLE: usize = 31;
-/// The id is ASCII digits; otherwise printable ASCII without `"` or `\`.
-pub const ID_DECIMAL_GOOGLE: bool = false;
-/// The id may start with `0` when longer than one byte.
-pub const ID_LEADING_ZERO_GOOGLE: bool = true;
+/// Every platform, in table order.
+pub static PLATFORMS: [Platform; 3] = [PLATFORM_X, PLATFORM_GITHUB, PLATFORM_GOOGLE];
 
-/// Validate as an address instead of a bare handle.
-pub const IS_EMAIL_X: bool = false;
-/// Allow `_`.
-pub const ALLOW_UNDERSCORE_X: bool = true;
-/// Allow `-`, but not leading, trailing or doubled.
-pub const ALLOW_HYPHEN_X: bool = false;
-/// Validate as an address instead of a bare handle.
-pub const IS_EMAIL_GITHUB: bool = false;
-/// Allow `_`.
-pub const ALLOW_UNDERSCORE_GITHUB: bool = false;
-/// Allow `-`, but not leading, trailing or doubled.
-pub const ALLOW_HYPHEN_GITHUB: bool = true;
-/// Validate as an address instead of a bare handle.
-pub const IS_EMAIL_GOOGLE: bool = true;
-/// Allow `_`.
-pub const ALLOW_UNDERSCORE_GOOGLE: bool = false;
-/// Allow `-`, but not leading, trailing or doubled.
-pub const ALLOW_HYPHEN_GOOGLE: bool = false;
+/// The platform with this key, if the table names it.
+pub fn platform(key: &str) -> Option<&'static Platform> {
+    PLATFORMS.iter().find(|p| p.key == key)
+}
 
 /// Nothing is left after the transform.
 pub const ERROR_EMPTY: u8 = 0;

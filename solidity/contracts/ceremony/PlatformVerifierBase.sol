@@ -9,7 +9,6 @@ import {CeremonyAttestation} from "./CeremonyAttestation.sol";
 import {CeremonyProfile} from "./CeremonyProfile.sol";
 import {ICeremony} from "./ICeremony.sol";
 import {INotaryService} from "./INotaryService.sol";
-import {HandleNormalizer} from "../handles/HandleNormalizer.sol";
 import {HandlePlatforms} from "../handles/HandlePlatforms.sol";
 
 /// @dev The bb-generated proof verifier for this platform's circuit.
@@ -182,9 +181,7 @@ abstract contract PlatformVerifierBase is ICeremony, Initializable, UUPSUpgradea
     function _disclosed(string memory handle, bytes32 handleNode) internal pure returns (string memory normalized) {
         if (bytes(handle).length == 0) return "";
         bytes32 node;
-        (normalized, node) = HandleNormalizer.nodeOf(
-            handle, HandlePlatforms.rulesFor(_platform()), HandlePlatforms.handleTagFor(_platform())
-        );
+        (normalized, node) = HandlePlatforms.handleNodeOf(_platform(), handle);
         if (node != handleNode) revert HandleNotProved(node, handleNode);
     }
 

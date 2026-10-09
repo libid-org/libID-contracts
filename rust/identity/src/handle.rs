@@ -69,47 +69,22 @@ pub struct Rules {
 use super::handle_vectors as v;
 
 impl Rules {
-    /// X: letters, digits and underscore.
-    ///
-    /// Every field comes from the generated table rather than being restated
-    /// here. A deploy writes these rules on chain, so a value that drifted from
-    /// the Solidity side would put every handle on the platform on another
-    /// node — and the vector table cannot catch a difference no vector
-    /// exercises.
-    pub const X: Self = Self {
-        max_length: v::MAX_LENGTH_X,
-        is_email: v::IS_EMAIL_X,
-        allow_underscore: v::ALLOW_UNDERSCORE_X,
-        allow_hyphen: v::ALLOW_HYPHEN_X,
-    };
+    /// X: letters, digits and underscore. Each platform's rules are the
+    /// generated table's, never restated here.
+    pub const X: Self = v::PLATFORM_X.rules;
 
     /// GitHub: letters, digits and hyphen.
-    pub const GITHUB: Self = Self {
-        max_length: v::MAX_LENGTH_GITHUB,
-        is_email: v::IS_EMAIL_GITHUB,
-        allow_underscore: v::ALLOW_UNDERSCORE_GITHUB,
-        allow_hyphen: v::ALLOW_HYPHEN_GITHUB,
-    };
+    pub const GITHUB: Self = v::PLATFORM_GITHUB.rules;
 
     /// Google: an address, used exactly as proved.
-    pub const GOOGLE: Self = Self {
-        max_length: v::MAX_LENGTH_GOOGLE,
-        is_email: v::IS_EMAIL_GOOGLE,
-        allow_underscore: v::ALLOW_UNDERSCORE_GOOGLE,
-        allow_hyphen: v::ALLOW_HYPHEN_GOOGLE,
-    };
+    pub const GOOGLE: Self = v::PLATFORM_GOOGLE.rules;
 }
 
 /// The rules for a platform key (`"x"`, `"github"`, ...) from the generated
 /// table. They are frozen at launch: the circuits that key bindings carry
 /// them, so no deployment can run others.
 pub fn rules_for(platform_key: &str) -> Option<Rules> {
-    match platform_key {
-        v::PLATFORM_X_KEY => Some(Rules::X),
-        v::PLATFORM_GITHUB_KEY => Some(Rules::GITHUB),
-        v::PLATFORM_GOOGLE_KEY => Some(Rules::GOOGLE),
-        _ => None,
-    }
+    v::platform(platform_key).map(|p| p.rules)
 }
 
 /// The normalized handle, or the reason it was refused.

@@ -3,10 +3,10 @@ import { describe, expect, it, vi } from 'vitest'
 
 import { HandleError, RULES_X } from './handle.js'
 import {
-  HANDLE_TAG_X,
   HANDLE_VECTORS,
   ID_VECTORS,
   PLATFORM_GITHUB_KEY,
+  PLATFORM_X,
   PLATFORM_X_KEY,
 } from './handleVectors.js'
 import { checkId, handleNode, idNode } from './node.js'
@@ -73,7 +73,7 @@ describe('handleNode and idNode', () => {
 
   it('is SHA-256 of the tag, then the normalized handle', () => {
     expect(handleNode(PLATFORM_X_KEY, 'Bob')).toBe(
-      sha256(concat([toHex(HANDLE_TAG_X), toHex('bob')])),
+      sha256(concat([toHex(PLATFORM_X.handleTag), toHex('bob')])),
     )
   })
 })

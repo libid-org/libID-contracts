@@ -11,25 +11,14 @@
 /// never wrote.
 
 import {
-  ALLOW_HYPHEN_GITHUB,
-  ALLOW_HYPHEN_GOOGLE,
-  ALLOW_HYPHEN_X,
-  ALLOW_UNDERSCORE_GITHUB,
-  ALLOW_UNDERSCORE_GOOGLE,
-  ALLOW_UNDERSCORE_X,
   ERROR_BADCHARACTER,
   ERROR_BADSHAPE,
   ERROR_EMPTY,
   ERROR_TOOLONG,
-  IS_EMAIL_GITHUB,
-  IS_EMAIL_GOOGLE,
-  IS_EMAIL_X,
-  MAX_LENGTH_GITHUB,
-  MAX_LENGTH_GOOGLE,
-  MAX_LENGTH_X,
-  PLATFORM_GITHUB_KEY,
-  PLATFORM_GOOGLE_KEY,
-  PLATFORM_X_KEY,
+  PLATFORM_GITHUB,
+  PLATFORM_GOOGLE,
+  PLATFORM_X,
+  platform,
 } from './handleVectors.js'
 
 /// Why a handle was refused. The kinds match the Solidity errors and the Rust
@@ -65,34 +54,14 @@ export interface Rules {
   allowHyphen: boolean
 }
 
-export const RULES_X: Rules = {
-  maxLength: MAX_LENGTH_X,
-  isEmail: IS_EMAIL_X,
-  allowUnderscore: ALLOW_UNDERSCORE_X,
-  allowHyphen: ALLOW_HYPHEN_X,
-}
-
-export const RULES_GITHUB: Rules = {
-  maxLength: MAX_LENGTH_GITHUB,
-  isEmail: IS_EMAIL_GITHUB,
-  allowUnderscore: ALLOW_UNDERSCORE_GITHUB,
-  allowHyphen: ALLOW_HYPHEN_GITHUB,
-}
-
-export const RULES_GOOGLE: Rules = {
-  maxLength: MAX_LENGTH_GOOGLE,
-  isEmail: IS_EMAIL_GOOGLE,
-  allowUnderscore: ALLOW_UNDERSCORE_GOOGLE,
-  allowHyphen: ALLOW_HYPHEN_GOOGLE,
-}
+export const RULES_X: Rules = PLATFORM_X.rules
+export const RULES_GITHUB: Rules = PLATFORM_GITHUB.rules
+export const RULES_GOOGLE: Rules = PLATFORM_GOOGLE.rules
 
 /// The rules for a platform key from the generated table. They are frozen at
 /// launch: the circuits that key bindings carry them.
 export function rulesFor(platformKey: string): Rules | null {
-  if (platformKey === PLATFORM_X_KEY) return RULES_X
-  if (platformKey === PLATFORM_GITHUB_KEY) return RULES_GITHUB
-  if (platformKey === PLATFORM_GOOGLE_KEY) return RULES_GOOGLE
-  return null
+  return platform(platformKey)?.rules ?? null
 }
 
 /// The normalized handle, or a `HandleError` naming what was wrong.
