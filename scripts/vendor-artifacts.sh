@@ -4,9 +4,9 @@
 # Runs `forge build` in solidity/ (submodules must be initialized), then copies
 # the artifact JSONs the crate needs from solidity/out into
 # rust/contracts/artifacts/<File>.sol/<Name>.json, pruned to the fields the
-# crate reads: bytecode.object, deployedBytecode.object (the runtime code a
-# deployed copy's code hash is checked against) and methodIdentifiers. No
-# abi: the binding
+# crate reads: bytecode.object, methodIdentifiers and, for the *HonkVerifier
+# artifacts only, deployedBytecode.object (the runtime code a deployed copy's
+# code hash is checked against). No abi: the binding
 # drift tests (rust/contracts/src/bindings/mod.rs) read it from solidity/out,
 # so the published crate carries none. The circuits pin rides along as
 # circuits.json, so the crate can say which libid-circuits release its
@@ -87,11 +87,12 @@ for entry in "${ARTIFACTS[@]}"; do
         exit 1
     fi
     mkdir -p "$STAGE/$file.sol"
-    jq -S '{
+    jq -S --arg contract "$contract" '{
         bytecode: { object: .bytecode.object },
-        deployedBytecode: { object: .deployedBytecode.object },
         methodIdentifiers: .methodIdentifiers
-    }' "$src" > "$STAGE/$file.sol/$contract.json"
+    } + if ($contract | endswith("HonkVerifier"))
+        then { deployedBytecode: { object: .deployedBytecode.object } } else {} end' \
+        "$src" > "$STAGE/$file.sol/$contract.json"
 done
 
 cp "$CIRCUITS_PIN" "$STAGE/circuits.json"
