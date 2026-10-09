@@ -49,6 +49,13 @@ const contracts = [
     name: 'ICeremonyPayloads',
     exportName: 'ceremonyPayloadsAbi',
   },
+  // No contract implements it: the errors bb's Honk verifiers raise from
+  // assembly, under bb's names, which their own artifacts do not declare.
+  {
+    file: 'IHonkVerifierErrors.sol',
+    name: 'IHonkVerifierErrors',
+    exportName: 'honkVerifierErrorsAbi',
+  },
   { file: 'LibidFactory.sol', name: 'LibidFactory', exportName: 'libidFactoryAbi' },
   { file: 'WTIA9.sol', name: 'WTIA9', exportName: 'wtia9Abi' },
 ]
@@ -58,9 +65,10 @@ const contracts = [
 // version routes to, and the Notary Service a notarized session is
 // authenticated through. A revert from any of them comes back out of `bind`
 // unchanged, so their errors together are what decodes one. `bindErrorsAbi`
-// carries each once, by signature. The Honk verifiers are not on the list:
-// bb's generated code reverts from assembly with selectors no ABI declares
-// (`SumcheckFailed()` among them), so their artifacts carry no errors.
+// carries each once, by signature. The Honk verifier the Platform Verifier
+// calls is last: bb's generated code reverts from assembly with selectors its
+// own artifact does not declare (`SumcheckFailed()` among them), so their
+// names come from `IHonkVerifierErrors`, which declares them under bb's names.
 const bindRoute = [
   ['IdentityRegistry.sol', 'IdentityRegistry'],
   ['CeremonyProofVerifier.sol', 'CeremonyProofVerifier'],
@@ -68,6 +76,7 @@ const bindRoute = [
   ['GitHubPlatformVerifier.sol', 'GitHubPlatformVerifier'],
   ['GooglePlatformVerifier.sol', 'GooglePlatformVerifier'],
   ['NotaryService.sol', 'NotaryService'],
+  ['IHonkVerifierErrors.sol', 'IHonkVerifierErrors'],
 ]
 
 function readArtifact(file, name) {

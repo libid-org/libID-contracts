@@ -8,9 +8,10 @@
 //! order the call reaches them. TypeScript's `bindErrorsAbi` carries the same
 //! sets.
 //!
-//! The Honk verifiers are not on the list: bb's generated code reverts from
-//! assembly with selectors no ABI declares, so their failures decode to
-//! `None`.
+//! The Honk verifier the Platform Verifier calls is tried last. bb's
+//! generated code reverts from assembly with selectors its own artifact does
+//! not declare, so they decode under `IHonkVerifierErrors`, which declares
+//! them by bb's names.
 
 use alloy::sol_types::SolInterface;
 
@@ -21,6 +22,7 @@ use crate::bindings::{
         NotaryService::NotaryServiceErrors,
         TlsNotaryPlatformVerifier::TlsNotaryPlatformVerifierErrors,
     },
+    circuits::IHonkVerifierErrors::IHonkVerifierErrorsErrors,
     identity::IdentityRegistry::IdentityRegistryErrors,
 };
 
@@ -42,6 +44,9 @@ pub enum BindError {
     GoogleVerifier(GooglePlatformVerifierErrors),
     /// `NotaryService`: the attestation's encoding and signature, the fee.
     NotaryService(NotaryServiceErrors),
+    /// The platform's Honk verifier: a proof bb's verifier refused
+    /// (`SumcheckFailed`, `ProofLengthWrongWithLogN`, ...).
+    HonkVerifier(IHonkVerifierErrorsErrors),
 }
 
 impl BindError {
@@ -63,6 +68,9 @@ impl BindError {
         if let Ok(e) = NotaryServiceErrors::abi_decode(revert_data) {
             return Some(Self::NotaryService(e));
         }
+        if let Ok(e) = IHonkVerifierErrorsErrors::abi_decode(revert_data) {
+            return Some(Self::HonkVerifier(e));
+        }
         None
     }
 
@@ -83,6 +91,9 @@ impl BindError {
                 GooglePlatformVerifierErrors::name_by_selector(e.selector())
             }
             Self::NotaryService(e) => NotaryServiceErrors::name_by_selector(e.selector()),
+            Self::HonkVerifier(e) => {
+                IHonkVerifierErrorsErrors::name_by_selector(e.selector())
+            }
         }
         .unwrap_or("unknown")
     }
@@ -105,6 +116,9 @@ impl BindError {
             Self::NotaryService(e) => {
                 NotaryServiceErrors::signature_by_selector(e.selector())
             }
+            Self::HonkVerifier(e) => {
+                IHonkVerifierErrorsErrors::signature_by_selector(e.selector())
+            }
         }
         .unwrap_or("unknown")
     }
@@ -119,6 +133,7 @@ impl BindError {
             Self::TlsNotaryVerifier(_) => "TlsNotaryPlatformVerifier",
             Self::GoogleVerifier(_) => "GooglePlatformVerifier",
             Self::NotaryService(_) => "NotaryService",
+            Self::HonkVerifier(_) => "HonkVerifier",
         }
     }
 }
@@ -143,6 +158,7 @@ mod tests {
         primitives::{
             keccak256,
             B256,
+            U256,
         },
         sol_types::SolValue,
     };
@@ -227,11 +243,41 @@ mod tests {
         }
     }
 
-    /// A selector no contract on the route declares decodes to nothing,
-    /// as bb's `SumcheckFailed()` does.
+    /// bb's errors decode by name, fields included.
+    #[test]
+    fn names_a_honk_verifier_refusal() {
+        let error =
+            BindError::decode(&revert("SumcheckFailed()", vec![])).expect("decodes");
+        assert_eq!(error.contract(), "HonkVerifier");
+        assert_eq!(error.name(), "SumcheckFailed");
+
+        let data = revert(
+            "ProofLengthWrongWithLogN(uint256,uint256,uint256)",
+            (U256::from(17), U256::from(100), U256::from(200)).abi_encode_params(),
+        );
+        match BindError::decode(&data).expect("decodes") {
+            BindError::HonkVerifier(
+                IHonkVerifierErrorsErrors::ProofLengthWrongWithLogN(e),
+            ) => {
+                assert_eq!(
+                    (e.logN, e.actualLength, e.expectedLength),
+                    (U256::from(17), U256::from(100), U256::from(200))
+                );
+            }
+            other => panic!("decoded as {other}"),
+        }
+        assert_eq!(
+            BindError::decode(&revert("MODEXP_FAILED()", vec![]))
+                .expect("decodes")
+                .name(),
+            "MODEXP_FAILED"
+        );
+    }
+
+    /// A selector no contract on the route declares decodes to nothing.
     #[test]
     fn an_undeclared_selector_decodes_to_none() {
-        assert!(BindError::decode(&revert("SumcheckFailed()", vec![])).is_none());
+        assert!(BindError::decode(&revert("NoSuchError()", vec![])).is_none());
         assert!(BindError::decode(&[]).is_none());
     }
 }

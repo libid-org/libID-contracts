@@ -154,8 +154,8 @@ const payload = encodeTlsNotaryProof({
 
 A refused bind reverts with an error from whichever contract on its route
 refused it. `bindErrorsAbi` carries all of them — the registry's, the Proof
-Verifier's, the three Platform Verifiers' and the Notary Service's — so one
-call names any of them:
+Verifier's, the three Platform Verifiers', the Notary Service's and the Honk
+verifiers' — so one call names any of them:
 
 ```ts
 import { decodeErrorResult } from 'viem'
@@ -165,8 +165,10 @@ const { errorName, args } = decodeErrorResult({ abi: bindErrorsAbi, data: revert
 // 'HandleNotProved', [disclosed, proved]: the payload's handle is not the proved one.
 ```
 
-The Honk verifiers' own failures (`SumcheckFailed()` and the like) are raised
-from bb's generated assembly with no ABI entry, so they do not decode by name.
+The Honk verifiers raise their failures (`SumcheckFailed()` and the like)
+from bb's generated assembly, with no entry in their own ABI;
+`honkVerifierErrorsAbi` declares them under bb's names, and `bindErrorsAbi`
+includes it.
 
 ## Normalizing a handle locally
 
