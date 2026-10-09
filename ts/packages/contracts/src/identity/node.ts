@@ -64,10 +64,13 @@ const PLATFORMS: Record<string, PlatformKeys> = {
   },
 }
 
+/// Own keys only: a name `Object.prototype` carries, such as `toString` or
+/// `__proto__`, is an unknown platform like any other.
 function keysOf(platformKey: string): PlatformKeys {
-  const keys = PLATFORMS[platformKey]
-  if (keys === undefined) throw new Error(`unknown platform ${JSON.stringify(platformKey)}`)
-  return keys
+  if (!Object.hasOwn(PLATFORMS, platformKey)) {
+    throw new Error(`unknown platform ${JSON.stringify(platformKey)}`)
+  }
+  return PLATFORMS[platformKey] as PlatformKeys
 }
 
 /// The node a handle is bound under, from the handle as a user typed it:

@@ -65,6 +65,10 @@ describe('handleNode and idNode', () => {
     expect(() => handleNode('google', 'alice')).toThrow(HandleError)
     expect(() => idNode(PLATFORM_GITHUB_KEY, '0583231')).toThrow(HandleError)
     expect(() => handleNode('mastodon', 'alice')).toThrow(/unknown platform/)
+    for (const inherited of ['toString', 'constructor', '__proto__', 'hasOwnProperty']) {
+      expect(() => handleNode(inherited, 'alice')).toThrow(/unknown platform/)
+      expect(() => idNode(inherited, '1')).toThrow(/unknown platform/)
+    }
   })
 
   it('is SHA-256 of the tag, then the normalized handle', () => {
