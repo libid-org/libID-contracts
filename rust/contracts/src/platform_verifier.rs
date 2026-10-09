@@ -142,7 +142,8 @@ impl PlatformVerifier {
             return Err(Error::WrongCircuit {
                 contract: self.contract(),
                 address,
-                expected: self.circuit(),
+                expected_codehash: pinned,
+                expected: Circuit::with_runtime_codehash(artifacts, pinned)?,
                 found: Circuit::with_runtime_codehash(artifacts, codehash)?,
                 codehash,
             });

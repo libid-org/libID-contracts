@@ -688,7 +688,7 @@ async fn deploys_and_initializes_every_platform_verifier() {
         } => {
             assert_eq!(*contract, "XPlatformVerifier");
             assert_eq!(*address, bearer_link_github);
-            assert_eq!(*expected, Circuit::BearerLinkX);
+            assert_eq!(*expected, Some(Circuit::BearerLinkX));
             assert_eq!(*found, Some(Circuit::BearerLinkGithub));
         }
         other => panic!("expected WrongCircuit, got {other}"),
@@ -716,6 +716,26 @@ async fn deploys_and_initializes_every_platform_verifier() {
             ..
         })
     ));
+    // What is wanted is what the proxy pins, whichever verifier is asked.
+    match PlatformVerifier::X
+        .rotation_codehash_at(&provider, &artifacts, github_proxy, bearer_link_x)
+        .await
+    {
+        Err(Error::WrongCircuit {
+            expected_codehash,
+            expected,
+            found,
+            ..
+        }) => {
+            assert_eq!(
+                expected_codehash,
+                codehash_at(&provider, bearer_link_github).await.unwrap()
+            );
+            assert_eq!(expected, Some(Circuit::BearerLinkGithub));
+            assert_eq!(found, Some(Circuit::BearerLinkX));
+        }
+        other => panic!("expected WrongCircuit, got {other:?}"),
+    }
     let err = deploy_platform_verifier(
         &provider,
         &artifacts,
@@ -728,7 +748,7 @@ async fn deploys_and_initializes_every_platform_verifier() {
         matches!(
             err,
             Error::WrongCircuit {
-                expected: Circuit::BearerLinkGithub,
+                expected: Some(Circuit::BearerLinkGithub),
                 found: None,
                 ..
             }
