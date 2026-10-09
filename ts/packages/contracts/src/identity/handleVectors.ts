@@ -40,7 +40,7 @@ export interface Platform {
 }
 
 /** SHA-256 of the handles.json this file was generated from. */
-export const TABLE_SHA256 = 'bacafa6023dd82852f753efa04635b36899b881f5d37fe15260e7dd532272560'
+export const TABLE_SHA256 = '5d4c0d0db7fbab4307f7ae93add39f99344cded07e5bc8fef662369619940029'
 
 /** keccak256 of this string is the platform id. */
 export const PLATFORM_X_KEY = 'x'
@@ -59,7 +59,7 @@ export const PLATFORM_X: Platform = {
     allowUnderscore: true,
     allowHyphen: false,
   },
-  idRules: { maxLength: 20, decimal: true, leadingZero: true },
+  idRules: { maxLength: 20, decimal: true, leadingZero: false },
 }
 export const PLATFORM_GITHUB: Platform = {
   key: PLATFORM_GITHUB_KEY,
@@ -153,7 +153,9 @@ export const HANDLE_VECTORS: HandleVector[] = [
 export const ID_VECTORS: IdVector[] = [
   { platform: "x", input: "2244994945", accepted: true, errorKind: 0, idNode: "0x68291869976ffad2abf3e933ec9ab2623395ff8b3b9242e655e1da3ef43d4f94" },
   { platform: "x", input: "7", accepted: true, errorKind: 0, idNode: "0x5c228a76caebd7cc0148637f2344c022228820a028f1fbd0d840227da5b5fa6f" },
-  { platform: "x", input: "00123", accepted: true, errorKind: 0, idNode: "0xb956fd3511a9d1b0e365593cc0548b0d6170ecac1d45b0596a53b9beffe59b2f" },
+  { platform: "x", input: "0", accepted: true, errorKind: 0, idNode: "0xec5465b57bae1d48ebc1fe214f8209caf9804813931fd6b02b34b22f6b2ec7cd" },
+  { platform: "x", input: "0123", accepted: false, errorKind: 3, idNode: "" },
+  { platform: "x", input: "00123", accepted: false, errorKind: 3, idNode: "" },
   { platform: "x", input: "12345678901234567890", accepted: true, errorKind: 0, idNode: "0x46d787dc85127e79b248e3768ab657f0c543bc3ce5b97f1645c69f8432a3ec3b" },
   { platform: "x", input: "123456789012345678901", accepted: false, errorKind: 1, idNode: "" },
   { platform: "x", input: "", accepted: false, errorKind: 0, idNode: "" },
