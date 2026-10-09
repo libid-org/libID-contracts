@@ -95,6 +95,13 @@ describe('resolving a handle', () => {
     expect(sent(readContract)).not.toContain('Alice')
     expect(sent(readContract)).not.toContain('alice')
   })
+
+  it('finds the platform whatever the case of its id hex', async () => {
+    const upper = `0x${X.slice(2).toUpperCase()}` as const
+    const readContract = registry(ALICE)
+    expect(await resolveHandle(reader(readContract), upper, 'alice')).toBe(ALICE)
+    expect(readContract.mock.calls[0][0].args[1]).toBe(ALICE_NODE)
+  })
 })
 
 describe('resolving a holder back to a handle', () => {

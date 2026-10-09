@@ -84,7 +84,7 @@ async function resolveNodes(
   handle: string,
   idNode: `0x${string}`,
 ): Promise<HandleAndIdResolution> {
-  const keys = PLATFORMS.find((p) => platformId(p.key) === id)
+  const keys = PLATFORMS.find((p) => platformId(p.key) === id.toLowerCase())
   let node: `0x${string}` = zeroHash
   if (keys !== undefined) {
     try {
