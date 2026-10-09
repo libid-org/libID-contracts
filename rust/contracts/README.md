@@ -166,6 +166,8 @@ Other entry points:
   `NotYourHandle`, `SumcheckFailed`, …), from the error sets of the
   registry, the Proof Verifier, the Platform Verifiers, the Notary Service
   and bb's Honk verifiers (`bindings::circuits::IHonkVerifierErrors`).
+  `contracts()` lists every contract that declares the error; a revert does
+  not say which one raised it.
 - `bindings::ceremony::{TlsNotaryProof, GoogleProof}` — the payload a Platform
   Verifier decodes; its `SolValue::abi_encode` is the `payload` `bind` takes.
 
