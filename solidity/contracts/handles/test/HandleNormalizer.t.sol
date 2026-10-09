@@ -34,7 +34,7 @@ contract HandleNormalizerTest is Test {
                     string.concat("vector ", vm.toString(i), " normalized to the wrong handle")
                 );
             } else {
-                vm.expectRevert(_selector(v.errorKind));
+                vm.expectRevert(_refusal(v.errorKind));
                 this.normalize(v.input, v.platform);
             }
         }
@@ -67,12 +67,18 @@ contract HandleNormalizerTest is Test {
     /// The vector table names WHICH refusal, not merely that one happened. A
     /// bare `expectRevert` would pass when the normalizer refused for the wrong
     /// reason, and the reason is what the implementations must agree on.
-    function _selector(uint8 kind) internal pure returns (bytes4) {
-        if (kind == HandleVectors.ERROR_EMPTY) return HandleNormalizer.EmptyHandle.selector;
-        if (kind == HandleVectors.ERROR_TOOLONG) return HandleNormalizer.HandleTooLong.selector;
-        if (kind == HandleVectors.ERROR_BADCHARACTER) return HandleNormalizer.BadCharacter.selector;
-        if (kind == HandleVectors.ERROR_BADSHAPE) return HandleNormalizer.BadShape.selector;
-        revert("unknown error kind in the vector table");
+    function _refusal(uint8 kind) internal pure returns (bytes memory) {
+        HandleNormalizer.Problem problem;
+        if (kind == HandleVectors.ERROR_EMPTY) problem = HandleNormalizer.Problem.Empty;
+        else if (kind == HandleVectors.ERROR_TOOLONG) problem = HandleNormalizer.Problem.TooLong;
+        else if (kind == HandleVectors.ERROR_BADCHARACTER) problem = HandleNormalizer.Problem.BadChar;
+        else if (kind == HandleVectors.ERROR_BADSHAPE) problem = HandleNormalizer.Problem.Shape;
+        else revert("unknown error kind in the vector table");
+        return abi.encodeWithSelector(HandleNormalizer.UnusableHandle.selector, problem);
+    }
+
+    function _badChar() internal pure returns (bytes memory) {
+        return abi.encodeWithSelector(HandleNormalizer.UnusableHandle.selector, HandleNormalizer.Problem.BadChar);
     }
 
     /// The table must keep covering both outcomes. A regeneration that dropped
@@ -102,11 +108,11 @@ contract HandleNormalizerTest is Test {
     /// not stripped into a handle: the circuit hashes the bytes the platform
     /// sent, and a repaired copy would name a node nobody proved.
     function test_paddingAndALeadingAtAreRefusedNotStripped() public {
-        vm.expectRevert(HandleNormalizer.BadCharacter.selector);
+        vm.expectRevert(_badChar());
         this.normalize(" alice", "x");
-        vm.expectRevert(HandleNormalizer.BadCharacter.selector);
+        vm.expectRevert(_badChar());
         this.normalize("@alice", "x");
-        vm.expectRevert(HandleNormalizer.BadCharacter.selector);
+        vm.expectRevert(_badChar());
         this.normalize("octocat ", "github");
     }
 

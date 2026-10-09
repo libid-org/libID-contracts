@@ -162,6 +162,8 @@ abstract contract PlatformVerifierBase is ICeremony, Initializable, UUPSUpgradea
     ///      its proof bound: normalized with the platform's rules and hashed
     ///      under its tag, both `handles.json`'s and so the circuit's own.
     ///      Returns the normalized handle, or empty for a private submission.
+    ///      Text the rules refuse reverts `UnusableHandle`, the registry's
+    ///      shape for the same refusal.
     function _disclosed(string memory handle, bytes32 handleNode) internal pure returns (string memory normalized) {
         if (bytes(handle).length == 0) return "";
         bytes32 node;

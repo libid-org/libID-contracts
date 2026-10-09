@@ -426,7 +426,7 @@ contract IdentityRegistryTest is Test {
     /// trimmed.
     function test_theHashingViewRefusesWhatTheRulesRefuse() public {
         bytes memory badChar =
-            abi.encodeWithSelector(IdentityRegistry.UnusableHandle.selector, HandleNormalizer.Problem.BadChar);
+            abi.encodeWithSelector(HandleNormalizer.UnusableHandle.selector, HandleNormalizer.Problem.BadChar);
         vm.expectRevert(badChar);
         registry.handleNodeOf(X, "ali-ce");
         vm.expectRevert(badChar);
@@ -564,11 +564,17 @@ contract IdentityRegistryTest is Test {
         _bind(alice, "123", "alice", 100);
 
         vm.startPrank(alice);
-        vm.expectRevert(HandleNormalizer.BadCharacter.selector);
+        vm.expectRevert(
+            abi.encodeWithSelector(HandleNormalizer.UnusableHandle.selector, HandleNormalizer.Problem.BadChar)
+        );
         registry.publish(X, " alice");
-        vm.expectRevert(HandleNormalizer.BadCharacter.selector);
+        vm.expectRevert(
+            abi.encodeWithSelector(HandleNormalizer.UnusableHandle.selector, HandleNormalizer.Problem.BadChar)
+        );
         registry.publish(X, "@alice");
-        vm.expectRevert(HandleNormalizer.EmptyHandle.selector);
+        vm.expectRevert(
+            abi.encodeWithSelector(HandleNormalizer.UnusableHandle.selector, HandleNormalizer.Problem.Empty)
+        );
         registry.publish(X, "");
         vm.expectRevert(abi.encodeWithSelector(IdentityRegistry.UnknownPlatform.selector, keccak256("nowhere")));
         registry.publish(keccak256("nowhere"), "alice");
@@ -599,7 +605,9 @@ contract IdentityRegistryTest is Test {
 
         payload = _payloadAt(reuse, "@alice");
         vm.prank(alice);
-        vm.expectRevert(HandleNormalizer.BadCharacter.selector);
+        vm.expectRevert(
+            abi.encodeWithSelector(HandleNormalizer.UnusableHandle.selector, HandleNormalizer.Problem.BadChar)
+        );
         registry.bind(X, V1, payload);
 
         assertEq(registry.resolveId(_id(X, "123")), address(0), "the id was bound");

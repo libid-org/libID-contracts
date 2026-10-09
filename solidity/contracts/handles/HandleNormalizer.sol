@@ -16,14 +16,10 @@ pragma solidity ^0.8.20;
 ///      `contracts/handles/handles.json`, which the circuits, Rust and
 ///      TypeScript run too.
 library HandleNormalizer {
-    /// Nothing is left after the transform.
-    error EmptyHandle();
-    /// More bytes than the platform allows.
-    error HandleTooLong();
-    /// A byte the platform does not allow.
-    error BadCharacter();
-    /// Allowed bytes in an arrangement the platform does not allow.
-    error BadShape();
+    /// Text the platform's rules refuse, with the reason. The one error a
+    /// refused handle raises, whoever refuses it: the registry's `publish`
+    /// and `handleNodeOf`, and a Platform Verifier checking a disclosure.
+    error UnusableHandle(Problem problem);
 
     /// @notice What one platform accepts. Each platform's rules are a
     ///         `HandleVectors` constant generated from `handles.json`, the
@@ -42,8 +38,8 @@ library HandleNormalizer {
         bool allowHyphen;
     }
 
-    /// @notice What was wrong with a handle, for the readers that answer rather
-    ///         than revert.
+    /// @notice What was wrong with a handle: what `UnusableHandle` carries, and
+    ///         what the readers that answer rather than revert report.
     enum Problem {
         None,
         Empty,
@@ -52,17 +48,14 @@ library HandleNormalizer {
         Shape
     }
 
-    /// @notice The normalized handle, or a revert naming what was wrong.
+    /// @notice The normalized handle, or `UnusableHandle` naming what was wrong.
     ///
     /// @dev The disclosure path. A name a holder asks to publish that does not
     ///      normalize can name no node, and failing loudly is right.
     function normalize(string memory raw, Rules memory rules) internal pure returns (string memory out) {
         Problem problem;
         (problem, out) = tryNormalize(raw, rules);
-        if (problem == Problem.Empty) revert EmptyHandle();
-        if (problem == Problem.TooLong) revert HandleTooLong();
-        if (problem == Problem.BadChar) revert BadCharacter();
-        if (problem == Problem.Shape) revert BadShape();
+        if (problem != Problem.None) revert UnusableHandle(problem);
     }
 
     /// @notice The same transform, reporting instead of reverting.
@@ -102,8 +95,8 @@ library HandleNormalizer {
         return (Problem.None, string(out));
     }
 
-    /// @dev One byte, after folding. Anything outside the platform's set is a
-    ///      `BadCharacter`, including every byte above 0x7f, so a multi-byte
+    /// @dev One byte, after folding. Anything outside the platform's set is
+    ///      `Problem.BadChar`, including every byte above 0x7f, so a multi-byte
     ///      character can never reach a node.
     function _allowed(bytes1 c, Rules memory rules) private pure returns (bool) {
         if (c >= 0x61 && c <= 0x7A) return true; // a-z

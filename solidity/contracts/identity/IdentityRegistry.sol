@@ -309,8 +309,6 @@ contract IdentityRegistry is
     /// `handles.json` names no such platform, or a resolver was asked about
     /// one that has never bound and cannot verify now.
     error UnknownPlatform(bytes32 platformId);
-    /// Text the platform's rules refuse, with the normalizer's reason.
-    error UnusableHandle(HandleNormalizer.Problem problem);
 
     /// @notice The one operation this Consumer owns.
     ///
@@ -535,6 +533,9 @@ contract IdentityRegistry is
     ///      One name per wallet per platform: a second disclosure replaces the
     ///      first. The calldata is public whatever happens, so a refused call
     ///      still shows the handle it carried.
+    ///
+    ///      Reverts `UnusableHandle` for text the rules refuse, as
+    ///      `handleNodeOf` does, and `UnknownPlatform`.
     function publish(bytes32 platformId, string calldata handle) external {
         _requireKnown(platformId);
         (string memory normalized, bytes32 handleNode) =
@@ -618,7 +619,7 @@ contract IdentityRegistry is
     function handleNodeOf(bytes32 platformId, string calldata handle) external pure returns (bytes32) {
         _requireKnown(platformId);
         (HandleNormalizer.Problem problem, bytes32 handleNode) = _tryNodeOf(platformId, handle);
-        if (problem != HandleNormalizer.Problem.None) revert UnusableHandle(problem);
+        if (problem != HandleNormalizer.Problem.None) revert HandleNormalizer.UnusableHandle(problem);
         return handleNode;
     }
 

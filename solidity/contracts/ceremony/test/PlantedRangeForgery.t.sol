@@ -226,7 +226,9 @@ contract PlantedRangeForgeryTest is Test {
     function test_skeptic2_emptyHandleReverts() public {
         HandleNormalizer.Rules memory google =
             HandleNormalizer.Rules({maxLength: 62, isEmail: true, allowUnderscore: false, allowHyphen: false});
-        vm.expectRevert(HandleNormalizer.EmptyHandle.selector);
+        vm.expectRevert(
+            abi.encodeWithSelector(HandleNormalizer.UnusableHandle.selector, HandleNormalizer.Problem.Empty)
+        );
         this.normalizeExternal("", google);
     }
 

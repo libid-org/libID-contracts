@@ -280,7 +280,7 @@ mod tls_notary_platform_verifier_inner {
             error WrongVerifierArtifact(bytes32 expected, bytes32 found);
             // What `verify` can revert with, so a consumer decodes a refused
             // claim by name: the base's checks, the disclosed handle's, and
-            // the normalizer's for a disclosure its rules refuse.
+            // `UnusableHandle` for a disclosure the rules refuse.
             error WrongValue(uint256 required, uint256 provided);
             error WrongCeremonyVersion(uint16 expected, uint16 found);
             error WrongAuthority(bytes32 expected, bytes32 found);
@@ -293,10 +293,9 @@ mod tls_notary_platform_verifier_inner {
             /// The disclosed handle hashes to `disclosed`, not the node the
             /// proof bound.
             error HandleNotProved(bytes32 disclosed, bytes32 proved);
-            error EmptyHandle();
-            error HandleTooLong();
-            error BadCharacter();
-            error BadShape();
+            /// The disclosed handle is text the platform's rules refuse;
+            /// `problem` is a `HandleNormalizer.Problem`.
+            error UnusableHandle(uint8 problem);
             error UnknownPlatform(bytes32 platformId);
             error OwnableUnauthorizedAccount(address account);
             error OwnableInvalidOwner(address owner);
@@ -410,7 +409,7 @@ mod google_platform_verifier_inner {
             error WrongVerifierArtifact(bytes32 expected, bytes32 found);
             // What `verify` can revert with, so a consumer decodes a refused
             // claim by name: the base's checks, the disclosed handle's, and
-            // the normalizer's for a disclosure its rules refuse.
+            // `UnusableHandle` for a disclosure the rules refuse.
             error WrongValue(uint256 required, uint256 provided);
             error WrongCeremonyVersion(uint16 expected, uint16 found);
             error WrongAuthority(bytes32 expected, bytes32 found);
@@ -423,10 +422,9 @@ mod google_platform_verifier_inner {
             /// The disclosed handle hashes to `disclosed`, not the node the
             /// proof bound.
             error HandleNotProved(bytes32 disclosed, bytes32 proved);
-            error EmptyHandle();
-            error HandleTooLong();
-            error BadCharacter();
-            error BadShape();
+            /// The disclosed handle is text the platform's rules refuse;
+            /// `problem` is a `HandleNormalizer.Problem`.
+            error UnusableHandle(uint8 problem);
             error UnknownPlatform(bytes32 platformId);
             error OwnableUnauthorizedAccount(address account);
             error OwnableInvalidOwner(address owner);

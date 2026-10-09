@@ -124,15 +124,16 @@ mod registry_inner {
             /// one nothing verifies and on which nothing was ever bound.
             /// Every entry point that takes a platform raises it.
             error UnknownPlatform(bytes32 platformId);
-            /// Text the platform's rules refuse; `problem` is a
-            /// `HandleNormalizer.Problem`.
+            /// Text the platform's rules refuse, from `publish`,
+            /// `handleNodeOf` or a Platform Verifier's disclosure check alike;
+            /// `problem` is a `HandleNormalizer.Problem`.
             error UnusableHandle(uint8 problem);
 
             event OwnershipTransferStarted(address indexed previousOwner, address indexed newOwner);
             event OwnershipTransferred(address indexed previousOwner, address indexed newOwner);
 
-            // What `bind` can revert with: its own refusals, and the
-            // normalizer's, for a proved handle the rules refuse.
+            // What `bind` can revert with: its own refusals, and
+            // `UnusableHandle` above, for a disclosed handle the rules refuse.
             error ZeroAddress();
             error ForeignOperationDomain(bytes32 operationDomain);
             error DigestAlreadySpent(bytes32 digest);
@@ -151,10 +152,6 @@ mod registry_inner {
             /// The Platform Verifier returned a handle that does not hash to
             /// the handle node it returned with it; nothing is written.
             error DisclosureMismatch(bytes32 disclosed, bytes32 bound);
-            error EmptyHandle();
-            error HandleTooLong();
-            error BadCharacter();
-            error BadShape();
             error OwnableUnauthorizedAccount(address account);
             error OwnableInvalidOwner(address owner);
             error ReentrancyGuardReentrantCall();
