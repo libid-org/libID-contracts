@@ -1,7 +1,5 @@
-/// The keys a binding is stored under, computed locally so the handle or id
-/// never reaches an RPC: `SHA256(tag || value)`, the node the platform's
-/// circuit outputs. `IdentityRegistry.handleBinding`, `idBinding`,
-/// `resolveId` and `HandleEscrow.deposit` all take a node.
+/// The keys a binding is stored under, `SHA256(tag || value)`, computed
+/// locally so the handle or id never reaches an RPC.
 
 import { concat, type Hex, sha256, toHex } from 'viem'
 
@@ -31,16 +29,14 @@ function keysOf(platformKey: string): Platform {
   return keys
 }
 
-/// The node a handle is bound under, from the handle as a user typed it:
-/// normalized with the platform's rules, then hashed under its handle tag.
-/// Throws `HandleError` for text no binding can have.
+/// The node a typed handle is bound under: normalized, then hashed under
+/// its handle tag. Throws `HandleError` for text no binding can have.
 export function handleNode(platformKey: string, raw: string): Hex {
   const keys = keysOf(platformKey)
   return sha256(concat([toHex(keys.handleTag), toHex(normalize(raw, keys.rules))]))
 }
 
-/// Accept an id exactly as the platform sent it, or throw the `HandleError`
-/// kind no circuit would hash it under. Ids are never normalized.
+/// Accept an id exactly as given, or throw why no circuit would hash it.
 export function checkId(platformKey: string, id: string): void {
   const rules = keysOf(platformKey).idRules
   const bytes = new TextEncoder().encode(id)
@@ -60,8 +56,7 @@ export function checkId(platformKey: string, id: string): void {
   }
 }
 
-/// The node an id is bound under: the id exactly as given, hashed under the
-/// platform's user-id tag.
+/// The node an id is bound under: the id as given, under its user-id tag.
 export function idNode(platformKey: string, id: string): Hex {
   checkId(platformKey, id)
   return sha256(concat([toHex(keysOf(platformKey).userIdTag), toHex(id)]))

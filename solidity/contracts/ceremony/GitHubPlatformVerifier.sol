@@ -9,61 +9,13 @@ import {TlsNotaryVerifierBase} from "./TlsNotaryVerifierBase.sol";
 
 /// @title GitHubPlatformVerifier — the `github/v1` profile.
 ///
-/// @notice The same relation X states, for a second platform, proved under
-///         GitHub's own circuit.
+/// @notice The X relation for GitHub, proved under `bearer-link-github`.
 ///
-/// @dev This verifier sees two attestations and one proof, exactly as X does.
-///      It differs in its constants, the shape of its id, and the circuit it
-///      pins -- `bearer-link-github`, which hashes under GitHub's tags -- and
-///      adds no value check of its own: the base holds the token body to `GITHUB_TOKEN_FIELDS`
-///      and reads `code_verifier` and `client_id` out of it, nothing else.
-///
-///      TWO AUTHORITIES, NOT ONE. `github.com` serves the exchange and
-///      `api.github.com` serves the identity read, so an authority is per
-///      SESSION here. A profile pinning one authority would accept an identity
-///      attestation from the exchange host, or the reverse.
-///
-///      NO `grant_type` TO COMPARE, AND NONE ADMITTED. Section 6.2 lists five
-///      fields and that is not among them, so REQ-PLAT-56 has no GitHub
-///      counterpart. Its token-body check is REQ-PLAT-61 instead: the body is
-///      exactly the five fields the profile lists, so a `grant_type`, a
-///      `refresh_token` or a device-flow field is refused as a sixth pair
-///      rather than left uncompared. The pinned endpoint receives only this
-///      authorization-code request.
-///
-///      THE REVEALED LAYOUT IS A PROFILE DECISION, as it is for X:
-///
-///        token exchange — ONE revealed sent range covering the request whole,
-///                         and NO commitment; `_tokenBody` refuses any other
-///                         count. The credential GitHub calls `client_secret`
-///                         is sent in the body and revealed with everything
-///                         around it, so every field a verifier reads lies in
-///                         the open and the request has no hidden suffix.
-///
-///                         And the decoded form is settled on chain. Revealed
-///                         bytes alone are not: a value carrying a raw `;` or
-///                         `=`, or a name in an encoded spelling, would decode
-///                         as fields nobody counted, and only GitHub's own
-///                         refusal (ASM-PROV-07) would stand between that and
-///                         a verified claim. The base holds
-///                         the whole body to `GITHUB_TOKEN_FIELDS`
-///                         (REQ-PLAT-61), as it holds X's to its list, so
-///                         acceptance here does not depend on GitHub
-///                         rejecting a malformed or duplicate form.
-///        token response — the `"access_token":"` delimiter and closing quote
-///                         revealed; the bearer and everything else committed.
-///        identity request — the bearer committed, every other byte revealed
-///                         and tiled exactly.
-///        identity response — the `"id":` and `"login":"` anchors revealed,
-///                         with the `,` or `}` after the id and the quote
-///                         after the login; the id and the handle each one
-///                         commitment between them, which the circuit opens
-///                         and hashes into the two nodes.
-///
-///      An attestation of this exchange carries the application credential in
-///      plaintext: to the notary that observed the session, and to every
-///      reader of the chain that verifies it. That follows from the layout
-///      above rather than from any choice a prover makes.
+/// @dev Two authorities: `github.com` for the exchange, `api.github.com` for
+///      the identity read. The token body is exactly `GITHUB_TOKEN_FIELDS`
+///      (REQ-PLAT-61), revealed whole, so the application credential is public.
+///      The identity response reveals the `"id":` and `"login":"` anchors and
+///      their terminators; id and handle are committed for the circuit.
 contract GitHubPlatformVerifier is TlsNotaryVerifierBase {
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
@@ -142,13 +94,8 @@ contract GitHubPlatformVerifier is TlsNotaryVerifierBase {
         return CeremonyProfile.GITHUB_TOKEN_FIELDS;
     }
 
-    /// @dev REQ-PLAT-51. GitHub's `id` is a BARE integer, so its commitment is
-    ///      found by the integer framing with its terminator pinned to `,` or
-    ///      `}` and no other byte: the terminator is what proves the committed
-    ///      digits are the whole number rather than a prefix of a longer one,
-    ///      and JSON member order does not say which of the two closes it.
-    ///
-    ///      The handle field is `login`, not `username`.
+    /// @dev REQ-PLAT-51. GitHub's `id` is a bare integer, terminated by `,` or
+    ///      `}` so the committed digits are the whole number. Handle: `login`.
     function _identityFields()
         internal
         pure

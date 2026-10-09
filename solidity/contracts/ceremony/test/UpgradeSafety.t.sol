@@ -415,10 +415,8 @@ contract UpgradeSafetyTest is Test {
         _bindAs(who, nonce);
     }
 
-    /// The list's two words sit at namespace words +8 and +9, after
-    /// `spentDigests` at +7, and `platformOfId` at +10 after them. A field
-    /// slipped in ahead of them would pass every functional test on a fresh
-    /// deployment and read a live proxy's lists out of the wrong words.
+    /// The list's words sit at namespace words +8 and +9, after `spentDigests`
+    /// at +7, and `platformOfId` at +10.
     function test_theListsSitAtTheWordsAfterEveryOlderField() public {
         _registry();
         _bindAs(alice, 1);

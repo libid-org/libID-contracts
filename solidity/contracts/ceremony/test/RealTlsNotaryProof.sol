@@ -10,28 +10,18 @@ import {INotaryService} from "../INotaryService.sol";
 import {IPlatformVerifier} from "../IPlatformVerifier.sol";
 import {IHonkVerifier, PlatformVerifierBase} from "../PlatformVerifierBase.sol";
 
-/// @notice What a real proof binds through a TLSNotary Platform Verifier: the
-///         records libid-rs produced, the proof bb made of their witness, and
-///         the circuit's own verifier wired in place of the stub.
-///
-/// @dev Each suite supplies its verifier, its fixtures and the other notarized
-///      platform's session fixture; the refusals are shared. The fixtures are
-///      signed by `NOTARY_KEY`, which every suite's Notary Service trusts.
+/// @notice Real-proof tests for a TLSNotary Platform Verifier, wired with the
+///         circuit's own verifier; each suite supplies its verifier and fixtures.
 abstract contract RealTlsNotaryProofTest is Test {
     address constant OWNER = address(0xA11CE);
     uint256 constant NOTARY_KEY = 0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80;
 
-    /// The error the bearer-link verifier raises for a sumcheck round that
-    /// does not hold. That verifier never returns false: it refuses by
-    /// reverting, and `verify` passes the revert through. A public input
-    /// other than the one proved fails here too, since every input enters
-    /// the sumcheck through the public-input delta.
+    /// The bearer-link verifier's revert for a failed sumcheck, wrong public
+    /// inputs included.
     error SumcheckFailed();
 
-    /// The low byte of proof word 29, the first sumcheck coefficient in bb's
-    /// ZK layout. Flipping its low bit leaves a field element, which the
-    /// sumcheck refuses. A flipped curve point would instead make the
-    /// verifier's precompile call burn all the gas it is given.
+    /// The low byte of proof word 29, the first sumcheck coefficient.
+    /// Flipping a curve point instead would burn all the gas.
     uint256 constant FLIPPED_PROOF_BYTE = 29 * 32 + 31;
 
     // ─── What each suite supplies ───────────────────────────────────
@@ -57,9 +47,8 @@ abstract contract RealTlsNotaryProofTest is Test {
 
     // ─── The fixture's records and proof ────────────────────────────
 
-    /// `_session()`'s records with the proof bb made of their witness, and
-    /// the circuit's own verifier wired in place of the stub. Returns that
-    /// verifier and the public inputs bb proved.
+    /// `_session()`'s records with their real proof and the circuit's verifier
+    /// wired in; returns that verifier and the proved public inputs.
     function _realProofPayload() internal returns (TlsNotaryProof memory s, address circuit, bytes32[] memory proved) {
         circuit = vm.deployCode(_circuitArtifact());
         vm.prank(OWNER);
@@ -91,9 +80,7 @@ abstract contract RealTlsNotaryProofTest is Test {
 
     // ─── What the real proof binds ──────────────────────────────────
 
-    /// @dev The nodes leave only through the proof's public inputs, so a
-    ///      payload claiming any other id node or handle node, or the two
-    ///      real ones in each other's place, is a proof of nothing.
+    /// @dev A payload naming other nodes, or the two swapped, fails the proof.
     function test_refusesARealProofUnderNodesItDidNotProve() public {
         (TlsNotaryProof memory s,,) = _realProofPayload();
         (bytes32 idNode, bytes32 handleNode) = (s.idNode, s.handleNode);
@@ -108,10 +95,8 @@ abstract contract RealTlsNotaryProofTest is Test {
         _refuses(s, SumcheckFailed.selector);
     }
 
-    /// @dev Each commitment the circuit opens comes from the record, so a
-    ///      record whose commitment is the other platform's fixture's --
-    ///      re-signed by the notary this suite trusts, so every check before
-    ///      the proof passes -- leaves the proof opening nothing.
+    /// @dev A re-signed record carrying the other platform's commitment fails
+    ///      the proof.
     function test_refusesARealProofOverAnotherSessionsCommitments() public {
         string[2][4] memory substituted = [
             [".identity", ".identity_link_witness.handle.commitment"],
@@ -139,10 +124,8 @@ abstract contract RealTlsNotaryProofTest is Test {
         }
     }
 
-    /// @dev The id and handle commitments exchanged in the record. The
-    ///      framing still finds one behind each anchor, so the verifier puts
-    ///      the handle's commitment where the circuit opens an id, and the
-    ///      proof refuses it.
+    /// @dev The id and handle commitments swapped in the record: the proof
+    ///      refuses it.
     function test_refusesARealProofWithTheIdAndHandleCommitmentsSwapped() public {
         (TlsNotaryProof memory s,,) = _realProofPayload();
         string memory json = vm.readFile(_session());
@@ -152,9 +135,7 @@ abstract contract RealTlsNotaryProofTest is Test {
         _refuses(s, SumcheckFailed.selector);
     }
 
-    /// @dev The other platform's identity session, as signed, is refused
-    ///      before the proof: the notary authenticated that platform's host,
-    ///      and this verifier pins its own.
+    /// @dev The other platform's identity session is refused by its host.
     function test_refusesAnotherPlatformsIdentitySession() public {
         (TlsNotaryProof memory s,,) = _realProofPayload();
         s.identitySession = AttestationBuilder.fixtureSession(vm.readFile(_otherSession()), ".identity");

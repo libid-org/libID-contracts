@@ -69,10 +69,7 @@ library HandlePlatforms {
     /// The normalizer rules for a platform, as `handles.json` states
     /// them.
     ///
-    /// @dev Generated so a deploy, a test and a consumer cannot each
-    ///      keep their own copy. Reverts on an unknown platform rather
-    ///      than returning a permissive default, because a wrong rule
-    ///      set writes wrong nodes.
+    /// @dev Reverts on an unknown platform.
     function rulesFor(bytes32 platformId) internal pure returns (HandleNormalizer.Rules memory rules) {
         (rules,) = _handleKeys(platformId);
     }

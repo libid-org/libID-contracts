@@ -12,8 +12,7 @@ import {
 import { checkId, handleNode, idNode } from './node.js'
 import { platformId, rulesOf } from './resolve.js'
 
-/// Python's hashlib over the bytes written out: the circuits, the Solidity
-/// suite and the Rust crate pin the same nodes.
+/// Python's hashlib, as the circuits, Solidity and Rust pin them:
 ///   hashlib.sha256(b"libid.x.handlealice_1")
 ///   hashlib.sha256(b"libid.x.user-id2244994945")
 const ALICE_1_ON_X = '0xe09c4f5bfbbc723bc35701ea9d718a1c5edb29b1ed5bb0cb0fabb3c43d8136af'
@@ -57,8 +56,7 @@ describe('handleNode and idNode', () => {
     expect(idNode(PLATFORM_X_KEY, '7')).not.toBe(handleNode(PLATFORM_X_KEY, '7'))
   })
 
-  /// Nothing is trimmed or stripped: text no circuit would have hashed has
-  /// no node.
+  /// Text no circuit would have hashed has no node.
   it('throw for text the rules refuse', () => {
     expect(() => handleNode(PLATFORM_X_KEY, ' alice')).toThrow(HandleError)
     expect(() => handleNode(PLATFORM_X_KEY, '@alice')).toThrow(HandleError)

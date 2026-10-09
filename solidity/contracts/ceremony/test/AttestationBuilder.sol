@@ -98,10 +98,7 @@ library AttestationBuilder {
         out[1] = b;
     }
 
-    /// @dev `value` revealed at the end of `d`, which grows by its length.
-    ///      With `commit`, lays a direction out segment by segment, so a test
-    ///      reads as the transcript it builds: `d.reveal('"id":"').commit(id,
-    ///      ID).reveal('"')`. Returns `d` to chain; `d` is changed in place.
+    /// @dev Appends `value` to `d` as a revealed range; returns `d` to chain.
     function reveal(Direction memory d, bytes memory value) internal pure returns (Direction memory) {
         Range[] memory grown = new Range[](d.revealed.length + 1);
         for (uint256 i = 0; i < d.revealed.length; ++i) {
@@ -139,9 +136,8 @@ library AttestationBuilder {
         return abi.encodePacked(r, s, v);
     }
 
-    /// @dev The attestation at `key` (`.token`, `.identity`) of a session
-    ///      fixture libid-rs wrote: its attested data and the notary's
-    ///      signature, as recorded.
+    /// @dev The attestation at `key` (`.token`, `.identity`) of a libid-rs
+    ///      session fixture.
     function fixtureSession(string memory json, string memory key)
         internal
         pure

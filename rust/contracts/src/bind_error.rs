@@ -1,17 +1,9 @@
 //! A refused `bind`, decoded by name.
 //!
-//! `IdentityRegistry.bind` reverts with whatever the contract on its route
-//! that refused it raised: the registry, the Proof Verifier it dispatches to,
-//! the Platform Verifier the version routes to, or the Notary Service a
-//! notarized session is authenticated through. A revert passes through every
-//! hop unchanged, so [`BindError::decode`] tries each one's error set, in the
-//! order the call reaches them. TypeScript's `bindErrorsAbi` carries the same
-//! sets.
-//!
-//! The Honk verifier the Platform Verifier calls is tried last. bb's
-//! generated code reverts from assembly with selectors its own artifact does
-//! not declare, so they decode under `IHonkVerifierErrors`, which declares
-//! them by bb's names.
+//! A revert passes unchanged through every contract on the `bind` route, so
+//! [`BindError::decode`] tries each one's error set in call order, the Honk
+//! verifier (`IHonkVerifierErrors`) last. TypeScript's `bindErrorsAbi` has
+//! the same sets.
 
 use alloy::sol_types::SolInterface;
 
@@ -27,25 +19,19 @@ use crate::bindings::{
 };
 
 /// A `bind` revert, decoded by the first contract on the route whose error
-/// set declares its selector. An error several contracts declare
-/// (`UnknownPlatform`, `WrongValue`) decodes as the first one's; its name
-/// and fields are the same whichever raised it.
+/// set declares its selector.
 pub enum BindError {
-    /// `IdentityRegistry`: the binding rules, the disclosure check, an
-    /// unknown platform.
+    /// `IdentityRegistry`.
     Registry(IdentityRegistryErrors),
-    /// `CeremonyProofVerifier`: no verifier for the pair, the wrong value.
+    /// `CeremonyProofVerifier`.
     ProofVerifier(CeremonyProofVerifierErrors),
-    /// `XPlatformVerifier` or `GitHubPlatformVerifier`: the transcripts, the
-    /// proof, the disclosed handle.
+    /// `XPlatformVerifier` or `GitHubPlatformVerifier`.
     TlsNotaryVerifier(TlsNotaryPlatformVerifierErrors),
-    /// `GooglePlatformVerifier`: the ID token, the proof, the disclosed
-    /// address.
+    /// `GooglePlatformVerifier`.
     GoogleVerifier(GooglePlatformVerifierErrors),
-    /// `NotaryService`: the attestation's encoding and signature, the fee.
+    /// `NotaryService`.
     NotaryService(NotaryServiceErrors),
-    /// The platform's Honk verifier: a proof bb's verifier refused
-    /// (`SumcheckFailed`, `ProofLengthWrongWithLogN`, ...).
+    /// The platform's Honk verifier.
     HonkVerifier(IHonkVerifierErrorsErrors),
 }
 
@@ -74,8 +60,7 @@ impl BindError {
         None
     }
 
-    /// The error's name, as Solidity declares it: `HandleNotProved`,
-    /// `NotYourHandle`.
+    /// The error's Solidity name, e.g. `NotYourHandle`.
     pub fn name(&self) -> &'static str {
         let signature = self.signature();
         signature
@@ -123,8 +108,7 @@ impl BindError {
     }
 }
 
-/// The generated error enums carry no `Debug`, so this names the error by
-/// its contract and signature; match the variant for its fields.
+/// Contract and signature; the generated enums carry no `Debug`.
 impl std::fmt::Debug for BindError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}::{}", self.contract(), self.signature())
@@ -154,8 +138,7 @@ mod tests {
         identity::IdentityRegistry,
     };
 
-    /// Revert data built from the Solidity signature itself, not from the
-    /// bindings under test, so the two cannot agree by sharing a mistake.
+    /// Revert data built from the signature, independent of the bindings.
     fn revert(signature: &str, params: Vec<u8>) -> Vec<u8> {
         let mut data = keccak256(signature.as_bytes())[..4].to_vec();
         data.extend(params);

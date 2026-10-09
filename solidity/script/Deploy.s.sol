@@ -12,11 +12,8 @@ import {GoogleJwtRoots} from "../contracts/ceremony/GoogleJwtRoots.sol";
 
 /// @notice Deploy the identity stack to any EVM chain.
 ///
-/// Four UUPS proxies, in dependency order: the Notary Service every notarized
-/// session is verified through, the Proof Verifier the identity registry
-/// dispatches bindings through, the registry itself, and the Google JWT root list that pays the Notary Service for
-/// each rotation. No Platform Verifier is registered here -- that needs the
-/// ceremony circuit artifacts, which arrive with their own release.
+/// Four UUPS proxies: Notary Service, Proof Verifier, identity registry and
+/// Google JWT root list. No Platform Verifier is registered here.
 ///
 /// Usage:
 ///   forge script script/Deploy.s.sol \
@@ -72,11 +69,7 @@ contract Deploy is Script {
             address(new ERC1967Proxy(address(registryImpl), abi.encodeCall(IdentityRegistry.initialize, (deployer))));
         IdentityRegistry registry = IdentityRegistry(identityRegistryAddr);
         registry.setProofVerifier(IProofVerifier(proofVerifierAddr));
-        // The platforms and their handle rules are the registry's generated
-        // constants. Enabling one is registering a Platform Verifier against a
-        // version, `CeremonyProofVerifier.setVerifier`, and that needs the
-        // ceremony circuit's artifact and its code hash -- neither of which
-        // this script has until that release lands.
+        // A platform is enabled by `CeremonyProofVerifier.setVerifier`, which needs circuit artifacts.
 
         // 4. The Google JWT root list, beside the Platform Verifier it serves.
         //    That verifier reads the trusted moduli through it, and nothing

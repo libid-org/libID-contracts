@@ -1,12 +1,5 @@
-/// The payloads `IdentityRegistry.bind` carries to a Platform Verifier, typed
-/// and encoded from the verifiers' own struct definitions.
-///
-/// `bind` takes a payload as opaque bytes; the Platform Verifier the route ends
-/// at `abi.decode`s it as one struct. `ICeremonyPayloads` declares a function
-/// taking each struct, so the generated `ceremonyPayloadsAbi` carries their
-/// exact tuple types, and these encoders read them from it rather than from a
-/// second copy here. A payload is the encoding of the function's one argument,
-/// without a selector.
+/// The payloads `IdentityRegistry.bind` carries to a Platform Verifier,
+/// encoded with the tuple types `ceremonyPayloadsAbi` carries, no selector.
 
 import {
   type AbiParameterToPrimitiveType,

@@ -15,11 +15,7 @@ import {TestNodes} from "../../identity/test/TestNodes.sol";
 ///      the other -- two ids for one platform, with nothing to make the
 ///      divergence loud. This file is what makes it loud.
 contract PlatformIdentityTest is Test {
-    /// @dev `platformId` is the keccak256 of the UTF-8 bytes of the
-    ///      platform key. The specification fixes the keys -- the
-    ///      launch profiles of REQ-PLAT-01 are `google`, `x` and `github` --
-    ///      and leaves the derivation to the profile author, so this repository
-    ///      pins it.
+    /// @dev `platformId` is keccak256 of the platform key (REQ-PLAT-01).
     function test_theTwoTablesAgree() public pure {
         assertEq(HandlePlatforms.PLATFORM_X, CeremonyProfile.PLATFORM_X, "x");
         assertEq(HandlePlatforms.PLATFORM_GITHUB, CeremonyProfile.PLATFORM_GITHUB, "github");
@@ -32,10 +28,7 @@ contract PlatformIdentityTest is Test {
         assertEq(CeremonyProfile.PLATFORM_GOOGLE, keccak256(bytes("google")));
     }
 
-    /// @dev A platform's name is not libID's to namespace; libID's own
-    ///      constructs are. The node tags carry the prefix and the platform,
-    ///      one per platform and kind, so no two platforms and no id and
-    ///      handle share a key.
+    /// @dev Node tags are distinct per platform and kind.
     function test_theNodeTagsArePinned() public pure {
         assertEq(HandlePlatforms.USER_ID_TAG_X, bytes("libid.x.user-id"));
         assertEq(HandlePlatforms.HANDLE_TAG_X, bytes("libid.x.handle"));
@@ -45,9 +38,7 @@ contract PlatformIdentityTest is Test {
         assertEq(HandlePlatforms.HANDLE_TAG_GOOGLE, bytes("libid.google.handle"));
     }
 
-    /// @dev A node is the circuit's `SHA256(tag || value)`. Pinned against
-    ///      Python's hashlib, so a change to a tag or to the hash cannot
-    ///      happen quietly:
+    /// @dev A node is `SHA256(tag || value)`, pinned against Python's hashlib:
     ///        hashlib.sha256(b"libid.x.user-id2244994945")
     ///        hashlib.sha256(b"libid.x.handlealice_1")
     function test_theNodesArePinned() public pure {

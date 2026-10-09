@@ -6,25 +6,11 @@ import {IPlatformVerifier} from "../../ceremony/IPlatformVerifier.sol";
 import {HandlePlatforms} from "../../handles/HandlePlatforms.sol";
 import {TestNodes} from "./TestNodes.sol";
 
-/// @notice Stands in for a Platform Verifier.
-///
-/// @dev Everything a real one checks has its own suite. Here it only has to
-///      charge, decode, answer, and let the Consumer's and the Proof Verifier's
-///      own duties be exercised.
-///
-///      It decodes a payload of its own shape and rebuilds the digest the way
-///      a real verifier does -- from the decoded fields and the chain it runs
-///      on -- so a test above it can watch the domain, the transaction data
-///      and the digest travel, rather than have the stub invent them. Unlike a
-///      real verifier it takes the ceremony version from the payload instead
-///      of a constant, so one stub can stand in for several.
-///
-///      It returns the nodes a circuit would: the id hashed as given, the
-///      handle folded with the platform's rules and hashed, under the
-///      platform's tags -- X's for a platform the table does not know.
+/// @notice Stands in for a Platform Verifier: decodes its own payload, rebuilds
+///         the digest, and returns the nodes a circuit would (X's tags for an unknown platform).
+/// @dev Takes the ceremony version from the payload, so one stub serves several.
 contract StubPlatformVerifier is IPlatformVerifier {
-    /// @dev The stub's payload: what the digest needs, and the handle to
-    ///      disclose (empty for a private submission).
+    /// @dev The digest inputs and the handle to disclose (empty when private).
     struct StubPayload {
         uint16 ceremonyVersion;
         bytes32 operationDomain;
@@ -33,8 +19,7 @@ contract StubPlatformVerifier is IPlatformVerifier {
         string handle;
     }
 
-    /// @dev `PlatformVerifierBase.HandleNotProved`, so a test reads one
-    ///      selector whichever verifier refused.
+    /// @dev Same selector as `PlatformVerifierBase.HandleNotProved`.
     error HandleNotProved(bytes32 disclosed, bytes32 proved);
 
     bytes32 private immutable PLATFORM;
@@ -45,10 +30,7 @@ contract StubPlatformVerifier is IPlatformVerifier {
     bytes32 public lastDigest;
     uint256 public lastValue;
     bytes public lastPayload;
-    /// Nodes reported as given instead of hashed from `userId` and `handle`,
-    /// while `rawNodes` is set: a node no circuit would output, zero among them.
-    /// The payload's handle is then returned as it came, unchecked, as a
-    /// verifier that skipped its disclosure check would return it.
+    /// While set, report the nodes from `setNodes` as given and return the payload's handle unchecked.
     bool public rawNodes;
     bytes32 public rawIdNode;
     bytes32 public rawHandleNode;
@@ -63,8 +45,7 @@ contract StubPlatformVerifier is IPlatformVerifier {
         handle = h;
     }
 
-    /// Report these nodes as they are, for a test of what the registry does
-    /// with a node it did not expect.
+    /// Report these nodes as they are.
     function setNodes(bytes32 idNode, bytes32 handleNode) external {
         rawNodes = true;
         rawIdNode = idNode;
@@ -104,8 +85,7 @@ contract StubPlatformVerifier is IPlatformVerifier {
             bytes32 known = HandlePlatforms.knows(PLATFORM) ? PLATFORM : HandlePlatforms.PLATFORM_X;
             c.idNode = TestNodes.idNode(known, userId);
             (, c.handleNode) = HandlePlatforms.handleNodeOf(known, handle);
-            // The real verifiers' disclosure check: the disclosed handle,
-            // normalized, must hash to the handle node.
+            // The disclosed handle, normalized, must hash to the handle node.
             if (bytes(p.handle).length != 0) {
                 (string memory normalized, bytes32 node) = HandlePlatforms.handleNodeOf(known, p.handle);
                 if (node != c.handleNode) revert HandleNotProved(node, c.handleNode);

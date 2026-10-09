@@ -17,13 +17,6 @@ import {TestNodes} from "./TestNodes.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 
 /// @notice The identity contract, against a stubbed Platform Verifier.
-///
-/// @dev Every rule here belongs to the Consumer rather than to a platform, so
-///      one stub proves them for both platforms at once. What a real Platform
-///      Verifier checks — the attestations, the proof, the freshness window —
-///      has its own suite. The stub reports the nodes a circuit would: the id
-///      hashed as given, the handle folded and hashed, under the platform's
-///      tags.
 contract IdentityRegistryTest is PrivacyScan {
     IdentityRegistry internal registry;
     CeremonyProofVerifier internal proofVerifier;
@@ -64,8 +57,7 @@ contract IdentityRegistryTest is PrivacyScan {
     /// The version every platform's first verifier lands on.
     uint16 internal constant V1 = 1;
 
-    /// Enable a platform: register its first verifier. Caller supplies the
-    /// prank.
+    /// Enable a platform: register its first verifier. Caller supplies the prank.
     function _wire(bytes32 platformId, address verifierAddr) internal {
         proofVerifier.setVerifier(platformId, V1, IPlatformVerifier(verifierAddr));
     }
@@ -76,10 +68,7 @@ contract IdentityRegistryTest is PrivacyScan {
     }
 
     /// The handle node a circuit outputs for this handle, already folded.
-    ///
-    /// @dev Both helpers call the SHA-256 precompile, which is a call: one
-    ///      written between `vm.prank` or `vm.expectRevert` and the call it is
-    ///      meant for spends the cheatcode. Compute nodes before either.
+    /// @dev Calls the SHA-256 precompile: compute it before `vm.prank` or `vm.expectRevert`.
     function _hn(bytes32 platformId, string memory folded) internal pure returns (bytes32) {
         return TestNodes.handleNode(platformId, folded);
     }
@@ -91,11 +80,7 @@ contract IdentityRegistryTest is PrivacyScan {
     uint256 private nonce;
 
     /// Stage what the Platform Verifier reports, and who the submission names.
-    ///
-    /// @dev The stubs are written HERE rather than in `_submit`, because a test
-    ///      pranks between the two and `vm.prank` is spent on the next external
-    ///      call. Writing them later would spend it on the stub and send the
-    ///      bind from the test contract.
+    /// @dev Writes the stubs here, before any `vm.prank` the test sets for `_submit`.
     function _stage(string memory id, string memory handle, address target, uint64 at) internal {
         stagedTarget = target;
         xVerifier.set(id, handle);
@@ -127,9 +112,7 @@ contract IdentityRegistryTest is PrivacyScan {
         );
     }
 
-    /// Submit the staged bind, disclosing `disclosed` (empty for a private
-    /// bind). The caller supplies the prank, the way a wallet supplies
-    /// `msg.sender`.
+    /// Submit the staged bind, disclosing `disclosed` (empty for a private bind). Caller supplies the prank.
     function _submit(bytes32 platformId, string memory disclosed) internal {
         bytes memory payload = _payload(V1, disclosed);
         registry.bind(platformId, V1, payload);
@@ -158,10 +141,8 @@ contract IdentityRegistryTest is PrivacyScan {
         assertEq(registry.resolveHandle(X, "alice"), alice, "the handle does not resolve");
     }
 
-    /// The write entry point is `bind` with a disclosed handle. The old `claim`
-    /// selector and the `bind` that took a publish flag reach no function,
-    /// since there is no fallback, so a caller built against an old ABI
-    /// reverts; the payload it sent stays unspent and binds through `bind`.
+    /// `claim` and the `bind` that took a publish flag reach no function, and the
+    /// payload stays unspent for `bind`.
     function test_theOldSelectorsAreGone() public {
         _stage("123", "alice", alice, 100);
         bytes memory payload = _payload(V1);
@@ -210,9 +191,7 @@ contract IdentityRegistryTest is PrivacyScan {
         _submit(unknown, "");
     }
 
-    /// The circuit folds the handle and outputs the node; the registry keys
-    /// the binding by that node. A reader's spelling reaches it through the
-    /// same fold, and only through the fold: an at sign is refused, not stripped.
+    /// The binding is keyed by the folded node; a reader's spelling reaches it only through the fold.
     function test_theRegistryKeysTheNodeTheCircuitFolded() public {
         _bind(alice, "123", "Alice_1", 100);
 
@@ -222,9 +201,7 @@ contract IdentityRegistryTest is PrivacyScan {
         assertEq(registry.resolveHandle(X, "@alice_1"), address(0), "an @ is not part of a handle");
     }
 
-    /// The registry never folds or hashes what it binds. A node no circuit
-    /// would output -- the hash of an unfolded handle -- binds as given, and
-    /// no text a reader can type reaches it: every reader folds first.
+    /// A node is bound as given: the hash of an unfolded handle is unreachable by any reader.
     function test_theRegistryNeverRefoldsANodeItIsGiven() public {
         bytes32 unfolded = TestNodes.handleNode(X, "Alice");
         _stage("123", "Alice", alice, 100);
@@ -274,11 +251,7 @@ contract IdentityRegistryTest is PrivacyScan {
         _submit(X, "");
     }
 
-    /// A rename keeps the id and takes a new handle. A rename is invisible to
-    /// the chain until somebody proves the new state, and this second bind is
-    /// that proof — so the handle the identity left has to stop resolving, or a
-    /// payment meant for whoever has it now goes to the holder that renamed
-    /// away from it.
+    /// A rename retires the handle the identity left.
     function test_aRenameRetiresTheHandleTheIdentityLeft() public {
         _bind(alice, "123", "alice", 100);
         _bind(alice, "123", "alice2", 200);
@@ -334,10 +307,7 @@ contract IdentityRegistryTest is PrivacyScan {
         _submit(X, "");
     }
 
-    /// Every shipped circuit outputs a SHA-256 node, never zero. This is what
-    /// keeps that true for a verifier written later: without it, every identity
-    /// such a verifier reported would land on the zero node and each would take
-    /// it from the one before.
+    /// A zero id node is refused.
     function test_aBindWithNoIdNodeIsRefused() public {
         _stage("123", "alice", alice, 100);
         xVerifier.setNodes(bytes32(0), _hn(X, "alice"));
@@ -348,10 +318,7 @@ contract IdentityRegistryTest is PrivacyScan {
 
     // ─── Platforms ──────────────────────────────────────────────────
 
-    /// Which platforms exist, and their rules and tags, are the generated
-    /// constants the circuits carry: the registry answers them for every
-    /// platform `handles.json` names, verifier or not, and has nothing an owner
-    /// could set.
+    /// A platform's rules and tags are the generated constants, verifier or not.
     function test_aPlatformsRulesAndTagAreTheCircuitsOwn() public view {
         bytes32[3] memory platforms = [X, GITHUB, HandlePlatforms.PLATFORM_GOOGLE];
         for (uint256 i = 0; i < platforms.length; i++) {
@@ -367,12 +334,8 @@ contract IdentityRegistryTest is PrivacyScan {
 
     // ─── The freshness signal ───────────────────────────────────────
 
-    /// Every entry point that names a platform answers an unknown one the
-    /// same way. A zero address would tell a caller "nobody proved this" when
-    /// the truth is that no such platform exists, and a zero cannot say which.
-    /// `resolveId` takes a node, which names no platform, so it has nothing to
-    /// refuse and answers nobody; `acceptsBindings` is the question itself,
-    /// and answers false.
+    /// Every entry point that names a platform refuses an unknown one.
+    /// `resolveId` takes a node and answers nobody; `acceptsBindings` answers false.
     function test_everyEntryPointRefusesAnUnknownPlatform() public {
         bytes32 unwired = keccak256("nowhere");
         bytes32 idNode = _id(X, "123");
@@ -407,9 +370,7 @@ contract IdentityRegistryTest is PrivacyScan {
         assertEq(registry.resolveId(keccak256("no such node")), address(0));
     }
 
-    /// `rulesOf` and `handleTagOf` report what the platform was wired with, and
-    /// `handleNodeOf` names the node a proof of the handle binds: the shared
-    /// table's node for it, whatever case it was typed in.
+    /// `rulesOf`, `handleTagOf` and `handleNodeOf` agree with the node a bind writes.
     function test_theHashingViewsAgreeWithWhatABindWrites() public {
         assertEq(registry.rulesOf(X).maxLength, HandlePlatforms.rulesFor(X).maxLength);
         assertEq(registry.handleTagOf(X), bytes("libid.x.handle"));
@@ -423,9 +384,7 @@ contract IdentityRegistryTest is PrivacyScan {
         assertEq(holder, alice);
     }
 
-    /// Text the rules refuse reverts with the normalizer's reason, where
-    /// `resolveHandle` answers nobody. A space or an at sign is refused, not
-    /// trimmed.
+    /// `handleNodeOf` reverts with the normalizer's reason where `resolveHandle` answers nobody.
     function test_theHashingViewRefusesWhatTheRulesRefuse() public {
         bytes memory badChar =
             abi.encodeWithSelector(HandleNormalizer.UnusableHandle.selector, HandleNormalizer.Problem.BadChar);
@@ -495,9 +454,7 @@ contract IdentityRegistryTest is PrivacyScan {
         assertEq(_count(vm.getRecordedLogs(), IdentityRegistry.HandlePublished.selector), 0);
     }
 
-    /// A disclosure at bind normalizes the text with the platform's rules,
-    /// checks it hashes to the node the proof just bound, and stores and logs
-    /// the folded name.
+    /// A disclosure at bind is checked against the proved node and stores the folded name.
     function test_disclosingAtBindStoresTheNormalizedName() public {
         _stage("123", "Alice", alice, 100);
         bytes32 node = _hn(X, "alice");
@@ -509,9 +466,7 @@ contract IdentityRegistryTest is PrivacyScan {
         assertEq(registry.publishedHandleOf(alice, X), "alice");
     }
 
-    /// A binding discloses the handle its own proof bound, and no other the
-    /// caller happens to hold: the Platform Verifier checks the disclosure
-    /// against this proof's node. `publish` is the call for another one.
+    /// A bind discloses only the handle its own proof bound.
     function test_aBindDisclosesOnlyTheHandleItsProofBound() public {
         _bind(alice, "456", "alicia", 100);
         _stage("123", "alice", alice, 200);
@@ -527,8 +482,7 @@ contract IdentityRegistryTest is PrivacyScan {
         assertEq(registry.publishedHandleOf(alice, X), "alicia");
     }
 
-    /// Disclosing later needs no new proof: the holder already holds the node.
-    /// Any case the platform shows reaches it.
+    /// `publish` discloses a handle the caller holds, in any case, without a new proof.
     function test_publishDisclosesAHandleTheCallerHolds() public {
         _bind(alice, "123", "alice", 100);
 
@@ -541,8 +495,7 @@ contract IdentityRegistryTest is PrivacyScan {
         assertEq(registry.publishedHandleOf(alice, X), "alice");
     }
 
-    /// The node is the proof: a handle another account proved, or one nobody
-    /// proved, hashes to a node the caller does not hold.
+    /// Publishing a handle whose node the caller does not hold is refused.
     function test_publishingAHandleTheCallerDoesNotHoldIsRefused() public {
         _bind(alice, "123", "alice", 100);
         _bind(bob, "456", "bob", 100);
@@ -559,9 +512,7 @@ contract IdentityRegistryTest is PrivacyScan {
         assertEq(registry.publishedHandleOf(mallory, X), "");
     }
 
-    /// Text the rules refuse names no node, and the normalizer says why. A
-    /// space or an at sign is refused rather than stripped, so the name stored is
-    /// never a repair of what the caller sent.
+    /// Text the rules refuse reverts with the normalizer's reason.
     function test_publishingTextTheRulesRefuseRevertsWithTheNormalizersReason() public {
         _bind(alice, "123", "alice", 100);
 
@@ -583,10 +534,7 @@ contract IdentityRegistryTest is PrivacyScan {
         vm.stopPrank();
     }
 
-    /// A disclosure the proof does not back undoes the whole bind: the
-    /// Platform Verifier refuses it, nothing is bound or named, and the digest
-    /// stays unspent, so the same submission binds once the disclosure is
-    /// dropped.
+    /// A disclosure the proof does not back reverts the whole bind and leaves the digest unspent.
     function test_aBindDisclosingAHandleItDidNotProveWritesNothing() public {
         _bind(bob, "456", "bob", 100);
         _stage("123", "alice", alice, 200);
@@ -624,8 +572,7 @@ contract IdentityRegistryTest is PrivacyScan {
         assertEq(registry.resolveHandle(X, "alice"), alice, "the digest was spent");
     }
 
-    /// One submission's payload under a chosen nonce, so a test can submit
-    /// the same ceremony with different disclosures.
+    /// One submission's payload under a chosen nonce.
     function _payloadAt(uint256 authorizationNonce, string memory handle) internal view returns (bytes memory) {
         return abi.encode(
             StubPlatformVerifier.StubPayload({
@@ -638,9 +585,7 @@ contract IdentityRegistryTest is PrivacyScan {
         );
     }
 
-    /// Publishing is the one thing here a holder can undo, and it must not
-    /// depend on being able to log in again: for Google the published handle is
-    /// an email address, and withdrawing it should not require a fresh proof.
+    /// A published handle can be withdrawn without a fresh proof.
     function test_aPublishedHandleCanBeWithdrawn() public {
         _bindDisclosing(alice, "123", "alice", 100);
         assertEq(registry.publishedHandleOf(alice, X), "alice");
@@ -652,8 +597,7 @@ contract IdentityRegistryTest is PrivacyScan {
         assertEq(registry.publishedHandleOf(alice, X), "");
     }
 
-    /// The binding survives. This withdraws a displayed string, not the proof
-    /// that binds the identity to its holder.
+    /// Withdrawing a published handle keeps the binding.
     function test_withdrawingAPublishedHandleKeepsTheBinding() public {
         _bindDisclosing(alice, "123", "alice", 100);
 
@@ -664,10 +608,7 @@ contract IdentityRegistryTest is PrivacyScan {
         assertEq(registry.resolveHandle(X, "alice"), alice);
     }
 
-    /// The name slot is written only by a disclosure. A later private bind --
-    /// the same handle again, a rename, a rename back -- neither withdraws nor
-    /// rewrites it, and logs nothing about it; `publishedHandleOf` follows
-    /// whether the holder still holds the name it disclosed.
+    /// A bind without a disclosure neither withdraws nor rewrites the name, and logs nothing about it.
     function test_aBindWithoutDisclosureLeavesTheNameAlone() public {
         _bindDisclosing(alice, "123", "alice", 100);
 
@@ -685,8 +626,7 @@ contract IdentityRegistryTest is PrivacyScan {
         assertEq(registry.publishedHandleOf(alice, X), "alice", "the slot was rewritten");
     }
 
-    /// One name per wallet per platform: a second disclosure replaces the
-    /// first, here for a holder with two identities.
+    /// A second disclosure replaces the first: one name per wallet per platform.
     function test_aSecondDisclosureReplacesTheFirst() public {
         _bind(alice, "123", "alice", 100);
         _bind(alice, "456", "alicia", 200);
@@ -734,8 +674,7 @@ contract IdentityRegistryTest is PrivacyScan {
 
     // ─── Privacy ────────────────────────────────────────────────────
 
-    /// Ten digits and thirteen mixed-case characters, long enough that a match
-    /// inside a SHA-256 node or an address would not be chance.
+    /// Long enough that a match inside a node or an address is not chance.
     string internal constant SECRET_ID = "2244994945";
     string internal constant SECRET_HANDLE = "Alice_Wonder1";
     string internal constant SECRET_FOLDED = "alice_wonder1";
@@ -744,9 +683,7 @@ contract IdentityRegistryTest is PrivacyScan {
         return [SECRET_ID, SECRET_HANDLE, SECRET_FOLDED];
     }
 
-    /// Every log a private bind emits -- the registry's, the Proof Verifier's,
-    /// any -- carries no byte run of the id or the handle, raw or folded, in
-    /// its topics or its data.
+    /// No log of a private bind carries a byte run of the id or the handle, raw or folded.
     function test_aPrivateBindLogsNoByteOfTheIdOrTheHandle() public {
         _stage(SECRET_ID, SECRET_HANDLE, alice, 100);
         vm.recordLogs();
@@ -756,8 +693,7 @@ contract IdentityRegistryTest is PrivacyScan {
         assertEq(registry.resolveHandle(X, SECRET_HANDLE), alice, "the bind did not happen");
     }
 
-    /// The scan finds a disclosed handle where it is: in `HandlePublished`. A
-    /// scan that could not would pass the test above for nothing.
+    /// The log scan finds a disclosed handle in `HandlePublished`.
     function test_theScanFindsADisclosedHandle() public {
         _stage(SECRET_ID, SECRET_HANDLE, alice, 100);
         vm.recordLogs();
@@ -775,10 +711,7 @@ contract IdentityRegistryTest is PrivacyScan {
         assertTrue(found, "the disclosed handle is not in the logs");
     }
 
-    /// Nothing a private bind writes holds the id or the handle, so no getter,
-    /// present or added by an upgrade, can return them. Every storage word the
-    /// bind touched on the registry and the Proof Verifier is read back and
-    /// scanned; the getters that return a holder's identity return nodes only.
+    /// No storage word a private bind wrote, on the registry or the Proof Verifier, holds the id or the handle.
     function test_aPrivateBindStoresNoByteOfTheIdOrTheHandle() public {
         _stage(SECRET_ID, SECRET_HANDLE, alice, 100);
         vm.record();
@@ -794,8 +727,7 @@ contract IdentityRegistryTest is PrivacyScan {
         assertEq(a.handleNode, _hn(X, SECRET_FOLDED));
     }
 
-    /// The storage scan finds a disclosed name in the word that holds it. A
-    /// scan that could not would pass the test above for nothing.
+    /// The storage scan finds a disclosed name.
     function test_theStorageScanFindsADisclosedName() public {
         _stage(SECRET_ID, SECRET_HANDLE, alice, 100);
         vm.record();
@@ -907,9 +839,7 @@ contract IdentityRegistryTest is PrivacyScan {
         assertEq(registry.identityCount(alice), 1);
     }
 
-    /// The list is alice's: bob taking her handle changes what it resolves
-    /// to, and the entry says so, but the entry is still there with the
-    /// handle node her identity was last known by.
+    /// Bob taking alice's handle leaves her entry listed, with `handleCurrent` false.
     function test_aHandleTakenElsewhereStaysListedAsStale() public {
         _bind(alice, "123", "shared", 100);
         _bind(bob, "456", "shared", 200);
@@ -982,10 +912,8 @@ contract IdentityRegistryTest is PrivacyScan {
         assertTrue(_carries(first, X, "3") != _carries(second, X, "3"));
     }
 
-    /// After any sequence of binds: an identity nobody proved is in no
-    /// list, an identity somebody proved is in exactly one, the list of the
-    /// holder whose proof of it is newest, and a handle node reported current
-    /// is held by that holder and is current for no second identity.
+    /// After any sequence of binds, each proved identity is in exactly the newest prover's list,
+    /// and a current handle node is current for no second identity.
     function testFuzz_everyProvedIdentitySitsInExactlyOneList(bytes memory script) public {
         address[3] memory holders = [alice, bob, mallory];
         bytes32[2] memory platforms = [X, GITHUB];
@@ -1061,9 +989,7 @@ contract IdentityRegistryTest is PrivacyScan {
 
     // ─── Node separation ────────────────────────────────────────────
 
-    /// A numeric handle and an id of the same digits must not collide.
-    /// Numeric handles are legal on X and old ids are short, so this is
-    /// reachable rather than theoretical. The two tags keep them apart.
+    /// A numeric handle and an id of the same digits land on different nodes.
     function test_aNumericHandleDoesNotCollideWithAnId() public {
         assertTrue(_id(X, "12345") != _hn(X, "12345"), "an id node and a handle node collided");
 
@@ -1089,15 +1015,8 @@ contract IdentityRegistryTest is PrivacyScan {
     }
 
     // ─── Proof versions ─────────────────────────────────────────────
-    //
-    // A platform's proof can change shape without the identity behind it
-    // changing — X gaining OIDC, say. Both formats have to be accepted during
-    // a migration, so the Proof Verifier keys its verifiers by version and
-    // the rules are not keyed at all.
 
-    /// A binding belongs to the identity that proved it, not to the format the
-    /// proof was written in. Removing a version from the Supported Version Set
-    /// must not unbind anybody.
+    /// Retiring a version leaves its bindings resolving.
     function test_retiringAVersionLeavesItsBindingsResolving() public {
         _bind(alice, "123", "alice", 100);
 
@@ -1108,10 +1027,7 @@ contract IdentityRegistryTest is PrivacyScan {
         assertEq(registry.resolveId(_id(X, "123")), alice);
     }
 
-    /// Which ceremony version proved a binding is logged and never stored.
-    /// By the time anybody asks, the proof has happened and the effect has
-    /// been applied; the question is an operator's, and the log answers it.
-    /// The binding itself is a holder and a watermark, nothing more.
+    /// The ceremony version that proved a binding is logged, not stored.
     function test_theLogRecordsWhichCeremonyVersionProvedIt() public {
         StubPlatformVerifier v2 = new StubPlatformVerifier(X, 0);
         vm.prank(owner);
@@ -1136,8 +1052,7 @@ contract IdentityRegistryTest is PrivacyScan {
         assertEq(_lastBindVersion(), 2, "the log an indexer reads");
     }
 
-    /// The ceremony version out of the last `IdentityBound` in the recorded
-    /// logs, which carries the two nodes as topics and nothing they hash.
+    /// The ceremony version from the last recorded `IdentityBound`.
     function _lastBindVersion() internal view returns (uint16 ceremonyVersion) {
         Vm.Log[] memory logs = vm.getRecordedLogs();
         bytes32 topic = keccak256("IdentityBound(address,bytes32,bytes32,bytes32,uint64,uint16)");
@@ -1151,9 +1066,7 @@ contract IdentityRegistryTest is PrivacyScan {
 
     // ─── A platform is not usable until it can verify ───────────────
 
-    /// A platform `handles.json` names but no verifier serves has rules and
-    /// can verify nothing. Answering `address(0)` there would tell a caller
-    /// "nobody proved this" about a platform that cannot bind yet.
+    /// A platform without a verifier does not resolve.
     function test_aPlatformWithoutAVerifierDoesNotResolve() public {
         bytes32 google = HandlePlatforms.PLATFORM_GOOGLE;
         bytes32 idNode = _id(google, "123");
@@ -1165,17 +1078,13 @@ contract IdentityRegistryTest is PrivacyScan {
         vm.expectRevert(abi.encodeWithSelector(IdentityRegistry.UnknownPlatform.selector, google));
         registry.resolveHandleAndId(google, "alice@gmail.com", idNode);
 
-        // The hashing views answer: a client folding under `rulesOf` and
-        // hashing under `handleTagOf` reaches the node `handleNodeOf` names.
+        // The hashing views still answer.
         assertEq(registry.rulesOf(google).maxLength, HandlePlatforms.rulesFor(google).maxLength);
         assertEq(registry.handleTagOf(google), HandlePlatforms.handleTagFor(google));
         assertEq(registry.handleNodeOf(google, "Alice@Gmail.com"), handleNode);
     }
 
-    /// And binding says the same thing, rather than naming a version the
-    /// caller never chose. The platform is known, so the Consumer lets the
-    /// bind through and the Proof Verifier is the one with nothing to
-    /// dispatch to.
+    /// Binding on it is refused by the Proof Verifier.
     function test_bindingOnAPlatformWithoutAVerifierIsRefused() public {
         bytes32 google = HandlePlatforms.PLATFORM_GOOGLE;
         _stage("123", "alice", alice, 100);
@@ -1184,9 +1093,7 @@ contract IdentityRegistryTest is PrivacyScan {
         _submit(google, "");
     }
 
-    /// A new bind needs a known platform and a verifier the Proof Verifier
-    /// answers for: registering one enables the platform, retiring the last
-    /// version withdraws it, and bound identities keep resolving.
+    /// `acceptsBindings` needs a known platform and a registered verifier; bound identities keep resolving.
     function test_acceptsBindingsNeedsAKnownPlatformAndAVerifier() public {
         bytes32 google = HandlePlatforms.PLATFORM_GOOGLE;
         assertTrue(registry.acceptsBindings(X));
@@ -1243,10 +1150,7 @@ contract IdentityRegistryTest is PrivacyScan {
         assertEq(registry.resolveId(_id(X, "123")), alice, "the binding moved");
     }
 
-    /// Choosing a platform's verifiers is the whole of the owner's power here,
-    /// and it reaches no existing binding. Replacing the verifier a version
-    /// dispatches to must not disturb a binding that the previous one's proof
-    /// established.
+    /// Replacing a version's verifier leaves existing bindings alone.
     function test_replacingAVerifierLeavesBindingsAlone() public {
         _bind(alice, "123", "alice", 100);
 

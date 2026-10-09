@@ -11,18 +11,9 @@ it, then run this script. These files are written and never drift apart:
     <libid-circuits>/lib/identity/src/table.nr             # Noir constants, with --noir-out <that path>
     <libid-circuits>/lib/identity/src/table_tests.nr       # Noir vector tests, beside it
 
-Every output carries the SHA-256 of handles.json, so a consumer holding a
-generated file from one table and a contract from another can tell.
-
-Every handleNode and idNode in the table is recomputed here with hashlib and
-must match what the table states: the stored nodes are the independent
-reference every language is tested against, so a wrong one is refused before
-it is copied anywhere.
-
-The normalizer itself is hand written in each language. Only the constants and the vectors
-come from here. That is the point: several implementations, one vector table,
-so a difference between them fails a test instead of writing a different key
-on chain.
+Every output carries the SHA-256 of handles.json. Every handleNode and idNode
+in the table is recomputed with hashlib and must match. The normalizer is hand
+written in each language; only the constants and the vectors come from here.
 
 Run: ./scripts/regen-identity-handles.py [--noir-out ../libid-circuits/lib/identity/src/table.nr]
 """
@@ -85,13 +76,8 @@ def table_sha256(raw: bytes) -> str:
 
 
 def check_tags(spec: dict[str, Any]) -> None:
-    """Refuse tags two keys could share.
-
-    Nodes are global -- no platform id sits beside them -- so the tags alone
-    keep two platforms, and an id and a handle, apart. A repeated tag would
-    put two keyspaces on one; a tag that is a prefix of another lets
-    SHA256(a || "x.y") equal SHA256(a.x || "y") whenever the bytes line up.
-    """
+    """Refuse repeated tags, or one that is a prefix of another: nodes are
+    global, so the tags alone keep the keyspaces apart."""
     tags = [t for p in spec["platforms"] for t in (p["tags"]["userId"], p["tags"]["handle"])]
     for i, a in enumerate(tags):
         for b in tags[i + 1:]:
@@ -100,12 +86,8 @@ def check_tags(spec: dict[str, Any]) -> None:
 
 
 def check_nodes(spec: dict[str, Any]) -> None:
-    """Refuse a table whose stored nodes are not SHA256(tag || value).
-
-    A handle vector is hashed by its output under the handle tag, an id
-    vector by its input under the user-id tag; a refused vector of either
-    kind carries no node.
-    """
+    """Refuse a table whose stored nodes are not SHA256(tag || value); a
+    refused vector carries no node."""
     tags = {p["key"]: p["tags"] for p in spec["platforms"]}
     cases = [(vec, "handle", "handleNode", vec.get("output")) for vec in spec["vectors"]] + [
         (vec, "userId", "idNode", None if "error" in vec else vec["input"]) for vec in spec["idVectors"]
@@ -261,10 +243,7 @@ def gen_sol(spec: dict[str, Any], digest: str) -> str:
         "    /// The normalizer rules for a platform, as `handles.json` states",
         "    /// them.",
         "    ///",
-        "    /// @dev Generated so a deploy, a test and a consumer cannot each",
-        "    ///      keep their own copy. Reverts on an unknown platform rather",
-        "    ///      than returning a permissive default, because a wrong rule",
-        "    ///      set writes wrong nodes.",
+        "    /// @dev Reverts on an unknown platform.",
         "    function rulesFor(bytes32 platformId) internal pure returns (HandleNormalizer.Rules memory rules) {",
         "        (rules,) = _handleKeys(platformId);",
         "    }",
@@ -328,10 +307,8 @@ def gen_sol_vectors(spec: dict[str, Any], digest: str) -> str:
         "",
         "/// @notice The shared handle vector table, for tests.",
         "///",
-        "/// @dev The vectors are here rather than in a test file because Rust and",
-        "///      TypeScript run the same table. A normalizer that disagrees with",
-        "///      another language fails a test instead of writing a different node.",
-        "///      Production code reads `HandlePlatforms` and never this file.",
+        "/// @dev Rust and TypeScript run the same table; production code never",
+        "///      reads this file.",
         "library HandleVectors {",
     ]
     lines.append("    /// One case from the shared table.")
@@ -353,9 +330,7 @@ def gen_sol_vectors(spec: dict[str, Any], digest: str) -> str:
     lines.append("")
     lines.append("    function all() internal pure returns (Vector[] memory v) {")
     lines.append(f"        v = new Vector[]({len(vectors)});")
-    # Named fields, as the Rust and TypeScript tables already have them: a
-    # literal that names its fields cannot be silently reordered against the
-    # struct, which is what `forge lint` (named-struct-fields) is for.
+    # Named fields, so `forge lint` (named-struct-fields) passes.
     for i, vec in enumerate(vectors):
         accepted = "output" in vec
         out = sol_escape(vec.get("output", ""))

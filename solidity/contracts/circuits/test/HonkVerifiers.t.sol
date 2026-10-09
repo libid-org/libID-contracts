@@ -13,20 +13,7 @@ import {PlatformVerifierBase} from "../../ceremony/PlatformVerifierBase.sol";
 import {CircuitCodehashes} from "../CircuitCodehashes.sol";
 
 /// @notice The vendored Honk verifiers are what the Platform Verifiers pin.
-///
-/// @dev A bb verifier embeds its verification key as code and exposes no
-///      getter, so nothing here can ask it WHICH circuit it answers for. What
-///      it does say is the `logN` a wrong-length proof comes back with, and
-///      what each accepts. The two bearer-link circuits differ only in their
-///      platform rules and tags, so they may share a `logN`; a real proof of
-///      one refused by the other is what separates them. Either check catches
-///      a release whose tarballs were swapped, or a vendor run that wrote one
-///      circuit's verifier under another's name.
-///
-///      The verifiers are deployed from their artifacts, not imported: they
-///      compile on the legacy pipeline (see foundry.toml), and a test that
-///      imported one would compile the Platform Verifiers beside it on that
-///      pipeline too, which is not what ships.
+/// @dev Deployed from artifacts, not imported: they compile on the legacy pipeline.
 contract HonkVerifiersTest is Test {
     /// The error a Honk verifier raises for a proof of the wrong length.
     error ProofLengthWrongWithLogN(uint256 logN, uint256 actualLength, uint256 expectedLength);
@@ -100,9 +87,7 @@ contract HonkVerifiersTest is Test {
         assertNotEq(github, oidc, "GitHub and Google would verify under one circuit");
     }
 
-    /// Each bearer-link verifier accepts its own circuit's proof and refuses
-    /// the other's: two verification keys, so no proof of one platform's
-    /// rules passes as the other's.
+    /// Each bearer-link verifier accepts its own circuit's proof and refuses the other's.
     function test_eachBearerLinkVerifierRefusesTheOtherPlatformsProof() public view {
         assertTrue(_accepts(bearerLinkX, X_PROOF), "X refuses its own proof");
         assertTrue(_accepts(bearerLinkGithub, GITHUB_PROOF), "GitHub refuses its own proof");
@@ -168,19 +153,14 @@ contract HonkVerifiersTest is Test {
         assertNotEq(gh.honkVerifierCodehash(), g.honkVerifierCodehash(), "one artifact for GitHub and Google");
     }
 
-    /// @dev The constants the Platform Verifiers pin are the code hashes of
-    ///      the verifiers vendored beside them. `vendor-circuit-verifiers.sh`
-    ///      writes both; this fails while either is stale, so a re-vendor
-    ///      that is not committed with its constants does not pass.
+    /// @dev The pinned codehashes are those of the vendored verifiers.
     function test_theCommittedCodehashesAreTheVendoredVerifiers() public view {
         assertEq(address(bearerLinkX).codehash, CircuitCodehashes.BEARER_LINK_X, "bearer-link-x");
         assertEq(address(bearerLinkGithub).codehash, CircuitCodehashes.BEARER_LINK_GITHUB, "bearer-link-github");
         assertEq(address(oidcGoogle).codehash, CircuitCodehashes.OIDC_GOOGLE, "oidc-google");
     }
 
-    /// @dev Each Platform Verifier refuses at initialization every vendored
-    ///      verifier but its own circuit's, the other bearer-link circuit's
-    ///      included.
+    /// @dev Each Platform Verifier refuses every vendored verifier but its own circuit's.
     function test_eachPlatformVerifierRefusesTheOtherCircuits() public {
         _refuses(address(new XPlatformVerifier()), bearerLinkGithub, CircuitCodehashes.BEARER_LINK_X);
         _refuses(address(new XPlatformVerifier()), oidcGoogle, CircuitCodehashes.BEARER_LINK_X);

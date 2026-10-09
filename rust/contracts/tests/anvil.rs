@@ -98,10 +98,7 @@ async fn deploys_the_identity_stack_behind_proxies() {
     .await
     .unwrap();
 
-    // Wire the registry: the Proof Verifier it dispatches through. The
-    // platforms and their rules are the registry's generated constants; the
-    // platform id is keccak256 of the platform key, and libID namespaces only
-    // its own strings.
+    // Wire the registry to the Proof Verifier it dispatches through.
     let registry = IdentityRegistry::new(registry_proxy, &provider);
     registry
         .setProofVerifier(verifier_proxy)
@@ -131,9 +128,7 @@ async fn deploys_the_identity_stack_behind_proxies() {
         registry.proofVerifier().call().await.unwrap(),
         verifier_proxy
     );
-    // A platform that has rules and can verify nothing says so: answering
-    // `address(0)` would tell the caller "nobody holds this handle" about a
-    // platform no verifier serves yet. Its rules are the circuit's anyway.
+    // A platform no verifier serves reverts rather than answer `address(0)`.
     let unwired = registry
         .resolveHandle(platform_id, "octocat".into())
         .call()
@@ -673,10 +668,8 @@ async fn deploys_and_initializes_every_platform_verifier() {
         );
     }
 
-    // X wired to GitHub's circuit is refused by name, before any
-    // transaction: the two share a public-input layout, so the contract
-    // would accept it and key X bindings under GitHub's tags. Code that is
-    // no vendored verifier at all is refused the same way.
+    // X wired to GitHub's circuit, or to no vendored verifier, is refused
+    // before any transaction.
     let err = Initializer::X(tls(bearer_link_github))
         .call(&provider, &artifacts)
         .await
@@ -739,13 +732,8 @@ async fn deploys_and_initializes_every_platform_verifier() {
         "{err}"
     );
 
-    // The rules the wrapper enforces are the contract's, not its own: a
-    // hand-built Google initializer carrying a Notary Service, and an X one
-    // naming the wrong artifact, both revert at the proxy constructor with
-    // the error the wrapper's refusal names. Explicit nonces from here:
-    // a send that fails at gas estimation leaves alloy's cached nonce
-    // manager one ahead of the chain, and every later transaction would
-    // wait on a gap that never fills.
+    // Hand-built bad initializers revert at the proxy constructor with the wrapper's error.
+    // Explicit nonces: a send that fails estimation leaves alloy's nonce cache one ahead.
     let google_with_notary = GooglePlatformVerifier::initializeCall {
         owner_: deployer,
         notary_: notary_proxy,
@@ -908,9 +896,7 @@ async fn escrows_value_against_an_unclaimed_handle() {
     let escrow = HandleEscrow::new(escrow_proxy, &provider);
     let native = escrow.NATIVE().call().await.unwrap();
 
-    // The registry folds and hashes the text into the node the circuit
-    // binds; libid-identity computes the same node off chain, and both are
-    // pinned against Python's hashlib:
+    // Registry and libid-identity agree, pinned against Python's hashlib:
     //   hashlib.sha256(b"libid.github.handlealice-1")
     let node = registry
         .handleNodeOf(platform_id, "Alice-1".into())
@@ -1069,8 +1055,7 @@ async fn deploys_the_honk_verifiers_over_their_own_circuits() {
         );
         deployed.push((address, decoded.logN));
     }
-    // One verification key per circuit: X and GitHub prove at the same size,
-    // so the code, not the size, is what tells their verifiers apart.
+    // One verification key per circuit; X and GitHub share a proof size.
     for (i, (a, _)) in deployed.iter().enumerate() {
         for (b, _) in &deployed[i + 1..] {
             assert_ne!(

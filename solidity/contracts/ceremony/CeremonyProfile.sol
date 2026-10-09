@@ -105,9 +105,8 @@ library CeremonyProfile {
             || nameHash == keccak256("x-method-override");
     }
 
-    /// @dev The two identity members whose values a Platform Verifier finds
-    ///      as commitments, by the revealed anchors around them (REQ-PLAT-51).
-    ///      The values stay committed; the platform's circuit opens them.
+    /// @dev The two identity members a Platform Verifier finds as
+    ///      commitments by their revealed anchors (REQ-PLAT-51).
 
     string internal constant X_ID_FIELD = "id";
     string internal constant X_HANDLE_FIELD = "username";

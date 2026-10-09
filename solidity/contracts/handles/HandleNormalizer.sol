@@ -3,29 +3,13 @@ pragma solidity ^0.8.20;
 
 /// @notice Turns a handle a caller typed into the one form the identity
 ///         circuits hash into a node.
-///
-/// @dev The transform is closed and refuses rather than repairs: A-Z fold to
-///      a-z, and nothing is trimmed or stripped. It reads bytes, it does not
-///      fold Unicode, and it never consults a table outside this file.
-///
-///      The circuit is what keys a binding: it folds the handle the platform
-///      sent and outputs its node. This copy serves the plaintext a caller
-///      hands the registry -- a disclosure, a lookup -- and must agree with
-///      the circuit byte for byte, or a disclosed name would not hash to the
-///      node it names. Every rule below is exercised by the vector table in
-///      `contracts/handles/handles.json`, which the circuits, Rust and
-///      TypeScript run too.
+/// @dev Folds A-Z to a-z and refuses anything else outside the rules; never trims.
+///      Must match the circuits byte for byte: `handles.json` vectors test both.
 library HandleNormalizer {
-    /// Text the platform's rules refuse, with the reason. The one error a
-    /// refused handle raises, whoever refuses it: the registry's `publish`
-    /// and `handleNodeOf`, and a Platform Verifier checking a disclosure.
+    /// Text the platform's rules refuse, with the reason.
     error UnusableHandle(Problem problem);
 
-    /// @notice What one platform accepts. Each platform's rules are a
-    ///         `HandlePlatforms` constant generated from `handles.json`, the
-    ///         table its circuit folds handles with; a new platform is a
-    ///         `handles.json` entry and a circuit of its own.
-    ///
+    /// @notice What one platform accepts; see `HandlePlatforms` for each platform's.
     /// @param maxLength       Bytes allowed.
     /// @param isEmail         Validate as an address instead of a bare handle.
     /// @param allowUnderscore Allowed by X, not by GitHub.
@@ -38,8 +22,7 @@ library HandleNormalizer {
         bool allowHyphen;
     }
 
-    /// @notice What was wrong with a handle: what `UnusableHandle` carries, and
-    ///         what the readers that answer rather than revert report.
+    /// @notice What was wrong with a handle.
     enum Problem {
         None,
         Empty,
@@ -49,9 +32,6 @@ library HandleNormalizer {
     }
 
     /// @notice The normalized handle, or `UnusableHandle` naming what was wrong.
-    ///
-    /// @dev The disclosure path. A name a holder asks to publish that does not
-    ///      normalize can name no node, and failing loudly is right.
     function normalize(string memory raw, Rules memory rules) internal pure returns (string memory out) {
         Problem problem;
         (problem, out) = tryNormalize(raw, rules);
@@ -59,12 +39,6 @@ library HandleNormalizer {
     }
 
     /// @notice The same transform, reporting instead of reverting.
-    ///
-    /// @dev The read path. A resolver is asked "who holds this text", and text
-    ///      nobody could hold answers "nobody". A caller resolving whatever
-    ///      was typed must be able to tell that from a platform it cannot
-    ///      reach, and a stray space in a recipient field must not revert the
-    ///      transaction around it.
     function tryNormalize(string memory raw, Rules memory rules)
         internal
         pure
@@ -134,13 +108,7 @@ library HandleNormalizer {
         return true;
     }
 
-    /// @notice A disclosed handle, normalized, and the node it names:
-    ///         `SHA256(tag || normalized)`, the node the platform's circuit
-    ///         outputs for that handle.
-    ///
-    /// @dev The one disclosure computation, for the Platform Verifier checking
-    ///      a handle against its proof and the registry checking one a holder
-    ///      publishes later. Reverts as `normalize` does.
+    /// @notice A handle, normalized, and its node. Reverts as `normalize` does.
     function nodeOf(string memory raw, Rules memory rules, bytes memory tag)
         internal
         pure
@@ -150,8 +118,7 @@ library HandleNormalizer {
         handleNode = node(tag, normalized);
     }
 
-    /// @notice `nodeOf`, reporting instead of reverting: what was wrong with
-    ///         the handle, or `Problem.None` and its node.
+    /// @notice `nodeOf`, reporting instead of reverting.
     function tryNodeOf(string memory raw, Rules memory rules, bytes memory tag)
         internal
         pure
@@ -162,9 +129,7 @@ library HandleNormalizer {
         if (problem == Problem.None) handleNode = node(tag, normalized);
     }
 
-    /// @notice `SHA256(tag || normalized)`: the node a normalized handle is
-    ///         bound under. The one place this contract set writes the
-    ///         formula the circuits compute.
+    /// @notice `SHA256(tag || normalized)`: the node a normalized handle is bound under.
     function node(bytes memory tag, string memory normalized) internal pure returns (bytes32) {
         return sha256(abi.encodePacked(tag, normalized));
     }

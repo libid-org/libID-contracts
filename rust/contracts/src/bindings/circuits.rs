@@ -2,16 +2,9 @@
 //! `solidity/contracts/circuits`: the one call a Platform Verifier makes of
 //! them, and the error that says which circuit a deployed one answers for.
 
-/// Bindings for a bb-generated UltraHonk verifier — one interface for the
-/// three circuits' verifiers: `BearerLinkXHonkVerifier`,
-/// `BearerLinkGithubHonkVerifier` and `OidcGoogleHonkVerifier`.
-///
-/// `verify` is the whole surface a Platform Verifier uses
-/// (`IHonkVerifier` in `PlatformVerifierBase.sol`). The error is the one
-/// thing a deployed verifier says about itself: it embeds its verification
-/// key as code constants and exposes no getter, so `logN` from a
-/// wrong-length proof is how a test tells a real verifier over the right
-/// circuit from a contract that merely has code.
+/// Bindings for a bb-generated UltraHonk verifier, one interface for the
+/// three circuits' verifiers. A wrong-length proof's `logN` is how a test
+/// identifies the circuit, since the verifier exposes no getter.
 #[allow(unused_attributes)]
 mod honk_verifier_inner {
     use alloy::sol;
@@ -34,12 +27,8 @@ mod honk_verifier_inner {
 pub use honk_verifier_inner::HonkVerifier;
 
 /// Bindings for `circuits/IHonkVerifierErrors.sol`: what a vendored Honk
-/// verifier reverts with, under bb's names.
-///
-/// bb's verifier reverts from assembly with selectors held in `*_SELECTOR`
-/// constants and declares no error, so its own artifact names none of them.
-/// A refused proof comes back out of `bind` unchanged, and these are what
-/// decode it ([`BindError::decode`](crate::BindError::decode)).
+/// verifier reverts with, under bb's names. bb's artifact declares none of
+/// them; [`BindError::decode`](crate::BindError::decode) uses these.
 #[allow(non_camel_case_types, unused_attributes)]
 mod honk_verifier_errors_inner {
     use alloy::sol;
@@ -109,9 +98,8 @@ mod tests {
         );
     }
 
-    /// The selectors bound are exactly the `*_SELECTOR` constants of the
-    /// vendored verifiers, read from their sources: one bb no longer raises,
-    /// or one it added, fails here rather than decoding to nothing.
+    /// The selectors bound are exactly the vendored verifiers' `*_SELECTOR`
+    /// constants.
     #[test]
     fn honk_verifier_errors_are_the_vendored_selectors() {
         let dir = concat!(

@@ -55,8 +55,7 @@ describe('handle normalization', () => {
 })
 
 describe('the generated table', () => {
-  /// The constants name the table they came from by its SHA-256, checked
-  /// against the file in this repository.
+  /// The constants carry the SHA-256 of this `handles.json`.
   it('comes from this handles.json', () => {
     const table = readFileSync(
       new URL('../../../../../solidity/contracts/handles/handles.json', import.meta.url),

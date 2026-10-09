@@ -10,28 +10,10 @@ import {TlsNotaryVerifierBase} from "./TlsNotaryVerifierBase.sol";
 
 /// @title XPlatformVerifier — the `x/v1` profile.
 ///
-/// @dev THE REVEALED LAYOUT IS A PROFILE DECISION. REQ-COMMON-17A requires the
-///      profile to list the exact ranges a session reveals but does not fix
-///      them, so `x/v1` pins them here:
-///
-///        token request  — ONE revealed sent range, from offset 0 through the
-///                         whole form body. X uses a public client and hides no
-///                         body field, so the request is revealed entire and
-///                         `_tokenBody` refuses any other count. The body is
-///                         held to exactly `X_TOKEN_FIELDS` in order, as every
-///                         profile's is (REQ-PLAT-63).
-///        token response — the `"access_token":"` delimiter and its closing
-///                         quote revealed; the bearer and every other byte
-///                         committed.
-///        identity request — the bearer committed, every other byte revealed and
-///                         tiled exactly, per REQ-COMMON-35.
-///        identity response — the `"id":"` and `"username":"` anchors and
-///                         each closing quote revealed; the id and the handle
-///                         each one commitment between them, which the
-///                         circuit opens and hashes into the two nodes.
-///
-///      A notary emitting a different layout produces attestations this
-///      verifier rejects, so the layout must be agreed before either ships.
+/// @dev Revealed layout (REQ-COMMON-17A): the token request whole; the
+///      `"access_token":"` delimiter and closing quote; the identity request
+///      except the bearer (REQ-COMMON-35); the `"id":"` and `"username":"`
+///      anchors and closing quotes, with id and handle committed for the circuit.
 contract XPlatformVerifier is TlsNotaryVerifierBase {
     bytes private constant GRANT_TYPE = "authorization_code";
 
@@ -125,9 +107,8 @@ contract XPlatformVerifier is TlsNotaryVerifierBase {
         if (keccak256(grantType) != keccak256(GRANT_TYPE)) revert WrongGrantType(grantType);
     }
 
-    /// @dev REQ-PLAT-31. X's `id` is a JSON string, so both commitments are
-    ///      found by their full `"field":"` anchors and a closing quote,
-    ///      refusing a transcript where either anchor is revealed twice.
+    /// @dev REQ-PLAT-31. X's `id` is a JSON string: both commitments sit
+    ///      between a `"field":"` anchor, revealed once, and a closing quote.
     function _identityFields()
         internal
         pure

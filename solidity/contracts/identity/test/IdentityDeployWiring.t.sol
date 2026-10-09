@@ -12,15 +12,8 @@ import {IProofVerifier} from "../../ceremony/IProofVerifier.sol";
 import {CeremonyProofVerifier} from "../../ceremony/CeremonyProofVerifier.sol";
 import {StubPlatformVerifier} from "./StubPlatformVerifier.sol";
 
-/// A deployed registry knows the three platforms `handles.json` names, with the
-/// rules and handle tags it states: nothing is configured per platform, so no
-/// deploy step can install a wrong rule set. A wrong one would write wrong
-/// nodes for every handle on that platform, and nothing later would notice:
-/// the handle would simply resolve to nothing.
-///
-/// So the wiring is asserted rather than assumed — that the rules and tags a
-/// fresh registry answers are the ones `handles.json` states, and that
-/// registering a verifier is all it takes to make each platform resolvable.
+/// A deployed registry knows the three platforms `handles.json` names, with
+/// its rules and tags, and a registered verifier makes each resolvable.
 contract IdentityDeployWiringTest is Test {
     IdentityRegistry internal registry;
     CeremonyProofVerifier internal proofVerifier;
@@ -39,8 +32,7 @@ contract IdentityDeployWiringTest is Test {
         registry.setProofVerifier(IProofVerifier(address(proofVerifier)));
     }
 
-    /// The rules come from the generated table, so a change to `handles.json`
-    /// reaches the registry without anybody editing it.
+    /// The registry's rules are the generated `handles.json` ones.
     function test_theGeneratedRulesAreTheHandlesJsonOnes() public view {
         string memory table = vm.readFile("contracts/handles/handles.json");
         for (uint256 i = 0; i < 3; ++i) {
@@ -81,8 +73,7 @@ contract IdentityDeployWiringTest is Test {
         return HandlePlatforms.rulesFor(platformId);
     }
 
-    /// Registering a verifier for each of the three leaves each one resolvable;
-    /// before that, each resolver refuses it.
+    /// Each platform resolves once a verifier is registered for it, and not before.
     function test_registeringAVerifierMakesEveryPlatformUsable() public {
         vm.expectRevert(
             abi.encodeWithSelector(IdentityRegistry.UnknownPlatform.selector, HandlePlatforms.PLATFORM_GOOGLE)

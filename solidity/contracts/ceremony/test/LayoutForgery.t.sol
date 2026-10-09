@@ -175,22 +175,7 @@ contract LayoutForgeryTest is Test {
     }
 
     /// A response whose revealed ranges are spliced must not read as a document.
-    ///
-    /// @dev Was: returned userId 44196397, spliced out of the display name,
-    ///      while the account's real id is 999. Reading fields from a
-    ///      CONCATENATION of revealed ranges discarded every offset, so
-    ///      disjoint fragments joined into a document that never existed on the
-    ///      wire -- and the duplicate-delimiter check had nothing to fire on,
-    ///      because the genuine member was not in the buffer at all.
-    ///
-    ///      COVERAGE is what closes it, and that is worth being exact about.
-    ///      The fragments have to be disjoint for the splice to say anything
-    ///      new, and disjoint means a gap -- which `requireExactCoverage`
-    ///      refuses before any reader runs. The framing is the second line,
-    ///      for a TILED response: an anchor is one revealed run ending where
-    ///      its commitment starts, never a join across ranges.
-    ///      `XPlatformVerifier.t.sol` proves that one, because it cannot be
-    ///      reached from here.
+    /// @dev The gap between the fragments fails `requireExactCoverage`.
     function test_aSplicedResponseCannotForgeAnIdentity() public {
         TlsNotaryProof memory s = _submission();
         s.tokenSession = _honestToken();

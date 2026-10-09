@@ -84,13 +84,9 @@ abstract contract PlatformVerifierBase is ICeremony, Initializable, UUPSUpgradea
     error ZeroAddress();
     /// @dev The verifier at that address is not the artifact governance named.
     error WrongVerifierArtifact(bytes32 expected, bytes32 found);
-    /// @dev The verifier at that address is not this platform's circuit's:
-    ///      `expected` is the runtime code hash of the vendored verifier this
-    ///      contract was compiled against, `found` the code hash there.
+    /// @dev The verifier at that address is not this platform's circuit's.
     error WrongCircuit(bytes32 expected, bytes32 found);
-    /// @dev The handle the payload discloses does not hash to the handle node
-    ///      the proof bound. Disclose the handle the platform shows for this
-    ///      account, as it shows it.
+    /// @dev The disclosed handle does not hash to the proof's handle node.
     error HandleNotProved(bytes32 disclosed, bytes32 proved);
 
     // OpenZeppelin's initializer convention -- `__Contract_init`, so a child's
@@ -124,9 +120,7 @@ abstract contract PlatformVerifierBase is ICeremony, Initializable, UUPSUpgradea
         return _base().honkVerifierCodehash;
     }
 
-    /// @notice The runtime code hash of the one Honk verifier this contract
-    ///         accepts: its platform's circuit's, as vendored when it was
-    ///         compiled. `honkVerifierCodehash()` is always this value.
+    /// @notice The runtime code hash of this platform's vendored circuit verifier.
     function circuitCodehash() external pure returns (bytes32) {
         return _circuitCodehash();
     }
@@ -141,21 +135,8 @@ abstract contract PlatformVerifierBase is ICeremony, Initializable, UUPSUpgradea
         return (_proofLifetime(), _maxFutureAttestationSkew(), _futureObservationAllowance());
     }
 
-    /// @dev The caller names the artifact it means to wire, by code hash, and
-    ///      the call fails if the address does not hold it. REQ-COMMON-45 asks
-    ///      for the EXACT artifact governance selected; an address alone does
-    ///      not say which circuit answers behind it, and a mismatch found at
-    ///      the first user's proof is found in production.
-    ///
-    ///      And the artifact must be THIS platform's circuit's (`WrongCircuit`).
-    ///      X's and GitHub's circuits share one public-input layout, so a
-    ///      TLSNotary verifier wired to the other platform's Honk verifier
-    ///      would accept that circuit's proofs, whose nodes hash the id and
-    ///      handle under the other platform's tags and rules. The code hash
-    ///      the address holds must be `circuitCodehash()`, the vendored
-    ///      verifier's, so a different circuit or circuit release is a new
-    ///      implementation, not a rotation. The `libid-contracts` crate makes
-    ///      the same check off chain before any transaction.
+    /// @dev The Honk verifier must hold `honkVerifierCodehash_` (REQ-COMMON-45)
+    ///      and be this platform's circuit's, `circuitCodehash()` (`WrongCircuit`).
     function setTrustRoots(INotaryService notary_, IHonkVerifier honkVerifier_, bytes32 honkVerifierCodehash_)
         external
         onlyOwner
@@ -167,17 +148,11 @@ abstract contract PlatformVerifierBase is ICeremony, Initializable, UUPSUpgradea
     ///      initialization, so it must not read storage.
     function _platform() internal pure virtual returns (bytes32);
 
-    /// @dev The runtime code hash of this platform's circuit's Honk verifier:
-    ///      a `CircuitCodehashes` constant, generated from the vendored
-    ///      verifier.
+    /// @dev This platform's `CircuitCodehashes` constant.
     function _circuitCodehash() internal pure virtual returns (bytes32);
 
-    /// @dev The handle a payload discloses, checked against the handle node
-    ///      its proof bound: normalized with the platform's rules and hashed
-    ///      under its tag, both `handles.json`'s and so the circuit's own.
-    ///      Returns the normalized handle, or empty for a private submission.
-    ///      Text the rules refuse reverts `UnusableHandle`, the registry's
-    ///      shape for the same refusal.
+    /// @dev The disclosed handle, normalized, or empty for a private submission.
+    ///      Reverts unless it hashes to `handleNode` under the platform's rules.
     function _disclosed(string memory handle, bytes32 handleNode) internal pure returns (string memory normalized) {
         if (bytes(handle).length == 0) return "";
         bytes32 node;

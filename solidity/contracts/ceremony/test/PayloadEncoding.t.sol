@@ -8,11 +8,8 @@ import {AttestationBuilder} from "./AttestationBuilder.sol";
 import {ICeremony} from "../ICeremony.sol";
 import {ICeremonyPayloads} from "../ICeremonyPayloads.sol";
 
-/// @notice The X fixture's payload as solc encodes it, which is what the
-///         verifier decodes. `x-ceremony-payload.json` holds the fields the
-///         session fixture does not and the hash of the encoding; the Rust and
-///         TypeScript encoders build the same struct from the same files and
-///         must reach the same hash.
+/// @notice The X fixture's payload encodes to the hash in
+///         `x-ceremony-payload.json`, which the Rust and TS encoders also reach.
 contract PayloadEncodingTest is Test {
     string constant SESSION = "contracts/ceremony/test/fixtures/x-ceremony-session.json";
     string constant PROOF = "contracts/ceremony/test/fixtures/x-ceremony-session-proof.json";
