@@ -22,12 +22,7 @@ import {HandlePlatforms} from "../../handles/HandlePlatforms.sol";
 import {TestNodes} from "../../identity/test/TestNodes.sol";
 import {StubPlatformVerifier} from "../../identity/test/StubPlatformVerifier.sol";
 import {AttestationBuilder} from "./AttestationBuilder.sol";
-
-contract RRoots is IGoogleJwtRoots {
-    function trustedHashExpiresAt(bytes32) external pure returns (uint256) {
-        return 0;
-    }
-}
+import {TrustingJwtRoots} from "./TrustingJwtRoots.sol";
 
 /// @notice Every deployed contract survives an upgrade, refuses one from a
 ///         stranger, and cannot be initialized twice or on its implementation.
@@ -199,7 +194,7 @@ contract UpgradeSafetyTest is Test {
 
     function test_upgrade_GooglePlatformVerifier() public {
         IHonkVerifier honk = IHonkVerifier(HonkStub.deploy(HonkStub.GOOGLE));
-        RRoots roots = new RRoots();
+        TrustingJwtRoots roots = new TrustingJwtRoots();
         GooglePlatformVerifier impl = new GooglePlatformVerifier();
         vm.expectRevert(Initializable.InvalidInitialization.selector);
         impl.initialize(OWNER, INotaryService(address(0)), honk, address(honk).codehash, roots);

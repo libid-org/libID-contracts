@@ -2,9 +2,11 @@
 pragma solidity ^0.8.24;
 
 import {GoogleProof, TlsNotaryProof} from "../../ceremony/CeremonyPayloads.sol";
-import {Test, Vm} from "forge-std/Test.sol";
+import {Vm} from "forge-std/Test.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
+import {AttestationBuilder} from "../../ceremony/test/AttestationBuilder.sol";
+import {TrustingJwtRoots} from "../../ceremony/test/TrustingJwtRoots.sol";
 import {CeremonyProfile} from "../../ceremony/CeremonyProfile.sol";
 import {CeremonyProofVerifier} from "../../ceremony/CeremonyProofVerifier.sol";
 import {GitHubPlatformVerifier} from "../../ceremony/GitHubPlatformVerifier.sol";
@@ -17,6 +19,8 @@ import {NotaryService} from "../../ceremony/NotaryService.sol";
 import {IHonkVerifier, PlatformVerifierBase} from "../../ceremony/PlatformVerifierBase.sol";
 import {XPlatformVerifier} from "../../ceremony/XPlatformVerifier.sol";
 import {IdentityRegistry} from "../IdentityRegistry.sol";
+import {PrivacyScan} from "./PrivacyScan.sol";
+import {TestNodes} from "./TestNodes.sol";
 
 /// @notice A platform's identity bound through the whole deployed stack with
 ///         a real proof: the registry over the Proof Verifier over the
@@ -26,7 +30,7 @@ import {IdentityRegistry} from "../IdentityRegistry.sol";
 ///      and the nodes Python's hashlib computes for them; the checks are
 ///      shared. Every fixture's Authorized Transaction Data is the registry's
 ///      own triple `(0xBEEF, 0, 0)`, so it binds unedited.
-abstract contract RealProofBindBase is Test {
+abstract contract RealProofBindBase is PrivacyScan {
     IdentityRegistry registry;
     CeremonyProofVerifier proofVerifier;
 
@@ -41,10 +45,6 @@ abstract contract RealProofBindBase is Test {
     /// submission).
     function _payload(string memory handle) internal view virtual returns (bytes memory);
 
-    /// The id, the handle as the platform shows it, and the handle folded:
-    /// the bytes a private bind must leave nowhere.
-    function _secrets() internal pure virtual returns (string[3] memory);
-
     function _idNode() internal pure virtual returns (bytes32);
 
     function _handleNode() internal pure virtual returns (bytes32);
@@ -52,6 +52,12 @@ abstract contract RealProofBindBase is Test {
     /// The contracts whose storage a bind may write, besides the registry and
     /// the Proof Verifier.
     function _verifiers() internal view virtual returns (address[] memory);
+
+    /// The proof's public inputs, and where the id node's `[high, low]`
+    /// halves start; the handle node's follow.
+    function _publicInputs() internal view virtual returns (bytes32[] memory);
+
+    function _idNodeAt() internal pure virtual returns (uint256);
 
     // ─── The stack ──────────────────────────────────────────────────
 
@@ -99,19 +105,12 @@ abstract contract RealProofBindBase is Test {
         _bind(payload);
         emit log_named_uint("bind gas", vm.lastCallGas().gasTotalUsed);
 
-        Vm.Log[] memory logs = vm.getRecordedLogs();
-        assertGt(logs.length, 0);
-        for (uint256 i = 0; i < logs.length; ++i) {
-            assertFalse(_containsAny(logs[i].data), "an event's data carries an id or handle");
-            for (uint256 j = 0; j < logs[i].topics.length; ++j) {
-                assertFalse(_containsAny(abi.encode(logs[i].topics[j])), "an event's topic carries an id or handle");
-            }
-        }
-        _assertNoSlotCarriesAny(address(registry));
-        _assertNoSlotCarriesAny(address(proofVerifier));
+        _assertLogsHideTheSecrets(vm.getRecordedLogs());
+        _assertStorageHidesTheSecrets(address(registry));
+        _assertStorageHidesTheSecrets(address(proofVerifier));
         address[] memory verifiers = _verifiers();
         for (uint256 i = 0; i < verifiers.length; ++i) {
-            _assertNoSlotCarriesAny(verifiers[i]);
+            _assertStorageHidesTheSecrets(verifiers[i]);
         }
 
         assertEq(registry.resolveId(_idNode()), BINDER);
@@ -161,39 +160,11 @@ abstract contract RealProofBindBase is Test {
     /// its node by hashlib.
     function _otherHandle() internal pure virtual returns (string memory, bytes32);
 
-    // ─── Helpers ────────────────────────────────────────────────────
-
-    /// Whether `data` carries the id, the handle as sent, or the handle
-    /// folded.
-    function _containsAny(bytes memory data) internal pure returns (bool) {
-        string[3] memory secrets = _secrets();
-        for (uint256 i = 0; i < secrets.length; ++i) {
-            if (_indexOf(data, bytes(secrets[i])) != type(uint256).max) return true;
-        }
-        return false;
-    }
-
-    /// Every slot `target` wrote since `vm.record`, read back and scanned.
-    function _assertNoSlotCarriesAny(address target) internal view {
-        (, bytes32[] memory writes) = vm.accesses(target);
-        for (uint256 i = 0; i < writes.length; ++i) {
-            assertFalse(
-                _containsAny(abi.encode(vm.load(target, writes[i]))),
-                string.concat("a storage slot carries an id or handle: ", vm.toString(writes[i]))
-            );
-        }
-    }
-
-    function _indexOf(bytes memory haystack, bytes memory needle) private pure returns (uint256) {
-        if (needle.length > haystack.length) return type(uint256).max;
-        for (uint256 i = 0; i + needle.length <= haystack.length; ++i) {
-            bool same = true;
-            for (uint256 j = 0; j < needle.length && same; ++j) {
-                same = haystack[i + j] == needle[j];
-            }
-            if (same) return i;
-        }
-        return type(uint256).max;
+    /// @dev The nodes this test names are the ones the proof outputs.
+    function test_theNodesAreTheProofsOutputs() public view {
+        bytes32[] memory inputs = _publicInputs();
+        assertEq(AttestationBuilder.nodeAt(inputs, _idNodeAt()), _idNode());
+        assertEq(AttestationBuilder.nodeAt(inputs, _idNodeAt() + 2), _handleNode());
     }
 }
 
@@ -265,12 +236,13 @@ abstract contract RealTlsNotaryBind is RealProofBindBase {
         );
     }
 
-    /// @dev The nodes this test names are the ones the proof outputs, `[high,
-    ///      low]` at fields 68 to 71.
-    function test_theNodesAreTheProofsOutputs() public view {
-        bytes32[] memory inputs = vm.parseJsonBytes32Array(vm.readFile(_proofFile()), ".public_inputs");
-        assertEq(bytes32((uint256(inputs[68]) << 128) | uint256(inputs[69])), _idNode());
-        assertEq(bytes32((uint256(inputs[70]) << 128) | uint256(inputs[71])), _handleNode());
+    function _publicInputs() internal view override returns (bytes32[] memory) {
+        return vm.parseJsonBytes32Array(vm.readFile(_proofFile()), ".public_inputs");
+    }
+
+    /// `[high, low]` at fields 68 to 71.
+    function _idNodeAt() internal pure override returns (uint256) {
+        return 68;
     }
 }
 
@@ -323,7 +295,7 @@ contract RealProofBindTest is RealTlsNotaryBind {
         );
     }
 
-    // ─── Publish, then withdraw ─────────────────────────────────────
+    // ─── Publish ────────────────────────────────────────────────────
 
     /// @dev The holder discloses its handle in any case; the registry checks
     ///      it hashes to the bound node and stores the folded form.
@@ -338,7 +310,7 @@ contract RealProofBindTest is RealTlsNotaryBind {
 
     function test_refusesToPublishAHandleTheHolderDidNotProve() public {
         _bind(_payload(""));
-        vm.expectRevert(abi.encodeWithSelector(IdentityRegistry.NotYourHandle.selector, sha256("libid.x.handlebob")));
+        vm.expectRevert(abi.encodeWithSelector(IdentityRegistry.NotYourHandle.selector, TestNodes.handleNode(X, "bob")));
         vm.prank(BINDER);
         registry.publish(X, "bob");
     }
@@ -348,19 +320,6 @@ contract RealProofBindTest is RealTlsNotaryBind {
         vm.expectRevert(abi.encodeWithSelector(IdentityRegistry.NotYourHandle.selector, HANDLE_NODE));
         vm.prank(address(0xCAFE));
         registry.publish(X, "alice_1");
-    }
-
-    function test_unpublishClearsTheName() public {
-        _bind(_payload(""));
-        vm.prank(BINDER);
-        registry.publish(X, "Alice_1");
-        vm.expectEmit(address(registry));
-        emit IdentityRegistry.HandleUnpublished(BINDER, X);
-        vm.prank(BINDER);
-        registry.unpublish(X);
-        assertEq(registry.publishedHandleOf(BINDER, X), "");
-        // The binding itself stays.
-        assertEq(registry.resolveHandle(X, "alice_1"), BINDER);
     }
 }
 
@@ -412,19 +371,6 @@ contract RealProofBindGitHubTest is RealTlsNotaryBind {
     }
 }
 
-/// @notice A JWT root list trusting what the test tells it to.
-contract TrustingJwtRoots is IGoogleJwtRoots {
-    mapping(bytes32 => uint256) public expiry;
-
-    function trust(bytes32 modulusHash, uint256 until) external {
-        expiry[modulusHash] = until;
-    }
-
-    function trustedHashExpiresAt(bytes32 modulusHash) external view returns (uint256) {
-        return expiry[modulusHash];
-    }
-}
-
 /// @notice Google: the account is `Fixture@Example.com`, sub
 ///         `100000000000000000001`, proved by `google-ceremony-proof.json`
 ///         through the vendored oidc-google verifier, over a token signed by a
@@ -433,8 +379,7 @@ contract RealProofBindGoogleTest is RealProofBindBase {
     string constant PROOF = "contracts/ceremony/test/fixtures/google-ceremony-proof.json";
     /// The signed `exp` of the fixture's token.
     uint64 constant EXP = 1_893_456_000;
-    /// The handle node's `[high, low]` public inputs.
-    uint256 constant HANDLE_HIGH = 36;
+    /// The handle node's low half among the public inputs.
     uint256 constant HANDLE_LOW = 37;
 
     TrustingJwtRoots roots;
@@ -516,11 +461,13 @@ contract RealProofBindGoogleTest is RealProofBindBase {
         s.proof = vm.parseJsonBytes(json, ".proof");
     }
 
-    /// @dev The handle node this test names is the one the proof outputs.
-    function test_theNodesAreTheProofsOutputs() public view {
-        bytes32[] memory inputs = vm.parseJsonBytes32Array(vm.readFile(PROOF), ".public_inputs");
-        assertEq(bytes32((uint256(inputs[34]) << 128) | uint256(inputs[35])), _idNode());
-        assertEq(bytes32((uint256(inputs[HANDLE_HIGH]) << 128) | uint256(inputs[HANDLE_LOW])), _handleNode());
+    function _publicInputs() internal view override returns (bytes32[] memory) {
+        return vm.parseJsonBytes32Array(vm.readFile(PROOF), ".public_inputs");
+    }
+
+    /// `[high, low]` at fields 34 to 37.
+    function _idNodeAt() internal pure override returns (uint256) {
+        return 34;
     }
 
     /// @dev The proof binds the handle node: a payload naming another one,

@@ -12,26 +12,16 @@ import {GooglePlatformVerifier, IGoogleJwtRoots} from "../GooglePlatformVerifier
 import {ICeremony} from "../ICeremony.sol";
 import {INotaryService} from "../INotaryService.sol";
 import {IHonkVerifier, PlatformVerifierBase} from "../PlatformVerifierBase.sol";
+import {TrustingJwtRoots} from "./TrustingJwtRoots.sol";
+import {TestNodes} from "../../identity/test/TestNodes.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
-
-contract Roots is IGoogleJwtRoots {
-    mapping(bytes32 => uint256) public expiry;
-
-    function trust(bytes32 h, uint256 until) external {
-        expiry[h] = until;
-    }
-
-    function trustedHashExpiresAt(bytes32 h) external view returns (uint256) {
-        return expiry[h];
-    }
-}
 
 /// @notice The `google/v1` profile: no notarized session, no Notary Service, no
 ///         fee, and the digest bound as a public proof input rather than
 ///         through PKCE.
 contract GooglePlatformVerifierTest is Test {
     GooglePlatformVerifier verifier;
-    Roots roots;
+    TrustingJwtRoots roots;
     address honk;
 
     address constant OWNER = address(0xA11CE);
@@ -63,7 +53,7 @@ contract GooglePlatformVerifierTest is Test {
     function setUp() public {
         digest = CeremonyAuthorization.digestFor(DOMAIN, 1, AUTH_NONCE, _txData());
         vm.warp(T0);
-        roots = new Roots();
+        roots = new TrustingJwtRoots();
         honk = HonkStub.deploy(HonkStub.GOOGLE);
         GooglePlatformVerifier impl = new GooglePlatformVerifier();
         verifier = GooglePlatformVerifier(
@@ -250,7 +240,7 @@ contract GooglePlatformVerifierTest is Test {
     function test_refusesToDiscloseAnAddressTheProofDidNotBind() public {
         GoogleProof memory s = _payload();
         s.handle = "other@example.com";
-        bytes32 other = sha256("libid.google.handleother@example.com");
+        bytes32 other = TestNodes.handleNode(CeremonyProfile.PLATFORM_GOOGLE, "other@example.com");
         vm.expectRevert(abi.encodeWithSelector(PlatformVerifierBase.HandleNotProved.selector, other, HANDLE_NODE));
         this.run(s);
     }
@@ -429,7 +419,7 @@ contract GooglePlatformVerifierTest is Test {
     /// @dev REQ-PLAT-23. The circuit exposes the modulus that verified the JWS
     ///      but decides no trust; that decision lives here alone.
     function test_rejectsAnUntrustedModulus() public {
-        Roots empty = new Roots();
+        TrustingJwtRoots empty = new TrustingJwtRoots();
         vm.prank(OWNER);
         verifier.setJwtRoots(IGoogleJwtRoots(address(empty)));
         GoogleProof memory s = _payload();
@@ -440,7 +430,7 @@ contract GooglePlatformVerifierTest is Test {
     /// @dev Google rotates weekly, so a lapsed key must fail closed rather than
     ///      keep answering.
     function test_rejectsAModulusWhoseTrustHasLapsed() public {
-        Roots lapsed = new Roots();
+        TrustingJwtRoots lapsed = new TrustingJwtRoots();
         lapsed.trust(_modulusHash(), T0);
         vm.prank(OWNER);
         verifier.setJwtRoots(IGoogleJwtRoots(address(lapsed)));

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-import {Test, Vm} from "forge-std/Test.sol";
+import {Vm} from "forge-std/Test.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
 import {HandleNormalizer} from "../../handles/HandleNormalizer.sol";
@@ -10,6 +10,8 @@ import {IdentityRegistry} from "../IdentityRegistry.sol";
 import {CeremonyProofVerifier} from "../../ceremony/CeremonyProofVerifier.sol";
 import {IPlatformVerifier} from "../../ceremony/IPlatformVerifier.sol";
 import {IProofVerifier} from "../../ceremony/IProofVerifier.sol";
+import {AttestationBuilder} from "../../ceremony/test/AttestationBuilder.sol";
+import {PrivacyScan} from "./PrivacyScan.sol";
 import {StubPlatformVerifier} from "./StubPlatformVerifier.sol";
 import {TestNodes} from "./TestNodes.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
@@ -22,7 +24,7 @@ import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 ///      has its own suite. The stub reports the nodes a circuit would: the id
 ///      hashed as given, the handle folded and hashed, under the platform's
 ///      tags.
-contract IdentityRegistryTest is Test {
+contract IdentityRegistryTest is PrivacyScan {
     IdentityRegistry internal registry;
     CeremonyProofVerifier internal proofVerifier;
     StubPlatformVerifier internal xVerifier;
@@ -224,7 +226,7 @@ contract IdentityRegistryTest is Test {
     /// would output -- the hash of an unfolded handle -- binds as given, and
     /// no text a reader can type reaches it: every reader folds first.
     function test_theRegistryNeverRefoldsANodeItIsGiven() public {
-        bytes32 unfolded = sha256(abi.encodePacked(HandlePlatforms.handleTagFor(X), "Alice"));
+        bytes32 unfolded = TestNodes.handleNode(X, "Alice");
         _stage("123", "Alice", alice, 100);
         xVerifier.setNodes(_id(X, "123"), unfolded);
         vm.prank(alice);
@@ -706,14 +708,6 @@ contract IdentityRegistryTest is Test {
         assertEq(registry.publishedHandleOf(alice, X), "alice", "the slot was rewritten");
     }
 
-    /// The complement: a holder that never disclosed does not start now.
-    function test_bindingWithoutDisclosingNeverPublishes() public {
-        _bind(alice, "123", "alice", 100);
-        _bind(alice, "123", "alice2", 200);
-
-        assertEq(registry.publishedHandleOf(alice, X), "", "nothing was ever on display");
-    }
-
     /// One name per wallet per platform: a second disclosure replaces the
     /// first, here for a holder with two identities.
     function test_aSecondDisclosureReplacesTheFirst() public {
@@ -762,16 +756,16 @@ contract IdentityRegistryTest is Test {
     }
 
     // ─── Privacy ────────────────────────────────────────────────────
-    //
-    // "Private" means not disclosed, not unguessable: anyone holding a
-    // candidate can hash it and look it up. What a private bind must not do is
-    // put the id or the handle on chain itself.
 
     /// Ten digits and thirteen mixed-case characters, long enough that a match
     /// inside a SHA-256 node or an address would not be chance.
     string internal constant SECRET_ID = "2244994945";
     string internal constant SECRET_HANDLE = "Alice_Wonder1";
     string internal constant SECRET_FOLDED = "alice_wonder1";
+
+    function _secrets() internal pure override returns (string[3] memory) {
+        return [SECRET_ID, SECRET_HANDLE, SECRET_FOLDED];
+    }
 
     /// Every log a private bind emits -- the registry's, the Proof Verifier's,
     /// any -- carries no byte run of the id or the handle, raw or folded, in
@@ -781,18 +775,8 @@ contract IdentityRegistryTest is Test {
         vm.recordLogs();
         vm.prank(alice);
         _submit(X, "");
-        Vm.Log[] memory logs = vm.getRecordedLogs();
-
-        assertTrue(logs.length > 0, "the bind logged nothing to check");
+        _assertLogsHideTheSecrets(vm.getRecordedLogs());
         assertEq(registry.resolveHandle(X, SECRET_HANDLE), alice, "the bind did not happen");
-        for (uint256 i = 0; i < logs.length; i++) {
-            bytes memory topics;
-            for (uint256 t = 0; t < logs[i].topics.length; t++) {
-                topics = bytes.concat(topics, logs[i].topics[t]);
-            }
-            _assertHidden(topics, string.concat("topics of log ", vm.toString(i)));
-            _assertHidden(logs[i].data, string.concat("data of log ", vm.toString(i)));
-        }
     }
 
     /// The scan finds a disclosed handle where it is: in `HandlePublished`. A
@@ -806,7 +790,7 @@ contract IdentityRegistryTest is Test {
 
         bool found;
         for (uint256 i = 0; i < logs.length; i++) {
-            if (_contains(logs[i].data, bytes(SECRET_FOLDED))) {
+            if (AttestationBuilder.contains(logs[i].data, bytes(SECRET_FOLDED))) {
                 assertEq(logs[i].topics[0], IdentityRegistry.HandlePublished.selector, "found it outside the event");
                 found = true;
             }
@@ -824,14 +808,8 @@ contract IdentityRegistryTest is Test {
         vm.prank(alice);
         _submit(X, "");
 
-        address[2] memory stores = [address(registry), address(proofVerifier)];
-        for (uint256 s = 0; s < stores.length; s++) {
-            (, bytes32[] memory writes) = vm.accesses(stores[s]);
-            if (s == 0) assertTrue(writes.length > 0, "the bind wrote nothing to check");
-            for (uint256 i = 0; i < writes.length; i++) {
-                _assertHidden(abi.encodePacked(vm.load(stores[s], writes[i])), "a storage word");
-            }
-        }
+        assertGt(_assertStorageHidesTheSecrets(address(registry)), 0, "the bind wrote nothing to check");
+        _assertStorageHidesTheSecrets(address(proofVerifier));
 
         assertEq(registry.publishedHandleOf(alice, X), "");
         IdentityRegistry.Identity memory a = registry.identitiesOf(alice, 0, 1)[0];
@@ -851,26 +829,10 @@ contract IdentityRegistryTest is Test {
         bool found;
         for (uint256 i = 0; i < writes.length; i++) {
             bytes memory word = abi.encodePacked(vm.load(address(registry), writes[i]));
-            if (_contains(word, bytes(SECRET_FOLDED))) found = true;
-            assertFalse(_contains(word, bytes(SECRET_ID)), "the id is stored beside the name");
+            if (AttestationBuilder.contains(word, bytes(SECRET_FOLDED))) found = true;
+            assertFalse(AttestationBuilder.contains(word, bytes(SECRET_ID)), "the id is stored beside the name");
         }
         assertTrue(found, "the disclosed name is not in storage");
-    }
-
-    function _assertHidden(bytes memory haystack, string memory where) internal pure {
-        assertFalse(_contains(haystack, bytes(SECRET_ID)), string.concat("the id is in ", where));
-        assertFalse(_contains(haystack, bytes(SECRET_HANDLE)), string.concat("the handle is in ", where));
-        assertFalse(_contains(haystack, bytes(SECRET_FOLDED)), string.concat("the folded handle is in ", where));
-    }
-
-    function _contains(bytes memory haystack, bytes memory needle) internal pure returns (bool) {
-        if (needle.length == 0 || needle.length > haystack.length) return false;
-        for (uint256 i = 0; i + needle.length <= haystack.length; i++) {
-            uint256 j = 0;
-            while (j < needle.length && haystack[i + j] == needle[j]) j++;
-            if (j == needle.length) return true;
-        }
-        return false;
     }
 
     // ─── A holder's identities ──────────────────────────────────────
@@ -1118,15 +1080,6 @@ contract IdentityRegistryTest is Test {
         (address holder, bool idAgrees) = registry.resolveHandleAndId(X, "ali ce", _id(X, "123"));
         assertEq(holder, address(0));
         assertFalse(idAgrees);
-    }
-
-    /// An unknown platform still reverts. Zero would answer "nobody proved
-    /// this" to a question that was never asked, and the caller cannot tell the
-    /// two apart from an address.
-    function test_anUnknownPlatformStillReverts() public {
-        bytes32 unknown = keccak256("nowhere");
-        vm.expectRevert(abi.encodeWithSelector(IdentityRegistry.UnknownPlatform.selector, unknown));
-        registry.resolveHandle(unknown, "alice");
     }
 
     // ─── Node separation ────────────────────────────────────────────

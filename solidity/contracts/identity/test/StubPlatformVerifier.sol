@@ -3,8 +3,8 @@ pragma solidity ^0.8.24;
 
 import {CeremonyAuthorization} from "../../ceremony/CeremonyAuthorization.sol";
 import {IPlatformVerifier} from "../../ceremony/IPlatformVerifier.sol";
-import {HandleNormalizer} from "../../handles/HandleNormalizer.sol";
 import {HandlePlatforms} from "../../handles/HandlePlatforms.sol";
+import {TestNodes} from "./TestNodes.sol";
 
 /// @notice Stands in for a Platform Verifier.
 ///
@@ -96,34 +96,22 @@ contract StubPlatformVerifier is IPlatformVerifier {
         c.transactionData = p.transactionData;
         c.ceremonyVersion = p.ceremonyVersion;
         c.clientIdentifier = "client";
-        (bytes memory idTag, bytes memory handleTag, HandleNormalizer.Rules memory rules) = _platformTable();
         if (rawNodes) {
             c.idNode = rawIdNode;
             c.handleNode = rawHandleNode;
             c.handle = p.handle;
         } else {
-            c.idNode = sha256(abi.encodePacked(idTag, userId));
-            c.handleNode = sha256(abi.encodePacked(handleTag, HandleNormalizer.normalize(handle, rules)));
+            bytes32 known = HandlePlatforms.knows(PLATFORM) ? PLATFORM : HandlePlatforms.PLATFORM_X;
+            c.idNode = TestNodes.idNode(known, userId);
+            (, c.handleNode) = HandlePlatforms.handleNodeOf(known, handle);
             // The real verifiers' disclosure check: the disclosed handle,
             // normalized, must hash to the handle node.
             if (bytes(p.handle).length != 0) {
-                (string memory normalized, bytes32 node) = HandleNormalizer.nodeOf(p.handle, rules, handleTag);
+                (string memory normalized, bytes32 node) = HandlePlatforms.handleNodeOf(known, p.handle);
                 if (node != c.handleNode) revert HandleNotProved(node, c.handleNode);
                 c.handle = normalized;
             }
         }
         c.metadataObservedAt = observedAt;
-    }
-
-    function _platformTable()
-        private
-        view
-        returns (bytes memory idTag, bytes memory handleTag, HandleNormalizer.Rules memory rules)
-    {
-        bytes32 known = PLATFORM == HandlePlatforms.PLATFORM_GITHUB || PLATFORM == HandlePlatforms.PLATFORM_GOOGLE
-            ? PLATFORM
-            : HandlePlatforms.PLATFORM_X;
-        return
-            (HandlePlatforms.userIdTagFor(known), HandlePlatforms.handleTagFor(known), HandlePlatforms.rulesFor(known));
     }
 }
