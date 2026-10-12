@@ -167,6 +167,20 @@
     },
     {
       "platform": "x",
+      "input": "_alice",
+      "output": "_alice",
+      "note": "An underscore may start an X handle.",
+      "handleNode": "0x3a354366999d277daf0a6e81640d9a9976bc4efc20db4e1df245e90ba42aeeb8"
+    },
+    {
+      "platform": "x",
+      "input": "alice_",
+      "output": "alice_",
+      "note": "And end one.",
+      "handleNode": "0xf222c841ac39b261a179896eb45c53e48e8a610a15bdee72176e088783ad6f2a"
+    },
+    {
+      "platform": "x",
       "input": "a12345678901234",
       "output": "a12345678901234",
       "note": "15 bytes is the limit.",
@@ -350,6 +364,20 @@
     },
     {
       "platform": "google",
+      "input": "a-b@example.com",
+      "output": "a-b@example.com",
+      "note": "An address keeps its hyphen.",
+      "handleNode": "0x4eb5654e6947900ef44daa8a41a7c9e7e6f4717794bdc079f843f357a023f54f"
+    },
+    {
+      "platform": "google",
+      "input": "a_b@example.com",
+      "output": "a_b@example.com",
+      "note": "And its underscore.",
+      "handleNode": "0xdce533afdd6b399323db9ab05dbccbac9913093f522d390cbb832bee1d2b9c3f"
+    },
+    {
+      "platform": "google",
       "input": " Alice@Example.com ",
       "error": "BadCharacter",
       "note": "A space is refused, not trimmed."
@@ -510,6 +538,11 @@
     },
     {
       "platform": "github",
+      "input": "123456789012345678901",
+      "error": "TooLong"
+    },
+    {
+      "platform": "github",
       "input": "",
       "error": "Empty"
     },
@@ -528,6 +561,12 @@
       "input": "a b~Z",
       "note": "Any printable ASCII but the quote and the backslash.",
       "idNode": "0xa8ad7455d3d38bcd9b94b444284182fee9766f2403e7fe283c68c4a08123be77"
+    },
+    {
+      "platform": "google",
+      "input": "0123",
+      "note": "A sub is opaque, so a leading 0 stays.",
+      "idNode": "0x2c6577b6658e7c1cb90c3a3cf63a295bb5543e32cd2429d62cf4d8f0131075b3"
     },
     {
       "platform": "google",

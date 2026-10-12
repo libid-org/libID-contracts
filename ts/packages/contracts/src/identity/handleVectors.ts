@@ -40,7 +40,7 @@ export interface Platform {
 }
 
 /** SHA-256 of the handles.json this file was generated from. */
-export const TABLE_SHA256 = '011835b5197580f7593fb119df70a6a229be3981dbc9f66cb0f7ed1c05eb68ce'
+export const TABLE_SHA256 = '4ecb10da6bf455cf2cea2c9abb263ea7880b79ffdf774ad3a93118e1a7babb0d'
 
 /** keccak256 of this string is the platform id. */
 export const PLATFORM_X_KEY = 'x'
@@ -123,6 +123,8 @@ export const HANDLE_VECTORS: HandleVector[] = [
   { platform: "x", input: "alice", output: "alice", accepted: true, errorKind: 0, handleNode: "0x0bed64615b5776d2567a82467d7be0e266e02803910d694a72703ee2a4cc911a" },
   { platform: "x", input: "@a", output: "", accepted: false, errorKind: 2, handleNode: "" },
   { platform: "x", input: "A1_b2", output: "a1_b2", accepted: true, errorKind: 0, handleNode: "0x55be0847f475409cb1da1d008804b966de05bb088d2469129c142faf2ec4a678" },
+  { platform: "x", input: "_alice", output: "_alice", accepted: true, errorKind: 0, handleNode: "0x3a354366999d277daf0a6e81640d9a9976bc4efc20db4e1df245e90ba42aeeb8" },
+  { platform: "x", input: "alice_", output: "alice_", accepted: true, errorKind: 0, handleNode: "0xf222c841ac39b261a179896eb45c53e48e8a610a15bdee72176e088783ad6f2a" },
   { platform: "x", input: "a12345678901234", output: "a12345678901234", accepted: true, errorKind: 0, handleNode: "0xbd3a96fb00ea79bdb486cbaa43914f8c110c8585d419fc02e5b1536c7617af58" },
   { platform: "x", input: "a123456789012345", output: "", accepted: false, errorKind: 1, handleNode: "" },
   { platform: "x", input: "", output: "", accepted: false, errorKind: 0, handleNode: "" },
@@ -155,6 +157,8 @@ export const HANDLE_VECTORS: HandleVector[] = [
   { platform: "github", input: "\n", output: "", accepted: false, errorKind: 2, handleNode: "" },
   { platform: "google", input: "A.B+tag@Example.COM", output: "a.b+tag@example.com", accepted: true, errorKind: 0, handleNode: "0x40169b5cc6400158aeef2a13b73a14fc36e5e1df8595572b8fe282a269f26dd4" },
   { platform: "google", input: "alice@example.com", output: "alice@example.com", accepted: true, errorKind: 0, handleNode: "0x41c79cba63d5bd4735ca51af1af31702918f326eb6fc1afd853d675fee3a59cc" },
+  { platform: "google", input: "a-b@example.com", output: "a-b@example.com", accepted: true, errorKind: 0, handleNode: "0x4eb5654e6947900ef44daa8a41a7c9e7e6f4717794bdc079f843f357a023f54f" },
+  { platform: "google", input: "a_b@example.com", output: "a_b@example.com", accepted: true, errorKind: 0, handleNode: "0xdce533afdd6b399323db9ab05dbccbac9913093f522d390cbb832bee1d2b9c3f" },
   { platform: "google", input: " Alice@Example.com ", output: "", accepted: false, errorKind: 2, handleNode: "" },
   { platform: "google", input: "@Alice@example.com", output: "", accepted: false, errorKind: 3, handleNode: "" },
   { platform: "google", input: "alice", output: "", accepted: false, errorKind: 3, handleNode: "" },
@@ -186,10 +190,12 @@ export const ID_VECTORS: IdVector[] = [
   { platform: "github", input: "0583231", accepted: false, errorKind: 3, idNode: "" },
   { platform: "github", input: "18446744073709551615", accepted: true, errorKind: 0, idNode: "0xdaaed93a4b3862ac845bdc7e3db729492757f8c0b53c6572e6897d9ae0ff54fd" },
   { platform: "github", input: "18446744073709551616", accepted: false, errorKind: 3, idNode: "" },
+  { platform: "github", input: "123456789012345678901", accepted: false, errorKind: 1, idNode: "" },
   { platform: "github", input: "", accepted: false, errorKind: 0, idNode: "" },
   { platform: "github", input: "5 8", accepted: false, errorKind: 2, idNode: "" },
   { platform: "google", input: "110169484474386276334", accepted: true, errorKind: 0, idNode: "0x620866cfb4d2776a32cd94d8e8b55577526af86115ebf125d4ca1ca7bf07737e" },
   { platform: "google", input: "a b~Z", accepted: true, errorKind: 0, idNode: "0xa8ad7455d3d38bcd9b94b444284182fee9766f2403e7fe283c68c4a08123be77" },
+  { platform: "google", input: "0123", accepted: true, errorKind: 0, idNode: "0x2c6577b6658e7c1cb90c3a3cf63a295bb5543e32cd2429d62cf4d8f0131075b3" },
   { platform: "google", input: "1234567890123456789012345678901", accepted: true, errorKind: 0, idNode: "0xe95d993e3520fe34fd3eec014d9bbf91868c7e7e5160d95bc3eeca9dfb38329e" },
   { platform: "google", input: "12345678901234567890123456789012", accepted: false, errorKind: 1, idNode: "" },
   { platform: "google", input: "", accepted: false, errorKind: 0, idNode: "" },

@@ -48,7 +48,7 @@ pub struct Platform {
 }
 
 /// SHA-256 of the handles.json this file was generated from.
-pub const TABLE_SHA256: &str = "011835b5197580f7593fb119df70a6a229be3981dbc9f66cb0f7ed1c05eb68ce";
+pub const TABLE_SHA256: &str = "4ecb10da6bf455cf2cea2c9abb263ea7880b79ffdf774ad3a93118e1a7babb0d";
 
 /// keccak256 of this string is the platform id.
 pub const PLATFORM_X_KEY: &str = "x";
@@ -133,7 +133,7 @@ pub const ERROR_BADCHARACTER: u8 = 2;
 pub const ERROR_BADSHAPE: u8 = 3;
 
 /// Every case, shared with Solidity and TypeScript.
-pub const VECTORS: [Vector; 48] = [
+pub const VECTORS: [Vector; 52] = [
     Vector {
         platform: "x",
         input: " @Alice_1 ",
@@ -173,6 +173,22 @@ pub const VECTORS: [Vector; 48] = [
         accepted: true,
         error_kind: 0,
         handle_node: "0x55be0847f475409cb1da1d008804b966de05bb088d2469129c142faf2ec4a678",
+    },
+    Vector {
+        platform: "x",
+        input: "_alice",
+        output: "_alice",
+        accepted: true,
+        error_kind: 0,
+        handle_node: "0x3a354366999d277daf0a6e81640d9a9976bc4efc20db4e1df245e90ba42aeeb8",
+    },
+    Vector {
+        platform: "x",
+        input: "alice_",
+        output: "alice_",
+        accepted: true,
+        error_kind: 0,
+        handle_node: "0xf222c841ac39b261a179896eb45c53e48e8a610a15bdee72176e088783ad6f2a",
     },
     Vector {
         platform: "x",
@@ -432,6 +448,22 @@ pub const VECTORS: [Vector; 48] = [
     },
     Vector {
         platform: "google",
+        input: "a-b@example.com",
+        output: "a-b@example.com",
+        accepted: true,
+        error_kind: 0,
+        handle_node: "0x4eb5654e6947900ef44daa8a41a7c9e7e6f4717794bdc079f843f357a023f54f",
+    },
+    Vector {
+        platform: "google",
+        input: "a_b@example.com",
+        output: "a_b@example.com",
+        accepted: true,
+        error_kind: 0,
+        handle_node: "0xdce533afdd6b399323db9ab05dbccbac9913093f522d390cbb832bee1d2b9c3f",
+    },
+    Vector {
+        platform: "google",
         input: " Alice@Example.com ",
         output: "",
         accepted: false,
@@ -521,7 +553,7 @@ pub const VECTORS: [Vector; 48] = [
 ];
 
 /// Every id case, shared with TypeScript and Noir.
-pub const ID_VECTORS: [IdVector; 27] = [
+pub const ID_VECTORS: [IdVector; 29] = [
     IdVector {
         platform: "x",
         input: "2244994945",
@@ -643,6 +675,13 @@ pub const ID_VECTORS: [IdVector; 27] = [
     },
     IdVector {
         platform: "github",
+        input: "123456789012345678901",
+        accepted: false,
+        error_kind: 1,
+        id_node: "",
+    },
+    IdVector {
+        platform: "github",
         input: "",
         accepted: false,
         error_kind: 0,
@@ -668,6 +707,13 @@ pub const ID_VECTORS: [IdVector; 27] = [
         accepted: true,
         error_kind: 0,
         id_node: "0xa8ad7455d3d38bcd9b94b444284182fee9766f2403e7fe283c68c4a08123be77",
+    },
+    IdVector {
+        platform: "google",
+        input: "0123",
+        accepted: true,
+        error_kind: 0,
+        id_node: "0x2c6577b6658e7c1cb90c3a3cf63a295bb5543e32cd2429d62cf4d8f0131075b3",
     },
     IdVector {
         platform: "google",
