@@ -669,6 +669,17 @@ contract GitHubPlatformVerifierTest is RealTlsNotaryProofTest {
         _refusedFraming(received, CeremonyAttestation.NoFramedCommitment.selector);
     }
 
+    /// @dev An id anchor escaped inside a revealed string is no anchor: with
+    ///      the real member hidden, nothing frames the id.
+    function test_refusesAnEscapedIdAnchorInARevealedString() public {
+        bytes[2] memory decoys = [bytes('"name":"x\\"id\\":\\"999\\"y",'), bytes('"bio":"\\"id\\":999,",')];
+        for (uint256 i = 0; i < decoys.length; ++i) {
+            AttestationBuilder.Direction memory received = _upToTheId();
+            received.reveal(decoys[i]).commit('"id": 583231\n}', OTHER);
+            _refusedFraming(received, CeremonyAttestation.NoFramedCommitment.selector);
+        }
+    }
+
     /// @dev The digits revealed, nothing committed: the id is on chain and
     ///      there is no commitment for the circuit to open.
     function test_refusesARevealedId() public {

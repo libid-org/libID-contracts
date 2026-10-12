@@ -302,8 +302,9 @@ abstract contract TlsNotaryVerifierBase is IPlatformVerifier, PlatformVerifierBa
         pure
         returns (bytes32 id, bytes32 handle)
     {
-        // Each anchor is revealed once and frames one commitment. A duplicate
-        // hidden behind a commitment is not detectable here (ASM-PROV-06).
+        // Each anchor is revealed once and frames one commitment. A second anchor
+        // hidden in a commitment is kept out by ASM-PROV-06 alone: the pinned
+        // request line returns one member per anchor.
         CeremonyAttestation.requireExactCoverage(data.received, data.recvTranscriptLength);
         (string memory idField, bool idIsInteger, string memory handleField) =
             CeremonyProfile.identityFields(_platform());

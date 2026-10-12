@@ -1081,6 +1081,19 @@ contract XPlatformVerifierTest is RealTlsNotaryProofTest {
         _refusedFraming(received, CeremonyAttestation.NoFramedCommitment.selector);
     }
 
+    /// @dev An id anchor escaped inside a revealed string is no anchor: with
+    ///      the real member hidden, nothing frames the id.
+    function test_refusesAnEscapedIdAnchorInARevealedString() public {
+        bytes[2] memory decoys = [bytes('"name":"x\\"id\\":\\"999\\"y",'), bytes('"bio":"\\"id\\":999,",')];
+        for (uint256 i = 0; i < decoys.length; ++i) {
+            AttestationBuilder.Direction memory received;
+            received.commit('HTTP/1.1 200 OK\r\n\r\n{"data":{', OTHER).reveal(decoys[i])
+                .commit('"id":"2244994945",', OTHER).reveal('"username":"').commit("Alice_1", HANDLE_COMMITMENT)
+                .reveal('"').commit("}}", OTHER);
+            _refusedFraming(received, CeremonyAttestation.NoFramedCommitment.selector);
+        }
+    }
+
     /// @dev A value revealed between its anchors is refused, not read.
     function test_refusesARevealedHandle() public {
         AttestationBuilder.Direction memory received = _upToTheHandle();
