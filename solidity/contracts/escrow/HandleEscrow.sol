@@ -8,7 +8,6 @@ import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/U
 import {Ownable2StepUpgradeable} from "@openzeppelin/contracts-upgradeable/access/Ownable2StepUpgradeable.sol";
 import {ReentrancyGuardUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardUpgradeable.sol";
 
-import {HandlePlatforms} from "../handles/HandlePlatforms.sol";
 import {IIdentityRegistry} from "../identity/IIdentityRegistry.sol";
 
 // The EIP-7528 address that stands for the chain's native token.
@@ -134,6 +133,8 @@ contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable
     error RegistryLacks(address registry, bytes4 selector);
     /// Ownership cannot be renounced; see `renounceOwnership`.
     error RenounceDisabled();
+    /// `depositToHandle`, from the registry: a platform it does not know.
+    error UnknownPlatform(bytes32 platformId);
 
     // ─── Setup ──────────────────────────────────────────────────────
 
@@ -173,8 +174,8 @@ contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable
     }
 
     /// @notice `deposit` to a handle given as text, which the calldata and the
-    ///         log make public. Reverts `UnknownPlatform` for a platform `handles.json` lacks.
-    /// @dev The node is the handle folded under the platform's tag: the one `deposit` takes.
+    ///         log make public. Reverts `UnknownPlatform` for a platform the registry does not know.
+    /// @dev The node is the registry's `handleNodeOf`: the one `deposit` takes.
     function depositToHandle(
         bytes32 platformId,
         string calldata handle,
@@ -182,7 +183,7 @@ contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable
         uint256 amount,
         address refundTo
     ) external payable nonReentrant {
-        (, bytes32 handleNode) = HandlePlatforms.handleNodeOf(platformId, handle);
+        bytes32 handleNode = _s().registry.handleNodeOf(platformId, handle);
         _deposit(handleNode, token, amount, refundTo);
         emit DepositedToHandle(handleNode, platformId, handle);
     }

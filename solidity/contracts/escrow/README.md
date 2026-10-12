@@ -15,9 +15,9 @@ escrow.refund(handleNode, token, recipient);   // refundTo, while unclaimed
 
 - `deposit(handleNode, …)` is private: the calldata and the logs carry the
   node, never the handle.
-- `depositToHandle(platformId, handle, …)` is public: the escrow folds the
-  handle and hashes it under the platform's tag, and `DepositedToHandle`
-  logs the platform and the handle as given. It credits the same node, so a
+- `depositToHandle(platformId, handle, …)` is public: the escrow asks the
+  registry's `handleNodeOf` for the node, and `DepositedToHandle` logs the
+  platform and the handle as given. It credits the same node, so a
   claim takes both kinds together. Text the platform's rules refuse lands on
   a node nobody can prove; only `refundTo` gets it back.
 

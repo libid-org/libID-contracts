@@ -290,7 +290,7 @@ contract HandleEscrowTest is Test {
     function test_aPublicDepositRefusesAnUnknownPlatform() public {
         bytes32 nowhere = keccak256("nowhere");
         vm.prank(sender);
-        vm.expectRevert(abi.encodeWithSelector(HandlePlatforms.UnknownPlatform.selector, nowhere));
+        vm.expectRevert(abi.encodeWithSelector(HandleEscrow.UnknownPlatform.selector, nowhere));
         escrow.depositToHandle{value: 1 ether}(nowhere, "alice", NATIVE, 1 ether, sender);
     }
 

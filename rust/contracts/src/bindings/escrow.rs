@@ -14,8 +14,8 @@ mod escrow_inner {
             /// Pay a handle by its node: forwarded to a holder, otherwise
             /// escrowed and refundable to `refundTo` until claimed.
             function deposit(bytes32 handleNode, address token, uint256 amount, address refundTo) external payable;
-            /// `deposit` to a handle given as text, folded under the
-            /// platform's tag; public, and logged as `DepositedToHandle`.
+            /// `deposit` to a handle given as text, at the registry's
+            /// `handleNodeOf`; public, and logged as `DepositedToHandle`.
             function depositToHandle(bytes32 platformId, string calldata handle, address token, uint256 amount, address refundTo) external payable;
 
             /// Take everything held for a node in each of `tokens`; holder
@@ -106,7 +106,7 @@ mod escrow_inner {
             /// `initialize`: the registry does not answer `selector`.
             error RegistryLacks(address registry, bytes4 selector);
             error RenounceDisabled();
-            /// `depositToHandle`: a platform `handles.json` does not name.
+            /// `depositToHandle`: a platform the registry does not know.
             error UnknownPlatform(bytes32 platformId);
             error OwnableUnauthorizedAccount(address account);
             error OwnableInvalidOwner(address owner);
