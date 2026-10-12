@@ -1,7 +1,7 @@
 {
-  "BearerLinkGithubHonkVerifier.verify": "709537",
+  "BearerLinkGithubHonkVerifier.verify": "727578",
   "BearerLinkXHonkVerifier.verify": "727578",
-  "GitHubPlatformVerifier.verify": "1155513",
+  "GitHubPlatformVerifier.verify": "1177070",
   "OidcGoogleHonkVerifier.verify": "755087",
-  "XPlatformVerifier.verify": "1114719"
+  "XPlatformVerifier.verify": "1114242"
 }
