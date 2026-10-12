@@ -2,10 +2,17 @@
 //!
 //! A revert passes unchanged through every contract on the `bind` route, so
 //! [`BindError::decode`] tries each one's error set in call order, the Honk
-//! verifier (`IHonkVerifierErrors`) last. TypeScript's `bindErrorsAbi` has
-//! the same sets.
+//! verifier (`IHonkVerifierErrors`) last, then a Solidity `Panic`.
+//! TypeScript's `bindErrorsAbi` has the same sets.
 
-use alloy::sol_types::SolInterface;
+use alloy::{
+    primitives::U256,
+    sol_types::{
+        Panic,
+        SolError,
+        SolInterface,
+    },
+};
 
 use crate::bindings::{
     ceremony::{
@@ -35,31 +42,23 @@ pub enum BindError {
     NotaryService(NotaryServiceErrors),
     /// The platform's Honk verifier.
     HonkVerifier(IHonkVerifierErrorsErrors),
+    /// A Solidity `Panic(uint256)`, with its code: a failed `assert`, an
+    /// overflow, an index out of bounds, in any contract on the route.
+    Panic(U256),
 }
 
 impl BindError {
     /// The error `revert_data` encodes, or `None` when no contract on the
     /// route declares its selector or its fields do not decode.
     pub fn decode(revert_data: &[u8]) -> Option<Self> {
-        if let Ok(e) = IdentityRegistryErrors::abi_decode(revert_data) {
-            return Some(Self::Registry(e));
-        }
-        if let Ok(e) = CeremonyProofVerifierErrors::abi_decode(revert_data) {
-            return Some(Self::ProofVerifier(e));
-        }
-        if let Ok(e) = TlsNotaryPlatformVerifierErrors::abi_decode(revert_data) {
-            return Some(Self::TlsNotaryVerifier(e));
-        }
-        if let Ok(e) = GooglePlatformVerifierErrors::abi_decode(revert_data) {
-            return Some(Self::GoogleVerifier(e));
-        }
-        if let Ok(e) = NotaryServiceErrors::abi_decode(revert_data) {
-            return Some(Self::NotaryService(e));
-        }
-        if let Ok(e) = IHonkVerifierErrorsErrors::abi_decode(revert_data) {
-            return Some(Self::HonkVerifier(e));
-        }
-        None
+        ROUTE
+            .iter()
+            .find_map(|(_, _, decode)| decode(revert_data))
+            .or_else(|| {
+                Panic::abi_decode(revert_data)
+                    .ok()
+                    .map(|p| Self::Panic(p.code))
+            })
     }
 
     /// The error's Solidity name, e.g. `NotYourHandle`.
@@ -91,6 +90,7 @@ impl BindError {
             Self::HonkVerifier(e) => {
                 IHonkVerifierErrorsErrors::signature_by_selector(e.selector())
             }
+            Self::Panic(_) => Some(Panic::SIGNATURE),
         }
         .unwrap_or("unknown")
     }
@@ -99,34 +99,74 @@ impl BindError {
 /// Whether an error set declares a selector.
 type Declares = fn([u8; 4]) -> bool;
 
+/// Revert data as one error set's error, if that set declares it.
+type Decode = fn(&[u8]) -> Option<BindError>;
+
 /// The route's error sets, in the order `decode` tries them.
-const ROUTE: [(&str, Declares); 6] = [
-    ("IdentityRegistry", IdentityRegistryErrors::valid_selector),
+const ROUTE: [(&str, Declares, Decode); 6] = [
+    (
+        "IdentityRegistry",
+        IdentityRegistryErrors::valid_selector,
+        |d| {
+            IdentityRegistryErrors::abi_decode(d)
+                .ok()
+                .map(BindError::Registry)
+        },
+    ),
     (
         "CeremonyProofVerifier",
         CeremonyProofVerifierErrors::valid_selector,
+        |d| {
+            CeremonyProofVerifierErrors::abi_decode(d)
+                .ok()
+                .map(BindError::ProofVerifier)
+        },
     ),
     (
         "TlsNotaryPlatformVerifier",
         TlsNotaryPlatformVerifierErrors::valid_selector,
+        |d| {
+            TlsNotaryPlatformVerifierErrors::abi_decode(d)
+                .ok()
+                .map(BindError::TlsNotaryVerifier)
+        },
     ),
     (
         "GooglePlatformVerifier",
         GooglePlatformVerifierErrors::valid_selector,
+        |d| {
+            GooglePlatformVerifierErrors::abi_decode(d)
+                .ok()
+                .map(BindError::GoogleVerifier)
+        },
     ),
-    ("NotaryService", NotaryServiceErrors::valid_selector),
-    ("HonkVerifier", IHonkVerifierErrorsErrors::valid_selector),
+    ("NotaryService", NotaryServiceErrors::valid_selector, |d| {
+        NotaryServiceErrors::abi_decode(d)
+            .ok()
+            .map(BindError::NotaryService)
+    }),
+    (
+        "HonkVerifier",
+        IHonkVerifierErrorsErrors::valid_selector,
+        |d| {
+            IHonkVerifierErrorsErrors::abi_decode(d)
+                .ok()
+                .map(BindError::HonkVerifier)
+        },
+    ),
 ];
 
 impl BindError {
-    /// Every contract on the route that declares this error. A revert does
-    /// not say which one raised it.
+    /// Every contract on the route that declares this error, or for a
+    /// `Panic` every contract on it. A revert does not say which one raised it.
     pub fn contracts(&self) -> Vec<&'static str> {
         let selector = self.selector();
         ROUTE
             .iter()
-            .filter(|(_, declares)| declares(selector))
-            .map(|(name, _)| *name)
+            .filter(|(_, declares, _)| {
+                matches!(self, Self::Panic(_)) || declares(selector)
+            })
+            .map(|(name, ..)| *name)
             .collect()
     }
 
@@ -138,6 +178,7 @@ impl BindError {
             Self::GoogleVerifier(e) => e.selector(),
             Self::NotaryService(e) => e.selector(),
             Self::HonkVerifier(e) => e.selector(),
+            Self::Panic(_) => Panic::SELECTOR,
         }
     }
 }
@@ -301,8 +342,9 @@ mod tests {
     }
 
     /// TypeScript's `bindErrorsAbi` is built from `bindRoute` in
-    /// `codegen.mjs`. It lists the same contracts in the order `decode`
-    /// tries them, with X's and GitHub's verifiers under the one binding.
+    /// `codegen.mjs`. It lists the same contracts in `ROUTE`'s order, which
+    /// is the order `decode` tries, with X's and GitHub's verifiers under the
+    /// one binding.
     #[test]
     fn the_typescript_bind_route_is_the_one_decode_tries() {
         let codegen = std::fs::read_to_string(concat!(
@@ -316,32 +358,27 @@ mod tests {
         let (route, _) = route.split_once("\n]").expect("the end of bindRoute");
         let ts: Vec<&str> = route.lines().filter_map(|l| l.split('\'').nth(3)).collect();
 
-        let source = include_str!("bind_error.rs");
-        let (_, decode) = source.split_once("pub fn decode(").expect("decode");
-        let (decode, _) = decode.split_once("\n    }\n").expect("the end of decode");
-        let rust: Vec<&str> = decode
-            .lines()
-            .filter_map(|l| l.split_once("Errors::abi_decode"))
-            .filter_map(|(head, _)| head.rsplit(' ').next())
-            .collect();
-        let named: Vec<&str> = ROUTE
+        let rust: Vec<&str> = ROUTE
             .iter()
-            .map(|(name, _)| match *name {
-                "HonkVerifier" => "IHonkVerifierErrors",
-                other => other,
-            })
-            .collect();
-        assert_eq!(rust, named, "ROUTE is not the order decode tries");
-
-        let rust: Vec<&str> = rust
-            .into_iter()
-            .flat_map(|binding| match binding {
+            .flat_map(|(name, ..)| match *name {
                 "TlsNotaryPlatformVerifier" => {
                     vec!["XPlatformVerifier", "GitHubPlatformVerifier"]
                 }
+                "HonkVerifier" => vec!["IHonkVerifierErrors"],
                 other => vec![other],
             })
             .collect();
         assert_eq!(rust, ts);
+    }
+
+    /// A compiler panic decodes with its code, whichever contract raised it.
+    #[test]
+    fn names_a_panic() {
+        let data = revert("Panic(uint256)", U256::from(0x11).abi_encode());
+        let error = BindError::decode(&data).expect("decodes");
+        assert_eq!(error.name(), "Panic");
+        assert_eq!(error.signature(), "Panic(uint256)");
+        assert!(matches!(error, BindError::Panic(code) if code == U256::from(0x11)));
+        assert_eq!(error.contracts().len(), ROUTE.len());
     }
 }
