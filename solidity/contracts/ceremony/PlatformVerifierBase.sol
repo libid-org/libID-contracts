@@ -62,11 +62,6 @@ abstract contract PlatformVerifierBase is ICeremony, Initializable, UUPSUpgradea
         /// The exact artifact governance selected for this platform and
         /// version. Never a caller-supplied one (REQ-COMMON-45).
         IHonkVerifier honkVerifier;
-        /// Neither read nor written: the profile fixes these three values, and
-        /// the verifier reads them from `CeremonyProfile`.
-        uint64 proofLifetime;
-        uint64 maxFutureAttestationSkew;
-        uint64 futureObservationAllowance;
     }
 
     // keccak256(abi.encode(uint256(keccak256("libid.storage.PlatformVerifier")) - 1)) & ~bytes32(uint256(0xff))
