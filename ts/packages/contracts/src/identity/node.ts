@@ -4,7 +4,7 @@
 
 import { concat, type Hex, sha256, toHex } from 'viem'
 
-import { HandleError, normalize } from './handle.js'
+import { normalize } from './handle.js'
 import {
   ERROR_BADCHARACTER,
   ERROR_BADSHAPE,
@@ -28,6 +28,18 @@ export interface IdRules {
   max: string | null
 }
 
+/// Why no circuit would hash an id. The kinds are the handle table's, and
+/// kinds and messages match Rust's `IdError`.
+export class IdError extends Error {
+  constructor(
+    readonly kind: number,
+    message: string,
+  ) {
+    super(message)
+    this.name = 'IdError'
+  }
+}
+
 function keysOf(platformKey: string): Platform {
   const keys = platform(platformKey)
   if (keys === undefined) throw new Error(`unknown platform ${JSON.stringify(platformKey)}`)
@@ -41,23 +53,21 @@ export function handleNode(platformKey: string, raw: string): Hex {
   return sha256(concat([toHex(keys.handleTag), toHex(normalize(raw, keys.rules))]))
 }
 
-/// Accept an id exactly as given, or throw why no circuit would hash it.
+/// Accept an id exactly as given, or throw an `IdError` saying why no circuit would hash it.
 export function checkId(platformKey: string, id: string): void {
   const rules = keysOf(platformKey).idRules
   const bytes = new TextEncoder().encode(id)
-  if (bytes.length === 0) throw new HandleError(ERROR_EMPTY, 'the id is empty')
+  if (bytes.length === 0) throw new IdError(ERROR_EMPTY, 'the id is empty')
   if (bytes.length > rules.maxLength) {
-    throw new HandleError(ERROR_TOOLONG, 'the id is too long for this platform')
+    throw new IdError(ERROR_TOOLONG, 'the id is too long for this platform')
   }
   for (const b of bytes) {
     const ok = rules.decimal
       ? b >= 0x30 && b <= 0x39
       : b >= 0x20 && b <= 0x7e && b !== 0x22 && b !== 0x5c
-    if (!ok)
-      throw new HandleError(ERROR_BADCHARACTER, 'the id has a byte this platform does not allow')
+    if (!ok) throw new IdError(ERROR_BADCHARACTER, 'the id has a byte this platform does not allow')
   }
-  const notIssued = () =>
-    new HandleError(ERROR_BADSHAPE, 'the id is not a number this platform issues')
+  const notIssued = () => new IdError(ERROR_BADSHAPE, 'the id is not a number this platform issues')
   if (!rules.leadingZero && bytes.length > 1 && bytes[0] === 0x30) throw notIssued()
   if (rules.nonzero && id === '0') throw notIssued()
   // Equal-length digit strings order as their numbers do.

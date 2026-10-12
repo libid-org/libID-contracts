@@ -9,7 +9,7 @@ import {
   PLATFORM_X,
   PLATFORM_X_KEY,
 } from './handleVectors.js'
-import { checkId, handleNode, idNode } from './node.js'
+import { checkId, handleNode, IdError, idNode } from './node.js'
 
 /// Python's hashlib, as the circuits, Solidity and Rust pin them:
 ///   hashlib.sha256(b"libid.x.handlealice_1")
@@ -44,8 +44,10 @@ describe('handleNode and idNode', () => {
       } catch (e) {
         thrown = e
       }
-      expect(thrown, `id vector ${i}: expected a refusal`).toBeInstanceOf(HandleError)
-      expect((thrown as HandleError).kind, `id vector ${i}: wrong reason`).toBe(v.errorKind)
+      expect(thrown, `id vector ${i}: expected a refusal`).toBeInstanceOf(IdError)
+      expect(thrown, `id vector ${i}: a handle refusal`).not.toBeInstanceOf(HandleError)
+      expect((thrown as IdError).name).toBe('IdError')
+      expect((thrown as IdError).kind, `id vector ${i}: wrong reason`).toBe(v.errorKind)
     }
   })
 
@@ -60,7 +62,7 @@ describe('handleNode and idNode', () => {
     expect(() => handleNode(PLATFORM_X_KEY, ' alice')).toThrow(HandleError)
     expect(() => handleNode(PLATFORM_X_KEY, '@alice')).toThrow(HandleError)
     expect(() => handleNode('google', 'alice')).toThrow(HandleError)
-    expect(() => idNode(PLATFORM_GITHUB_KEY, '0583231')).toThrow(HandleError)
+    expect(() => idNode(PLATFORM_GITHUB_KEY, '0583231')).toThrow(IdError)
     // Rust's `check_id` words this refusal the same way.
     expect(() => idNode(PLATFORM_GITHUB_KEY, '0')).toThrow(
       'the id is not a number this platform issues',

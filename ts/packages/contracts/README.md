@@ -207,7 +207,7 @@ import { checkId, handleNode, idNode, PLATFORM_GOOGLE_KEY } from '@libid/contrac
 const node = handleNode(PLATFORM_GOOGLE_KEY, 'Alice@Gmail.com')
 // idBinding, resolveId, resolveHandleAndId
 const id = idNode(PLATFORM_GOOGLE_KEY, '100000000000000000001')
-// Throws HandleError for an id no circuit would hash; ids are never normalized.
+// Throws IdError for an id no circuit would hash; ids are never normalized.
 checkId(PLATFORM_GOOGLE_KEY, '100000000000000000001')
 ```
 
