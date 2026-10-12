@@ -6,7 +6,8 @@ import {Test, Vm} from "forge-std/Test.sol";
 import {AttestationBuilder} from "../../ceremony/test/AttestationBuilder.sol";
 
 /// @notice The scan a private bind is held to: no byte run of the id or the
-///         handle, raw or folded, in a log or a storage word it wrote.
+///         handle, raw or folded, in its logs or the storage words it wrote
+///         on any contract, each read as one run.
 abstract contract PrivacyScan is Test {
     /// The id, the handle as sent, and the handle folded.
     function _secrets() internal pure virtual returns (string[3] memory);
@@ -20,30 +21,40 @@ abstract contract PrivacyScan is Test {
         return false;
     }
 
-    /// No log's topics, read as one run, or data carries a secret.
+    /// No secret in every log's topics and data, joined into one run.
     function _assertLogsHideTheSecrets(Vm.Log[] memory logs) internal pure {
         assertGt(logs.length, 0, "nothing was logged to scan");
+        assertFalse(_containsAny(_loggedRun(logs)), "an id or handle in the logs");
+    }
+
+    /// No secret in every storage word written since `vm.startStateDiffRecording`,
+    /// on any contract, joined into one run; returns the count scanned.
+    function _assertStorageHidesTheSecrets(Vm.AccountAccess[] memory accesses) internal pure returns (uint256 scanned) {
+        bytes memory run;
+        (run, scanned) = _writtenRun(accesses);
+        assertFalse(_containsAny(run), "a storage word carries an id or handle");
+    }
+
+    /// Every log's topics and data, in order, as one run.
+    function _loggedRun(Vm.Log[] memory logs) internal pure returns (bytes memory run) {
         for (uint256 i = 0; i < logs.length; ++i) {
-            bytes memory topics;
             for (uint256 t = 0; t < logs[i].topics.length; ++t) {
-                topics = bytes.concat(topics, logs[i].topics[t]);
+                run = bytes.concat(run, logs[i].topics[t]);
             }
-            assertFalse(_containsAny(topics), string.concat("an id or handle in the topics of log ", vm.toString(i)));
-            assertFalse(
-                _containsAny(logs[i].data), string.concat("an id or handle in the data of log ", vm.toString(i))
-            );
+            run = bytes.concat(run, logs[i].data);
         }
     }
 
-    /// No storage word `target` wrote since `vm.record` carries a secret; returns the count scanned.
-    function _assertStorageHidesTheSecrets(address target) internal view returns (uint256 scanned) {
-        (, bytes32[] memory writes) = vm.accesses(target);
-        for (uint256 i = 0; i < writes.length; ++i) {
-            assertFalse(
-                _containsAny(abi.encode(vm.load(target, writes[i]))),
-                string.concat("a storage slot carries an id or handle: ", vm.toString(writes[i]))
-            );
+    /// Every storage word written and kept, in order, as one run, so a secret
+    /// split across two words is still one match.
+    function _writtenRun(Vm.AccountAccess[] memory accesses) internal pure returns (bytes memory run, uint256 words) {
+        for (uint256 i = 0; i < accesses.length; ++i) {
+            Vm.StorageAccess[] memory sa = accesses[i].storageAccesses;
+            for (uint256 j = 0; j < sa.length; ++j) {
+                if (!sa[j].isWrite || sa[j].reverted) continue;
+                run = bytes.concat(run, sa[j].newValue);
+                ++words;
+            }
         }
-        return writes.length;
     }
 }

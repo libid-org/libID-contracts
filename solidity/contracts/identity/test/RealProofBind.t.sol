@@ -42,7 +42,7 @@ abstract contract RealProofBindBase is PrivacyScan {
 
     function _handleNode() internal pure virtual returns (bytes32);
 
-    /// The contracts a bind may write besides the registry and the Proof Verifier.
+    /// The contracts on a bind's route besides the registry and the Proof Verifier.
     function _verifiers() internal view virtual returns (address[] memory);
 
     /// The proof's public inputs, and where the id node's `[high, low]` halves start.
@@ -87,17 +87,17 @@ abstract contract RealProofBindBase is PrivacyScan {
         bytes memory payload = _payload("");
         assertFalse(_containsAny(payload), "the payload carries an id or handle");
 
-        vm.record();
+        vm.startStateDiffRecording();
         vm.recordLogs();
         _bind(payload);
         emit log_named_uint("bind gas", vm.lastCallGas().gasTotalUsed);
+        Vm.AccountAccess[] memory accesses = vm.stopAndReturnStateDiff();
 
         _assertLogsHideTheSecrets(vm.getRecordedLogs());
-        assertGt(_assertStorageHidesTheSecrets(address(registry)), 0, "the bind wrote nothing to check");
-        _assertStorageHidesTheSecrets(address(proofVerifier));
+        assertGt(_assertStorageHidesTheSecrets(accesses), 0, "the bind wrote nothing to check");
         address[] memory verifiers = _verifiers();
         for (uint256 i = 0; i < verifiers.length; ++i) {
-            _assertStorageHidesTheSecrets(verifiers[i]);
+            assertTrue(_reached(accesses, verifiers[i]), "the scan missed a contract on the route");
         }
 
         assertEq(registry.resolveId(_idNode()), BINDER);
@@ -106,6 +106,13 @@ abstract contract RealProofBindBase is PrivacyScan {
         assertEq(registry.resolveHandle(_platform(), _secrets()[1]), BINDER);
         assertEq(registry.resolveHandle(_platform(), _secrets()[2]), BINDER);
         assertEq(registry.publishedHandleOf(BINDER, _platform()), "", "a private bind publishes nothing");
+    }
+
+    function _reached(Vm.AccountAccess[] memory accesses, address account) internal pure returns (bool) {
+        for (uint256 i = 0; i < accesses.length; ++i) {
+            if (accesses[i].account == account) return true;
+        }
+        return false;
     }
 
     // ─── Disclose in the payload ────────────────────────────────────

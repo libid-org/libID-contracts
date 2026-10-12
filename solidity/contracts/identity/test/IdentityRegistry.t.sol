@@ -774,15 +774,14 @@ contract IdentityRegistryTest is PrivacyScan {
         assertTrue(found, "the disclosed handle is not in the logs");
     }
 
-    /// No storage word a private bind wrote, on the registry or the Proof Verifier, holds the id or the handle.
+    /// No run of the storage words a private bind wrote, on any contract, holds the id or the handle.
     function test_aPrivateBindStoresNoByteOfTheIdOrTheHandle() public {
         _stage(SECRET_ID, SECRET_HANDLE, alice, 100);
-        vm.record();
+        vm.startStateDiffRecording();
         vm.prank(alice);
         _submit(X, "");
 
-        assertGt(_assertStorageHidesTheSecrets(address(registry)), 0, "the bind wrote nothing to check");
-        _assertStorageHidesTheSecrets(address(proofVerifier));
+        assertGt(_assertStorageHidesTheSecrets(vm.stopAndReturnStateDiff()), 0, "the bind wrote nothing to check");
 
         assertEq(registry.publishedHandleOf(alice, X), "");
         IdentityRegistry.Identity memory a = registry.identitiesOf(alice, 0, 1)[0];
@@ -793,18 +792,30 @@ contract IdentityRegistryTest is PrivacyScan {
     /// The storage scan finds a disclosed name.
     function test_theStorageScanFindsADisclosedName() public {
         _stage(SECRET_ID, SECRET_HANDLE, alice, 100);
-        vm.record();
+        vm.startStateDiffRecording();
         vm.prank(alice);
         _submit(X, SECRET_HANDLE);
 
-        (, bytes32[] memory writes) = vm.accesses(address(registry));
-        bool found;
-        for (uint256 i = 0; i < writes.length; i++) {
-            bytes memory word = abi.encodePacked(vm.load(address(registry), writes[i]));
-            if (AttestationBuilder.contains(word, bytes(SECRET_FOLDED))) found = true;
-            assertFalse(AttestationBuilder.contains(word, bytes(SECRET_ID)), "the id is stored beside the name");
-        }
-        assertTrue(found, "the disclosed name is not in storage");
+        (bytes memory run,) = _writtenRun(vm.stopAndReturnStateDiff());
+        assertTrue(AttestationBuilder.contains(run, bytes(SECRET_FOLDED)), "the disclosed name is not in storage");
+        assertFalse(AttestationBuilder.contains(run, bytes(SECRET_ID)), "the id is stored beside the name");
+    }
+
+    /// The storage scan finds a secret split across two words, which a word-by-word scan misses.
+    function test_theStorageScanFindsASecretSplitAcrossTwoWords() public {
+        Planter planter = new Planter();
+        // "alice_" ends the first word; "wonder1" starts the second.
+        bytes32 first = 0x0000000000000000000000000000000000000000000000000000616c6963655f;
+        bytes32 second = 0x776f6e6465723100000000000000000000000000000000000000000000000000;
+
+        vm.startStateDiffRecording();
+        planter.plant(first, second);
+        (bytes memory run, uint256 words) = _writtenRun(vm.stopAndReturnStateDiff());
+
+        assertEq(words, 2);
+        assertFalse(_containsAny(abi.encode(first)), "the first word alone holds it");
+        assertFalse(_containsAny(abi.encode(second)), "the second word alone holds it");
+        assertTrue(_containsAny(run), "the joined run hides it");
     }
 
     // ─── A holder's identities ──────────────────────────────────────
@@ -1229,5 +1240,15 @@ contract IdentityRegistryTest is PrivacyScan {
         vm.prank(alice);
         vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, alice));
         registry.setProofVerifier(IProofVerifier(address(0xBEEF)));
+    }
+}
+
+/// Writes two storage words of the caller's choosing.
+contract Planter {
+    function plant(bytes32 first, bytes32 second) external {
+        assembly {
+            sstore(0, first)
+            sstore(1, second)
+        }
     }
 }
