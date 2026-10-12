@@ -181,9 +181,10 @@ import { normalize, RULES_X, HandleError } from '@libid/contracts/identity'
 
 normalize('Alice_1', RULES_X) // 'alice_1'
 normalize(' @Alice_1 ', RULES_X) // throws HandleError: a space and an `@` are refused
-// On chain the same refusal is `UnusableHandle(problem)`, where `problem` is `kind + 1`
-// (`HandleNormalizer.Problem`, whose 0 is `None`).
 ```
+
+On chain only the fold runs: the circuits bind no node of text the rules
+refuse, so such text resolves to nobody.
 
 ## Deriving a handle node
 

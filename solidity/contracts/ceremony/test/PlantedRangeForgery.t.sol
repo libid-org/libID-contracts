@@ -14,7 +14,6 @@ import {INotaryService} from "../INotaryService.sol";
 import {NotaryService} from "../NotaryService.sol";
 import {IHonkVerifier} from "../PlatformVerifierBase.sol";
 import {XPlatformVerifier} from "../XPlatformVerifier.sol";
-import {HandleNormalizer} from "../../handles/HandleNormalizer.sol";
 import {TlsNotaryVerifierBase} from "../TlsNotaryVerifierBase.sol";
 
 contract PlantedRangeForgeryTest is Test {
@@ -209,23 +208,5 @@ contract PlantedRangeForgeryTest is Test {
         // the tiling check refuses the request before any field is read.
         vm.expectPartialRevert(CeremonyAttestation.CoverageGap.selector);
         this.run{value: quote}(s);
-    }
-
-    /// Finding 7: the empty handle never reaches a node -- normalize reverts.
-    function test_skeptic2_emptyHandleReverts() public {
-        HandleNormalizer.Rules memory google =
-            HandleNormalizer.Rules({maxLength: 62, isEmail: true, allowUnderscore: false, allowHyphen: false});
-        vm.expectRevert(
-            abi.encodeWithSelector(HandleNormalizer.UnusableHandle.selector, HandleNormalizer.Problem.Empty)
-        );
-        this.normalizeExternal("", google);
-    }
-
-    function normalizeExternal(string memory raw, HandleNormalizer.Rules memory rules)
-        external
-        pure
-        returns (string memory)
-    {
-        return HandleNormalizer.normalize(raw, rules);
     }
 }

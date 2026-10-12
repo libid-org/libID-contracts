@@ -296,9 +296,6 @@ mod tls_notary_platform_verifier_inner {
             /// The disclosed handle hashes to `disclosed`, not the node the
             /// proof bound.
             error HandleNotProved(bytes32 disclosed, bytes32 proved);
-            /// The disclosed handle is text the platform's rules refuse;
-            /// `problem` is a `HandleNormalizer.Problem`.
-            error UnusableHandle(uint8 problem);
             error UnknownPlatform(bytes32 platformId);
             error OwnableUnauthorizedAccount(address account);
             error OwnableInvalidOwner(address owner);
@@ -429,9 +426,6 @@ mod google_platform_verifier_inner {
             /// The disclosed handle hashes to `disclosed`, not the node the
             /// proof bound.
             error HandleNotProved(bytes32 disclosed, bytes32 proved);
-            /// The disclosed handle is text the platform's rules refuse;
-            /// `problem` is a `HandleNormalizer.Problem`.
-            error UnusableHandle(uint8 problem);
             error UnknownPlatform(bytes32 platformId);
             error OwnableUnauthorizedAccount(address account);
             error OwnableInvalidOwner(address owner);

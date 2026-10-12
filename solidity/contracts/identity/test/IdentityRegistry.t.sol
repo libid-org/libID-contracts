@@ -4,7 +4,6 @@ pragma solidity ^0.8.24;
 import {Vm} from "forge-std/Test.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
-import {HandleNormalizer} from "../../handles/HandleNormalizer.sol";
 import {HandlePlatforms} from "../../handles/HandlePlatforms.sol";
 import {IdentityRegistry} from "../IdentityRegistry.sol";
 import {CeremonyProofVerifier} from "../../ceremony/CeremonyProofVerifier.sol";
@@ -319,16 +318,12 @@ contract IdentityRegistryTest is PrivacyScan {
 
     // ─── Platforms ──────────────────────────────────────────────────
 
-    /// A platform's rules and tags are the generated constants, verifier or not.
-    function test_aPlatformsRulesAndTagAreTheCircuitsOwn() public view {
+    /// A platform's tags are the generated constants, verifier or not.
+    function test_aPlatformsTagIsTheCircuitsOwn() public view {
         bytes32[3] memory platforms = [X, GITHUB, HandlePlatforms.PLATFORM_GOOGLE];
         for (uint256 i = 0; i < platforms.length; i++) {
             bytes32 platformId = platforms[i];
             assertEq(registry.handleTagOf(platformId), HandlePlatforms.handleTagFor(platformId));
-            assertEq(
-                keccak256(abi.encode(registry.rulesOf(platformId))),
-                keccak256(abi.encode(HandlePlatforms.rulesFor(platformId)))
-            );
         }
         assertEq(registry.handleTagOf(X), bytes("libid.x.handle"));
     }
@@ -365,8 +360,6 @@ contract IdentityRegistryTest is PrivacyScan {
         registry.resolveHandleNodeAndId(unwired, handleNode, idNode);
 
         vm.expectRevert(abi.encodeWithSelector(IdentityRegistry.UnknownPlatform.selector, unwired));
-        registry.rulesOf(unwired);
-        vm.expectRevert(abi.encodeWithSelector(IdentityRegistry.UnknownPlatform.selector, unwired));
         registry.handleTagOf(unwired);
         vm.expectRevert(abi.encodeWithSelector(IdentityRegistry.UnknownPlatform.selector, unwired));
         registry.handleNodeOf(unwired, "alice");
@@ -374,9 +367,8 @@ contract IdentityRegistryTest is PrivacyScan {
         assertEq(registry.resolveId(keccak256("no such node")), address(0));
     }
 
-    /// `rulesOf`, `handleTagOf` and `handleNodeOf` agree with the node a bind writes.
+    /// `handleTagOf` and `handleNodeOf` agree with the node a bind writes.
     function test_theHashingViewsAgreeWithWhatABindWrites() public {
-        assertEq(registry.rulesOf(X).maxLength, HandlePlatforms.rulesFor(X).maxLength);
         assertEq(registry.handleTagOf(X), bytes("libid.x.handle"));
         // `handles.json`: x, "alice".
         bytes32 tableNode = 0x0bed64615b5776d2567a82467d7be0e266e02803910d694a72703ee2a4cc911a;
@@ -388,20 +380,12 @@ contract IdentityRegistryTest is PrivacyScan {
         assertEq(holder, alice);
     }
 
-    /// `handleNodeOf` reverts with the normalizer's reason where `resolveHandle` answers nobody.
-    function test_theHashingViewRefusesWhatTheRulesRefuse() public {
-        bytes memory badChar =
-            abi.encodeWithSelector(HandleNormalizer.UnusableHandle.selector, HandleNormalizer.Problem.BadChar);
-        vm.expectRevert(badChar);
-        registry.handleNodeOf(X, "ali-ce");
-        vm.expectRevert(badChar);
-        registry.handleNodeOf(X, " alice");
-        vm.expectRevert(badChar);
-        registry.handleNodeOf(X, "@alice");
-        assertEq(registry.resolveHandle(X, "ali-ce"), address(0));
-
-        // The same text is a handle where the rules allow it.
-        assertEq(registry.handleNodeOf(GITHUB, "ali-ce"), _hn(GITHUB, "ali-ce"));
+    /// `handleNodeOf` folds and nothing more: text the rules refuse has a node no proof binds.
+    function test_theHashingViewOnlyFolds() public {
+        _bind(alice, "123", "alice", 100);
+        assertEq(registry.handleNodeOf(X, " @Alice"), _hn(X, " @alice"));
+        assertEq(registry.resolveHandle(X, " @Alice"), address(0));
+        assertEq(registry.resolveHandle(X, "ALICE"), alice);
     }
 
     function test_resolveHandleAndIdAgreesWhileOneIdentityHasBoth() public {
@@ -534,22 +518,16 @@ contract IdentityRegistryTest is PrivacyScan {
         assertEq(registry.publishedHandleOf(mallory, X), "");
     }
 
-    /// Text the rules refuse reverts with the normalizer's reason.
-    function test_publishingTextTheRulesRefuseRevertsWithTheNormalizersReason() public {
+    /// Text the rules refuse folds to a node the caller does not hold.
+    function test_publishingTextTheRulesRefuseIsNotYourHandle() public {
         _bind(alice, "123", "alice", 100);
 
         vm.startPrank(alice);
-        vm.expectRevert(
-            abi.encodeWithSelector(HandleNormalizer.UnusableHandle.selector, HandleNormalizer.Problem.BadChar)
-        );
+        vm.expectRevert(abi.encodeWithSelector(IdentityRegistry.NotYourHandle.selector, _hn(X, " alice")));
         registry.publish(X, " alice");
-        vm.expectRevert(
-            abi.encodeWithSelector(HandleNormalizer.UnusableHandle.selector, HandleNormalizer.Problem.BadChar)
-        );
+        vm.expectRevert(abi.encodeWithSelector(IdentityRegistry.NotYourHandle.selector, _hn(X, "@alice")));
         registry.publish(X, "@alice");
-        vm.expectRevert(
-            abi.encodeWithSelector(HandleNormalizer.UnusableHandle.selector, HandleNormalizer.Problem.Empty)
-        );
+        vm.expectRevert(abi.encodeWithSelector(IdentityRegistry.NotYourHandle.selector, _hn(X, "")));
         registry.publish(X, "");
         vm.expectRevert(abi.encodeWithSelector(IdentityRegistry.UnknownPlatform.selector, keccak256("nowhere")));
         registry.publish(keccak256("nowhere"), "alice");
@@ -577,9 +555,7 @@ contract IdentityRegistryTest is PrivacyScan {
 
         payload = _payloadAt(reuse, "@alice");
         vm.prank(alice);
-        vm.expectRevert(
-            abi.encodeWithSelector(HandleNormalizer.UnusableHandle.selector, HandleNormalizer.Problem.BadChar)
-        );
+        vm.expectRevert(abi.encodeWithSelector(HandleDisclosure.HandleNotProved.selector, _hn(X, "@alice"), proved));
         registry.bind(X, V1, payload);
 
         assertEq(registry.resolveId(_id(X, "123")), address(0), "the id was bound");
@@ -1101,7 +1077,6 @@ contract IdentityRegistryTest is PrivacyScan {
         registry.resolveHandleAndId(google, "alice@gmail.com", idNode);
 
         // The hashing views still answer.
-        assertEq(registry.rulesOf(google).maxLength, HandlePlatforms.rulesFor(google).maxLength);
         assertEq(registry.handleTagOf(google), HandlePlatforms.handleTagFor(google));
         assertEq(registry.handleNodeOf(google, "Alice@Gmail.com"), handleNode);
     }

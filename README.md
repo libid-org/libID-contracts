@@ -71,7 +71,7 @@ python3 scripts/regen-identity-handles.py --check  # verify nothing drifted
 ```
 
 This generates `solidity/contracts/handles/HandlePlatforms.sol` (the
-platform ids, rules and tags the contracts read),
+platform ids and tags the contracts read; on chain a handle is only folded),
 `solidity/contracts/handles/HandleVectors.sol` (the vector table, for tests
 only), `rust/identity/src/handle_vectors.rs` and
 `ts/packages/contracts/src/identity/handleVectors.ts`; CI's handle-tables job

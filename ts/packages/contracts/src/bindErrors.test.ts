@@ -33,7 +33,6 @@ describe('bindErrorsAbi', () => {
       ['NotYourHandle', concatHex([selector('NotYourHandle(bytes32)'), PROVED])],
       ['NoFramedCommitment', selector('NoFramedCommitment()')],
       ['AmbiguousFraming', selector('AmbiguousFraming()')],
-      ['UnusableHandle', concatHex([selector('UnusableHandle(uint8)'), pad('0x03')])],
       ['UntrustedModulus', concatHex([selector('UntrustedModulus(bytes32)'), PROVED])],
       [
         'UnknownVersion',

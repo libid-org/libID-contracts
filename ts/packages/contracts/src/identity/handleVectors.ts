@@ -40,7 +40,7 @@ export interface Platform {
 }
 
 /** SHA-256 of the handles.json this file was generated from. */
-export const TABLE_SHA256 = '4ecb10da6bf455cf2cea2c9abb263ea7880b79ffdf774ad3a93118e1a7babb0d'
+export const TABLE_SHA256 = '8c6fb5a7ae50e0b1a039fd8b58374215cc60eccc9586a2d43cbbb3bee0cee5a7'
 
 /** keccak256 of this string is the platform id. */
 export const PLATFORM_X_KEY = 'x'

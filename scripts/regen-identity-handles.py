@@ -200,8 +200,9 @@ def gen_sol(spec: dict[str, Any], digest: str) -> str:
         "",
         'import {HandleNormalizer} from "./HandleNormalizer.sol";',
         "",
-        "/// @notice Each platform `handles.json` names: its id, its handle rules and",
-        "///         its node tags, as the production contracts read them.",
+        "/// @notice Each platform `handles.json` names: its id and its node tags, as",
+        "///         the production contracts read them. The handle rules are the",
+        "///         circuits'.",
         "///",
         "/// @dev The vector table the languages share is `HandleVectors`, which",
         "///      only tests read.",
@@ -242,7 +243,7 @@ def gen_sol(spec: dict[str, Any], digest: str) -> str:
     lines.append("")
     lines.append("    /// The tag a platform's id nodes are hashed under.")
     lines.append("    ///")
-    lines.append("    /// @dev Reverts on an unknown platform, as `rulesFor` does.")
+    lines.append("    /// @dev Reverts on an unknown platform.")
     lines.append(
         "    function userIdTagFor(bytes32 platformId) internal pure returns (bytes memory) {"
     )
@@ -254,7 +255,7 @@ def gen_sol(spec: dict[str, Any], digest: str) -> str:
     lines.append("")
     lines.append("    /// The tag a platform's handle nodes are hashed under.")
     lines.append("    ///")
-    lines.append("    /// @dev Reverts on an unknown platform, as `rulesFor` does.")
+    lines.append("    /// @dev Reverts on an unknown platform.")
     lines.append(
         "    function handleTagFor(bytes32 platformId) internal pure returns (bytes memory) {"
     )
@@ -265,56 +266,21 @@ def gen_sol(spec: dict[str, Any], digest: str) -> str:
     lines.append("    }")
     lines.append("")
     lines += [
-        "    /// The normalizer rules for a platform, as `handles.json` states",
-        "    /// them.",
+        "    /// The handle typed text names on a platform, folded, and the node it",
+        "    /// is bound under, hashed under its tag. Only the circuits apply the",
+        "    /// platform's rules, so text they refuse folds to a node nobody holds.",
         "    ///",
-        "    /// @dev Reverts on an unknown platform.",
-        "    function rulesFor(bytes32 platformId) internal pure returns (HandleNormalizer.Rules memory rules) {",
-        "        (rules,) = _handleKeys(platformId);",
-        "    }",
-        "",
-        "    /// The handle typed text names on a platform, normalized with its",
-        "    /// rules, and the node it is bound under, hashed under its tag.",
-        "    ///",
-        "    /// @dev Reverts `UnusableHandle` for text the rules refuse, and",
-        "    ///      `UnknownPlatform`.",
+        "    /// @dev Reverts `UnknownPlatform`.",
         "    function handleNodeOf(bytes32 platformId, string memory raw)",
         "        internal",
         "        pure",
-        "        returns (string memory normalized, bytes32 handleNode)",
+        "        returns (string memory folded, bytes32 handleNode)",
         "    {",
-        "        (HandleNormalizer.Rules memory rules, bytes memory tag) = _handleKeys(platformId);",
-        "        return HandleNormalizer.nodeOf(raw, rules, tag);",
+        "        folded = HandleNormalizer.fold(raw);",
+        "        handleNode = HandleNormalizer.node(handleTagFor(platformId), folded);",
         "    }",
-        "",
-        "    /// `handleNodeOf`, reporting what the rules refuse instead of reverting.",
-        "    ///",
-        "    /// @dev Reverts `UnknownPlatform`.",
-        "    function tryHandleNodeOf(bytes32 platformId, string memory raw)",
-        "        internal",
-        "        pure",
-        "        returns (HandleNormalizer.Problem problem, bytes32 handleNode)",
-        "    {",
-        "        (HandleNormalizer.Rules memory rules, bytes memory tag) = _handleKeys(platformId);",
-        "        return HandleNormalizer.tryNodeOf(raw, rules, tag);",
-        "    }",
-        "",
-        "    function _handleKeys(bytes32 platformId)",
-        "        private",
-        "        pure",
-        "        returns (HandleNormalizer.Rules memory rules, bytes memory tag)",
-        "    {",
+        "}",
     ]
-    for p in platforms:
-        name = p["key"].upper()
-        flags = ", ".join(f"{k}: {str(v).lower()}" for k, v in handle_flags(p).items())
-        lines.append(f"        if (platformId == PLATFORM_{name}) {{")
-        lines.append(f"            rules = HandleNormalizer.Rules({{maxLength: {p['maxLength']}, {flags}}});")
-        lines.append(f"            return (rules, HANDLE_TAG_{name});")
-        lines.append("        }")
-    lines.append("        revert UnknownPlatform(platformId);")
-    lines.append("    }")
-    lines.append("}")
     return "\n".join(lines) + "\n"
 
 

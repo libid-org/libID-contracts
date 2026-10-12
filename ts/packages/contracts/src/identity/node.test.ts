@@ -1,7 +1,7 @@
-import { type Address, concat, type PublicClient, sha256, toHex } from 'viem'
-import { describe, expect, it, vi } from 'vitest'
+import { concat, sha256, toHex } from 'viem'
+import { describe, expect, it } from 'vitest'
 
-import { HandleError, RULES_X } from './handle.js'
+import { HandleError } from './handle.js'
 import {
   HANDLE_VECTORS,
   ID_VECTORS,
@@ -10,7 +10,6 @@ import {
   PLATFORM_X_KEY,
 } from './handleVectors.js'
 import { checkId, handleNode, idNode } from './node.js'
-import { platformId, rulesOf } from './resolve.js'
 
 /// Python's hashlib, as the circuits, Solidity and Rust pin them:
 ///   hashlib.sha256(b"libid.x.handlealice_1")
@@ -77,23 +76,5 @@ describe('handleNode and idNode', () => {
     expect(handleNode(PLATFORM_X_KEY, 'Bob')).toBe(
       sha256(concat([toHex(PLATFORM_X.handleTag), toHex('bob')])),
     )
-  })
-})
-
-describe('rulesOf', () => {
-  /// Only the platform id reaches the RPC.
-  it('reads the rules the registry answers', async () => {
-    const readContract = vi.fn().mockResolvedValue({ ...RULES_X, maxLength: 15n })
-    const reader = {
-      client: { readContract } as unknown as PublicClient,
-      address: '0x1111111111111111111111111111111111111111' as Address,
-    }
-
-    const rules = await rulesOf(reader, platformId(PLATFORM_X_KEY))
-    expect(readContract.mock.calls[0][0]).toMatchObject({
-      functionName: 'rulesOf',
-      args: [platformId('x')],
-    })
-    expect(rules).toEqual(RULES_X)
   })
 })

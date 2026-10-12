@@ -7,7 +7,6 @@ import {ReentrancyGuardUpgradeable} from "@openzeppelin/contracts-upgradeable/ut
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 
-import {HandleNormalizer} from "../../handles/HandleNormalizer.sol";
 import {HandlePlatforms} from "../../handles/HandlePlatforms.sol";
 import {HandleVectors} from "../../handles/HandleVectors.sol";
 import {IdentityRegistry} from "../../identity/IdentityRegistry.sol";
@@ -201,25 +200,13 @@ contract HandleEscrowTest is Test {
 
     // ─── The node ───────────────────────────────────────────────────
 
-    /// Every row of the shared handle table lands on the node the registry binds, or is refused.
-    function test_everyVectorRowLandsOnTheNodeTheRegistryBinds() public {
-        vm.startPrank(owner);
-        proofVerifier.setVerifier(GOOGLE, V1, IPlatformVerifier(address(new StubPlatformVerifier(GOOGLE, 0))));
-        vm.stopPrank();
-
+    /// Every accepted row of the shared handle table lands on the node the registry binds.
+    function test_everyVectorRowLandsOnTheNodeTheRegistryBinds() public view {
         HandleVectors.Vector[] memory vectors = HandleVectors.all();
         for (uint256 i = 0; i < vectors.length; i++) {
             HandleVectors.Vector memory v = vectors[i];
-            bytes32 platformId = keccak256(bytes(v.platform));
             if (v.accepted) {
-                assertEq(registry.handleNodeOf(platformId, v.input), v.handleNode, vm.toString(i));
-            } else {
-                vm.expectRevert(
-                    abi.encodeWithSelector(
-                        HandleNormalizer.UnusableHandle.selector, HandleNormalizer.Problem(v.errorKind + 1)
-                    )
-                );
-                registry.handleNodeOf(platformId, v.input);
+                assertEq(registry.handleNodeOf(keccak256(bytes(v.platform)), v.input), v.handleNode, vm.toString(i));
             }
         }
     }
@@ -255,19 +242,14 @@ contract HandleEscrowTest is Test {
         escrow.claim(githubAlice, one(NATIVE), alice);
     }
 
-    /// Text goes through `handleNodeOf`: refused where the rules refuse it, and otherwise landing on
-    /// the node a proof binds, refundable by the router's caller.
+    /// Text goes through `handleNodeOf`: text the rules refuse lands on a node no proof binds, and
+    /// the rest on the node a proof binds, refundable by the router's caller.
     function test_textHashedByTheRegistryLandsOnTheProvedNode() public {
         TextPayer payer = new TextPayer(escrow, registry);
         vm.startPrank(sender);
-        vm.expectRevert(
-            abi.encodeWithSelector(HandleNormalizer.UnusableHandle.selector, HandleNormalizer.Problem.BadChar)
-        );
-        payer.pay{value: 1 ether}(X, "ali-ce");
-        vm.expectRevert(
-            abi.encodeWithSelector(HandleNormalizer.UnusableHandle.selector, HandleNormalizer.Problem.BadChar)
-        );
         payer.pay{value: 1 ether}(X, "@alice");
+        assertEq(escrow.escrowed(TestNodes.handleNode(X, "@alice"), NATIVE), 1 ether);
+        escrow.refund(TestNodes.handleNode(X, "@alice"), NATIVE, sender);
         payer.pay{value: 1 ether}(X, "Alice");
         payer.pay{value: 2 ether}(X, "ALICE");
         escrow.refund(aliceNode, NATIVE, sender);

@@ -4,7 +4,6 @@ pragma solidity ^0.8.20;
 import {Test} from "forge-std/Test.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
-import {HandleNormalizer} from "../../handles/HandleNormalizer.sol";
 import {HandlePlatforms} from "../../handles/HandlePlatforms.sol";
 import {IdentityRegistry} from "../IdentityRegistry.sol";
 import {IPlatformVerifier} from "../../ceremony/IPlatformVerifier.sol";
@@ -13,7 +12,7 @@ import {CeremonyProofVerifier} from "../../ceremony/CeremonyProofVerifier.sol";
 import {StubPlatformVerifier} from "./StubPlatformVerifier.sol";
 
 /// A deployed registry knows the three platforms `handles.json` names, with
-/// its rules and tags, and a registered verifier makes each resolvable.
+/// their tags, and a registered verifier makes each resolvable.
 contract IdentityDeployWiringTest is Test {
     IdentityRegistry internal registry;
     CeremonyProofVerifier internal proofVerifier;
@@ -32,45 +31,17 @@ contract IdentityDeployWiringTest is Test {
         registry.setProofVerifier(IProofVerifier(address(proofVerifier)));
     }
 
-    /// The registry's rules are the generated `handles.json` ones.
-    function test_theGeneratedRulesAreTheHandlesJsonOnes() public view {
-        string memory table = vm.readFile("contracts/handles/handles.json");
-        for (uint256 i = 0; i < 3; ++i) {
-            string memory at = string.concat(".platforms[", vm.toString(i), "]");
-            bytes32 platformId = keccak256(bytes(vm.parseJsonString(table, string.concat(at, ".key"))));
-            assertEq(
-                HandlePlatforms.rulesFor(platformId).maxLength,
-                vm.parseJsonUint(table, string.concat(at, ".maxLength")),
-                string.concat(at, " length")
-            );
-        }
-
-        HandleNormalizer.Rules memory x = HandlePlatforms.rulesFor(HandlePlatforms.PLATFORM_X);
-        assertTrue(x.allowUnderscore, "X allows underscore");
-        assertFalse(x.allowHyphen, "X allows no hyphen");
-        assertFalse(x.isEmail, "X is not an email");
-
-        HandleNormalizer.Rules memory gh = HandlePlatforms.rulesFor(HandlePlatforms.PLATFORM_GITHUB);
-        assertTrue(gh.allowHyphen, "GitHub allows hyphen");
-        assertFalse(gh.allowUnderscore, "GitHub allows no underscore");
-
-        HandleNormalizer.Rules memory g = HandlePlatforms.rulesFor(HandlePlatforms.PLATFORM_GOOGLE);
-        assertTrue(g.isEmail, "Google is an email");
-        assertFalse(g.allowUnderscore || g.allowHyphen, "an email's charset is its own");
-    }
-
-    /// An unknown platform reverts rather than returning a permissive default.
-    /// A default would silently normalize with the wrong rules.
-    function test_anUnknownPlatformHasNoRules() public {
+    /// An unknown platform reverts rather than hashing under a default tag.
+    function test_anUnknownPlatformHasNoTag() public {
         bytes32 nowhere = keccak256("nowhere");
         vm.expectRevert(abi.encodeWithSelector(HandlePlatforms.UnknownPlatform.selector, nowhere));
-        this.rulesForExternally(nowhere);
+        this.handleTagForExternally(nowhere);
     }
 
-    /// `rulesFor` is an internal library call, which `expectRevert` cannot see.
+    /// `handleTagFor` is an internal library call, which `expectRevert` cannot see.
     /// This gives it a call boundary to watch.
-    function rulesForExternally(bytes32 platformId) external pure returns (HandleNormalizer.Rules memory) {
-        return HandlePlatforms.rulesFor(platformId);
+    function handleTagForExternally(bytes32 platformId) external pure returns (bytes memory) {
+        return HandlePlatforms.handleTagFor(platformId);
     }
 
     /// Each platform resolves once a verifier is registered for it, and not before.

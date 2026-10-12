@@ -6,8 +6,9 @@ pragma solidity ^0.8.20;
 
 import {HandleNormalizer} from "./HandleNormalizer.sol";
 
-/// @notice Each platform `handles.json` names: its id, its handle rules and
-///         its node tags, as the production contracts read them.
+/// @notice Each platform `handles.json` names: its id and its node tags, as
+///         the production contracts read them. The handle rules are the
+///         circuits'.
 ///
 /// @dev The vector table the languages share is `HandleVectors`, which
 ///      only tests read.
@@ -16,7 +17,7 @@ library HandlePlatforms {
     error UnknownPlatform(bytes32 platformId);
 
     /// SHA-256 of the handles.json this file was generated from.
-    bytes32 internal constant TABLE_SHA256 = 0x4ecb10da6bf455cf2cea2c9abb263ea7880b79ffdf774ad3a93118e1a7babb0d;
+    bytes32 internal constant TABLE_SHA256 = 0x8c6fb5a7ae50e0b1a039fd8b58374215cc60eccc9586a2d43cbbb3bee0cee5a7;
 
     /// keccak256(bytes("x"))
     bytes32 internal constant PLATFORM_X = keccak256(bytes("x"));
@@ -48,7 +49,7 @@ library HandlePlatforms {
 
     /// The tag a platform's id nodes are hashed under.
     ///
-    /// @dev Reverts on an unknown platform, as `rulesFor` does.
+    /// @dev Reverts on an unknown platform.
     function userIdTagFor(bytes32 platformId) internal pure returns (bytes memory) {
         if (platformId == PLATFORM_X) return USER_ID_TAG_X;
         if (platformId == PLATFORM_GITHUB) return USER_ID_TAG_GITHUB;
@@ -58,7 +59,7 @@ library HandlePlatforms {
 
     /// The tag a platform's handle nodes are hashed under.
     ///
-    /// @dev Reverts on an unknown platform, as `rulesFor` does.
+    /// @dev Reverts on an unknown platform.
     function handleTagFor(bytes32 platformId) internal pure returns (bytes memory) {
         if (platformId == PLATFORM_X) return HANDLE_TAG_X;
         if (platformId == PLATFORM_GITHUB) return HANDLE_TAG_GITHUB;
@@ -66,57 +67,17 @@ library HandlePlatforms {
         revert UnknownPlatform(platformId);
     }
 
-    /// The normalizer rules for a platform, as `handles.json` states
-    /// them.
+    /// The handle typed text names on a platform, folded, and the node it
+    /// is bound under, hashed under its tag. Only the circuits apply the
+    /// platform's rules, so text they refuse folds to a node nobody holds.
     ///
-    /// @dev Reverts on an unknown platform.
-    function rulesFor(bytes32 platformId) internal pure returns (HandleNormalizer.Rules memory rules) {
-        (rules,) = _handleKeys(platformId);
-    }
-
-    /// The handle typed text names on a platform, normalized with its
-    /// rules, and the node it is bound under, hashed under its tag.
-    ///
-    /// @dev Reverts `UnusableHandle` for text the rules refuse, and
-    ///      `UnknownPlatform`.
+    /// @dev Reverts `UnknownPlatform`.
     function handleNodeOf(bytes32 platformId, string memory raw)
         internal
         pure
-        returns (string memory normalized, bytes32 handleNode)
+        returns (string memory folded, bytes32 handleNode)
     {
-        (HandleNormalizer.Rules memory rules, bytes memory tag) = _handleKeys(platformId);
-        return HandleNormalizer.nodeOf(raw, rules, tag);
-    }
-
-    /// `handleNodeOf`, reporting what the rules refuse instead of reverting.
-    ///
-    /// @dev Reverts `UnknownPlatform`.
-    function tryHandleNodeOf(bytes32 platformId, string memory raw)
-        internal
-        pure
-        returns (HandleNormalizer.Problem problem, bytes32 handleNode)
-    {
-        (HandleNormalizer.Rules memory rules, bytes memory tag) = _handleKeys(platformId);
-        return HandleNormalizer.tryNodeOf(raw, rules, tag);
-    }
-
-    function _handleKeys(bytes32 platformId)
-        private
-        pure
-        returns (HandleNormalizer.Rules memory rules, bytes memory tag)
-    {
-        if (platformId == PLATFORM_X) {
-            rules = HandleNormalizer.Rules({maxLength: 15, isEmail: false, allowUnderscore: true, allowHyphen: false});
-            return (rules, HANDLE_TAG_X);
-        }
-        if (platformId == PLATFORM_GITHUB) {
-            rules = HandleNormalizer.Rules({maxLength: 39, isEmail: false, allowUnderscore: false, allowHyphen: true});
-            return (rules, HANDLE_TAG_GITHUB);
-        }
-        if (platformId == PLATFORM_GOOGLE) {
-            rules = HandleNormalizer.Rules({maxLength: 62, isEmail: true, allowUnderscore: false, allowHyphen: false});
-            return (rules, HANDLE_TAG_GOOGLE);
-        }
-        revert UnknownPlatform(platformId);
+        folded = HandleNormalizer.fold(raw);
+        handleNode = HandleNormalizer.node(handleTagFor(platformId), folded);
     }
 }

@@ -137,16 +137,6 @@ async fn deploys_the_identity_stack_behind_proxies() {
         unwired.is_err(),
         "an unwired platform answered instead of reverting UnknownPlatform"
     );
-    let rules = registry.rulesOf(platform_id).call().await.unwrap();
-    assert_eq!(
-        (
-            rules.maxLength,
-            rules.isEmail,
-            rules.allowUnderscore,
-            rules.allowHyphen
-        ),
-        (39, false, false, true)
-    );
     assert_eq!(
         registry
             .handleTagOf(platform_id)

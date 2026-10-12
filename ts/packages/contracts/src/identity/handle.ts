@@ -1,7 +1,7 @@
 /// Turns a typed handle into the form the identity circuits hash into a node.
 ///
 /// A-Z fold to a-z and anything else invalid is refused, never repaired. It
-/// mirrors the circuits, Solidity and Rust; all run the `handles.json` vectors.
+/// mirrors the circuits and Rust; all run the `handles.json` vectors.
 
 import {
   ERROR_BADCHARACTER,
@@ -14,7 +14,7 @@ import {
   platform,
 } from './handleVectors.js'
 
-/// Why a handle was refused. The kinds match the Solidity errors and the Rust
+/// Why a handle was refused. The kinds match the circuits' messages and the Rust
 /// ones, because the vector table names which refusal it expects.
 export class HandleError extends Error {
   constructor(
@@ -57,7 +57,7 @@ export function rulesFor(platformKey: string): Rules | null {
 /// The normalized handle, or a `HandleError` naming what was wrong.
 export function normalize(raw: string, rules: Rules): string {
   // Work on bytes, not code units. A character above 0x7f is several bytes and
-  // must be refused as bytes, the way Solidity sees it.
+  // must be refused as bytes, the way the circuits see it.
   const input = new TextEncoder().encode(raw)
 
   const length = input.length

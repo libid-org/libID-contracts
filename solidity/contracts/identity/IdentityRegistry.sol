@@ -305,7 +305,7 @@ contract IdentityRegistry is
     // ─── Names ──────────────────────────────────────────────────────
 
     /// @notice Disclose the caller's handle on a platform as its name there.
-    /// @dev The normalized handle must hash to a node the caller holds.
+    /// @dev The folded handle must hash to a node the caller holds.
     function publish(bytes32 platformId, string calldata handle) external {
         _requireKnown(platformId);
         (string memory normalized, bytes32 handleNode) = HandlePlatforms.handleNodeOf(platformId, handle);
@@ -351,24 +351,17 @@ contract IdentityRegistry is
 
     // ─── Views ──────────────────────────────────────────────────────
 
-    /// @notice The rules a handle on this platform normalizes with.
-    function rulesOf(bytes32 platformId) external pure returns (HandleNormalizer.Rules memory) {
-        _requireKnown(platformId);
-        return HandlePlatforms.rulesFor(platformId);
-    }
-
     /// @notice The tag this platform's handle nodes are hashed under.
     function handleTagOf(bytes32 platformId) external pure returns (bytes memory) {
         _requireKnown(platformId);
         return HandlePlatforms.handleTagFor(platformId);
     }
 
-    /// @notice The node a handle is bound under, from the handle as typed.
-    function handleNodeOf(bytes32 platformId, string calldata handle) external pure returns (bytes32) {
+    /// @notice The node a handle is bound under, from the handle as typed:
+    ///         folded, then hashed under the platform's tag.
+    function handleNodeOf(bytes32 platformId, string calldata handle) external pure returns (bytes32 handleNode) {
         _requireKnown(platformId);
-        (HandleNormalizer.Problem problem, bytes32 handleNode) = HandlePlatforms.tryHandleNodeOf(platformId, handle);
-        if (problem != HandleNormalizer.Problem.None) revert HandleNormalizer.UnusableHandle(problem);
-        return handleNode;
+        (, handleNode) = HandlePlatforms.handleNodeOf(platformId, handle);
     }
 
     /// @notice Whether a platform can be bound right now.
@@ -386,11 +379,10 @@ contract IdentityRegistry is
     }
 
     /// @notice The holder of a handle as typed, or zero for text no binding
-    ///         can have.
+    ///         has.
     function resolveHandle(bytes32 platformId, string calldata handle) external view returns (address) {
         _requireUsable(platformId);
-        (HandleNormalizer.Problem problem, bytes32 handleNode) = HandlePlatforms.tryHandleNodeOf(platformId, handle);
-        if (problem != HandleNormalizer.Problem.None) return address(0);
+        (, bytes32 handleNode) = HandlePlatforms.handleNodeOf(platformId, handle);
         return _s().handleBindings[handleNode].holder;
     }
 
@@ -433,8 +425,7 @@ contract IdentityRegistry is
         returns (address holder, bool idAgrees)
     {
         _requireUsable(platformId);
-        (HandleNormalizer.Problem problem, bytes32 handleNode) = HandlePlatforms.tryHandleNodeOf(platformId, handle);
-        if (problem != HandleNormalizer.Problem.None) return (address(0), false);
+        (, bytes32 handleNode) = HandlePlatforms.handleNodeOf(platformId, handle);
         return _resolveNodeAndId(platformId, handleNode, idNode);
     }
 

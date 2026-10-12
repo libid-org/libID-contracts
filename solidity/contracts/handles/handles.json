@@ -5,9 +5,11 @@
     "normalization, and for the tags that make a value a key. Solidity, Rust,",
     "TypeScript and Noir constants are generated from this file by",
     "scripts/regen-identity-handles.py. The normalizer logic is hand written in",
-    "each language -- the circuit's is the one that keys a binding -- and every",
-    "language runs the same vector table, so a difference between them fails a",
-    "test instead of writing a different node on chain.",
+    "each language -- the circuit's is the one that keys a binding -- and Rust,",
+    "TypeScript and Noir run the same vector table, so a difference between them",
+    "fails a test instead of writing a different node on chain. Solidity only",
+    "folds: the circuits bind no node of a handle the rules refuse, so the chain",
+    "need not refuse it again.",
     "",
     "Normalization is a closed byte transform that refuses rather than repairs.",
     "A-Z fold to a-z and nothing else changes: no byte is trimmed, no @ is",
@@ -26,11 +28,7 @@
     "A platform id is keccak256 of the platform key ('x'), with no namespace",
     "of its own. The specification fixes the keys -- the launch profiles of",
     "REQ-PLAT-01 are google, x and github -- and leaves the derivation to",
-    "the profile author, so this repository pins it.",
-    "",
-    "The generated rulesFor takes the platform id in Solidity, where a caller",
-    "has the id, and the platform key in Rust, TypeScript and Noir, where a",
-    "caller has the key."
+    "the profile author, so this repository pins it."
   ],
   "platforms": [
     {

@@ -10,14 +10,6 @@ mod registry_inner {
     sol! {
         #[sol(rpc, abi)]
         interface IdentityRegistry {
-            #[derive(Debug, serde::Serialize, serde::Deserialize)]
-            struct Rules {
-                uint16 maxLength;
-                bool isEmail;
-                bool allowUnderscore;
-                bool allowHyphen;
-            }
-
             /// One identity a holder proved. `handleCurrent` is whether
             /// `handleNode` still points back at this identity.
             #[derive(Debug, serde::Serialize, serde::Deserialize)]
@@ -71,8 +63,6 @@ mod registry_inner {
             /// The handle a holder published, while it still resolves back to
             /// that holder; empty otherwise.
             function publishedHandleOf(address holder, bytes32 platformId) external view returns (string memory);
-            /// The platform's handle rules, for local normalization.
-            function rulesOf(bytes32 platformId) external pure returns (Rules memory);
             /// The tag the platform's handle nodes are hashed under.
             function handleTagOf(bytes32 platformId) external pure returns (bytes memory);
             /// Whether `bind` accepts this platform now.
@@ -107,14 +97,11 @@ mod registry_inner {
             );
             /// A platform `handles.json` does not name, or one never bound.
             error UnknownPlatform(bytes32 platformId);
-            /// Text the platform's rules refuse; `problem` is a
-            /// `HandleNormalizer.Problem`.
-            error UnusableHandle(uint8 problem);
 
             event OwnershipTransferStarted(address indexed previousOwner, address indexed newOwner);
             event OwnershipTransferred(address indexed previousOwner, address indexed newOwner);
 
-            // What `bind` can revert with, besides `UnusableHandle` above.
+            // What `bind` can revert with.
             error ZeroAddress();
             error ForeignOperationDomain(bytes32 operationDomain);
             error DigestAlreadySpent(bytes32 digest);

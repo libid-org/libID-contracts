@@ -23,16 +23,16 @@ library HandleDisclosure {
     ///      account, as it shows it.
     error HandleNotProved(bytes32 disclosed, bytes32 proved);
 
-    /// @dev The disclosed handle, normalized, or empty when none is disclosed.
-    ///      Reverts unless it hashes to `handleNode` under the platform's rules.
+    /// @dev The disclosed handle, folded, or empty when none is disclosed.
+    ///      Reverts unless it hashes to `handleNode` under the platform's tag.
     function check(bytes32 platform, string memory handle, bytes32 handleNode)
         internal
         pure
-        returns (string memory normalized)
+        returns (string memory folded)
     {
         if (bytes(handle).length != 0) {
             bytes32 node;
-            (normalized, node) = HandlePlatforms.handleNodeOf(platform, handle);
+            (folded, node) = HandlePlatforms.handleNodeOf(platform, handle);
             if (node != handleNode) revert HandleNotProved(node, handleNode);
         }
     }

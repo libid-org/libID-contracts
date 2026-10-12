@@ -1,11 +1,11 @@
 //! Turns a typed handle into the form the identity circuits hash into a node.
 //!
 //! A-Z fold to a-z and anything else invalid is refused, never repaired. It
-//! mirrors the circuits' `lib/identity` and `HandleNormalizer.sol`; all three
-//! run the `handles.json` vector table.
+//! mirrors the circuits' `lib/identity`; both run the `handles.json` vector
+//! table.
 
-/// Why a handle was refused. The kinds match the Solidity errors and the
-/// TypeScript ones, because the vector table names which refusal it expects.
+/// Why a handle was refused. The kinds match the TypeScript ones and the
+/// circuits' messages, because the vector table names which refusal it expects.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HandleError {
     /// No bytes at all.
@@ -173,8 +173,8 @@ mod tests {
     use super::*;
     use crate::handle_vectors::VECTORS;
 
-    /// The shared table, run against this normalizer. Solidity and TypeScript
-    /// run the same cases, so a language that disagrees fails here.
+    /// The shared table, run against this normalizer. TypeScript and the
+    /// circuits run the same cases, so a language that disagrees fails here.
     #[test]
     fn every_vector_matches_the_shared_table() {
         for (i, v) in VECTORS.iter().enumerate() {

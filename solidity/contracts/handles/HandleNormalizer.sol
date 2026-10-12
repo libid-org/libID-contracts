@@ -1,132 +1,19 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-/// @notice Turns a handle a caller typed into the one form the identity
-///         circuits hash into a node.
-/// @dev Folds A-Z to a-z and refuses anything else outside the rules; never trims.
-///      Must match the circuits byte for byte: `handles.json` vectors test both.
+/// @notice Turns a handle a caller typed into the bytes a handle node hashes.
+/// @dev Folds A-Z to a-z and nothing else. The platform rules live in the circuits,
+///      which bind only nodes of handles they accept, so text the rules refuse
+///      folds to a node nobody holds.
 library HandleNormalizer {
-    /// Text the platform's rules refuse, with the reason.
-    error UnusableHandle(Problem problem);
-
-    /// @notice What one platform accepts; see `HandlePlatforms` for each platform's.
-    /// @param maxLength       Bytes allowed.
-    /// @param isEmail         Validate as an address instead of a bare handle.
-    /// @param allowUnderscore Allowed by X, not by GitHub.
-    /// @param allowHyphen     Allowed by GitHub, not by X. A hyphen may not
-    ///                        start or end the handle, and two may not touch.
-    struct Rules {
-        uint16 maxLength;
-        bool isEmail;
-        bool allowUnderscore;
-        bool allowHyphen;
-    }
-
-    /// @notice What was wrong with a handle.
-    enum Problem {
-        None,
-        Empty,
-        TooLong,
-        BadChar,
-        Shape
-    }
-
-    /// @notice The normalized handle, or `UnusableHandle` naming what was wrong.
-    function normalize(string memory raw, Rules memory rules) internal pure returns (string memory out) {
-        Problem problem;
-        (problem, out) = tryNormalize(raw, rules);
-        if (problem != Problem.None) revert UnusableHandle(problem);
-    }
-
-    /// @notice The same transform, reporting instead of reverting.
-    function tryNormalize(string memory raw, Rules memory rules)
-        internal
-        pure
-        returns (Problem problem, string memory normalized)
-    {
-        bytes memory input = bytes(raw);
-        uint256 length = input.length;
-        if (length == 0) return (Problem.Empty, "");
-        if (length > rules.maxLength) return (Problem.TooLong, "");
-
-        bytes memory out = new bytes(length);
-        for (uint256 i = 0; i < length; i++) {
-            bytes1 c = input[i];
-            // Fold A-Z down. Nothing else changes, so two addresses that differ
-            // in more than case stay two identities.
-            if (c >= 0x41 && c <= 0x5A) {
-                c = bytes1(uint8(c) + 0x20);
-            }
-            if (!_allowed(c, rules)) return (Problem.BadChar, "");
-            out[i] = c;
+    /// @notice `raw` with A-Z folded to a-z; every other byte unchanged.
+    function fold(string memory raw) internal pure returns (string memory) {
+        bytes memory out = bytes.concat(bytes(raw));
+        for (uint256 i = 0; i < out.length; i++) {
+            bytes1 c = out[i];
+            if (c >= 0x41 && c <= 0x5A) out[i] = bytes1(uint8(c) + 0x20);
         }
-
-        if (rules.isEmail) {
-            if (!_hasEmailShape(out)) return (Problem.Shape, "");
-        } else if (rules.allowHyphen) {
-            if (!_hasHyphenShape(out)) return (Problem.Shape, "");
-        }
-        return (Problem.None, string(out));
-    }
-
-    /// @dev One byte, after folding. Anything outside the platform's set is
-    ///      `Problem.BadChar`, including every byte above 0x7f, so a multi-byte
-    ///      character can never reach a node.
-    function _allowed(bytes1 c, Rules memory rules) private pure returns (bool) {
-        if (c >= 0x61 && c <= 0x7A) return true; // a-z
-        if (c >= 0x30 && c <= 0x39) return true; // 0-9
-        if (rules.isEmail) {
-            // The set a Google address uses. The dot, the plus and the tag stay
-            // exactly as proved: this transform must never map two addresses to
-            // one identity.
-            return c == 0x2E || c == 0x2B || c == 0x2D || c == 0x5F || c == 0x40;
-        }
-        if (rules.allowUnderscore && c == 0x5F) return true;
-        if (rules.allowHyphen && c == 0x2D) return true;
-        return false;
-    }
-
-    /// @dev Exactly one `@`, and not at either edge.
-    function _hasEmailShape(bytes memory value) private pure returns (bool) {
-        uint256 at = type(uint256).max;
-        for (uint256 i = 0; i < value.length; i++) {
-            if (value[i] == 0x40) {
-                if (at != type(uint256).max) return false; // a second one
-                at = i;
-            }
-        }
-        if (at == type(uint256).max) return false; // none
-        return at != 0 && at != value.length - 1; // an empty side
-    }
-
-    /// @dev A hyphen may not start or end the handle, and two may not touch.
-    function _hasHyphenShape(bytes memory value) private pure returns (bool) {
-        if (value[0] == 0x2D || value[value.length - 1] == 0x2D) return false;
-        for (uint256 i = 1; i < value.length; i++) {
-            if (value[i] == 0x2D && value[i - 1] == 0x2D) return false;
-        }
-        return true;
-    }
-
-    /// @notice A handle, normalized, and its node. Reverts as `normalize` does.
-    function nodeOf(string memory raw, Rules memory rules, bytes memory tag)
-        internal
-        pure
-        returns (string memory normalized, bytes32 handleNode)
-    {
-        normalized = normalize(raw, rules);
-        handleNode = node(tag, normalized);
-    }
-
-    /// @notice `nodeOf`, reporting instead of reverting.
-    function tryNodeOf(string memory raw, Rules memory rules, bytes memory tag)
-        internal
-        pure
-        returns (Problem problem, bytes32 handleNode)
-    {
-        string memory normalized;
-        (problem, normalized) = tryNormalize(raw, rules);
-        if (problem == Problem.None) handleNode = node(tag, normalized);
+        return string(out);
     }
 
     /// @notice `SHA256(tag || normalized)`: the node a normalized handle is bound under.

@@ -11,7 +11,7 @@
 import { type Address, keccak256, type PublicClient, toHex, zeroAddress, zeroHash } from 'viem'
 
 import { identityRegistryAbi } from '../abis/identityRegistry.js'
-import { HandleError, type Rules } from './handle.js'
+import { HandleError } from './handle.js'
 import { PLATFORMS } from './handleVectors.js'
 import { handleNode } from './node.js'
 
@@ -54,17 +54,6 @@ function read<T>(
     functionName,
     args,
   })
-}
-
-/// The platform's normalization rules (`IdentityRegistry.rulesOf`).
-export async function rulesOf(reader: RegistryReader, platformId: `0x${string}`): Promise<Rules> {
-  const rules = await read<Rules>(reader, 'rulesOf', [platformId])
-  return {
-    maxLength: Number(rules.maxLength),
-    isEmail: rules.isEmail,
-    allowUnderscore: rules.allowUnderscore,
-    allowHyphen: rules.allowHyphen,
-  }
 }
 
 /// The holder that proved this id node (`idNode(platformKey, id)`), or `null`.
