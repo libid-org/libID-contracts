@@ -685,20 +685,47 @@ contract IdentityRegistryTest is PrivacyScan {
         assertEq(registry.publishedHandleOf(alice, X), "alice");
     }
 
-    /// The forward check ENS requires of its integrators, done here so an
-    /// integrator cannot skip it.
+    /// A handle another holder takes withdraws the name, so proving it back
+    /// without disclosing does not show it again.
     function test_publishedHandleOfGoesEmptyOnceTheHandleMovesOn() public {
         _bindDisclosing(alice, "123", "shared", 100);
         assertEq(registry.publishedHandleOf(alice, X), "shared", "it resolves back, so it stands");
 
-        // Bob proves the same handle. Alice's published handle now has another
-        // holder, though nothing rewrote her record.
-        _bind(bob, "456", "shared", 200);
+        _stage("456", "shared", bob, 200);
+        vm.expectEmit(address(registry));
+        emit IdentityRegistry.HandleUnpublished(alice, X);
+        vm.prank(bob);
+        _submit(X, "");
         assertEq(registry.publishedHandleOf(alice, X), "", "it no longer resolves back");
 
-        // Proving it back without disclosing finds the record still set.
         _bind(alice, "123", "shared", 300);
-        assertEq(registry.publishedHandleOf(alice, X), "shared", "the record was untouched");
+        assertEq(registry.publishedHandleOf(alice, X), "", "a private re-proof showed the old name");
+    }
+
+    /// The handle moved on, then its first identity renamed: the rename retires
+    /// nothing of Alice's, and her name for "shared" is already gone.
+    function test_aNameStaysWithdrawnAfterTheHandleMovedOnAndTheIdentityRenamed() public {
+        _bindDisclosing(alice, "123", "shared", 100);
+        _bind(bob, "456", "shared", 200);
+        _bind(alice, "123", "alice2", 300);
+        _bind(alice, "123", "shared", 400);
+
+        assertEq(registry.resolveHandle(X, "shared"), alice);
+        assertEq(registry.publishedHandleOf(alice, X), "", "a private re-proof showed the old name");
+    }
+
+    /// An identity proved from a new wallet withdraws the old wallet's name for its handle.
+    function test_aWalletMoveWithdrawsTheOldWalletsName() public {
+        _bindDisclosing(alice, "123", "alice", 100);
+
+        _stage("123", "alice", bob, 200);
+        vm.expectEmit(address(registry));
+        emit IdentityRegistry.HandleUnpublished(alice, X);
+        vm.prank(bob);
+        _submit(X, "");
+
+        _bind(alice, "123", "alice", 300);
+        assertEq(registry.publishedHandleOf(alice, X), "", "the old wallet's name came back");
     }
 
     /// How many logs carry this event.

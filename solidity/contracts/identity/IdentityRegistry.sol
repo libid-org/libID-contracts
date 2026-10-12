@@ -268,11 +268,13 @@ contract IdentityRegistry is
         $.everBound[platformId] = true;
 
         Binding memory bound = $.idBindings[idNode];
+        Binding memory handleWas = $.handleBindings[handleNode];
         _requireNewer(observedAt, bound.observedAt);
-        _requireNewer(observedAt, $.handleBindings[handleNode].observedAt);
+        _requireNewer(observedAt, handleWas.observedAt);
 
         $.idBindings[idNode] = Binding({holder: msg.sender, observedAt: observedAt});
         $.handleBindings[handleNode] = Binding({holder: msg.sender, observedAt: observedAt});
+        if (handleWas.holder != msg.sender) _withdrawName(handleWas.holder, platformId, handleNode);
 
         _retirePreviousHandle(platformId, idNode, handleNode);
         $.handleNodeById[idNode] = handleNode;
@@ -290,7 +292,7 @@ contract IdentityRegistry is
     }
 
     /// @dev Retire the handle node this identity wrote before, if it still
-    ///      points back here, and the name its holder published for it. A node
+    ///      points back here, and withdraw its holder's name for it. A node
     ///      another identity has since proved is that identity's, and is left alone.
     function _retirePreviousHandle(bytes32 platformId, bytes32 idNode, bytes32 handleNode) private {
         bytes32 previous = _s().handleNodeById[idNode];
@@ -300,14 +302,19 @@ contract IdentityRegistry is
         address holder = _s().handleBindings[previous].holder;
         _s().handleBindings[previous].holder = address(0);
         emit HandleRetired(platformId, previous, holder);
+        _withdrawName(holder, platformId, previous);
+    }
 
-        // Else proving the old handle again, privately, would show this name again.
+    /// @dev Withdraw `holder`'s name on the platform if it names `handleNode`,
+    ///      which `holder` no longer holds. Else proving that handle again,
+    ///      privately, would show the name again.
+    function _withdrawName(address holder, bytes32 platformId, bytes32 handleNode) private {
+        if (holder == address(0)) return;
         string memory name = _s().published[holder][platformId];
-        if (bytes(name).length != 0 && HandlePlatforms.node(HandlePlatforms.handleTagFor(platformId), name) == previous)
-        {
-            delete _s().published[holder][platformId];
-            emit HandleUnpublished(holder, platformId);
-        }
+        if (bytes(name).length == 0) return;
+        if (HandlePlatforms.node(HandlePlatforms.handleTagFor(platformId), name) != handleNode) return;
+        delete _s().published[holder][platformId];
+        emit HandleUnpublished(holder, platformId);
     }
 
     // ─── Names ──────────────────────────────────────────────────────
