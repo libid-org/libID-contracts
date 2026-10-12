@@ -205,9 +205,7 @@ contract HandleEscrowTest is Test {
         HandleVectors.Vector[] memory vectors = HandleVectors.all();
         for (uint256 i = 0; i < vectors.length; i++) {
             HandleVectors.Vector memory v = vectors[i];
-            if (v.accepted) {
-                assertEq(registry.handleNodeOf(keccak256(bytes(v.platform)), v.input), v.handleNode, vm.toString(i));
-            }
+            assertEq(registry.handleNodeOf(keccak256(bytes(v.platform)), v.input), v.handleNode, vm.toString(i));
         }
     }
 
@@ -216,7 +214,7 @@ contract HandleEscrowTest is Test {
         bytes32 pinned = 0xe09c4f5bfbbc723bc35701ea9d718a1c5edb29b1ed5bb0cb0fabb3c43d8136af;
         assertEq(registry.handleNodeOf(X, "Alice_1"), pinned);
         assertEq(TestNodes.handleNode(X, "alice_1"), pinned);
-        HandleVectors.Vector memory row = HandleVectors.all()[1];
+        HandleVectors.Vector memory row = HandleVectors.all()[0];
         assertEq(row.output, "alice_1");
         assertEq(row.handleNode, pinned);
     }

@@ -5,288 +5,118 @@ pragma solidity ^0.8.20;
 // The source of truth is libID-contracts' solidity/contracts/handles/handles.json.
 // Table SHA-256: 0x8c6fb5a7ae50e0b1a039fd8b58374215cc60eccc9586a2d43cbbb3bee0cee5a7 (HandlePlatforms.TABLE_SHA256).
 
-/// @notice The shared handle vector table, for tests.
+/// @notice The shared handle vector table's accepted cases, for tests.
 ///
-/// @dev Rust and TypeScript run the same table; production code never
-///      reads this file.
+/// @dev Rust, TypeScript and Noir run the whole table; production code
+///      never reads this file.
 library HandleVectors {
-    /// One case from the shared table.
+    /// One accepted case from the shared table.
     struct Vector {
         string platform;
         string input;
         string output;
-        bool accepted;
-        uint8 errorKind;
         bytes32 handleNode;
     }
 
-    uint8 internal constant ERROR_EMPTY = 0;
-    uint8 internal constant ERROR_TOOLONG = 1;
-    uint8 internal constant ERROR_BADCHARACTER = 2;
-    uint8 internal constant ERROR_BADSHAPE = 3;
-
-    uint256 internal constant COUNT = 52;
+    uint256 internal constant COUNT = 16;
 
     function all() internal pure returns (Vector[] memory v) {
-        v = new Vector[](52);
+        v = new Vector[](16);
         v[0] = Vector({
-            platform: "x", input: " @Alice_1 ", output: "", accepted: false, errorKind: 2, handleNode: bytes32(0)
-        });
-        v[1] = Vector({
             platform: "x",
             input: "Alice_1",
             output: "alice_1",
-            accepted: true,
-            errorKind: 0,
             handleNode: 0xe09c4f5bfbbc723bc35701ea9d718a1c5edb29b1ed5bb0cb0fabb3c43d8136af
         });
-        v[2] = Vector({
+        v[1] = Vector({
             platform: "x",
             input: "alice",
             output: "alice",
-            accepted: true,
-            errorKind: 0,
             handleNode: 0x0bed64615b5776d2567a82467d7be0e266e02803910d694a72703ee2a4cc911a
         });
-        v[3] = Vector({platform: "x", input: "@a", output: "", accepted: false, errorKind: 2, handleNode: bytes32(0)});
-        v[4] = Vector({
+        v[2] = Vector({
             platform: "x",
             input: "A1_b2",
             output: "a1_b2",
-            accepted: true,
-            errorKind: 0,
             handleNode: 0x55be0847f475409cb1da1d008804b966de05bb088d2469129c142faf2ec4a678
         });
-        v[5] = Vector({
+        v[3] = Vector({
             platform: "x",
             input: "_alice",
             output: "_alice",
-            accepted: true,
-            errorKind: 0,
             handleNode: 0x3a354366999d277daf0a6e81640d9a9976bc4efc20db4e1df245e90ba42aeeb8
         });
-        v[6] = Vector({
+        v[4] = Vector({
             platform: "x",
             input: "alice_",
             output: "alice_",
-            accepted: true,
-            errorKind: 0,
             handleNode: 0xf222c841ac39b261a179896eb45c53e48e8a610a15bdee72176e088783ad6f2a
         });
-        v[7] = Vector({
+        v[5] = Vector({
             platform: "x",
             input: "a12345678901234",
             output: "a12345678901234",
-            accepted: true,
-            errorKind: 0,
             handleNode: 0xbd3a96fb00ea79bdb486cbaa43914f8c110c8585d419fc02e5b1536c7617af58
         });
-        v[8] = Vector({
-            platform: "x", input: "a123456789012345", output: "", accepted: false, errorKind: 1, handleNode: bytes32(0)
-        });
-        v[9] = Vector({platform: "x", input: "", output: "", accepted: false, errorKind: 0, handleNode: bytes32(0)});
-        v[10] = Vector({platform: "x", input: "   ", output: "", accepted: false, errorKind: 2, handleNode: bytes32(0)});
-        v[11] = Vector({platform: "x", input: "@", output: "", accepted: false, errorKind: 2, handleNode: bytes32(0)});
-        v[12] = Vector({
-            platform: "x", input: "@@alice", output: "", accepted: false, errorKind: 2, handleNode: bytes32(0)
-        });
-        v[13] = Vector({
-            platform: "x", input: "alice-1", output: "", accepted: false, errorKind: 2, handleNode: bytes32(0)
-        });
-        v[14] =
-            Vector({platform: "x", input: "ali ce", output: "", accepted: false, errorKind: 2, handleNode: bytes32(0)});
-        v[15] = Vector({
-            platform: "x", input: "ali\tce", output: "", accepted: false, errorKind: 2, handleNode: bytes32(0)
-        });
-        v[16] = Vector({
-            platform: "x", input: "ali\nce", output: "", accepted: false, errorKind: 2, handleNode: bytes32(0)
-        });
-        v[17] = Vector({
-            platform: "x", input: "alic\xc3\xa9", output: "", accepted: false, errorKind: 2, handleNode: bytes32(0)
-        });
-        v[18] = Vector({
-            platform: "x", input: "\talice", output: "", accepted: false, errorKind: 2, handleNode: bytes32(0)
-        });
-        v[19] = Vector({
-            platform: "x", input: "alice\t", output: "", accepted: false, errorKind: 2, handleNode: bytes32(0)
-        });
-        v[20] = Vector({
-            platform: "x", input: "\nalice", output: "", accepted: false, errorKind: 2, handleNode: bytes32(0)
-        });
-        v[21] = Vector({
-            platform: "x", input: " @ alice ", output: "", accepted: false, errorKind: 2, handleNode: bytes32(0)
-        });
-        v[22] = Vector({
+        v[6] = Vector({
             platform: "github",
             input: "OctoCat",
             output: "octocat",
-            accepted: true,
-            errorKind: 0,
             handleNode: 0x381fb9d7d3b01214e58b94202ea10f78e169adef68bcc20d40c130deca6dfe74
         });
-        v[23] = Vector({
-            platform: "github", input: "@Octo-Cat", output: "", accepted: false, errorKind: 2, handleNode: bytes32(0)
-        });
-        v[24] = Vector({
+        v[7] = Vector({
             platform: "github",
             input: "octocat",
             output: "octocat",
-            accepted: true,
-            errorKind: 0,
             handleNode: 0x381fb9d7d3b01214e58b94202ea10f78e169adef68bcc20d40c130deca6dfe74
         });
-        v[25] = Vector({
-            platform: "github", input: " OctoCat ", output: "", accepted: false, errorKind: 2, handleNode: bytes32(0)
-        });
-        v[26] = Vector({
+        v[8] = Vector({
             platform: "github",
             input: "a",
             output: "a",
-            accepted: true,
-            errorKind: 0,
             handleNode: 0x823c23491391b659703362484a08cfbcc8cede4ea3b5ba1753c3df7756799c70
         });
-        v[27] = Vector({
+        v[9] = Vector({
             platform: "github",
             input: "o-c",
             output: "o-c",
-            accepted: true,
-            errorKind: 0,
             handleNode: 0xaa580baff71ac37d38e08b9b7b0dd7516ec01608457fbbee7f445a0b8f7d9fc5
         });
-        v[28] = Vector({
-            platform: "github", input: "-octocat", output: "", accepted: false, errorKind: 3, handleNode: bytes32(0)
-        });
-        v[29] = Vector({
-            platform: "github", input: "octocat-", output: "", accepted: false, errorKind: 3, handleNode: bytes32(0)
-        });
-        v[30] = Vector({
-            platform: "github", input: "octo--cat", output: "", accepted: false, errorKind: 3, handleNode: bytes32(0)
-        });
-        v[31] = Vector({
-            platform: "github", input: "octo_cat", output: "", accepted: false, errorKind: 2, handleNode: bytes32(0)
-        });
-        v[32] =
-            Vector({platform: "github", input: "-", output: "", accepted: false, errorKind: 3, handleNode: bytes32(0)});
-        v[33] =
-            Vector({platform: "github", input: "", output: "", accepted: false, errorKind: 0, handleNode: bytes32(0)});
-        v[34] = Vector({
+        v[10] = Vector({
             platform: "github",
             input: "abcdefghijabcdefghijabcdefghijabcdefghi",
             output: "abcdefghijabcdefghijabcdefghijabcdefghi",
-            accepted: true,
-            errorKind: 0,
             handleNode: 0x3f7bdb081795e2934e1e949f1933b8df950a6e6026dbc70060fc3a79b693a058
         });
-        v[35] = Vector({
-            platform: "github",
-            input: "abcdefghijabcdefghijabcdefghijabcdefghij",
-            output: "",
-            accepted: false,
-            errorKind: 1,
-            handleNode: bytes32(0)
-        });
-        v[36] = Vector({
-            platform: "github", input: "\n", output: "", accepted: false, errorKind: 2, handleNode: bytes32(0)
-        });
-        v[37] = Vector({
+        v[11] = Vector({
             platform: "google",
             input: "A.B+tag@Example.COM",
             output: "a.b+tag@example.com",
-            accepted: true,
-            errorKind: 0,
             handleNode: 0x40169b5cc6400158aeef2a13b73a14fc36e5e1df8595572b8fe282a269f26dd4
         });
-        v[38] = Vector({
+        v[12] = Vector({
             platform: "google",
             input: "alice@example.com",
             output: "alice@example.com",
-            accepted: true,
-            errorKind: 0,
             handleNode: 0x41c79cba63d5bd4735ca51af1af31702918f326eb6fc1afd853d675fee3a59cc
         });
-        v[39] = Vector({
+        v[13] = Vector({
             platform: "google",
             input: "a-b@example.com",
             output: "a-b@example.com",
-            accepted: true,
-            errorKind: 0,
             handleNode: 0x4eb5654e6947900ef44daa8a41a7c9e7e6f4717794bdc079f843f357a023f54f
         });
-        v[40] = Vector({
+        v[14] = Vector({
             platform: "google",
             input: "a_b@example.com",
             output: "a_b@example.com",
-            accepted: true,
-            errorKind: 0,
             handleNode: 0xdce533afdd6b399323db9ab05dbccbac9913093f522d390cbb832bee1d2b9c3f
         });
-        v[41] = Vector({
-            platform: "google",
-            input: " Alice@Example.com ",
-            output: "",
-            accepted: false,
-            errorKind: 2,
-            handleNode: bytes32(0)
-        });
-        v[42] = Vector({
-            platform: "google",
-            input: "@Alice@example.com",
-            output: "",
-            accepted: false,
-            errorKind: 3,
-            handleNode: bytes32(0)
-        });
-        v[43] = Vector({
-            platform: "google", input: "alice", output: "", accepted: false, errorKind: 3, handleNode: bytes32(0)
-        });
-        v[44] = Vector({
-            platform: "google", input: "@example.com", output: "", accepted: false, errorKind: 3, handleNode: bytes32(0)
-        });
-        v[45] = Vector({
-            platform: "google", input: "alice@", output: "", accepted: false, errorKind: 3, handleNode: bytes32(0)
-        });
-        v[46] =
-            Vector({platform: "google", input: "", output: "", accepted: false, errorKind: 0, handleNode: bytes32(0)});
-        v[47] = Vector({
-            platform: "google",
-            input: "ali ce@example.com",
-            output: "",
-            accepted: false,
-            errorKind: 2,
-            handleNode: bytes32(0)
-        });
-        v[48] = Vector({
+        v[15] = Vector({
             platform: "google",
             input: "abcdefghijabcdefghijabcdefghijabcdefghijabcdefghij@example.com",
             output: "abcdefghijabcdefghijabcdefghijabcdefghijabcdefghij@example.com",
-            accepted: true,
-            errorKind: 0,
             handleNode: 0x3dc67054a8f794285dc9496fd7c2442ef34401b5e3f6a49e7d3fd9cc6a917e97
-        });
-        v[49] = Vector({
-            platform: "google",
-            input: "abcdefghijabcdefghijabcdefghijabcdefghijabcdefghijk@example.com",
-            output: "",
-            accepted: false,
-            errorKind: 1,
-            handleNode: bytes32(0)
-        });
-        v[50] = Vector({
-            platform: "google",
-            input: "a\"b@example.com",
-            output: "",
-            accepted: false,
-            errorKind: 2,
-            handleNode: bytes32(0)
-        });
-        v[51] = Vector({
-            platform: "google",
-            input: "a\\b@example.com",
-            output: "",
-            accepted: false,
-            errorKind: 2,
-            handleNode: bytes32(0)
         });
     }
 }

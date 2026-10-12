@@ -13,7 +13,8 @@ it, then run this script. These files are written and never drift apart:
 
 Every output carries the SHA-256 of handles.json. Every handleNode and idNode
 in the table is recomputed with hashlib and must match. The normalizer is hand
-written in each language; only the constants and the vectors come from here.
+written in Rust, TypeScript and Noir; Solidity's fold, which applies no platform
+rule, is emitted with its constants.
 
 Run: ./scripts/regen-identity-handles.py [--noir-out ../libid-circuits/lib/identity/src/table.nr]
 """
@@ -198,11 +199,9 @@ def gen_sol(spec: dict[str, Any], digest: str) -> str:
         "",
         header("//").rstrip("\n"),
         "",
-        'import {HandleNormalizer} from "./HandleNormalizer.sol";',
-        "",
-        "/// @notice Each platform `handles.json` names: its id and its node tags, as",
-        "///         the production contracts read them. The handle rules are the",
-        "///         circuits'.",
+        "/// @notice Each platform `handles.json` names: its id, its node tags, and",
+        "///         the fold and hash that turn typed text into a node. The handle",
+        "///         rules are the circuits'.",
         "///",
         "/// @dev The vector table the languages share is `HandleVectors`, which",
         "///      only tests read.",
@@ -276,8 +275,23 @@ def gen_sol(spec: dict[str, Any], digest: str) -> str:
         "        pure",
         "        returns (string memory folded, bytes32 handleNode)",
         "    {",
-        "        folded = HandleNormalizer.fold(raw);",
-        "        handleNode = HandleNormalizer.node(handleTagFor(platformId), folded);",
+        "        folded = fold(raw);",
+        "        handleNode = node(handleTagFor(platformId), folded);",
+        "    }",
+        "",
+        "    /// `raw` with A-Z folded to a-z; every other byte unchanged.",
+        "    function fold(string memory raw) internal pure returns (string memory) {",
+        "        bytes memory out = bytes.concat(bytes(raw));",
+        "        for (uint256 i = 0; i < out.length; i++) {",
+        "            bytes1 c = out[i];",
+        "            if (c >= 0x41 && c <= 0x5A) out[i] = bytes1(uint8(c) + 0x20);",
+        "        }",
+        "        return string(out);",
+        "    }",
+        "",
+        "    /// `SHA256(tag || normalized)`: the node a normalized handle is bound under.",
+        "    function node(bytes memory tag, string memory normalized) internal pure returns (bytes32) {",
+        "        return sha256(abi.encodePacked(tag, normalized));",
         "    }",
         "}",
     ]
@@ -285,9 +299,9 @@ def gen_sol(spec: dict[str, Any], digest: str) -> str:
 
 
 def gen_sol_vectors(spec: dict[str, Any], digest: str) -> str:
-    """The test vectors, apart from the constants production code reads."""
-    errors = spec["errors"]
-    vectors = spec["vectors"]
+    """The accepted test vectors, apart from the constants production code
+    reads. Nothing on chain refuses a handle, so the refused rows stay out."""
+    vectors = [vec for vec in spec["vectors"] if "output" in vec]
 
     lines = [
         "// SPDX-License-Identifier: MIT",
@@ -296,25 +310,19 @@ def gen_sol_vectors(spec: dict[str, Any], digest: str) -> str:
         header("//").rstrip("\n"),
         f"// Table SHA-256: 0x{digest} (HandlePlatforms.TABLE_SHA256).",
         "",
-        "/// @notice The shared handle vector table, for tests.",
+        "/// @notice The shared handle vector table's accepted cases, for tests.",
         "///",
-        "/// @dev Rust and TypeScript run the same table; production code never",
-        "///      reads this file.",
+        "/// @dev Rust, TypeScript and Noir run the whole table; production code",
+        "///      never reads this file.",
         "library HandleVectors {",
     ]
-    lines.append("    /// One case from the shared table.")
+    lines.append("    /// One accepted case from the shared table.")
     lines.append("    struct Vector {")
     lines.append("        string platform;")
     lines.append("        string input;")
     lines.append("        string output;")
-    lines.append("        bool accepted;")
-    lines.append("        uint8 errorKind;")
     lines.append("        bytes32 handleNode;")
     lines.append("    }")
-    lines.append("")
-
-    for i, err in enumerate(errors):
-        lines.append(f"    uint8 internal constant ERROR_{err['key'].upper()} = {i};")
     lines.append("")
 
     lines.append(f"    uint256 internal constant COUNT = {len(vectors)};")
@@ -323,14 +331,10 @@ def gen_sol_vectors(spec: dict[str, Any], digest: str) -> str:
     lines.append(f"        v = new Vector[]({len(vectors)});")
     # Named fields, so `forge lint` (named-struct-fields) passes.
     for i, vec in enumerate(vectors):
-        accepted = "output" in vec
-        out = sol_escape(vec.get("output", ""))
-        kind = "0" if accepted else str(error_index(errors, vec["error"]))
         lines.append(
             f'        v[{i}] = Vector({{platform: "{vec["platform"]}",'
-            f' input: "{sol_escape(vec["input"])}", output: "{out}",'
-            f' accepted: {"true" if accepted else "false"}, errorKind: {kind},'
-            f' handleNode: {vec.get("handleNode", "bytes32(0)")}}});'
+            f' input: "{sol_escape(vec["input"])}", output: "{sol_escape(vec["output"])}",'
+            f' handleNode: {vec["handleNode"]}}});'
         )
     lines.append("    }")
     lines.append("}")

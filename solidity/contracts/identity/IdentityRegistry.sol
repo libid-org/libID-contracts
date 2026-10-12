@@ -8,7 +8,6 @@ import {ReentrancyGuardUpgradeable} from "@openzeppelin/contracts-upgradeable/ut
 
 import {ICeremony} from "../ceremony/ICeremony.sol";
 import {IProofVerifier} from "../ceremony/IProofVerifier.sol";
-import {HandleNormalizer} from "../handles/HandleNormalizer.sol";
 import {HandlePlatforms} from "../handles/HandlePlatforms.sol";
 import {IIdentityRegistry} from "./IIdentityRegistry.sol";
 import {IdentityList} from "./IdentityList.sol";
@@ -304,9 +303,8 @@ contract IdentityRegistry is
 
         // Else proving the old handle again, privately, would show this name again.
         string memory name = _s().published[holder][platformId];
-        if (
-            bytes(name).length != 0 && HandleNormalizer.node(HandlePlatforms.handleTagFor(platformId), name) == previous
-        ) {
+        if (bytes(name).length != 0 && HandlePlatforms.node(HandlePlatforms.handleTagFor(platformId), name) == previous)
+        {
             delete _s().published[holder][platformId];
             emit HandleUnpublished(holder, platformId);
         }
@@ -402,7 +400,7 @@ contract IdentityRegistry is
         _requireKnown(platformId);
         string memory published = _s().published[holder][platformId];
         if (bytes(published).length == 0) return "";
-        bytes32 handleNode = HandleNormalizer.node(HandlePlatforms.handleTagFor(platformId), published);
+        bytes32 handleNode = HandlePlatforms.node(HandlePlatforms.handleTagFor(platformId), published);
         if (_s().handleBindings[handleNode].holder != holder) return "";
         return published;
     }
