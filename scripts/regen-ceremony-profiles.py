@@ -122,14 +122,14 @@ def request_line(session: dict[str, Any]) -> str:
     return f"{session['method']} {session['path']} "
 
 
-# The header names a Platform Verifier requires of every token request, and
-# the only header data a profile carries. `host` because a profile whose
-# pinned authority and pinned host name different servers contradicts itself,
-# and `content-type` because it selects the platform's request parser
-# (REQ-COMMON-21B). Nothing else a runtime sends changes what the platform
-# parses, so nothing else is compared, and nothing else is stated: what a
-# runtime adds beyond these is its own.
-REQUIRED_NAMES = ("host", "content-type")
+# The header names a Platform Verifier requires of each session's request, and
+# the only header data a profile carries. `host` on both, because a profile
+# whose pinned authority and pinned host name different servers contradicts
+# itself, and `content-type` on the token request, because it selects the
+# platform's request parser (REQ-COMMON-21B). Nothing else a runtime sends
+# changes what the platform parses, so nothing else is compared, and nothing
+# else is stated: what a runtime adds beyond these is its own.
+REQUIRED_NAMES = {"token": ("host", "content-type"), "identity": ("host",)}
 
 # Lowercase field names, so a verifier lowercasing what it reads can compare
 # against the list as it is.
@@ -154,7 +154,7 @@ def forbidden_headers(spec: dict[str, Any]) -> list[str]:
     for name in names:
         if not isinstance(name, str) or not NAME.fullmatch(name):
             raise SystemExit(f"ERROR: forbidden header {name!r} is not a lowercase field name")
-        if name in REQUIRED_NAMES or name == "content-length":
+        if any(name in names for names in REQUIRED_NAMES.values()) or name == "content-length":
             raise SystemExit(f"ERROR: {name!r} is read by the verifier and cannot be forbidden")
     if len(set(names)) != len(names):
         raise SystemExit("ERROR: requests.forbiddenHeaders names one header twice")
@@ -215,25 +215,25 @@ def escaped(value: str) -> str:
 HEADER = re.compile(r"^[a-z][a-z0-9-]*: [\x20-\x21\x23-\x26\x28-\x5b\x5d-\x7e]+$")
 
 
-def required_headers(session: dict[str, Any]) -> list[str]:
-    """The lines a verifier holds a token request's head to, validated.
+def required_headers(session: dict[str, Any], kind: str = "token") -> list[str]:
+    """The lines a verifier holds a `kind` request's head to, validated.
 
-    Exactly the names in `REQUIRED_NAMES`, each as `lowercase-name: value`, the
-    `host` one naming the pinned authority. A verifier compares these lines
-    raw, so a line the wire spells differently is a profile that rejects every
-    honest session, and says so here rather than as a rejection with no
-    reason.
+    Exactly the names `REQUIRED_NAMES` gives `kind`, each as
+    `lowercase-name: value`, the `host` one naming the pinned authority. A
+    verifier compares these lines raw, so a line the wire spells differently
+    is a profile that rejects every honest session, and says so here rather
+    than as a rejection with no reason.
     """
     headers = session["requiredHeaders"]
     if not isinstance(headers, list):
-        raise SystemExit("ERROR: a token session must list its required headers")
+        raise SystemExit(f"ERROR: a {kind} session must list its required headers")
     names: list[str] = []
     for line in headers:
         if not isinstance(line, str) or not HEADER.fullmatch(line):
             raise SystemExit(f"ERROR: header {line!r} is not `lowercase-name: value`")
         names.append(line.split(":", 1)[0])
-    if sorted(names) != sorted(REQUIRED_NAMES):
-        raise SystemExit(f"ERROR: the required headers must be exactly {REQUIRED_NAMES}, got {names}")
+    if sorted(names) != sorted(REQUIRED_NAMES[kind]):
+        raise SystemExit(f"ERROR: the {kind} required headers must be exactly {REQUIRED_NAMES[kind]}, got {names}")
     # The `Host` header is prover-composed text and says nothing about which
     # server answered -- but a profile whose pinned header names one host while
     # its pinned authority names another contradicts itself, and only one of the
@@ -292,6 +292,7 @@ def validate(spec: dict[str, Any]) -> None:
                 required_headers(session)
                 token_fields(session)
             if name == "identity":
+                required_headers(session, "identity")
                 safe(session["idField"], "idField")
                 safe(session["handleField"], "handleField")
             if host != host.lower() or host.endswith("."):
@@ -423,22 +424,21 @@ def gen_sol(spec: dict[str, Any]) -> str:
 
     lines += [
         "",
-        "    /// @dev The lines a verifier requires of the token request's head, each",
+        "    /// @dev The lines a verifier requires of each request's head, each",
         "    ///      exactly once with its value: `host` naming the pinned authority,",
-        "    ///      and the media type that selects the platform's request parser",
-        "    ///      (REQ-COMMON-21B). Revealed but uncompared, the media type was a",
-        "    ///      byte a prover chose in a request every other field of which is",
-        "    ///      pinned. What else a runtime sends is its own and not stated here.",
+        "    ///      and on the token request the media type that selects the",
+        "    ///      platform's request parser (REQ-COMMON-21B). Revealed but",
+        "    ///      uncompared, the media type was a byte a prover chose in a request",
+        "    ///      every other field of which is pinned. What else a runtime sends",
+        "    ///      is its own and not stated here.",
         "",
     ]
     for profile in profiles:
-        token = profile["sessions"].get("token")
-        if token is None:
-            continue
-        const = f"{upper(profile['platform'])}_TOKEN_REQUIRED_HEADERS"
-        lines.append(
-            f'    bytes internal constant {const} = "{escaped(crlf(required_headers(token)))}";'
-        )
+        for session_name, session in sessions_of(profile):
+            const = f"{upper(profile['platform'])}_{upper(session_name)}_REQUIRED_HEADERS"
+            lines.append(
+                f'    bytes internal constant {const} = "{escaped(crlf(required_headers(session, session_name)))}";'
+            )
 
     lines += [
         "",
@@ -660,6 +660,9 @@ def gen_rust(spec: dict[str, Any]) -> str:
         "#[derive(Clone, Copy, Debug, PartialEq, Eq)]",
         "pub struct IdentitySession {",
         "    pub session: Session,",
+        "    /// The header lines a Platform Verifier requires, each exactly once with",
+        "    /// its value: `host`.",
+        "    pub required_headers: &'static [&'static str],",
         "    pub id_field: &'static str,",
         "    pub id_shape: IdShape,",
         "    pub handle_field: &'static str,",
@@ -711,6 +714,7 @@ def gen_rust(spec: dict[str, Any]) -> str:
             shape = "JsonString" if identity["idShape"] == "jsonString" else "JsonInteger"
             lines.append("    identity: Some(IdentitySession {")
             lines += rust_session(identity, 8)
+            lines += rust_array("required_headers: ", required_headers(identity, "identity"), "        ", ",")
             lines.append(f'        id_field: "{identity["idField"]}",')
             lines.append(f"        id_shape: IdShape::{shape},")
             lines.append(f'        handle_field: "{identity["handleField"]}",')
@@ -833,6 +837,9 @@ def gen_ts(spec: dict[str, Any]) -> str:
         "",
         "export interface IdentitySession {",
         "  readonly session: Session",
+        "  /** The header lines a Platform Verifier requires, each exactly once with",
+        "   * its value: `host`. */",
+        "  readonly requiredHeaders: readonly string[]",
         "  readonly idField: string",
         "  readonly idShape: IdShape",
         "  readonly handleField: string",
@@ -871,6 +878,7 @@ def gen_ts(spec: dict[str, Any]) -> str:
         else:
             lines.append("  identity: {")
             lines += ts_session(identity, 4)
+            lines += ts_array("requiredHeaders: ", required_headers(identity, "identity"), "    ", ",")
             lines.append(f"    idField: {ts_str(identity['idField'])},")
             lines.append(f"    idShape: {ts_str(identity['idShape'])},")
             lines.append(f"    handleField: {ts_str(identity['handleField'])},")

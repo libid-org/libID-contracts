@@ -669,8 +669,10 @@ library Gen {
 
     /// @dev An identity request: the pinned request line, headers in any
     ///      order around one `authorization: Bearer` line whose value is
-    ///      committed, the rest revealed and sometimes cut into more ranges.
-    function identityRequest(Rng memory r, bytes memory requestLine)
+    ///      committed, the required `host` line among them in the profile's
+    ///      spelling or another, the rest revealed and sometimes cut into more
+    ///      ranges.
+    function identityRequest(Rng memory r, bytes memory requestLine, bytes memory hostLine)
         internal
         pure
         returns (CeremonyAttestation.DirectionBlock memory, uint32)
@@ -680,9 +682,12 @@ library Gen {
         bytes memory tail = "";
         bool authorizationPlaced;
         uint256 n = 1 + pick(r, 5);
+        uint256 hostAt = chance(r, 97) ? pick(r, n) : n;
         for (uint256 i = 0; i < n; ++i) {
             bytes memory line;
-            if (chance(r, 4)) {
+            if (i == hostAt) {
+                line = chance(r, 80) ? hostLine : _respellLine(r, hostLine);
+            } else if (chance(r, 4)) {
                 line = headerLine(r, respell(r, "authorization"), oneOf(r, list("Bearer x", "Basic y")));
             } else if (chance(r, 75)) {
                 line = headerLine(r, "accept", "application/json");
@@ -908,7 +913,7 @@ contract TranscriptEquivalenceTest is Test {
         returns (CeremonyAttestation.AttestedData memory data)
     {
         RefTranscript.Profile memory p = isGitHub ? RefTranscript.github() : RefTranscript.x();
-        (data.sent, data.sentTranscriptLength) = r.identityRequest(p.identityRequestLine);
+        (data.sent, data.sentTranscriptLength) = r.identityRequest(p.identityRequestLine, p.identityRequiredHeaders);
         (data.received, data.recvTranscriptLength) = r.identityResponse(p.idIsInteger, bytes(p.handleField));
     }
 
@@ -1022,7 +1027,8 @@ contract TranscriptEquivalenceTest is Test {
     /// forge-config: default.fuzz.runs = 2000
     function testFuzz_bearerHeaderRequestMatchesReference(uint256 seed) public view {
         Gen.Rng memory r = Gen.Rng(seed);
-        (CeremonyAttestation.DirectionBlock memory block_, uint32 len) = r.identityRequest("GET /2/users/me ");
+        (CeremonyAttestation.DirectionBlock memory block_, uint32 len) =
+            r.identityRequest("GET /2/users/me ", "host: api.x.com");
         if (!_same(address(live), address(ref), abi.encodeCall(LiveHelpers.requireBearerHeaderRequest, (block_, len))))
         {
             return;

@@ -840,6 +840,34 @@ contract XPlatformVerifierTest is RealTlsNotaryProofTest {
         this.run{value: quote}(s);
     }
 
+    /// @dev `host` names the identity authority, once, as the token request's does.
+    function test_rejectsAnIdentityRequestWithoutItsHost() public {
+        TlsNotaryVerifierBase.TlsNotaryProof memory s = _payload();
+        s.identitySession =
+            _identityAttestationWithHead("GET /2/users/me HTTP/1.1\r\nauthorization: Bearer ", "\r\n\r\n");
+        vm.expectRevert(TlsNotaryVerifierBase.WrongIdentityRequestHead.selector);
+        this.run{value: quote}(s);
+
+        s.identitySession = _identityAttestationWithHead(
+            "GET /2/users/me HTTP/1.1\r\nhost: api.github.com\r\nauthorization: Bearer ", "\r\n\r\n"
+        );
+        vm.expectRevert(TlsNotaryVerifierBase.WrongIdentityRequestHead.selector);
+        this.run{value: quote}(s);
+
+        s.identitySession = _identityAttestation("2244994945", "Alice_1", "host: api.x.com\r\n");
+        vm.expectRevert(TlsNotaryVerifierBase.WrongIdentityRequestHead.selector);
+        this.run{value: quote}(s);
+    }
+
+    /// @dev The name is compared as X reads it, the value trimmed.
+    function test_acceptsTheIdentityHostInAnotherSpelling() public {
+        TlsNotaryVerifierBase.TlsNotaryProof memory s = _payload();
+        s.identitySession = _identityAttestationWithHead(
+            "GET /2/users/me HTTP/1.1\r\nHost:  api.x.com \r\nauthorization: Bearer ", "\r\n\r\n"
+        );
+        this.run{value: quote}(s);
+    }
+
     /// @dev A GET has no body: bytes after the head are refused.
     function test_rejectsBytesAfterTheIdentityRequest() public {
         TlsNotaryVerifierBase.TlsNotaryProof memory s = _payload();

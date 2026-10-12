@@ -78,6 +78,11 @@ contract GitHubPlatformVerifier is TlsNotaryVerifierBase {
         return CeremonyProfile.GITHUB_IDENTITY_REQUEST_LINE;
     }
 
+    /// @dev `host`, naming the identity authority.
+    function _identityRequiredHeaders() internal pure override returns (bytes memory) {
+        return CeremonyProfile.GITHUB_IDENTITY_REQUIRED_HEADERS;
+    }
+
     /// @dev REQ-PLAT-61's field list: the body is the serialization of exactly
     ///      these five, in this order, each once with a nonempty value in the
     ///      serializer's one spelling, and nothing after the last. Of the

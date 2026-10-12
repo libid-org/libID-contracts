@@ -796,6 +796,16 @@ contract GitHubPlatformVerifierTest is RealTlsNotaryProofTest {
         this.run{value: quote}(s);
     }
 
+    /// @dev `host` names the API authority, not the exchange's.
+    function test_rejectsAnIdentityReadNamingAnotherHost() public {
+        TlsNotaryVerifierBase.TlsNotaryProof memory s = _payload();
+        s.identitySession = _identityWithHead(
+            "GET /user HTTP/1.1\r\nhost: github.com\r\nauthorization: Bearer ", "\r\nconnection: close\r\n\r\n"
+        );
+        vm.expectRevert(TlsNotaryVerifierBase.WrongIdentityRequestHead.selector);
+        this.run{value: quote}(s);
+    }
+
     /// @dev And `cookie`, the other credential a platform might honour over
     ///      the bearer, is refused on the identity read by name.
     function test_rejectsACookieOnTheIdentityRead() public {

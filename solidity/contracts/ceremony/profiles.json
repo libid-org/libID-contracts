@@ -40,11 +40,12 @@
       "it parses, `cookie` which session it answers for, the three override",
       "names which method it runs. The identity request is excepted from",
       "`authorization` alone: its one such header, under any scheme, is what",
-      "REQ-COMMON-39 counts. On the token request the verifier further",
-      "requires each session's requiredHeaders, `host` and `content-type`,",
-      "reads `content-length`, and ignores every other header: one outside",
-      "both lists changes only what the platform answers, and a wrong answer",
-      "is a response the verifier cannot read."
+      "REQ-COMMON-39 counts. The verifier further requires each session's",
+      "requiredHeaders once with their value -- `host` on both requests,",
+      "`content-type` on the token request -- reads the token request's",
+      "`content-length`, and ignores every other header: one outside both",
+      "lists changes only what the platform answers, and a wrong answer is a",
+      "response the verifier cannot read."
     ]
   },
   "profiles": [
@@ -141,6 +142,9 @@
           "authority": "api.x.com",
           "method": "GET",
           "path": "/2/users/me",
+          "requiredHeaders": [
+            "host: api.x.com"
+          ],
           "idField": "id",
           "idShape": "jsonString",
           "handleField": "username",
@@ -215,6 +219,9 @@
           "authority": "api.github.com",
           "method": "GET",
           "path": "/user",
+          "requiredHeaders": [
+            "host: api.github.com"
+          ],
           "idField": "id",
           "idShape": "jsonInteger",
           "handleField": "login",

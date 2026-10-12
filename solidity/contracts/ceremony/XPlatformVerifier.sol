@@ -81,6 +81,11 @@ contract XPlatformVerifier is TlsNotaryVerifierBase {
         return CeremonyProfile.X_IDENTITY_REQUEST_LINE;
     }
 
+    /// @dev `host`, naming the identity authority.
+    function _identityRequiredHeaders() internal pure override returns (bytes memory) {
+        return CeremonyProfile.X_IDENTITY_REQUIRED_HEADERS;
+    }
+
     function _tokenFields() internal pure override returns (bytes memory) {
         return CeremonyProfile.X_TOKEN_FIELDS;
     }

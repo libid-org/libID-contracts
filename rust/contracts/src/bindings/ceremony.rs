@@ -317,6 +317,7 @@ mod tls_notary_platform_verifier_inner {
             error WrongTokenRequestLayout(uint256 revealedRanges, uint256 commitments);
             error NoHeadBoundary(uint256 occurrences);
             error WrongTokenRequestHead();
+            error WrongIdentityRequestHead();
             error ForbiddenRequestHeader(bytes name);
             error WrongDeclaredBodyLength(uint256 declared, uint256 signed);
             error WrongGrantType(bytes found);

@@ -547,6 +547,7 @@ library RefTranscript {
     error WrongTokenRequestLayout(uint256 revealedRanges, uint256 commitments);
     error NoHeadBoundary(uint256 occurrences);
     error WrongTokenRequestHead();
+    error WrongIdentityRequestHead();
     error ForbiddenRequestHeader(bytes name);
     error WrongDeclaredBodyLength(uint256 declared, uint256 signed);
     error WrongGrantType(bytes found);
@@ -561,6 +562,7 @@ library RefTranscript {
         bytes tokenRequestLine;
         bytes identityRequestLine;
         bytes tokenRequiredHeaders;
+        bytes identityRequiredHeaders;
         bytes tokenFields;
         /// X compares `grant_type`; GitHub adds no value check.
         bool checksGrantType;
@@ -574,6 +576,7 @@ library RefTranscript {
             tokenRequestLine: CeremonyProfile.X_TOKEN_REQUEST_LINE,
             identityRequestLine: CeremonyProfile.X_IDENTITY_REQUEST_LINE,
             tokenRequiredHeaders: CeremonyProfile.X_TOKEN_REQUIRED_HEADERS,
+            identityRequiredHeaders: CeremonyProfile.X_IDENTITY_REQUIRED_HEADERS,
             tokenFields: CeremonyProfile.X_TOKEN_FIELDS,
             checksGrantType: true,
             idField: CeremonyProfile.X_ID_FIELD,
@@ -587,6 +590,7 @@ library RefTranscript {
             tokenRequestLine: CeremonyProfile.GITHUB_TOKEN_REQUEST_LINE,
             identityRequestLine: CeremonyProfile.GITHUB_IDENTITY_REQUEST_LINE,
             tokenRequiredHeaders: CeremonyProfile.GITHUB_TOKEN_REQUIRED_HEADERS,
+            identityRequiredHeaders: CeremonyProfile.GITHUB_IDENTITY_REQUIRED_HEADERS,
             tokenFields: CeremonyProfile.GITHUB_TOKEN_FIELDS,
             checksGrantType: false,
             idField: CeremonyProfile.GITHUB_ID_FIELD,
@@ -662,7 +666,7 @@ library RefTranscript {
         CeremonyAttestation.RangeCommitment memory bearer =
             RefCeremonyAttestation.requireBearerHeaderRequest(data.sent, data.sentTranscriptLength);
         bearerCommitment = bearer.commitment;
-        _checkIdentityHead(RefCeremonyAttestation.concatRevealed(data.sent));
+        _checkIdentityHead(RefCeremonyAttestation.concatRevealed(data.sent), profile.identityRequiredHeaders);
     }
 
     /// @dev `_identityResponse`: the committed id and handle.
@@ -779,21 +783,31 @@ library RefTranscript {
         (,, value) = _field(_slice(block_, from, _lineEnd(block_, from)));
     }
 
-    function _checkIdentityHead(bytes memory revealed) internal pure {
+    // forge-lint: disable-next-item(incorrect-shift)
+    function _checkIdentityHead(bytes memory revealed, bytes memory required) internal pure {
+        uint256 found;
         uint256 from = _lineEnd(revealed, 0) + 2;
         while (from < revealed.length) {
             uint256 to = _lineEnd(revealed, from);
             if (to > from) {
-                (bool isHeader, bytes memory name,) = _field(_slice(revealed, from, to));
+                (bool isHeader, bytes memory name, bytes memory value) = _field(_slice(revealed, from, to));
                 if (
                     isHeader && !_equal(name, AUTHORIZATION)
                         && _indexOfLine(CeremonyProfile.FORBIDDEN_REQUEST_HEADERS, name) != type(uint256).max
                 ) {
                     revert ForbiddenRequestHeader(name);
                 }
+                uint256 i = isHeader ? _indexOfName(required, name) : type(uint256).max;
+                if (i != type(uint256).max) {
+                    if (!_equal(value, _valueOf(required, i)) || found & (1 << i) != 0) {
+                        revert WrongIdentityRequestHead();
+                    }
+                    found |= 1 << i;
+                }
             }
             from = to + 2;
         }
+        if (found != (1 << _countLines(required)) - 1) revert WrongIdentityRequestHead();
     }
 
     function _lineEnd(bytes memory data, uint256 from) private pure returns (uint256) {

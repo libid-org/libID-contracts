@@ -58,17 +58,20 @@ library CeremonyProfile {
     bytes internal constant GITHUB_TOKEN_REQUEST_LINE = "POST /login/oauth/access_token ";
     bytes internal constant GITHUB_IDENTITY_REQUEST_LINE = "GET /user ";
 
-    /// @dev The lines a verifier requires of the token request's head, each
+    /// @dev The lines a verifier requires of each request's head, each
     ///      exactly once with its value: `host` naming the pinned authority,
-    ///      and the media type that selects the platform's request parser
-    ///      (REQ-COMMON-21B). Revealed but uncompared, the media type was a
-    ///      byte a prover chose in a request every other field of which is
-    ///      pinned. What else a runtime sends is its own and not stated here.
+    ///      and on the token request the media type that selects the
+    ///      platform's request parser (REQ-COMMON-21B). Revealed but
+    ///      uncompared, the media type was a byte a prover chose in a request
+    ///      every other field of which is pinned. What else a runtime sends
+    ///      is its own and not stated here.
 
     bytes internal constant X_TOKEN_REQUIRED_HEADERS =
         "host: api.x.com\r\ncontent-type: application/x-www-form-urlencoded";
+    bytes internal constant X_IDENTITY_REQUIRED_HEADERS = "host: api.x.com";
     bytes internal constant GITHUB_TOKEN_REQUIRED_HEADERS =
         "host: github.com\r\ncontent-type: application/x-www-form-urlencoded";
+    bytes internal constant GITHUB_IDENTITY_REQUIRED_HEADERS = "host: api.github.com";
 
     /// @dev The form fields each token request's body carries, in the order
     ///      the prover serializes them, joined by `&`. Every verifier holds
@@ -88,11 +91,12 @@ library CeremonyProfile {
     ///      it parses, `cookie` which session it answers for, the three override
     ///      names which method it runs. The identity request is excepted from
     ///      `authorization` alone: its one such header, under any scheme, is what
-    ///      REQ-COMMON-39 counts. On the token request the verifier further
-    ///      requires each session's requiredHeaders, `host` and `content-type`,
-    ///      reads `content-length`, and ignores every other header: one outside
-    ///      both lists changes only what the platform answers, and a wrong answer
-    ///      is a response the verifier cannot read.
+    ///      REQ-COMMON-39 counts. The verifier further requires each session's
+    ///      requiredHeaders once with their value -- `host` on both requests,
+    ///      `content-type` on the token request -- reads the token request's
+    ///      `content-length`, and ignores every other header: one outside both
+    ///      lists changes only what the platform answers, and a wrong answer is a
+    ///      response the verifier cannot read.
     bytes internal constant FORBIDDEN_REQUEST_HEADERS =
         "authorization\r\ncontent-encoding\r\ncookie\r\ntransfer-encoding\r\nx-http-method\r\nx-http-method-override\r\nx-method-override";
 
