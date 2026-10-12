@@ -18,8 +18,6 @@ library HandleVectors {
         bytes32 handleNode;
     }
 
-    uint256 internal constant COUNT = 16;
-
     function all() internal pure returns (Vector[] memory v) {
         v = new Vector[](16);
         v[0] = Vector({

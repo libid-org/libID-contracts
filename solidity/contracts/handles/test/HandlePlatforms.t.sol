@@ -8,10 +8,10 @@ import {HandleVectors} from "../HandleVectors.sol";
 /// @notice The shared handle vector table's accepted cases, run against the Solidity fold.
 contract HandlePlatformsTest is Test {
     /// An accepted vector folds to its output and hashes to its handle node.
-    function test_everyAcceptedVectorFoldsToItsHandleNode() public pure {
+    function test_everyAcceptedVectorFoldsToItsHandleNode() public view {
         HandleVectors.Vector[] memory vectors = HandleVectors.all();
         assertGt(vectors.length, 0, "no accepted vector was checked");
-        assertEq(vectors.length, HandleVectors.COUNT, "the table lost cases");
+        assertEq(vectors.length, _acceptedRows(), "HandleVectors.sol is stale: run scripts/regen-identity-handles.py");
         for (uint256 i = 0; i < vectors.length; i++) {
             HandleVectors.Vector memory v = vectors[i];
             (string memory folded, bytes32 node) = HandlePlatforms.handleNodeOf(keccak256(bytes(v.platform)), v.input);
@@ -43,5 +43,15 @@ contract HandlePlatformsTest is Test {
             HandlePlatforms.TABLE_SHA256,
             "HandlePlatforms.sol is stale: run scripts/regen-identity-handles.py"
         );
+    }
+
+    /// The rows of handles.json with an output, counted from the file itself.
+    function _acceptedRows() private view returns (uint256 n) {
+        string memory json = vm.readFile("contracts/handles/handles.json");
+        for (uint256 i = 0;; ++i) {
+            string memory row = string.concat(".vectors[", vm.toString(i), "]");
+            if (!vm.keyExistsJson(json, row)) return n;
+            if (vm.keyExistsJson(json, string.concat(row, ".output"))) ++n;
+        }
     }
 }

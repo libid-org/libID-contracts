@@ -325,8 +325,6 @@ def gen_sol_vectors(spec: dict[str, Any], digest: str) -> str:
     lines.append("    }")
     lines.append("")
 
-    lines.append(f"    uint256 internal constant COUNT = {len(vectors)};")
-    lines.append("")
     lines.append("    function all() internal pure returns (Vector[] memory v) {")
     lines.append(f"        v = new Vector[]({len(vectors)});")
     # Named fields, so `forge lint` (named-struct-fields) passes.
