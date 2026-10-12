@@ -90,6 +90,7 @@ write_verifier() {
         echo "$contract.sol: declares a library; the crate deploys verifiers unlinked" >&2
         exit 1
     fi
+    # Twice: one forge fmt pass leaves bb's Yul `for` blocks unsettled.
     awk -v banner="$banner" '
         !done && /^pragma / { print banner; done = 1 }
         { print }
