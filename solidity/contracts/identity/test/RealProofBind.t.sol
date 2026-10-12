@@ -267,7 +267,7 @@ contract RealProofBindTest is RealTlsNotaryBind {
         return address(
             new ERC1967Proxy(
                 address(new XPlatformVerifier()),
-                abi.encodeCall(XPlatformVerifier.initialize, (OWNER, notary_, IHonkVerifier(circuit), circuit.codehash))
+                abi.encodeCall(XPlatformVerifier.initialize, (OWNER, notary_, IHonkVerifier(circuit)))
             )
         );
     }
@@ -337,9 +337,7 @@ contract RealProofBindGitHubTest is RealTlsNotaryBind {
         return address(
             new ERC1967Proxy(
                 address(new GitHubPlatformVerifier()),
-                abi.encodeCall(
-                    GitHubPlatformVerifier.initialize, (OWNER, notary_, IHonkVerifier(circuit), circuit.codehash)
-                )
+                abi.encodeCall(GitHubPlatformVerifier.initialize, (OWNER, notary_, IHonkVerifier(circuit)))
             )
         );
     }
@@ -365,13 +363,7 @@ contract RealProofBindGoogleTest is RealProofBindBase {
                 address(new GooglePlatformVerifier()),
                 abi.encodeCall(
                     GooglePlatformVerifier.initialize,
-                    (
-                        OWNER,
-                        INotaryService(address(0)),
-                        IHonkVerifier(circuit),
-                        circuit.codehash,
-                        IGoogleJwtRoots(address(roots))
-                    )
+                    (OWNER, INotaryService(address(0)), IHonkVerifier(circuit), IGoogleJwtRoots(address(roots)))
                 )
             )
         );

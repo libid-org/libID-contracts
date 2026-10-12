@@ -217,10 +217,10 @@ pub use google_jwt_roots_inner::GoogleJwtRoots;
 /// takes. `notary_` is required here (nonzero): a TLSNotary profile
 /// authenticates two attestations through it, and the base refuses a zero
 /// address for a profile whose Attestation Count is nonzero
-/// (`WrongNotaryForProfile`). `honkVerifierCodehash_` must equal
-/// `address(honkVerifier_).codehash` and be neither zero nor `keccak256("")`
-/// (`WrongVerifierArtifact`). The validity window is the profile's, fixed in
-/// the contract: `protocolParameters()` reads it, and nothing sets it.
+/// (`WrongNotaryForProfile`). `honkVerifier_` must hold the code hash
+/// `circuitCodehash()` names (`WrongCircuit`). The validity window is the
+/// profile's, fixed in the contract: `protocolParameters()` reads it, and
+/// nothing sets it.
 #[allow(clippy::too_many_arguments, unused_attributes)]
 mod tls_notary_platform_verifier_inner {
     use alloy::sol;
@@ -231,12 +231,7 @@ mod tls_notary_platform_verifier_inner {
             /// Derives so the built call can be compared and printed by the
             /// initializer that assembles it.
             #[derive(Debug, PartialEq, Eq)]
-            function initialize(
-                address owner_,
-                address notary_,
-                address honkVerifier_,
-                bytes32 honkVerifierCodehash_
-            ) external;
+            function initialize(address owner_, address notary_, address honkVerifier_) external;
 
             /// The identity platform this verifier serves: `keccak256` of the
             /// platform's bare name. The Proof Verifier refuses to register it
@@ -248,9 +243,6 @@ mod tls_notary_platform_verifier_inner {
 
             function notaryService() external view returns (address);
             function honkVerifier() external view returns (address);
-            /// The code hash of the artifact wired: the only handle on WHICH
-            /// circuit a deployed bb verifier answers for.
-            function honkVerifierCodehash() external view returns (bytes32);
             /// The runtime code hash of the one Honk verifier this contract
             /// accepts: its platform's circuit's, as compiled in.
             function circuitCodehash() external pure returns (bytes32);
@@ -258,10 +250,8 @@ mod tls_notary_platform_verifier_inner {
                 external
                 pure
                 returns (uint64 proofLifetime, uint64 maxFutureAttestationSkew, uint64 futureObservationAllowance);
-            /// Rotate the trust roots. The same rules as `initialize`: the
-            /// code hash names the artifact, and the call fails if the
-            /// address does not hold it.
-            function setTrustRoots(address notary_, address honkVerifier_, bytes32 honkVerifierCodehash_) external;
+            /// Rotate the trust roots, under the same rules as `initialize`.
+            function setTrustRoots(address notary_, address honkVerifier_) external;
 
             function owner() external view returns (address);
             function pendingOwner() external view returns (address);
@@ -270,7 +260,7 @@ mod tls_notary_platform_verifier_inner {
             /// Always reverts; the contract declares it `pure`.
             function renounceOwnership() external pure;
 
-            event TrustRootsChanged(address notary, address honkVerifier, bytes32 honkVerifierCodehash);
+            event TrustRootsChanged(address notary, address honkVerifier);
             event OwnershipTransferStarted(address indexed previousOwner, address indexed newOwner);
             event OwnershipTransferred(address indexed previousOwner, address indexed newOwner);
 
@@ -278,8 +268,6 @@ mod tls_notary_platform_verifier_inner {
             /// or one that verifies some holds none.
             error WrongNotaryForProfile(bytes32 platformId, address notary);
             error ZeroAddress();
-            /// The verifier at that address is not the artifact named.
-            error WrongVerifierArtifact(bytes32 expected, bytes32 found);
             /// The Honk verifier is not this platform's circuit's: `expected`
             /// is `circuitCodehash()`, `found` the code hash at the address.
             error WrongCircuit(bytes32 expected, bytes32 found);
@@ -369,7 +357,6 @@ mod google_platform_verifier_inner {
                 address owner_,
                 address notary_,
                 address honkVerifier_,
-                bytes32 honkVerifierCodehash_,
                 address jwtRoots_
             ) external;
 
@@ -385,7 +372,6 @@ mod google_platform_verifier_inner {
 
             function notaryService() external view returns (address);
             function honkVerifier() external view returns (address);
-            function honkVerifierCodehash() external view returns (bytes32);
             /// The runtime code hash of the one Honk verifier this contract
             /// accepts: its platform's circuit's, as compiled in.
             function circuitCodehash() external pure returns (bytes32);
@@ -393,7 +379,7 @@ mod google_platform_verifier_inner {
                 external
                 pure
                 returns (uint64 proofLifetime, uint64 maxFutureAttestationSkew, uint64 futureObservationAllowance);
-            function setTrustRoots(address notary_, address honkVerifier_, bytes32 honkVerifierCodehash_) external;
+            function setTrustRoots(address notary_, address honkVerifier_) external;
 
             function owner() external view returns (address);
             function pendingOwner() external view returns (address);
@@ -403,13 +389,12 @@ mod google_platform_verifier_inner {
             function renounceOwnership() external pure;
 
             event JwtRootsChanged(address roots);
-            event TrustRootsChanged(address notary, address honkVerifier, bytes32 honkVerifierCodehash);
+            event TrustRootsChanged(address notary, address honkVerifier);
             event OwnershipTransferStarted(address indexed previousOwner, address indexed newOwner);
             event OwnershipTransferred(address indexed previousOwner, address indexed newOwner);
 
             error WrongNotaryForProfile(bytes32 platformId, address notary);
             error ZeroAddress();
-            error WrongVerifierArtifact(bytes32 expected, bytes32 found);
             /// The Honk verifier is not this platform's circuit's: `expected`
             /// is `circuitCodehash()`, `found` the code hash at the address.
             error WrongCircuit(bytes32 expected, bytes32 found);
@@ -720,7 +705,6 @@ mod tests {
                     quoteCall,
                     notaryServiceCall,
                     honkVerifierCall,
-                    honkVerifierCodehashCall,
                     protocolParametersCall,
                     setTrustRootsCall,
                     ownerCall,
@@ -741,7 +725,6 @@ mod tests {
                 setJwtRootsCall,
                 notaryServiceCall,
                 honkVerifierCall,
-                honkVerifierCodehashCall,
                 protocolParametersCall,
                 setTrustRootsCall,
                 ownerCall,

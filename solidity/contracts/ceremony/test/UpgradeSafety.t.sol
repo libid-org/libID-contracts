@@ -132,17 +132,12 @@ contract UpgradeSafetyTest is Test {
         IHonkVerifier honk = IHonkVerifier(HonkStub.deploy(HonkStub.X));
         XPlatformVerifier impl = new XPlatformVerifier();
         vm.expectRevert(Initializable.InvalidInitialization.selector);
-        impl.initialize(OWNER, ns, honk, address(honk).codehash);
+        impl.initialize(OWNER, ns, honk);
         XPlatformVerifier v = XPlatformVerifier(
-            address(
-                new ERC1967Proxy(
-                    address(impl),
-                    abi.encodeCall(XPlatformVerifier.initialize, (OWNER, ns, honk, address(honk).codehash))
-                )
-            )
+            address(new ERC1967Proxy(address(impl), abi.encodeCall(XPlatformVerifier.initialize, (OWNER, ns, honk))))
         );
         vm.expectRevert(Initializable.InvalidInitialization.selector);
-        v.initialize(OWNER, ns, honk, address(honk).codehash);
+        v.initialize(OWNER, ns, honk);
 
         XPlatformVerifier impl2 = new XPlatformVerifier();
         _expectNotOwner();
@@ -152,7 +147,6 @@ contract UpgradeSafetyTest is Test {
         assertEq(_implOf(address(v)), address(impl2));
         assertEq(v.notaryService(), address(ns));
         assertEq(v.honkVerifier(), address(honk));
-        assertEq(v.honkVerifierCodehash(), address(honk).codehash);
         (uint64 a, uint64 b, uint64 c) = v.protocolParameters();
         assertEq(a, 3600);
         assertEq(b, 300);
@@ -166,17 +160,14 @@ contract UpgradeSafetyTest is Test {
         IHonkVerifier honk = IHonkVerifier(HonkStub.deploy(HonkStub.GITHUB));
         GitHubPlatformVerifier impl = new GitHubPlatformVerifier();
         vm.expectRevert(Initializable.InvalidInitialization.selector);
-        impl.initialize(OWNER, ns, honk, address(honk).codehash);
+        impl.initialize(OWNER, ns, honk);
         GitHubPlatformVerifier v = GitHubPlatformVerifier(
             address(
-                new ERC1967Proxy(
-                    address(impl),
-                    abi.encodeCall(GitHubPlatformVerifier.initialize, (OWNER, ns, honk, address(honk).codehash))
-                )
+                new ERC1967Proxy(address(impl), abi.encodeCall(GitHubPlatformVerifier.initialize, (OWNER, ns, honk)))
             )
         );
         vm.expectRevert(Initializable.InvalidInitialization.selector);
-        v.initialize(OWNER, ns, honk, address(honk).codehash);
+        v.initialize(OWNER, ns, honk);
 
         GitHubPlatformVerifier impl2 = new GitHubPlatformVerifier();
         _expectNotOwner();
@@ -197,20 +188,17 @@ contract UpgradeSafetyTest is Test {
         TrustingJwtRoots roots = new TrustingJwtRoots();
         GooglePlatformVerifier impl = new GooglePlatformVerifier();
         vm.expectRevert(Initializable.InvalidInitialization.selector);
-        impl.initialize(OWNER, INotaryService(address(0)), honk, address(honk).codehash, roots);
+        impl.initialize(OWNER, INotaryService(address(0)), honk, roots);
         GooglePlatformVerifier v = GooglePlatformVerifier(
             address(
                 new ERC1967Proxy(
                     address(impl),
-                    abi.encodeCall(
-                        GooglePlatformVerifier.initialize,
-                        (OWNER, INotaryService(address(0)), honk, address(honk).codehash, roots)
-                    )
+                    abi.encodeCall(GooglePlatformVerifier.initialize, (OWNER, INotaryService(address(0)), honk, roots))
                 )
             )
         );
         vm.expectRevert(Initializable.InvalidInitialization.selector);
-        v.initialize(OWNER, INotaryService(address(0)), honk, address(honk).codehash, roots);
+        v.initialize(OWNER, INotaryService(address(0)), honk, roots);
 
         GooglePlatformVerifier impl2 = new GooglePlatformVerifier();
         _expectNotOwner();

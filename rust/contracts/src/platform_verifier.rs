@@ -1,10 +1,10 @@
 //! Deploying a launch Platform Verifier: which contract serves which
 //! platform, and its `initialize` rules checked off chain first.
 //!
-//! [`Initializer::call`] reads the Honk verifier's code hash, requires it to
-//! be the platform's own circuit ([`PlatformVerifier::circuit`]), and builds
-//! the `initialize` call; [`deploy_platform_verifier`] puts the
-//! implementation behind a fresh ERC1967 proxy with it.
+//! [`Initializer::call`] builds the `initialize` call; [`deploy_platform_verifier`]
+//! requires the Honk verifier to be the platform's own circuit
+//! ([`PlatformVerifier::circuit`]) and puts the implementation behind a fresh
+//! ERC1967 proxy with it.
 
 use alloy::{
     primitives::{
@@ -161,8 +161,7 @@ pub struct TlsNotaryRoots {
     /// The Notary Service both attestations are authenticated through.
     /// Required: the profile pins one (REQ-COMMON-18).
     pub notary_service: Address,
-    /// The bb-generated UltraHonk verifier for this platform's circuit. Its
-    /// code hash is read off chain and pinned beside it.
+    /// The bb-generated UltraHonk verifier for this platform's circuit.
     pub honk_verifier: Address,
 }
 
@@ -207,14 +206,6 @@ impl InitializeCall {
             Self::Google(call) => call.abi_encode(),
         }
     }
-
-    /// The code hash the call pins.
-    pub fn honk_verifier_codehash(&self) -> B256 {
-        match self {
-            Self::TlsNotary(call) => call.honkVerifierCodehash_,
-            Self::Google(call) => call.honkVerifierCodehash_,
-        }
-    }
 }
 
 impl Initializer {
@@ -239,7 +230,7 @@ impl Initializer {
     /// a nonzero Honk verifier, a Notary Service where the profile notarizes
     /// (the Google shape cannot carry one at all), and a nonzero root list
     /// for Google. The code hash is the one rule left to
-    /// [`call`](Self::call).
+    /// [`deploy_platform_verifier`].
     pub fn check(&self) -> Result<()> {
         let contract = self.verifier().contract();
         let refuse = |detail: String| Error::Initializer {
@@ -273,33 +264,15 @@ impl Initializer {
         }
     }
 
-    /// Build the `initialize` call: [`check`](Self::check), then pin the
-    /// Honk verifier's code hash from
-    /// [`circuit_codehash_at`](PlatformVerifier::circuit_codehash_at).
-    pub async fn call<P: Provider>(
-        &self,
-        provider: &P,
-        artifacts: &Artifacts,
-    ) -> Result<InitializeCall> {
+    /// Build the `initialize` call, after [`check`](Self::check).
+    pub fn call(&self) -> Result<InitializeCall> {
         self.check()?;
-        let contract = self.verifier().contract();
-        let codehash = self
-            .verifier()
-            .circuit_codehash_at(provider, artifacts, self.honk_verifier())
-            .await
-            .map_err(|e| match e {
-                Error::Rpc { .. } => Error::Initializer {
-                    detail: format!("{contract}: honk verifier: {e}"),
-                },
-                other => other,
-            })?;
         Ok(match self {
             Self::X(roots) | Self::GitHub(roots) => {
                 InitializeCall::TlsNotary(TlsNotaryPlatformVerifier::initializeCall {
                     owner_: roots.owner,
                     notary_: roots.notary_service,
                     honkVerifier_: roots.honk_verifier,
-                    honkVerifierCodehash_: codehash,
                 })
             }
             Self::Google(roots) => {
@@ -310,7 +283,6 @@ impl Initializer {
                     // refuses one.
                     notary_: Address::ZERO,
                     honkVerifier_: roots.honk_verifier,
-                    honkVerifierCodehash_: codehash,
                     jwtRoots_: roots.jwt_roots,
                 })
             }
@@ -339,8 +311,11 @@ pub async fn codehash_at<P: Provider>(provider: &P, address: Address) -> Result<
 }
 
 /// Deploy the verifier's implementation behind a fresh ERC1967 proxy
-/// initialized with `init`, and return the proxy address. `sender` opts into
-/// explicit nonces ([`deploy_contract_from`](crate::deploy::deploy_contract_from)).
+/// initialized with `init`, and return the proxy address. The Honk verifier
+/// must be the platform's circuit's
+/// ([`circuit_codehash_at`](PlatformVerifier::circuit_codehash_at)), checked
+/// before anything is sent. `sender` opts into explicit nonces
+/// ([`deploy_contract_from`](crate::deploy::deploy_contract_from)).
 pub async fn deploy_platform_verifier<P: Provider>(
     provider: &P,
     artifacts: &Artifacts,
@@ -348,7 +323,17 @@ pub async fn deploy_platform_verifier<P: Provider>(
     sender: Option<Address>,
 ) -> Result<Address> {
     let contract = init.verifier().contract();
-    match init.call(provider, artifacts).await? {
+    let call = init.call()?;
+    init.verifier()
+        .circuit_codehash_at(provider, artifacts, init.honk_verifier())
+        .await
+        .map_err(|e| match e {
+            Error::Rpc { .. } => Error::Initializer {
+                detail: format!("{contract}: honk verifier: {e}"),
+            },
+            other => other,
+        })?;
+    match call {
         InitializeCall::TlsNotary(call) => {
             deploy_behind_proxy(provider, artifacts, contract, &call, sender).await
         }

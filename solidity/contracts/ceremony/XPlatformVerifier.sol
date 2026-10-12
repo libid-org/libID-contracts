@@ -24,13 +24,8 @@ contract XPlatformVerifier is TlsNotaryVerifierBase {
         _disableInitializers();
     }
 
-    function initialize(
-        address owner_,
-        INotaryService notary_,
-        IHonkVerifier honkVerifier_,
-        bytes32 honkVerifierCodehash_
-    ) external initializer {
-        __PlatformVerifierBase_init(owner_, notary_, honkVerifier_, honkVerifierCodehash_);
+    function initialize(address owner_, INotaryService notary_, IHonkVerifier honkVerifier_) external initializer {
+        __PlatformVerifierBase_init(owner_, notary_, honkVerifier_);
     }
 
     /// @dev `bearer-link-x`'s verifier, and no other.

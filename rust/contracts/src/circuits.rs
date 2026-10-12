@@ -15,7 +15,7 @@
 //! The verifier is bb's optimized template: one contract, deployed in one
 //! transaction by [`deploy_honk_verifier`]. Its address is what a
 //! [`platform_verifier::Initializer`](crate::platform_verifier::Initializer)
-//! pins, beside the code hash it reads off the chain.
+//! wires.
 
 use alloy::{
     primitives::{

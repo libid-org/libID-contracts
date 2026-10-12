@@ -78,20 +78,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 ## Example: deploy a Platform Verifier on its circuit's Honk verifier
 
-A Platform Verifier pins the bb-generated UltraHonk verifier for its circuit
-by address and by code hash, and holds a Notary Service only if its profile
-notarizes anything. Its validity window is its profile's, compiled in, so the
-initializer takes none. `platform_verifier::Initializer`
-knows those rules: it reads the code hash off the chain, refuses what the
-contract would refuse, and builds the exact `initialize` call. Among those, a
-Honk verifier that is not its platform's circuit's (`Error::WrongCircuit`):
-the contract pins its circuit's runtime code hash (`circuitCodehash()`) and
-reverts `WrongCircuit`, and the initializer says so before any transaction.
+A Platform Verifier wires the bb-generated UltraHonk verifier for its circuit,
+and holds a Notary Service only if its profile notarizes anything. Its
+validity window is its profile's, compiled in, so the initializer takes none.
+`platform_verifier::Initializer` knows those rules: it refuses what the
+contract would refuse and builds the exact `initialize` call. The contract
+pins its circuit's runtime code hash (`circuitCodehash()`) and reverts
+`WrongCircuit` for any other Honk verifier; `deploy_platform_verifier` reads
+the code hash off the chain and says so (`Error::WrongCircuit`) before any
+transaction.
 
 The Honk verifier is vendored here too, from the pinned `libid-circuits`
 release: bb's optimized verifier, one contract per circuit.
 `circuits::deploy_honk_verifier` deploys a circuit's verifier in one
-transaction and returns the address the initializer pins.
+transaction and returns the address the initializer wires.
 
 ```rust,no_run
 use alloy::{primitives::Address, providers::ProviderBuilder};
@@ -142,9 +142,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-For a factory (CREATE3) deploy, `Initializer::call(&provider, &artifacts)`
-returns the typed `initialize` call; `abi_encode` it into the proxy's init
-data.
+For a factory (CREATE3) deploy, `Initializer::call()` returns the typed
+`initialize` call; `abi_encode` it into the proxy's init data, after
+`PlatformVerifier::circuit_codehash_at` if the deploy should fail off chain.
 
 Other entry points:
 

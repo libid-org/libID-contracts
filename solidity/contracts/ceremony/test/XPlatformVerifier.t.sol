@@ -120,7 +120,7 @@ contract XPlatformVerifierTest is RealTlsNotaryProofTest {
                     address(vImpl),
                     abi.encodeCall(
                         XPlatformVerifier.initialize,
-                        (OWNER, INotaryService(address(notary)), IHonkVerifier(address(honk)), address(honk).codehash)
+                        (OWNER, INotaryService(address(notary)), IHonkVerifier(address(honk)))
                     )
                 )
             )
@@ -969,40 +969,15 @@ contract XPlatformVerifierTest is RealTlsNotaryProofTest {
 
     // ─── The proof artifact (REQ-COMMON-45) ─────────────────────────
 
-    /// @dev An address alone does not say WHICH circuit answers behind it.
-    ///      bb-generated Honk verifiers embed their verification key as code
-    ///      constants and expose no getter, so the code hash is the only handle
-    ///      governance has on the artifact it selected. Naming it makes a
-    ///      mis-wiring fail here, at the governance call, rather than at the
-    ///      first user's proof.
-    function test_rejectsAVerifierThatIsNotTheNamedArtifact() public {
-        address other = HonkStub.deploy(HonkStub.X);
-        vm.prank(OWNER);
-        vm.expectPartialRevert(PlatformVerifierBase.WrongVerifierArtifact.selector);
-        verifier.setTrustRoots(INotaryService(address(notary)), IHonkVerifier(other), keccak256("some other artifact"));
-    }
-
-    /// @dev An account with no code hashes to the empty-code hash, which no
-    ///      real artifact matches, so a plain address cannot be wired either.
-    /// @dev A non-existent account hashes to zero (EIP-1052) and an empty one
-    ///      to `keccak256("")`, so either as the EXPECTED value is a hash any
-    ///      such address satisfies -- and the mis-wiring surfaces at the first
-    ///      user's proof, which is what this check exists to prevent.
-    function test_refusesAnExpectedCodehashAnEmptyAccountWouldSatisfy() public {
-        address untouched = address(0xDEAD0001);
-        vm.startPrank(OWNER);
-        vm.expectPartialRevert(PlatformVerifierBase.WrongVerifierArtifact.selector);
-        verifier.setTrustRoots(INotaryService(address(notary)), IHonkVerifier(untouched), bytes32(0));
-        vm.expectPartialRevert(PlatformVerifierBase.WrongVerifierArtifact.selector);
-        verifier.setTrustRoots(INotaryService(address(notary)), IHonkVerifier(untouched), keccak256(""));
-        vm.stopPrank();
-    }
-
+    /// @dev bb's verifiers embed their key as code, so the code hash names the
+    ///      circuit: an account with no code is refused like another circuit's.
     function test_rejectsAnAddressHoldingNoCode() public {
         address eoa = address(0xB0B);
         vm.prank(OWNER);
-        vm.expectPartialRevert(PlatformVerifierBase.WrongVerifierArtifact.selector);
-        verifier.setTrustRoots(INotaryService(address(notary)), IHonkVerifier(eoa), keccak256("anything"));
+        vm.expectRevert(
+            abi.encodeWithSelector(PlatformVerifierBase.WrongCircuit.selector, CircuitCodehashes.BEARER_LINK_X, 0)
+        );
+        verifier.setTrustRoots(INotaryService(address(notary)), IHonkVerifier(eoa));
     }
 
     /// @dev Only this platform's circuit's verifier: GitHub's has the same
@@ -1015,16 +990,15 @@ contract XPlatformVerifierTest is RealTlsNotaryProofTest {
                 PlatformVerifierBase.WrongCircuit.selector, CircuitCodehashes.BEARER_LINK_X, github.codehash
             )
         );
-        verifier.setTrustRoots(INotaryService(address(notary)), IHonkVerifier(github), github.codehash);
+        verifier.setTrustRoots(INotaryService(address(notary)), IHonkVerifier(github));
         assertEq(verifier.circuitCodehash(), CircuitCodehashes.BEARER_LINK_X);
     }
 
     function test_recordsTheArtifactItWired() public {
         address other = HonkStub.deploy(HonkStub.X);
         vm.prank(OWNER);
-        verifier.setTrustRoots(INotaryService(address(notary)), IHonkVerifier(other), other.codehash);
+        verifier.setTrustRoots(INotaryService(address(notary)), IHonkVerifier(other));
         assertEq(verifier.honkVerifier(), other);
-        assertEq(verifier.honkVerifierCodehash(), other.codehash);
     }
 
     // ─── The identity fields ────────────────────────────────────────
@@ -1321,21 +1295,20 @@ contract XPlatformVerifierTest is RealTlsNotaryProofTest {
         new ERC1967Proxy(
             address(impl),
             abi.encodeCall(
-                XPlatformVerifier.initialize,
-                (OWNER, INotaryService(address(0)), IHonkVerifier(address(honk)), address(honk).codehash)
+                XPlatformVerifier.initialize, (OWNER, INotaryService(address(0)), IHonkVerifier(address(honk)))
             )
         );
     }
 
     function test_onlyTheOwnerRotatesRoots() public {
         vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, address(this)));
-        verifier.setTrustRoots(INotaryService(address(notary)), IHonkVerifier(address(honk)), address(honk).codehash);
+        verifier.setTrustRoots(INotaryService(address(notary)), IHonkVerifier(address(honk)));
     }
 
     function test_zeroHonkVerifierIsRefused() public {
         vm.prank(OWNER);
         vm.expectRevert(PlatformVerifierBase.ZeroAddress.selector);
-        verifier.setTrustRoots(INotaryService(address(notary)), IHonkVerifier(address(0)), address(honk).codehash);
+        verifier.setTrustRoots(INotaryService(address(notary)), IHonkVerifier(address(0)));
     }
 
     function test_aRejectionAtTheSecondSessionLeavesNoFee() public {

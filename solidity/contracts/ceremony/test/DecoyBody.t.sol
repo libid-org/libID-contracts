@@ -50,8 +50,7 @@ contract DecoyBodyTest is Test {
                 new ERC1967Proxy(
                     address(vi),
                     abi.encodeCall(
-                        XPlatformVerifier.initialize,
-                        (OWNER, INotaryService(address(notary)), IHonkVerifier(honkAddr), honkAddr.codehash)
+                        XPlatformVerifier.initialize, (OWNER, INotaryService(address(notary)), IHonkVerifier(honkAddr))
                     )
                 )
             )

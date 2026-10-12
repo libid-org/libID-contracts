@@ -6,4 +6,3 @@ field slot=1 offset=0 honkVerifier: contract IHonkVerifier
 field slot=1 offset=20 proofLifetime: uint64
 field slot=2 offset=0 maxFutureAttestationSkew: uint64
 field slot=2 offset=8 futureObservationAllowance: uint64
-field slot=3 offset=0 honkVerifierCodehash: bytes32

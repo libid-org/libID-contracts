@@ -63,7 +63,6 @@ contract GooglePlatformVerifierTest is Test {
                             OWNER,
                             INotaryService(address(0)),
                             IHonkVerifier(address(honk)),
-                            address(honk).codehash,
                             IGoogleJwtRoots(address(roots))
                         )
                     )
@@ -165,7 +164,6 @@ contract GooglePlatformVerifierTest is Test {
                             OWNER,
                             INotaryService(address(0)),
                             IHonkVerifier(honkVerifier),
-                            honkVerifier.codehash,
                             IGoogleJwtRoots(address(roots))
                         )
                     )
@@ -259,13 +257,7 @@ contract GooglePlatformVerifierTest is Test {
             address(impl),
             abi.encodeCall(
                 GooglePlatformVerifier.initialize,
-                (
-                    OWNER,
-                    INotaryService(address(0xDEAD)),
-                    IHonkVerifier(address(honk)),
-                    address(honk).codehash,
-                    IGoogleJwtRoots(address(roots))
-                )
+                (OWNER, INotaryService(address(0xDEAD)), IHonkVerifier(address(honk)), IGoogleJwtRoots(address(roots)))
             )
         );
     }

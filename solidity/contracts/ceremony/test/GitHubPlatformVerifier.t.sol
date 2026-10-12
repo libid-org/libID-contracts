@@ -73,7 +73,7 @@ contract GitHubPlatformVerifierTest is RealTlsNotaryProofTest {
                     address(vImpl),
                     abi.encodeCall(
                         GitHubPlatformVerifier.initialize,
-                        (OWNER, INotaryService(address(notary)), IHonkVerifier(honkAddr), honkAddr.codehash)
+                        (OWNER, INotaryService(address(notary)), IHonkVerifier(honkAddr))
                     )
                 )
             )
@@ -958,8 +958,7 @@ contract GitHubPlatformVerifierTest is RealTlsNotaryProofTest {
                 new ERC1967Proxy(
                     address(new XPlatformVerifier()),
                     abi.encodeCall(
-                        XPlatformVerifier.initialize,
-                        (OWNER, INotaryService(address(notary)), IHonkVerifier(circuit), circuit.codehash)
+                        XPlatformVerifier.initialize, (OWNER, INotaryService(address(notary)), IHonkVerifier(circuit))
                     )
                 )
             )

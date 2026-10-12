@@ -55,7 +55,7 @@ abstract contract RealTlsNotaryProofTest is Test {
     {
         circuit = vm.deployCode(_circuitArtifact());
         vm.prank(OWNER);
-        _platformVerifier().setTrustRoots(_notary(), IHonkVerifier(circuit), circuit.codehash);
+        _platformVerifier().setTrustRoots(_notary(), IHonkVerifier(circuit));
 
         string memory session = vm.readFile(_session());
         string memory proof = vm.readFile(_proofFile());

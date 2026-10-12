@@ -95,23 +95,19 @@ contract HonkVerifiersTest is Test {
         assertFalse(_accepts(bearerLinkGithub, X_PROOF), "GitHub accepts an X proof");
     }
 
-    /// A Platform Verifier pins its circuit's verifier by address and by the
-    /// code hash the chain reports for it — the real artifact, not a stub.
+    /// A Platform Verifier wires its circuit's real verifier, not a stub, and
+    /// each pins another circuit.
     function test_platformVerifiersPinTheRealArtifacts() public {
         XPlatformVerifier xImpl = new XPlatformVerifier();
         XPlatformVerifier x = XPlatformVerifier(
             address(
                 new ERC1967Proxy(
                     address(xImpl),
-                    abi.encodeCall(
-                        XPlatformVerifier.initialize,
-                        (OWNER, INotaryService(address(0x0707)), bearerLinkX, address(bearerLinkX).codehash)
-                    )
+                    abi.encodeCall(XPlatformVerifier.initialize, (OWNER, INotaryService(address(0x0707)), bearerLinkX))
                 )
             )
         );
         assertEq(address(x.honkVerifier()), address(bearerLinkX));
-        assertEq(x.honkVerifierCodehash(), address(bearerLinkX).codehash);
 
         GitHubPlatformVerifier ghImpl = new GitHubPlatformVerifier();
         GitHubPlatformVerifier gh = GitHubPlatformVerifier(
@@ -119,14 +115,12 @@ contract HonkVerifiersTest is Test {
                 new ERC1967Proxy(
                     address(ghImpl),
                     abi.encodeCall(
-                        GitHubPlatformVerifier.initialize,
-                        (OWNER, INotaryService(address(0x0707)), bearerLinkGithub, address(bearerLinkGithub).codehash)
+                        GitHubPlatformVerifier.initialize, (OWNER, INotaryService(address(0x0707)), bearerLinkGithub)
                     )
                 )
             )
         );
         assertEq(address(gh.honkVerifier()), address(bearerLinkGithub));
-        assertEq(gh.honkVerifierCodehash(), address(bearerLinkGithub).codehash);
 
         GooglePlatformVerifier gImpl = new GooglePlatformVerifier();
         GooglePlatformVerifier g = GooglePlatformVerifier(
@@ -135,22 +129,15 @@ contract HonkVerifiersTest is Test {
                     address(gImpl),
                     abi.encodeCall(
                         GooglePlatformVerifier.initialize,
-                        (
-                            OWNER,
-                            INotaryService(address(0)),
-                            oidcGoogle,
-                            address(oidcGoogle).codehash,
-                            IGoogleJwtRoots(address(0x2007))
-                        )
+                        (OWNER, INotaryService(address(0)), oidcGoogle, IGoogleJwtRoots(address(0x2007)))
                     )
                 )
             )
         );
         assertEq(address(g.honkVerifier()), address(oidcGoogle));
-        assertEq(g.honkVerifierCodehash(), address(oidcGoogle).codehash);
-        assertNotEq(x.honkVerifierCodehash(), gh.honkVerifierCodehash(), "one artifact for X and GitHub");
-        assertNotEq(x.honkVerifierCodehash(), g.honkVerifierCodehash(), "one artifact for X and Google");
-        assertNotEq(gh.honkVerifierCodehash(), g.honkVerifierCodehash(), "one artifact for GitHub and Google");
+        assertNotEq(x.circuitCodehash(), gh.circuitCodehash(), "one artifact for X and GitHub");
+        assertNotEq(x.circuitCodehash(), g.circuitCodehash(), "one artifact for X and Google");
+        assertNotEq(gh.circuitCodehash(), g.circuitCodehash(), "one artifact for GitHub and Google");
     }
 
     /// @dev The pinned codehashes are those of the vendored verifiers.
@@ -179,13 +166,7 @@ contract HonkVerifiersTest is Test {
                 address(google),
                 abi.encodeCall(
                     GooglePlatformVerifier.initialize,
-                    (
-                        OWNER,
-                        INotaryService(address(0)),
-                        wrong,
-                        address(wrong).codehash,
-                        IGoogleJwtRoots(address(0x0808))
-                    )
+                    (OWNER, INotaryService(address(0)), wrong, IGoogleJwtRoots(address(0x0808)))
                 )
             );
         }
@@ -198,10 +179,7 @@ contract HonkVerifiersTest is Test {
             abi.encodeWithSelector(PlatformVerifierBase.WrongCircuit.selector, expected, address(wrong).codehash)
         );
         new ERC1967Proxy(
-            impl,
-            abi.encodeCall(
-                XPlatformVerifier.initialize, (OWNER, INotaryService(address(0x0707)), wrong, address(wrong).codehash)
-            )
+            impl, abi.encodeCall(XPlatformVerifier.initialize, (OWNER, INotaryService(address(0x0707)), wrong))
         );
     }
 }

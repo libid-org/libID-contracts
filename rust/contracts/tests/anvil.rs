@@ -502,7 +502,6 @@ async fn deploys_and_initializes_every_platform_verifier() {
         codehashes.push(codehash);
     }
     let honk = bearer_link_x;
-    let honk_codehash = codehash_at(&provider, honk).await.unwrap();
 
     let tls = |honk_verifier| TlsNotaryRoots {
         owner: deployer,
@@ -523,9 +522,8 @@ async fn deploys_and_initializes_every_platform_verifier() {
         Initializer::Google(google),
     ] {
         let verifier = init.verifier();
-        // The initializer pins its circuit's verifier, and computes the hash
-        // the chain reports for it — `EXTCODEHASH`, `keccak256` of the
-        // runtime code — which is what `initialize` then checks.
+        // The initializer wires its circuit's verifier, whose `EXTCODEHASH`,
+        // `keccak256` of the runtime code, is what the contract pins.
         let honk = honk_at(verifier.circuit());
         assert_eq!(
             init.honk_verifier(),
@@ -533,14 +531,6 @@ async fn deploys_and_initializes_every_platform_verifier() {
             "{verifier:?} pins the wrong circuit"
         );
         let honk_codehash = keccak256(provider.get_code_at(honk).await.unwrap());
-        assert_eq!(
-            init.call(&provider, &artifacts)
-                .await
-                .unwrap()
-                .honk_verifier_codehash(),
-            honk_codehash,
-            "{verifier:?}: the initializer computed a hash the chain does not hold"
-        );
         let proxy = deploy_platform_verifier(&provider, &artifacts, &init, None)
             .await
             .unwrap_or_else(|e| panic!("{verifier:?}: {e}"));
@@ -557,10 +547,7 @@ async fn deploys_and_initializes_every_platform_verifier() {
                 assert_eq!(v.owner().call().await.unwrap(), deployer);
                 assert_eq!(v.notaryService().call().await.unwrap(), notary_proxy);
                 assert_eq!(v.honkVerifier().call().await.unwrap(), honk);
-                assert_eq!(
-                    v.honkVerifierCodehash().call().await.unwrap(),
-                    honk_codehash
-                );
+                assert_eq!(v.circuitCodehash().call().await.unwrap(), honk_codehash);
                 // The window is compiled into the contract from the same
                 // profile table the generated constants come from.
                 let window = if verifier == PlatformVerifier::X {
@@ -595,10 +582,7 @@ async fn deploys_and_initializes_every_platform_verifier() {
                 assert_eq!(v.owner().call().await.unwrap(), deployer);
                 assert_eq!(v.notaryService().call().await.unwrap(), Address::ZERO);
                 assert_eq!(v.honkVerifier().call().await.unwrap(), honk);
-                assert_eq!(
-                    v.honkVerifierCodehash().call().await.unwrap(),
-                    honk_codehash
-                );
+                assert_eq!(v.circuitCodehash().call().await.unwrap(), honk_codehash);
                 assert_eq!(v.jwtRoots().call().await.unwrap(), roots_proxy);
                 let params = v.protocolParameters().call().await.unwrap();
                 assert_eq!(params.proofLifetime, 0);
@@ -643,17 +627,20 @@ async fn deploys_and_initializes_every_platform_verifier() {
         );
     }
 
-    // A Honk verifier that is not deployed is caught before any transaction:
-    // the hash of nothing is exactly what the contract refuses to pin.
-    let err = Initializer::X(tls(Address::repeat_byte(0x99)))
-        .call(&provider, &artifacts)
-        .await
-        .unwrap_err();
+    // A Honk verifier that is not deployed is caught before any transaction.
+    let err = deploy_platform_verifier(
+        &provider,
+        &artifacts,
+        &Initializer::X(tls(Address::repeat_byte(0x99))),
+        None,
+    )
+    .await
+    .unwrap_err();
     assert!(matches!(err, Error::Initializer { .. }), "{err}");
     assert!(err.to_string().contains("no code at"), "{err}");
 
     // Each deployed verifier holds its circuit's vendored runtime code, so
-    // the hash the initializer checks against is the one the chain reports.
+    // the hash the deploy checks against is the one the chain reports.
     for circuit in Circuit::ALL {
         assert_eq!(
             circuit.runtime_codehash(&artifacts).unwrap(),
@@ -664,10 +651,14 @@ async fn deploys_and_initializes_every_platform_verifier() {
 
     // X wired to GitHub's circuit, or to no vendored verifier, is refused
     // before any transaction.
-    let err = Initializer::X(tls(bearer_link_github))
-        .call(&provider, &artifacts)
-        .await
-        .unwrap_err();
+    let err = deploy_platform_verifier(
+        &provider,
+        &artifacts,
+        &Initializer::X(tls(bearer_link_github)),
+        None,
+    )
+    .await
+    .unwrap_err();
     match &err {
         Error::WrongCircuit {
             contract,
@@ -752,7 +743,6 @@ async fn deploys_and_initializes_every_platform_verifier() {
         owner_: deployer,
         notary_: notary_proxy,
         honkVerifier_: honk,
-        honkVerifierCodehash_: honk_codehash,
         jwtRoots_: roots_proxy,
     };
     let err = deploy_behind_proxy(
@@ -770,24 +760,23 @@ async fn deploys_and_initializes_every_platform_verifier() {
         )),
         "{err}"
     );
-    let x_wrong_artifact = TlsNotaryPlatformVerifier::initializeCall {
+    let x_wrong_circuit = TlsNotaryPlatformVerifier::initializeCall {
         owner_: deployer,
         notary_: notary_proxy,
-        honkVerifier_: honk,
-        honkVerifierCodehash_: keccak256("some other artifact"),
+        honkVerifier_: bearer_link_github,
     };
     let err = deploy_behind_proxy(
         &provider,
         &artifacts,
         "XPlatformVerifier",
-        &x_wrong_artifact,
+        &x_wrong_circuit,
         Some(deployer),
     )
     .await
     .unwrap_err();
     assert!(
         err.to_string().contains(&hex::encode(
-            TlsNotaryPlatformVerifier::WrongVerifierArtifact::SELECTOR
+            TlsNotaryPlatformVerifier::WrongCircuit::SELECTOR
         )),
         "{err}"
     );

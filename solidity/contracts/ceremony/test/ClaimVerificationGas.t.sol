@@ -55,9 +55,7 @@ contract ClaimVerificationGasTest is Test {
             address(
                 new ERC1967Proxy(
                     address(new XPlatformVerifier()),
-                    abi.encodeCall(
-                        XPlatformVerifier.initialize, (OWNER, notary, bearerLinkX, address(bearerLinkX).codehash)
-                    )
+                    abi.encodeCall(XPlatformVerifier.initialize, (OWNER, notary, bearerLinkX))
                 )
             )
         );
@@ -65,10 +63,7 @@ contract ClaimVerificationGasTest is Test {
             address(
                 new ERC1967Proxy(
                     address(new GitHubPlatformVerifier()),
-                    abi.encodeCall(
-                        GitHubPlatformVerifier.initialize,
-                        (OWNER, notary, bearerLinkGithub, address(bearerLinkGithub).codehash)
-                    )
+                    abi.encodeCall(GitHubPlatformVerifier.initialize, (OWNER, notary, bearerLinkGithub))
                 )
             )
         );
