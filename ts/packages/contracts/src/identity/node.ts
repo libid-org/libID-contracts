@@ -22,6 +22,10 @@ export interface IdRules {
   decimal: boolean
   /** The id may start with `0` when longer than one byte. */
   leadingZero: boolean
+  /** The id may not be `0`. */
+  nonzero: boolean
+  /** The largest id, as decimal as long as `maxLength`. */
+  max: string | null
 }
 
 function keysOf(platformKey: string): Platform {
@@ -52,9 +56,12 @@ export function checkId(platformKey: string, id: string): void {
     if (!ok)
       throw new HandleError(ERROR_BADCHARACTER, 'the id has a byte this platform does not allow')
   }
-  if (!rules.leadingZero && bytes.length > 1 && bytes[0] === 0x30) {
-    throw new HandleError(ERROR_BADSHAPE, 'the id has a leading zero')
-  }
+  const notIssued = () =>
+    new HandleError(ERROR_BADSHAPE, 'the id is not a number this platform issues')
+  if (!rules.leadingZero && bytes.length > 1 && bytes[0] === 0x30) throw notIssued()
+  if (rules.nonzero && id === '0') throw notIssued()
+  // Equal-length digit strings order as their numbers do.
+  if (rules.max !== null && id.length === rules.max.length && id > rules.max) throw notIssued()
 }
 
 /// The node an id is bound under: the id as given, under its user-id tag.

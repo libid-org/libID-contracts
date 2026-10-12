@@ -16,7 +16,7 @@ library HandlePlatforms {
     error UnknownPlatform(bytes32 platformId);
 
     /// SHA-256 of the handles.json this file was generated from.
-    bytes32 internal constant TABLE_SHA256 = 0x5d4c0d0db7fbab4307f7ae93add39f99344cded07e5bc8fef662369619940029;
+    bytes32 internal constant TABLE_SHA256 = 0x011835b5197580f7593fb119df70a6a229be3981dbc9f66cb0f7ed1c05eb68ce;
 
     /// keccak256(bytes("x"))
     bytes32 internal constant PLATFORM_X = keccak256(bytes("x"));

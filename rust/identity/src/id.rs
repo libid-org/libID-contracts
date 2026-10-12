@@ -14,7 +14,8 @@ pub enum IdError {
     TooLong,
     /// A byte the platform does not allow.
     BadCharacter,
-    /// A leading zero the platform does not allow.
+    /// A spelling the platform never sends: a leading zero, zero, or a
+    /// number past its largest.
     BadShape,
 }
 
@@ -36,7 +37,7 @@ impl std::fmt::Display for IdError {
             Self::Empty => "the id is empty",
             Self::TooLong => "the id is too long for this platform",
             Self::BadCharacter => "the id has a byte this platform does not allow",
-            Self::BadShape => "the id has a leading zero",
+            Self::BadShape => "the id is not a number this platform issues",
         })
     }
 }
@@ -52,6 +53,10 @@ pub struct IdRules {
     pub decimal: bool,
     /// The id may start with `0` when longer than one byte.
     pub leading_zero: bool,
+    /// The id may not be `0`.
+    pub nonzero: bool,
+    /// The largest id, as decimal as long as `max_length`.
+    pub max: Option<&'static str>,
 }
 
 impl IdRules {
@@ -90,6 +95,16 @@ pub fn check_id(id: &str, rules: IdRules) -> Result<(), IdError> {
     if !rules.leading_zero && bytes.len() > 1 && bytes[0] == b'0' {
         return Err(IdError::BadShape);
     }
+    if rules.nonzero && bytes == b"0" {
+        return Err(IdError::BadShape);
+    }
+    // Equal-length digit strings order as their numbers do.
+    if rules
+        .max
+        .is_some_and(|max| bytes.len() == max.len() && bytes > max.as_bytes())
+    {
+        return Err(IdError::BadShape);
+    }
     Ok(())
 }
 
@@ -107,7 +122,15 @@ mod tests {
             refused("12a"),
             "the id has a byte this platform does not allow"
         );
-        assert_eq!(refused("012"), "the id has a leading zero");
+        assert_eq!(
+            refused("012"),
+            "the id is not a number this platform issues"
+        );
+        assert_eq!(refused("0"), "the id is not a number this platform issues");
+        assert_eq!(
+            refused("18446744073709551616"),
+            "the id is not a number this platform issues"
+        );
     }
 
     #[test]

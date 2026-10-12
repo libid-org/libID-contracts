@@ -62,6 +62,10 @@ describe('handleNode and idNode', () => {
     expect(() => handleNode(PLATFORM_X_KEY, '@alice')).toThrow(HandleError)
     expect(() => handleNode('google', 'alice')).toThrow(HandleError)
     expect(() => idNode(PLATFORM_GITHUB_KEY, '0583231')).toThrow(HandleError)
+    // Rust's `check_id` words this refusal the same way.
+    expect(() => idNode(PLATFORM_GITHUB_KEY, '0')).toThrow(
+      'the id is not a number this platform issues',
+    )
     expect(() => handleNode('mastodon', 'alice')).toThrow(/unknown platform/)
     for (const inherited of ['toString', 'constructor', '__proto__', 'hasOwnProperty']) {
       expect(() => handleNode(inherited, 'alice')).toThrow(/unknown platform/)

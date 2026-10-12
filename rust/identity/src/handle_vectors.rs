@@ -48,7 +48,7 @@ pub struct Platform {
 }
 
 /// SHA-256 of the handles.json this file was generated from.
-pub const TABLE_SHA256: &str = "5d4c0d0db7fbab4307f7ae93add39f99344cded07e5bc8fef662369619940029";
+pub const TABLE_SHA256: &str = "011835b5197580f7593fb119df70a6a229be3981dbc9f66cb0f7ed1c05eb68ce";
 
 /// keccak256 of this string is the platform id.
 pub const PLATFORM_X_KEY: &str = "x";
@@ -72,6 +72,8 @@ pub const PLATFORM_X: Platform = Platform {
         max_length: 20,
         decimal: true,
         leading_zero: false,
+        nonzero: true,
+        max: Some("18446744073709551615"),
     },
 };
 /// github, as `handles.json` states it.
@@ -89,6 +91,8 @@ pub const PLATFORM_GITHUB: Platform = Platform {
         max_length: 20,
         decimal: true,
         leading_zero: false,
+        nonzero: true,
+        max: Some("18446744073709551615"),
     },
 };
 /// google, as `handles.json` states it.
@@ -106,6 +110,8 @@ pub const PLATFORM_GOOGLE: Platform = Platform {
         max_length: 31,
         decimal: false,
         leading_zero: true,
+        nonzero: false,
+        max: None,
     },
 };
 
@@ -515,7 +521,7 @@ pub const VECTORS: [Vector; 48] = [
 ];
 
 /// Every id case, shared with TypeScript and Noir.
-pub const ID_VECTORS: [IdVector; 24] = [
+pub const ID_VECTORS: [IdVector; 27] = [
     IdVector {
         platform: "x",
         input: "2244994945",
@@ -533,9 +539,9 @@ pub const ID_VECTORS: [IdVector; 24] = [
     IdVector {
         platform: "x",
         input: "0",
-        accepted: true,
-        error_kind: 0,
-        id_node: "0xec5465b57bae1d48ebc1fe214f8209caf9804813931fd6b02b34b22f6b2ec7cd",
+        accepted: false,
+        error_kind: 3,
+        id_node: "",
     },
     IdVector {
         platform: "x",
@@ -557,6 +563,20 @@ pub const ID_VECTORS: [IdVector; 24] = [
         accepted: true,
         error_kind: 0,
         id_node: "0x46d787dc85127e79b248e3768ab657f0c543bc3ce5b97f1645c69f8432a3ec3b",
+    },
+    IdVector {
+        platform: "x",
+        input: "18446744073709551615",
+        accepted: true,
+        error_kind: 0,
+        id_node: "0xf5341a892456cd845598d346a1102f6154b9c6a00b434a22cb305965a1efd045",
+    },
+    IdVector {
+        platform: "x",
+        input: "18446744073709551616",
+        accepted: false,
+        error_kind: 3,
+        id_node: "",
     },
     IdVector {
         platform: "x",
@@ -596,9 +616,9 @@ pub const ID_VECTORS: [IdVector; 24] = [
     IdVector {
         platform: "github",
         input: "0",
-        accepted: true,
-        error_kind: 0,
-        id_node: "0x90f128b24f42f2f5b6924ca42ac0ec9220498d50b0ce131a1cf9135bd3e017c3",
+        accepted: false,
+        error_kind: 3,
+        id_node: "",
     },
     IdVector {
         platform: "github",
@@ -613,6 +633,13 @@ pub const ID_VECTORS: [IdVector; 24] = [
         accepted: true,
         error_kind: 0,
         id_node: "0xdaaed93a4b3862ac845bdc7e3db729492757f8c0b53c6572e6897d9ae0ff54fd",
+    },
+    IdVector {
+        platform: "github",
+        input: "18446744073709551616",
+        accepted: false,
+        error_kind: 3,
+        id_node: "",
     },
     IdVector {
         platform: "github",

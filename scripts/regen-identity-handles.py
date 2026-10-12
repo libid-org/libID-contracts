@@ -111,6 +111,24 @@ def id_flags(platform: dict[str, Any]) -> tuple[int, bool, bool]:
     return rules["maxLength"], rules["shape"] == "decimal", bool(rules["leadingZero"])
 
 
+def id_bound(platform: dict[str, Any]) -> tuple[bool, str | None]:
+    """(zero refused, largest value or None) for a platform's ids. The largest
+    value is canonical decimal and as long as the id may be, so an id past it
+    is one of that length that compares greater."""
+    rules = platform["id"]
+    nonzero, largest = bool(rules.get("nonzero", False)), rules.get("max")
+    max_len, decimal, _ = id_flags(platform)
+    if (nonzero or largest is not None) and not decimal:
+        raise SystemExit(f"ERROR: {platform['key']}: nonzero and max need a decimal id")
+    if largest is not None and not (
+        largest.isascii() and largest.isdigit() and len(largest) == max_len and largest[0] != "0"
+    ):
+        raise SystemExit(f"ERROR: {platform['key']}: max must be {max_len} digits with no leading zero")
+    if largest is not None and len(largest) > NOIR_ID_BOUND:
+        raise SystemExit(f"ERROR: {platform['key']}: max is wider than lib.nr's {NOIR_ID_BOUND}-byte IdRules.max")
+    return nonzero, largest
+
+
 def sol_escape(value: str) -> str:
     """Solidity string literal. Escape the bytes a source file cannot hold."""
     out = []
@@ -415,6 +433,7 @@ def gen_rust(spec: dict[str, Any], digest: str) -> str:
     for p in platforms:
         name = p["key"].upper()
         max_len, decimal, leading = id_flags(p)
+        nonzero, largest = id_bound(p)
         rules = handle_flags(p)
         lines += [
             f"/// {p['key']}, as `handles.json` states it.",
@@ -432,6 +451,8 @@ def gen_rust(spec: dict[str, Any], digest: str) -> str:
             f"        max_length: {max_len},",
             f"        decimal: {str(decimal).lower()},",
             f"        leading_zero: {str(leading).lower()},",
+            f"        nonzero: {str(nonzero).lower()},",
+            f"        max: {'None' if largest is None else f'Some("{largest}")'},",
             "    },",
             "};",
         ]
@@ -546,6 +567,7 @@ def gen_ts(spec: dict[str, Any], digest: str) -> str:
     for p in platforms:
         name = p["key"].upper()
         max_len, decimal, leading = id_flags(p)
+        nonzero, largest = id_bound(p)
         rules = handle_flags(p)
         lines += [
             f"export const PLATFORM_{name}: Platform = {{",
@@ -558,7 +580,13 @@ def gen_ts(spec: dict[str, Any], digest: str) -> str:
             f"    allowUnderscore: {str(rules['allowUnderscore']).lower()},",
             f"    allowHyphen: {str(rules['allowHyphen']).lower()},",
             "  },",
-            f"  idRules: {{ maxLength: {max_len}, decimal: {str(decimal).lower()}, leadingZero: {str(leading).lower()} }},",
+            "  idRules: {",
+            f"    maxLength: {max_len},",
+            f"    decimal: {str(decimal).lower()},",
+            f"    leadingZero: {str(leading).lower()},",
+            f"    nonzero: {str(nonzero).lower()},",
+            f"    max: {'null' if largest is None else repr(largest)},",
+            "  },",
             "}",
         ]
     lines += [
@@ -615,6 +643,10 @@ NOIR_ERRORS = {
     "BadCharacter": "byte not allowed",
     "BadShape": "shape not allowed",
 }
+
+
+# The width of `IdRules.max` in lib.nr.
+NOIR_ID_BOUND = 20
 
 
 def noir_bytes(value: bytes) -> str:
@@ -712,6 +744,8 @@ def gen_noir(spec: dict[str, Any], digest: str) -> str:
         id_tag = p["tags"]["userId"].encode()
         handle_tag = p["tags"]["handle"].encode()
         max_len, _, leading = id_flags(p)
+        nonzero, largest = id_bound(p)
+        bound = (largest or "").encode()
         is_email = p.get("shape") == "email"
         lines += [
             f"/// `{p['tags']['userId']}`",
@@ -732,6 +766,9 @@ def gen_noir(spec: dict[str, Any], digest: str) -> str:
             f"pub global ID_RULES_{name}: IdRules = IdRules {{",
             f"    max_len: {max_len},",
             f"    leading_zero: {str(leading).lower()},",
+            f"    nonzero: {str(nonzero).lower()},",
+            f"    bounded: {str(largest is not None).lower()},",
+            f"    max: {noir_bytes(bound + bytes(NOIR_ID_BOUND - len(bound)))},",
             f"    bytes: ID_BYTES_{name},",
             "};",
             "",

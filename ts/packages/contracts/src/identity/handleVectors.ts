@@ -40,7 +40,7 @@ export interface Platform {
 }
 
 /** SHA-256 of the handles.json this file was generated from. */
-export const TABLE_SHA256 = '5d4c0d0db7fbab4307f7ae93add39f99344cded07e5bc8fef662369619940029'
+export const TABLE_SHA256 = '011835b5197580f7593fb119df70a6a229be3981dbc9f66cb0f7ed1c05eb68ce'
 
 /** keccak256 of this string is the platform id. */
 export const PLATFORM_X_KEY = 'x'
@@ -59,7 +59,13 @@ export const PLATFORM_X: Platform = {
     allowUnderscore: true,
     allowHyphen: false,
   },
-  idRules: { maxLength: 20, decimal: true, leadingZero: false },
+  idRules: {
+    maxLength: 20,
+    decimal: true,
+    leadingZero: false,
+    nonzero: true,
+    max: '18446744073709551615',
+  },
 }
 export const PLATFORM_GITHUB: Platform = {
   key: PLATFORM_GITHUB_KEY,
@@ -71,7 +77,13 @@ export const PLATFORM_GITHUB: Platform = {
     allowUnderscore: false,
     allowHyphen: true,
   },
-  idRules: { maxLength: 20, decimal: true, leadingZero: false },
+  idRules: {
+    maxLength: 20,
+    decimal: true,
+    leadingZero: false,
+    nonzero: true,
+    max: '18446744073709551615',
+  },
 }
 export const PLATFORM_GOOGLE: Platform = {
   key: PLATFORM_GOOGLE_KEY,
@@ -83,7 +95,13 @@ export const PLATFORM_GOOGLE: Platform = {
     allowUnderscore: false,
     allowHyphen: false,
   },
-  idRules: { maxLength: 31, decimal: false, leadingZero: true },
+  idRules: {
+    maxLength: 31,
+    decimal: false,
+    leadingZero: true,
+    nonzero: false,
+    max: null,
+  },
 }
 
 /** Every platform, in table order. */
@@ -153,18 +171,21 @@ export const HANDLE_VECTORS: HandleVector[] = [
 export const ID_VECTORS: IdVector[] = [
   { platform: "x", input: "2244994945", accepted: true, errorKind: 0, idNode: "0x68291869976ffad2abf3e933ec9ab2623395ff8b3b9242e655e1da3ef43d4f94" },
   { platform: "x", input: "7", accepted: true, errorKind: 0, idNode: "0x5c228a76caebd7cc0148637f2344c022228820a028f1fbd0d840227da5b5fa6f" },
-  { platform: "x", input: "0", accepted: true, errorKind: 0, idNode: "0xec5465b57bae1d48ebc1fe214f8209caf9804813931fd6b02b34b22f6b2ec7cd" },
+  { platform: "x", input: "0", accepted: false, errorKind: 3, idNode: "" },
   { platform: "x", input: "0123", accepted: false, errorKind: 3, idNode: "" },
   { platform: "x", input: "00123", accepted: false, errorKind: 3, idNode: "" },
   { platform: "x", input: "12345678901234567890", accepted: true, errorKind: 0, idNode: "0x46d787dc85127e79b248e3768ab657f0c543bc3ce5b97f1645c69f8432a3ec3b" },
+  { platform: "x", input: "18446744073709551615", accepted: true, errorKind: 0, idNode: "0xf5341a892456cd845598d346a1102f6154b9c6a00b434a22cb305965a1efd045" },
+  { platform: "x", input: "18446744073709551616", accepted: false, errorKind: 3, idNode: "" },
   { platform: "x", input: "123456789012345678901", accepted: false, errorKind: 1, idNode: "" },
   { platform: "x", input: "", accepted: false, errorKind: 0, idNode: "" },
   { platform: "x", input: "12a4", accepted: false, errorKind: 2, idNode: "" },
   { platform: "x", input: "-1", accepted: false, errorKind: 2, idNode: "" },
   { platform: "github", input: "583231", accepted: true, errorKind: 0, idNode: "0x475902b27989feb395b9b0cd3156aa573a9676c13155b8e7e3ddaf3e77181847" },
-  { platform: "github", input: "0", accepted: true, errorKind: 0, idNode: "0x90f128b24f42f2f5b6924ca42ac0ec9220498d50b0ce131a1cf9135bd3e017c3" },
+  { platform: "github", input: "0", accepted: false, errorKind: 3, idNode: "" },
   { platform: "github", input: "0583231", accepted: false, errorKind: 3, idNode: "" },
   { platform: "github", input: "18446744073709551615", accepted: true, errorKind: 0, idNode: "0xdaaed93a4b3862ac845bdc7e3db729492757f8c0b53c6572e6897d9ae0ff54fd" },
+  { platform: "github", input: "18446744073709551616", accepted: false, errorKind: 3, idNode: "" },
   { platform: "github", input: "", accepted: false, errorKind: 0, idNode: "" },
   { platform: "github", input: "5 8", accepted: false, errorKind: 2, idNode: "" },
   { platform: "google", input: "110169484474386276334", accepted: true, errorKind: 0, idNode: "0x620866cfb4d2776a32cd94d8e8b55577526af86115ebf125d4ca1ca7bf07737e" },

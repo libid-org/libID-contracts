@@ -48,9 +48,11 @@
         "maxLength": 20,
         "shape": "decimal",
         "leadingZero": false,
+        "nonzero": true,
+        "max": "18446744073709551615",
         "note": [
           "X user ids are decimal strings of up to 20 digits, written without a",
-          "leading zero."
+          "leading zero, from 1 to 2^64-1 (REQ-PLAT-06)."
         ]
       }
     },
@@ -72,7 +74,12 @@
         "maxLength": 20,
         "shape": "decimal",
         "leadingZero": false,
-        "note": "GitHub ids are bare JSON integers, written without a leading zero."
+        "nonzero": true,
+        "max": "18446744073709551615",
+        "note": [
+          "GitHub ids are bare JSON integers, written without a leading zero,",
+          "from 1 to 2^64-1 (REQ-PLAT-06)."
+        ]
       }
     },
     {
@@ -420,8 +427,8 @@
     {
       "platform": "x",
       "input": "0",
-      "note": "0 alone is not a leading zero.",
-      "idNode": "0xec5465b57bae1d48ebc1fe214f8209caf9804813931fd6b02b34b22f6b2ec7cd"
+      "error": "BadShape",
+      "note": "No X id is 0 (REQ-PLAT-06)."
     },
     {
       "platform": "x",
@@ -439,6 +446,18 @@
       "input": "12345678901234567890",
       "note": "20 digits is the limit.",
       "idNode": "0x46d787dc85127e79b248e3768ab657f0c543bc3ce5b97f1645c69f8432a3ec3b"
+    },
+    {
+      "platform": "x",
+      "input": "18446744073709551615",
+      "note": "2^64-1 is the largest id.",
+      "idNode": "0xf5341a892456cd845598d346a1102f6154b9c6a00b434a22cb305965a1efd045"
+    },
+    {
+      "platform": "x",
+      "input": "18446744073709551616",
+      "error": "BadShape",
+      "note": "2^64 has 20 digits but is past the largest id."
     },
     {
       "platform": "x",
@@ -468,8 +487,8 @@
     {
       "platform": "github",
       "input": "0",
-      "note": "0 alone is not a leading zero.",
-      "idNode": "0x90f128b24f42f2f5b6924ca42ac0ec9220498d50b0ce131a1cf9135bd3e017c3"
+      "error": "BadShape",
+      "note": "No GitHub id is 0 (REQ-PLAT-06)."
     },
     {
       "platform": "github",
@@ -480,8 +499,14 @@
     {
       "platform": "github",
       "input": "18446744073709551615",
-      "note": "20 digits is the limit.",
+      "note": "2^64-1 is the largest id.",
       "idNode": "0xdaaed93a4b3862ac845bdc7e3db729492757f8c0b53c6572e6897d9ae0ff54fd"
+    },
+    {
+      "platform": "github",
+      "input": "18446744073709551616",
+      "error": "BadShape",
+      "note": "2^64 has 20 digits but is past the largest id."
     },
     {
       "platform": "github",
