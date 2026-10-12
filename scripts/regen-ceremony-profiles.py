@@ -427,10 +427,9 @@ def gen_sol(spec: dict[str, Any]) -> str:
         "    /// @dev The lines a verifier requires of each request's head, each",
         "    ///      exactly once with its value: `host` naming the pinned authority,",
         "    ///      and on the token request the media type that selects the",
-        "    ///      platform's request parser (REQ-COMMON-21B). Revealed but",
-        "    ///      uncompared, the media type was a byte a prover chose in a request",
-        "    ///      every other field of which is pinned. What else a runtime sends",
-        "    ///      is its own and not stated here.",
+        "    ///      platform's request parser (REQ-COMMON-21B), pinned like every",
+        "    ///      other field of that request. What else a runtime sends is its",
+        "    ///      own and not stated here.",
         "",
     ]
     for profile in profiles:
