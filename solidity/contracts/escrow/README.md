@@ -11,6 +11,16 @@ escrow.claim(handleNode, tokens, recipient);   // the handle's holder
 escrow.refund(handleNode, token, recipient);   // refundTo, while unclaimed
 ```
 
+## Private or public
+
+- `deposit(handleNode, …)` is private: the calldata and the logs carry the
+  node, never the handle.
+- `depositToHandle(platformId, handle, …)` is public: the escrow folds the
+  handle and hashes it under the platform's tag, and `DepositedToHandle`
+  logs the platform and the handle as given. It credits the same node, so a
+  claim takes both kinds together. Text the platform's rules refuse lands on
+  a node nobody can prove; only `refundTo` gets it back.
+
 ## Integrating
 
 - `refundTo` is the payer's own address. A router passing itself locks the
@@ -26,8 +36,9 @@ escrow.refund(handleNode, token, recipient);   // refundTo, while unclaimed
 - `Deposited`, `Claimed` and `Refunded` name their round. A claim closes the
   round it names and the next deposit opens the next, so a `Refunded` belongs
   to the `Deposited` of its round and a `Claimed` took what that round still
-  held. No escrow event names a platform: join on the node with
-  `IdentityRegistry.IdentityBound`, or recompute it from a known handle.
+  held. Only `DepositedToHandle` names a platform: otherwise join on the
+  node with `IdentityRegistry.IdentityBound`, or recompute it from a known
+  handle.
 - Pay-through goes to whoever holds the handle when the transaction lands,
   recycled handles included. Show `handleBinding(node).observedAt` first. A
   holder that rejects ETH cannot be paid in ETH; a holder contract can burn

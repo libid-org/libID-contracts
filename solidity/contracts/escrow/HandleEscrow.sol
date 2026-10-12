@@ -8,6 +8,7 @@ import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/U
 import {Ownable2StepUpgradeable} from "@openzeppelin/contracts-upgradeable/access/Ownable2StepUpgradeable.sol";
 import {ReentrancyGuardUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardUpgradeable.sol";
 
+import {HandlePlatforms} from "../handles/HandlePlatforms.sol";
 import {IIdentityRegistry} from "../identity/IIdentityRegistry.sol";
 
 // The EIP-7528 address that stands for the chain's native token.
@@ -64,6 +65,9 @@ contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable
         uint256 round,
         uint256 amount
     );
+
+    /// @notice A `depositToHandle` named its handle: `handle` as given, on `platformId`.
+    event DepositedToHandle(bytes32 indexed handleNode, bytes32 indexed platformId, string handle);
 
     /// @notice A deposit for a held node was paid straight to `holder`.
     ///         `amount` was asked for; `received` is what the holder gained.
@@ -165,6 +169,25 @@ contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable
         payable
         nonReentrant
     {
+        _deposit(handleNode, token, amount, refundTo);
+    }
+
+    /// @notice `deposit` to a handle given as text, which the calldata and the
+    ///         log make public. Reverts `UnknownPlatform` for a platform `handles.json` lacks.
+    /// @dev The node is the handle folded under the platform's tag: the one `deposit` takes.
+    function depositToHandle(
+        bytes32 platformId,
+        string calldata handle,
+        address token,
+        uint256 amount,
+        address refundTo
+    ) external payable nonReentrant {
+        (, bytes32 handleNode) = HandlePlatforms.handleNodeOf(platformId, handle);
+        _deposit(handleNode, token, amount, refundTo);
+        emit DepositedToHandle(handleNode, platformId, handle);
+    }
+
+    function _deposit(bytes32 handleNode, address token, uint256 amount, address refundTo) private {
         if (amount == 0) revert ZeroAmount();
         if (refundTo == address(0) || refundTo == address(this)) revert BadRefundTo(refundTo);
 

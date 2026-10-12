@@ -262,6 +262,40 @@ contract HandleEscrowTest is Test {
         assertEq(alice.balance, 3 ether);
     }
 
+    // ─── Depositing by handle ───────────────────────────────────────
+
+    /// A deposit by text lands on the node `deposit` takes, names its platform and text, and is
+    /// claimed like any other.
+    function test_aPublicDepositIsClaimedFromTheNode() public {
+        vm.expectEmit(address(escrow));
+        emit HandleEscrow.Deposited(aliceNode, NATIVE, sender, sender, 0, 1 ether);
+        vm.expectEmit(address(escrow));
+        emit HandleEscrow.DepositedToHandle(aliceNode, X, "Alice");
+        vm.prank(sender);
+        escrow.depositToHandle{value: 1 ether}(X, "Alice", NATIVE, 1 ether, sender);
+
+        _bind(alice, "1", "alice", 100);
+        _claimNative(alice, alice);
+        assertEq(alice.balance, 1 ether);
+    }
+
+    /// Public and private deposits to one node share one balance.
+    function test_publicAndPrivateDepositsToOneNodeSum() public {
+        vm.startPrank(sender);
+        escrow.depositToHandle{value: 1 ether}(X, "ALICE", NATIVE, 1 ether, sender);
+        escrow.deposit{value: 2 ether}(aliceNode, NATIVE, 2 ether, sender);
+        vm.stopPrank();
+        assertEq(escrow.escrowed(aliceNode, NATIVE), 3 ether);
+        assertEq(escrow.refundable(aliceNode, NATIVE, sender), 3 ether);
+    }
+
+    function test_aPublicDepositRefusesAnUnknownPlatform() public {
+        bytes32 nowhere = keccak256("nowhere");
+        vm.prank(sender);
+        vm.expectRevert(abi.encodeWithSelector(HandlePlatforms.UnknownPlatform.selector, nowhere));
+        escrow.depositToHandle{value: 1 ether}(nowhere, "alice", NATIVE, 1 ether, sender);
+    }
+
     // ─── Depositing ─────────────────────────────────────────────────
 
     /// Unheld: held and announced. Held: paid straight through and announced, the earlier deposit
