@@ -616,12 +616,38 @@ contract IdentityRegistryTest is PrivacyScan {
         assertEq(_count(logs, IdentityRegistry.HandlePublished.selector), 0, "a private bind published");
         assertEq(_count(logs, IdentityRegistry.HandleUnpublished.selector), 0, "a private bind withdrew");
         assertEq(registry.publishedHandleOf(alice, X), "alice", "a re-proof dropped the name");
+    }
 
+    /// A rename withdraws the name of the handle it retires, so proving that
+    /// handle again in private does not show the name again.
+    function test_aRetiredHandlesNameStaysWithdrawn() public {
+        _bindDisclosing(alice, "123", "alice", 100);
+
+        vm.recordLogs();
+        _bind(alice, "123", "alice2", 200);
+        assertEq(_count(vm.getRecordedLogs(), IdentityRegistry.HandleUnpublished.selector), 1, "no withdrawal logged");
+        assertEq(registry.publishedHandleOf(alice, X), "");
+
+        _bind(alice, "123", "alice", 300);
+        assertEq(registry.resolveHandle(X, "alice"), alice);
+        assertEq(registry.publishedHandleOf(alice, X), "", "a private re-proof showed the old name");
+    }
+
+    /// A retirement leaves a name that names another handle alone.
+    function test_aRetirementKeepsANameForAnotherHandle() public {
+        _bindDisclosing(alice, "456", "alicia", 100);
+        _bind(alice, "123", "alice", 200);
         _bind(alice, "123", "alice2", 300);
-        assertEq(registry.publishedHandleOf(alice, X), "", "a name the holder renamed away from");
+        assertEq(registry.publishedHandleOf(alice, X), "alicia");
+    }
 
-        _bind(alice, "123", "alice", 400);
-        assertEq(registry.publishedHandleOf(alice, X), "alice", "the slot was rewritten");
+    /// Withdrawing when nothing is published changes nothing and logs nothing.
+    function test_unpublishingNothingLogsNothing() public {
+        _bind(alice, "123", "alice", 100);
+        vm.recordLogs();
+        vm.prank(alice);
+        registry.unpublish(X);
+        assertEq(vm.getRecordedLogs().length, 0);
     }
 
     /// A second disclosure replaces the first: one name per wallet per platform.

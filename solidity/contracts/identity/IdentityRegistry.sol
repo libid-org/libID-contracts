@@ -291,15 +291,25 @@ contract IdentityRegistry is
     }
 
     /// @dev Retire the handle node this identity wrote before, if it still
-    ///      points back here. A node another identity has since proved is that
-    ///      identity's, and is left alone.
+    ///      points back here, and the name its holder published for it. A node
+    ///      another identity has since proved is that identity's, and is left alone.
     function _retirePreviousHandle(bytes32 platformId, bytes32 idNode, bytes32 handleNode) private {
         bytes32 previous = _s().handleNodeById[idNode];
         if (previous == bytes32(0) || previous == handleNode) return;
         if (_s().idNodeByHandle[previous] != idNode) return;
 
+        address holder = _s().handleBindings[previous].holder;
         _s().handleBindings[previous].holder = address(0);
         emit HandleRetired(platformId, previous, msg.sender);
+
+        // Else proving the old handle again, privately, would show this name again.
+        string memory name = _s().published[holder][platformId];
+        if (
+            bytes(name).length != 0 && HandleNormalizer.node(HandlePlatforms.handleTagFor(platformId), name) == previous
+        ) {
+            delete _s().published[holder][platformId];
+            emit HandleUnpublished(holder, platformId);
+        }
     }
 
     // ─── Names ──────────────────────────────────────────────────────
@@ -313,9 +323,10 @@ contract IdentityRegistry is
         _name(platformId, handleNode, normalized);
     }
 
-    /// @notice Withdraw the caller's name on a platform.
+    /// @notice Withdraw the caller's name on a platform. Logs only a name there was.
     function unpublish(bytes32 platformId) external {
         _requireKnown(platformId);
+        if (bytes(_s().published[msg.sender][platformId]).length == 0) return;
         delete _s().published[msg.sender][platformId];
         emit HandleUnpublished(msg.sender, platformId);
     }
