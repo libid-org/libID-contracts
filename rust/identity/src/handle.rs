@@ -89,7 +89,7 @@ pub fn normalize(raw: &str, rules: Rules) -> Result<String, HandleError> {
         return Err(HandleError::TooLong);
     }
 
-    let mut out = Vec::with_capacity(slice.len());
+    let mut out = String::with_capacity(slice.len());
     for &byte in slice {
         // Fold A-Z down. Nothing else changes, so two addresses that differ in
         // more than case stay two identities.
@@ -101,17 +101,16 @@ pub fn normalize(raw: &str, rules: Rules) -> Result<String, HandleError> {
         if !allowed(c, rules) {
             return Err(HandleError::BadCharacter);
         }
-        out.push(c);
+        // `allowed` admits ASCII alone, so each byte is its own char.
+        out.push(char::from(c));
     }
 
     if rules.is_email {
-        require_email_shape(&out)?;
+        require_email_shape(out.as_bytes())?;
     } else if rules.allow_hyphen {
-        require_hyphen_shape(&out)?;
+        require_hyphen_shape(out.as_bytes())?;
     }
-
-    // Every byte passed `allowed`, so the result is ASCII.
-    Ok(String::from_utf8(out).expect("normalized bytes are ASCII"))
+    Ok(out)
 }
 
 /// One byte, after folding. Anything outside the platform's set is refused,

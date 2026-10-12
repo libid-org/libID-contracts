@@ -119,13 +119,23 @@ impl PlatformVerifier {
         proxy: Address,
         address: Address,
     ) -> Result<B256> {
-        let pinned = TlsNotaryPlatformVerifier::new(proxy, provider)
-            .circuitCodehash()
-            .call()
-            .await
-            .map_err(|e| Error::Rpc {
-                detail: format!("failed to read circuitCodehash() at {proxy}: {e}"),
-            })?;
+        let pinned = match self {
+            Self::X | Self::GitHub => {
+                TlsNotaryPlatformVerifier::new(proxy, provider)
+                    .circuitCodehash()
+                    .call()
+                    .await
+            }
+            Self::Google => {
+                GooglePlatformVerifier::new(proxy, provider)
+                    .circuitCodehash()
+                    .call()
+                    .await
+            }
+        }
+        .map_err(|e| Error::Rpc {
+            detail: format!("failed to read circuitCodehash() at {proxy}: {e}"),
+        })?;
         self.pinned_codehash_at(provider, artifacts, address, pinned)
             .await
     }

@@ -8,8 +8,8 @@ system hashes into a node, mirroring the circuits' `lib/identity` byte for
 byte: a closed ASCII byte
 transform that folds `A-Z` to `a-z` and changes nothing else. It refuses
 rather than repairs: no byte is trimmed and no `@` is stripped, so
-`" @Alice_1 "` is an error, not `alice_1`. It is deliberately not Unicode
-case folding and not UTS-46.
+`" @Alice_1 "` is an error, not `alice_1`. It is not Unicode case folding
+and not UTS-46.
 
 ```rust
 use libid_identity::{normalize, HandleError, Rules};
@@ -54,6 +54,6 @@ the platform id the contracts take.
 
 ## Dependencies
 
-None by default, on purpose: every consumer of the identity system needs the
+None by default: every consumer of the identity system needs the
 transform, and none of them should inherit anything for it. The `node`
 feature adds `sha2`, for the hash, and nothing else.

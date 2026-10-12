@@ -1,3 +1,8 @@
+use alloy::primitives::{
+    Address,
+    B256,
+};
+
 /// Crate error type.
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -37,15 +42,15 @@ pub enum Error {
         /// The Platform Verifier being initialized or rotated.
         contract: &'static str,
         /// The address it was handed.
-        address: alloy::primitives::Address,
+        address: Address,
         /// The code hash wanted.
-        expected_codehash: alloy::primitives::B256,
+        expected_codehash: B256,
         /// The vendored circuit whose verifier has `expected_codehash`, if any.
         expected: Option<crate::circuits::Circuit>,
         /// The circuit whose verifier is at `address`, if any.
         found: Option<crate::circuits::Circuit>,
         /// The code hash at `address`.
-        codehash: alloy::primitives::B256,
+        codehash: B256,
     },
 }
 

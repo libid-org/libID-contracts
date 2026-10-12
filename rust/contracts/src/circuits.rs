@@ -25,6 +25,7 @@ use alloy::{
     },
     providers::Provider,
 };
+use serde::Deserialize;
 
 use crate::{
     artifacts::Artifacts,
@@ -98,17 +99,56 @@ impl Circuit {
     }
 }
 
-/// The `libid-circuits` release the vendored verifiers came from (`circuits.json`).
+/// `circuits.json`: the pinned release and, for the tests, each circuit's tarball.
+#[derive(Deserialize)]
+struct Pin {
+    version: String,
+    #[cfg(test)]
+    circuits: std::collections::BTreeMap<String, PinnedCircuit>,
+}
+
+#[cfg(test)]
+#[derive(Deserialize)]
+struct PinnedCircuit {
+    contract: String,
+    /// `None` until a release is pinned.
+    sha256: Option<String>,
+}
+
+fn pin(artifacts: &Artifacts) -> Result<Pin> {
+    serde_json::from_value(artifacts.read_json("circuits.json")?).map_err(|e| {
+        Error::Artifact {
+            detail: format!("circuits.json: {e}"),
+        }
+    })
+}
+
+/// Whether `version` is `X.Y.Z` or the pre-release `X.Y.Z-rc.N`.
+fn is_release_version(version: &str) -> bool {
+    let numeric = |s: &str| !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit());
+    let (release, rc) = match version.split_once("-rc.") {
+        Some((release, n)) => (release, Some(n)),
+        None => (version, None),
+    };
+    release.split('.').count() == 3
+        && release.split('.').all(numeric)
+        && rc.is_none_or(numeric)
+}
+
+/// The `libid-circuits` release the vendored verifiers came from
+/// (`circuits.json`): `X.Y.Z`, or a release candidate `X.Y.Z-rc.N`.
 ///
 /// Errors for an [`Artifacts::from_dir`] over a raw forge `out/`, which carries no pin.
 pub fn version(artifacts: &Artifacts) -> Result<String> {
-    let pin: serde_json::Value = artifacts.read_json("circuits.json")?;
-    pin["version"]
-        .as_str()
-        .map(str::to_owned)
-        .ok_or_else(|| Error::Artifact {
-            detail: "circuits.json has no version".into(),
-        })
+    let version = pin(artifacts)?.version;
+    if !is_release_version(&version) {
+        return Err(Error::Artifact {
+            detail: format!(
+                "circuits.json version '{version}' is not X.Y.Z or X.Y.Z-rc.N"
+            ),
+        });
+    }
+    Ok(version)
 }
 
 /// Deploy `circuit`'s Honk verifier and return its address, which a
@@ -186,20 +226,36 @@ mod tests {
     /// a consumer deploys by.
     #[test]
     fn the_enum_matches_the_pin() {
-        let artifacts = Artifacts::embedded();
-        let pin: serde_json::Value = artifacts.read_json("circuits.json").unwrap();
-        let circuits = pin["circuits"].as_object().expect("circuits object");
-        assert_eq!(circuits.len(), Circuit::ALL.len());
+        let pin = pin(&Artifacts::embedded()).unwrap();
+        assert_eq!(pin.circuits.len(), Circuit::ALL.len());
         for circuit in Circuit::ALL {
-            let entry = &circuits[circuit.name()];
-            assert_eq!(entry["contract"].as_str(), Some(circuit.contract()));
-            let digest = entry["sha256"].as_str().expect("sha256 string");
+            let entry = &pin.circuits[circuit.name()];
+            assert_eq!(entry.contract, circuit.contract());
+            let digest = entry.sha256.as_deref().expect("sha256 string");
             assert_eq!(digest.len(), 64, "{}: not a sha256", circuit.name());
         }
-        let version = version(&artifacts).unwrap();
         assert!(
-            version.split('.').count() == 3,
-            "circuits.json version '{version}' is not major.minor.patch"
+            is_release_version(&pin.version),
+            "circuits.json version '{}' is not X.Y.Z or X.Y.Z-rc.N",
+            pin.version
         );
+    }
+
+    #[test]
+    fn a_release_version_may_be_a_release_candidate() {
+        for good in ["0.6.0", "10.0.12", "0.7.0-rc.1", "1.2.3-rc.10"] {
+            assert!(is_release_version(good), "{good}");
+        }
+        for bad in [
+            "0.6",
+            "0.6.0.1",
+            "v0.6.0",
+            "0.6.0-rc",
+            "0.6.0-rc.",
+            "0.6.0-beta.1",
+            "0.x.0",
+        ] {
+            assert!(!is_release_version(bad), "{bad}");
+        }
     }
 }
