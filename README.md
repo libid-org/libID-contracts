@@ -121,9 +121,17 @@ runtime code hash: `initialize`, `setTrustRoots` and `verify` revert
 `solidity/contracts/circuits/CircuitCodehashes.sol`, which the script writes
 after the verifiers (it compiles them under `foundry.toml`; the bytecode
 carries no metadata, so it depends on the source and the compiler settings
-alone). That file is committed, because the contracts import it, and `forge
-test` fails while it disagrees with the vendored verifiers: commit it with
-`circuits.json` whenever the pin moves. A new circuit release is therefore a
+alone). That file is committed, because the contracts import it. `forge
+test` compares it with the verifiers on disk, but the script rewrites both,
+so after vendoring it always passes. The guard on the committed file is the
+forge-build action's `git diff --exit-code` step after vendoring. Locally:
+
+```sh
+scripts/vendor-circuit-verifiers.sh
+git diff --exit-code solidity/contracts/circuits/CircuitCodehashes.sol
+```
+
+Commit it with `circuits.json` whenever the pin moves. A new circuit release is therefore a
 new Platform Verifier implementation, not a trust-root rotation.
 
 ## Deploying hashed identities
