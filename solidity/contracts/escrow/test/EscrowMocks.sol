@@ -44,6 +44,27 @@ contract PreNodeRegistry {
     }
 }
 
+/// @notice Answers `handleBinding` and `nodeKeyed`, but has no `handleNodeOf`.
+contract NoHandleNodeOfRegistry {
+    function handleBinding(bytes32) external pure returns (address holder, uint64 observedAt) {}
+
+    function nodeKeyed() external pure returns (bool) {
+        return true;
+    }
+}
+
+/// @notice Its `handleNodeOf` reverts with a reason other than `UnknownPlatform`.
+contract RevertingHandleNodeOfRegistry is NoHandleNodeOfRegistry {
+    function handleNodeOf(bytes32, string calldata) external pure returns (bytes32) {
+        revert("no");
+    }
+}
+
+/// @notice Has every view but `acceptsBindings`.
+contract NoAcceptsBindingsRegistry is NoHandleNodeOfRegistry {
+    function handleNodeOf(bytes32, string calldata) external pure returns (bytes32) {}
+}
+
 /// @notice Answers `nodeKeyed` with false.
 contract NotNodeKeyedRegistry is SettableRegistry {
     function nodeKeyed() external pure override returns (bool) {

@@ -20,9 +20,12 @@ import {HandleEscrow, NATIVE_TOKEN} from "../HandleEscrow.sol";
 import {
     FeeToken,
     InertToken,
+    NoAcceptsBindingsRegistry,
+    NoHandleNodeOfRegistry,
     NotNodeKeyedRegistry,
     PreNodeRegistry,
     RejectEther,
+    RevertingHandleNodeOfRegistry,
     SettableRegistry,
     TestERC20,
     one
@@ -666,8 +669,9 @@ contract HandleEscrowTest is Test {
 
     // ─── Wiring and upgrades ────────────────────────────────────────
 
-    /// `initialize` refuses a registry that does not answer `handleBinding` in
-    /// shape, or is not the registry that keys identities by node.
+    /// `initialize` refuses a registry that does not answer `handleBinding`,
+    /// `handleNodeOf` or `acceptsBindings` in shape, or is not the registry
+    /// that keys identities by node.
     function test_initializeChecksTheRegistry() public {
         assertEq(address(escrow.registry()), address(registry));
         _assertRefused(address(0), abi.encodeWithSelector(HandleEscrow.NoRegistry.selector));
@@ -678,7 +682,10 @@ contract HandleEscrowTest is Test {
         _assertLacks(address(new PreNodeRegistry()), IIdentityRegistry.nodeKeyed.selector);
         _assertLacks(address(new RegistryWithHandleBindingOnly()), IIdentityRegistry.nodeKeyed.selector);
         _assertLacks(address(new NotNodeKeyedRegistry()), IIdentityRegistry.nodeKeyed.selector);
-        // The two functions in their shapes are all it asks.
+        _assertLacks(address(new NoHandleNodeOfRegistry()), IIdentityRegistry.handleNodeOf.selector);
+        _assertLacks(address(new RevertingHandleNodeOfRegistry()), IIdentityRegistry.handleNodeOf.selector);
+        _assertLacks(address(new NoAcceptsBindingsRegistry()), IIdentityRegistry.acceptsBindings.selector);
+        // The four views in their shapes are all it asks.
         _deploy(address(new SettableRegistry()));
 
         HandleEscrow impl = new HandleEscrow();

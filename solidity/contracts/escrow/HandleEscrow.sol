@@ -145,7 +145,8 @@ contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable
         _disableInitializers();
     }
 
-    /// @dev Reverts `RegistryLacks` unless `registry_` answers like the node-keyed `IdentityRegistry`.
+    /// @dev Reverts `RegistryLacks` unless `registry_` answers the four `IIdentityRegistry` views
+    ///      like the node-keyed `IdentityRegistry`.
     function initialize(address owner_, IIdentityRegistry registry_) external initializer {
         if (address(registry_) == address(0)) revert NoRegistry();
         _requireAnswers(registry_);
@@ -315,8 +316,9 @@ contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable
         if (!ok) revert NativeTransferFailed(to, amount);
     }
 
-    /// @dev Refuses a registry that does not answer `handleBinding` in shape or
-    ///      does not state `nodeKeyed()`.
+    /// @dev Refuses a registry that does not answer `handleBinding`, `handleNodeOf`
+    ///      and `acceptsBindings` in shape, or does not state `nodeKeyed()`.
+    ///      `handleNodeOf` may answer the zero platform with `UnknownPlatform`.
     function _requireAnswers(IIdentityRegistry registry_) private view {
         (bool ok, bytes memory result) =
             address(registry_).staticcall(abi.encodeCall(IIdentityRegistry.handleBinding, (bytes32(0))));
@@ -326,6 +328,17 @@ contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable
         (ok, result) = address(registry_).staticcall(abi.encodeCall(IIdentityRegistry.nodeKeyed, ()));
         if (!ok || result.length != 32 || abi.decode(result, (uint256)) != 1) {
             revert RegistryLacks(address(registry_), IIdentityRegistry.nodeKeyed.selector);
+        }
+        (ok, result) = address(registry_).staticcall(abi.encodeCall(IIdentityRegistry.handleNodeOf, (bytes32(0), "")));
+        bool answered = ok
+            ? result.length == 32
+            : keccak256(result) == keccak256(abi.encodeWithSelector(UnknownPlatform.selector, bytes32(0)));
+        if (!answered) {
+            revert RegistryLacks(address(registry_), IIdentityRegistry.handleNodeOf.selector);
+        }
+        (ok, result) = address(registry_).staticcall(abi.encodeCall(IIdentityRegistry.acceptsBindings, (bytes32(0))));
+        if (!ok || result.length != 32 || abi.decode(result, (uint256)) > 1) {
+            revert RegistryLacks(address(registry_), IIdentityRegistry.acceptsBindings.selector);
         }
     }
 
