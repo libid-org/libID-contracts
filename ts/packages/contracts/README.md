@@ -29,15 +29,21 @@ can leave it out.
 ```ts
 import { createPublicClient, http } from 'viem'
 import { googleJwtRootsAbi, identityRegistryAbi } from '@libid/contracts/abis'
+import { handleNode, idNode, PLATFORM_X_KEY, platformId } from '@libid/contracts/identity'
 
 const client = createPublicClient({ transport: http(RPC_URL) })
 
-// Fully typed: viem infers the argument and return types from the ABI.
-const holder = await client.readContract({
+// Fully typed: viem infers the argument and return types from the ABI. The
+// handle and the id are hashed here, so only their nodes reach the RPC.
+const [holder, idAgrees] = await client.readContract({
   address: IDENTITY_REGISTRY,
   abi: identityRegistryAbi,
-  functionName: 'resolveHandle',
-  args: [platformId, 'alice'],
+  functionName: 'resolveHandleNodeAndId',
+  args: [
+    platformId(PLATFORM_X_KEY),
+    handleNode(PLATFORM_X_KEY, 'alice'),
+    idNode(PLATFORM_X_KEY, '42'),
+  ],
 })
 
 // The two generations of Google's key set the list holds.
@@ -92,7 +98,7 @@ const reader = { client, address: IDENTITY_REGISTRY }
 const x = platformId(PLATFORM_X_KEY)
 
 // The holder that last proved a handle, or null. Pass what was typed: it is
-// normalized and hashed here, with the registry's rules, and only the node
+// normalized and hashed here, with the platform's rules, and only the node
 // reaches the RPC. Case folds, and text the rules refuse (an `@`, a space)
 // answers null like a handle nobody proved.
 const holder = await resolveHandle(reader, x, 'Alice')

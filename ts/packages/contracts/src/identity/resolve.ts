@@ -82,6 +82,7 @@ async function resolveNodes(
       if (!(e instanceof HandleError)) throw e
     }
   }
+  // The chain goes first, so a platform it does not know reverts UnknownPlatform there.
   const [holder, idAgrees] = await read<[Address, boolean]>(reader, 'resolveHandleNodeAndId', [
     id,
     node,
