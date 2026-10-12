@@ -525,11 +525,122 @@ def gen_sol(spec: dict[str, Any]) -> str:
         "        revert UnknownPlatform(platformId);",
         "    }",
         "",
+    ]
+    lines += sol_lookups(spec)
+    lines += [
         "    error UnknownPlatform(bytes32 platformId);",
         "}",
         "",
     ]
     return "\n".join(lines)
+
+
+def header_value(line: str) -> str:
+    """A required line's value as a verifier reads it: after the colon, trimmed."""
+    return line.split(":", 1)[1].strip(" \t")
+
+
+def sol_lookups(spec: dict[str, Any]) -> list[str]:
+    """The profile constants by platform id, so a verifier reads its own
+    through `_platform()` with no override per value. A known platform
+    without a session reverts like an unknown one; without a validity value,
+    it reads zero."""
+    profiles = spec["profiles"]
+    lines = [
+        "    // --- By platform ----------------------------------------------------------",
+        "",
+    ]
+
+    def lookup(name: str, returns: str, cases: list[tuple[str, str]], default: str | None, doc: str) -> None:
+        lines.extend(sol_doc(textwrap.wrap(doc, width=72)))
+        lines.append(f"    function {name}(bytes32 platformId) internal pure returns ({returns}) {{")
+        for platform, value in cases:
+            lines.append(f"        if (platformId == PLATFORM_{upper(platform)}) return {value};")
+        if default is not None:
+            known = [p["platform"] for p in profiles if p["platform"] not in {c for c, _ in cases}]
+            if known:
+                test = " || ".join(f"platformId == PLATFORM_{upper(k)}" for k in known)
+                lines.append(f"        if ({test}) return {default};")
+        lines.extend(["        revert UnknownPlatform(platformId);", "    }", ""])
+
+    lookup(
+        "ceremonyVersion",
+        "uint16",
+        [(p["platform"], str(p["ceremonyVersion"])) for p in profiles],
+        None,
+        "The ceremony version the profile is.",
+    )
+    for key, stem, _, bounds in VALIDITY:
+        fn = stem.lower().split("_seconds")[0]
+        fn = fn.split("_")[0] + "".join(w.capitalize() for w in fn.split("_")[1:])
+        lookup(
+            fn,
+            "uint64",
+            [(p["platform"], f"{stem}_{upper(p['platform'])}") for p in profiles if key in p["validity"]],
+            "0",
+            f"In seconds: {bounds}",
+        )
+    for session_name in SESSIONS:
+        with_session = [(p["platform"], p["sessions"][session_name]) for p in profiles if session_name in p["sessions"]]
+        lookup(
+            f"{session_name}Authority",
+            "bytes32",
+            [(p, f"AUTHORITY_{authority_name(sess['authority'])}") for p, sess in with_session],
+            None,
+            f"The {session_name} session's authority.",
+        )
+        lookup(
+            f"{session_name}RequestLine",
+            "bytes memory",
+            [(p, f"{upper(p)}_{upper(session_name)}_REQUEST_LINE") for p, _ in with_session],
+            None,
+            f"The {session_name} session's request-line prefix.",
+        )
+        # The hashes `_field` and `_hash` compute from each required line, so
+        # no verifier parses the CRLF block at run time.
+        lines.append(f"    /// @dev keccak256 of the name and trimmed value of each line of the")
+        lines.append(f"    ///      platform's `*_{upper(session_name)}_REQUIRED_HEADERS`, in order.")
+        lines.append(f"    function {session_name}RequiredHeaderHashes(bytes32 platformId)")
+        lines += ["        internal", "        pure", "        returns (bytes32[] memory names, bytes32[] memory values)", "    {"]
+        for platform, sess in with_session:
+            required = required_headers(sess, session_name)
+            lines.append(f"        if (platformId == PLATFORM_{upper(platform)}) {{")
+            lines.append(f"            names = new bytes32[]({len(required)});")
+            lines.append(f"            values = new bytes32[]({len(required)});")
+            for i, line in enumerate(required):
+                name = line.split(":", 1)[0]
+                lines.append(
+                    f'            (names[{i}], values[{i}]) = (keccak256("{name}"), keccak256("{header_value(line)}"));'
+                )
+            lines += ["            return (names, values);", "        }"]
+        lines += ["        revert UnknownPlatform(platformId);", "    }", ""]
+    lookup(
+        "tokenFields",
+        "bytes memory",
+        [(p["platform"], f"{upper(p['platform'])}_TOKEN_FIELDS") for p in profiles if "token" in p["sessions"]],
+        None,
+        "The token body's field list.",
+    )
+    lines.append("    /// @dev The identity members the commitments are framed by; `idIsInteger`")
+    lines.append("    ///      for a bare JSON integer id, else a JSON string.")
+    lines.append("    function identityFields(bytes32 platformId)")
+    lines += [
+        "        internal",
+        "        pure",
+        "        returns (string memory idField, bool idIsInteger, string memory handleField)",
+        "    {",
+    ]
+    for p in profiles:
+        identity = p["sessions"].get("identity")
+        if identity is None:
+            continue
+        name = upper(p["platform"])
+        integer = "true" if identity["idShape"] == "jsonInteger" else "false"
+        lines.append(
+            f"        if (platformId == PLATFORM_{name}) return ({name}_ID_FIELD, {integer}, {name}_HANDLE_FIELD);"
+        )
+    lines += ["        revert UnknownPlatform(platformId);", "    }", ""]
+    return lines
 
 
 def sol_formatted(source: str) -> str:

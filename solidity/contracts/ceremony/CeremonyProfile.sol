@@ -162,5 +162,135 @@ library CeremonyProfile {
         revert UnknownPlatform(platformId);
     }
 
+    // --- By platform ----------------------------------------------------------
+
+    /// @dev The ceremony version the profile is.
+    function ceremonyVersion(bytes32 platformId) internal pure returns (uint16) {
+        if (platformId == PLATFORM_GOOGLE) return 1;
+        if (platformId == PLATFORM_X) return 1;
+        if (platformId == PLATFORM_GITHUB) return 1;
+        revert UnknownPlatform(platformId);
+    }
+
+    /// @dev In seconds: maximum age of the token attestation.
+    function proofLifetime(bytes32 platformId) internal pure returns (uint64) {
+        if (platformId == PLATFORM_X) return PROOF_LIFETIME_SECONDS_X;
+        if (platformId == PLATFORM_GITHUB) return PROOF_LIFETIME_SECONDS_GITHUB;
+        if (platformId == PLATFORM_GOOGLE) return 0;
+        revert UnknownPlatform(platformId);
+    }
+
+    /// @dev In seconds: how far ahead of Block Time the token attestation may be
+    ///      dated.
+    function maxFutureAttestationSkew(bytes32 platformId) internal pure returns (uint64) {
+        if (platformId == PLATFORM_X) return MAX_FUTURE_ATTESTATION_SKEW_SECONDS_X;
+        if (platformId == PLATFORM_GITHUB) return MAX_FUTURE_ATTESTATION_SKEW_SECONDS_GITHUB;
+        if (platformId == PLATFORM_GOOGLE) return 0;
+        revert UnknownPlatform(platformId);
+    }
+
+    /// @dev In seconds: how far ahead of Block Time the evidence time may run. The
+    ///      verifier subtracts it, so every version of a platform reports time on
+    ///      one scale.
+    function futureObservationAllowance(bytes32 platformId) internal pure returns (uint64) {
+        if (platformId == PLATFORM_GOOGLE) return FUTURE_OBSERVATION_ALLOWANCE_SECONDS_GOOGLE;
+        if (platformId == PLATFORM_X) return FUTURE_OBSERVATION_ALLOWANCE_SECONDS_X;
+        if (platformId == PLATFORM_GITHUB) return FUTURE_OBSERVATION_ALLOWANCE_SECONDS_GITHUB;
+        revert UnknownPlatform(platformId);
+    }
+
+    /// @dev The token session's authority.
+    function tokenAuthority(bytes32 platformId) internal pure returns (bytes32) {
+        if (platformId == PLATFORM_X) return AUTHORITY_X_API;
+        if (platformId == PLATFORM_GITHUB) return AUTHORITY_GITHUB;
+        revert UnknownPlatform(platformId);
+    }
+
+    /// @dev The token session's request-line prefix.
+    function tokenRequestLine(bytes32 platformId) internal pure returns (bytes memory) {
+        if (platformId == PLATFORM_X) return X_TOKEN_REQUEST_LINE;
+        if (platformId == PLATFORM_GITHUB) return GITHUB_TOKEN_REQUEST_LINE;
+        revert UnknownPlatform(platformId);
+    }
+
+    /// @dev keccak256 of the name and trimmed value of each line of the
+    ///      platform's `*_TOKEN_REQUIRED_HEADERS`, in order.
+    function tokenRequiredHeaderHashes(bytes32 platformId)
+        internal
+        pure
+        returns (bytes32[] memory names, bytes32[] memory values)
+    {
+        if (platformId == PLATFORM_X) {
+            names = new bytes32[](2);
+            values = new bytes32[](2);
+            (names[0], values[0]) = (keccak256("host"), keccak256("api.x.com"));
+            (names[1], values[1]) = (keccak256("content-type"), keccak256("application/x-www-form-urlencoded"));
+            return (names, values);
+        }
+        if (platformId == PLATFORM_GITHUB) {
+            names = new bytes32[](2);
+            values = new bytes32[](2);
+            (names[0], values[0]) = (keccak256("host"), keccak256("github.com"));
+            (names[1], values[1]) = (keccak256("content-type"), keccak256("application/x-www-form-urlencoded"));
+            return (names, values);
+        }
+        revert UnknownPlatform(platformId);
+    }
+
+    /// @dev The identity session's authority.
+    function identityAuthority(bytes32 platformId) internal pure returns (bytes32) {
+        if (platformId == PLATFORM_X) return AUTHORITY_X_API;
+        if (platformId == PLATFORM_GITHUB) return AUTHORITY_GITHUB_API;
+        revert UnknownPlatform(platformId);
+    }
+
+    /// @dev The identity session's request-line prefix.
+    function identityRequestLine(bytes32 platformId) internal pure returns (bytes memory) {
+        if (platformId == PLATFORM_X) return X_IDENTITY_REQUEST_LINE;
+        if (platformId == PLATFORM_GITHUB) return GITHUB_IDENTITY_REQUEST_LINE;
+        revert UnknownPlatform(platformId);
+    }
+
+    /// @dev keccak256 of the name and trimmed value of each line of the
+    ///      platform's `*_IDENTITY_REQUIRED_HEADERS`, in order.
+    function identityRequiredHeaderHashes(bytes32 platformId)
+        internal
+        pure
+        returns (bytes32[] memory names, bytes32[] memory values)
+    {
+        if (platformId == PLATFORM_X) {
+            names = new bytes32[](1);
+            values = new bytes32[](1);
+            (names[0], values[0]) = (keccak256("host"), keccak256("api.x.com"));
+            return (names, values);
+        }
+        if (platformId == PLATFORM_GITHUB) {
+            names = new bytes32[](1);
+            values = new bytes32[](1);
+            (names[0], values[0]) = (keccak256("host"), keccak256("api.github.com"));
+            return (names, values);
+        }
+        revert UnknownPlatform(platformId);
+    }
+
+    /// @dev The token body's field list.
+    function tokenFields(bytes32 platformId) internal pure returns (bytes memory) {
+        if (platformId == PLATFORM_X) return X_TOKEN_FIELDS;
+        if (platformId == PLATFORM_GITHUB) return GITHUB_TOKEN_FIELDS;
+        revert UnknownPlatform(platformId);
+    }
+
+    /// @dev The identity members the commitments are framed by; `idIsInteger`
+    ///      for a bare JSON integer id, else a JSON string.
+    function identityFields(bytes32 platformId)
+        internal
+        pure
+        returns (string memory idField, bool idIsInteger, string memory handleField)
+    {
+        if (platformId == PLATFORM_X) return (X_ID_FIELD, false, X_HANDLE_FIELD);
+        if (platformId == PLATFORM_GITHUB) return (GITHUB_ID_FIELD, true, GITHUB_HANDLE_FIELD);
+        revert UnknownPlatform(platformId);
+    }
+
     error UnknownPlatform(bytes32 platformId);
 }

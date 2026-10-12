@@ -131,27 +131,6 @@ contract GooglePlatformVerifier is IPlatformVerifier, PlatformVerifierBase {
         return CeremonyProfile.PLATFORM_GOOGLE;
     }
 
-    function _ceremonyVersion() internal pure override returns (uint16) {
-        return CeremonyProfile.LAUNCH_VERSION;
-    }
-
-    /// @dev No attestation, so no lifetime and no attestation skew: the signed
-    ///      `exp` is the whole validity ceiling.
-    function _proofLifetime() internal pure override returns (uint64) {
-        return 0;
-    }
-
-    function _maxFutureAttestationSkew() internal pure override returns (uint64) {
-        return 0;
-    }
-
-    /// @dev The allowance is real: `exp` runs an hour ahead of Block Time, and
-    ///      a Consumer comparing it raw against a TLSNotary profile's near-now
-    ///      evidence would let Google win every race.
-    function _futureObservationAllowance() internal pure override returns (uint64) {
-        return CeremonyProfile.FUTURE_OBSERVATION_ALLOWANCE_SECONDS_GOOGLE;
-    }
-
     /// @inheritdoc IPlatformVerifier
     function platformId() external pure returns (bytes32) {
         return CeremonyProfile.PLATFORM_GOOGLE;

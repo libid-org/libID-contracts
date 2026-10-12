@@ -37,59 +37,6 @@ contract XPlatformVerifier is TlsNotaryVerifierBase {
         return CeremonyProfile.PLATFORM_X;
     }
 
-    /// @dev The ceremony version this contract implements. The digest binds it;
-    ///      a payload claiming another is refused before any fee moves.
-    function _ceremonyVersion() internal pure override returns (uint16) {
-        return CeremonyProfile.LAUNCH_VERSION;
-    }
-
-    function _proofLifetime() internal pure override returns (uint64) {
-        return CeremonyProfile.PROOF_LIFETIME_SECONDS_X;
-    }
-
-    function _maxFutureAttestationSkew() internal pure override returns (uint64) {
-        return CeremonyProfile.MAX_FUTURE_ATTESTATION_SKEW_SECONDS_X;
-    }
-
-    function _futureObservationAllowance() internal pure override returns (uint64) {
-        return CeremonyProfile.FUTURE_OBSERVATION_ALLOWANCE_SECONDS_X;
-    }
-
-    /// @dev Both X sessions are served by the same host.
-    function _tokenAuthority() internal pure override returns (bytes32) {
-        return CeremonyProfile.AUTHORITY_X_API;
-    }
-
-    function _identityAuthority() internal pure override returns (bytes32) {
-        return CeremonyProfile.AUTHORITY_X_API;
-    }
-
-    function _tokenRequestLine() internal pure override returns (bytes memory) {
-        return CeremonyProfile.X_TOKEN_REQUEST_LINE;
-    }
-
-    /// @dev REQ-COMMON-21B. `host`, and the media type that makes X parse the
-    ///      body as the form this verifier reads. Revealed but uncompared, the
-    ///      media type was a byte a prover chose in a request every other
-    ///      field of which is pinned. The rest of what the browser sends is
-    ///      not compared: it changes what X answers, never what X parses.
-    function _tokenRequiredHeaders() internal pure override returns (bytes memory) {
-        return CeremonyProfile.X_TOKEN_REQUIRED_HEADERS;
-    }
-
-    function _identityRequestLine() internal pure override returns (bytes memory) {
-        return CeremonyProfile.X_IDENTITY_REQUEST_LINE;
-    }
-
-    /// @dev `host`, naming the identity authority.
-    function _identityRequiredHeaders() internal pure override returns (bytes memory) {
-        return CeremonyProfile.X_IDENTITY_REQUIRED_HEADERS;
-    }
-
-    function _tokenFields() internal pure override returns (bytes memory) {
-        return CeremonyProfile.X_TOKEN_FIELDS;
-    }
-
     /// @dev REQ-PLAT-56, and X's only value check of its own. The runtime's own
     ///      comparison runs in software the prover chooses whether to run, and
     ///      `grant_type` is the one revealed field that changes what X did with
@@ -105,16 +52,5 @@ contract XPlatformVerifier is TlsNotaryVerifierBase {
     function _checkTokenBody(CeremonyFields.Form memory form) internal pure override {
         bytes memory grantType = CeremonyFields.valueOf(form, "grant_type");
         if (keccak256(grantType) != keccak256(GRANT_TYPE)) revert WrongGrantType(grantType);
-    }
-
-    /// @dev REQ-PLAT-31. X's `id` is a JSON string: both commitments sit
-    ///      between a `"field":"` anchor, revealed once, and a closing quote.
-    function _identityFields()
-        internal
-        pure
-        override
-        returns (string memory idField, IdShape idShape, string memory handleField)
-    {
-        return (CeremonyProfile.X_ID_FIELD, IdShape.JsonString, CeremonyProfile.X_HANDLE_FIELD);
     }
 }

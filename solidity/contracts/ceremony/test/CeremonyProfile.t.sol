@@ -35,6 +35,55 @@ contract CeremonyProfileTest is Test {
         assertTrue(CeremonyProfile.AUTHORITY_GITHUB != CeremonyProfile.AUTHORITY_GITHUB_API);
     }
 
+    /// @dev The precomputed header hashes are what each CRLF block parses to:
+    ///      the name before the colon, and the value after it, trimmed.
+    function test_theRequiredHeaderHashesAreTheBlocksParsed() public pure {
+        bytes32[2] memory platforms = [CeremonyProfile.PLATFORM_X, CeremonyProfile.PLATFORM_GITHUB];
+        bytes[2] memory tokens =
+            [CeremonyProfile.X_TOKEN_REQUIRED_HEADERS, CeremonyProfile.GITHUB_TOKEN_REQUIRED_HEADERS];
+        bytes[2] memory identities =
+            [CeremonyProfile.X_IDENTITY_REQUIRED_HEADERS, CeremonyProfile.GITHUB_IDENTITY_REQUIRED_HEADERS];
+        for (uint256 i = 0; i < 2; ++i) {
+            (bytes32[] memory names, bytes32[] memory values) = CeremonyProfile.tokenRequiredHeaderHashes(platforms[i]);
+            _assertParsesTo(tokens[i], names, values);
+            (names, values) = CeremonyProfile.identityRequiredHeaderHashes(platforms[i]);
+            _assertParsesTo(identities[i], names, values);
+        }
+    }
+
+    function _assertParsesTo(bytes memory block_, bytes32[] memory names, bytes32[] memory values) private pure {
+        uint256 line;
+        uint256 from;
+        for (uint256 i = 0; i <= block_.length; ++i) {
+            if (i < block_.length && block_[i] != "\r") continue;
+            uint256 colon = from;
+            while (block_[colon] != ":") {
+                ++colon;
+            }
+            uint256 start = colon + 1;
+            uint256 end = i;
+            while (block_[start] == " " || block_[start] == "\t") {
+                ++start;
+            }
+            while (block_[end - 1] == " " || block_[end - 1] == "\t") {
+                --end;
+            }
+            assertEq(keccak256(_slice(block_, from, colon)), names[line], "name");
+            assertEq(keccak256(_slice(block_, start, end)), values[line], "value");
+            ++line;
+            from = i + 2;
+            ++i;
+        }
+        assertEq(line, names.length, "line count");
+    }
+
+    function _slice(bytes memory data, uint256 from, uint256 to) private pure returns (bytes memory out) {
+        out = new bytes(to - from);
+        for (uint256 i = from; i < to; ++i) {
+            out[i - from] = data[i];
+        }
+    }
+
     function test_attestationCountsFollowTheProfiles() public pure {
         // Google's path stops at the Platform Verifier and costs nothing.
         assertEq(CeremonyProfile.attestationCount(CeremonyProfile.PLATFORM_GOOGLE), 0);

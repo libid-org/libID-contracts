@@ -95,54 +95,16 @@ abstract contract TlsNotaryVerifierBase is IPlatformVerifier, PlatformVerifierBa
 
     // ─── What a profile supplies ────────────────────────────────────
 
-    function _tokenAuthority() internal pure virtual returns (bytes32);
-    function _identityAuthority() internal pure virtual returns (bytes32);
-    function _tokenRequestLine() internal pure virtual returns (bytes memory);
-    function _identityRequestLine() internal pure virtual returns (bytes memory);
-
-    /// @dev The header lines the token request must carry, CRLF-joined: `host`
-    ///      naming the pinned authority, and the media type that selects the
-    ///      platform's parser. `_checkTokenHead` requires each once with its
-    ///      value, refuses the names `CeremonyProfile.FORBIDDEN_REQUEST_HEADERS`
-    ///      lists, reads `content-length`, and ignores every other header.
-    ///
-    ///      The identity request's are `_identityRequiredHeaders`, checked by
-    ///      `_checkIdentityHead` beside `requireBearerHeaderRequest`'s coverage,
-    ///      one line-anchored `authorization` and framing.
-    function _tokenRequiredHeaders() internal pure virtual returns (bytes memory);
-    function _identityRequiredHeaders() internal pure virtual returns (bytes memory);
-
-    /// @dev The form fields the token request's body carries, `&`-joined in
-    ///      the order the prover serializes them. `_tokenTranscript` holds the
-    ///      WHOLE body to this list (`requireExactForm`): exactly these names
-    ///      in this order, each once with a nonempty value in the serializer's
-    ///      one spelling, and nothing after the last. Every profile is held
-    ///      this way, so the reads below see a body already known to carry
-    ///      each name once, and acceptance never rests on the platform
-    ///      refusing a form it did not count. GitHub's list is REQ-PLAT-61's
-    ///      and X's is REQ-PLAT-63's.
-    function _tokenFields() internal pure virtual returns (bytes memory);
+    // The authorities, request lines, required headers, token fields and
+    // identity members are `CeremonyProfile`'s, read through `_platform()`.
+    // The token body is held WHOLE to its field list (`requireExactForm`), so
+    // acceptance never rests on the platform refusing a form it did not count.
 
     /// @dev Any VALUE constraint the profile places on a token-body field
     ///      beyond the base's own. Default: nothing. Runs after the form is
     ///      known exact and before `code_verifier` and `client_id` are read.
     ///      X compares `grant_type`; GitHub adds none.
     function _checkTokenBody(CeremonyFields.Form memory form) internal pure virtual {}
-
-    /// @dev How a platform's id appears in its identity response: X quotes it,
-    ///      GitHub sends a bare integer.
-    enum IdShape {
-        JsonString,
-        JsonInteger
-    }
-
-    /// @dev The two identity members whose commitments this profile frames, as
-    ///      data, so a subclass never reads an attestation itself.
-    function _identityFields()
-        internal
-        pure
-        virtual
-        returns (string memory idField, IdShape idShape, string memory handleField);
 
     // ─── The flow ───────────────────────────────────────────────────
 
@@ -207,7 +169,8 @@ abstract contract TlsNotaryVerifierBase is IPlatformVerifier, PlatformVerifierBa
         uint256 fee,
         VerifiedClaim memory fields
     ) private returns (uint64 observedAt, bytes32 tokenCommitment) {
-        CeremonyAttestation.AttestedData memory data = _authenticate(p.tokenSession, _tokenAuthority(), fee);
+        CeremonyAttestation.AttestedData memory data =
+            _authenticate(p.tokenSession, CeremonyProfile.tokenAuthority(_platform()), fee);
         (fields.clientIdentifier, tokenCommitment) = _tokenTranscript(data, authorizationDigest, p.authorizationNonce);
 
         // The token attestation is the one-time PKCE and digest binding, so it
@@ -241,7 +204,9 @@ abstract contract TlsNotaryVerifierBase is IPlatformVerifier, PlatformVerifierBa
         }
         // The one comparison of the method and path (REQ-COMMON-21A): the head
         // check below starts past the request line.
-        if (!_startsWith(data.sent.revealed[0].value, _tokenRequestLine())) revert WrongRequestLine();
+        if (!_startsWith(data.sent.revealed[0].value, CeremonyProfile.tokenRequestLine(_platform()))) {
+            revert WrongRequestLine();
+        }
 
         bytes memory body = _tokenBody(data.sent);
 
@@ -250,7 +215,8 @@ abstract contract TlsNotaryVerifierBase is IPlatformVerifier, PlatformVerifierBa
         // is there. A value nobody reads is held to the alphabet and to
         // nothing more -- in that alphabet it cannot become another field,
         // and no contract acts on what it decodes to.
-        CeremonyFields.Form memory form = CeremonyFields.requireExactForm(body, _tokenFields());
+        CeremonyFields.Form memory form =
+            CeremonyFields.requireExactForm(body, CeremonyProfile.tokenFields(_platform()));
         _checkTokenBody(form);
 
         // REQ-COMMON-15A. This is the whole binding between the evidence and
@@ -289,7 +255,8 @@ abstract contract TlsNotaryVerifierBase is IPlatformVerifier, PlatformVerifierBa
     }
 
     function _identitySession(TlsNotaryProof memory p, uint256 fee) private returns (Commitments memory) {
-        CeremonyAttestation.AttestedData memory data = _authenticate(p.identitySession, _identityAuthority(), fee);
+        CeremonyAttestation.AttestedData memory data =
+            _authenticate(p.identitySession, CeremonyProfile.identityAuthority(_platform()), fee);
         return _identityTranscript(data);
     }
 
@@ -316,7 +283,7 @@ abstract contract TlsNotaryVerifierBase is IPlatformVerifier, PlatformVerifierBa
                     ? type(uint32).max
                     : data.sent.revealed[0].start);
         }
-        if (!_startsWith(data.sent.revealed[0].value, _identityRequestLine())) {
+        if (!_startsWith(data.sent.revealed[0].value, CeremonyProfile.identityRequestLine(_platform()))) {
             revert WrongRequestLine();
         }
 
@@ -338,12 +305,13 @@ abstract contract TlsNotaryVerifierBase is IPlatformVerifier, PlatformVerifierBa
         // Each anchor is revealed once and frames one commitment. A duplicate
         // hidden behind a commitment is not detectable here (ASM-PROV-06).
         CeremonyAttestation.requireExactCoverage(data.received, data.recvTranscriptLength);
-        (string memory idField, IdShape idShape, string memory handleField) = _identityFields();
+        (string memory idField, bool idIsInteger, string memory handleField) =
+            CeremonyProfile.identityFields(_platform());
         // Joined and normalized once; both reads count their prefix in it.
         CeremonyAttestation.Framing memory f = CeremonyAttestation.framing(data.received);
-        id = idShape == IdShape.JsonString
-            ? CeremonyAttestation.requireFramedCommitment(f, abi.encodePacked('"', idField, '":"'), '"').commitment
-            : CeremonyAttestation.requireFramedInteger(f, abi.encodePacked('"', idField, '":')).commitment;
+        id = idIsInteger
+            ? CeremonyAttestation.requireFramedInteger(f, abi.encodePacked('"', idField, '":')).commitment
+            : CeremonyAttestation.requireFramedCommitment(f, abi.encodePacked('"', idField, '":"'), '"').commitment;
         handle =
         CeremonyAttestation.requireFramedCommitment(f, abi.encodePacked('"', handleField, '":"'), '"').commitment;
     }
@@ -401,7 +369,7 @@ abstract contract TlsNotaryVerifierBase is IPlatformVerifier, PlatformVerifierBa
         CeremonyAttestation.requireCrlfLineEndings(head);
 
         TokenHead memory state;
-        (state.requiredNames, state.requiredValues) = _requiredHeaders(_tokenRequiredHeaders());
+        (state.requiredNames, state.requiredValues) = CeremonyProfile.tokenRequiredHeaderHashes(_platform());
 
         // Past the request line, which `_tokenTranscript` has already compared.
         uint256 from = _lineEnd(head, 0) + 2;
@@ -447,26 +415,6 @@ abstract contract TlsNotaryVerifierBase is IPlatformVerifier, PlatformVerifierBa
         if (_hash(head, valueStart, valueEnd) != state.requiredValues[i]) revert WrongTokenRequestHead();
         if (state.found & (1 << i) != 0) revert WrongTokenRequestHead();
         state.found |= 1 << i;
-    }
-
-    /// @dev The name and value hashes of each line of a required-headers block.
-    ///      A line `_field` rejects hashes as the empty name, which no header
-    ///      line has, so no head satisfies it.
-    function _requiredHeaders(bytes memory block_)
-        private
-        pure
-        returns (bytes32[] memory names, bytes32[] memory values)
-    {
-        names = new bytes32[](_countLines(block_));
-        values = new bytes32[](names.length);
-        uint256 from;
-        for (uint256 i = 0; i < names.length; ++i) {
-            uint256 to = _lineEnd(block_, from);
-            (, bytes memory name, uint256 valueStart, uint256 valueEnd) = _field(block_, from, to);
-            names[i] = keccak256(name);
-            values[i] = _hash(block_, valueStart, valueEnd);
-            from = to + 2;
-        }
     }
 
     /// @dev The first index of `hash` in `hashes`, or `max`.
@@ -544,13 +492,13 @@ abstract contract TlsNotaryVerifierBase is IPlatformVerifier, PlatformVerifierBa
     ///      `requireBearerHeaderRequest` has counted under any scheme. `cookie`
     ///      is the case: another credential the platform might honour over the
     ///      bearer the exchange is bound to, which is the one thing the
-    ///      cross-bind exists to fix. Each `_identityRequiredHeaders` line
+    ///      cross-bind exists to fix. Each of the profile's identity lines
     ///      appears once with its value. Read over the whole concatenation, as
     ///      the count is, so a header after a blank line counts too; a line
     ///      that is not a header is the platform's to refuse.
     // forge-lint: disable-next-item(incorrect-shift)
     function _checkIdentityHead(bytes memory revealed) private pure {
-        (bytes32[] memory names, bytes32[] memory values) = _requiredHeaders(_identityRequiredHeaders());
+        (bytes32[] memory names, bytes32[] memory values) = CeremonyProfile.identityRequiredHeaderHashes(_platform());
         uint256 found;
         uint256 from = _lineEnd(revealed, 0) + 2;
         while (from < revealed.length) {
@@ -588,13 +536,6 @@ abstract contract TlsNotaryVerifierBase is IPlatformVerifier, PlatformVerifierBa
             if (data[cr + 1] == 0x0a) return cr;
         }
         return data.length;
-    }
-
-    function _countLines(bytes memory block_) private pure returns (uint256 count) {
-        count = 1;
-        for (uint256 end = _lineEnd(block_, 0); end < block_.length; end = _lineEnd(block_, end + 2)) {
-            ++count;
-        }
     }
 
     /// @dev `data[from:to]` as canonical decimal, at most `uint32`'s ten

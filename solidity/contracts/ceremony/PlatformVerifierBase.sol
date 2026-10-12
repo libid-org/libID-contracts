@@ -157,7 +157,9 @@ abstract contract PlatformVerifierBase is ICeremony, Initializable, UUPSUpgradea
     ///      is a property of the code, not of a deployment. Unrelated to the
     ///      verifier version the Proof Verifier routes on, which is this
     ///      chain's slot number.
-    function _ceremonyVersion() internal pure virtual returns (uint16);
+    function _ceremonyVersion() internal pure virtual returns (uint16) {
+        return CeremonyProfile.ceremonyVersion(_platform());
+    }
 
     /// @dev The validity window, read from `CeremonyProfile` for this
     ///      verifier's profile. A property of the code like the ceremony
@@ -170,8 +172,13 @@ abstract contract PlatformVerifierBase is ICeremony, Initializable, UUPSUpgradea
     ///      The first is the maximum age of the token attestation, the second
     ///      its maximum lead over Block Time. A profile that notarizes nothing
     ///      has no token attestation, and both are zero.
-    function _proofLifetime() internal pure virtual returns (uint64);
-    function _maxFutureAttestationSkew() internal pure virtual returns (uint64);
+    function _proofLifetime() internal pure virtual returns (uint64) {
+        return CeremonyProfile.proofLifetime(_platform());
+    }
+
+    function _maxFutureAttestationSkew() internal pure virtual returns (uint64) {
+        return CeremonyProfile.maxFutureAttestationSkew(_platform());
+    }
 
     /// @dev How far ahead of Block Time this profile's evidence time may run.
     ///
@@ -182,7 +189,9 @@ abstract contract PlatformVerifierBase is ICeremony, Initializable, UUPSUpgradea
     ///      verifier subtracts its own allowance and returns a time on one
     ///      shared scale. It is also the ceiling: evidence dated further ahead
     ///      than this is refused rather than normalised.
-    function _futureObservationAllowance() internal pure virtual returns (uint64);
+    function _futureObservationAllowance() internal pure virtual returns (uint64) {
+        return CeremonyProfile.futureObservationAllowance(_platform());
+    }
 
     /// @dev Refuse a payload made for another ceremony version, by name.
     function _requireCeremonyVersion(uint16 claimed) internal pure {
