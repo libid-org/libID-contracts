@@ -86,9 +86,16 @@ def check_tags(spec: dict[str, Any]) -> None:
 
 
 def check_nodes(spec: dict[str, Any]) -> None:
-    """Refuse a table whose stored nodes are not SHA256(tag || value); a
-    refused vector carries no node."""
+    """Refuse a table whose accepted outputs are not the fold of their inputs,
+    or whose stored nodes are not SHA256(tag || value); a refused vector
+    carries no node."""
     tags = {p["key"]: p["tags"] for p in spec["platforms"]}
+    for vec in spec["vectors"]:
+        folded = bytes(fold_byte(b) for b in vec["input"].encode())
+        if "output" in vec and vec["output"].encode() != folded:
+            raise SystemExit(
+                f"ERROR: {vec['platform']} {vec['input']!r}: output {vec['output']!r} is not its input folded"
+            )
     cases = [(vec, "handle", "handleNode", vec.get("output")) for vec in spec["vectors"]] + [
         (vec, "userId", "idNode", None if "error" in vec else vec["input"]) for vec in spec["idVectors"]
     ]
