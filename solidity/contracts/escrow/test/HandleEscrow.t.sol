@@ -294,6 +294,18 @@ contract HandleEscrowTest is Test {
         escrow.depositToHandle{value: 1 ether}(nowhere, "alice", NATIVE, 1 ether, sender);
     }
 
+    /// A public deposit refuses a known platform no verifier serves; a private one escrows.
+    function test_aPublicDepositRefusesAPlatformThatAcceptsNoBindings() public {
+        vm.startPrank(sender);
+        vm.expectRevert(abi.encodeWithSelector(HandleEscrow.PlatformAcceptsNoBindings.selector, GOOGLE));
+        escrow.depositToHandle{value: 1 ether}(GOOGLE, "alice@gmail.com", NATIVE, 1 ether, sender);
+
+        bytes32 node = TestNodes.handleNode(GOOGLE, "alice@gmail.com");
+        escrow.deposit{value: 1 ether}(node, NATIVE, 1 ether, sender);
+        vm.stopPrank();
+        assertEq(escrow.escrowed(node, NATIVE), 1 ether);
+    }
+
     // ─── Depositing ─────────────────────────────────────────────────
 
     /// Unheld: held and announced. Held: paid straight through and announced, the earlier deposit

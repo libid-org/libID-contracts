@@ -28,6 +28,10 @@ contract SettableRegistry is IIdentityRegistry {
         (, handleNode) = HandlePlatforms.handleNodeOf(platformId, handle);
     }
 
+    function acceptsBindings(bytes32 platformId) external pure returns (bool) {
+        return HandlePlatforms.knows(platformId);
+    }
+
     function nodeKeyed() external pure virtual returns (bool) {
         return true;
     }

@@ -17,9 +17,11 @@ escrow.refund(handleNode, token, recipient);   // refundTo, while unclaimed
   node, never the handle.
 - `depositToHandle(platformId, handle, …)` is public: the escrow asks the
   registry's `handleNodeOf` for the node, and `DepositedToHandle` logs the
-  platform and the handle as given. It credits the same node, so a
-  claim takes both kinds together. Text the platform's rules refuse lands on
-  a node nobody can prove; only `refundTo` gets it back.
+  platform and the handle as given. It credits the same node, so a claim
+  takes both kinds together. Text the platform's rules refuse lands on a node
+  nobody can prove; only `refundTo` gets it back. It reverts
+  `PlatformAcceptsNoBindings` while the registry's `acceptsBindings` is false
+  for the platform.
 
 ## Integrating
 
@@ -49,8 +51,9 @@ escrow.refund(handleNode, token, recipient);   // refundTo, while unclaimed
   reverts `OverDebited`, and only an upgrade can release it. A token that
   blocklists the escrow freezes its slots; value sent outside `deposit` is
   never swept.
-- Refunds work whatever the platform's state. A node on a platform that no
-  longer binds escrows like any other and can only be refunded.
+- Refunds work whatever the platform's state. A private deposit to a node on
+  a platform that no longer binds escrows like any other and can only be
+  refunded.
 - Indexers should allow-list tokens: anyone can emit `Deposited` for a token
   they wrote.
 
