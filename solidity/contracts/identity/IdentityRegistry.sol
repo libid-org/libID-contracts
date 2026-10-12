@@ -120,7 +120,7 @@ contract IdentityRegistry is
     event BindFeePaid(bytes32 indexed authorizationDigest, address indexed receiver, uint256 amount);
 
     /// @notice A handle stopped resolving because the identity that had it
-    ///         proved a different one.
+    ///         proved a different one. `holder` is the address that held it.
     /// @dev Nobody else's entry can be retired this way. See `bind`.
     event HandleRetired(bytes32 indexed platformId, bytes32 indexed handleNode, address indexed holder);
 
@@ -299,7 +299,7 @@ contract IdentityRegistry is
 
         address holder = _s().handleBindings[previous].holder;
         _s().handleBindings[previous].holder = address(0);
-        emit HandleRetired(platformId, previous, msg.sender);
+        emit HandleRetired(platformId, previous, holder);
 
         // Else proving the old handle again, privately, would show this name again.
         string memory name = _s().published[holder][platformId];

@@ -261,6 +261,18 @@ contract IdentityRegistryTest is PrivacyScan {
         assertEq(registry.resolveHandle(X, "alice"), address(0), "the handle it left no longer resolves");
     }
 
+    /// A rename from a new wallet names the wallet that held the retired handle.
+    function test_aRetirementNamesTheHandlesHolder() public {
+        _bind(alice, "123", "alice", 100);
+        bytes32 left = _hn(X, "alice");
+
+        _stage("123", "alice2", bob, 200);
+        vm.expectEmit(address(registry));
+        emit IdentityRegistry.HandleRetired(X, left, alice);
+        vm.prank(bob);
+        _submit(X, "");
+    }
+
     /// Only the entry this identity itself wrote. One holder may have two
     /// identities on a platform, and the second may have taken the handle the
     /// first released — retiring that would delete a binding nobody renamed.
