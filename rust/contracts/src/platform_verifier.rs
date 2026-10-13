@@ -149,12 +149,13 @@ impl PlatformVerifier {
     ) -> Result<B256> {
         let codehash = codehash_at(provider, address).await?;
         if codehash != pinned {
+            let known = Circuit::runtime_codehashes(artifacts)?;
             return Err(Error::WrongCircuit {
                 contract: self.contract(),
                 address,
                 expected_codehash: pinned,
-                expected: Circuit::with_runtime_codehash(artifacts, pinned)?,
-                found: Circuit::with_runtime_codehash(artifacts, codehash)?,
+                expected: Circuit::with_runtime_codehash(&known, pinned),
+                found: Circuit::with_runtime_codehash(&known, codehash),
                 codehash,
             });
         }

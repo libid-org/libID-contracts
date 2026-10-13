@@ -85,17 +85,26 @@ impl Circuit {
         )?))
     }
 
-    /// The circuit whose vendored verifier has this code hash, if any.
+    /// Every circuit beside its [`runtime_codehash`](Self::runtime_codehash),
+    /// in [`ALL`](Self::ALL)'s order.
+    pub fn runtime_codehashes(artifacts: &Artifacts) -> Result<[(Self, B256); 3]> {
+        let [a, b, c] = Self::ALL;
+        Ok([
+            (a, a.runtime_codehash(artifacts)?),
+            (b, b.runtime_codehash(artifacts)?),
+            (c, c.runtime_codehash(artifacts)?),
+        ])
+    }
+
+    /// The circuit `codehashes` pairs with `codehash`, if any.
     pub fn with_runtime_codehash(
-        artifacts: &Artifacts,
+        codehashes: &[(Self, B256)],
         codehash: B256,
-    ) -> Result<Option<Self>> {
-        for circuit in Self::ALL {
-            if circuit.runtime_codehash(artifacts)? == codehash {
-                return Ok(Some(circuit));
-            }
-        }
-        Ok(None)
+    ) -> Option<Self> {
+        codehashes
+            .iter()
+            .find(|(_, hash)| *hash == codehash)
+            .map(|&(circuit, _)| circuit)
     }
 }
 
@@ -208,15 +217,16 @@ mod tests {
     #[test]
     fn a_runtime_codehash_names_its_circuit() {
         let artifacts = Artifacts::embedded();
+        let codehashes = Circuit::runtime_codehashes(&artifacts).unwrap();
         for circuit in Circuit::ALL {
             let codehash = circuit.runtime_codehash(&artifacts).unwrap();
             assert_eq!(
-                Circuit::with_runtime_codehash(&artifacts, codehash).unwrap(),
+                Circuit::with_runtime_codehash(&codehashes, codehash),
                 Some(circuit)
             );
         }
         assert_eq!(
-            Circuit::with_runtime_codehash(&artifacts, B256::ZERO).unwrap(),
+            Circuit::with_runtime_codehash(&codehashes, B256::ZERO),
             None
         );
     }
