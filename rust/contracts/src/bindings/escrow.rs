@@ -113,8 +113,6 @@ mod escrow_inner {
             /// `initialize`: the registry does not answer `selector`.
             error RegistryLacks(address registry, bytes4 selector);
             error RenounceDisabled();
-            /// `depositToHandle`: a platform the registry does not know.
-            error UnknownPlatform(bytes32 platformId);
             /// `depositToHandle` to an unheld node: the registry's `acceptsBindings` is false.
             error PlatformAcceptsNoBindings(bytes32 platformId);
             error OwnableUnauthorizedAccount(address account);

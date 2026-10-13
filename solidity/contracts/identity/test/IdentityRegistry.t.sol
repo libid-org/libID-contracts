@@ -6,6 +6,7 @@ import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.s
 
 import {HandlePlatforms} from "../../handles/HandlePlatforms.sol";
 import {IdentityRegistry} from "../IdentityRegistry.sol";
+import {IIdentityRegistry} from "../IIdentityRegistry.sol";
 import {CeremonyProofVerifier} from "../../ceremony/CeremonyProofVerifier.sol";
 import {IPlatformVerifier} from "../../ceremony/IPlatformVerifier.sol";
 import {IProofVerifier} from "../../ceremony/IProofVerifier.sol";
@@ -187,7 +188,7 @@ contract IdentityRegistryTest is PrivacyScan {
         _stage("123", "alice", alice, 100);
 
         vm.prank(alice);
-        vm.expectRevert(abi.encodeWithSelector(IdentityRegistry.UnknownPlatform.selector, unknown));
+        vm.expectRevert(abi.encodeWithSelector(IIdentityRegistry.UnknownPlatform.selector, unknown));
         _submit(unknown, "");
     }
 
@@ -350,30 +351,30 @@ contract IdentityRegistryTest is PrivacyScan {
 
         _stage("123", "alice", alice, 100);
         vm.prank(alice);
-        vm.expectRevert(abi.encodeWithSelector(IdentityRegistry.UnknownPlatform.selector, unwired));
+        vm.expectRevert(abi.encodeWithSelector(IIdentityRegistry.UnknownPlatform.selector, unwired));
         _submit(unwired, "");
         vm.prank(alice);
-        vm.expectRevert(abi.encodeWithSelector(IdentityRegistry.UnknownPlatform.selector, unwired));
+        vm.expectRevert(abi.encodeWithSelector(IIdentityRegistry.UnknownPlatform.selector, unwired));
         registry.publish(unwired, "alice");
         assertFalse(registry.acceptsBindings(unwired));
         vm.prank(alice);
-        vm.expectRevert(abi.encodeWithSelector(IdentityRegistry.UnknownPlatform.selector, unwired));
+        vm.expectRevert(abi.encodeWithSelector(IIdentityRegistry.UnknownPlatform.selector, unwired));
         registry.unpublish(unwired);
-        vm.expectRevert(abi.encodeWithSelector(IdentityRegistry.UnknownPlatform.selector, unwired));
+        vm.expectRevert(abi.encodeWithSelector(IIdentityRegistry.UnknownPlatform.selector, unwired));
         registry.publishedHandleOf(alice, unwired);
 
-        vm.expectRevert(abi.encodeWithSelector(IdentityRegistry.UnknownPlatform.selector, unwired));
+        vm.expectRevert(abi.encodeWithSelector(IIdentityRegistry.UnknownPlatform.selector, unwired));
         registry.resolveHandle(unwired, "alice");
 
-        vm.expectRevert(abi.encodeWithSelector(IdentityRegistry.UnknownPlatform.selector, unwired));
+        vm.expectRevert(abi.encodeWithSelector(IIdentityRegistry.UnknownPlatform.selector, unwired));
         registry.resolveHandleAndId(unwired, "alice", idNode);
         bytes32 handleNode = _hn(X, "alice");
-        vm.expectRevert(abi.encodeWithSelector(IdentityRegistry.UnknownPlatform.selector, unwired));
+        vm.expectRevert(abi.encodeWithSelector(IIdentityRegistry.UnknownPlatform.selector, unwired));
         registry.resolveHandleNodeAndId(unwired, handleNode, idNode);
 
-        vm.expectRevert(abi.encodeWithSelector(IdentityRegistry.UnknownPlatform.selector, unwired));
+        vm.expectRevert(abi.encodeWithSelector(IIdentityRegistry.UnknownPlatform.selector, unwired));
         registry.handleTagOf(unwired);
-        vm.expectRevert(abi.encodeWithSelector(IdentityRegistry.UnknownPlatform.selector, unwired));
+        vm.expectRevert(abi.encodeWithSelector(IIdentityRegistry.UnknownPlatform.selector, unwired));
         registry.handleNodeOf(unwired, "alice");
 
         assertEq(registry.resolveId(keccak256("no such node")), address(0));
@@ -541,7 +542,7 @@ contract IdentityRegistryTest is PrivacyScan {
         registry.publish(X, "@alice");
         vm.expectRevert(abi.encodeWithSelector(IdentityRegistry.NotYourHandle.selector, _hn(X, "")));
         registry.publish(X, "");
-        vm.expectRevert(abi.encodeWithSelector(IdentityRegistry.UnknownPlatform.selector, keccak256("nowhere")));
+        vm.expectRevert(abi.encodeWithSelector(IIdentityRegistry.UnknownPlatform.selector, keccak256("nowhere")));
         registry.publish(keccak256("nowhere"), "alice");
         vm.stopPrank();
     }
@@ -1146,10 +1147,10 @@ contract IdentityRegistryTest is PrivacyScan {
         bytes32 idNode = _id(google, "123");
         bytes32 handleNode = _hn(google, "alice@gmail.com");
 
-        vm.expectRevert(abi.encodeWithSelector(IdentityRegistry.UnknownPlatform.selector, google));
+        vm.expectRevert(abi.encodeWithSelector(IIdentityRegistry.UnknownPlatform.selector, google));
         registry.resolveHandle(google, "alice@gmail.com");
 
-        vm.expectRevert(abi.encodeWithSelector(IdentityRegistry.UnknownPlatform.selector, google));
+        vm.expectRevert(abi.encodeWithSelector(IIdentityRegistry.UnknownPlatform.selector, google));
         registry.resolveHandleAndId(google, "alice@gmail.com", idNode);
 
         // The hashing views still answer.

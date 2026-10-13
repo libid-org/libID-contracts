@@ -3,6 +3,9 @@ pragma solidity ^0.8.20;
 
 /// @notice What other contracts ask the identity registry.
 interface IIdentityRegistry {
+    /// The platform is not in `handles.json`, or a resolver's platform cannot be used.
+    error UnknownPlatform(bytes32 platformId);
+
     /// @notice The holder of this handle node (zero if none), and when it was last proved.
     function handleBinding(bytes32 handleNode) external view returns (address holder, uint64 observedAt);
 

@@ -295,7 +295,7 @@ contract HandleEscrowTest is PrivacyScan {
     function test_aPublicDepositRefusesAnUnknownPlatform() public {
         bytes32 nowhere = keccak256("nowhere");
         vm.prank(sender);
-        vm.expectRevert(abi.encodeWithSelector(HandleEscrow.UnknownPlatform.selector, nowhere));
+        vm.expectRevert(abi.encodeWithSelector(IIdentityRegistry.UnknownPlatform.selector, nowhere));
         escrow.depositToHandle{value: 1 ether}(nowhere, "alice", NATIVE, 1 ether, sender, address(0));
     }
 

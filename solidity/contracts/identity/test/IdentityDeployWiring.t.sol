@@ -6,8 +6,10 @@ import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.s
 
 import {HandlePlatforms} from "../../handles/HandlePlatforms.sol";
 import {IdentityRegistry} from "../IdentityRegistry.sol";
+import {IIdentityRegistry} from "../IIdentityRegistry.sol";
 import {IPlatformVerifier} from "../../ceremony/IPlatformVerifier.sol";
 import {IProofVerifier} from "../../ceremony/IProofVerifier.sol";
+import {CeremonyProfile} from "../../ceremony/CeremonyProfile.sol";
 import {CeremonyProofVerifier} from "../../ceremony/CeremonyProofVerifier.sol";
 import {StubPlatformVerifier} from "./StubPlatformVerifier.sol";
 
@@ -38,6 +40,13 @@ contract IdentityDeployWiringTest is Test {
         this.handleTagForExternally(nowhere);
     }
 
+    /// The handle table and the ceremony profiles sit below identity, so each
+    /// keeps its own copy of the registry's error; all three are one error.
+    function test_everyUnknownPlatformIsTheRegistrysError() public pure {
+        assertEq(HandlePlatforms.UnknownPlatform.selector, IIdentityRegistry.UnknownPlatform.selector);
+        assertEq(CeremonyProfile.UnknownPlatform.selector, IIdentityRegistry.UnknownPlatform.selector);
+    }
+
     /// `handleTagFor` is an internal library call, which `expectRevert` cannot see.
     /// This gives it a call boundary to watch.
     function handleTagForExternally(bytes32 platformId) external pure returns (bytes memory) {
@@ -47,7 +56,7 @@ contract IdentityDeployWiringTest is Test {
     /// Each platform resolves once a verifier is registered for it, and not before.
     function test_registeringAVerifierMakesEveryPlatformUsable() public {
         vm.expectRevert(
-            abi.encodeWithSelector(IdentityRegistry.UnknownPlatform.selector, HandlePlatforms.PLATFORM_GOOGLE)
+            abi.encodeWithSelector(IIdentityRegistry.UnknownPlatform.selector, HandlePlatforms.PLATFORM_GOOGLE)
         );
         registry.resolveHandle(HandlePlatforms.PLATFORM_GOOGLE, "nobody@example.com");
 

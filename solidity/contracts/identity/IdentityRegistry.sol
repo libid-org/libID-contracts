@@ -137,9 +137,6 @@ contract IdentityRegistry is
 
     // ─── Errors ─────────────────────────────────────────────────────
 
-    /// The platform is not in `handles.json`, or a resolver's platform cannot be used.
-    error UnknownPlatform(bytes32 platformId);
-
     /// @notice The one operation this Consumer owns (REQ-COMMON-01A).
     bytes32 public constant OPERATION_DOMAIN = keccak256(bytes("libid.claim-identity"));
 

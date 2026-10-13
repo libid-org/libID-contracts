@@ -140,8 +140,6 @@ contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable
     error RegistryLacks(address registry, bytes4 selector);
     /// Ownership cannot be renounced; see `renounceOwnership`.
     error RenounceDisabled();
-    /// `depositToHandle`, from the registry: a platform it does not know.
-    error UnknownPlatform(bytes32 platformId);
     /// `depositToHandle` to an unheld node: nobody can bind on this platform now, so nobody could claim.
     error PlatformAcceptsNoBindings(bytes32 platformId);
 
@@ -187,7 +185,7 @@ contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable
     }
 
     /// @notice `deposit` to a handle given as text, which the calldata and the
-    ///         log make public. Reverts `UnknownPlatform` for a platform the registry does not know,
+    ///         log make public. Reverts the registry's `UnknownPlatform` for a platform it does not know,
     ///         and `PlatformAcceptsNoBindings` when it would escrow on one nobody can bind now.
     /// @dev The node is the registry's `handleNodeOf`: the one `deposit` takes.
     function depositToHandle(
@@ -354,7 +352,8 @@ contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable
         (ok, result) = address(registry_).staticcall(abi.encodeCall(IIdentityRegistry.handleNodeOf, (bytes32(0), "")));
         bool answered = ok
             ? result.length == 32
-            : keccak256(result) == keccak256(abi.encodeWithSelector(UnknownPlatform.selector, bytes32(0)));
+            : keccak256(result)
+                == keccak256(abi.encodeWithSelector(IIdentityRegistry.UnknownPlatform.selector, bytes32(0)));
         if (!answered) {
             revert RegistryLacks(address(registry_), IIdentityRegistry.handleNodeOf.selector);
         }
