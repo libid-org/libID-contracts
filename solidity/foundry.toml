@@ -104,7 +104,7 @@ exclude_lints = [
     "multi-contract-file",
     # The cheatcodes it names are file access, `ffi`, `setEnv` and `deriveKey`.
     # File access is what fs_permissions above confines already -- read-only,
-    # two directories -- and `ffi` is off. The uses on the tree are tests
-    # reading those two directories.
+    # to the test fixtures, `out` and handles.json -- and `ffi` is off. The
+    # uses on the tree are tests reading those.
     "unsafe-cheatcode",
 ]
