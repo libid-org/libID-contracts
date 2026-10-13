@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-import {Test} from "forge-std/Test.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {ReentrancyGuardUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardUpgradeable.sol";
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
@@ -13,6 +12,7 @@ import {IdentityRegistry} from "../../identity/IdentityRegistry.sol";
 import {IIdentityRegistry} from "../../identity/IIdentityRegistry.sol";
 import {StubPlatformVerifier} from "../../identity/test/StubPlatformVerifier.sol";
 import {TestNodes} from "../../identity/test/TestNodes.sol";
+import {PrivacyScan} from "../../identity/test/PrivacyScan.sol";
 import {CeremonyProofVerifier} from "../../ceremony/CeremonyProofVerifier.sol";
 import {IPlatformVerifier} from "../../ceremony/IPlatformVerifier.sol";
 import {IProofVerifier} from "../../ceremony/IProofVerifier.sol";
@@ -152,7 +152,7 @@ contract RegistryWithHandleBindingOnly {
 }
 
 /// @notice The handle node escrow, against the real registry.
-contract HandleEscrowTest is Test {
+contract HandleEscrowTest is PrivacyScan {
     IdentityRegistry internal registry;
     CeremonyProofVerifier internal proofVerifier;
     StubPlatformVerifier internal xVerifier;
@@ -295,6 +295,35 @@ contract HandleEscrowTest is Test {
         vm.prank(sender);
         vm.expectRevert(abi.encodeWithSelector(HandleEscrow.UnknownPlatform.selector, nowhere));
         escrow.depositToHandle{value: 1 ether}(nowhere, "alice", NATIVE, 1 ether, sender);
+    }
+
+    /// A public deposit to a held node is paid through and still names its handle.
+    function test_aPublicDepositToAHeldNodeIsPaidThrough() public {
+        _bind(alice, "1", "alice", 100);
+        vm.expectEmit(address(escrow));
+        emit HandleEscrow.Forwarded(aliceNode, NATIVE, sender, alice, 1 ether, 1 ether);
+        vm.expectEmit(address(escrow));
+        emit HandleEscrow.DepositedToHandle(aliceNode, X, "Alice");
+        vm.prank(sender);
+        escrow.depositToHandle{value: 1 ether}(X, "Alice", NATIVE, 1 ether, sender);
+        assertEq(alice.balance, 1 ether);
+        assertEq(escrow.escrowed(aliceNode, NATIVE), 0);
+    }
+
+    /// A private deposit's calldata and logs carry no handle text; a public one's carry it.
+    function test_aPrivateDepositPutsNoHandleOnChain() public {
+        bytes memory privateCall = abi.encodeCall(HandleEscrow.deposit, (aliceNode, NATIVE, 1 ether, sender));
+        assertFalse(_containsAny(privateCall), "the handle in the calldata");
+        vm.recordLogs();
+        _send(privateCall);
+        _assertLogsHideTheSecrets(vm.getRecordedLogs());
+
+        bytes memory publicCall = abi.encodeCall(HandleEscrow.depositToHandle, (X, "Alice", NATIVE, 1 ether, sender));
+        assertTrue(_containsAny(publicCall), "the scan misses the handle in calldata");
+        vm.recordLogs();
+        _send(publicCall);
+        assertTrue(_containsAny(_loggedRun(vm.getRecordedLogs())), "the scan misses the handle in the logs");
+        assertEq(escrow.escrowed(aliceNode, NATIVE), 2 ether);
     }
 
     /// A public deposit refuses a known platform no verifier serves; a private one escrows.
@@ -765,6 +794,17 @@ contract HandleEscrowTest is Test {
     }
 
     // ─── Helpers ────────────────────────────────────────────────────
+
+    function _secrets() internal pure override returns (string[3] memory) {
+        return ["Alice", "alice", "ALICE"];
+    }
+
+    /// Send `data` to the escrow from `sender` with 1 ether.
+    function _send(bytes memory data) internal {
+        vm.prank(sender);
+        (bool ok,) = address(escrow).call{value: 1 ether}(data);
+        assertTrue(ok, "the deposit failed");
+    }
 
     function _deploy(address registry_) internal returns (HandleEscrow) {
         return HandleEscrow(
