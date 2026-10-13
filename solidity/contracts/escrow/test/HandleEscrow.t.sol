@@ -309,6 +309,19 @@ contract HandleEscrowTest is Test {
         assertEq(escrow.escrowed(node, NATIVE), 1 ether);
     }
 
+    /// A public deposit to a holder on a platform that no longer binds is paid through.
+    function test_aPublicDepositPaysAHolderOnAPlatformThatAcceptsNoBindings() public {
+        _bind(alice, "1", "alice", 100);
+        vm.prank(owner);
+        proofVerifier.setVerifier(X, V1, IPlatformVerifier(address(0)));
+        assertFalse(registry.acceptsBindings(X));
+
+        vm.prank(sender);
+        escrow.depositToHandle{value: 1 ether}(X, "Alice", NATIVE, 1 ether, sender);
+        assertEq(alice.balance, 1 ether);
+        assertEq(escrow.escrowed(aliceNode, NATIVE), 0);
+    }
+
     // ─── Depositing ─────────────────────────────────────────────────
 
     /// Unheld: held and announced. Held: paid straight through and announced, the earlier deposit

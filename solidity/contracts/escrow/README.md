@@ -19,9 +19,9 @@ escrow.refund(handleNode, token, recipient);   // refundTo, while unclaimed
   registry's `handleNodeOf` for the node, and `DepositedToHandle` logs the
   platform and the handle as given. It credits the same node, so a claim
   takes both kinds together. Text the platform's rules refuse lands on a node
-  nobody can prove; only `refundTo` gets it back. It reverts
-  `PlatformAcceptsNoBindings` while the registry's `acceptsBindings` is false
-  for the platform.
+  nobody can prove; only `refundTo` gets it back. A deposit that would
+  escrow reverts `PlatformAcceptsNoBindings` while the registry's
+  `acceptsBindings` is false for the platform; a holder is still paid.
 
 ## Integrating
 

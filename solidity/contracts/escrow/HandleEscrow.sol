@@ -135,7 +135,7 @@ contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable
     error RenounceDisabled();
     /// `depositToHandle`, from the registry: a platform it does not know.
     error UnknownPlatform(bytes32 platformId);
-    /// `depositToHandle`: nobody can bind on this platform now, so nobody could claim.
+    /// `depositToHandle` to an unheld node: nobody can bind on this platform now, so nobody could claim.
     error PlatformAcceptsNoBindings(bytes32 platformId);
 
     // ─── Setup ──────────────────────────────────────────────────────
@@ -173,12 +173,12 @@ contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable
         payable
         nonReentrant
     {
-        _deposit(handleNode, token, amount, refundTo);
+        _deposit(handleNode, bytes32(0), token, amount, refundTo);
     }
 
     /// @notice `deposit` to a handle given as text, which the calldata and the
     ///         log make public. Reverts `UnknownPlatform` for a platform the registry does not know,
-    ///         and `PlatformAcceptsNoBindings` for one nobody can bind now.
+    ///         and `PlatformAcceptsNoBindings` when it would escrow on one nobody can bind now.
     /// @dev The node is the registry's `handleNodeOf`: the one `deposit` takes.
     function depositToHandle(
         bytes32 platformId,
@@ -187,14 +187,13 @@ contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable
         uint256 amount,
         address refundTo
     ) external payable nonReentrant {
-        IIdentityRegistry registry_ = _s().registry;
-        bytes32 handleNode = registry_.handleNodeOf(platformId, handle);
-        if (!registry_.acceptsBindings(platformId)) revert PlatformAcceptsNoBindings(platformId);
-        _deposit(handleNode, token, amount, refundTo);
+        bytes32 handleNode = _s().registry.handleNodeOf(platformId, handle);
+        _deposit(handleNode, platformId, token, amount, refundTo);
         emit DepositedToHandle(handleNode, platformId, handle);
     }
 
-    function _deposit(bytes32 handleNode, address token, uint256 amount, address refundTo) private {
+    /// @dev `platformId` is zero for a private deposit, which skips `acceptsBindings`.
+    function _deposit(bytes32 handleNode, bytes32 platformId, address token, uint256 amount, address refundTo) private {
         if (amount == 0) revert ZeroAmount();
         if (refundTo == address(0) || refundTo == address(this)) revert BadRefundTo(refundTo);
 
@@ -214,6 +213,7 @@ contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable
             return;
         }
 
+        if (platformId != 0 && !$.registry.acceptsBindings(platformId)) revert PlatformAcceptsNoBindings(platformId);
         uint256 credited = _move(token, msg.sender, address(this), amount);
         if (credited == 0) revert ZeroAmount();
 

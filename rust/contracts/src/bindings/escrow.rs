@@ -108,7 +108,7 @@ mod escrow_inner {
             error RenounceDisabled();
             /// `depositToHandle`: a platform the registry does not know.
             error UnknownPlatform(bytes32 platformId);
-            /// `depositToHandle`: the registry's `acceptsBindings` is false.
+            /// `depositToHandle` to an unheld node: the registry's `acceptsBindings` is false.
             error PlatformAcceptsNoBindings(bytes32 platformId);
             error OwnableUnauthorizedAccount(address account);
             error OwnableInvalidOwner(address owner);
