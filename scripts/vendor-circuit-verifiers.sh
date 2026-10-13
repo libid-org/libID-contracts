@@ -132,14 +132,18 @@ if [[ -n "$LOCAL" ]]; then
     STAGE="$(mktemp -d)"
     trap 'rm -rf "$STAGE"' EXIT
     # The libid-circuits commit, if the build left one; never the local path.
+    # `unknown` is a build outside a git work tree, like no commit file.
     origin="a local libid-circuits build"
     if [[ -f "$LOCAL/commit" ]]; then
         commit="$(< "$LOCAL/commit")"
-        [[ "$commit" =~ ^[0-9a-f]{40}(-dirty)?$ ]] || {
-            echo "$LOCAL/commit is not <40-hex>[-dirty]; rebuild with libid-circuits' build.sh" >&2
+        if [[ "$commit" == unknown ]]; then
+            origin="a local libid-circuits build of an unknown commit"
+        elif [[ "$commit" =~ ^[0-9a-f]{40}(-dirty)?$ ]]; then
+            origin="a local libid-circuits build of commit $commit"
+        else
+            echo "$LOCAL/commit is not <40-hex>[-dirty] or unknown; rebuild with libid-circuits' build.sh" >&2
             exit 1
-        }
-        origin="a local libid-circuits build of commit $commit"
+        fi
     fi
     for i in "${!CIRCUITS[@]}"; do
         circuit="${CIRCUITS[$i]}" contract="${CONTRACTS[$i]}"
