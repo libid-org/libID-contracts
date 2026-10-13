@@ -29,6 +29,8 @@ escrow.refund(handleNode, token, recipient);   // refundTo, while unclaimed
   refund.
 - `NATIVE`, the EIP-7528 address `0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE`,
   names the chain's own coin in `deposit`, `claim`, `refund` and every event.
+  Any other token without code, the zero address included, reverts
+  `BadToken`.
 - `handleNode` is `SHA256(handle tag || normalized handle)`, the node the
   platform's circuit binds the handle under. Compute it locally with
   `@libid/contracts` or `libid-identity` (`handleNode`);

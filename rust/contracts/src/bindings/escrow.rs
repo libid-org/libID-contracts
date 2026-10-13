@@ -98,6 +98,8 @@ mod escrow_inner {
             error NothingToRefund(bytes32 handleNode, address token, address refundTo);
             /// `refundTo` is zero or the escrow: nobody could refund.
             error BadRefundTo(address refundTo);
+            /// A token other than `NATIVE` has no code.
+            error BadToken(address token);
             error BadRecipient(address recipient);
             error NativeTransferFailed(address recipient, uint256 amount);
             /// A payout took more of the escrow's balance than it booked.

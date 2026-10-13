@@ -369,6 +369,19 @@ contract HandleEscrowTest is Test {
         vm.stopPrank();
     }
 
+    /// A token with no code, zero included, is refused, held node or not.
+    function test_aTokenWithNoCodeIsRefused() public {
+        address[2] memory bad = [address(0), makeAddr("no code")];
+        for (uint256 i = 0; i < 2; i++) {
+            if (i == 1) _bind(alice, "1", "alice", 100);
+            for (uint256 j = 0; j < 2; j++) {
+                vm.prank(sender);
+                vm.expectRevert(abi.encodeWithSelector(HandleEscrow.BadToken.selector, bad[j]));
+                escrow.deposit(aliceNode, bad[j], 1 ether, sender);
+            }
+        }
+    }
+
     /// A token that reports success and moves nothing credits nothing, escrowed or paid through.
     function test_aTokenThatDeliversNothingIsRefused() public {
         InertToken inert = new InertToken();

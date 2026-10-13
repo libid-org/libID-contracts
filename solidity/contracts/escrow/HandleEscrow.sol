@@ -121,6 +121,8 @@ contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable
     /// `refundTo` must be an address that can call `refund`: not zero, not
     /// this contract.
     error BadRefundTo(address refundTo);
+    /// A token other than `NATIVE` must have code.
+    error BadToken(address token);
     /// A payout may not go to the zero address or this contract.
     error BadRecipient(address recipient);
     /// A payout took more of this contract's balance than it booked.
@@ -196,6 +198,7 @@ contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable
     function _deposit(bytes32 handleNode, bytes32 platformId, address token, uint256 amount, address refundTo) private {
         if (amount == 0) revert ZeroAmount();
         if (refundTo == address(0) || refundTo == address(this)) revert BadRefundTo(refundTo);
+        if (token != NATIVE && token.code.length == 0) revert BadToken(token);
 
         if (token == NATIVE) {
             if (msg.value != amount) revert ValueMismatch(amount, msg.value);
