@@ -1,5 +1,6 @@
 # IdentityRegistry storage layout. Checked in CI by scripts/check-storage-layout.py.
 # Fields may only be APPENDED. Record an append with --update; see the script.
+# Reset for a redeploy, not an upgrade: hashed identities ship as a fresh deployment under new canonical names
 root erc7201:libid.storage.IdentityRegistry 0x3e5d6a26bfa3232a8c483e2003eb4b3008d01c0d1cf6c69b6ad133fd72694000
 field slot=0 offset=0 idBindings: mapping(bytes32 => struct IdentityRegistry.Binding)
 field slot=1 offset=0 handleBindings: mapping(bytes32 => struct IdentityRegistry.Binding)
