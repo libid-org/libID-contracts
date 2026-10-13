@@ -362,50 +362,64 @@ abstract contract TlsNotaryVerifierBase is IPlatformVerifier, PlatformVerifierBa
     ///      goes first: the same guard REQ-COMMON-39 puts on the identity
     ///      request, without which a bare line feed ends the head somewhere the
     ///      platform's parser does and this one does not.
-    // `1 << i` is the mask for line i. The lint's heuristic reads a literal on
-    // the left of a shift as swapped operands, which is what building a mask
-    // looks like.
-    // forge-lint: disable-next-item(incorrect-shift)
     function _checkTokenHead(bytes memory head) private pure returns (uint256 declared) {
         CeremonyAttestation.requireCrlfLineEndings(head);
 
-        TokenHead memory state;
+        Head memory state;
         (state.requiredNames, state.requiredValues) = CeremonyProfile.tokenRequiredHeaderHashes(_platform());
-
+        state.strict = true;
         // Past the request line, which `_tokenTranscript` has already compared.
-        uint256 from = _lineEnd(head, 0) + 2;
-        while (from < head.length) {
-            uint256 to = _lineEnd(head, from);
-            _tokenHeaderLine(head, from, to, state);
-            from = to + 2;
-        }
-
+        _checkHead(head, state);
         if (!state.lengths) revert WrongTokenRequestHead();
-        // Every required line seen: the low bits all set.
-        if (state.found != (1 << state.requiredNames.length) - 1) revert WrongTokenRequestHead();
         return state.declared;
     }
 
-    /// @dev `_checkTokenHead`'s state. `found` holds a bit per required line,
+    /// @dev `_checkHead`'s state. `found` holds a bit per required line,
     ///      capping a profile at 255 of them (the generator allows two).
-    ///      `lengths` records a `content-length` line, `declared` its value.
-    struct TokenHead {
+    ///      `strict` is the token head's reading; `lengths` records its
+    ///      `content-length` line, `declared` that line's value.
+    struct Head {
         bytes32[] requiredNames;
         bytes32[] requiredValues;
+        bool strict;
         uint256 found;
         bool lengths;
         uint256 declared;
     }
 
-    /// @dev Checks token-head line `head[from:to]` and records it in `state`.
+    /// @dev Every line of `head` past the first: each required header once,
+    ///      with its value, and no forbidden name. Strict, every line is a
+    ///      header and `content-length` is read once; lenient, a line that is
+    ///      not a header is skipped and `authorization` is allowed.
+    // `1 << i` is the mask for line i. The lint's heuristic reads a literal on
+    // the left of a shift as swapped operands, which is what building a mask
+    // looks like.
     // forge-lint: disable-next-item(incorrect-shift)
-    function _tokenHeaderLine(bytes memory head, uint256 from, uint256 to, TokenHead memory state) private pure {
+    function _checkHead(bytes memory head, Head memory state) private pure {
+        uint256 from = _lineEnd(head, 0) + 2;
+        while (from < head.length) {
+            uint256 to = _lineEnd(head, from);
+            _headerLine(head, from, to, state);
+            from = to + 2;
+        }
+        // Every required line seen: the low bits all set.
+        if (state.found != (1 << state.requiredNames.length) - 1) _wrongHead(state.strict);
+    }
+
+    /// @dev Checks header line `head[from:to]` and records it in `state`.
+    // forge-lint: disable-next-item(incorrect-shift)
+    function _headerLine(bytes memory head, uint256 from, uint256 to, Head memory state) private pure {
         (bool isHeader, bytes memory name, uint256 valueStart, uint256 valueEnd) = _field(head, from, to);
-        if (!isHeader) revert WrongTokenRequestHead();
+        if (!isHeader) {
+            if (state.strict) revert WrongTokenRequestHead();
+            return;
+        }
 
         bytes32 nameHash = keccak256(name);
-        if (CeremonyProfile.isForbiddenRequestHeader(nameHash)) revert ForbiddenRequestHeader(name);
-        if (nameHash == LENGTH_HEADER) {
+        if (CeremonyProfile.isForbiddenRequestHeader(nameHash) && (state.strict || nameHash != AUTHORIZATION)) {
+            revert ForbiddenRequestHeader(name);
+        }
+        if (state.strict && nameHash == LENGTH_HEADER) {
             if (state.lengths) revert WrongTokenRequestHead();
             state.lengths = true;
             state.declared = _decimal(head, valueStart, valueEnd);
@@ -413,9 +427,16 @@ abstract contract TlsNotaryVerifierBase is IPlatformVerifier, PlatformVerifierBa
         }
         uint256 i = _indexOf(state.requiredNames, nameHash);
         if (i == type(uint256).max) return;
-        if (_hash(head, valueStart, valueEnd) != state.requiredValues[i]) revert WrongTokenRequestHead();
-        if (state.found & (1 << i) != 0) revert WrongTokenRequestHead();
+        if (_hash(head, valueStart, valueEnd) != state.requiredValues[i] || state.found & (1 << i) != 0) {
+            _wrongHead(state.strict);
+        }
         state.found |= 1 << i;
+    }
+
+    /// @dev Reverts the error of the head `strict` names.
+    function _wrongHead(bool strict) private pure {
+        if (strict) revert WrongTokenRequestHead();
+        revert WrongIdentityRequestHead();
     }
 
     /// @dev The first index of `hash` in `hashes`, or `max`.
@@ -497,32 +518,10 @@ abstract contract TlsNotaryVerifierBase is IPlatformVerifier, PlatformVerifierBa
     ///      appears once with its value. Read over the whole concatenation, as
     ///      the count is, so a header after a blank line counts too; a line
     ///      that is not a header is the platform's to refuse.
-    // forge-lint: disable-next-item(incorrect-shift)
     function _checkIdentityHead(bytes memory revealed) private pure {
-        (bytes32[] memory names, bytes32[] memory values) = CeremonyProfile.identityRequiredHeaderHashes(_platform());
-        uint256 found;
-        uint256 from = _lineEnd(revealed, 0) + 2;
-        while (from < revealed.length) {
-            uint256 to = _lineEnd(revealed, from);
-            if (to > from) {
-                (bool isHeader, bytes memory name, uint256 valueStart, uint256 valueEnd) = _field(revealed, from, to);
-                if (isHeader) {
-                    bytes32 nameHash = keccak256(name);
-                    if (nameHash != AUTHORIZATION && CeremonyProfile.isForbiddenRequestHeader(nameHash)) {
-                        revert ForbiddenRequestHeader(name);
-                    }
-                    uint256 i = _indexOf(names, nameHash);
-                    if (i != type(uint256).max) {
-                        if (_hash(revealed, valueStart, valueEnd) != values[i] || found & (1 << i) != 0) {
-                            revert WrongIdentityRequestHead();
-                        }
-                        found |= 1 << i;
-                    }
-                }
-            }
-            from = to + 2;
-        }
-        if (found != (1 << names.length) - 1) revert WrongIdentityRequestHead();
+        Head memory state;
+        (state.requiredNames, state.requiredValues) = CeremonyProfile.identityRequiredHeaderHashes(_platform());
+        _checkHead(revealed, state);
     }
 
     /// @dev The offset of the CRLF that ends the line beginning at `from`, or
