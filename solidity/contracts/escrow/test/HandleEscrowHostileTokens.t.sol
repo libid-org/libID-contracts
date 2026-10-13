@@ -93,7 +93,7 @@ contract HandleEscrowHostileTokensTest is Test {
         HookedParty party = new HookedParty(escrow, token, NODE);
         token.mint(address(party), 20 ether);
         bytes memory depositCall =
-            abi.encodeCall(HandleEscrow.deposit, (NODE, address(token), 10 ether, address(party)));
+            abi.encodeCall(HandleEscrow.deposit, (NODE, address(token), 10 ether, address(party), address(0)));
         bytes memory claimCall = abi.encodeCall(HandleEscrow.claim, (NODE, one(address(token)), address(party)));
         bytes memory refundCall = abi.encodeCall(HandleEscrow.refund, (NODE, address(token), address(party)));
         bytes memory guard = abi.encodeWithSelector(ReentrancyGuardUpgradeable.ReentrancyGuardReentrantCall.selector);
@@ -121,7 +121,7 @@ contract HandleEscrowHostileTokensTest is Test {
 
         vm.startPrank(depositor);
         vm.expectRevert(failed);
-        escrow.deposit(NODE, address(token), 1, depositor);
+        escrow.deposit(NODE, address(token), 1, depositor, address(0));
         vm.expectRevert(failed);
         escrow.refund(NODE, address(token), depositor);
         vm.stopPrank();
@@ -143,15 +143,15 @@ contract HandleEscrowHostileTokensTest is Test {
         token.mint(depositor, 25 ether);
         vm.startPrank(depositor);
         token.approve(address(escrow), type(uint256).max);
-        escrow.deposit(NODE, address(token), 10 ether, depositor);
+        escrow.deposit(NODE, address(token), 10 ether, depositor, address(0));
         escrow.refund(NODE, address(token), depositor);
-        escrow.deposit(NODE, address(token), 10 ether, depositor);
+        escrow.deposit(NODE, address(token), 10 ether, depositor, address(0));
         vm.stopPrank();
         registry.setHolder(NODE, holder);
         vm.prank(holder);
         escrow.claim(NODE, one(address(token)), holder);
         vm.prank(depositor);
-        escrow.deposit(NODE, address(token), 5 ether, depositor);
+        escrow.deposit(NODE, address(token), 5 ether, depositor, address(0));
         assertEq(token.balanceOf(holder), 15 ether);
         assertEq(token.balanceOf(depositor), 10 ether);
         assertEq(token.balanceOf(address(escrow)), 0);
@@ -195,7 +195,7 @@ contract HandleEscrowHostileTokensTest is Test {
         vm.startPrank(other);
         token.approve(address(escrow), 1 ether);
         vm.expectRevert(abi.encodeWithSelector(BlocklistToken.Blocked.selector, holder));
-        escrow.deposit(NODE, address(token), 1 ether, other);
+        escrow.deposit(NODE, address(token), 1 ether, other, address(0));
         vm.stopPrank();
 
         vm.prank(holder);
@@ -267,7 +267,7 @@ contract HandleEscrowHostileTokensTest is Test {
         TestERC20(token).mint(from, amount);
         vm.startPrank(from);
         TestERC20(token).approve(address(escrow), type(uint256).max);
-        escrow.deposit(node, token, amount, from);
+        escrow.deposit(node, token, amount, from, address(0));
         vm.stopPrank();
     }
 }

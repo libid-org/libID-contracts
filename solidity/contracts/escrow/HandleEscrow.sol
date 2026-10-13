@@ -28,6 +28,9 @@ contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable
     /// @notice The native token of the chain, as a token address (EIP-7528).
     address public constant NATIVE = NATIVE_TOKEN;
 
+    /// @notice As `expectedHolder`: the node must have no holder, so the deposit escrows.
+    address public constant UNHELD = address(1);
+
     /// @custom:storage-location erc7201:libid.storage.HandleEscrow
     struct HandleEscrowStorage {
         /// handle node -> token -> amount held.
@@ -121,6 +124,8 @@ contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable
     /// `refundTo` must be an address that can call `refund`: not zero, not
     /// this contract.
     error BadRefundTo(address refundTo);
+    /// The node's holder is not the one the depositor expected; `actual` is zero when unheld.
+    error UnexpectedHolder(address expected, address actual);
     /// A token other than `NATIVE` must have code.
     error BadToken(address token);
     /// A payout may not go to the zero address or this contract.
@@ -168,14 +173,17 @@ contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable
 
     /// @notice Pay `amount` of `token` to a handle node (`IdentityRegistry.handleNodeOf`).
     /// @dev Books what arrived. A wrong node funds a slot only `refundTo` can recover.
-    /// @param token    An ERC-20, or `NATIVE`, when `amount` must equal `msg.value`.
-    /// @param refundTo Who may refund an escrowed deposit; never zero or this contract.
-    function deposit(bytes32 handleNode, address token, uint256 amount, address refundTo)
+    /// @param token          An ERC-20, or `NATIVE`, when `amount` must equal `msg.value`.
+    /// @param refundTo       Who may refund an escrowed deposit; never zero or this contract.
+    /// @param expectedHolder The holder the depositor saw: zero accepts either outcome, `UNHELD`
+    ///                       requires no holder, any other address requires exactly that holder.
+    ///                       Otherwise `UnexpectedHolder`.
+    function deposit(bytes32 handleNode, address token, uint256 amount, address refundTo, address expectedHolder)
         external
         payable
         nonReentrant
     {
-        _deposit(handleNode, bytes32(0), token, amount, refundTo);
+        _deposit(handleNode, bytes32(0), token, amount, refundTo, expectedHolder);
     }
 
     /// @notice `deposit` to a handle given as text, which the calldata and the
@@ -187,15 +195,23 @@ contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable
         string calldata handle,
         address token,
         uint256 amount,
-        address refundTo
+        address refundTo,
+        address expectedHolder
     ) external payable nonReentrant {
         bytes32 handleNode = _s().registry.handleNodeOf(platformId, handle);
-        _deposit(handleNode, platformId, token, amount, refundTo);
+        _deposit(handleNode, platformId, token, amount, refundTo, expectedHolder);
         emit DepositedToHandle(handleNode, platformId, handle);
     }
 
     /// @dev `platformId` is zero for a private deposit, which skips `acceptsBindings`.
-    function _deposit(bytes32 handleNode, bytes32 platformId, address token, uint256 amount, address refundTo) private {
+    function _deposit(
+        bytes32 handleNode,
+        bytes32 platformId,
+        address token,
+        uint256 amount,
+        address refundTo,
+        address expectedHolder
+    ) private {
         if (amount == 0) revert ZeroAmount();
         if (refundTo == address(0) || refundTo == address(this)) revert BadRefundTo(refundTo);
         if (token != NATIVE && token.code.length == 0) revert BadToken(token);
@@ -208,6 +224,9 @@ contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable
 
         HandleEscrowStorage storage $ = _s();
         (address holder,) = $.registry.handleBinding(handleNode);
+        if (expectedHolder != address(0) && expectedHolder != (holder == address(0) ? UNHELD : holder)) {
+            revert UnexpectedHolder(expectedHolder, holder);
+        }
         if (holder != address(0)) {
             if (holder == msg.sender) revert PayingYourself(holder);
             uint256 received = _move(token, msg.sender, holder, amount);
