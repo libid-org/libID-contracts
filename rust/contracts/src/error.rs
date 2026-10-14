@@ -25,6 +25,19 @@ pub enum Error {
         /// Which rule, and which contract.
         detail: String,
     },
+    /// A proxy that serves another platform than the one asked about.
+    #[error(
+        "platform error: the Platform Verifier at {proxy} serves platform {found}, \
+         not {expected}; ask with the platform it serves"
+    )]
+    WrongPlatform {
+        /// The proxy asked.
+        proxy: Address,
+        /// The platform id the caller named.
+        expected: B256,
+        /// The platform id the proxy answers.
+        found: B256,
+    },
     /// A Honk verifier whose code hash is not the one wanted: the platform's
     /// vendored circuit's for an initializer, the proxy's `circuitCodehash()`
     /// for a rotation (the contract's `WrongCircuit`, caught off chain).

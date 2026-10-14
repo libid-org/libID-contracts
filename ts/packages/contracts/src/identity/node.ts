@@ -46,6 +46,13 @@ export function handleNode(platformKey: string, raw: string): Hex {
   return sha256(concat([toHex(keys.handleTag), toHex(normalize(raw, keys.rules))]))
 }
 
+/// The node `depositToHandle` and the registry's `handleNodeOf` key `text`
+/// by: A-Z folded, nothing checked. Text no circuit hashes still has one.
+export function foldedHandleNode(platformKey: string, text: string): Hex {
+  const bytes = new TextEncoder().encode(text).map((b) => (b >= 0x41 && b <= 0x5a ? b + 0x20 : b))
+  return sha256(concat([toHex(keysOf(platformKey).handleTag), toHex(bytes)]))
+}
+
 /// Accept an id exactly as given, or throw an `IdError` saying why no circuit would hash it.
 export function checkId(platformKey: string, id: string): void {
   const rules = keysOf(platformKey).idRules

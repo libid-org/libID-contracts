@@ -273,7 +273,7 @@ contract HandleEscrowTest is PrivacyScan {
         vm.expectEmit(address(escrow));
         emit HandleEscrow.Deposited(aliceNode, NATIVE, sender, sender, 0, 1 ether);
         vm.expectEmit(address(escrow));
-        emit HandleEscrow.DepositedToHandle(aliceNode, X, "Alice");
+        emit HandleEscrow.DepositedToHandle(aliceNode, X, "alice");
         vm.prank(sender);
         escrow.depositToHandle{value: 1 ether}(X, "Alice", NATIVE, 1 ether, sender, address(0));
 
@@ -305,7 +305,7 @@ contract HandleEscrowTest is PrivacyScan {
         vm.expectEmit(address(escrow));
         emit HandleEscrow.Forwarded(aliceNode, NATIVE, sender, alice, 1 ether, 1 ether);
         vm.expectEmit(address(escrow));
-        emit HandleEscrow.DepositedToHandle(aliceNode, X, "Alice");
+        emit HandleEscrow.DepositedToHandle(aliceNode, X, "alice");
         vm.prank(sender);
         escrow.depositToHandle{value: 1 ether}(X, "Alice", NATIVE, 1 ether, sender, address(0));
         assertEq(alice.balance, 1 ether);

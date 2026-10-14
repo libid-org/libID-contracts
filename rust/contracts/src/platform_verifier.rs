@@ -110,7 +110,8 @@ impl PlatformVerifier {
     }
 
     /// The code hash at `address`, required to be the `circuitCodehash()` the
-    /// Platform Verifier at `proxy` pins, for `setTrustRoots` on a deployed proxy.
+    /// Platform Verifier at `proxy` pins, for `setTrustRoots` on a deployed
+    /// proxy. The proxy must serve this platform ([`Error::WrongPlatform`]).
     pub async fn rotation_codehash_at<P: Provider>(
         self,
         provider: &P,
@@ -118,23 +119,28 @@ impl PlatformVerifier {
         proxy: Address,
         address: Address,
     ) -> Result<B256> {
-        let pinned = match self {
-            Self::X | Self::GitHub => {
-                TlsNotaryPlatformVerifier::new(proxy, provider)
-                    .circuitCodehash()
-                    .call()
-                    .await
-            }
-            Self::Google => {
-                GooglePlatformVerifier::new(proxy, provider)
-                    .circuitCodehash()
-                    .call()
-                    .await
-            }
+        let read = |what: &str, e: alloy::contract::Error| Error::Rpc {
+            detail: format!("failed to read {what} at {proxy}: {e}"),
+        };
+        // Both bindings declare the same two views.
+        let verifier = TlsNotaryPlatformVerifier::new(proxy, provider);
+        let found = verifier
+            .platformId()
+            .call()
+            .await
+            .map_err(|e| read("platformId()", e))?;
+        if found != self.platform_id() {
+            return Err(Error::WrongPlatform {
+                proxy,
+                expected: self.platform_id(),
+                found,
+            });
         }
-        .map_err(|e| Error::Rpc {
-            detail: format!("failed to read circuitCodehash() at {proxy}: {e}"),
-        })?;
+        let pinned = verifier
+            .circuitCodehash()
+            .call()
+            .await
+            .map_err(|e| read("circuitCodehash()", e))?;
         self.pinned_codehash_at(provider, artifacts, address, pinned)
             .await
     }

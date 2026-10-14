@@ -693,25 +693,21 @@ async fn deploys_and_initializes_every_platform_verifier() {
             ..
         })
     ));
-    // What is wanted is what the proxy pins, whichever verifier is asked.
+    // Asked about another platform, the proxy is refused before any hash.
     match PlatformVerifier::Google
         .rotation_codehash_at(&provider, &artifacts, github_proxy, oidc_google)
         .await
     {
-        Err(Error::WrongCircuit {
-            expected_codehash,
+        Err(Error::WrongPlatform {
+            proxy,
             expected,
             found,
-            ..
         }) => {
-            assert_eq!(
-                expected_codehash,
-                codehash_at(&provider, bearer_link).await.unwrap()
-            );
-            assert_eq!(expected, Some(Circuit::BearerLink));
-            assert_eq!(found, Some(Circuit::OidcGoogle));
+            assert_eq!(proxy, github_proxy);
+            assert_eq!(expected, PlatformVerifier::Google.platform_id());
+            assert_eq!(found, PlatformVerifier::GitHub.platform_id());
         }
-        other => panic!("expected WrongCircuit, got {other:?}"),
+        other => panic!("expected WrongPlatform, got {other:?}"),
     }
     let err = deploy_platform_verifier(
         &provider,

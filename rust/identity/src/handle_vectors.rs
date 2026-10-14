@@ -48,8 +48,8 @@ pub struct Platform {
     pub id_rules: crate::IdRules,
 }
 
-/// SHA-256 of the handles.json and profiles.json this file was generated from.
-pub const TABLE_SHA256: &str = "b980714401228c1f23afca34ee8d942931a15e7f3bbf53960d3b409172e669cd";
+/// SHA-256 of the handles.json this file was generated from.
+pub const TABLE_SHA256: &str = "410f1b511ea1d8194cd648d0e5e8d4c20c4ed1717e7e35b95ddc52d9eb515f06";
 
 /// keccak256 of this string is the platform id.
 pub const PLATFORM_GOOGLE_KEY: &str = "google";

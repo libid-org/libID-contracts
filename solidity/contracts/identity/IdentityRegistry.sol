@@ -319,7 +319,6 @@ contract IdentityRegistry is
     /// @notice Disclose the caller's handle on a platform as its name there.
     /// @dev The folded handle must hash to a node the caller holds.
     function publish(bytes32 platformId, string calldata handle) external {
-        _requireKnown(platformId);
         (string memory normalized, bytes32 handleNode) = _handleNodeOf(platformId, handle);
         if (_s().handleBindings[handleNode].holder != msg.sender) revert NotYourHandle(handleNode);
         _name(platformId, handleNode, normalized);
@@ -351,6 +350,7 @@ contract IdentityRegistry is
     }
 
     /// @dev Typed text folded, and its node under the platform's handle tag.
+    ///      Reverts `UnknownPlatform` for a platform no profile names.
     function _handleNodeOf(bytes32 platformId, string memory handle)
         private
         pure
@@ -380,7 +380,6 @@ contract IdentityRegistry is
     /// @notice The node a handle is bound under, from the handle as typed:
     ///         folded, then hashed under the platform's tag.
     function handleNodeOf(bytes32 platformId, string calldata handle) external pure returns (bytes32 handleNode) {
-        _requireKnown(platformId);
         (, handleNode) = _handleNodeOf(platformId, handle);
     }
 

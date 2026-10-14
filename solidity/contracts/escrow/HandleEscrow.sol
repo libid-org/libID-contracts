@@ -8,6 +8,7 @@ import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/U
 import {Ownable2StepUpgradeable} from "@openzeppelin/contracts-upgradeable/access/Ownable2StepUpgradeable.sol";
 import {ReentrancyGuardUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardUpgradeable.sol";
 
+import {HandleNode} from "../handles/HandleNode.sol";
 import {IIdentityRegistry} from "../identity/IIdentityRegistry.sol";
 
 // The EIP-7528 address that stands for the chain's native token.
@@ -68,7 +69,7 @@ contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable
         uint256 amount
     );
 
-    /// @notice A `depositToHandle` named its handle: `handle` as given, on `platformId`.
+    /// @notice A `depositToHandle` named its handle: `handle` folded, on `platformId`.
     event DepositedToHandle(bytes32 indexed handleNode, bytes32 indexed platformId, string handle);
 
     /// @notice A deposit for a held node was paid straight to `holder`.
@@ -188,6 +189,7 @@ contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable
     ///         log make public. Reverts the registry's `UnknownPlatform` for a platform it does not know,
     ///         and `PlatformAcceptsNoBindings` when it would escrow on one nobody can bind now.
     /// @dev The node is the registry's `handleNodeOf`: the one `deposit` takes.
+    ///      The log carries the handle folded, as `HandlePublished` does.
     function depositToHandle(
         bytes32 platformId,
         string calldata handle,
@@ -198,7 +200,7 @@ contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable
     ) external payable nonReentrant {
         bytes32 handleNode = _s().registry.handleNodeOf(platformId, handle);
         _deposit(handleNode, platformId, token, amount, refundTo, expectedHolder);
-        emit DepositedToHandle(handleNode, platformId, handle);
+        emit DepositedToHandle(handleNode, platformId, HandleNode.fold(handle));
     }
 
     /// @dev `platformId` is zero for a private deposit, which skips `acceptsBindings`.

@@ -26,8 +26,9 @@ pragma solidity ^0.8.24;
 /// request line a prover composes one byte differently is an attestation
 /// rejected with no error that says why.
 ///
-/// Changing a value here changes what a deployed verifier accepts. That is a
-/// new ceremonyVersion, not an edit.
+/// Changing a value here changes what a deployed verifier accepts. On a
+/// live deployment that is a new ceremonyVersion, not an edit; a fresh
+/// deployment under new canonical addresses keeps its versions.
 library CeremonyProfile {
     // --- Platform identifiers -----------------------------------------------
 

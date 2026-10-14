@@ -93,7 +93,7 @@ mod registry_inner {
                 bytes32 indexed handleNode,
                 string handle
             );
-            /// A platform `handles.json` does not name, or one never bound.
+            /// A platform no ceremony profile names, or one never bound.
             error UnknownPlatform(bytes32 platformId);
 
             event OwnershipTransferStarted(address indexed previousOwner, address indexed newOwner);

@@ -11,7 +11,7 @@ run this script. These files are written and never drift apart:
     <libid-circuits>/lib/identity/src/table.nr             # Noir constants, with --noir-out <that path>
     <libid-circuits>/lib/identity/src/table_tests.nr       # Noir vector tests, beside it
 
-Every output carries the SHA-256 of handles.json followed by profiles.json.
+Every output carries the SHA-256 of handles.json.
 Every handleNode and idNode in the table is recomputed with hashlib and must
 match. The transform (the token check and the fold) is hand written in Rust,
 TypeScript and Noir; Solidity reads the tags from `CeremonyProfile` and folds
@@ -48,9 +48,11 @@ def header(comment: str) -> str:
     return "".join(f"{comment} {line}\n" for line in BANNER)
 
 
-def table_sha256(raw: bytes, profiles: bytes) -> str:
-    """SHA-256 of handles.json followed by profiles.json."""
-    return hashlib.sha256(raw + profiles).hexdigest()
+def table_sha256(raw: bytes) -> str:
+    """SHA-256 of handles.json. The tags and buffers from profiles.json are
+    compared by value (`--check`, `--compare-noir`), so a profile edit that
+    leaves them alone changes no generated file."""
+    return hashlib.sha256(raw).hexdigest()
 
 
 def platforms_of(profiles: dict[str, Any]) -> list[dict[str, Any]]:
@@ -184,7 +186,7 @@ def gen_rust(spec: dict[str, Any], digest: str) -> str:
         "    pub id_rules: crate::IdRules,",
         "}",
         "",
-        "/// SHA-256 of the handles.json and profiles.json this file was generated from.",
+        "/// SHA-256 of the handles.json this file was generated from.",
         f'pub const TABLE_SHA256: &str = "{digest}";',
         "",
     ]
@@ -312,7 +314,7 @@ def gen_ts(spec: dict[str, Any], digest: str) -> str:
         "  idRules: IdRules",
         "}",
         "",
-        "/** SHA-256 of the handles.json and profiles.json this file was generated from. */",
+        "/** SHA-256 of the handles.json this file was generated from. */",
         f"export const TABLE_SHA256 = '{digest}'",
         "",
     ]
@@ -435,7 +437,7 @@ def gen_noir(spec: dict[str, Any], digest: str) -> str:
         "// Platform tags and buffers, for the identity circuits. The transform is",
         "// lib.nr's; table_tests.nr runs it against the shared vector table.",
         "",
-        "/// SHA-256 of the handles.json and profiles.json this file was generated from.",
+        "/// SHA-256 of the handles.json this file was generated from.",
         f'pub global TABLE_SHA256: str<64> = "{digest}";',
         "",
     ]
@@ -472,7 +474,7 @@ def gen_noir_tests(spec: dict[str, Any], digest: str) -> str:
         "",
         "// The shared vector table, run against lib.nr's algorithm.",
         "",
-        "use crate::{check_id, fold_handle, node_halves, table, tag_of};",
+        "use crate::{check_id, fixed_node_halves, fold_handle, node_halves, table, tag_of};",
         "use crate::testing::padded;",
         "",
     ]
@@ -505,6 +507,10 @@ def gen_noir_tests(spec: dict[str, Any], digest: str) -> str:
                 f"    assert(node_halves(tag, tag_len, out, {len(raw)})"
                 f" == {noir_halves(vec['handleNode'])});"
             )
+            lines.append(
+                f"    assert(fixed_node_halves(table::HANDLE_TAG_{name}, out, {len(raw)})"
+                f" == {noir_halves(vec['handleNode'])});"
+            )
         else:
             lines.append("    let _ = out;")
         lines.append("}")
@@ -525,6 +531,10 @@ def gen_noir_tests(spec: dict[str, Any], digest: str) -> str:
             lines.append(f"    let (tag, tag_len) = tag_of(table::USER_ID_TAG_{name});")
             lines.append(
                 f"    assert(node_halves(tag, tag_len, raw, {len(raw)})"
+                f" == {noir_halves(vec['idNode'])});"
+            )
+            lines.append(
+                f"    assert(fixed_node_halves(table::USER_ID_TAG_{name}, raw, {len(raw)})"
                 f" == {noir_halves(vec['idNode'])});"
             )
         lines.append("}")
@@ -632,7 +642,7 @@ def main() -> int:
     profiles = PROFILES.read_bytes()
     spec["platforms"] = platforms_of(json.loads(profiles.decode("utf-8")))
     check_nodes(spec)
-    digest = table_sha256(raw, profiles)
+    digest = table_sha256(raw)
 
     compared = [
         (path, gen)

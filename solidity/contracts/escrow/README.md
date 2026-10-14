@@ -17,7 +17,7 @@ escrow.refund(handleNode, token, recipient);   // refundTo, while unclaimed
   node, never the handle.
 - `depositToHandle(platformId, handle, …)` is public: the escrow asks the
   registry's `handleNodeOf` for the node, and `DepositedToHandle` logs the
-  platform and the handle as given. It credits the same node, so a claim
+  platform and the handle folded. It credits the same node, so a claim
   takes both kinds together. Text other than a handle as the platform sends it
   (`@alice`, a space) lands on a node nobody can prove; only `refundTo` gets it back. A deposit that would
   escrow reverts `PlatformAcceptsNoBindings` while the registry's

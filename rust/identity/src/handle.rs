@@ -122,20 +122,16 @@ mod tests {
         }
     }
 
-    /// The generated constants carry the SHA-256 of `handles.json` and `profiles.json`.
+    /// The generated constants carry the SHA-256 of `handles.json`.
     #[test]
     fn the_generated_constants_come_from_this_table() {
         use sha2::Digest as _;
-        let read = |path: &str| {
-            std::fs::read(format!(
-                "{}/../../solidity/contracts/{path}",
-                env!("CARGO_MANIFEST_DIR")
-            ))
-            .expect(path)
-        };
-        let mut sources = read("handles/handles.json");
-        sources.extend(read("ceremony/profiles.json"));
-        let digest: String = sha2::Sha256::digest(&sources)
+        let path = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../solidity/contracts/handles/handles.json"
+        );
+        let table = std::fs::read(path).expect("handles.json beside the crate");
+        let digest: String = sha2::Sha256::digest(&table)
             .iter()
             .map(|b| format!("{b:02x}"))
             .collect();

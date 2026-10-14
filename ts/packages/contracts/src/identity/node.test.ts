@@ -9,7 +9,7 @@ import {
   PLATFORM_X,
   PLATFORM_X_KEY,
 } from './handleVectors.js'
-import { checkId, handleNode, IdError, idNode } from './node.js'
+import { checkId, foldedHandleNode, handleNode, IdError, idNode } from './node.js'
 
 /// Python's hashlib, as the circuits, Solidity and Rust pin them:
 ///   hashlib.sha256(b"libid.x.handlealice_1")
@@ -77,5 +77,18 @@ describe('handleNode and idNode', () => {
     expect(handleNode(PLATFORM_X_KEY, 'Bob')).toBe(
       sha256(concat([toHex(PLATFORM_X.handleTag), toHex('bob')])),
     )
+  })
+})
+
+describe('foldedHandleNode', () => {
+  /// `printf 'libid.x.handlebo"b' | sha256sum`: the registry's `handleNodeOf`,
+  /// for text the circuits refuse.
+  it('folds and hashes, checking nothing', () => {
+    expect(foldedHandleNode(PLATFORM_X_KEY, 'Bo"b')).toBe(
+      '0x650dc467b55054ff038aed82e055439b80903460291078585ad72e334bf0050a',
+    )
+    expect(foldedHandleNode(PLATFORM_X_KEY, 'Alice_1')).toBe(handleNode(PLATFORM_X_KEY, 'alice_1'))
+    // Only A-Z fold: a byte above 0x7f is hashed as is.
+    expect(foldedHandleNode(PLATFORM_X_KEY, 'É')).not.toBe(foldedHandleNode(PLATFORM_X_KEY, 'é'))
   })
 })
