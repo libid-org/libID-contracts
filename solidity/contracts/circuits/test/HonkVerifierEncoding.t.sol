@@ -121,7 +121,7 @@ abstract contract HonkVerifierEncodingTest is Test {
 
 contract BearerLinkXHonkVerifierEncodingTest is HonkVerifierEncodingTest {
     function _artifact() internal pure override returns (string memory) {
-        return "BearerLinkXHonkVerifier.sol:BearerLinkXHonkVerifier";
+        return "BearerLinkHonkVerifier.sol:BearerLinkHonkVerifier";
     }
 
     function _fixture() internal pure override returns (string memory) {
@@ -135,7 +135,7 @@ contract BearerLinkXHonkVerifierEncodingTest is HonkVerifierEncodingTest {
 
 contract BearerLinkGithubHonkVerifierEncodingTest is HonkVerifierEncodingTest {
     function _artifact() internal pure override returns (string memory) {
-        return "BearerLinkGithubHonkVerifier.sol:BearerLinkGithubHonkVerifier";
+        return "BearerLinkHonkVerifier.sol:BearerLinkHonkVerifier";
     }
 
     function _fixture() internal pure override returns (string memory) {

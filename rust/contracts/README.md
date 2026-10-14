@@ -110,7 +110,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let artifacts = Artifacts::embedded();
     let (owner, notary, proof_verifier): (Address, Address, Address) = todo!();
 
-    // The circuit `x/v1` proves under is `bearer-link-x`; `PlatformVerifier::circuit`
+    // The circuit `x/v1` proves under is `bearer-link`; `PlatformVerifier::circuit`
     // says so, and this deploys its verifier.
     let honk_verifier =
         deploy_honk_verifier(&provider, &artifacts, PlatformVerifier::X.circuit(), None).await?;

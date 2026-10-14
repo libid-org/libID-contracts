@@ -1,31 +1,36 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
+import {CircuitCodehashes} from "../circuits/CircuitCodehashes.sol";
 import {CeremonyAttestation} from "./CeremonyAttestation.sol";
 import {CeremonyProfile} from "./CeremonyProfile.sol";
 import {CeremonyAuthorization} from "./CeremonyAuthorization.sol";
 import {CeremonyFields} from "./CeremonyFields.sol";
 import {IPlatformVerifier} from "./IPlatformVerifier.sol";
 import {HandleDisclosure, PlatformVerifierBase} from "./PlatformVerifierBase.sol";
+import {HandlePlatforms} from "../handles/HandlePlatforms.sol";
 
 /// @title TlsNotaryVerifierBase
 /// @notice The flow both TLSNotary profiles share: two notarized sessions, one
-///         hidden bearer linking them, and one proof under the platform's own
-///         circuit binding that link and the committed id and handle to the
-///         two nodes the payload claims.
+///         hidden bearer linking them, and one bearer-link proof binding that
+///         link and the committed id and handle to the two nodes the payload
+///         claims, under the platform's tags.
 /// @dev Subclasses supply the platform, per-session authorities, request
 ///      lines, token fields and checks, and identity field framing. The proof
 ///      is verified last, once its commitments are tied to the attestations.
 abstract contract TlsNotaryVerifierBase is IPlatformVerifier, PlatformVerifierBase {
     /// @dev The bearer-link circuit's public inputs: two bearer commitments, id and
-    ///      handle commitments, then the two nodes, each as `[high, low]` halves.
-    uint256 internal constant PUBLIC_INPUTS = 12;
+    ///      handle commitments, then the two nodes, each as `[high, low]` halves;
+    ///      then each tag as one Field and its length.
+    uint256 internal constant PUBLIC_INPUTS = 16;
     uint256 internal constant OFF_TOKEN_COMMITMENT = 0;
     uint256 internal constant OFF_IDENTITY_COMMITMENT = 2;
     uint256 internal constant OFF_ID_COMMITMENT = 4;
     uint256 internal constant OFF_HANDLE_COMMITMENT = 6;
     uint256 internal constant OFF_ID_NODE = 8;
     uint256 internal constant OFF_HANDLE_NODE = 10;
+    uint256 internal constant OFF_ID_TAG = 12;
+    uint256 internal constant OFF_HANDLE_TAG = 14;
 
     /// @dev What frames the committed bearer in the token response. Every other
     ///      response byte is hidden, so without these the committed range is
@@ -107,6 +112,11 @@ abstract contract TlsNotaryVerifierBase is IPlatformVerifier, PlatformVerifierBa
     function _checkTokenBody(CeremonyFields.Form memory form) internal pure virtual {}
 
     // ─── The flow ───────────────────────────────────────────────────
+
+    /// @dev `bearer-link`'s verifier, and no other.
+    function _circuitCodehash() internal pure virtual override returns (bytes32) {
+        return CircuitCodehashes.BEARER_LINK;
+    }
 
     /// @inheritdoc IPlatformVerifier
     function platformId() external pure returns (bytes32) {
@@ -319,8 +329,8 @@ abstract contract TlsNotaryVerifierBase is IPlatformVerifier, PlatformVerifierBa
 
     // ─── Helpers ────────────────────────────────────────────────────
 
-    /// @dev The circuit's public inputs, from the authenticated commitments and
-    ///      the returned nodes (REQ-PLAT-32C, REQ-PLAT-52B).
+    /// @dev The circuit's public inputs, from the authenticated commitments, the
+    ///      returned nodes and this platform's tags (REQ-PLAT-32C, REQ-PLAT-52B).
     function _publicInputs(bytes32 tokenCommitment, Commitments memory identity, bytes32 idNode, bytes32 handleNode)
         private
         pure
@@ -333,6 +343,17 @@ abstract contract TlsNotaryVerifierBase is IPlatformVerifier, PlatformVerifierBa
         _halves(inputs, OFF_HANDLE_COMMITMENT, identity.handle);
         _halves(inputs, OFF_ID_NODE, idNode);
         _halves(inputs, OFF_HANDLE_NODE, handleNode);
+        _tag(inputs, OFF_ID_TAG, HandlePlatforms.userIdTagFor(_platform()));
+        _tag(inputs, OFF_HANDLE_TAG, HandlePlatforms.handleTagFor(_platform()));
+    }
+
+    /// @dev A tag as one Field, its bytes from the top of the low 31 bytes, then
+    ///      its length. Every tag is shorter than 32 bytes.
+    function _tag(bytes32[] memory inputs, uint256 at, bytes memory tag) private pure {
+        // Every tag is shorter than 32 bytes, so the cast drops none of it.
+        // forge-lint: disable-next-line(unsafe-typecast)
+        inputs[at] = bytes32(tag) >> 8;
+        inputs[at + 1] = bytes32(tag.length);
     }
 
     /// @dev A 32-byte value as two big-endian 16-byte field elements.

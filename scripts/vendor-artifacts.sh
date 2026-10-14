@@ -43,8 +43,7 @@ ARTIFACTS=(
     "GooglePlatformVerifier:GooglePlatformVerifier"
     # circuits: the UltraHonk verifiers the Platform Verifiers pin, vendored
     # from the libid-circuits release by scripts/vendor-circuit-verifiers.sh
-    "BearerLinkXHonkVerifier:BearerLinkXHonkVerifier"
-    "BearerLinkGithubHonkVerifier:BearerLinkGithubHonkVerifier"
+    "BearerLinkHonkVerifier:BearerLinkHonkVerifier"
     "OidcGoogleHonkVerifier:OidcGoogleHonkVerifier"
     # identity
     "IdentityRegistry:IdentityRegistry"

@@ -270,7 +270,7 @@ contract RealProofBindTest is RealTlsNotaryBind {
     }
 
     function _deployVerifier(INotaryService notary_) internal override returns (address) {
-        address circuit = vm.deployCode("BearerLinkXHonkVerifier.sol:BearerLinkXHonkVerifier");
+        address circuit = vm.deployCode("BearerLinkHonkVerifier.sol:BearerLinkHonkVerifier");
         return address(
             new ERC1967Proxy(
                 address(new XPlatformVerifier()),
@@ -340,7 +340,7 @@ contract RealProofBindGitHubTest is RealTlsNotaryBind {
     }
 
     function _deployVerifier(INotaryService notary_) internal override returns (address) {
-        address circuit = vm.deployCode("BearerLinkGithubHonkVerifier.sol:BearerLinkGithubHonkVerifier");
+        address circuit = vm.deployCode("BearerLinkHonkVerifier.sol:BearerLinkHonkVerifier");
         return address(
             new ERC1967Proxy(
                 address(new GitHubPlatformVerifier()),

@@ -129,7 +129,7 @@ contract UpgradeSafetyTest is Test {
 
     function test_upgrade_XPlatformVerifier() public {
         NotaryService ns = _notaryService();
-        IHonkVerifier honk = IHonkVerifier(HonkStub.deploy(HonkStub.X));
+        IHonkVerifier honk = IHonkVerifier(HonkStub.deploy(HonkStub.BEARER_LINK));
         XPlatformVerifier impl = new XPlatformVerifier();
         vm.expectRevert(Initializable.InvalidInitialization.selector);
         impl.initialize(OWNER, ns, honk);
@@ -157,7 +157,7 @@ contract UpgradeSafetyTest is Test {
 
     function test_upgrade_GitHubPlatformVerifier() public {
         NotaryService ns = _notaryService();
-        IHonkVerifier honk = IHonkVerifier(HonkStub.deploy(HonkStub.GITHUB));
+        IHonkVerifier honk = IHonkVerifier(HonkStub.deploy(HonkStub.BEARER_LINK));
         GitHubPlatformVerifier impl = new GitHubPlatformVerifier();
         vm.expectRevert(Initializable.InvalidInitialization.selector);
         impl.initialize(OWNER, ns, honk);

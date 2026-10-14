@@ -54,9 +54,9 @@ contract SkewPastAllowance is PlatformVerifierBase {
 }
 
 /// @notice An upgrade that pins another circuit, wired to nothing new.
-contract XPinningGitHubsCircuit is XPlatformVerifier {
+contract XPinningGooglesCircuit is XPlatformVerifier {
     function _circuitCodehash() internal pure override returns (bytes32) {
-        return CircuitCodehashes.BEARER_LINK_GITHUB;
+        return CircuitCodehashes.OIDC_GOOGLE;
     }
 }
 
@@ -111,7 +111,7 @@ contract XPlatformVerifierTest is RealTlsNotaryProofTest {
                 )
             )
         );
-        honk = HonkStub.deploy(HonkStub.X);
+        honk = HonkStub.deploy(HonkStub.BEARER_LINK);
 
         XPlatformVerifier vImpl = new XPlatformVerifier();
         verifier = XPlatformVerifier(
@@ -579,18 +579,23 @@ contract XPlatformVerifierTest is RealTlsNotaryProofTest {
         this.run{value: quote}(s);
     }
 
-    /// The 12 public inputs, written out independently of the verifier.
+    /// The 16 public inputs, written out independently of the verifier: each
+    /// tag is int.from_bytes(tag.ljust(31, b"\0"), "big") and its length.
     function _expectedInputs(bytes32 token, bytes32 identity, bytes32 id, bytes32 handle)
         private
         pure
         returns (bytes32[] memory expected)
     {
-        expected = new bytes32[](12);
+        expected = new bytes32[](16);
         bytes32[6] memory wide = [token, identity, id, handle, ID_NODE, HANDLE_NODE];
         for (uint256 k = 0; k < 6; ++k) {
             expected[2 * k] = bytes32(uint256(wide[k]) / 2 ** 128);
             expected[2 * k + 1] = bytes32(uint256(wide[k]) % 2 ** 128);
         }
+        expected[12] = 0x006c696269642e782e757365722d696400000000000000000000000000000000; // libid.x.user-id
+        expected[13] = bytes32(uint256(15));
+        expected[14] = 0x006c696269642e782e68616e646c650000000000000000000000000000000000; // libid.x.handle
+        expected[15] = bytes32(uint256(14));
     }
 
     function test_rejectsAProofThatDoesNotVerify() public {
@@ -603,13 +608,13 @@ contract XPlatformVerifierTest is RealTlsNotaryProofTest {
     /// An upgrade that changes the pinned circuit leaves the wired verifier
     /// unusable until `setTrustRoots` wires that circuit's.
     function test_rejectsAProofAfterAnUpgradeRepinsTheCircuit() public {
-        address repinned = address(new XPinningGitHubsCircuit());
+        address repinned = address(new XPinningGooglesCircuit());
         vm.prank(OWNER);
         verifier.upgradeToAndCall(repinned, "");
         TlsNotaryVerifierBase.TlsNotaryProof memory s = _payload();
         vm.expectRevert(
             abi.encodeWithSelector(
-                PlatformVerifierBase.WrongCircuit.selector, CircuitCodehashes.BEARER_LINK_GITHUB, honk.codehash
+                PlatformVerifierBase.WrongCircuit.selector, CircuitCodehashes.OIDC_GOOGLE, honk.codehash
             )
         );
         this.run{value: quote}(s);
@@ -743,7 +748,7 @@ contract XPlatformVerifierTest is RealTlsNotaryProofTest {
     }
 
     function _circuitArtifact() internal pure override returns (string memory) {
-        return "BearerLinkXHonkVerifier.sol:BearerLinkXHonkVerifier";
+        return "BearerLinkHonkVerifier.sol:BearerLinkHonkVerifier";
     }
 
     function _session() internal pure override returns (string memory) {
@@ -762,7 +767,7 @@ contract XPlatformVerifierTest is RealTlsNotaryProofTest {
     ///      nodes for `2244994945` and `alice_1` (folded from `Alice_1`).
     function test_verifiesARealProofOfTheRecordsLibidRsProduces() public {
         (TlsNotaryVerifierBase.TlsNotaryProof memory s, address circuit, bytes32[] memory proved) = _realProofPayload();
-        assertEq(proved.length, 12);
+        assertEq(proved.length, 16);
         vm.expectCall(circuit, abi.encodeCall(IHonkVerifier.verify, (s.proof, proved)));
         ICeremony.VerifiedClaim memory f = this.run{value: quote}(s);
         assertEq(f.idNode, 0x68291869976ffad2abf3e933ec9ab2623395ff8b3b9242e655e1da3ef43d4f94, "hashlib idNode");
@@ -1003,27 +1008,26 @@ contract XPlatformVerifierTest is RealTlsNotaryProofTest {
         address eoa = address(0xB0B);
         vm.prank(OWNER);
         vm.expectRevert(
-            abi.encodeWithSelector(PlatformVerifierBase.WrongCircuit.selector, CircuitCodehashes.BEARER_LINK_X, 0)
+            abi.encodeWithSelector(PlatformVerifierBase.WrongCircuit.selector, CircuitCodehashes.BEARER_LINK, 0)
         );
         verifier.setTrustRoots(INotaryService(address(notary)), IHonkVerifier(eoa));
     }
 
-    /// @dev Only this platform's circuit's verifier: GitHub's has the same
-    ///      public-input layout, and is refused by its code hash.
+    /// @dev Only bearer-link's verifier: Google's is refused by its code hash.
     function test_rejectsAnotherCircuitsVerifier() public {
-        address github = vm.deployCode(HonkStub.GITHUB);
+        address google = vm.deployCode(HonkStub.GOOGLE);
         vm.prank(OWNER);
         vm.expectRevert(
             abi.encodeWithSelector(
-                PlatformVerifierBase.WrongCircuit.selector, CircuitCodehashes.BEARER_LINK_X, github.codehash
+                PlatformVerifierBase.WrongCircuit.selector, CircuitCodehashes.BEARER_LINK, google.codehash
             )
         );
-        verifier.setTrustRoots(INotaryService(address(notary)), IHonkVerifier(github));
-        assertEq(verifier.circuitCodehash(), CircuitCodehashes.BEARER_LINK_X);
+        verifier.setTrustRoots(INotaryService(address(notary)), IHonkVerifier(google));
+        assertEq(verifier.circuitCodehash(), CircuitCodehashes.BEARER_LINK);
     }
 
     function test_recordsTheArtifactItWired() public {
-        address other = HonkStub.deploy(HonkStub.X);
+        address other = HonkStub.deploy(HonkStub.BEARER_LINK);
         vm.prank(OWNER);
         verifier.setTrustRoots(INotaryService(address(notary)), IHonkVerifier(other));
         assertEq(verifier.honkVerifier(), other);

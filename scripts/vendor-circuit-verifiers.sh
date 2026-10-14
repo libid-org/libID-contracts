@@ -2,9 +2,8 @@
 # Vendor the ceremony circuits' UltraHonk verifiers from the pinned
 # libid-circuits release into solidity/contracts/circuits/<Contract>.sol:
 #
-#   bearer-link-x       ->  BearerLinkXHonkVerifier.sol       (the x profile)
-#   bearer-link-github  ->  BearerLinkGithubHonkVerifier.sol  (the github profile)
-#   oidc-google  ->  OidcGoogleHonkVerifier.sol   (the google profile)
+#   bearer-link  ->  BearerLinkHonkVerifier.sol  (the x and github profiles)
+#   oidc-google  ->  OidcGoogleHonkVerifier.sol  (the google profile)
 #
 # The pin is solidity/contracts/circuits/circuits.json: the release version
 # and each tarball's sha256. Downloads are checked against it, the release

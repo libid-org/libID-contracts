@@ -46,7 +46,7 @@ contract PlantedRangeForgeryTest is Test {
                 )
             )
         );
-        address honkAddr = HonkStub.deploy(HonkStub.X);
+        address honkAddr = HonkStub.deploy(HonkStub.BEARER_LINK);
         XPlatformVerifier vImpl = new XPlatformVerifier();
         verifier = XPlatformVerifier(
             address(

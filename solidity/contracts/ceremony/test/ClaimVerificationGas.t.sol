@@ -32,15 +32,13 @@ contract ClaimVerificationGasTest is Test {
     string constant BEARER_LINK_GITHUB_PROOF = "contracts/circuits/test/fixtures/bearer-link-github-proof.json";
     string constant OIDC_GOOGLE_PROOF = "contracts/circuits/test/fixtures/oidc-google-proof.json";
 
-    IHonkVerifier bearerLinkX;
-    IHonkVerifier bearerLinkGithub;
+    IHonkVerifier bearerLink;
     IHonkVerifier oidcGoogle;
     IPlatformVerifier x;
     IPlatformVerifier gitHub;
 
     function setUp() public {
-        bearerLinkX = IHonkVerifier(vm.deployCode("BearerLinkXHonkVerifier.sol:BearerLinkXHonkVerifier"));
-        bearerLinkGithub = IHonkVerifier(vm.deployCode("BearerLinkGithubHonkVerifier.sol:BearerLinkGithubHonkVerifier"));
+        bearerLink = IHonkVerifier(vm.deployCode("BearerLinkHonkVerifier.sol:BearerLinkHonkVerifier"));
         oidcGoogle = IHonkVerifier(vm.deployCode("OidcGoogleHonkVerifier.sol:OidcGoogleHonkVerifier"));
 
         INotaryService notary = INotaryService(
@@ -55,7 +53,7 @@ contract ClaimVerificationGasTest is Test {
             address(
                 new ERC1967Proxy(
                     address(new XPlatformVerifier()),
-                    abi.encodeCall(XPlatformVerifier.initialize, (OWNER, notary, bearerLinkX))
+                    abi.encodeCall(XPlatformVerifier.initialize, (OWNER, notary, bearerLink))
                 )
             )
         );
@@ -63,7 +61,7 @@ contract ClaimVerificationGasTest is Test {
             address(
                 new ERC1967Proxy(
                     address(new GitHubPlatformVerifier()),
-                    abi.encodeCall(GitHubPlatformVerifier.initialize, (OWNER, notary, bearerLinkGithub))
+                    abi.encodeCall(GitHubPlatformVerifier.initialize, (OWNER, notary, bearerLink))
                 )
             )
         );
@@ -78,11 +76,11 @@ contract ClaimVerificationGasTest is Test {
     }
 
     function test_verifyBearerLinkXProof() public {
-        _verifyProof(bearerLinkX, BEARER_LINK_X_PROOF, "BearerLinkXHonkVerifier.verify");
+        _verifyProof(bearerLink, BEARER_LINK_X_PROOF, "BearerLinkHonkVerifier.verify(x)");
     }
 
     function test_verifyBearerLinkGithubProof() public {
-        _verifyProof(bearerLinkGithub, BEARER_LINK_GITHUB_PROOF, "BearerLinkGithubHonkVerifier.verify");
+        _verifyProof(bearerLink, BEARER_LINK_GITHUB_PROOF, "BearerLinkHonkVerifier.verify(github)");
     }
 
     function test_verifyOidcGoogleProof() public {

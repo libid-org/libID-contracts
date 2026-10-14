@@ -474,12 +474,8 @@ async fn deploys_and_initializes_every_platform_verifier() {
     // The real verifiers, one per circuit. The hash a Platform Verifier
     // pins is read off the chain, never computed from the vendored bytes:
     // it is what the chain holds for the artifact.
-    let bearer_link_x =
-        deploy_honk_verifier(&provider, &artifacts, Circuit::BearerLinkX, None)
-            .await
-            .unwrap();
-    let bearer_link_github =
-        deploy_honk_verifier(&provider, &artifacts, Circuit::BearerLinkGithub, None)
+    let bearer_link =
+        deploy_honk_verifier(&provider, &artifacts, Circuit::BearerLink, None)
             .await
             .unwrap();
     let oidc_google =
@@ -487,8 +483,7 @@ async fn deploys_and_initializes_every_platform_verifier() {
             .await
             .unwrap();
     let honk_at = |circuit: Circuit| match circuit {
-        Circuit::BearerLinkX => bearer_link_x,
-        Circuit::BearerLinkGithub => bearer_link_github,
+        Circuit::BearerLink => bearer_link,
         Circuit::OidcGoogle => oidc_google,
     };
     let mut codehashes = Vec::new();
@@ -501,7 +496,7 @@ async fn deploys_and_initializes_every_platform_verifier() {
         );
         codehashes.push(codehash);
     }
-    let honk = bearer_link_x;
+    let honk = bearer_link;
 
     let tls = |honk_verifier| TlsNotaryRoots {
         owner: deployer,
@@ -517,8 +512,8 @@ async fn deploys_and_initializes_every_platform_verifier() {
 
     let mut github_proxy = Address::ZERO;
     for init in [
-        Initializer::X(tls(bearer_link_x)),
-        Initializer::GitHub(tls(bearer_link_github)),
+        Initializer::X(tls(bearer_link)),
+        Initializer::GitHub(tls(bearer_link)),
         Initializer::Google(google),
     ] {
         let verifier = init.verifier();
@@ -654,7 +649,7 @@ async fn deploys_and_initializes_every_platform_verifier() {
     let err = deploy_platform_verifier(
         &provider,
         &artifacts,
-        &Initializer::X(tls(bearer_link_github)),
+        &Initializer::X(tls(oidc_google)),
         None,
     )
     .await
@@ -668,38 +663,38 @@ async fn deploys_and_initializes_every_platform_verifier() {
             ..
         } => {
             assert_eq!(*contract, "XPlatformVerifier");
-            assert_eq!(*address, bearer_link_github);
-            assert_eq!(*expected, Some(Circuit::BearerLinkX));
-            assert_eq!(*found, Some(Circuit::BearerLinkGithub));
+            assert_eq!(*address, oidc_google);
+            assert_eq!(*expected, Some(Circuit::BearerLink));
+            assert_eq!(*found, Some(Circuit::OidcGoogle));
         }
         other => panic!("expected WrongCircuit, got {other}"),
     }
     assert!(
-        err.to_string().contains("bearer-link-github")
-            && err.to_string().contains("bearer-link-x"),
+        err.to_string().contains("oidc-google")
+            && err.to_string().contains("bearer-link"),
         "{err}"
     );
     // The rotation path checks against the circuit the deployed proxy pins:
     // the hash `setTrustRoots` takes is handed out only for that circuit.
     assert_eq!(
         PlatformVerifier::GitHub
-            .rotation_codehash_at(&provider, &artifacts, github_proxy, bearer_link_github)
+            .rotation_codehash_at(&provider, &artifacts, github_proxy, bearer_link)
             .await
             .unwrap(),
-        codehash_at(&provider, bearer_link_github).await.unwrap()
+        codehash_at(&provider, bearer_link).await.unwrap()
     );
     assert!(matches!(
         PlatformVerifier::GitHub
-            .rotation_codehash_at(&provider, &artifacts, github_proxy, bearer_link_x)
+            .rotation_codehash_at(&provider, &artifacts, github_proxy, oidc_google)
             .await,
         Err(Error::WrongCircuit {
-            found: Some(Circuit::BearerLinkX),
+            found: Some(Circuit::OidcGoogle),
             ..
         })
     ));
     // What is wanted is what the proxy pins, whichever verifier is asked.
-    match PlatformVerifier::X
-        .rotation_codehash_at(&provider, &artifacts, github_proxy, bearer_link_x)
+    match PlatformVerifier::Google
+        .rotation_codehash_at(&provider, &artifacts, github_proxy, oidc_google)
         .await
     {
         Err(Error::WrongCircuit {
@@ -710,10 +705,10 @@ async fn deploys_and_initializes_every_platform_verifier() {
         }) => {
             assert_eq!(
                 expected_codehash,
-                codehash_at(&provider, bearer_link_github).await.unwrap()
+                codehash_at(&provider, bearer_link).await.unwrap()
             );
-            assert_eq!(expected, Some(Circuit::BearerLinkGithub));
-            assert_eq!(found, Some(Circuit::BearerLinkX));
+            assert_eq!(expected, Some(Circuit::BearerLink));
+            assert_eq!(found, Some(Circuit::OidcGoogle));
         }
         other => panic!("expected WrongCircuit, got {other:?}"),
     }
@@ -729,7 +724,7 @@ async fn deploys_and_initializes_every_platform_verifier() {
         matches!(
             err,
             Error::WrongCircuit {
-                expected: Some(Circuit::BearerLinkGithub),
+                expected: Some(Circuit::BearerLink),
                 found: None,
                 ..
             }
@@ -763,7 +758,7 @@ async fn deploys_and_initializes_every_platform_verifier() {
     let x_wrong_circuit = TlsNotaryPlatformVerifier::initializeCall {
         owner_: deployer,
         notary_: notary_proxy,
-        honkVerifier_: bearer_link_github,
+        honkVerifier_: oidc_google,
     };
     let err = deploy_behind_proxy(
         &provider,
@@ -862,10 +857,9 @@ async fn escrows_value_against_an_unclaimed_handle() {
 
     // The real GitHub Platform Verifier, on the real Honk verifier for its
     // circuit, registered as version 1.
-    let honk =
-        deploy_honk_verifier(&provider, &artifacts, Circuit::BearerLinkGithub, None)
-            .await
-            .unwrap();
+    let honk = deploy_honk_verifier(&provider, &artifacts, Circuit::BearerLink, None)
+        .await
+        .unwrap();
     let github = Initializer::GitHub(TlsNotaryRoots {
         owner: deployer,
         notary_service: notary_proxy,
@@ -1059,19 +1053,19 @@ async fn deploys_the_honk_verifiers_over_their_own_circuits() {
         );
         deployed.push((address, decoded.logN));
     }
-    // One verification key per circuit; X and GitHub share a proof size.
+    // One verification key per circuit.
     for (i, (a, _)) in deployed.iter().enumerate() {
         for (b, _) in &deployed[i + 1..] {
             assert_ne!(
                 codehash_at(&provider, *a).await.unwrap(),
                 codehash_at(&provider, *b).await.unwrap(),
-                "two platforms would verify under one circuit"
+                "two circuits would verify under one key"
             );
         }
     }
 
     // What a Platform Verifier pins is the same on every deployment.
-    let again = deploy_honk_verifier(&provider, &artifacts, Circuit::BearerLinkX, None)
+    let again = deploy_honk_verifier(&provider, &artifacts, Circuit::BearerLink, None)
         .await
         .unwrap();
     assert_ne!(again, deployed[0].0);

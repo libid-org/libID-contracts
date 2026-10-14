@@ -64,7 +64,7 @@ contract GitHubPlatformVerifierTest is RealTlsNotaryProofTest {
                 )
             )
         );
-        honk = HonkStub.deploy(HonkStub.GITHUB);
+        honk = HonkStub.deploy(HonkStub.BEARER_LINK);
         address honkAddr = honk;
         GitHubPlatformVerifier vImpl = new GitHubPlatformVerifier();
         verifier = GitHubPlatformVerifier(
@@ -937,7 +937,7 @@ contract GitHubPlatformVerifierTest is RealTlsNotaryProofTest {
     }
 
     function _circuitArtifact() internal pure override returns (string memory) {
-        return "BearerLinkGithubHonkVerifier.sol:BearerLinkGithubHonkVerifier";
+        return "BearerLinkHonkVerifier.sol:BearerLinkHonkVerifier";
     }
 
     function _session() internal pure override returns (string memory) {
@@ -956,7 +956,7 @@ contract GitHubPlatformVerifierTest is RealTlsNotaryProofTest {
     ///      nodes for `583231` and `octocat` (folded from `OctoCat`).
     function test_verifiesARealProofOfTheRecordsLibidRsProduces() public {
         (TlsNotaryVerifierBase.TlsNotaryProof memory s, address circuit, bytes32[] memory proved) = _realProofPayload();
-        assertEq(proved.length, 12);
+        assertEq(proved.length, 16);
         vm.expectCall(circuit, abi.encodeCall(IHonkVerifier.verify, (s.proof, proved)));
         ICeremony.VerifiedClaim memory f = this.run{value: quote}(s);
         assertEq(f.idNode, 0x475902b27989feb395b9b0cd3156aa573a9676c13155b8e7e3ddaf3e77181847, "hashlib idNode");
@@ -973,7 +973,7 @@ contract GitHubPlatformVerifierTest is RealTlsNotaryProofTest {
     ///      wired to the X circuit, are refused at the first session.
     function test_anXVerifierRefusesAGitHubCeremony() public {
         (TlsNotaryVerifierBase.TlsNotaryProof memory s,,) = _realProofPayload();
-        address circuit = vm.deployCode("BearerLinkXHonkVerifier.sol:BearerLinkXHonkVerifier");
+        address circuit = vm.deployCode("BearerLinkHonkVerifier.sol:BearerLinkHonkVerifier");
         XPlatformVerifier x = XPlatformVerifier(
             address(
                 new ERC1967Proxy(
@@ -1202,16 +1202,20 @@ contract GitHubPlatformVerifierTest is RealTlsNotaryProofTest {
         this.run{value: quote}(s);
     }
 
-    /// @dev REQ-PLAT-52B: the 12 public inputs, built here independently of
-    ///      the verifier.
+    /// @dev REQ-PLAT-52B: the 16 public inputs, built here independently of
+    ///      the verifier; each tag is int.from_bytes(tag.ljust(31, b"\0"), "big").
     function test_provesAgainstTheCommitmentsTheNotarySigned() public {
-        bytes32[] memory expected = new bytes32[](12);
+        bytes32[] memory expected = new bytes32[](16);
         bytes32[6] memory wide =
             [TOKEN_COMMITMENT, IDENTITY_COMMITMENT, ID_COMMITMENT, HANDLE_COMMITMENT, ID_NODE, HANDLE_NODE];
         for (uint256 k = 0; k < 6; ++k) {
             expected[2 * k] = bytes32(uint256(wide[k]) / 2 ** 128);
             expected[2 * k + 1] = bytes32(uint256(wide[k]) % 2 ** 128);
         }
+        expected[12] = 0x006c696269642e6769746875622e757365722d69640000000000000000000000; // libid.github.user-id
+        expected[13] = bytes32(uint256(20));
+        expected[14] = 0x006c696269642e6769746875622e68616e646c65000000000000000000000000; // libid.github.handle
+        expected[15] = bytes32(uint256(19));
         TlsNotaryVerifierBase.TlsNotaryProof memory s = _payload();
         vm.expectCall(address(honk), abi.encodeCall(IHonkVerifier.verify, (s.proof, expected)));
         this.run{value: quote}(s);

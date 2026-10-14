@@ -76,8 +76,7 @@ impl PlatformVerifier {
     /// which vendored Honk verifier its `honk_verifier` should be.
     pub const fn circuit(self) -> Circuit {
         match self {
-            Self::X => Circuit::BearerLinkX,
-            Self::GitHub => Circuit::BearerLinkGithub,
+            Self::X | Self::GitHub => Circuit::BearerLink,
             Self::Google => Circuit::OidcGoogle,
         }
     }

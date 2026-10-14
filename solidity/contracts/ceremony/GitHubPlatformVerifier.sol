@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-import {CircuitCodehashes} from "../circuits/CircuitCodehashes.sol";
 import {CeremonyProfile} from "./CeremonyProfile.sol";
 import {INotaryService} from "./INotaryService.sol";
 import {IHonkVerifier} from "./PlatformVerifierBase.sol";
@@ -9,7 +8,7 @@ import {TlsNotaryVerifierBase} from "./TlsNotaryVerifierBase.sol";
 
 /// @title GitHubPlatformVerifier — the `github/v1` profile.
 ///
-/// @notice The X relation for GitHub, proved under `bearer-link-github`.
+/// @notice The X relation for GitHub, proved under `bearer-link` with GitHub's tags.
 ///
 /// @dev Two authorities: `github.com` for the exchange, `api.github.com` for
 ///      the identity read. The token body is exactly `GITHUB_TOKEN_FIELDS`
@@ -24,11 +23,6 @@ contract GitHubPlatformVerifier is TlsNotaryVerifierBase {
 
     function initialize(address owner_, INotaryService notary_, IHonkVerifier honkVerifier_) external initializer {
         __PlatformVerifierBase_init(owner_, notary_, honkVerifier_);
-    }
-
-    /// @dev `bearer-link-github`'s verifier, and no other.
-    function _circuitCodehash() internal pure override returns (bytes32) {
-        return CircuitCodehashes.BEARER_LINK_GITHUB;
     }
 
     function _platform() internal pure override returns (bytes32) {

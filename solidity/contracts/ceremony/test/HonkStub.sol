@@ -10,8 +10,7 @@ import {IHonkVerifier} from "../PlatformVerifierBase.sol";
 library HonkStub {
     Vm private constant VM = Vm(address(uint160(uint256(keccak256("hevm cheat code")))));
 
-    string internal constant X = "BearerLinkXHonkVerifier.sol:BearerLinkXHonkVerifier";
-    string internal constant GITHUB = "BearerLinkGithubHonkVerifier.sol:BearerLinkGithubHonkVerifier";
+    string internal constant BEARER_LINK = "BearerLinkHonkVerifier.sol:BearerLinkHonkVerifier";
     string internal constant GOOGLE = "OidcGoogleHonkVerifier.sol:OidcGoogleHonkVerifier";
 
     /// @notice Deploy `artifact` and have its `verify` answer `true`.

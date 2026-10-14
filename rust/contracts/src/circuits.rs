@@ -36,28 +36,25 @@ use crate::{
     },
 };
 
-/// One ceremony circuit, and so one vendored Honk verifier, per platform.
+/// One ceremony circuit, and so one vendored Honk verifier.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Circuit {
-    /// X's token exchange, identity read and account keys, for `x/v1`.
-    BearerLinkX,
-    /// GitHub's, for `github/v1`.
-    BearerLinkGithub,
+    /// The token exchange, identity read and account keys, for `x/v1` and
+    /// `github/v1`; the Platform Verifier passes its platform's tags.
+    BearerLink,
     /// The Google OIDC circuit, for `google/v1`.
     OidcGoogle,
 }
 
 impl Circuit {
     /// Every circuit the launch platforms verify under.
-    pub const ALL: [Self; 3] =
-        [Self::BearerLinkX, Self::BearerLinkGithub, Self::OidcGoogle];
+    pub const ALL: [Self; 2] = [Self::BearerLink, Self::OidcGoogle];
 
     /// The circuit's directory in the `libid-circuits` release, which is
     /// also its tarball's name and its key in `circuits.json`.
     pub const fn name(self) -> &'static str {
         match self {
-            Self::BearerLinkX => "bearer-link-x",
-            Self::BearerLinkGithub => "bearer-link-github",
+            Self::BearerLink => "bearer-link",
             Self::OidcGoogle => "oidc-google",
         }
     }
@@ -68,8 +65,7 @@ impl Circuit {
     /// project and one artifact path names one circuit.
     pub const fn contract(self) -> &'static str {
         match self {
-            Self::BearerLinkX => "BearerLinkXHonkVerifier",
-            Self::BearerLinkGithub => "BearerLinkGithubHonkVerifier",
+            Self::BearerLink => "BearerLinkHonkVerifier",
             Self::OidcGoogle => "OidcGoogleHonkVerifier",
         }
     }
@@ -87,12 +83,11 @@ impl Circuit {
 
     /// Every circuit beside its [`runtime_codehash`](Self::runtime_codehash),
     /// in [`ALL`](Self::ALL)'s order.
-    pub fn runtime_codehashes(artifacts: &Artifacts) -> Result<[(Self, B256); 3]> {
-        let [a, b, c] = Self::ALL;
+    pub fn runtime_codehashes(artifacts: &Artifacts) -> Result<[(Self, B256); 2]> {
+        let [a, b] = Self::ALL;
         Ok([
             (a, a.runtime_codehash(artifacts)?),
             (b, b.runtime_codehash(artifacts)?),
-            (c, c.runtime_codehash(artifacts)?),
         ])
     }
 
