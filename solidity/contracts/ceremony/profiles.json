@@ -52,6 +52,17 @@
     {
       "platform": "google",
       "ceremonyVersion": 1,
+      "keys": {
+        "userIdTag": "libid.google.user-id",
+        "handleTag": "libid.google.handle",
+        "maxHandle": 62,
+        "maxId": 31,
+        "idShape": "string",
+        "note": [
+          "The address as proved: no dot is removed, no +tag stripped and no domain",
+          "rewritten. A longer one is refused, not truncated. The id is the OIDC sub."
+        ]
+      },
       "note": [
         "Google's evidence is a signed token checked against Google's published",
         "keys, so the profile notarizes nothing: no session, no attestation,",
@@ -72,6 +83,14 @@
     {
       "platform": "x",
       "ceremonyVersion": 1,
+      "keys": {
+        "userIdTag": "libid.x.user-id",
+        "handleTag": "libid.x.handle",
+        "maxHandle": 39,
+        "maxId": 20,
+        "idShape": "decimal",
+        "note": "bearer-link's handle buffer, shared with GitHub; an id is a decimal string."
+      },
       "note": [
         "A public client with S256 PKCE and two browser-owned sessions, both",
         "served by the same host."
@@ -158,6 +177,14 @@
     {
       "platform": "github",
       "ceremonyVersion": 1,
+      "keys": {
+        "userIdTag": "libid.github.user-id",
+        "handleTag": "libid.github.handle",
+        "maxHandle": 39,
+        "maxId": 20,
+        "idShape": "decimal",
+        "note": "bearer-link's handle buffer, GitHub's 39-byte login; an id is a bare JSON integer."
+      },
       "note": [
         "The credential GitHub calls `client_secret` is sent and revealed, so",
         "an attestation publishes it and nothing here is confidential. The two",

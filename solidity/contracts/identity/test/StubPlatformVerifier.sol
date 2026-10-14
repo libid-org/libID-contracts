@@ -4,7 +4,8 @@ pragma solidity ^0.8.24;
 import {CeremonyAuthorization} from "../../ceremony/CeremonyAuthorization.sol";
 import {IPlatformVerifier} from "../../ceremony/IPlatformVerifier.sol";
 import {HandleDisclosure} from "../../ceremony/PlatformVerifierBase.sol";
-import {HandlePlatforms} from "../../handles/HandlePlatforms.sol";
+import {CeremonyProfile} from "../../ceremony/CeremonyProfile.sol";
+import {HandleNode} from "../../handles/HandleNode.sol";
 import {TestNodes} from "./TestNodes.sol";
 
 /// @notice Stands in for a Platform Verifier: decodes its own payload, rebuilds
@@ -80,9 +81,9 @@ contract StubPlatformVerifier is IPlatformVerifier {
             c.handleNode = rawHandleNode;
             c.handle = p.handle;
         } else {
-            bytes32 known = HandlePlatforms.knows(PLATFORM) ? PLATFORM : HandlePlatforms.PLATFORM_X;
+            bytes32 known = CeremonyProfile.knows(PLATFORM) ? PLATFORM : CeremonyProfile.PLATFORM_X;
             c.idNode = TestNodes.idNode(known, userId);
-            (, c.handleNode) = HandlePlatforms.handleNodeOf(known, handle);
+            (, c.handleNode) = HandleNode.nodeOf(CeremonyProfile.handleTag(known), handle);
             c.handle = HandleDisclosure.check(known, p.handle, c.handleNode);
         }
         c.metadataObservedAt = observedAt;

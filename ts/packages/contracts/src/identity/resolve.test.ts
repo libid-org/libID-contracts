@@ -49,7 +49,7 @@ const OLD_NODE = handleNode(PLATFORM_X_KEY, 'alice_old')
 
 describe('resolving a handle', () => {
   /// The contract stores under the hash of the platform key, and the keys are
-  /// generated from handles.json — so this and the chain agree by construction
+  /// generated from profiles.json — so this and the chain agree by construction
   /// rather than by somebody keeping two lists in step.
   it('derives the platform id from the generated platform key', () => {
     expect(X).toMatch(/^0x[0-9a-f]{64}$/)

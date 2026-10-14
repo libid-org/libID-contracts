@@ -8,7 +8,8 @@ import {ReentrancyGuardUpgradeable} from "@openzeppelin/contracts-upgradeable/ut
 
 import {ICeremony} from "../ceremony/ICeremony.sol";
 import {IProofVerifier} from "../ceremony/IProofVerifier.sol";
-import {HandlePlatforms} from "../handles/HandlePlatforms.sol";
+import {CeremonyProfile} from "../ceremony/CeremonyProfile.sol";
+import {HandleNode} from "../handles/HandleNode.sol";
 import {IIdentityRegistry} from "./IIdentityRegistry.sol";
 import {IdentityList} from "./IdentityList.sol";
 
@@ -309,7 +310,7 @@ contract IdentityRegistry is
         if (holder == address(0)) return;
         string memory name = _s().published[holder][platformId];
         if (bytes(name).length == 0) return;
-        if (HandlePlatforms.node(HandlePlatforms.handleTagFor(platformId), name) != handleNode) return;
+        if (HandleNode.node(CeremonyProfile.handleTag(platformId), name) != handleNode) return;
         delete _s().published[holder][platformId];
         emit HandleUnpublished(holder, platformId);
     }
@@ -320,7 +321,7 @@ contract IdentityRegistry is
     /// @dev The folded handle must hash to a node the caller holds.
     function publish(bytes32 platformId, string calldata handle) external {
         _requireKnown(platformId);
-        (string memory normalized, bytes32 handleNode) = HandlePlatforms.handleNodeOf(platformId, handle);
+        (string memory normalized, bytes32 handleNode) = _handleNodeOf(platformId, handle);
         if (_s().handleBindings[handleNode].holder != msg.sender) revert NotYourHandle(handleNode);
         _name(platformId, handleNode, normalized);
     }
@@ -341,9 +342,18 @@ contract IdentityRegistry is
 
     // ─── Guards ─────────────────────────────────────────────────────
 
-    /// @dev A platform is known when `handles.json` names it.
+    /// @dev A platform is known when a ceremony profile names it.
     function _requireKnown(bytes32 platformId) private pure {
-        if (!HandlePlatforms.knows(platformId)) revert UnknownPlatform(platformId);
+        if (!CeremonyProfile.knows(platformId)) revert UnknownPlatform(platformId);
+    }
+
+    /// @dev Typed text folded, and its node under the platform's handle tag.
+    function _handleNodeOf(bytes32 platformId, string memory handle)
+        private
+        pure
+        returns (string memory folded, bytes32 handleNode)
+    {
+        return HandleNode.nodeOf(CeremonyProfile.handleTag(platformId), handle);
     }
 
     /// @dev A resolver answers for a platform that is known and either has
@@ -364,22 +374,16 @@ contract IdentityRegistry is
 
     // ─── Views ──────────────────────────────────────────────────────
 
-    /// @notice The tag this platform's handle nodes are hashed under.
-    function handleTagOf(bytes32 platformId) external pure returns (bytes memory) {
-        _requireKnown(platformId);
-        return HandlePlatforms.handleTagFor(platformId);
-    }
-
     /// @notice The node a handle is bound under, from the handle as typed:
     ///         folded, then hashed under the platform's tag.
     function handleNodeOf(bytes32 platformId, string calldata handle) external pure returns (bytes32 handleNode) {
         _requireKnown(platformId);
-        (, handleNode) = HandlePlatforms.handleNodeOf(platformId, handle);
+        (, handleNode) = _handleNodeOf(platformId, handle);
     }
 
     /// @notice Whether a platform can be bound right now.
     function acceptsBindings(bytes32 platformId) external view returns (bool) {
-        if (!HandlePlatforms.knows(platformId)) return false;
+        if (!CeremonyProfile.knows(platformId)) return false;
         IProofVerifier pv = _s().proofVerifier;
         return address(pv) != address(0) && pv.verifiesPlatform(platformId);
     }
@@ -395,7 +399,7 @@ contract IdentityRegistry is
     ///         has.
     function resolveHandle(bytes32 platformId, string calldata handle) external view returns (address) {
         _requireUsable(platformId);
-        (, bytes32 handleNode) = HandlePlatforms.handleNodeOf(platformId, handle);
+        (, bytes32 handleNode) = _handleNodeOf(platformId, handle);
         return _s().handleBindings[handleNode].holder;
     }
 
@@ -404,7 +408,7 @@ contract IdentityRegistry is
         _requireKnown(platformId);
         string memory published = _s().published[holder][platformId];
         if (bytes(published).length == 0) return "";
-        bytes32 handleNode = HandlePlatforms.node(HandlePlatforms.handleTagFor(platformId), published);
+        bytes32 handleNode = HandleNode.node(CeremonyProfile.handleTag(platformId), published);
         if (_s().handleBindings[handleNode].holder != holder) return "";
         return published;
     }
@@ -438,7 +442,7 @@ contract IdentityRegistry is
         returns (address holder, bool idAgrees)
     {
         _requireUsable(platformId);
-        (, bytes32 handleNode) = HandlePlatforms.handleNodeOf(platformId, handle);
+        (, bytes32 handleNode) = _handleNodeOf(platformId, handle);
         return _resolveNodeAndId(platformId, handleNode, idNode);
     }
 

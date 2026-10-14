@@ -1,7 +1,8 @@
 //! The off-chain half of the identity keys: handle normalization, the id
 //! rules and, with the `node` feature, the nodes a binding is stored under.
 //!
-//! `handle_vectors` is generated from `contracts/handles/handles.json` by
+//! `handle_vectors` is generated from `contracts/handles/handles.json` and
+//! `contracts/ceremony/profiles.json` by
 //! `scripts/regen-identity-handles.py`; every language runs its vectors.
 
 #![deny(warnings)]

@@ -9,8 +9,8 @@ it, then run this script. Up to three files are written and never drift apart:
     ts/packages/contracts/src/ceremony/profiles.ts    # TypeScript constants
 
 An output is skipped with a note until its target directory appears. The
-Platform Verifiers are hand written in Solidity and READ these constants, the
-way `IdentityRegistry` reads `HandlePlatforms`. Only the values come from here.
+Platform Verifiers and `IdentityRegistry` are hand written in Solidity and READ
+these constants, the node tags among them. Only the values come from here.
 That is the point: four components must produce the same bytes, and a
 disagreement between them is silent -- a Consumer dispatching on one string and
 a verifier registered under another simply never meet.
@@ -311,6 +311,27 @@ def validate(spec: dict[str, Any]) -> None:
         if len(sessions_of(profile)) == 1:
             raise SystemExit(f"ERROR: {platform!r} has one session; expected none or both")
         validate_validity(profile)
+        validate_keys(profile)
+    tags = [t for p in spec["profiles"] for t in (p["keys"]["userIdTag"], p["keys"]["handleTag"])]
+    for i, a in enumerate(tags):
+        for b in tags[i + 1:]:
+            if a == b or a.startswith(b) or b.startswith(a):
+                raise SystemExit(f"ERROR: tags {a!r} and {b!r} overlap; tags must be distinct and prefix-free")
+
+
+def validate_keys(profile: dict[str, Any]) -> None:
+    """A platform's node tags and the circuits' buffers for it."""
+    keys = profile["keys"]
+    for tag in (keys["userIdTag"], keys["handleTag"]):
+        safe(tag, "tag")
+        # bearer-link takes a tag as one public-input Field.
+        if not 0 < len(tag) < 32:
+            raise SystemExit(f"ERROR: tag {tag!r} must be 1 to 31 bytes")
+    if keys["idShape"] not in ("decimal", "string"):
+        raise SystemExit(f"ERROR: unknown keys.idShape {keys['idShape']!r}")
+    for field in ("maxHandle", "maxId"):
+        if not (isinstance(keys[field], int) and keys[field] > 0):
+            raise SystemExit(f"ERROR: keys.{field} must be a positive integer")
 
 
 def validate_validity(profile: dict[str, Any]) -> None:
@@ -390,6 +411,18 @@ def gen_sol(spec: dict[str, Any]) -> str:
         lines.append(
             f'    bytes32 internal constant PLATFORM_{name} = keccak256(bytes("{profile["platform"]}"));'
         )
+
+    lines += [
+        "",
+        "    // --- Node tags ----------------------------------------------------------",
+        "",
+        "    /// @dev A node is SHA256 of its tag, then the id or the folded handle.",
+    ]
+    for profile in profiles:
+        name = upper(profile["platform"])
+        keys = profile["keys"]
+        lines.append(f'    bytes internal constant {name}_USER_ID_TAG = "{keys["userIdTag"]}";')
+        lines.append(f'    bytes internal constant {name}_HANDLE_TAG = "{keys["handleTag"]}";')
 
     lines += [
         "",
@@ -562,6 +595,26 @@ def sol_lookups(spec: dict[str, Any]) -> list[str]:
                 lines.append(f"        if ({test}) return {default};")
         lines.extend(["        revert UnknownPlatform(platformId);", "    }", ""])
 
+    lines.append("    /// @dev Whether a profile names this platform.")
+    lines.append("    function knows(bytes32 platformId) internal pure returns (bool) {")
+    lines.append(
+        "        return " + " || ".join(f"platformId == PLATFORM_{upper(p['platform'])}" for p in profiles) + ";"
+    )
+    lines += ["    }", ""]
+    lookup(
+        "userIdTag",
+        "bytes memory",
+        [(p["platform"], f"{upper(p['platform'])}_USER_ID_TAG") for p in profiles],
+        None,
+        "The tag the platform's id nodes are hashed under.",
+    )
+    lookup(
+        "handleTag",
+        "bytes memory",
+        [(p["platform"], f"{upper(p['platform'])}_HANDLE_TAG") for p in profiles],
+        None,
+        "The tag the platform's handle nodes are hashed under.",
+    )
     lookup(
         "ceremonyVersion",
         "uint16",

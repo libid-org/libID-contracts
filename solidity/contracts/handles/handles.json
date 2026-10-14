@@ -1,12 +1,13 @@
 {
-  "version": 3,
+  "version": 4,
   "note": [
-    "The single source of truth for platform identity constants and for the",
-    "transform a circuit applies before it hashes a value into a key. Solidity,",
-    "Rust, TypeScript and Noir constants are generated from this file by",
-    "scripts/regen-identity-handles.py. The transform is hand written in each",
-    "language -- the circuit's is the one that keys a binding -- and Rust,",
-    "TypeScript and Noir run the same vector table. Solidity only folds.",
+    "The shared vector table for the transform a circuit applies before it",
+    "hashes a value into a key. Each platform's tags and the circuits' buffers",
+    "are its `keys` in solidity/contracts/ceremony/profiles.json.",
+    "scripts/regen-identity-handles.py generates the Rust, TypeScript and Noir",
+    "constants from both files. The transform is hand written in each language",
+    "-- the circuit's is the one that keys a binding -- and Rust, TypeScript and",
+    "Noir run every vector here. Solidity only folds, and runs the accepted ones.",
     "",
     "The circuit checks that a value is exactly the JSON token the platform",
     "sent, nothing about its format: that is the platform's to keep. A handle,",
@@ -22,60 +23,7 @@
     "two platforms and no id and handle share a key. Every handleNode and",
     "idNode below was computed independently, with Python's hashlib over the",
     "hand-written output; the generator recomputes each one and refuses a",
-    "table whose stored node disagrees.",
-    "",
-    "A platform id is keccak256 of the platform key ('x'), with no namespace",
-    "of its own. The specification fixes the keys -- the launch profiles of",
-    "REQ-PLAT-01 are google, x and github -- and leaves the derivation to",
-    "the profile author, so this repository pins it."
-  ],
-  "platforms": [
-    {
-      "key": "x",
-      "maxLength": 39,
-      "note": "bearer-link's handle buffer, shared with GitHub.",
-      "tags": {
-        "userId": "libid.x.user-id",
-        "handle": "libid.x.handle"
-      },
-      "id": {
-        "maxLength": 20,
-        "shape": "decimal",
-        "note": "A decimal string; 2^64-1 has 20 digits."
-      }
-    },
-    {
-      "key": "github",
-      "maxLength": 39,
-      "note": "bearer-link's handle buffer: GitHub's 39-byte login.",
-      "tags": {
-        "userId": "libid.github.user-id",
-        "handle": "libid.github.handle"
-      },
-      "id": {
-        "maxLength": 20,
-        "shape": "decimal",
-        "note": "A bare JSON integer; 2^64-1 has 20 digits."
-      }
-    },
-    {
-      "key": "google",
-      "maxLength": 62,
-      "note": [
-        "The address as proved: no dot is removed, no +tag stripped and no domain",
-        "rewritten, so two addresses never become one identity. A longer one is",
-        "refused, not truncated."
-      ],
-      "tags": {
-        "userId": "libid.google.user-id",
-        "handle": "libid.google.handle"
-      },
-      "id": {
-        "maxLength": 31,
-        "shape": "string",
-        "note": "The OIDC sub, as the oidc-google circuit reads it."
-      }
-    }
+    "table whose stored node disagrees."
   ],
   "errors": [
     {

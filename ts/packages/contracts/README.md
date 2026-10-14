@@ -13,7 +13,8 @@ regenerates them before every build, test and publish. Each ABI is exported
 each call builder reads its arguments off that ABI, so adding a write function
 to a contract produces its wrapper instead of requiring someone to remember to
 write one. The handle vector table in `src/identity/handleVectors.ts` is
-generated from `solidity/contracts/handles/handles.json` by
+generated from `solidity/contracts/handles/handles.json` and the platform
+`keys` in `solidity/contracts/ceremony/profiles.json` by
 `scripts/regen-identity-handles.py`.
 
 ```sh

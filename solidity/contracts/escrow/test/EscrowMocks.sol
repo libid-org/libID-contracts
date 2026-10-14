@@ -3,7 +3,8 @@ pragma solidity ^0.8.20;
 
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 
-import {HandlePlatforms} from "../../handles/HandlePlatforms.sol";
+import {CeremonyProfile} from "../../ceremony/CeremonyProfile.sol";
+import {HandleNode} from "../../handles/HandleNode.sol";
 import {IIdentityRegistry} from "../../identity/IIdentityRegistry.sol";
 
 /// @notice A one-token list for `HandleEscrow.claim`.
@@ -25,11 +26,11 @@ contract SettableRegistry is IIdentityRegistry {
     }
 
     function handleNodeOf(bytes32 platformId, string calldata handle) external pure returns (bytes32 handleNode) {
-        (, handleNode) = HandlePlatforms.handleNodeOf(platformId, handle);
+        (, handleNode) = HandleNode.nodeOf(CeremonyProfile.handleTag(platformId), handle);
     }
 
     function acceptsBindings(bytes32 platformId) external pure returns (bool) {
-        return HandlePlatforms.knows(platformId);
+        return CeremonyProfile.knows(platformId);
     }
 
     function nodeKeyed() external pure virtual returns (bool) {

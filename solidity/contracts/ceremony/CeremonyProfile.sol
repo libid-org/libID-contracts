@@ -35,6 +35,16 @@ library CeremonyProfile {
     bytes32 internal constant PLATFORM_X = keccak256(bytes("x"));
     bytes32 internal constant PLATFORM_GITHUB = keccak256(bytes("github"));
 
+    // --- Node tags ----------------------------------------------------------
+
+    /// @dev A node is SHA256 of its tag, then the id or the folded handle.
+    bytes internal constant GOOGLE_USER_ID_TAG = "libid.google.user-id";
+    bytes internal constant GOOGLE_HANDLE_TAG = "libid.google.handle";
+    bytes internal constant X_USER_ID_TAG = "libid.x.user-id";
+    bytes internal constant X_HANDLE_TAG = "libid.x.handle";
+    bytes internal constant GITHUB_USER_ID_TAG = "libid.github.user-id";
+    bytes internal constant GITHUB_HANDLE_TAG = "libid.github.handle";
+
     // --- Authorities --------------------------------------------------------
 
     /// @dev The lowercase ASCII TLS server name, with no trailing dot, that the
@@ -162,6 +172,27 @@ library CeremonyProfile {
     }
 
     // --- By platform ----------------------------------------------------------
+
+    /// @dev Whether a profile names this platform.
+    function knows(bytes32 platformId) internal pure returns (bool) {
+        return platformId == PLATFORM_GOOGLE || platformId == PLATFORM_X || platformId == PLATFORM_GITHUB;
+    }
+
+    /// @dev The tag the platform's id nodes are hashed under.
+    function userIdTag(bytes32 platformId) internal pure returns (bytes memory) {
+        if (platformId == PLATFORM_GOOGLE) return GOOGLE_USER_ID_TAG;
+        if (platformId == PLATFORM_X) return X_USER_ID_TAG;
+        if (platformId == PLATFORM_GITHUB) return GITHUB_USER_ID_TAG;
+        revert UnknownPlatform(platformId);
+    }
+
+    /// @dev The tag the platform's handle nodes are hashed under.
+    function handleTag(bytes32 platformId) internal pure returns (bytes memory) {
+        if (platformId == PLATFORM_GOOGLE) return GOOGLE_HANDLE_TAG;
+        if (platformId == PLATFORM_X) return X_HANDLE_TAG;
+        if (platformId == PLATFORM_GITHUB) return GITHUB_HANDLE_TAG;
+        revert UnknownPlatform(platformId);
+    }
 
     /// @dev The ceremony version the profile is.
     function ceremonyVersion(bytes32 platformId) internal pure returns (uint16) {

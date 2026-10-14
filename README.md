@@ -17,7 +17,7 @@ solidity/            # Foundry project root
     circuits/        # the UltraHonk verifiers the Platform Verifiers pin:
                      # circuits.json pins a libid-circuits release, the
                      # Solidity is vendored from it and not committed
-    handles/         # HandlePlatforms: platform ids, node tags, the A-Z fold
+    handles/         # HandleNode: the A-Z fold and the node hash; handles.json
     identity/        # IdentityRegistry
     factory/         # LibidFactory: deterministic CREATE3 deployment
     WTIA9.sol        # wrapped TIA
@@ -63,20 +63,22 @@ and npm package carry the generated output even though git does not.
 
 ## Handle vectors
 
-`solidity/contracts/handles/handles.json` is the source of truth for the
-identity tags, the circuits' buffers and the shared vector table. After editing it:
+Each platform's node tags and the circuits' buffers are its `keys` in
+`solidity/contracts/ceremony/profiles.json`, which also generates
+`CeremonyProfile.sol` (the platform ids and tags the contracts read).
+`solidity/contracts/handles/handles.json` holds the shared vector table.
+After editing either:
 
 ```sh
 python3 scripts/regen-identity-handles.py          # rewrite generated outputs
 python3 scripts/regen-identity-handles.py --check  # verify nothing drifted
 ```
 
-This generates `solidity/contracts/handles/HandlePlatforms.sol` (the
-platform ids and tags the contracts read, and the fold: on chain a handle is
-only folded), `solidity/contracts/handles/HandleVectors.sol` (the accepted
-vectors, for tests only), `rust/identity/src/handle_vectors.rs` and
+This generates `rust/identity/src/handle_vectors.rs` and
 `ts/packages/contracts/src/identity/handleVectors.ts`; CI's handle-tables job
-fails when any of them drifts from `handles.json`.
+fails when either drifts from its sources. On chain a handle is only folded,
+by the hand-written `HandleNode`, and forge runs the accepted vectors read
+from `handles.json` itself.
 
 ## Circuit verifiers
 

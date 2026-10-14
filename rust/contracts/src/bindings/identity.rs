@@ -63,8 +63,6 @@ mod registry_inner {
             /// The handle a holder published, while it still resolves back to
             /// that holder; empty otherwise.
             function publishedHandleOf(address holder, bytes32 platformId) external view returns (string memory);
-            /// The tag the platform's handle nodes are hashed under.
-            function handleTagOf(bytes32 platformId) external pure returns (bytes memory);
             /// Whether `bind` accepts this platform now.
             function acceptsBindings(bytes32 platformId) external view returns (bool);
             /// The node a handle is bound under (`HandleEscrow.deposit` takes it).

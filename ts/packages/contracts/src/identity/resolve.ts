@@ -21,7 +21,7 @@ import { handleNode } from './node.js'
 export type PlatformKey<K extends string> = K extends `0x${string}` ? never : K
 
 /// A platform id is `keccak256` of its platform key. The keys are generated
-/// from `handles.json`, so this and the contract agree by construction.
+/// from `profiles.json`, so this and the contract agree by construction.
 export function platformId<K extends string>(platformKey: PlatformKey<K>): `0x${string}` {
   return keccak256(toHex(platformKey))
 }

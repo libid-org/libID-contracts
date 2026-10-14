@@ -4,7 +4,7 @@ pragma solidity ^0.8.24;
 import {Vm} from "forge-std/Test.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
-import {HandlePlatforms} from "../../handles/HandlePlatforms.sol";
+import {CeremonyProfile} from "../../ceremony/CeremonyProfile.sol";
 import {IdentityRegistry} from "../IdentityRegistry.sol";
 import {IIdentityRegistry} from "../IIdentityRegistry.sol";
 import {CeremonyProofVerifier} from "../../ceremony/CeremonyProofVerifier.sol";
@@ -24,8 +24,8 @@ contract IdentityRegistryTest is PrivacyScan {
     StubPlatformVerifier internal xVerifier;
     StubPlatformVerifier internal githubVerifier;
 
-    bytes32 internal constant X = HandlePlatforms.PLATFORM_X;
-    bytes32 internal constant GITHUB = HandlePlatforms.PLATFORM_GITHUB;
+    bytes32 internal constant X = CeremonyProfile.PLATFORM_X;
+    bytes32 internal constant GITHUB = CeremonyProfile.PLATFORM_GITHUB;
 
     address internal alice = makeAddr("alice");
     address internal bob = makeAddr("bob");
@@ -331,16 +331,6 @@ contract IdentityRegistryTest is PrivacyScan {
 
     // ─── Platforms ──────────────────────────────────────────────────
 
-    /// A platform's tags are the generated constants, verifier or not.
-    function test_aPlatformsTagIsTheCircuitsOwn() public view {
-        bytes32[3] memory platforms = [X, GITHUB, HandlePlatforms.PLATFORM_GOOGLE];
-        for (uint256 i = 0; i < platforms.length; i++) {
-            bytes32 platformId = platforms[i];
-            assertEq(registry.handleTagOf(platformId), HandlePlatforms.handleTagFor(platformId));
-        }
-        assertEq(registry.handleTagOf(X), bytes("libid.x.handle"));
-    }
-
     // ─── The freshness signal ───────────────────────────────────────
 
     /// Every entry point that names a platform refuses an unknown one.
@@ -373,16 +363,13 @@ contract IdentityRegistryTest is PrivacyScan {
         registry.resolveHandleNodeAndId(unwired, handleNode, idNode);
 
         vm.expectRevert(abi.encodeWithSelector(IIdentityRegistry.UnknownPlatform.selector, unwired));
-        registry.handleTagOf(unwired);
-        vm.expectRevert(abi.encodeWithSelector(IIdentityRegistry.UnknownPlatform.selector, unwired));
         registry.handleNodeOf(unwired, "alice");
 
         assertEq(registry.resolveId(keccak256("no such node")), address(0));
     }
 
-    /// `handleTagOf` and `handleNodeOf` agree with the node a bind writes.
-    function test_theHashingViewsAgreeWithWhatABindWrites() public {
-        assertEq(registry.handleTagOf(X), bytes("libid.x.handle"));
+    /// `handleNodeOf` agrees with the node a bind writes.
+    function test_theHashingViewAgreesWithWhatABindWrites() public {
         // `handles.json`: x, "alice".
         bytes32 tableNode = 0x0bed64615b5776d2567a82467d7be0e266e02803910d694a72703ee2a4cc911a;
         assertEq(registry.handleNodeOf(X, "Alice"), tableNode);
@@ -1143,7 +1130,7 @@ contract IdentityRegistryTest is PrivacyScan {
 
     /// A platform without a verifier does not resolve.
     function test_aPlatformWithoutAVerifierDoesNotResolve() public {
-        bytes32 google = HandlePlatforms.PLATFORM_GOOGLE;
+        bytes32 google = CeremonyProfile.PLATFORM_GOOGLE;
         bytes32 idNode = _id(google, "123");
         bytes32 handleNode = _hn(google, "alice@gmail.com");
 
@@ -1153,14 +1140,13 @@ contract IdentityRegistryTest is PrivacyScan {
         vm.expectRevert(abi.encodeWithSelector(IIdentityRegistry.UnknownPlatform.selector, google));
         registry.resolveHandleAndId(google, "alice@gmail.com", idNode);
 
-        // The hashing views still answer.
-        assertEq(registry.handleTagOf(google), HandlePlatforms.handleTagFor(google));
+        // The hashing view still answers.
         assertEq(registry.handleNodeOf(google, "Alice@Gmail.com"), handleNode);
     }
 
     /// Binding on it is refused by the Proof Verifier.
     function test_bindingOnAPlatformWithoutAVerifierIsRefused() public {
-        bytes32 google = HandlePlatforms.PLATFORM_GOOGLE;
+        bytes32 google = CeremonyProfile.PLATFORM_GOOGLE;
         _stage("123", "alice", alice, 100);
         vm.prank(alice);
         vm.expectRevert(abi.encodeWithSelector(CeremonyProofVerifier.UnknownVersion.selector, google, V1));
@@ -1169,7 +1155,7 @@ contract IdentityRegistryTest is PrivacyScan {
 
     /// `acceptsBindings` needs a known platform and a registered verifier; bound identities keep resolving.
     function test_acceptsBindingsNeedsAKnownPlatformAndAVerifier() public {
-        bytes32 google = HandlePlatforms.PLATFORM_GOOGLE;
+        bytes32 google = CeremonyProfile.PLATFORM_GOOGLE;
         assertTrue(registry.acceptsBindings(X));
         assertFalse(registry.acceptsBindings(google), "no verifier");
 
@@ -1179,7 +1165,7 @@ contract IdentityRegistryTest is PrivacyScan {
         proofVerifier.setVerifier(keccak256("nowhere"), V1, IPlatformVerifier(address(unknownVerifier)));
         proofVerifier.setVerifier(google, V1, IPlatformVerifier(address(googleVerifier)));
         vm.stopPrank();
-        assertFalse(registry.acceptsBindings(keccak256("nowhere")), "not in handles.json");
+        assertFalse(registry.acceptsBindings(keccak256("nowhere")), "no profile names it");
         assertTrue(registry.acceptsBindings(google));
 
         IdentityRegistry bare = IdentityRegistry(

@@ -9,7 +9,7 @@ import {CeremonyAttestation} from "./CeremonyAttestation.sol";
 import {CeremonyProfile} from "./CeremonyProfile.sol";
 import {ICeremony} from "./ICeremony.sol";
 import {INotaryService} from "./INotaryService.sol";
-import {HandlePlatforms} from "../handles/HandlePlatforms.sol";
+import {HandleNode} from "../handles/HandleNode.sol";
 
 /// @dev The bb-generated proof verifier for this platform's circuit.
 interface IHonkVerifier {
@@ -32,7 +32,7 @@ library HandleDisclosure {
     {
         if (bytes(handle).length != 0) {
             bytes32 node;
-            (folded, node) = HandlePlatforms.handleNodeOf(platform, handle);
+            (folded, node) = HandleNode.nodeOf(CeremonyProfile.handleTag(platform), handle);
             if (node != handleNode) revert HandleNotProved(node, handleNode);
         }
     }

@@ -35,7 +35,7 @@ const BAD_CHARACTER = () =>
     'the handle has a byte outside printable ASCII, or a quote or backslash',
   )
 
-/// What one platform's circuit takes, generated from `handles.json`.
+/// What one platform's circuit takes, generated from its profile's `keys`.
 export interface Rules {
   /** Bytes the circuit's buffer holds. */
   maxLength: number

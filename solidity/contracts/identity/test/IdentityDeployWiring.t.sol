@@ -4,7 +4,6 @@ pragma solidity ^0.8.20;
 import {Test} from "forge-std/Test.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
-import {HandlePlatforms} from "../../handles/HandlePlatforms.sol";
 import {IdentityRegistry} from "../IdentityRegistry.sol";
 import {IIdentityRegistry} from "../IIdentityRegistry.sol";
 import {IPlatformVerifier} from "../../ceremony/IPlatformVerifier.sol";
@@ -13,7 +12,7 @@ import {CeremonyProfile} from "../../ceremony/CeremonyProfile.sol";
 import {CeremonyProofVerifier} from "../../ceremony/CeremonyProofVerifier.sol";
 import {StubPlatformVerifier} from "./StubPlatformVerifier.sol";
 
-/// A deployed registry knows the three platforms `handles.json` names, with
+/// A deployed registry knows the three platforms the ceremony profiles name, with
 /// their tags, and a registered verifier makes each resolvable.
 contract IdentityDeployWiringTest is Test {
     IdentityRegistry internal registry;
@@ -36,52 +35,46 @@ contract IdentityDeployWiringTest is Test {
     /// An unknown platform reverts rather than hashing under a default tag.
     function test_anUnknownPlatformHasNoTag() public {
         bytes32 nowhere = keccak256("nowhere");
-        vm.expectRevert(abi.encodeWithSelector(HandlePlatforms.UnknownPlatform.selector, nowhere));
+        vm.expectRevert(abi.encodeWithSelector(CeremonyProfile.UnknownPlatform.selector, nowhere));
         this.handleTagForExternally(nowhere);
     }
 
-    /// The handle table and the ceremony profiles sit below identity, so each
-    /// keeps its own copy of the registry's error; all three are one error.
+    /// The ceremony profiles sit below identity, so they keep their own copy
+    /// of the registry's error; the two are one error.
     function test_everyUnknownPlatformIsTheRegistrysError() public pure {
-        assertEq(HandlePlatforms.UnknownPlatform.selector, IIdentityRegistry.UnknownPlatform.selector);
         assertEq(CeremonyProfile.UnknownPlatform.selector, IIdentityRegistry.UnknownPlatform.selector);
     }
 
-    /// `handleTagFor` is an internal library call, which `expectRevert` cannot see.
+    /// `handleTag` is an internal library call, which `expectRevert` cannot see.
     /// This gives it a call boundary to watch.
     function handleTagForExternally(bytes32 platformId) external pure returns (bytes memory) {
-        return HandlePlatforms.handleTagFor(platformId);
+        return CeremonyProfile.handleTag(platformId);
     }
 
     /// Each platform resolves once a verifier is registered for it, and not before.
     function test_registeringAVerifierMakesEveryPlatformUsable() public {
         vm.expectRevert(
-            abi.encodeWithSelector(IIdentityRegistry.UnknownPlatform.selector, HandlePlatforms.PLATFORM_GOOGLE)
+            abi.encodeWithSelector(IIdentityRegistry.UnknownPlatform.selector, CeremonyProfile.PLATFORM_GOOGLE)
         );
-        registry.resolveHandle(HandlePlatforms.PLATFORM_GOOGLE, "nobody@example.com");
+        registry.resolveHandle(CeremonyProfile.PLATFORM_GOOGLE, "nobody@example.com");
 
         vm.startPrank(owner);
-        address x = _wireIdentityPlatform(HandlePlatforms.PLATFORM_X);
-        address gh = _wireIdentityPlatform(HandlePlatforms.PLATFORM_GITHUB);
-        address g = _wireIdentityPlatform(HandlePlatforms.PLATFORM_GOOGLE);
+        address x = _wireIdentityPlatform(CeremonyProfile.PLATFORM_X);
+        address gh = _wireIdentityPlatform(CeremonyProfile.PLATFORM_GITHUB);
+        address g = _wireIdentityPlatform(CeremonyProfile.PLATFORM_GOOGLE);
         vm.stopPrank();
 
         // The version a deployment registers its first verifier under.
         uint16 v = 1;
-        assertEq(address(proofVerifier.verifierOf(HandlePlatforms.PLATFORM_X, v)), x);
-        assertEq(address(proofVerifier.verifierOf(HandlePlatforms.PLATFORM_GITHUB, v)), gh);
-        assertEq(address(proofVerifier.verifierOf(HandlePlatforms.PLATFORM_GOOGLE, v)), g);
+        assertEq(address(proofVerifier.verifierOf(CeremonyProfile.PLATFORM_X, v)), x);
+        assertEq(address(proofVerifier.verifierOf(CeremonyProfile.PLATFORM_GITHUB, v)), gh);
+        assertEq(address(proofVerifier.verifierOf(CeremonyProfile.PLATFORM_GOOGLE, v)), g);
 
         // Resolvable means the platform answers "nobody" rather than reverting
         // `UnknownPlatform`, which is what an unwired one does.
-        assertEq(registry.resolveHandle(HandlePlatforms.PLATFORM_X, "nobody"), address(0));
-        assertEq(registry.resolveHandle(HandlePlatforms.PLATFORM_GITHUB, "nobody"), address(0));
-        assertEq(registry.resolveHandle(HandlePlatforms.PLATFORM_GOOGLE, "nobody@example.com"), address(0));
-
-        // The tag a disclosure and every resolver hash under is the circuit's.
-        assertEq(registry.handleTagOf(HandlePlatforms.PLATFORM_X), bytes("libid.x.handle"));
-        assertEq(registry.handleTagOf(HandlePlatforms.PLATFORM_GITHUB), bytes("libid.github.handle"));
-        assertEq(registry.handleTagOf(HandlePlatforms.PLATFORM_GOOGLE), bytes("libid.google.handle"));
+        assertEq(registry.resolveHandle(CeremonyProfile.PLATFORM_X, "nobody"), address(0));
+        assertEq(registry.resolveHandle(CeremonyProfile.PLATFORM_GITHUB, "nobody"), address(0));
+        assertEq(registry.resolveHandle(CeremonyProfile.PLATFORM_GOOGLE, "nobody@example.com"), address(0));
     }
 
     /// Enable a platform: register a first verifier for it.

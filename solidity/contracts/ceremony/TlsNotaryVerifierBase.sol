@@ -8,7 +8,6 @@ import {CeremonyAuthorization} from "./CeremonyAuthorization.sol";
 import {CeremonyFields} from "./CeremonyFields.sol";
 import {IPlatformVerifier} from "./IPlatformVerifier.sol";
 import {HandleDisclosure, PlatformVerifierBase} from "./PlatformVerifierBase.sol";
-import {HandlePlatforms} from "../handles/HandlePlatforms.sol";
 
 /// @title TlsNotaryVerifierBase
 /// @notice The flow both TLSNotary profiles share: two notarized sessions, one
@@ -343,8 +342,8 @@ abstract contract TlsNotaryVerifierBase is IPlatformVerifier, PlatformVerifierBa
         _halves(inputs, OFF_HANDLE_COMMITMENT, identity.handle);
         _halves(inputs, OFF_ID_NODE, idNode);
         _halves(inputs, OFF_HANDLE_NODE, handleNode);
-        _tag(inputs, OFF_ID_TAG, HandlePlatforms.userIdTagFor(_platform()));
-        _tag(inputs, OFF_HANDLE_TAG, HandlePlatforms.handleTagFor(_platform()));
+        _tag(inputs, OFF_ID_TAG, CeremonyProfile.userIdTag(_platform()));
+        _tag(inputs, OFF_HANDLE_TAG, CeremonyProfile.handleTag(_platform()));
     }
 
     /// @dev A tag as one Field, its bytes from the top of the low 31 bytes, then

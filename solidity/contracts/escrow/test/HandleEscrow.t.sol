@@ -6,8 +6,8 @@ import {ReentrancyGuardUpgradeable} from "@openzeppelin/contracts-upgradeable/ut
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 
-import {HandlePlatforms} from "../../handles/HandlePlatforms.sol";
-import {HandleVectors} from "../../handles/HandleVectors.sol";
+import {CeremonyProfile} from "../../ceremony/CeremonyProfile.sol";
+import {HandleTable} from "../../handles/test/HandleTable.sol";
 import {IdentityRegistry} from "../../identity/IdentityRegistry.sol";
 import {IIdentityRegistry} from "../../identity/IIdentityRegistry.sol";
 import {StubPlatformVerifier} from "../../identity/test/StubPlatformVerifier.sol";
@@ -161,9 +161,9 @@ contract HandleEscrowTest is PrivacyScan {
     HandleEscrow internal escrow;
     TestERC20 internal token;
 
-    bytes32 internal constant X = HandlePlatforms.PLATFORM_X;
-    bytes32 internal constant GITHUB = HandlePlatforms.PLATFORM_GITHUB;
-    bytes32 internal constant GOOGLE = HandlePlatforms.PLATFORM_GOOGLE;
+    bytes32 internal constant X = CeremonyProfile.PLATFORM_X;
+    bytes32 internal constant GITHUB = CeremonyProfile.PLATFORM_GITHUB;
+    bytes32 internal constant GOOGLE = CeremonyProfile.PLATFORM_GOOGLE;
     uint16 internal constant V1 = 1;
 
     address internal alice = makeAddr("alice");
@@ -207,9 +207,9 @@ contract HandleEscrowTest is PrivacyScan {
 
     /// Every accepted row of the shared handle table lands on the node the registry binds.
     function test_everyVectorRowLandsOnTheNodeTheRegistryBinds() public view {
-        HandleVectors.Vector[] memory vectors = HandleVectors.all();
-        for (uint256 i = 0; i < vectors.length; i++) {
-            HandleVectors.Vector memory v = vectors[i];
+        HandleTable.Row[] memory rows = HandleTable.accepted();
+        for (uint256 i = 0; i < rows.length; i++) {
+            HandleTable.Row memory v = rows[i];
             assertEq(registry.handleNodeOf(keccak256(bytes(v.platform)), v.input), v.handleNode, vm.toString(i));
         }
     }
@@ -219,7 +219,7 @@ contract HandleEscrowTest is PrivacyScan {
         bytes32 pinned = 0xe09c4f5bfbbc723bc35701ea9d718a1c5edb29b1ed5bb0cb0fabb3c43d8136af;
         assertEq(registry.handleNodeOf(X, "Alice_1"), pinned);
         assertEq(TestNodes.handleNode(X, "alice_1"), pinned);
-        HandleVectors.Vector memory row = HandleVectors.all()[0];
+        HandleTable.Row memory row = HandleTable.accepted()[0];
         assertEq(row.output, "alice_1");
         assertEq(row.handleNode, pinned);
     }

@@ -151,10 +151,10 @@ jobs:
           fi
 
   # ---------------------------------------------------------------------------
-  # Generated files match their source. handles.json generates the platform
-  # constants and the handle vector table for every language; a drift between
-  # the source and a committed output leaves every per-language test green
-  # while the languages disagree with each other. The Honk verifiers are not
+  # Generated files match their source. profiles.json and handles.json
+  # generate the platform constants and the handle vector table for every
+  # language; a drift between the source and a committed output leaves every
+  # per-language test green while the languages disagree with each other. The Honk verifiers are not
   # checked here: nothing of theirs is committed but the pin, and the
   # forge-build composite holds every download to it.
   # ---------------------------------------------------------------------------

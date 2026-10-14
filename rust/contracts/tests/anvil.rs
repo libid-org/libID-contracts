@@ -137,16 +137,17 @@ async fn deploys_the_identity_stack_behind_proxies() {
         unwired.is_err(),
         "an unwired platform answered instead of reverting UnknownPlatform"
     );
+    // The chain's fold and tag give the node libid-identity computes.
     assert_eq!(
         registry
-            .handleTagOf(platform_id)
+            .handleNodeOf(platform_id, "OctoCat".into())
             .call()
             .await
             .unwrap()
-            .as_ref(),
-        libid_identity::handle_vectors::PLATFORM_GITHUB
-            .handle_tag
-            .as_bytes()
+            .0,
+        libid_identity::handle_node("github", "OctoCat")
+            .unwrap()
+            .unwrap()
     );
 
     // The root list points at the Notary Service, quotes its fee, and starts
