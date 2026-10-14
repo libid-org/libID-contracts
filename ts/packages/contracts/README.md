@@ -98,9 +98,8 @@ const reader = { client, address: IDENTITY_REGISTRY }
 const x = platformId(PLATFORM_X_KEY)
 
 // The holder that last proved a handle, or null. Pass what was typed: it is
-// normalized and hashed here, with the platform's rules, and only the node
-// reaches the RPC. Case folds, and text the rules refuse (an `@`, a space)
-// answers null like a handle nobody proved.
+// folded and hashed here, as the circuits do, and only the node reaches the
+// RPC. Case folds; text nobody proved, such as `@alice`, answers null.
 const holder = await resolveHandle(reader, x, 'Alice')
 
 // Before sending funds: does the id still agree with the handle?
@@ -180,17 +179,19 @@ includes it.
 ## Normalizing a handle locally
 
 A–Z fold to a–z and nothing else changes: no byte is trimmed and no `@` is
-stripped. Text the rules refuse throws rather than being repaired.
+stripped. Text no circuit hashes (a quote, a backslash, a control byte, or
+longer than the circuit's buffer) throws rather than being repaired.
 
 ```ts
 import { normalize, RULES_X, HandleError } from '@libid/contracts/identity'
 
 normalize('Alice_1', RULES_X) // 'alice_1'
-normalize(' @Alice_1 ', RULES_X) // throws HandleError: a space and an `@` are refused
+normalize(' @Alice_1 ', RULES_X) // ' @alice_1 ': nothing is trimmed or stripped
+normalize('Ali"ce', RULES_X) // throws HandleError: a quote is refused
 ```
 
-On chain only the fold runs: the circuits bind no node of text the rules
-refuse, so such text resolves to nobody.
+On chain only the fold runs: the circuits bind no node of text they refuse,
+so such text resolves to nobody.
 
 ## Deriving a handle node
 

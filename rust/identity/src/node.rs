@@ -98,16 +98,16 @@ mod tests {
         }
     }
 
-    /// Text the rules refuse still has a fold-only node, here
-    /// `SHA256("libid.x.handle" || " @alice")` from `sha256sum`.
+    /// Text the circuits refuse still has a fold-only node, here
+    /// `SHA256("libid.x.handle" || "bo\"b")` from `sha256sum`.
     #[test]
     fn a_refused_handle_has_a_fold_only_node() {
-        assert!(handle_node("x", " @Alice").unwrap().is_err());
-        let (folded, node) = folded_handle_node("x", " @Alice").unwrap();
-        assert_eq!(folded, " @alice");
+        assert!(handle_node("x", "Bo\"b").unwrap().is_err());
+        let (folded, node) = folded_handle_node("x", "Bo\"b").unwrap();
+        assert_eq!(folded, "bo\"b");
         assert_eq!(
             hex(node),
-            "0x91f649a873eea530e1610096d7039221f1178ab2c046a8078f3b1de00d1b86fc"
+            "0x650dc467b55054ff038aed82e055439b80903460291078585ad72e334bf0050a"
         );
         assert!(folded_handle_node("myspace", "tom").is_none());
     }

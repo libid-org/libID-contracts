@@ -155,10 +155,10 @@ describe('checking a handle against an id', () => {
     expect(resolution.idAgrees).toBe(false)
   })
 
-  it('treats a handle the rules reject as unbound', async () => {
+  it('treats text no circuit hashes as unbound', async () => {
     const readContract = registry()
 
-    expect(await resolveHandleAndId(reader(readContract), X, 'not a handle', ID_42)).toEqual({
+    expect(await resolveHandleAndId(reader(readContract), X, 'not "a" handle', ID_42)).toEqual({
       holder: null,
       idAgrees: false,
     })
@@ -226,7 +226,7 @@ describe('a handle that cannot be normalized', () => {
   it('reads as unbound', async () => {
     const readContract = registry()
 
-    expect(await resolveHandle(reader(readContract), X, 'not a handle')).toBeNull()
+    expect(await resolveHandle(reader(readContract), X, 'not "a" handle')).toBeNull()
     // The zero node: the platform check runs, and nothing is bound there.
     expect(sent(readContract)).toEqual([X, zeroHash, zeroHash])
   })

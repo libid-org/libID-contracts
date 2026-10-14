@@ -1,29 +1,28 @@
 {
-  "version": 2,
+  "version": 3,
   "note": [
-    "The single source of truth for platform identity constants, for handle",
-    "normalization, and for the tags that make a value a key. Solidity, Rust,",
-    "TypeScript and Noir constants are generated from this file by",
-    "scripts/regen-identity-handles.py. The normalizer logic is hand written in",
-    "each language -- the circuit's is the one that keys a binding -- and Rust,",
-    "TypeScript and Noir run the same vector table, so a difference between them",
-    "fails a test instead of writing a different node on chain. Solidity only",
-    "folds: the circuits bind no node of a handle the rules refuse, so the chain",
-    "need not refuse it again.",
+    "The single source of truth for platform identity constants and for the",
+    "transform a circuit applies before it hashes a value into a key. Solidity,",
+    "Rust, TypeScript and Noir constants are generated from this file by",
+    "scripts/regen-identity-handles.py. The transform is hand written in each",
+    "language -- the circuit's is the one that keys a binding -- and Rust,",
+    "TypeScript and Noir run the same vector table. Solidity only folds.",
     "",
-    "Normalization is a closed byte transform that refuses rather than repairs.",
-    "A-Z fold to a-z and nothing else changes: no byte is trimmed, no @ is",
-    "stripped. It is not Unicode case folding and not UTS-46. Handles on the",
-    "supported platforms are ASCII, so a closed transform gives four languages",
-    "the same answer with no shared library.",
+    "The circuit checks that a value is exactly the JSON token the platform",
+    "sent, nothing about its format: that is the platform's to keep. A handle,",
+    "or an id that is a JSON string, is printable ASCII 0x20-0x7e without '\"'",
+    "or '\\\\', so a commitment between revealed quotes holds one string. An id",
+    "that is a number is decimal digits. A-Z in a handle fold to a-z; nothing",
+    "else changes, nothing is trimmed, and an id is never folded. Each length",
+    "is the circuit's buffer.",
     "",
-    "A node is SHA256(tag || value): the handle node over the normalized",
-    "handle, the id node over the id exactly as the platform sent it. The tags",
-    "are raw ASCII with no separator or length prefix, one per platform and",
-    "kind, so no two platforms and no id and handle share a key. Every",
-    "handleNode and idNode below was computed independently, with Python's",
-    "hashlib over the hand-written output; the generator recomputes each one",
-    "and refuses a table whose stored node disagrees.",
+    "A node is SHA256(tag || value): the handle node over the folded handle,",
+    "the id node over the id exactly as the platform sent it. The tags are raw",
+    "ASCII with no separator or length prefix, one per platform and kind, so no",
+    "two platforms and no id and handle share a key. Every handleNode and",
+    "idNode below was computed independently, with Python's hashlib over the",
+    "hand-written output; the generator recomputes each one and refuses a",
+    "table whose stored node disagrees.",
     "",
     "A platform id is keccak256 of the platform key ('x'), with no namespace",
     "of its own. The specification fixes the keys -- the launch profiles of",
@@ -33,11 +32,8 @@
   "platforms": [
     {
       "key": "x",
-      "maxLength": 15,
-      "shape": "handle",
-      "allowUnderscore": true,
-      "allowHyphen": false,
-      "note": "X allows letters, digits and underscore, up to 15 characters.",
+      "maxLength": 39,
+      "note": "bearer-link's handle buffer, shared with GitHub.",
       "tags": {
         "userId": "libid.x.user-id",
         "handle": "libid.x.handle"
@@ -45,25 +41,13 @@
       "id": {
         "maxLength": 20,
         "shape": "decimal",
-        "leadingZero": false,
-        "nonzero": true,
-        "max": "18446744073709551615",
-        "note": [
-          "X user ids are decimal strings of up to 20 digits, written without a",
-          "leading zero, from 1 to 2^64-1 (REQ-PLAT-06)."
-        ]
+        "note": "A decimal string; 2^64-1 has 20 digits."
       }
     },
     {
       "key": "github",
       "maxLength": 39,
-      "shape": "handle",
-      "allowUnderscore": false,
-      "allowHyphen": true,
-      "note": [
-        "GitHub allows letters, digits and hyphen, up to 39 characters. A hyphen",
-        "may not start or end the handle, and two hyphens may not touch."
-      ],
+      "note": "bearer-link's handle buffer: GitHub's 39-byte login.",
       "tags": {
         "userId": "libid.github.user-id",
         "handle": "libid.github.handle"
@@ -71,32 +55,16 @@
       "id": {
         "maxLength": 20,
         "shape": "decimal",
-        "leadingZero": false,
-        "nonzero": true,
-        "max": "18446744073709551615",
-        "note": [
-          "GitHub ids are bare JSON integers, written without a leading zero,",
-          "from 1 to 2^64-1 (REQ-PLAT-06)."
-        ]
+        "note": "A bare JSON integer; 2^64-1 has 20 digits."
       }
     },
     {
       "key": "google",
       "maxLength": 62,
-      "shape": "email",
-      "allowUnderscore": false,
-      "allowHyphen": false,
       "note": [
-        "The address is used as proved. This transform does not remove dots,",
-        "does not strip a +tag, and does not rewrite a domain, because two",
-        "different addresses must never become one identity.",
-        "",
-        "62 bytes is a hard limit and not only a lookup limit. A longer address",
-        "is rejected instead of truncated, for the same reason.",
-        "",
-        "allowUnderscore and allowHyphen are stated for completeness and",
-        "are never read: the email shape supersedes both, and the address",
-        "set already carries the underscore and the hyphen."
+        "The address as proved: no dot is removed, no +tag stripped and no domain",
+        "rewritten, so two addresses never become one identity. A longer one is",
+        "refused, not truncated."
       ],
       "tags": {
         "userId": "libid.google.user-id",
@@ -104,46 +72,32 @@
       },
       "id": {
         "maxLength": 31,
-        "shape": "printable",
-        "leadingZero": true,
-        "note": [
-          "The OIDC sub: printable ASCII 0x20-0x7e without '\"' or '\\\\', at most",
-          "31 bytes, as the oidc-google circuit reads it."
-        ]
+        "shape": "string",
+        "note": "The OIDC sub, as the oidc-google circuit reads it."
       }
     }
   ],
   "errors": [
     {
       "key": "Empty",
-      "note": "Nothing is left after the transform."
+      "note": "The value is empty."
     },
     {
       "key": "TooLong",
-      "note": "More bytes than the platform allows."
+      "note": "More bytes than the circuit's buffer holds."
     },
     {
       "key": "BadCharacter",
-      "note": "A byte the platform does not allow."
-    },
-    {
-      "key": "BadShape",
-      "note": "Allowed bytes in an arrangement the platform does not allow."
+      "note": "A byte that is not part of the token as sent."
     }
   ],
   "vectors": [
     {
       "platform": "x",
-      "input": " @Alice_1 ",
-      "error": "BadCharacter",
-      "note": "A space is refused, not trimmed."
-    },
-    {
-      "platform": "x",
       "input": "Alice_1",
       "output": "alice_1",
-      "note": "Letters fold down; the e2e fixture's handle.",
-      "handleNode": "0xe09c4f5bfbbc723bc35701ea9d718a1c5edb29b1ed5bb0cb0fabb3c43d8136af"
+      "handleNode": "0xe09c4f5bfbbc723bc35701ea9d718a1c5edb29b1ed5bb0cb0fabb3c43d8136af",
+      "note": "Letters fold down; the e2e fixture's handle."
     },
     {
       "platform": "x",
@@ -153,40 +107,28 @@
     },
     {
       "platform": "x",
-      "input": "@a",
-      "error": "BadCharacter",
-      "note": "An @ is refused, not stripped."
+      "input": " @Alice_1 ",
+      "output": " @alice_1 ",
+      "handleNode": "0x8d5c2c0bf6e508d2abbd31897b81b8b181c080be353e9a2d637c26ba85ef2eba",
+      "note": "Nothing is trimmed or stripped: the format is the platform's."
     },
     {
       "platform": "x",
-      "input": "A1_b2",
-      "output": "a1_b2",
-      "handleNode": "0x55be0847f475409cb1da1d008804b966de05bb088d2469129c142faf2ec4a678"
+      "input": "alice-1",
+      "output": "alice-1",
+      "handleNode": "0x7c04fb47ef59de41f30f90085b020aa2e0792e3dfdac256f4d5182bc92bd8285",
+      "note": "A hyphen too."
     },
     {
       "platform": "x",
-      "input": "_alice",
-      "output": "_alice",
-      "note": "An underscore may start an X handle.",
-      "handleNode": "0x3a354366999d277daf0a6e81640d9a9976bc4efc20db4e1df245e90ba42aeeb8"
+      "input": "abcdefghijabcdefghijabcdefghijabcdefghi",
+      "output": "abcdefghijabcdefghijabcdefghijabcdefghi",
+      "handleNode": "0x223a691ed5e6438d33c12c672f4249832696e6daaa568f778d7b3ef3c6d43495",
+      "note": "39 bytes is the buffer."
     },
     {
       "platform": "x",
-      "input": "alice_",
-      "output": "alice_",
-      "note": "And end one.",
-      "handleNode": "0xf222c841ac39b261a179896eb45c53e48e8a610a15bdee72176e088783ad6f2a"
-    },
-    {
-      "platform": "x",
-      "input": "a12345678901234",
-      "output": "a12345678901234",
-      "note": "15 bytes is the limit.",
-      "handleNode": "0xbd3a96fb00ea79bdb486cbaa43914f8c110c8585d419fc02e5b1536c7617af58"
-    },
-    {
-      "platform": "x",
-      "input": "a123456789012345",
+      "input": "abcdefghijabcdefghijabcdefghijabcdefghij",
       "error": "TooLong"
     },
     {
@@ -196,35 +138,9 @@
     },
     {
       "platform": "x",
-      "input": "   ",
-      "error": "BadCharacter"
-    },
-    {
-      "platform": "x",
-      "input": "@",
-      "error": "BadCharacter"
-    },
-    {
-      "platform": "x",
-      "input": "@@alice",
-      "error": "BadCharacter"
-    },
-    {
-      "platform": "x",
-      "input": "alice-1",
-      "error": "BadCharacter",
-      "note": "X does not allow a hyphen."
-    },
-    {
-      "platform": "x",
-      "input": "ali ce",
-      "error": "BadCharacter",
-      "note": "An inner space is not trimmed."
-    },
-    {
-      "platform": "x",
       "input": "ali\tce",
-      "error": "BadCharacter"
+      "error": "BadCharacter",
+      "note": "A control byte is not in a JSON string as sent."
     },
     {
       "platform": "x",
@@ -233,44 +149,34 @@
     },
     {
       "platform": "x",
+      "input": "ali\u0000ce",
+      "error": "BadCharacter",
+      "note": "Nor is a NUL."
+    },
+    {
+      "platform": "x",
       "input": "alicé",
       "error": "BadCharacter",
-      "note": "A byte above 0x7f is refused."
+      "note": "A byte above 0x7e is refused."
     },
     {
       "platform": "x",
-      "input": "\talice",
+      "input": "a\"b",
       "error": "BadCharacter",
-      "note": "A leading tab is not trimmed. Only 0x20 is."
+      "note": "A quote would let a commitment run past its value."
     },
     {
       "platform": "x",
-      "input": "alice\t",
+      "input": "a\\b",
       "error": "BadCharacter",
-      "note": "A trailing tab is not trimmed either."
-    },
-    {
-      "platform": "x",
-      "input": "\nalice",
-      "error": "BadCharacter"
-    },
-    {
-      "platform": "x",
-      "input": " @ alice ",
-      "error": "BadCharacter"
+      "note": "A backslash would let a JSON escape reach a node."
     },
     {
       "platform": "github",
       "input": "OctoCat",
       "output": "octocat",
-      "note": "The e2e fixture's login.",
-      "handleNode": "0x381fb9d7d3b01214e58b94202ea10f78e169adef68bcc20d40c130deca6dfe74"
-    },
-    {
-      "platform": "github",
-      "input": "@Octo-Cat",
-      "error": "BadCharacter",
-      "note": "An @ is refused, not stripped."
+      "handleNode": "0x381fb9d7d3b01214e58b94202ea10f78e169adef68bcc20d40c130deca6dfe74",
+      "note": "The e2e fixture's login."
     },
     {
       "platform": "github",
@@ -280,67 +186,33 @@
     },
     {
       "platform": "github",
-      "input": " OctoCat ",
-      "error": "BadCharacter",
-      "note": "A space is refused, not trimmed."
-    },
-    {
-      "platform": "github",
-      "input": "a",
-      "output": "a",
-      "handleNode": "0x823c23491391b659703362484a08cfbcc8cede4ea3b5ba1753c3df7756799c70"
-    },
-    {
-      "platform": "github",
-      "input": "o-c",
-      "output": "o-c",
-      "handleNode": "0xaa580baff71ac37d38e08b9b7b0dd7516ec01608457fbbee7f445a0b8f7d9fc5"
-    },
-    {
-      "platform": "github",
-      "input": "-octocat",
-      "error": "BadShape",
-      "note": "A hyphen may not start it."
-    },
-    {
-      "platform": "github",
-      "input": "octocat-",
-      "error": "BadShape",
-      "note": "A hyphen may not end it."
-    },
-    {
-      "platform": "github",
-      "input": "octo--cat",
-      "error": "BadShape",
-      "note": "Two hyphens may not touch."
+      "input": "Octo--Cat-",
+      "output": "octo--cat-",
+      "handleNode": "0x54230f351727db5a1e9a99db6ed19fdcd5b3a8f0e30eedb7ec22a9e6ccf03c85",
+      "note": "A login outside the current format still keys."
     },
     {
       "platform": "github",
       "input": "octo_cat",
-      "error": "BadCharacter",
-      "note": "GitHub does not allow an underscore."
-    },
-    {
-      "platform": "github",
-      "input": "-",
-      "error": "BadShape"
-    },
-    {
-      "platform": "github",
-      "input": "",
-      "error": "Empty"
+      "output": "octo_cat",
+      "handleNode": "0x9bae53e4bbf96e477ca977ac185ee7ea1c5d44a71d2449acdef0154afeaea6e7"
     },
     {
       "platform": "github",
       "input": "abcdefghijabcdefghijabcdefghijabcdefghi",
       "output": "abcdefghijabcdefghijabcdefghijabcdefghi",
-      "note": "39 bytes is the limit.",
-      "handleNode": "0x3f7bdb081795e2934e1e949f1933b8df950a6e6026dbc70060fc3a79b693a058"
+      "handleNode": "0x3f7bdb081795e2934e1e949f1933b8df950a6e6026dbc70060fc3a79b693a058",
+      "note": "39 bytes is the buffer."
     },
     {
       "platform": "github",
       "input": "abcdefghijabcdefghijabcdefghijabcdefghij",
       "error": "TooLong"
+    },
+    {
+      "platform": "github",
+      "input": "",
+      "error": "Empty"
     },
     {
       "platform": "github",
@@ -351,8 +223,8 @@
       "platform": "google",
       "input": "A.B+tag@Example.COM",
       "output": "a.b+tag@example.com",
-      "note": "The dot and the +tag stay. Only case folds.",
-      "handleNode": "0x40169b5cc6400158aeef2a13b73a14fc36e5e1df8595572b8fe282a269f26dd4"
+      "handleNode": "0x40169b5cc6400158aeef2a13b73a14fc36e5e1df8595572b8fe282a269f26dd4",
+      "note": "The dot and the +tag stay. Only case folds."
     },
     {
       "platform": "google",
@@ -362,69 +234,27 @@
     },
     {
       "platform": "google",
-      "input": "a-b@example.com",
-      "output": "a-b@example.com",
-      "note": "An address keeps its hyphen.",
-      "handleNode": "0x4eb5654e6947900ef44daa8a41a7c9e7e6f4717794bdc079f843f357a023f54f"
-    },
-    {
-      "platform": "google",
-      "input": "a_b@example.com",
-      "output": "a_b@example.com",
-      "note": "And its underscore.",
-      "handleNode": "0xdce533afdd6b399323db9ab05dbccbac9913093f522d390cbb832bee1d2b9c3f"
-    },
-    {
-      "platform": "google",
-      "input": " Alice@Example.com ",
-      "error": "BadCharacter",
-      "note": "A space is refused, not trimmed."
-    },
-    {
-      "platform": "google",
-      "input": "@Alice@example.com",
-      "error": "BadShape",
-      "note": "Google keeps its @, so this address has two."
-    },
-    {
-      "platform": "google",
       "input": "alice",
-      "error": "BadShape",
-      "note": "An address needs one @."
-    },
-    {
-      "platform": "google",
-      "input": "@example.com",
-      "error": "BadShape",
-      "note": "The @ may not start it."
-    },
-    {
-      "platform": "google",
-      "input": "alice@",
-      "error": "BadShape",
-      "note": "The @ may not end it."
-    },
-    {
-      "platform": "google",
-      "input": "",
-      "error": "Empty"
-    },
-    {
-      "platform": "google",
-      "input": "ali ce@example.com",
-      "error": "BadCharacter"
+      "output": "alice",
+      "handleNode": "0x5cd4248474e70fbade127485617bbed78bbbba0fb0688c3871a84cc43de0cd66",
+      "note": "No @ is required: the address is Google's."
     },
     {
       "platform": "google",
       "input": "abcdefghijabcdefghijabcdefghijabcdefghijabcdefghij@example.com",
       "output": "abcdefghijabcdefghijabcdefghijabcdefghijabcdefghij@example.com",
-      "note": "62 bytes is the limit.",
-      "handleNode": "0x3dc67054a8f794285dc9496fd7c2442ef34401b5e3f6a49e7d3fd9cc6a917e97"
+      "handleNode": "0x3dc67054a8f794285dc9496fd7c2442ef34401b5e3f6a49e7d3fd9cc6a917e97",
+      "note": "62 bytes is the buffer."
     },
     {
       "platform": "google",
       "input": "abcdefghijabcdefghijabcdefghijabcdefghijabcdefghijk@example.com",
       "error": "TooLong"
+    },
+    {
+      "platform": "google",
+      "input": "",
+      "error": "Empty"
     },
     {
       "platform": "google",
@@ -452,38 +282,15 @@
     },
     {
       "platform": "x",
-      "input": "0",
-      "error": "BadShape",
-      "note": "No X id is 0 (REQ-PLAT-06)."
-    },
-    {
-      "platform": "x",
       "input": "0123",
-      "error": "BadShape",
-      "note": "X ids are numbers, written without a leading zero."
-    },
-    {
-      "platform": "x",
-      "input": "00123",
-      "error": "BadShape"
-    },
-    {
-      "platform": "x",
-      "input": "12345678901234567890",
-      "note": "20 digits is the limit.",
-      "idNode": "0x46d787dc85127e79b248e3768ab657f0c543bc3ce5b97f1645c69f8432a3ec3b"
-    },
-    {
-      "platform": "x",
-      "input": "18446744073709551615",
-      "note": "2^64-1 is the largest id.",
-      "idNode": "0xf5341a892456cd845598d346a1102f6154b9c6a00b434a22cb305965a1efd045"
+      "idNode": "0x68ceaf8a314f0264ed9fb64143960fdedd2a5223c2c87fe65de6232f1cfc9ebf",
+      "note": "Digits as sent: the platform writes its ids."
     },
     {
       "platform": "x",
       "input": "18446744073709551616",
-      "error": "BadShape",
-      "note": "2^64 has 20 digits but is past the largest id."
+      "idNode": "0xe065622d687c739269f8ff862dac12c5acc087e87d676041148e2c1df17b429f",
+      "note": "20 digits is the buffer, whatever the value."
     },
     {
       "platform": "x",
@@ -512,27 +319,15 @@
     },
     {
       "platform": "github",
-      "input": "0",
-      "error": "BadShape",
-      "note": "No GitHub id is 0 (REQ-PLAT-06)."
+      "input": " 583231",
+      "error": "BadCharacter",
+      "note": "JSON whitespace is not the id."
     },
     {
       "platform": "github",
-      "input": "0583231",
-      "error": "BadShape",
-      "note": "A JSON integer has no leading zero."
-    },
-    {
-      "platform": "github",
-      "input": "18446744073709551615",
-      "note": "2^64-1 is the largest id.",
-      "idNode": "0xdaaed93a4b3862ac845bdc7e3db729492757f8c0b53c6572e6897d9ae0ff54fd"
-    },
-    {
-      "platform": "github",
-      "input": "18446744073709551616",
-      "error": "BadShape",
-      "note": "2^64 has 20 digits but is past the largest id."
+      "input": "583231,",
+      "error": "BadCharacter",
+      "note": "Nor is the terminator after it."
     },
     {
       "platform": "github",
@@ -545,11 +340,6 @@
       "error": "Empty"
     },
     {
-      "platform": "github",
-      "input": "5 8",
-      "error": "BadCharacter"
-    },
-    {
       "platform": "google",
       "input": "110169484474386276334",
       "idNode": "0x620866cfb4d2776a32cd94d8e8b55577526af86115ebf125d4ca1ca7bf07737e"
@@ -557,24 +347,24 @@
     {
       "platform": "google",
       "input": "a b~Z",
-      "note": "Any printable ASCII but the quote and the backslash.",
-      "idNode": "0xa8ad7455d3d38bcd9b94b444284182fee9766f2403e7fe283c68c4a08123be77"
+      "idNode": "0xa8ad7455d3d38bcd9b94b444284182fee9766f2403e7fe283c68c4a08123be77",
+      "note": "Any printable ASCII but the quote and the backslash."
     },
     {
       "platform": "google",
       "input": "0123",
-      "note": "A sub is opaque, so a leading 0 stays.",
-      "idNode": "0x2c6577b6658e7c1cb90c3a3cf63a295bb5543e32cd2429d62cf4d8f0131075b3"
+      "idNode": "0x2c6577b6658e7c1cb90c3a3cf63a295bb5543e32cd2429d62cf4d8f0131075b3",
+      "note": "A sub is opaque, so a leading 0 stays."
     },
     {
       "platform": "google",
-      "input": "1234567890123456789012345678901",
-      "note": "31 bytes is the limit.",
-      "idNode": "0xe95d993e3520fe34fd3eec014d9bbf91868c7e7e5160d95bc3eeca9dfb38329e"
+      "input": "1111111111111111111111111111111",
+      "idNode": "0x8766b502d2d781157b79f671c56b17e66b54a3f480f77a36d39061a8530c1666",
+      "note": "31 bytes is the buffer."
     },
     {
       "platform": "google",
-      "input": "12345678901234567890123456789012",
+      "input": "11111111111111111111111111111111",
       "error": "TooLong"
     },
     {

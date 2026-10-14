@@ -66,7 +66,7 @@ export async function resolveId(
 }
 
 /// `resolveHandleNodeAndId` for a handle as typed: only its node is sent.
-/// Text the rules refuse is sent as the zero node, so the platform check still runs.
+/// Text no circuit hashes is sent as the zero node, so the platform check still runs.
 async function resolveNodes(
   reader: RegistryReader,
   id: `0x${string}`,
@@ -93,7 +93,7 @@ async function resolveNodes(
 }
 
 /// The holder that last proved this handle, or `null`. Only the handle's node
-/// is sent; text the rules refuse also answers `null`. Reverts such as
+/// is sent; text no circuit hashes also answers `null`. Reverts such as
 /// `UnknownPlatform` propagate.
 export async function resolveHandle(
   reader: RegistryReader,

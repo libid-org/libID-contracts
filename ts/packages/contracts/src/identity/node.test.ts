@@ -58,14 +58,13 @@ describe('handleNode and idNode', () => {
   })
 
   /// Text no circuit would have hashed has no node.
-  it('throw for text the rules refuse', () => {
-    expect(() => handleNode(PLATFORM_X_KEY, ' alice')).toThrow(HandleError)
-    expect(() => handleNode(PLATFORM_X_KEY, '@alice')).toThrow(HandleError)
-    expect(() => handleNode('google', 'alice')).toThrow(HandleError)
-    expect(() => idNode(PLATFORM_GITHUB_KEY, '0583231')).toThrow(IdError)
+  it('throw for text no circuit hashes', () => {
+    expect(() => handleNode(PLATFORM_X_KEY, 'ali"ce')).toThrow(HandleError)
+    expect(() => handleNode('google', 'alice\t@example.com')).toThrow(HandleError)
+    expect(() => idNode(PLATFORM_GITHUB_KEY, ' 583231')).toThrow(IdError)
     // Rust's `check_id` words this refusal the same way.
-    expect(() => idNode(PLATFORM_GITHUB_KEY, '0')).toThrow(
-      'the id is not a number this platform issues',
+    expect(() => idNode(PLATFORM_GITHUB_KEY, '583231,')).toThrow(
+      'the id has a byte this platform does not allow',
     )
     expect(() => handleNode('mastodon', 'alice')).toThrow(/unknown platform/)
     for (const inherited of ['toString', 'constructor', '__proto__', 'hasOwnProperty']) {

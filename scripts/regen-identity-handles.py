@@ -12,9 +12,9 @@ it, then run this script. These files are written and never drift apart:
     <libid-circuits>/lib/identity/src/table_tests.nr       # Noir vector tests, beside it
 
 Every output carries the SHA-256 of handles.json. Every handleNode and idNode
-in the table is recomputed with hashlib and must match. The normalizer is hand
-written in Rust, TypeScript and Noir; Solidity's fold, which applies no platform
-rule, is emitted with its constants.
+in the table is recomputed with hashlib and must match. The transform (the
+token check and the fold) is hand written in Rust, TypeScript and Noir;
+Solidity's fold is emitted with its constants.
 
 Run: ./scripts/regen-identity-handles.py [--noir-out ../libid-circuits/lib/identity/src/table.nr]
 """
@@ -62,16 +62,6 @@ def as_lines(note: Any) -> list[str]:
     return textwrap.wrap(str(note), width=68)
 
 
-def handle_flags(platform: dict[str, Any]) -> dict[str, bool]:
-    """The normalizer's boolean rules for one platform. Every generator reads
-    them here, so a flag added here reaches every output at once."""
-    return {
-        "isEmail": platform.get("shape") == "email",
-        "allowUnderscore": bool(platform.get("allowUnderscore", False)),
-        "allowHyphen": bool(platform.get("allowHyphen", False)),
-    }
-
-
 def table_sha256(raw: bytes) -> str:
     return hashlib.sha256(raw).hexdigest()
 
@@ -113,28 +103,10 @@ def check_nodes(spec: dict[str, Any]) -> None:
             )
 
 
-def id_flags(platform: dict[str, Any]) -> tuple[int, bool, bool]:
-    """(max length, decimal, leading zero allowed) for a platform's ids."""
+def id_flags(platform: dict[str, Any]) -> tuple[int, bool]:
+    """(max length, decimal) for a platform's ids."""
     rules = platform["id"]
-    return rules["maxLength"], rules["shape"] == "decimal", bool(rules["leadingZero"])
-
-
-def id_bound(platform: dict[str, Any]) -> tuple[bool, str | None]:
-    """(zero refused, largest value or None) for a platform's ids. The largest
-    value is canonical decimal and as long as the id may be, so an id past it
-    is one of that length that compares greater."""
-    rules = platform["id"]
-    nonzero, largest = bool(rules.get("nonzero", False)), rules.get("max")
-    max_len, decimal, _ = id_flags(platform)
-    if (nonzero or largest is not None) and not decimal:
-        raise SystemExit(f"ERROR: {platform['key']}: nonzero and max need a decimal id")
-    if largest is not None and not (
-        largest.isascii() and largest.isdigit() and len(largest) == max_len and largest[0] != "0"
-    ):
-        raise SystemExit(f"ERROR: {platform['key']}: max must be {max_len} digits with no leading zero")
-    if largest is not None and len(largest) > NOIR_ID_BOUND:
-        raise SystemExit(f"ERROR: {platform['key']}: max is wider than lib.nr's {NOIR_ID_BOUND}-byte IdRules.max")
-    return nonzero, largest
+    return rules["maxLength"], rules["shape"] == "decimal"
 
 
 def sol_escape(value: str) -> str:
@@ -200,8 +172,7 @@ def gen_sol(spec: dict[str, Any], digest: str) -> str:
         header("//").rstrip("\n"),
         "",
         "/// @notice Each platform `handles.json` names: its id, its node tags, and",
-        "///         the fold and hash that turn typed text into a node. The handle",
-        "///         rules are the circuits'.",
+        "///         the fold and hash that turn typed text into a node.",
         "///",
         "/// @dev The vector table the languages share is `HandleVectors`, which",
         "///      only tests read.",
@@ -266,8 +237,8 @@ def gen_sol(spec: dict[str, Any], digest: str) -> str:
     lines.append("")
     lines += [
         "    /// The handle typed text names on a platform, folded, and the node it",
-        "    /// is bound under, hashed under its tag. Only the circuits apply the",
-        "    /// platform's rules, so text they refuse folds to a node nobody holds.",
+        "    /// is bound under, hashed under its tag. Only the circuits check the",
+        "    /// bytes, so text they refuse folds to a node nobody holds.",
         "    ///",
         "    /// @dev Reverts `UnknownPlatform`.",
         "    function handleNodeOf(bytes32 platformId, string memory raw)",
@@ -379,7 +350,7 @@ def gen_rust(spec: dict[str, Any], digest: str) -> str:
         "    pub id_node: &'static str,",
         "}",
         "",
-        "/// A platform `handles.json` names: its key, its node tags and its rules.",
+        "/// A platform `handles.json` names: its key, its node tags and its buffers.",
         "pub struct Platform {",
         "    /// keccak256 of this string is the platform id.",
         "    pub key: &'static str,",
@@ -387,9 +358,9 @@ def gen_rust(spec: dict[str, Any], digest: str) -> str:
         "    pub user_id_tag: &'static str,",
         "    /// A handle node is SHA256 of this tag, then the normalized handle.",
         "    pub handle_tag: &'static str,",
-        "    /// What a handle may be.",
+        "    /// How long a handle may be.",
         "    pub rules: crate::Rules,",
-        "    /// What an id may be.",
+        "    /// How long an id may be, and whether it is a number.",
         "    pub id_rules: crate::IdRules,",
         "}",
         "",
@@ -407,9 +378,7 @@ def gen_rust(spec: dict[str, Any], digest: str) -> str:
 
     for p in platforms:
         name = p["key"].upper()
-        max_len, decimal, leading = id_flags(p)
-        nonzero, largest = id_bound(p)
-        rules = handle_flags(p)
+        max_len, decimal = id_flags(p)
         lines += [
             f"/// {p['key']}, as `handles.json` states it.",
             f"pub const PLATFORM_{name}: Platform = Platform {{",
@@ -418,16 +387,10 @@ def gen_rust(spec: dict[str, Any], digest: str) -> str:
             f'    handle_tag: "{p["tags"]["handle"]}",',
             "    rules: crate::Rules {",
             f"        max_length: {p['maxLength']},",
-            f"        is_email: {str(rules['isEmail']).lower()},",
-            f"        allow_underscore: {str(rules['allowUnderscore']).lower()},",
-            f"        allow_hyphen: {str(rules['allowHyphen']).lower()},",
             "    },",
             "    id_rules: crate::IdRules {",
             f"        max_length: {max_len},",
             f"        decimal: {str(decimal).lower()},",
-            f"        leading_zero: {str(leading).lower()},",
-            f"        nonzero: {str(nonzero).lower()},",
-            f"        max: {'None' if largest is None else f'Some("{largest}")'},",
             "    },",
             "};",
         ]
@@ -517,7 +480,7 @@ def gen_ts(spec: dict[str, Any], digest: str) -> str:
         "  idNode: string",
         "}",
         "",
-        "/** A platform `handles.json` names: its key, its node tags and its rules. */",
+        "/** A platform `handles.json` names: its key, its node tags and its buffers. */",
         "export interface Platform {",
         "  /** keccak256 of this string is the platform id. */",
         "  key: string",
@@ -541,9 +504,7 @@ def gen_ts(spec: dict[str, Any], digest: str) -> str:
 
     for p in platforms:
         name = p["key"].upper()
-        max_len, decimal, leading = id_flags(p)
-        nonzero, largest = id_bound(p)
-        rules = handle_flags(p)
+        max_len, decimal = id_flags(p)
         lines += [
             f"export const PLATFORM_{name}: Platform = {{",
             f"  key: PLATFORM_{name}_KEY,",
@@ -551,16 +512,10 @@ def gen_ts(spec: dict[str, Any], digest: str) -> str:
             f"  handleTag: '{p['tags']['handle']}',",
             "  rules: {",
             f"    maxLength: {p['maxLength']},",
-            f"    isEmail: {str(rules['isEmail']).lower()},",
-            f"    allowUnderscore: {str(rules['allowUnderscore']).lower()},",
-            f"    allowHyphen: {str(rules['allowHyphen']).lower()},",
             "  },",
             "  idRules: {",
             f"    maxLength: {max_len},",
             f"    decimal: {str(decimal).lower()},",
-            f"    leadingZero: {str(leading).lower()},",
-            f"    nonzero: {str(nonzero).lower()},",
-            f"    max: {'null' if largest is None else repr(largest)},",
             "  },",
             "}",
         ]
@@ -616,12 +571,7 @@ NOIR_ERRORS = {
     "Empty": "is empty",
     "TooLong": "too long",
     "BadCharacter": "byte not allowed",
-    "BadShape": "shape not allowed",
 }
-
-
-# The width of `IdRules.max` in lib.nr.
-NOIR_ID_BOUND = 20
 
 
 def noir_bytes(value: bytes) -> str:
@@ -656,59 +606,14 @@ def fold_byte(b: int) -> int:
     return b + 0x20 if 0x41 <= b <= 0x5A else b
 
 
-EMAIL_EXTRA = b".+-_@"
-
-
-def handle_byte_table(platform: dict[str, Any]) -> list[int]:
-    """Each byte of a raw handle as the circuit reads it: folded when the
-    platform allows the folded byte, 0 when it refuses it. No platform allows
-    0, so 0 is the refusal.
-
-    The rule is the one every normalizer states by hand: a-z and 0-9, then
-    the email set or the platform's underscore and hyphen, each byte checked
-    after the fold.
-    """
-    flags = handle_flags(platform)
-    extra = set(EMAIL_EXTRA) if flags["isEmail"] else set()
-    if not flags["isEmail"]:
-        if flags["allowUnderscore"]:
-            extra.add(0x5F)
-        if flags["allowHyphen"]:
-            extra.add(0x2D)
-    table = []
-    for b in range(256):
-        c = fold_byte(b)
-        allowed = 0x61 <= c <= 0x7A or 0x30 <= c <= 0x39 or c in extra
-        table.append(c if allowed else 0)
-    if table[0] != 0:
-        raise SystemExit(f"ERROR: {platform['key']} allows the byte 0, which the Noir table uses as its refusal")
-    return table
-
-
-def id_byte_table(platform: dict[str, Any]) -> list[bool]:
-    """Whether the platform allows each byte in an id: the digits for a
-    decimal id, otherwise printable ASCII without '"' or '\\'."""
-    _, decimal, _ = id_flags(platform)
-    if decimal:
-        return [0x30 <= b <= 0x39 for b in range(256)]
-    return [0x20 <= b <= 0x7E and b not in (0x22, 0x5C) for b in range(256)]
-
-
 def gen_noir(spec: dict[str, Any], digest: str) -> str:
     """The circuit library's constants: what every circuit compiles against,
     and what a circuits release ships as `handles-table.nr`."""
     lines = [
         header("//").rstrip("\n"),
         "",
-        "// Platform tags and rules, for the identity circuits. The algorithm is",
+        "// Platform tags and buffers, for the identity circuits. The transform is",
         "// lib.nr's; table_tests.nr runs it against the shared vector table.",
-        "//",
-        "// Each platform's byte rules are two 256-entry tables indexed by the raw",
-        "// byte, so a circuit checks a byte with one lookup: HANDLE_BYTES_<P> holds",
-        "// the folded byte, or 0 where the platform refuses it, and ID_BYTES_<P>",
-        "// whether the platform allows the byte in an id.",
-        "",
-        "use crate::{HandleRules, IdRules};",
         "",
         "/// SHA-256 of the handles.json this file was generated from.",
         f'pub global TABLE_SHA256: str<64> = "{digest}";',
@@ -718,10 +623,7 @@ def gen_noir(spec: dict[str, Any], digest: str) -> str:
         name = p["key"].upper()
         id_tag = p["tags"]["userId"].encode()
         handle_tag = p["tags"]["handle"].encode()
-        max_len, _, leading = id_flags(p)
-        nonzero, largest = id_bound(p)
-        bound = (largest or "").encode()
-        is_email = p.get("shape") == "email"
+        max_len, decimal = id_flags(p)
         lines += [
             f"/// `{p['tags']['userId']}`",
             f"pub global USER_ID_TAG_{name}: [u8; {len(id_tag)}] = {noir_bytes(id_tag)};",
@@ -729,23 +631,7 @@ def gen_noir(spec: dict[str, Any], digest: str) -> str:
             f"pub global HANDLE_TAG_{name}: [u8; {len(handle_tag)}] = {noir_bytes(handle_tag)};",
             f"pub global MAX_HANDLE_{name}: u32 = {p['maxLength']};",
             f"pub global MAX_ID_{name}: u32 = {max_len};",
-            f"pub global HANDLE_BYTES_{name}: [u8; 256] = {noir_bytes(bytes(handle_byte_table(p)))};",
-            f"pub global ID_BYTES_{name}: [bool; 256] = "
-            f"[{', '.join(str(ok).lower() for ok in id_byte_table(p))}];",
-            f"pub global HANDLE_RULES_{name}: HandleRules = HandleRules {{",
-            f"    max_len: {p['maxLength']},",
-            f"    allow_hyphen: {str(bool(p.get('allowHyphen')) and not is_email).lower()},",
-            f"    is_email: {str(is_email).lower()},",
-            f"    bytes: HANDLE_BYTES_{name},",
-            "};",
-            f"pub global ID_RULES_{name}: IdRules = IdRules {{",
-            f"    max_len: {max_len},",
-            f"    leading_zero: {str(leading).lower()},",
-            f"    nonzero: {str(nonzero).lower()},",
-            f"    bounded: {str(largest is not None).lower()},",
-            f"    max: {noir_bytes(bound + bytes(NOIR_ID_BOUND - len(bound)))},",
-            f"    bytes: ID_BYTES_{name},",
-            "};",
+            f"pub global ID_DECIMAL_{name}: bool = {str(decimal).lower()};",
             "",
         ]
     return "\n".join(lines).rstrip("\n") + "\n"
@@ -766,7 +652,7 @@ def gen_noir_tests(spec: dict[str, Any], digest: str) -> str:
         "",
         "// The shared vector table, run against lib.nr's algorithm.",
         "",
-        "use crate::{check_id, node_halves, normalize_handle, table};",
+        "use crate::{check_id, fold_handle, node_halves, table, tag_of};",
         "use crate::testing::padded;",
         "",
     ]
@@ -792,12 +678,11 @@ def gen_noir_tests(spec: dict[str, Any], digest: str) -> str:
         lines.append(attr)
         lines.append(f"fn handle_{vec['platform']}_{i}() {{")
         lines += buffer(raw, size)
-        lines.append(
-            f"    let out = normalize_handle(raw, {len(raw)}, table::HANDLE_RULES_{name});"
-        )
+        lines.append(f"    let out = fold_handle(raw, {len(raw)});")
         if "output" in vec:
+            lines.append(f"    let (tag, tag_len) = tag_of(table::HANDLE_TAG_{name});")
             lines.append(
-                f"    assert(node_halves(table::HANDLE_TAG_{name}, out, {len(raw)})"
+                f"    assert(node_halves(tag, tag_len, out, {len(raw)})"
                 f" == {noir_halves(vec['handleNode'])});"
             )
         else:
@@ -807,7 +692,7 @@ def gen_noir_tests(spec: dict[str, Any], digest: str) -> str:
 
     for i, vec in enumerate(spec["idVectors"]):
         name = vec["platform"].upper()
-        size, _, _ = id_flags(by_key[vec["platform"]])
+        size, _ = id_flags(by_key[vec["platform"]])
         raw = vec["input"].encode()
         attr = "#[test]"
         if "error" in vec:
@@ -815,10 +700,11 @@ def gen_noir_tests(spec: dict[str, Any], digest: str) -> str:
         lines.append(attr)
         lines.append(f"fn id_{vec['platform']}_{i}() {{")
         lines += buffer(raw, size)
-        lines.append(f"    check_id(raw, {len(raw)}, table::ID_RULES_{name});")
+        lines.append(f"    check_id(raw, {len(raw)}, table::ID_DECIMAL_{name});")
         if "idNode" in vec:
+            lines.append(f"    let (tag, tag_len) = tag_of(table::USER_ID_TAG_{name});")
             lines.append(
-                f"    assert(node_halves(table::USER_ID_TAG_{name}, raw, {len(raw)})"
+                f"    assert(node_halves(tag, tag_len, raw, {len(raw)})"
                 f" == {noir_halves(vec['idNode'])});"
             )
         lines.append("}")

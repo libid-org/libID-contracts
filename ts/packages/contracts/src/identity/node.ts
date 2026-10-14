@@ -4,10 +4,9 @@
 
 import { concat, type Hex, sha256, toHex } from 'viem'
 
-import { normalize } from './handle.js'
+import { isStringByte, normalize } from './handle.js'
 import {
   ERROR_BADCHARACTER,
-  ERROR_BADSHAPE,
   ERROR_EMPTY,
   ERROR_TOOLONG,
   type Platform,
@@ -16,16 +15,10 @@ import {
 
 /// What a platform allows in an id, as the generated table states it.
 export interface IdRules {
-  /** Bytes allowed. */
+  /** Bytes the circuit's buffer holds. */
   maxLength: number
   /** ASCII digits; otherwise printable ASCII without a quote or backslash. */
   decimal: boolean
-  /** The id may start with `0` when longer than one byte. */
-  leadingZero: boolean
-  /** The id may not be `0`. */
-  nonzero: boolean
-  /** The largest id, as decimal as long as `maxLength`. */
-  max: string | null
 }
 
 /// Why no circuit would hash an id. The kinds are the handle table's, and
@@ -62,16 +55,9 @@ export function checkId(platformKey: string, id: string): void {
     throw new IdError(ERROR_TOOLONG, 'the id is too long for this platform')
   }
   for (const b of bytes) {
-    const ok = rules.decimal
-      ? b >= 0x30 && b <= 0x39
-      : b >= 0x20 && b <= 0x7e && b !== 0x22 && b !== 0x5c
+    const ok = rules.decimal ? b >= 0x30 && b <= 0x39 : isStringByte(b)
     if (!ok) throw new IdError(ERROR_BADCHARACTER, 'the id has a byte this platform does not allow')
   }
-  const notIssued = () => new IdError(ERROR_BADSHAPE, 'the id is not a number this platform issues')
-  if (!rules.leadingZero && bytes.length > 1 && bytes[0] === 0x30) throw notIssued()
-  if (rules.nonzero && id === '0') throw notIssued()
-  // Equal-length digit strings order as their numbers do.
-  if (rules.max !== null && id.length === rules.max.length && id > rules.max) throw notIssued()
 }
 
 /// The node an id is bound under: the id as given, under its user-id tag.

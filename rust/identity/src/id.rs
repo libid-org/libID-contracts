@@ -1,4 +1,5 @@
-//! The rules a platform's user id must meet before it is hashed into a node.
+//! What a platform's user id must be before it is hashed into a node: one
+//! JSON token as sent, digits for a number, otherwise a string's bytes.
 //!
 //! Ids are never normalized; these checks mirror the circuits' `check_id`
 //! and run the same `idVectors` table.
@@ -14,9 +15,6 @@ pub enum IdError {
     TooLong,
     /// A byte the platform does not allow.
     BadCharacter,
-    /// A spelling the platform never sends: a leading zero, zero, or a
-    /// number past its largest.
-    BadShape,
 }
 
 impl IdError {
@@ -26,7 +24,6 @@ impl IdError {
             Self::Empty => v::ERROR_EMPTY,
             Self::TooLong => v::ERROR_TOOLONG,
             Self::BadCharacter => v::ERROR_BADCHARACTER,
-            Self::BadShape => v::ERROR_BADSHAPE,
         }
     }
 }
@@ -37,7 +34,6 @@ impl std::fmt::Display for IdError {
             Self::Empty => "the id is empty",
             Self::TooLong => "the id is too long for this platform",
             Self::BadCharacter => "the id has a byte this platform does not allow",
-            Self::BadShape => "the id is not a number this platform issues",
         })
     }
 }
@@ -47,16 +43,10 @@ impl std::error::Error for IdError {}
 /// What a platform allows in an id.
 #[derive(Debug, Clone, Copy)]
 pub struct IdRules {
-    /// Bytes allowed.
+    /// Bytes the circuit's buffer holds.
     pub max_length: usize,
     /// ASCII digits; otherwise printable ASCII without `"` or `\`.
     pub decimal: bool,
-    /// The id may start with `0` when longer than one byte.
-    pub leading_zero: bool,
-    /// The id may not be `0`.
-    pub nonzero: bool,
-    /// The largest id, as decimal as long as `max_length`.
-    pub max: Option<&'static str>,
 }
 
 impl IdRules {
@@ -86,24 +76,11 @@ pub fn check_id(id: &str, rules: IdRules) -> Result<(), IdError> {
         if rules.decimal {
             b.is_ascii_digit()
         } else {
-            (0x20..=0x7e).contains(&b) && b != b'"' && b != b'\\'
+            crate::handle::is_string_byte(b)
         }
     };
     if !bytes.iter().all(|&b| allowed(b)) {
         return Err(IdError::BadCharacter);
-    }
-    if !rules.leading_zero && bytes.len() > 1 && bytes[0] == b'0' {
-        return Err(IdError::BadShape);
-    }
-    if rules.nonzero && bytes == b"0" {
-        return Err(IdError::BadShape);
-    }
-    // Equal-length digit strings order as their numbers do.
-    if rules
-        .max
-        .is_some_and(|max| bytes.len() == max.len() && bytes > max.as_bytes())
-    {
-        return Err(IdError::BadShape);
     }
     Ok(())
 }
@@ -121,15 +98,6 @@ mod tests {
         assert_eq!(
             refused("12a"),
             "the id has a byte this platform does not allow"
-        );
-        assert_eq!(
-            refused("012"),
-            "the id is not a number this platform issues"
-        );
-        assert_eq!(refused("0"), "the id is not a number this platform issues");
-        assert_eq!(
-            refused("18446744073709551616"),
-            "the id is not a number this platform issues"
         );
     }
 

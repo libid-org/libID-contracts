@@ -63,8 +63,8 @@ and npm package carry the generated output even though git does not.
 
 ## Handle vectors
 
-`solidity/contracts/handles/handles.json` is the source of truth for platform
-handle rules and the shared normalization vector table. After editing it:
+`solidity/contracts/handles/handles.json` is the source of truth for the
+identity tags, the circuits' buffers and the shared vector table. After editing it:
 
 ```sh
 python3 scripts/regen-identity-handles.py          # rewrite generated outputs

@@ -393,7 +393,7 @@ contract IdentityRegistryTest is PrivacyScan {
         assertEq(holder, alice);
     }
 
-    /// `handleNodeOf` folds and nothing more: text the rules refuse has a node no proof binds.
+    /// `handleNodeOf` folds and nothing more: text no platform sends has a node no proof binds.
     function test_theHashingViewOnlyFolds() public {
         _bind(alice, "123", "alice", 100);
         assertEq(registry.handleNodeOf(X, " @Alice"), _hn(X, " @alice"));
@@ -531,8 +531,8 @@ contract IdentityRegistryTest is PrivacyScan {
         assertEq(registry.publishedHandleOf(mallory, X), "");
     }
 
-    /// Text the rules refuse folds to a node the caller does not hold.
-    function test_publishingTextTheRulesRefuseIsNotYourHandle() public {
+    /// Text other than the bound handle folds to a node the caller does not hold.
+    function test_publishingTextOtherThanTheHandleIsNotYourHandle() public {
         _bind(alice, "123", "alice", 100);
 
         vm.startPrank(alice);
@@ -1042,16 +1042,16 @@ contract IdentityRegistryTest is PrivacyScan {
 
     /// A contract resolving whatever was typed must not have its whole
     /// transaction reverted by a stray space, with a library error it cannot
-    /// tell apart from `UnknownPlatform`. Text the rules refuse answers the
-    /// zero address, which is the same answer as a handle nobody proved.
-    function test_resolvingTextTheRulesRefuseAnswersNobody() public view {
+    /// tell apart from `UnknownPlatform`. Malformed text answers the zero
+    /// address, which is the same answer as a handle nobody proved.
+    function test_resolvingMalformedTextAnswersNobody() public view {
         assertEq(registry.resolveHandle(X, "ali ce"), address(0), "a stray space");
         assertEq(registry.resolveHandle(X, " alice"), address(0), "a leading space");
         assertEq(registry.resolveHandle(X, "@alice"), address(0), "a leading @");
         assertEq(registry.resolveHandle(X, unicode"aliçe"), address(0), "a byte above 0x7f");
         assertEq(registry.resolveHandle(X, ""), address(0), "nothing at all");
         assertEq(registry.resolveHandle(X, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"), address(0), "too long");
-        assertEq(registry.resolveHandle(GITHUB, "-octocat"), address(0), "an arrangement the platform refuses");
+        assertEq(registry.resolveHandle(GITHUB, "-octocat"), address(0), "an arrangement GitHub never sends");
     }
 
     /// `resolveHandleAndId` matters more: its documented job is to let a

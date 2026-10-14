@@ -245,7 +245,7 @@ contract HandleEscrowTest is PrivacyScan {
         escrow.claim(githubAlice, one(NATIVE), alice);
     }
 
-    /// Text goes through `handleNodeOf`: text the rules refuse lands on a node no proof binds, and
+    /// Text goes through `handleNodeOf`: text no platform sends lands on a node no proof binds, and
     /// the rest on the node a proof binds, refundable by the router's caller.
     function test_textHashedByTheRegistryLandsOnTheProvedNode() public {
         TextPayer payer = new TextPayer(escrow, registry);

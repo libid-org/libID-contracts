@@ -33,7 +33,7 @@ pub struct IdVector {
     pub id_node: &'static str,
 }
 
-/// A platform `handles.json` names: its key, its node tags and its rules.
+/// A platform `handles.json` names: its key, its node tags and its buffers.
 pub struct Platform {
     /// keccak256 of this string is the platform id.
     pub key: &'static str,
@@ -41,14 +41,14 @@ pub struct Platform {
     pub user_id_tag: &'static str,
     /// A handle node is SHA256 of this tag, then the normalized handle.
     pub handle_tag: &'static str,
-    /// What a handle may be.
+    /// How long a handle may be.
     pub rules: crate::Rules,
-    /// What an id may be.
+    /// How long an id may be, and whether it is a number.
     pub id_rules: crate::IdRules,
 }
 
 /// SHA-256 of the handles.json this file was generated from.
-pub const TABLE_SHA256: &str = "8c6fb5a7ae50e0b1a039fd8b58374215cc60eccc9586a2d43cbbb3bee0cee5a7";
+pub const TABLE_SHA256: &str = "bb7470a149db82068a06d2f9f4175d910e0c9b31c1c647b92a466af7c78520fb";
 
 /// keccak256 of this string is the platform id.
 pub const PLATFORM_X_KEY: &str = "x";
@@ -63,17 +63,11 @@ pub const PLATFORM_X: Platform = Platform {
     user_id_tag: "libid.x.user-id",
     handle_tag: "libid.x.handle",
     rules: crate::Rules {
-        max_length: 15,
-        is_email: false,
-        allow_underscore: true,
-        allow_hyphen: false,
+        max_length: 39,
     },
     id_rules: crate::IdRules {
         max_length: 20,
         decimal: true,
-        leading_zero: false,
-        nonzero: true,
-        max: Some("18446744073709551615"),
     },
 };
 /// github, as `handles.json` states it.
@@ -83,16 +77,10 @@ pub const PLATFORM_GITHUB: Platform = Platform {
     handle_tag: "libid.github.handle",
     rules: crate::Rules {
         max_length: 39,
-        is_email: false,
-        allow_underscore: false,
-        allow_hyphen: true,
     },
     id_rules: crate::IdRules {
         max_length: 20,
         decimal: true,
-        leading_zero: false,
-        nonzero: true,
-        max: Some("18446744073709551615"),
     },
 };
 /// google, as `handles.json` states it.
@@ -102,16 +90,10 @@ pub const PLATFORM_GOOGLE: Platform = Platform {
     handle_tag: "libid.google.handle",
     rules: crate::Rules {
         max_length: 62,
-        is_email: true,
-        allow_underscore: false,
-        allow_hyphen: false,
     },
     id_rules: crate::IdRules {
         max_length: 31,
         decimal: false,
-        leading_zero: true,
-        nonzero: false,
-        max: None,
     },
 };
 
@@ -123,25 +105,15 @@ pub fn platform(key: &str) -> Option<&'static Platform> {
     PLATFORMS.iter().find(|p| p.key == key)
 }
 
-/// Nothing is left after the transform.
+/// The value is empty.
 pub const ERROR_EMPTY: u8 = 0;
-/// More bytes than the platform allows.
+/// More bytes than the circuit's buffer holds.
 pub const ERROR_TOOLONG: u8 = 1;
-/// A byte the platform does not allow.
+/// A byte that is not part of the token as sent.
 pub const ERROR_BADCHARACTER: u8 = 2;
-/// Allowed bytes in an arrangement the platform does not allow.
-pub const ERROR_BADSHAPE: u8 = 3;
 
 /// Every case, shared with Solidity and TypeScript.
-pub const VECTORS: [Vector; 52] = [
-    Vector {
-        platform: "x",
-        input: " @Alice_1 ",
-        output: "",
-        accepted: false,
-        error_kind: 2,
-        handle_node: "",
-    },
+pub const VECTORS: [Vector; 29] = [
     Vector {
         platform: "x",
         input: "Alice_1",
@@ -160,47 +132,31 @@ pub const VECTORS: [Vector; 52] = [
     },
     Vector {
         platform: "x",
-        input: "@a",
-        output: "",
-        accepted: false,
-        error_kind: 2,
-        handle_node: "",
-    },
-    Vector {
-        platform: "x",
-        input: "A1_b2",
-        output: "a1_b2",
+        input: " @Alice_1 ",
+        output: " @alice_1 ",
         accepted: true,
         error_kind: 0,
-        handle_node: "0x55be0847f475409cb1da1d008804b966de05bb088d2469129c142faf2ec4a678",
+        handle_node: "0x8d5c2c0bf6e508d2abbd31897b81b8b181c080be353e9a2d637c26ba85ef2eba",
     },
     Vector {
         platform: "x",
-        input: "_alice",
-        output: "_alice",
+        input: "alice-1",
+        output: "alice-1",
         accepted: true,
         error_kind: 0,
-        handle_node: "0x3a354366999d277daf0a6e81640d9a9976bc4efc20db4e1df245e90ba42aeeb8",
+        handle_node: "0x7c04fb47ef59de41f30f90085b020aa2e0792e3dfdac256f4d5182bc92bd8285",
     },
     Vector {
         platform: "x",
-        input: "alice_",
-        output: "alice_",
+        input: "abcdefghijabcdefghijabcdefghijabcdefghi",
+        output: "abcdefghijabcdefghijabcdefghijabcdefghi",
         accepted: true,
         error_kind: 0,
-        handle_node: "0xf222c841ac39b261a179896eb45c53e48e8a610a15bdee72176e088783ad6f2a",
+        handle_node: "0x223a691ed5e6438d33c12c672f4249832696e6daaa568f778d7b3ef3c6d43495",
     },
     Vector {
         platform: "x",
-        input: "a12345678901234",
-        output: "a12345678901234",
-        accepted: true,
-        error_kind: 0,
-        handle_node: "0xbd3a96fb00ea79bdb486cbaa43914f8c110c8585d419fc02e5b1536c7617af58",
-    },
-    Vector {
-        platform: "x",
-        input: "a123456789012345",
+        input: "abcdefghijabcdefghijabcdefghijabcdefghij",
         output: "",
         accepted: false,
         error_kind: 1,
@@ -212,46 +168,6 @@ pub const VECTORS: [Vector; 52] = [
         output: "",
         accepted: false,
         error_kind: 0,
-        handle_node: "",
-    },
-    Vector {
-        platform: "x",
-        input: "   ",
-        output: "",
-        accepted: false,
-        error_kind: 2,
-        handle_node: "",
-    },
-    Vector {
-        platform: "x",
-        input: "@",
-        output: "",
-        accepted: false,
-        error_kind: 2,
-        handle_node: "",
-    },
-    Vector {
-        platform: "x",
-        input: "@@alice",
-        output: "",
-        accepted: false,
-        error_kind: 2,
-        handle_node: "",
-    },
-    Vector {
-        platform: "x",
-        input: "alice-1",
-        output: "",
-        accepted: false,
-        error_kind: 2,
-        handle_node: "",
-    },
-    Vector {
-        platform: "x",
-        input: "ali ce",
-        output: "",
-        accepted: false,
-        error_kind: 2,
         handle_node: "",
     },
     Vector {
@@ -272,6 +188,14 @@ pub const VECTORS: [Vector; 52] = [
     },
     Vector {
         platform: "x",
+        input: "ali\u{0}ce",
+        output: "",
+        accepted: false,
+        error_kind: 2,
+        handle_node: "",
+    },
+    Vector {
+        platform: "x",
         input: "alic\u{e9}",
         output: "",
         accepted: false,
@@ -280,7 +204,7 @@ pub const VECTORS: [Vector; 52] = [
     },
     Vector {
         platform: "x",
-        input: "\talice",
+        input: "a\"b",
         output: "",
         accepted: false,
         error_kind: 2,
@@ -288,23 +212,7 @@ pub const VECTORS: [Vector; 52] = [
     },
     Vector {
         platform: "x",
-        input: "alice\t",
-        output: "",
-        accepted: false,
-        error_kind: 2,
-        handle_node: "",
-    },
-    Vector {
-        platform: "x",
-        input: "\nalice",
-        output: "",
-        accepted: false,
-        error_kind: 2,
-        handle_node: "",
-    },
-    Vector {
-        platform: "x",
-        input: " @ alice ",
+        input: "a\\b",
         output: "",
         accepted: false,
         error_kind: 2,
@@ -320,14 +228,6 @@ pub const VECTORS: [Vector; 52] = [
     },
     Vector {
         platform: "github",
-        input: "@Octo-Cat",
-        output: "",
-        accepted: false,
-        error_kind: 2,
-        handle_node: "",
-    },
-    Vector {
-        platform: "github",
         input: "octocat",
         output: "octocat",
         accepted: true,
@@ -336,75 +236,19 @@ pub const VECTORS: [Vector; 52] = [
     },
     Vector {
         platform: "github",
-        input: " OctoCat ",
-        output: "",
-        accepted: false,
-        error_kind: 2,
-        handle_node: "",
-    },
-    Vector {
-        platform: "github",
-        input: "a",
-        output: "a",
+        input: "Octo--Cat-",
+        output: "octo--cat-",
         accepted: true,
         error_kind: 0,
-        handle_node: "0x823c23491391b659703362484a08cfbcc8cede4ea3b5ba1753c3df7756799c70",
-    },
-    Vector {
-        platform: "github",
-        input: "o-c",
-        output: "o-c",
-        accepted: true,
-        error_kind: 0,
-        handle_node: "0xaa580baff71ac37d38e08b9b7b0dd7516ec01608457fbbee7f445a0b8f7d9fc5",
-    },
-    Vector {
-        platform: "github",
-        input: "-octocat",
-        output: "",
-        accepted: false,
-        error_kind: 3,
-        handle_node: "",
-    },
-    Vector {
-        platform: "github",
-        input: "octocat-",
-        output: "",
-        accepted: false,
-        error_kind: 3,
-        handle_node: "",
-    },
-    Vector {
-        platform: "github",
-        input: "octo--cat",
-        output: "",
-        accepted: false,
-        error_kind: 3,
-        handle_node: "",
+        handle_node: "0x54230f351727db5a1e9a99db6ed19fdcd5b3a8f0e30eedb7ec22a9e6ccf03c85",
     },
     Vector {
         platform: "github",
         input: "octo_cat",
-        output: "",
-        accepted: false,
-        error_kind: 2,
-        handle_node: "",
-    },
-    Vector {
-        platform: "github",
-        input: "-",
-        output: "",
-        accepted: false,
-        error_kind: 3,
-        handle_node: "",
-    },
-    Vector {
-        platform: "github",
-        input: "",
-        output: "",
-        accepted: false,
+        output: "octo_cat",
+        accepted: true,
         error_kind: 0,
-        handle_node: "",
+        handle_node: "0x9bae53e4bbf96e477ca977ac185ee7ea1c5d44a71d2449acdef0154afeaea6e7",
     },
     Vector {
         platform: "github",
@@ -420,6 +264,14 @@ pub const VECTORS: [Vector; 52] = [
         output: "",
         accepted: false,
         error_kind: 1,
+        handle_node: "",
+    },
+    Vector {
+        platform: "github",
+        input: "",
+        output: "",
+        accepted: false,
+        error_kind: 0,
         handle_node: "",
     },
     Vector {
@@ -448,75 +300,11 @@ pub const VECTORS: [Vector; 52] = [
     },
     Vector {
         platform: "google",
-        input: "a-b@example.com",
-        output: "a-b@example.com",
-        accepted: true,
-        error_kind: 0,
-        handle_node: "0x4eb5654e6947900ef44daa8a41a7c9e7e6f4717794bdc079f843f357a023f54f",
-    },
-    Vector {
-        platform: "google",
-        input: "a_b@example.com",
-        output: "a_b@example.com",
-        accepted: true,
-        error_kind: 0,
-        handle_node: "0xdce533afdd6b399323db9ab05dbccbac9913093f522d390cbb832bee1d2b9c3f",
-    },
-    Vector {
-        platform: "google",
-        input: " Alice@Example.com ",
-        output: "",
-        accepted: false,
-        error_kind: 2,
-        handle_node: "",
-    },
-    Vector {
-        platform: "google",
-        input: "@Alice@example.com",
-        output: "",
-        accepted: false,
-        error_kind: 3,
-        handle_node: "",
-    },
-    Vector {
-        platform: "google",
         input: "alice",
-        output: "",
-        accepted: false,
-        error_kind: 3,
-        handle_node: "",
-    },
-    Vector {
-        platform: "google",
-        input: "@example.com",
-        output: "",
-        accepted: false,
-        error_kind: 3,
-        handle_node: "",
-    },
-    Vector {
-        platform: "google",
-        input: "alice@",
-        output: "",
-        accepted: false,
-        error_kind: 3,
-        handle_node: "",
-    },
-    Vector {
-        platform: "google",
-        input: "",
-        output: "",
-        accepted: false,
+        output: "alice",
+        accepted: true,
         error_kind: 0,
-        handle_node: "",
-    },
-    Vector {
-        platform: "google",
-        input: "ali ce@example.com",
-        output: "",
-        accepted: false,
-        error_kind: 2,
-        handle_node: "",
+        handle_node: "0x5cd4248474e70fbade127485617bbed78bbbba0fb0688c3871a84cc43de0cd66",
     },
     Vector {
         platform: "google",
@@ -532,6 +320,14 @@ pub const VECTORS: [Vector; 52] = [
         output: "",
         accepted: false,
         error_kind: 1,
+        handle_node: "",
+    },
+    Vector {
+        platform: "google",
+        input: "",
+        output: "",
+        accepted: false,
+        error_kind: 0,
         handle_node: "",
     },
     Vector {
@@ -553,7 +349,7 @@ pub const VECTORS: [Vector; 52] = [
 ];
 
 /// Every id case, shared with TypeScript and Noir.
-pub const ID_VECTORS: [IdVector; 29] = [
+pub const ID_VECTORS: [IdVector; 22] = [
     IdVector {
         platform: "x",
         input: "2244994945",
@@ -570,45 +366,17 @@ pub const ID_VECTORS: [IdVector; 29] = [
     },
     IdVector {
         platform: "x",
-        input: "0",
-        accepted: false,
-        error_kind: 3,
-        id_node: "",
-    },
-    IdVector {
-        platform: "x",
         input: "0123",
-        accepted: false,
-        error_kind: 3,
-        id_node: "",
-    },
-    IdVector {
-        platform: "x",
-        input: "00123",
-        accepted: false,
-        error_kind: 3,
-        id_node: "",
-    },
-    IdVector {
-        platform: "x",
-        input: "12345678901234567890",
         accepted: true,
         error_kind: 0,
-        id_node: "0x46d787dc85127e79b248e3768ab657f0c543bc3ce5b97f1645c69f8432a3ec3b",
-    },
-    IdVector {
-        platform: "x",
-        input: "18446744073709551615",
-        accepted: true,
-        error_kind: 0,
-        id_node: "0xf5341a892456cd845598d346a1102f6154b9c6a00b434a22cb305965a1efd045",
+        id_node: "0x68ceaf8a314f0264ed9fb64143960fdedd2a5223c2c87fe65de6232f1cfc9ebf",
     },
     IdVector {
         platform: "x",
         input: "18446744073709551616",
-        accepted: false,
-        error_kind: 3,
-        id_node: "",
+        accepted: true,
+        error_kind: 0,
+        id_node: "0xe065622d687c739269f8ff862dac12c5acc087e87d676041148e2c1df17b429f",
     },
     IdVector {
         platform: "x",
@@ -647,30 +415,16 @@ pub const ID_VECTORS: [IdVector; 29] = [
     },
     IdVector {
         platform: "github",
-        input: "0",
+        input: " 583231",
         accepted: false,
-        error_kind: 3,
+        error_kind: 2,
         id_node: "",
     },
     IdVector {
         platform: "github",
-        input: "0583231",
+        input: "583231,",
         accepted: false,
-        error_kind: 3,
-        id_node: "",
-    },
-    IdVector {
-        platform: "github",
-        input: "18446744073709551615",
-        accepted: true,
-        error_kind: 0,
-        id_node: "0xdaaed93a4b3862ac845bdc7e3db729492757f8c0b53c6572e6897d9ae0ff54fd",
-    },
-    IdVector {
-        platform: "github",
-        input: "18446744073709551616",
-        accepted: false,
-        error_kind: 3,
+        error_kind: 2,
         id_node: "",
     },
     IdVector {
@@ -685,13 +439,6 @@ pub const ID_VECTORS: [IdVector; 29] = [
         input: "",
         accepted: false,
         error_kind: 0,
-        id_node: "",
-    },
-    IdVector {
-        platform: "github",
-        input: "5 8",
-        accepted: false,
-        error_kind: 2,
         id_node: "",
     },
     IdVector {
@@ -717,14 +464,14 @@ pub const ID_VECTORS: [IdVector; 29] = [
     },
     IdVector {
         platform: "google",
-        input: "1234567890123456789012345678901",
+        input: "1111111111111111111111111111111",
         accepted: true,
         error_kind: 0,
-        id_node: "0xe95d993e3520fe34fd3eec014d9bbf91868c7e7e5160d95bc3eeca9dfb38329e",
+        id_node: "0x8766b502d2d781157b79f671c56b17e66b54a3f480f77a36d39061a8530c1666",
     },
     IdVector {
         platform: "google",
-        input: "12345678901234567890123456789012",
+        input: "11111111111111111111111111111111",
         accepted: false,
         error_kind: 1,
         id_node: "",

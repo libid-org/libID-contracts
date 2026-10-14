@@ -5,8 +5,7 @@ pragma solidity ^0.8.20;
 // The source of truth is libID-contracts' solidity/contracts/handles/handles.json.
 
 /// @notice Each platform `handles.json` names: its id, its node tags, and
-///         the fold and hash that turn typed text into a node. The handle
-///         rules are the circuits'.
+///         the fold and hash that turn typed text into a node.
 ///
 /// @dev The vector table the languages share is `HandleVectors`, which
 ///      only tests read.
@@ -15,7 +14,7 @@ library HandlePlatforms {
     error UnknownPlatform(bytes32 platformId);
 
     /// SHA-256 of the handles.json this file was generated from.
-    bytes32 internal constant TABLE_SHA256 = 0x8c6fb5a7ae50e0b1a039fd8b58374215cc60eccc9586a2d43cbbb3bee0cee5a7;
+    bytes32 internal constant TABLE_SHA256 = 0xbb7470a149db82068a06d2f9f4175d910e0c9b31c1c647b92a466af7c78520fb;
 
     /// keccak256(bytes("x"))
     bytes32 internal constant PLATFORM_X = keccak256(bytes("x"));
@@ -66,8 +65,8 @@ library HandlePlatforms {
     }
 
     /// The handle typed text names on a platform, folded, and the node it
-    /// is bound under, hashed under its tag. Only the circuits apply the
-    /// platform's rules, so text they refuse folds to a node nobody holds.
+    /// is bound under, hashed under its tag. Only the circuits check the
+    /// bytes, so text they refuse folds to a node nobody holds.
     ///
     /// @dev Reverts `UnknownPlatform`.
     function handleNodeOf(bytes32 platformId, string memory raw)
