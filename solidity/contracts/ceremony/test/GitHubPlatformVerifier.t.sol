@@ -936,10 +936,6 @@ contract GitHubPlatformVerifierTest is RealTlsNotaryProofTest {
         return INotaryService(address(notary));
     }
 
-    function _circuitArtifact() internal pure override returns (string memory) {
-        return "BearerLinkHonkVerifier.sol:BearerLinkHonkVerifier";
-    }
-
     function _session() internal pure override returns (string memory) {
         return RUST_SESSION;
     }
@@ -973,7 +969,7 @@ contract GitHubPlatformVerifierTest is RealTlsNotaryProofTest {
     ///      wired to the X circuit, are refused at the first session.
     function test_anXVerifierRefusesAGitHubCeremony() public {
         (TlsNotaryVerifierBase.TlsNotaryProof memory s,,) = _realProofPayload();
-        address circuit = vm.deployCode("BearerLinkHonkVerifier.sol:BearerLinkHonkVerifier");
+        address circuit = vm.deployCode(HonkStub.BEARER_LINK);
         XPlatformVerifier x = XPlatformVerifier(
             address(
                 new ERC1967Proxy(

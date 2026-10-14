@@ -188,9 +188,10 @@ abstract contract PlatformVerifierBase is ICeremony, Initializable, UUPSUpgradea
         return CeremonyProfile.futureObservationAllowance(_platform());
     }
 
-    /// @dev Refuse a payload made for another ceremony version, by name.
-    function _requireCeremonyVersion(uint16 claimed) internal pure {
-        uint16 expected = _ceremonyVersion();
+    /// @dev Refuse a payload made for another ceremony version, by name;
+    ///      returns this verifier's version.
+    function _requireCeremonyVersion(uint16 claimed) internal pure returns (uint16 expected) {
+        expected = _ceremonyVersion();
         if (claimed != expected) revert WrongCeremonyVersion(expected, claimed);
     }
 

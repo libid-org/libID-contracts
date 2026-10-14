@@ -5,12 +5,12 @@ import {Vm} from "forge-std/Test.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
 import {AttestationBuilder} from "../../ceremony/test/AttestationBuilder.sol";
+import {HonkStub} from "../../ceremony/test/HonkStub.sol";
 import {TrustingJwtRoots} from "../../ceremony/test/TrustingJwtRoots.sol";
 import {CeremonyProfile} from "../../ceremony/CeremonyProfile.sol";
 import {CeremonyProofVerifier} from "../../ceremony/CeremonyProofVerifier.sol";
 import {GitHubPlatformVerifier} from "../../ceremony/GitHubPlatformVerifier.sol";
 import {GooglePlatformVerifier, IGoogleJwtRoots} from "../../ceremony/GooglePlatformVerifier.sol";
-import {ICeremony} from "../../ceremony/ICeremony.sol";
 import {INotaryService} from "../../ceremony/INotaryService.sol";
 import {IPlatformVerifier} from "../../ceremony/IPlatformVerifier.sol";
 import {IProofVerifier} from "../../ceremony/IProofVerifier.sol";
@@ -126,12 +126,7 @@ abstract contract RealProofBindBase is PrivacyScan {
         _bind(payload);
         assertEq(registry.publishedHandleOf(BINDER, _platform()), _secrets()[2]);
 
-        Vm.Log[] memory logs = vm.getRecordedLogs();
-        bool seen;
-        for (uint256 i = 0; i < logs.length; ++i) {
-            seen = seen || _containsAny(logs[i].data);
-        }
-        assertTrue(seen, "a disclosure logs the handle");
+        assertTrue(_containsAny(_loggedRun(vm.getRecordedLogs())), "a disclosure logs the handle");
     }
 
     /// @dev A disclosure the proof does not back is refused before anything is written.
@@ -200,14 +195,8 @@ abstract contract RealTlsNotaryBind is RealProofBindBase {
         p.operationDomain = vm.parseJsonBytes32(session, ".operation_domain");
         p.authorizationNonce = vm.parseJsonBytes32(session, ".authorization_nonce");
         p.transactionData = vm.parseJsonBytes(session, ".transaction_data");
-        p.tokenSession = ICeremony.Attestation({
-            attestedData: vm.parseJsonBytes(session, ".token.attested_data"),
-            proof: vm.parseJsonBytes(session, ".token.notary_signature")
-        });
-        p.identitySession = ICeremony.Attestation({
-            attestedData: vm.parseJsonBytes(session, ".identity.attested_data"),
-            proof: vm.parseJsonBytes(session, ".identity.notary_signature")
-        });
+        p.tokenSession = AttestationBuilder.fixtureSession(session, ".token");
+        p.identitySession = AttestationBuilder.fixtureSession(session, ".identity");
         p.idNode = _idNode();
         p.handleNode = _handleNode();
         p.handle = handle;
@@ -270,7 +259,7 @@ contract RealProofBindTest is RealTlsNotaryBind {
     }
 
     function _deployVerifier(INotaryService notary_) internal override returns (address) {
-        address circuit = vm.deployCode("BearerLinkHonkVerifier.sol:BearerLinkHonkVerifier");
+        address circuit = vm.deployCode(HonkStub.BEARER_LINK);
         return address(
             new ERC1967Proxy(
                 address(new XPlatformVerifier()),
@@ -340,7 +329,7 @@ contract RealProofBindGitHubTest is RealTlsNotaryBind {
     }
 
     function _deployVerifier(INotaryService notary_) internal override returns (address) {
-        address circuit = vm.deployCode("BearerLinkHonkVerifier.sol:BearerLinkHonkVerifier");
+        address circuit = vm.deployCode(HonkStub.BEARER_LINK);
         return address(
             new ERC1967Proxy(
                 address(new GitHubPlatformVerifier()),
@@ -364,7 +353,7 @@ contract RealProofBindGoogleTest is RealProofBindBase {
 
     function setUp() public {
         roots = new TrustingJwtRoots();
-        address circuit = vm.deployCode("OidcGoogleHonkVerifier.sol:OidcGoogleHonkVerifier");
+        address circuit = vm.deployCode(HonkStub.GOOGLE);
         platformVerifier = address(
             new ERC1967Proxy(
                 address(new GooglePlatformVerifier()),

@@ -4,7 +4,6 @@ pragma solidity ^0.8.24;
 import {Test} from "forge-std/Test.sol";
 
 import {AttestationBuilder} from "./AttestationBuilder.sol";
-import {ICeremony} from "../ICeremony.sol";
 import {ICeremonyPayloads} from "../ICeremonyPayloads.sol";
 import {TlsNotaryVerifierBase} from "../TlsNotaryVerifierBase.sol";
 
@@ -22,14 +21,8 @@ contract PayloadEncodingTest is Test {
         p.operationDomain = vm.parseJsonBytes32(session, ".operation_domain");
         p.authorizationNonce = vm.parseJsonBytes32(session, ".authorization_nonce");
         p.transactionData = vm.parseJsonBytes(session, ".transaction_data");
-        p.tokenSession = ICeremony.Attestation({
-            attestedData: vm.parseJsonBytes(session, ".token.attested_data"),
-            proof: vm.parseJsonBytes(session, ".token.notary_signature")
-        });
-        p.identitySession = ICeremony.Attestation({
-            attestedData: vm.parseJsonBytes(session, ".identity.attested_data"),
-            proof: vm.parseJsonBytes(session, ".identity.notary_signature")
-        });
+        p.tokenSession = AttestationBuilder.fixtureSession(session, ".token");
+        p.identitySession = AttestationBuilder.fixtureSession(session, ".identity");
         p.idNode = vm.parseJsonBytes32(extra, ".id_node");
         p.handleNode = vm.parseJsonBytes32(extra, ".handle_node");
         p.handle = vm.parseJsonString(extra, ".handle");

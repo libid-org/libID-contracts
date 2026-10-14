@@ -212,12 +212,11 @@ contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable
     ) private {
         if (amount == 0) revert ZeroAmount();
         if (refundTo == address(0) || refundTo == address(this)) revert BadRefundTo(refundTo);
-        if (token != NATIVE && token.code.length == 0) revert BadToken(token);
-
         if (token == NATIVE) {
             if (msg.value != amount) revert ValueMismatch(amount, msg.value);
-        } else if (msg.value != 0) {
-            revert ValueMismatch(0, msg.value);
+        } else {
+            if (token.code.length == 0) revert BadToken(token);
+            if (msg.value != 0) revert ValueMismatch(0, msg.value);
         }
 
         HandleEscrowStorage storage $ = _s();

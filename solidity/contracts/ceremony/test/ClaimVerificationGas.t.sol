@@ -5,8 +5,8 @@ import {Test} from "forge-std/Test.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
 import {AttestationBuilder} from "./AttestationBuilder.sol";
+import {HonkStub} from "./HonkStub.sol";
 import {GitHubPlatformVerifier} from "../GitHubPlatformVerifier.sol";
-import {ICeremony} from "../ICeremony.sol";
 import {INotaryService} from "../INotaryService.sol";
 import {IPlatformVerifier} from "../IPlatformVerifier.sol";
 import {NotaryService} from "../NotaryService.sol";
@@ -38,8 +38,8 @@ contract ClaimVerificationGasTest is Test {
     IPlatformVerifier gitHub;
 
     function setUp() public {
-        bearerLink = IHonkVerifier(vm.deployCode("BearerLinkHonkVerifier.sol:BearerLinkHonkVerifier"));
-        oidcGoogle = IHonkVerifier(vm.deployCode("OidcGoogleHonkVerifier.sol:OidcGoogleHonkVerifier"));
+        bearerLink = IHonkVerifier(vm.deployCode(HonkStub.BEARER_LINK));
+        oidcGoogle = IHonkVerifier(vm.deployCode(HonkStub.GOOGLE));
 
         INotaryService notary = INotaryService(
             address(
@@ -102,14 +102,8 @@ contract ClaimVerificationGasTest is Test {
         p.operationDomain = vm.parseJsonBytes32(session, ".operation_domain");
         p.authorizationNonce = vm.parseJsonBytes32(session, ".authorization_nonce");
         p.transactionData = vm.parseJsonBytes(session, ".transaction_data");
-        p.tokenSession = ICeremony.Attestation({
-            attestedData: vm.parseJsonBytes(session, ".token.attested_data"),
-            proof: vm.parseJsonBytes(session, ".token.notary_signature")
-        });
-        p.identitySession = ICeremony.Attestation({
-            attestedData: vm.parseJsonBytes(session, ".identity.attested_data"),
-            proof: vm.parseJsonBytes(session, ".identity.notary_signature")
-        });
+        p.tokenSession = AttestationBuilder.fixtureSession(session, ".token");
+        p.identitySession = AttestationBuilder.fixtureSession(session, ".identity");
         // The nodes the circuit output, `[high, low]` at fields 8 to 11.
         p.idNode = AttestationBuilder.nodeAt(inputs, 8);
         p.handleNode = AttestationBuilder.nodeAt(inputs, 10);

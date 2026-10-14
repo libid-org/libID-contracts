@@ -311,8 +311,7 @@ contract IdentityRegistry is
         string memory name = _s().published[holder][platformId];
         if (bytes(name).length == 0) return;
         if (HandleNode.node(CeremonyProfile.handleTag(platformId), name) != handleNode) return;
-        delete _s().published[holder][platformId];
-        emit HandleUnpublished(holder, platformId);
+        _unpublish(holder, platformId);
     }
 
     // ─── Names ──────────────────────────────────────────────────────
@@ -330,8 +329,12 @@ contract IdentityRegistry is
     function unpublish(bytes32 platformId) external {
         _requireKnown(platformId);
         if (bytes(_s().published[msg.sender][platformId]).length == 0) return;
-        delete _s().published[msg.sender][platformId];
-        emit HandleUnpublished(msg.sender, platformId);
+        _unpublish(msg.sender, platformId);
+    }
+
+    function _unpublish(address holder, bytes32 platformId) private {
+        delete _s().published[holder][platformId];
+        emit HandleUnpublished(holder, platformId);
     }
 
     /// @dev Store and log a checked, normalized handle as the caller's name.

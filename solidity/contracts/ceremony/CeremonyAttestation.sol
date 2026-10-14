@@ -224,6 +224,7 @@ library CeremonyAttestation {
         if (CeremonyFields.occurrences(f.normalized, prefix) > 1) revert AmbiguousFraming();
         DirectionBlock memory block_ = f.block_;
 
+        bytes32 prefixHash = keccak256(prefix);
         bytes32 suffixHash = keccak256(suffix);
         uint256 found = type(uint256).max;
         for (uint256 i = 0; i < block_.commitments.length; ++i) {
@@ -232,7 +233,7 @@ library CeremonyAttestation {
             // anchor, and its bytes with the JSON whitespace removed end with
             // the prefix. One range, never a join: a prefix assembled across a
             // seam is one the platform never wrote in one piece.
-            if (!f.anchored[i] || !_endsWith(f.anchors[i], prefix)) continue;
+            if (!f.anchored[i] || !_endsWith(f.anchors[i], prefixHash, prefix.length)) continue;
             if (terminator == Terminator.Suffix) {
                 bytes memory after_ = _revealedSlice(block_, c.end, c.end + uint32(suffix.length));
                 if (keccak256(after_) != suffixHash) continue;
@@ -275,15 +276,14 @@ library CeremonyAttestation {
         return (false, "");
     }
 
-    function _endsWith(bytes memory normalized, bytes memory prefix) private pure returns (bool) {
-        if (normalized.length < prefix.length) return false;
+    function _endsWith(bytes memory normalized, bytes32 prefixHash, uint256 size) private pure returns (bool) {
+        if (normalized.length < size) return false;
         bytes32 tail;
-        // The last `prefix.length` bytes, in bounds by the length check above.
+        // The last `size` bytes, in bounds by the length check above.
         assembly ("memory-safe") {
-            let size := mload(prefix)
             tail := keccak256(add(add(normalized, 0x20), sub(mload(normalized), size)), size)
         }
-        return tail == keccak256(prefix);
+        return tail == prefixHash;
     }
 
     /// @notice REQ-COMMON-35, -39 and -40 for an identity request that commits

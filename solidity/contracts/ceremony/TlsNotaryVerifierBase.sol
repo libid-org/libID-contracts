@@ -14,9 +14,9 @@ import {HandleDisclosure, PlatformVerifierBase} from "./PlatformVerifierBase.sol
 ///         hidden bearer linking them, and one bearer-link proof binding that
 ///         link and the committed id and handle to the two nodes the payload
 ///         claims, under the platform's tags.
-/// @dev Subclasses supply the platform, per-session authorities, request
-///      lines, token fields and checks, and identity field framing. The proof
-///      is verified last, once its commitments are tied to the attestations.
+/// @dev Subclasses supply the platform and any token-body checks; the rest
+///      is the platform's `CeremonyProfile`. The proof is verified last, once
+///      its commitments are tied to the attestations.
 abstract contract TlsNotaryVerifierBase is IPlatformVerifier, PlatformVerifierBase {
     /// @dev The bearer-link circuit's public inputs: two bearer commitments, id and
     ///      handle commitments, then the two nodes, each as `[high, low]` halves;
@@ -31,16 +31,16 @@ abstract contract TlsNotaryVerifierBase is IPlatformVerifier, PlatformVerifierBa
     uint256 internal constant OFF_ID_TAG = 12;
     uint256 internal constant OFF_HANDLE_TAG = 14;
 
-    /// @dev What frames the committed bearer in the token response. Every other
-    ///      response byte is hidden, so without these the committed range is
-    ///      indistinguishable from a `refresh_token` value (REQ-PLAT-57,
-    ///      REQ-PLAT-58).
     /// @dev HTTP framing owns this one, not the profile: the client appends
     ///      it and its value is the body's own count, so the head carries it
     ///      and no profile lists it.
     bytes32 private constant LENGTH_HEADER = keccak256("content-length");
     bytes32 private constant AUTHORIZATION = keccak256("authorization");
 
+    /// @dev What frames the committed bearer in the token response. Every other
+    ///      response byte is hidden, so without these the committed range is
+    ///      indistinguishable from a `refresh_token` value (REQ-PLAT-57,
+    ///      REQ-PLAT-58).
     bytes internal constant ACCESS_TOKEN_PREFIX = '"access_token":"';
     bytes internal constant ACCESS_TOKEN_SUFFIX = '"';
 
@@ -140,7 +140,7 @@ abstract contract TlsNotaryVerifierBase is IPlatformVerifier, PlatformVerifierBa
         // does not have exactly this shape, so there is no separate count or
         // presence check for any field.
         TlsNotaryProof memory p = abi.decode(payload, (TlsNotaryProof));
-        _requireCeremonyVersion(p.ceremonyVersion);
+        uint16 version = _requireCeremonyVersion(p.ceremonyVersion);
         // A disclosure is checked against the node the payload claims, before
         // anything is paid or proved: the proof below is what binds that node.
         claimed.handle = HandleDisclosure.check(_platform(), p.handle, p.handleNode);
@@ -150,9 +150,8 @@ abstract contract TlsNotaryVerifierBase is IPlatformVerifier, PlatformVerifierBa
         // it is a commitment the token session's revealed `code_verifier` has
         // to match, so any input a caller changes yields a digest no proof
         // opens against.
-        bytes32 digest = CeremonyAuthorization.digestFor(
-            p.operationDomain, _ceremonyVersion(), p.authorizationNonce, p.transactionData
-        );
+        bytes32 digest =
+            CeremonyAuthorization.digestFor(p.operationDomain, version, p.authorizationNonce, p.transactionData);
 
         (uint64 observedAt, bytes32 tokenCommitment) = _tokenSession(digest, p, fee, claimed);
         Commitments memory identity = _identitySession(p, fee);
@@ -168,7 +167,7 @@ abstract contract TlsNotaryVerifierBase is IPlatformVerifier, PlatformVerifierBa
         claimed.sessionId = digest;
         claimed.operationDomain = p.operationDomain;
         claimed.transactionData = p.transactionData;
-        claimed.ceremonyVersion = _ceremonyVersion();
+        claimed.ceremonyVersion = version;
         claimed.metadataObservedAt = observedAt;
     }
 
@@ -202,20 +201,9 @@ abstract contract TlsNotaryVerifierBase is IPlatformVerifier, PlatformVerifierBa
         // platform answered.
         CeremonyAttestation.requireExactCoverage(data.sent, data.sentTranscriptLength);
 
-        // Range 0 must BEGIN the transcript. Indexing the list is not enough:
-        // the lowest-offset revealed range is wherever the prover put it. An
-        // empty list passes coverage against a zero signed length, so it is
-        // named here rather than left to an out-of-bounds panic that tells an
-        // operator nothing.
-        if (data.sent.revealed.length == 0) revert RequestLineNotAtOrigin(type(uint32).max);
-        if (data.sent.revealed[0].start != 0) {
-            revert RequestLineNotAtOrigin(data.sent.revealed[0].start);
-        }
         // The one comparison of the method and path (REQ-COMMON-21A): the head
         // check below starts past the request line.
-        if (!_startsWith(data.sent.revealed[0].value, CeremonyProfile.tokenRequestLine(_platform()))) {
-            revert WrongRequestLine();
-        }
+        _requireRequestLine(data.sent, CeremonyProfile.tokenRequestLine(_platform()));
 
         bytes memory body = _tokenBody(data.sent);
 
@@ -285,16 +273,7 @@ abstract contract TlsNotaryVerifierBase is IPlatformVerifier, PlatformVerifierBa
     ///      committed bearer, and no forbidden header. Returns that bearer.
     function _identityRequest(CeremonyAttestation.AttestedData memory data) internal pure returns (bytes32) {
         // REQ-COMMON-21A: the path separates operations on the same server.
-        // Anchored at the origin for the same reason as the token request --
-        // the lowest-offset revealed range is wherever the prover put it.
-        if (data.sent.revealed.length == 0 || data.sent.revealed[0].start != 0) {
-            revert RequestLineNotAtOrigin(data.sent.revealed.length == 0
-                    ? type(uint32).max
-                    : data.sent.revealed[0].start);
-        }
-        if (!_startsWith(data.sent.revealed[0].value, CeremonyProfile.identityRequestLine(_platform()))) {
-            revert WrongRequestLine();
-        }
+        _requireRequestLine(data.sent, CeremonyProfile.identityRequestLine(_platform()));
 
         // Coverage, one request, the header scan and the framing, together:
         // the scan reads only revealed bytes.
@@ -615,6 +594,15 @@ abstract contract TlsNotaryVerifierBase is IPlatformVerifier, PlatformVerifierBa
         if (declared != whole.length - at) revert WrongDeclaredBodyLength(declared, whole.length - at);
 
         body = _slice(whole, at, whole.length);
+    }
+
+    /// @dev Range 0 begins the transcript and starts with `line`. The
+    ///      lowest-offset revealed range is wherever the prover put it, and an
+    ///      empty list is named rather than left to an out-of-bounds panic.
+    function _requireRequestLine(CeremonyAttestation.DirectionBlock memory sent, bytes memory line) private pure {
+        if (sent.revealed.length == 0) revert RequestLineNotAtOrigin(type(uint32).max);
+        if (sent.revealed[0].start != 0) revert RequestLineNotAtOrigin(sent.revealed[0].start);
+        if (!_startsWith(sent.revealed[0].value, line)) revert WrongRequestLine();
     }
 
     function _startsWith(bytes memory data, bytes memory prefix) internal pure returns (bool) {

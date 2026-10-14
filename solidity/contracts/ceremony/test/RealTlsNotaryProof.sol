@@ -4,6 +4,8 @@ pragma solidity ^0.8.24;
 import {Test} from "forge-std/Test.sol";
 
 import {AttestationBuilder} from "./AttestationBuilder.sol";
+import {HonkStub} from "./HonkStub.sol";
+import {IHonkVerifierErrors} from "../../circuits/IHonkVerifierErrors.sol";
 import {ICeremony} from "../ICeremony.sol";
 import {INotaryService} from "../INotaryService.sol";
 import {IPlatformVerifier} from "../IPlatformVerifier.sol";
@@ -15,10 +17,6 @@ import {TlsNotaryVerifierBase} from "../TlsNotaryVerifierBase.sol";
 abstract contract RealTlsNotaryProofTest is Test {
     address constant OWNER = address(0xA11CE);
     uint256 constant NOTARY_KEY = 0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80;
-
-    /// The bearer-link verifier's revert for a failed sumcheck, wrong public
-    /// inputs included.
-    error SumcheckFailed();
 
     /// The low byte of proof word 29, the first sumcheck coefficient.
     /// Flipping a curve point instead would burn all the gas.
@@ -33,9 +31,6 @@ abstract contract RealTlsNotaryProofTest is Test {
     /// The suite's honest payload, which the fixtures' records replace the
     /// sessions of.
     function _payload() internal view virtual returns (TlsNotaryVerifierBase.TlsNotaryProof memory);
-
-    /// The circuit's Honk verifier, as `vm.deployCode` names its artifact.
-    function _circuitArtifact() internal pure virtual returns (string memory);
 
     /// The session fixture libid-rs wrote, and the proof bb made of it.
     function _session() internal pure virtual returns (string memory);
@@ -53,7 +48,7 @@ abstract contract RealTlsNotaryProofTest is Test {
         internal
         returns (TlsNotaryVerifierBase.TlsNotaryProof memory s, address circuit, bytes32[] memory proved)
     {
-        circuit = vm.deployCode(_circuitArtifact());
+        circuit = vm.deployCode(HonkStub.BEARER_LINK);
         vm.prank(OWNER);
         _platformVerifier().setTrustRoots(_notary(), IHonkVerifier(circuit));
 
@@ -78,7 +73,7 @@ abstract contract RealTlsNotaryProofTest is Test {
     function test_refusesARealProofWithOneByteFlipped() public {
         (TlsNotaryVerifierBase.TlsNotaryProof memory s,,) = _realProofPayload();
         s.proof[FLIPPED_PROOF_BYTE] ^= 0x01;
-        _refuses(s, SumcheckFailed.selector);
+        _refuses(s, IHonkVerifierErrors.SumcheckFailed.selector);
     }
 
     // ─── What the real proof binds ──────────────────────────────────
@@ -89,13 +84,13 @@ abstract contract RealTlsNotaryProofTest is Test {
         (bytes32 idNode, bytes32 handleNode) = (s.idNode, s.handleNode);
 
         s.idNode = idNode ^ bytes32(uint256(1));
-        _refuses(s, SumcheckFailed.selector);
+        _refuses(s, IHonkVerifierErrors.SumcheckFailed.selector);
 
         (s.idNode, s.handleNode) = (idNode, handleNode ^ bytes32(uint256(1) << 255));
-        _refuses(s, SumcheckFailed.selector);
+        _refuses(s, IHonkVerifierErrors.SumcheckFailed.selector);
 
         (s.idNode, s.handleNode) = (handleNode, idNode);
-        _refuses(s, SumcheckFailed.selector);
+        _refuses(s, IHonkVerifierErrors.SumcheckFailed.selector);
     }
 
     /// @dev A re-signed record carrying the other platform's commitment fails
@@ -123,7 +118,7 @@ abstract contract RealTlsNotaryProofTest is Test {
             );
             if (keccak256(bytes(session)) == keccak256(".token")) s.tokenSession = resigned;
             else s.identitySession = resigned;
-            _refuses(s, SumcheckFailed.selector);
+            _refuses(s, IHonkVerifierErrors.SumcheckFailed.selector);
         }
     }
 
@@ -135,7 +130,7 @@ abstract contract RealTlsNotaryProofTest is Test {
         bytes32 id = vm.parseJsonBytes32(json, ".identity_link_witness.id.commitment");
         bytes32 handle = vm.parseJsonBytes32(json, ".identity_link_witness.handle.commitment");
         s.identitySession = _resigned(s.identitySession.attestedData, id, handle, handle, id);
-        _refuses(s, SumcheckFailed.selector);
+        _refuses(s, IHonkVerifierErrors.SumcheckFailed.selector);
     }
 
     /// @dev The other platform's identity session is refused by its host.

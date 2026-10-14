@@ -153,7 +153,7 @@ contract GooglePlatformVerifierTest is Test {
     ///      and checked by the verifier the pin ships.
     function _realProof() private returns (GooglePlatformVerifier real, GooglePlatformVerifier.GoogleProof memory s) {
         string memory json = vm.readFile("contracts/ceremony/test/fixtures/google-ceremony-proof.json");
-        address honkVerifier = vm.deployCode("OidcGoogleHonkVerifier.sol:OidcGoogleHonkVerifier");
+        address honkVerifier = vm.deployCode(HonkStub.GOOGLE);
         real = GooglePlatformVerifier(
             address(
                 new ERC1967Proxy(

@@ -151,7 +151,7 @@ contract GooglePlatformVerifier is IPlatformVerifier, PlatformVerifierBase {
         if (msg.value != 0) revert WrongValue(0, msg.value);
 
         GoogleProof memory p = abi.decode(payload, (GoogleProof));
-        _requireCeremonyVersion(p.ceremonyVersion);
+        uint16 version = _requireCeremonyVersion(p.ceremonyVersion);
         if (p.publicInputs.length != PUBLIC_INPUTS) {
             revert WrongPublicInputCount(PUBLIC_INPUTS, p.publicInputs.length);
         }
@@ -159,9 +159,8 @@ contract GooglePlatformVerifier is IPlatformVerifier, PlatformVerifierBase {
         // REQ-COMMON-02A. Google's binding: the digest the ceremony committed
         // as the signed `nonce` must equal the one rebuilt here from the
         // decoded payload, this verifier's version and this chain.
-        bytes32 digest = CeremonyAuthorization.digestFor(
-            p.operationDomain, _ceremonyVersion(), p.authorizationNonce, p.transactionData
-        );
+        bytes32 digest =
+            CeremonyAuthorization.digestFor(p.operationDomain, version, p.authorizationNonce, p.transactionData);
         bytes32 proved = _digestFromInputs(p.publicInputs);
         if (proved != digest) revert DigestMismatch(proved, digest);
 
@@ -202,7 +201,7 @@ contract GooglePlatformVerifier is IPlatformVerifier, PlatformVerifierBase {
         claimed.sessionId = digest;
         claimed.operationDomain = p.operationDomain;
         claimed.transactionData = p.transactionData;
-        claimed.ceremonyVersion = _ceremonyVersion();
+        claimed.ceremonyVersion = version;
     }
 
     // ─── Reading the public inputs ──────────────────────────────────

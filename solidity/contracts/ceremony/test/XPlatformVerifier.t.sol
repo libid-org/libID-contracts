@@ -747,10 +747,6 @@ contract XPlatformVerifierTest is RealTlsNotaryProofTest {
         return INotaryService(address(notary));
     }
 
-    function _circuitArtifact() internal pure override returns (string memory) {
-        return "BearerLinkHonkVerifier.sol:BearerLinkHonkVerifier";
-    }
-
     function _session() internal pure override returns (string memory) {
         return RUST_SESSION;
     }
