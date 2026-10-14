@@ -27,7 +27,6 @@ import json
 import pathlib
 import shutil
 import subprocess
-import textwrap
 import sys
 from typing import Any
 
@@ -49,19 +48,6 @@ def header(comment: str) -> str:
     return "".join(f"{comment} {line}\n" for line in BANNER)
 
 
-def as_lines(note: Any) -> list[str]:
-    """A note from handles.json as comment lines.
-
-    The file writes a note either as one string or as a list of lines, and both
-    spellings appear in it already.
-    """
-    if not note:
-        return []
-    if isinstance(note, list):
-        return [str(line) for line in note]
-    return textwrap.wrap(str(note), width=68)
-
-
 def table_sha256(raw: bytes, profiles: bytes) -> str:
     """SHA-256 of handles.json followed by profiles.json."""
     return hashlib.sha256(raw + profiles).hexdigest()
@@ -79,16 +65,6 @@ def platforms_of(profiles: dict[str, Any]) -> list[dict[str, Any]]:
             "id": {"maxLength": keys["maxId"], "shape": keys["idShape"]},
         })
     return out
-
-
-def check_tags(spec: dict[str, Any]) -> None:
-    """Refuse repeated tags, or one that is a prefix of another: nodes are
-    global, so the tags alone keep the keyspaces apart."""
-    tags = [t for p in spec["platforms"] for t in (p["tags"]["userId"], p["tags"]["handle"])]
-    for i, a in enumerate(tags):
-        for b in tags[i + 1:]:
-            if a == b or a.startswith(b) or b.startswith(a):
-                raise SystemExit(f"ERROR: tags {a!r} and {b!r} overlap; tags must be distinct and prefix-free")
 
 
 def check_nodes(spec: dict[str, Any]) -> None:
@@ -655,7 +631,6 @@ def main() -> int:
     spec = json.loads(raw.decode("utf-8"))
     profiles = PROFILES.read_bytes()
     spec["platforms"] = platforms_of(json.loads(profiles.decode("utf-8")))
-    check_tags(spec)
     check_nodes(spec)
     digest = table_sha256(raw, profiles)
 

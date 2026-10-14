@@ -83,12 +83,11 @@ impl Circuit {
 
     /// Every circuit beside its [`runtime_codehash`](Self::runtime_codehash),
     /// in [`ALL`](Self::ALL)'s order.
-    pub fn runtime_codehashes(artifacts: &Artifacts) -> Result<[(Self, B256); 2]> {
-        let [a, b] = Self::ALL;
-        Ok([
-            (a, a.runtime_codehash(artifacts)?),
-            (b, b.runtime_codehash(artifacts)?),
-        ])
+    pub fn runtime_codehashes(artifacts: &Artifacts) -> Result<Vec<(Self, B256)>> {
+        Self::ALL
+            .into_iter()
+            .map(|c| Ok((c, c.runtime_codehash(artifacts)?)))
+            .collect()
     }
 
     /// The circuit `codehashes` pairs with `codehash`, if any.

@@ -65,15 +65,29 @@ export async function resolveId(
   return holder === zeroAddress ? null : holder
 }
 
-/// `resolveHandleNodeAndId` for a handle as typed: only its node is sent.
-/// Text no circuit hashes is sent as the zero node, so the platform check still runs.
-async function resolveNodes(
+/// Each table platform by its id.
+const PLATFORM_BY_ID = new Map(PLATFORMS.map((p) => [platformId(p.key), p]))
+
+export interface HandleAndIdResolution {
+  /// The handle's holder, or `null`.
+  holder: Address | null
+  /// True only when the id node resolves to that same holder; false means
+  /// the handle was proved again since the caller learned the pair.
+  idAgrees: boolean
+}
+
+/// Resolve a handle and report whether an id node still agrees with it.
+/// Read it before signing, to warn the payer; do not let it block a transfer.
+/// Only the handle's node is sent; text no circuit hashes is sent as the zero
+/// node, so it resolves to `{holder: null, idAgrees: false}` after the
+/// platform check runs.
+export async function resolveHandleAndId(
   reader: RegistryReader,
   id: `0x${string}`,
   handle: string,
   idNode: `0x${string}`,
 ): Promise<HandleAndIdResolution> {
-  const keys = PLATFORMS.find((p) => platformId(p.key) === id.toLowerCase())
+  const keys = PLATFORM_BY_ID.get(id.toLowerCase() as `0x${string}`)
   let node: `0x${string}` = zeroHash
   if (keys !== undefined) {
     try {
@@ -100,7 +114,7 @@ export async function resolveHandle(
   platformId: `0x${string}`,
   handle: string,
 ): Promise<Address | null> {
-  return (await resolveNodes(reader, platformId, handle, zeroHash)).holder
+  return (await resolveHandleAndId(reader, platformId, handle, zeroHash)).holder
 }
 
 /// The handle to show for a holder, or `null`. Forward-checked on chain:
@@ -112,26 +126,6 @@ export async function publishedHandleOf(
 ): Promise<string | null> {
   const handle = await read<string>(reader, 'publishedHandleOf', [holder, platformId])
   return handle.length === 0 ? null : handle
-}
-
-export interface HandleAndIdResolution {
-  /// The handle's holder, or `null`.
-  holder: Address | null
-  /// True only when the id node resolves to that same holder; false means
-  /// the handle was proved again since the caller learned the pair.
-  idAgrees: boolean
-}
-
-/// Resolve a handle and report whether an id node still agrees with it.
-/// Read it before signing, to warn the payer; do not let it block a transfer.
-/// A handle the rules reject resolves to `{holder: null, idAgrees: false}`.
-export async function resolveHandleAndId(
-  reader: RegistryReader,
-  platformId: `0x${string}`,
-  handle: string,
-  idNode: `0x${string}`,
-): Promise<HandleAndIdResolution> {
-  return resolveNodes(reader, platformId, handle, idNode)
 }
 
 /// One identity a holder proved, as the holder's list reports it.

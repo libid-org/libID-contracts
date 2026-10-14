@@ -554,36 +554,31 @@ mod tests {
     /// The Notary Service and Proof Verifier bind every error `bind` surfaces.
     #[test]
     fn the_route_bindings_match_the_artifact_abis() {
-        let route_omitted: Vec<&str> = OMITTED
-            .iter()
-            .copied()
-            .chain([
-                "event OwnershipTransferStarted(address,address)",
-                "event OwnershipTransferred(address,address)",
-                "function renounceOwnership()",
-            ])
-            .collect();
+        // `OMITTED` and ownership, with `verify` taking `verify`'s signature.
+        let route_omitted = |verify: &'static str| -> Vec<&str> {
+            OMITTED
+                .iter()
+                .copied()
+                .filter(|item| *item != "function verify(bytes)")
+                .chain([
+                    "event OwnershipTransferStarted(address,address)",
+                    "event OwnershipTransferred(address,address)",
+                    "function renounceOwnership()",
+                    verify,
+                ])
+                .collect()
+        };
         assert_binding_matches_artifact(
             "NotaryService",
             "NotaryService",
             &NotaryService::abi::contract(),
-            &route_omitted
-                .iter()
-                .copied()
-                .filter(|item| *item != "function verify(bytes)")
-                .chain(["function verify(bytes,bytes)"])
-                .collect::<Vec<_>>(),
+            &route_omitted("function verify(bytes,bytes)"),
         );
         assert_binding_matches_artifact(
             "CeremonyProofVerifier",
             "CeremonyProofVerifier",
             &CeremonyProofVerifier::abi::contract(),
-            &route_omitted
-                .iter()
-                .copied()
-                .filter(|item| *item != "function verify(bytes)")
-                .chain(["function verify(bytes32,uint16,bytes)"])
-                .collect::<Vec<_>>(),
+            &route_omitted("function verify(bytes32,uint16,bytes)"),
         );
     }
 
