@@ -24,7 +24,9 @@ why no circuit would hash it. Ids are never normalized.
 With the `node` feature, `handle_node(platform_key, raw)` and
 `id_node(platform_key, id)` compute `SHA256(tag || value)`, the node the
 platform's circuit outputs and `IdentityRegistry` and `HandleEscrow` key by.
-Both answer `None` for a platform key the table does not know:
+`folded_handle_node(platform_key, text)` is the registry's `handleNodeOf`: it
+folds A-Z and hashes, applying no other rule. All three answer `None` for a
+platform key the table does not know:
 
 ```toml
 libid-identity = { version = "0.17", features = ["node"] }

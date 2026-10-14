@@ -36,6 +36,15 @@ pub fn handle_node(
     Some(normalize(raw, p.rules).map(|normalized| tagged(p.handle_tag, &normalized)))
 }
 
+/// `text` with A-Z folded to a-z, and its node: the registry's
+/// `handleNodeOf`, which applies no other rule. `None` for an unknown platform.
+pub fn folded_handle_node(platform_key: &str, text: &str) -> Option<(String, [u8; 32])> {
+    let p = v::platform(platform_key)?;
+    let folded = text.to_ascii_lowercase();
+    let node = tagged(p.handle_tag, &folded);
+    Some((folded, node))
+}
+
 /// The node a user id is bound under. The id is hashed exactly as given.
 pub fn id_node(platform_key: &str, id: &str) -> Option<Result<[u8; 32], IdError>> {
     let p = v::platform(platform_key)?;
@@ -75,6 +84,32 @@ mod tests {
                 Err(_) => assert!(!v.accepted, "id vector {i}: refused"),
             }
         }
+    }
+
+    #[test]
+    fn folding_alone_reaches_every_accepted_node() {
+        for (i, v) in VECTORS.iter().filter(|v| v.accepted).enumerate() {
+            let (folded, node) = folded_handle_node(v.platform, v.input).unwrap();
+            assert_eq!(
+                (folded.as_str(), hex(node)),
+                (v.output, v.handle_node.into()),
+                "vector {i}"
+            );
+        }
+    }
+
+    /// Text the rules refuse still has a fold-only node, here
+    /// `SHA256("libid.x.handle" || " @alice")` from `sha256sum`.
+    #[test]
+    fn a_refused_handle_has_a_fold_only_node() {
+        assert!(handle_node("x", " @Alice").unwrap().is_err());
+        let (folded, node) = folded_handle_node("x", " @Alice").unwrap();
+        assert_eq!(folded, " @alice");
+        assert_eq!(
+            hex(node),
+            "0x91f649a873eea530e1610096d7039221f1178ab2c046a8078f3b1de00d1b86fc"
+        );
+        assert!(folded_handle_node("myspace", "tom").is_none());
     }
 
     #[test]

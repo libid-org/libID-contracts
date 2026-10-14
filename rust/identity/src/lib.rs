@@ -34,6 +34,7 @@ pub use id::{
 };
 #[cfg(feature = "node")]
 pub use node::{
+    folded_handle_node,
     handle_node,
     id_node,
     tags_for,
