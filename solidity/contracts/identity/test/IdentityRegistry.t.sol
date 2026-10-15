@@ -1126,21 +1126,19 @@ contract IdentityRegistryTest is PrivacyScan {
         revert("no IdentityBound in the logs");
     }
 
-    // ─── A platform is not usable until it can verify ───────────────
+    // ─── A platform binds once it can verify ────────────────────────
 
-    /// A platform without a verifier does not resolve.
-    function test_aPlatformWithoutAVerifierDoesNotResolve() public {
+    /// A platform the profiles name, with no verifier and nothing bound,
+    /// answers nobody.
+    function test_aPlatformWithoutAVerifierAnswersNobody() public {
         bytes32 google = CeremonyProfile.PLATFORM_GOOGLE;
         bytes32 idNode = _id(google, "123");
         bytes32 handleNode = _hn(google, "alice@gmail.com");
 
-        vm.expectRevert(abi.encodeWithSelector(IIdentityRegistry.UnknownPlatform.selector, google));
-        registry.resolveHandle(google, "alice@gmail.com");
-
-        vm.expectRevert(abi.encodeWithSelector(IIdentityRegistry.UnknownPlatform.selector, google));
-        registry.resolveHandleAndId(google, "alice@gmail.com", idNode);
-
-        // The hashing view still answers.
+        assertEq(registry.resolveHandle(google, "alice@gmail.com"), address(0));
+        (address holder, bool idAgrees) = registry.resolveHandleAndId(google, "alice@gmail.com", idNode);
+        assertEq(holder, address(0));
+        assertFalse(idAgrees);
         assertEq(registry.handleNodeOf(google, "Alice@Gmail.com"), handleNode);
     }
 

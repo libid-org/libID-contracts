@@ -128,15 +128,13 @@ async fn deploys_the_identity_stack_behind_proxies() {
         registry.proofVerifier().call().await.unwrap(),
         verifier_proxy
     );
-    // A platform no verifier serves reverts rather than answer `address(0)`.
+    // A known platform no verifier serves answers nobody.
     let unwired = registry
         .resolveHandle(platform_id, "octocat".into())
         .call()
-        .await;
-    assert!(
-        unwired.is_err(),
-        "an unwired platform answered instead of reverting UnknownPlatform"
-    );
+        .await
+        .unwrap();
+    assert_eq!(unwired, Address::ZERO);
     // The chain's fold and tag give the node libid-identity computes.
     assert_eq!(
         registry

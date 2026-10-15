@@ -59,8 +59,6 @@ contract IdentityRegistry is
         mapping(bytes32 => bytes32) idNodeByHandle;
         /// The Proof Verifier, which owns the Supported Version Set.
         IProofVerifier proofVerifier;
-        /// platformId -> has any identity ever been bound on it. Never cleared.
-        mapping(bytes32 => bool) everBound;
         /// Every Authorization Digest this Consumer has accepted (REQ-COMMON-03A).
         mapping(bytes32 => bool) spentDigests;
         /// holder -> its id nodes, on every platform.
@@ -263,8 +261,6 @@ contract IdentityRegistry is
         private
     {
         IdentityRegistryStorage storage $ = _s();
-        $.everBound[platformId] = true;
-
         Binding memory bound = $.idBindings[idNode];
         Binding memory handleWas = $.handleBindings[handleNode];
         _requireNewer(observedAt, bound.observedAt);
@@ -359,18 +355,6 @@ contract IdentityRegistry is
         return HandleNode.nodeOf(CeremonyProfile.handleTag(platformId), handle);
     }
 
-    /// @dev A resolver answers for a platform that is known and either has
-    ///      bound something or can verify now.
-    function _requireUsable(bytes32 platformId) private view {
-        _requireKnown(platformId);
-        if (_s().everBound[platformId]) return;
-
-        IProofVerifier pv = _s().proofVerifier;
-        if (address(pv) == address(0) || !pv.verifiesPlatform(platformId)) {
-            revert UnknownPlatform(platformId);
-        }
-    }
-
     function _requireNewer(uint64 observedAt, uint64 known) private pure {
         if (observedAt <= known) revert StaleProof(observedAt, known);
     }
@@ -398,9 +382,9 @@ contract IdentityRegistry is
     }
 
     /// @notice The holder of a handle as typed, or zero for text no binding
-    ///         has.
+    ///         has, on any platform the profiles name.
     function resolveHandle(bytes32 platformId, string calldata handle) external view returns (address) {
-        _requireUsable(platformId);
+        _requireKnown(platformId);
         (, bytes32 handleNode) = _handleNodeOf(platformId, handle);
         return _s().handleBindings[handleNode].holder;
     }
@@ -443,7 +427,7 @@ contract IdentityRegistry is
         view
         returns (address holder, bool idAgrees)
     {
-        _requireUsable(platformId);
+        _requireKnown(platformId);
         (, bytes32 handleNode) = _handleNodeOf(platformId, handle);
         return _resolveNodeAndId(platformId, handleNode, idNode);
     }
@@ -456,7 +440,7 @@ contract IdentityRegistry is
         view
         returns (address holder, bool idAgrees)
     {
-        _requireUsable(platformId);
+        _requireKnown(platformId);
         if (_s().platformOfId[_s().idNodeByHandle[handleNode]] != platformId) return (address(0), false);
         return _resolveNodeAndId(platformId, handleNode, idNode);
     }

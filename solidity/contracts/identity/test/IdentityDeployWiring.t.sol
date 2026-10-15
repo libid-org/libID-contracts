@@ -51,12 +51,11 @@ contract IdentityDeployWiringTest is Test {
         return CeremonyProfile.handleTag(platformId);
     }
 
-    /// Each platform resolves once a verifier is registered for it, and not before.
-    function test_registeringAVerifierMakesEveryPlatformUsable() public {
-        vm.expectRevert(
-            abi.encodeWithSelector(IIdentityRegistry.UnknownPlatform.selector, CeremonyProfile.PLATFORM_GOOGLE)
-        );
-        registry.resolveHandle(CeremonyProfile.PLATFORM_GOOGLE, "nobody@example.com");
+    /// A platform the profiles name answers "nobody" before its verifier is
+    /// registered and after; only a registered verifier lets it bind.
+    function test_aKnownPlatformResolvesWithOrWithoutAVerifier() public {
+        assertEq(registry.resolveHandle(CeremonyProfile.PLATFORM_GOOGLE, "nobody@example.com"), address(0));
+        assertFalse(registry.acceptsBindings(CeremonyProfile.PLATFORM_GOOGLE));
 
         vm.startPrank(owner);
         address x = _wireIdentityPlatform(CeremonyProfile.PLATFORM_X);
@@ -70,8 +69,7 @@ contract IdentityDeployWiringTest is Test {
         assertEq(address(proofVerifier.verifierOf(CeremonyProfile.PLATFORM_GITHUB, v)), gh);
         assertEq(address(proofVerifier.verifierOf(CeremonyProfile.PLATFORM_GOOGLE, v)), g);
 
-        // Resolvable means the platform answers "nobody" rather than reverting
-        // `UnknownPlatform`, which is what an unwired one does.
+        assertTrue(registry.acceptsBindings(CeremonyProfile.PLATFORM_GOOGLE));
         assertEq(registry.resolveHandle(CeremonyProfile.PLATFORM_X, "nobody"), address(0));
         assertEq(registry.resolveHandle(CeremonyProfile.PLATFORM_GITHUB, "nobody"), address(0));
         assertEq(registry.resolveHandle(CeremonyProfile.PLATFORM_GOOGLE, "nobody@example.com"), address(0));

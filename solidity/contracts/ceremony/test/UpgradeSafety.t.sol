@@ -403,8 +403,8 @@ contract UpgradeSafetyTest is Test {
         _bindAs(who, nonce);
     }
 
-    /// The list's words sit at namespace words +8 and +9, after `spentDigests`
-    /// at +7, and `platformOfId` at +10.
+    /// The list's words sit at namespace words +7 and +8, after `spentDigests`
+    /// at +6, and `platformOfId` at +9.
     function test_theListsSitAtTheWordsAfterEveryOlderField() public {
         _registry();
         _bindAs(alice, 1);
@@ -412,11 +412,11 @@ contract UpgradeSafetyTest is Test {
         uint256 root = uint256(REGISTRY_ROOT);
         bytes32 idNode = TestNodes.idNode(X, "2244994945");
 
-        bytes32 list = keccak256(abi.encode(alice, root + 8));
+        bytes32 list = keccak256(abi.encode(alice, root + 7));
         assertEq(uint256(vm.load(address(registry), list)), 1, "nodes: the list holds one identity");
         assertEq(vm.load(address(registry), keccak256(abi.encode(list))), idNode, "nodes: and it is this one");
-        assertEq(uint256(vm.load(address(registry), keccak256(abi.encode(idNode, root + 9)))), 1, "position");
-        assertEq(vm.load(address(registry), keccak256(abi.encode(idNode, root + 10))), X, "platformOfId");
+        assertEq(uint256(vm.load(address(registry), keccak256(abi.encode(idNode, root + 8)))), 1, "position");
+        assertEq(vm.load(address(registry), keccak256(abi.encode(idNode, root + 9))), X, "platformOfId");
     }
 
     /// `Binding` once carried a `version` (uint32 at byte offset 28). Stale bits
