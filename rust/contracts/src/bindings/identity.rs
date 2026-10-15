@@ -49,6 +49,8 @@ mod registry_inner {
             /// `quoteBind`. A nonempty `handle` is disclosed and must fold
             /// and hash to the proved handle node.
             function bind(bytes32 platformId, uint16 verifierVersion, bytes calldata payload, string calldata handle) external payable;
+            /// `bind` disclosing nothing.
+            function bindPrivately(bytes32 platformId, uint16 verifierVersion, bytes calldata payload) external payable;
             function quoteBind(bytes32 platformId, uint16 verifierVersion) external view returns (uint256);
             function digestSpent(bytes32 digest) external view returns (bool);
             /// Disclose the caller's handle; it must match the node it holds.

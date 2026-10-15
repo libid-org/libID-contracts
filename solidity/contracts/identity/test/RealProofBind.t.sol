@@ -108,6 +108,18 @@ abstract contract RealProofBindBase is PrivacyScan {
         assertEq(registry.publishedHandleOf(BINDER, _platform()), "", "a private bind publishes nothing");
     }
 
+    /// @dev `bindPrivately` carries no id or handle byte in its calldata, and binds.
+    function test_bindsPrivatelyWithoutAHandleArgument() public {
+        bytes memory payload = _payload();
+        uint256 value = registry.quoteBind(_platform(), 1);
+        bytes memory data = abi.encodeCall(IdentityRegistry.bindPrivately, (_platform(), 1, payload));
+        assertFalse(_containsAny(data), "the calldata carries an id or handle");
+        vm.prank(BINDER);
+        registry.bindPrivately{value: value}(_platform(), 1, payload);
+        assertEq(registry.resolveId(_idNode()), BINDER);
+        assertEq(registry.publishedHandleOf(BINDER, _platform()), "");
+    }
+
     function _reached(Vm.AccountAccess[] memory accesses, address account) internal pure returns (bool) {
         for (uint256 i = 0; i < accesses.length; ++i) {
             if (accesses[i].account == account) return true;

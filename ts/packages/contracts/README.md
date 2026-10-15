@@ -139,7 +139,8 @@ const fee = await client.readContract({
 })
 const call = calls.identityRegistry.bind(IDENTITY_REGISTRY, fee, github, 1, payload, '')
 // call = { to, value, data } — sign and send from the address the payload names.
-// The last argument is the handle to publish, or '' to keep the bind private.
+// The last argument is the handle to publish, or '' to keep the bind private;
+// calls.identityRegistry.bindPrivately(IDENTITY_REGISTRY, fee, github, 1, payload) is the same with no handle.
 ```
 
 The payload is one struct, `abi.encode`d, in the shape its Platform Verifier

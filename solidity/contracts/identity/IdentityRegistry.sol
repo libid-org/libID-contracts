@@ -197,6 +197,19 @@ contract IdentityRegistry is
         payable
         nonReentrant
     {
+        _bind(platformId, verifierVersion, payload, handle);
+    }
+
+    /// @notice `bind` disclosing nothing.
+    function bindPrivately(bytes32 platformId, uint16 verifierVersion, bytes calldata payload)
+        external
+        payable
+        nonReentrant
+    {
+        _bind(platformId, verifierVersion, payload, "");
+    }
+
+    function _bind(bytes32 platformId, uint16 verifierVersion, bytes calldata payload, string memory handle) private {
         _requireKnown(platformId);
 
         IProofVerifier pv = _s().proofVerifier;

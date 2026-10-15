@@ -465,6 +465,17 @@ contract IdentityRegistryTest is PrivacyScan {
         assertEq(registry.publishedHandleOf(alice, X), "alice");
     }
 
+    /// `bindPrivately` binds as `bind` with an empty handle: no name.
+    function test_bindPrivatelyBindsWithoutAName() public {
+        _stage("123", "alice", alice, 100);
+        bytes memory payload = _payload(V1);
+        vm.prank(alice);
+        registry.bindPrivately(X, V1, payload);
+        assertEq(registry.resolveHandle(X, "alice"), alice);
+        assertEq(registry.resolveId(_id(X, "123")), alice);
+        assertEq(registry.publishedHandleOf(alice, X), "");
+    }
+
     /// A bind discloses only the handle its own proof bound.
     function test_aBindDisclosesOnlyTheHandleItsProofBound() public {
         _bind(alice, "456", "alicia", 100);
