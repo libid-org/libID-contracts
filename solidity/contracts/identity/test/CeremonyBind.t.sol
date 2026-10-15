@@ -67,11 +67,7 @@ contract CeremonyBindTest is Test {
     function _payload(bytes32 domain, bytes memory txData, bytes32 nonce) private pure returns (bytes memory) {
         return abi.encode(
             StubPlatformVerifier.StubPayload({
-                ceremonyVersion: 1,
-                operationDomain: domain,
-                authorizationNonce: nonce,
-                transactionData: txData,
-                handle: ""
+                ceremonyVersion: 1, operationDomain: domain, authorizationNonce: nonce, transactionData: txData
             })
         );
     }
@@ -86,7 +82,7 @@ contract CeremonyBindTest is Test {
 
     function _bind(bytes memory payload, uint256 value) private {
         vm.prank(WALLET);
-        registry.bind{value: value}(PLATFORM, 1, payload);
+        registry.bind{value: value}(PLATFORM, 1, payload, "");
     }
 
     function _digest(bytes memory txData, bytes32 nonce) private view returns (bytes32) {
@@ -160,7 +156,7 @@ contract CeremonyBindTest is Test {
         bytes memory p = _payload(WALLET, bytes32(uint256(3)));
         vm.prank(WALLET);
         vm.expectRevert(abi.encodeWithSelector(IdentityRegistry.WrongBindValue.selector, FEE, FEE - 1));
-        registry.bind{value: FEE - 1}(PLATFORM, 1, p);
+        registry.bind{value: FEE - 1}(PLATFORM, 1, p, "");
     }
 
     // ─── The digest is its own replay nullifier ─────────────────────
@@ -175,7 +171,7 @@ contract CeremonyBindTest is Test {
 
         vm.prank(WALLET);
         vm.expectRevert(abi.encodeWithSelector(IdentityRegistry.DigestAlreadySpent.selector, digest));
-        registry.bind{value: FEE}(PLATFORM, 1, p);
+        registry.bind{value: FEE}(PLATFORM, 1, p, "");
     }
 
     /// @dev A fresh nonce is a fresh digest, so re-proving is always available.
@@ -197,7 +193,7 @@ contract CeremonyBindTest is Test {
         bytes memory p = _payload(address(0xDEAD), bytes32(uint256(4)));
         vm.prank(WALLET);
         vm.expectRevert(abi.encodeWithSelector(IdentityRegistry.NotProofTarget.selector, address(0xDEAD), WALLET));
-        registry.bind{value: FEE}(PLATFORM, 1, p);
+        registry.bind{value: FEE}(PLATFORM, 1, p, "");
     }
 
     /// @dev REQ-COMMON-01F: one exact encoding, and trailing bytes refused.
@@ -205,7 +201,7 @@ contract CeremonyBindTest is Test {
         bytes memory p = _payload(DOMAIN, abi.encodePacked(_free(WALLET), hex"00"), bytes32(uint256(5)));
         vm.prank(WALLET);
         vm.expectRevert(abi.encodeWithSelector(IdentityRegistry.BadTransactionData.selector, 97));
-        registry.bind{value: FEE}(PLATFORM, 1, p);
+        registry.bind{value: FEE}(PLATFORM, 1, p, "");
     }
 
     // ─── The operation domain ───────────────────────────────────────
@@ -218,7 +214,7 @@ contract CeremonyBindTest is Test {
         bytes memory p = _payload(foreign, WALLET, bytes32(uint256(6)));
         vm.prank(WALLET);
         vm.expectRevert(abi.encodeWithSelector(IdentityRegistry.ForeignOperationDomain.selector, foreign));
-        registry.bind{value: FEE}(PLATFORM, 1, p);
+        registry.bind{value: FEE}(PLATFORM, 1, p, "");
     }
 
     // ─── The Supported Version Set ──────────────────────────────────
@@ -227,7 +223,7 @@ contract CeremonyBindTest is Test {
         bytes memory p = _payload(WALLET, bytes32(uint256(8)));
         vm.prank(WALLET);
         vm.expectRevert(abi.encodeWithSelector(CeremonyProofVerifier.UnknownVersion.selector, PLATFORM, uint16(2)));
-        registry.bind{value: FEE}(PLATFORM, 2, p);
+        registry.bind{value: FEE}(PLATFORM, 2, p, "");
     }
 
     /// @dev REQ-COMMON-05B: more than one verifier version of one platform at
@@ -240,7 +236,7 @@ contract CeremonyBindTest is Test {
 
         _bind(_payload(WALLET, bytes32(uint256(10))), FEE);
         vm.prank(WALLET);
-        registry.bind{value: FEE}(PLATFORM, 2, _payload(WALLET, bytes32(uint256(11))));
+        registry.bind{value: FEE}(PLATFORM, 2, _payload(WALLET, bytes32(uint256(11))), "");
 
         assertEq(registry.resolveHandle(PLATFORM, "alice"), WALLET);
         assertEq(registry.resolveHandle(PLATFORM, "bob"), WALLET);
@@ -311,7 +307,7 @@ contract CeremonyBindTest is Test {
         bytes memory p = _payload(WALLET, bytes32(uint256(13)));
         vm.prank(WALLET);
         vm.expectRevert(IdentityRegistry.NoId.selector);
-        registry.bind{value: FEE}(PLATFORM, 1, p);
+        registry.bind{value: FEE}(PLATFORM, 1, p, "");
     }
 
     function test_rejectsAnEmptyHandleNode() public {
@@ -319,7 +315,7 @@ contract CeremonyBindTest is Test {
         bytes memory p = _payload(WALLET, bytes32(uint256(15)));
         vm.prank(WALLET);
         vm.expectRevert(IdentityRegistry.NoHandle.selector);
-        registry.bind{value: FEE}(PLATFORM, 1, p);
+        registry.bind{value: FEE}(PLATFORM, 1, p, "");
     }
 
     function test_rejectsANoncanonicalAddressEncoding() public {
@@ -328,21 +324,21 @@ contract CeremonyBindTest is Test {
         bytes memory p = _payload(DOMAIN, bad, bytes32(uint256(20)));
         vm.prank(WALLET);
         vm.expectRevert(); // abi.decode's own check
-        registry.bind{value: FEE}(PLATFORM, 1, p);
+        registry.bind{value: FEE}(PLATFORM, 1, p, "");
     }
 
     function test_rejectsShortTransactionData() public {
         bytes memory p = _payload(DOMAIN, abi.encodePacked(WALLET), bytes32(uint256(21)));
         vm.prank(WALLET);
         vm.expectRevert(abi.encodeWithSelector(IdentityRegistry.BadTransactionData.selector, 20));
-        registry.bind{value: FEE}(PLATFORM, 1, p);
+        registry.bind{value: FEE}(PLATFORM, 1, p, "");
     }
 
     function test_rejectsEmptyTransactionData() public {
         bytes memory p = _payload(DOMAIN, hex"", bytes32(uint256(22)));
         vm.prank(WALLET);
         vm.expectRevert(abi.encodeWithSelector(IdentityRegistry.BadTransactionData.selector, 0));
-        registry.bind{value: FEE}(PLATFORM, 1, p);
+        registry.bind{value: FEE}(PLATFORM, 1, p, "");
     }
 
     /// @dev A wei short of the verification path is caught before the payload
@@ -351,7 +347,7 @@ contract CeremonyBindTest is Test {
         bytes memory p = _payload(WALLET, bytes32(uint256(23)));
         vm.prank(WALLET);
         vm.expectRevert(abi.encodeWithSelector(IdentityRegistry.WrongBindValue.selector, FEE, FEE - 1));
-        registry.bind{value: FEE - 1}(PLATFORM, 1, p);
+        registry.bind{value: FEE - 1}(PLATFORM, 1, p, "");
     }
 
     /// @dev A wei more is caught after: everything above the quote is the fee,
@@ -361,7 +357,7 @@ contract CeremonyBindTest is Test {
         bytes memory p = _payload(WALLET, bytes32(uint256(24)));
         vm.prank(WALLET);
         vm.expectRevert(abi.encodeWithSelector(IdentityRegistry.WrongFeeValue.selector, 0, 1));
-        registry.bind{value: FEE + 1}(PLATFORM, 1, p);
+        registry.bind{value: FEE + 1}(PLATFORM, 1, p, "");
     }
 
     function test_setProofVerifierIsOwnerOnlyAndNonZero() public {
@@ -377,7 +373,7 @@ contract CeremonyBindTest is Test {
         bytes memory p = _payload(WALLET, bytes32(uint256(30)));
         vm.prank(WALLET);
         vm.expectRevert(IdentityRegistry.NoObservationTime.selector);
-        registry.bind{value: FEE}(PLATFORM, 1, p);
+        registry.bind{value: FEE}(PLATFORM, 1, p, "");
         assertFalse(registry.digestSpent(_digest(WALLET, bytes32(uint256(30)))));
     }
 
@@ -385,7 +381,7 @@ contract CeremonyBindTest is Test {
         bytes memory p = _payload(keccak256("other"), hex"00", bytes32(uint256(40)));
         vm.prank(WALLET);
         vm.expectRevert(abi.encodeWithSelector(IdentityRegistry.ForeignOperationDomain.selector, keccak256("other")));
-        registry.bind{value: FEE}(PLATFORM, 1, p);
+        registry.bind{value: FEE}(PLATFORM, 1, p, "");
     }
 
     function test_onePayloadIsSpentOnceAcrossTwoVerifierVersions() public {
@@ -398,7 +394,7 @@ contract CeremonyBindTest is Test {
         vm.expectRevert(
             abi.encodeWithSelector(IdentityRegistry.DigestAlreadySpent.selector, _digest(WALLET, bytes32(uint256(50))))
         );
-        registry.bind{value: FEE}(PLATFORM, 2, p);
+        registry.bind{value: FEE}(PLATFORM, 2, p, "");
     }
 
     function test_namesCannotReinitialize() public {
@@ -450,7 +446,7 @@ contract CeremonyBindTest is Test {
         bytes memory p = _payload(DOMAIN, _txData(WALLET, SERVICE_FEE, HOST), bytes32(uint256(62)));
         vm.prank(WALLET);
         vm.expectRevert(abi.encodeWithSelector(IdentityRegistry.WrongFeeValue.selector, SERVICE_FEE, 0));
-        registry.bind{value: FEE}(PLATFORM, 1, p);
+        registry.bind{value: FEE}(PLATFORM, 1, p, "");
     }
 
     /// @dev Over is refused as firmly as under. Nobody consented to more, and
@@ -459,7 +455,7 @@ contract CeremonyBindTest is Test {
         bytes memory p = _payload(DOMAIN, _txData(WALLET, SERVICE_FEE, HOST), bytes32(uint256(63)));
         vm.prank(WALLET);
         vm.expectRevert(abi.encodeWithSelector(IdentityRegistry.WrongFeeValue.selector, SERVICE_FEE, SERVICE_FEE + 1));
-        registry.bind{value: FEE + SERVICE_FEE + 1}(PLATFORM, 1, p);
+        registry.bind{value: FEE + SERVICE_FEE + 1}(PLATFORM, 1, p, "");
     }
 
     /// @dev REQ-COMMON-01F: one encoding per intent. A free bind is
@@ -469,7 +465,7 @@ contract CeremonyBindTest is Test {
         bytes memory p = _payload(DOMAIN, _txData(WALLET, 0, HOST), bytes32(uint256(64)));
         vm.prank(WALLET);
         vm.expectRevert(abi.encodeWithSelector(IdentityRegistry.NoncanonicalFee.selector, 0, HOST));
-        registry.bind{value: FEE}(PLATFORM, 1, p);
+        registry.bind{value: FEE}(PLATFORM, 1, p, "");
     }
 
     /// @dev The other half of the same rule. Paying a fee to nobody would burn
@@ -478,7 +474,7 @@ contract CeremonyBindTest is Test {
         bytes memory p = _payload(DOMAIN, _txData(WALLET, SERVICE_FEE, address(0)), bytes32(uint256(65)));
         vm.prank(WALLET);
         vm.expectRevert(abi.encodeWithSelector(IdentityRegistry.NoncanonicalFee.selector, SERVICE_FEE, address(0)));
-        registry.bind{value: FEE + SERVICE_FEE}(PLATFORM, 1, p);
+        registry.bind{value: FEE + SERVICE_FEE}(PLATFORM, 1, p, "");
     }
 
     /// @dev What makes the fee unforgeable: it is a digest input. Change the
@@ -501,7 +497,7 @@ contract CeremonyBindTest is Test {
         bytes memory p = _payload(DOMAIN, _txData(WALLET, SERVICE_FEE, address(bad)), bytes32(uint256(67)));
         vm.prank(WALLET);
         vm.expectRevert(abi.encodeWithSelector(IdentityRegistry.FeeTransferFailed.selector, address(bad), SERVICE_FEE));
-        registry.bind{value: FEE + SERVICE_FEE}(PLATFORM, 1, p);
+        registry.bind{value: FEE + SERVICE_FEE}(PLATFORM, 1, p, "");
 
         assertEq(registry.resolveHandle(PLATFORM, "alice"), address(0));
         assertFalse(registry.digestSpent(_digest(_txData(WALLET, SERVICE_FEE, address(bad)), bytes32(uint256(67)))));
@@ -531,7 +527,7 @@ contract CeremonyBindTest is Test {
         evil.setInner(_payload(address(evil), bytes32(uint256(2))));
         vm.prank(WALLET);
         vm.expectRevert(ReentrancyGuardUpgradeable.ReentrancyGuardReentrantCall.selector);
-        registry.bind(PLATFORM, 1, p);
+        registry.bind(PLATFORM, 1, p, "");
         assertFalse(registry.digestSpent(_digest(WALLET, bytes32(uint256(1)))));
         assertFalse(registry.digestSpent(_digest(address(evil), bytes32(uint256(2)))));
     }
@@ -566,7 +562,7 @@ contract ReenteringVerifier is IPlatformVerifier {
         if (armed) {
             armed = false;
             (bool ok, bytes memory ret) =
-                address(REGISTRY).call(abi.encodeCall(IdentityRegistry.bind, (PLATFORM, 1, innerPayload)));
+                address(REGISTRY).call(abi.encodeCall(IdentityRegistry.bind, (PLATFORM, 1, innerPayload, "")));
             if (!ok) assembly { revert(add(ret, 32), mload(ret)) }
         }
         return c;
@@ -594,7 +590,7 @@ contract ReenteringReceiver {
     }
 
     receive() external payable {
-        (bool ok,) = address(REGISTRY).call(abi.encodeCall(IdentityRegistry.bind, (PLATFORM, 1, payload)));
+        (bool ok,) = address(REGISTRY).call(abi.encodeCall(IdentityRegistry.bind, (PLATFORM, 1, payload, "")));
         reentryReverted = !ok;
     }
 }

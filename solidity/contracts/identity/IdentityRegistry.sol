@@ -167,6 +167,9 @@ contract IdentityRegistry is
     error StaleProof(uint64 observedAt, uint64 known);
     /// The disclosed handle hashes to a node the caller does not hold.
     error NotYourHandle(bytes32 handleNode);
+    /// The handle a bind discloses hashes to `disclosed`, not the node the
+    /// proof bound. Disclose the handle the platform shows for this account.
+    error HandleNotProved(bytes32 disclosed, bytes32 proved);
 
     // ─── Setup ──────────────────────────────────────────────────────
 
@@ -184,9 +187,16 @@ contract IdentityRegistry is
 
     // ─── Binding ────────────────────────────────────────────────────
 
-    /// @notice Bind an identity from a ceremony, publishing its handle if the payload discloses it.
+    /// @notice Bind an identity from a ceremony. A nonempty `handle` is disclosed:
+    ///         folded and hashed under the platform's tag, it must be the proved
+    ///         handle node, and becomes the caller's name there. Empty keeps the
+    ///         bind private.
     /// @dev `msg.value` is `quoteBind` plus the fee the transaction data names.
-    function bind(bytes32 platformId, uint16 verifierVersion, bytes calldata payload) external payable nonReentrant {
+    function bind(bytes32 platformId, uint16 verifierVersion, bytes calldata payload, string calldata handle)
+        external
+        payable
+        nonReentrant
+    {
         _requireKnown(platformId);
 
         IProofVerifier pv = _s().proofVerifier;
@@ -222,8 +232,16 @@ contract IdentityRegistry is
         if (claimed.handleNode == bytes32(0)) revert NoHandle();
         if (claimed.metadataObservedAt == 0) revert NoObservationTime();
 
+        // A disclosure folds and hashes as `publish` does, and must name the proved node.
+        string memory folded;
+        if (bytes(handle).length != 0) {
+            bytes32 disclosed;
+            (folded, disclosed) = _handleNodeOf(platformId, handle);
+            if (disclosed != claimed.handleNode) revert HandleNotProved(disclosed, claimed.handleNode);
+        }
+
         _write(platformId, claimed.idNode, claimed.handleNode, claimed.metadataObservedAt, claimed.ceremonyVersion);
-        if (bytes(claimed.handle).length != 0) _name(platformId, claimed.handleNode, claimed.handle);
+        if (bytes(folded).length != 0) _name(platformId, claimed.handleNode, folded);
 
         emit CeremonyBound(claimed.sessionId, msg.sender, platformId, claimed.clientIdentifier);
 

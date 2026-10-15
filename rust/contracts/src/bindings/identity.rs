@@ -46,8 +46,9 @@ mod registry_inner {
 
             /// Bind the caller to a proved identity. `payload` is routed
             /// opaque to the pair's Platform Verifier; the value must equal
-            /// `quoteBind`.
-            function bind(bytes32 platformId, uint16 verifierVersion, bytes calldata payload) external payable;
+            /// `quoteBind`. A nonempty `handle` is disclosed and must fold
+            /// and hash to the proved handle node.
+            function bind(bytes32 platformId, uint16 verifierVersion, bytes calldata payload, string calldata handle) external payable;
             function quoteBind(bytes32 platformId, uint16 verifierVersion) external view returns (uint256);
             function digestSpent(bytes32 digest) external view returns (bool);
             /// Disclose the caller's handle; it must match the node it holds.
@@ -115,6 +116,9 @@ mod registry_inner {
             error StaleProof(uint64 observedAt, uint64 known);
             /// The disclosed handle is not one the caller holds.
             error NotYourHandle(bytes32 handleNode);
+            /// The handle a bind discloses hashes to `disclosed`, not the node
+            /// the proof bound.
+            error HandleNotProved(bytes32 disclosed, bytes32 proved);
             error OwnableUnauthorizedAccount(address account);
             error OwnableInvalidOwner(address owner);
             error ReentrancyGuardReentrantCall();

@@ -6,7 +6,7 @@ import {CeremonyAuthorization} from "./CeremonyAuthorization.sol";
 import {CeremonyProfile} from "./CeremonyProfile.sol";
 import {INotaryService} from "./INotaryService.sol";
 import {IPlatformVerifier} from "./IPlatformVerifier.sol";
-import {HandleDisclosure, IHonkVerifier, PlatformVerifierBase} from "./PlatformVerifierBase.sol";
+import {IHonkVerifier, PlatformVerifierBase} from "./PlatformVerifierBase.sol";
 
 /// @dev Where the deployment keeps the Google signing keys it trusts:
 ///      `GoogleJwtRoots`, kept beside this verifier.
@@ -48,7 +48,6 @@ contract GooglePlatformVerifier is IPlatformVerifier, PlatformVerifierBase {
     /// @param handleNode         The circuit's handle node.
     /// @param exp                The signed `exp`.
     /// @param modulus            The signing key's 18 limbs, as the circuit takes them.
-    /// @param handle             Empty, or the address to disclose; must hash to the handle node.
     /// @param proof              The Honk proof.
     struct GoogleProof {
         uint16 ceremonyVersion;
@@ -60,7 +59,6 @@ contract GooglePlatformVerifier is IPlatformVerifier, PlatformVerifierBase {
         bytes32 handleNode;
         uint64 exp;
         bytes32[18] modulus;
-        string handle;
         bytes proof;
     }
 
@@ -170,9 +168,6 @@ contract GooglePlatformVerifier is IPlatformVerifier, PlatformVerifierBase {
         // buys a proportionally long lock on the name.
         if (block.timestamp >= p.exp) revert TokenExpired(p.exp, uint64(block.timestamp));
         _requireNotAhead(p.exp);
-
-        // A disclosure checked before the proof is paid for.
-        claimed.handle = HandleDisclosure.check(_platform(), p.handle, p.handleNode);
 
         // The inputs are built, never taken, so each value above is the one proved.
         _requireProof(p.proof, _publicInputs(p, digest));

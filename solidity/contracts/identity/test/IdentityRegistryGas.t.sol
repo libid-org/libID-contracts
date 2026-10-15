@@ -129,13 +129,12 @@ contract IdentityRegistryGasTest is Test {
                 ceremonyVersion: V1,
                 operationDomain: keccak256(bytes("libid.claim-identity")),
                 authorizationNonce: bytes32(++nonce),
-                transactionData: abi.encode(who, uint256(0), address(0)),
-                handle: handle
+                transactionData: abi.encode(who, uint256(0), address(0))
             })
         );
         _cool();
         vm.prank(who);
-        registry.bind(X, V1, payload);
+        registry.bind(X, V1, payload, handle);
     }
 
     // ─── Writes ─────────────────────────────────────────────────────

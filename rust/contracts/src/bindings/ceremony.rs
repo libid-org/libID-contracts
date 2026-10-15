@@ -281,9 +281,6 @@ mod tls_notary_platform_verifier_inner {
             error ObservedInTheFuture(uint64 observedAt, uint64 limit);
             /// The Honk verifier answered `false`.
             error BadProof();
-            /// The disclosed handle hashes to `disclosed`, not the node the
-            /// proof bound.
-            error HandleNotProved(bytes32 disclosed, bytes32 proved);
             error UnknownPlatform(bytes32 platformId);
             error OwnableUnauthorizedAccount(address account);
             error OwnableInvalidOwner(address owner);
@@ -409,9 +406,6 @@ mod google_platform_verifier_inner {
             error ObservedInTheFuture(uint64 observedAt, uint64 limit);
             /// The Honk verifier answered `false`.
             error BadProof();
-            /// The disclosed handle hashes to `disclosed`, not the node the
-            /// proof bound.
-            error HandleNotProved(bytes32 disclosed, bytes32 proved);
             error UnknownPlatform(bytes32 platformId);
             error OwnableUnauthorizedAccount(address account);
             error OwnableInvalidOwner(address owner);
@@ -456,7 +450,6 @@ mod payloads_inner {
                 Attestation identitySession;
                 bytes32 idNode;
                 bytes32 handleNode;
-                string handle;
                 bytes proof;
             }
 
@@ -472,7 +465,6 @@ mod payloads_inner {
                 bytes32 handleNode;
                 uint64 exp;
                 bytes32[18] modulus;
-                string handle;
                 bytes proof;
             }
 
@@ -633,7 +625,6 @@ mod tests {
             },
             idNode: word(&extra["id_node"]),
             handleNode: word(&extra["handle_node"]),
-            handle: str_of(&extra["handle"]),
             proof: bytes(&proof["proof"]),
         };
 
@@ -660,7 +651,6 @@ mod tests {
             handleNode: B256::repeat_byte(0x44),
             exp: 1_800_000_000,
             modulus: [B256::repeat_byte(0x55); 18],
-            handle: "alice@gmail.com".into(),
             proof: vec![0xde, 0xad].into(),
         };
         assert_eq!(

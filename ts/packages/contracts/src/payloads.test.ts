@@ -37,7 +37,6 @@ function xPayload(): { payload: TlsNotaryProof; pinned: { keccak256: Hex; length
       },
       idNode: extra.id_node,
       handleNode: extra.handle_node,
-      handle: extra.handle,
       proof: proof.proof,
     },
     pinned: { keccak256: extra.keccak256, length: extra.length },
@@ -74,7 +73,6 @@ describe('encodeGoogleProof', () => {
         { length: 18 },
         (): Hex => `0x${'55'.repeat(32)}`,
       ) as unknown as GoogleProof['modulus'],
-      handle: 'alice@gmail.com',
       proof: '0xdeadbeef',
     }
     expect(decodeGoogleProof(encodeGoogleProof(payload))).toEqual(payload)

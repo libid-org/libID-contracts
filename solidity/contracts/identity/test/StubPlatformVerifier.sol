@@ -3,7 +3,6 @@ pragma solidity ^0.8.24;
 
 import {CeremonyAuthorization} from "../../ceremony/CeremonyAuthorization.sol";
 import {IPlatformVerifier} from "../../ceremony/IPlatformVerifier.sol";
-import {HandleDisclosure} from "../../ceremony/PlatformVerifierBase.sol";
 import {CeremonyProfile} from "../../ceremony/CeremonyProfile.sol";
 import {HandleNode} from "../../handles/HandleNode.sol";
 import {TestNodes} from "./TestNodes.sol";
@@ -12,13 +11,12 @@ import {TestNodes} from "./TestNodes.sol";
 ///         the digest, and returns the nodes a circuit would (X's tags for an unknown platform).
 /// @dev Takes the ceremony version from the payload, so one stub serves several.
 contract StubPlatformVerifier is IPlatformVerifier {
-    /// @dev The digest inputs and the handle to disclose (empty when private).
+    /// @dev The digest inputs.
     struct StubPayload {
         uint16 ceremonyVersion;
         bytes32 operationDomain;
         bytes32 authorizationNonce;
         bytes transactionData;
-        string handle;
     }
 
     bytes32 private immutable PLATFORM;
@@ -29,7 +27,7 @@ contract StubPlatformVerifier is IPlatformVerifier {
     bytes32 public lastDigest;
     uint256 public lastValue;
     bytes public lastPayload;
-    /// While set, report the nodes from `setNodes` as given and return the payload's handle unchecked.
+    /// While set, report the nodes from `setNodes` as given.
     bool public rawNodes;
     bytes32 public rawIdNode;
     bytes32 public rawHandleNode;
@@ -79,12 +77,10 @@ contract StubPlatformVerifier is IPlatformVerifier {
         if (rawNodes) {
             c.idNode = rawIdNode;
             c.handleNode = rawHandleNode;
-            c.handle = p.handle;
         } else {
             bytes32 known = CeremonyProfile.knows(PLATFORM) ? PLATFORM : CeremonyProfile.PLATFORM_X;
             c.idNode = TestNodes.idNode(known, userId);
             (, c.handleNode) = HandleNode.nodeOf(CeremonyProfile.handleTag(known), handle);
-            c.handle = HandleDisclosure.check(known, p.handle, c.handleNode);
         }
         c.metadataObservedAt = observedAt;
     }

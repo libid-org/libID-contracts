@@ -12,7 +12,6 @@ import {IPlatformVerifier} from "../../ceremony/IPlatformVerifier.sol";
 import {IProofVerifier} from "../../ceremony/IProofVerifier.sol";
 import {AttestationBuilder} from "../../ceremony/test/AttestationBuilder.sol";
 import {PrivacyScan} from "./PrivacyScan.sol";
-import {HandleDisclosure} from "../../ceremony/PlatformVerifierBase.sol";
 import {StubPlatformVerifier} from "./StubPlatformVerifier.sol";
 import {TestNodes} from "./TestNodes.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
@@ -93,11 +92,6 @@ contract IdentityRegistryTest is PrivacyScan {
     /// The stub's payload for the staged target, under the ceremony version
     /// the stub will echo back.
     function _payload(uint16 ceremonyVersion) internal returns (bytes memory) {
-        return _payload(ceremonyVersion, "");
-    }
-
-    /// The same, disclosing `handle` (empty for a private submission).
-    function _payload(uint16 ceremonyVersion, string memory handle) internal returns (bytes memory) {
         return abi.encode(
             StubPlatformVerifier.StubPayload({
                 ceremonyVersion: ceremonyVersion,
@@ -107,16 +101,15 @@ contract IdentityRegistryTest is PrivacyScan {
                 authorizationNonce: bytes32(++nonce),
                 // The free shape: these tests are about the binding rules, and
                 // a ceremony composed by hand pays no application.
-                transactionData: abi.encode(stagedTarget, uint256(0), address(0)),
-                handle: handle
+                transactionData: abi.encode(stagedTarget, uint256(0), address(0))
             })
         );
     }
 
     /// Submit the staged bind, disclosing `disclosed` (empty for a private bind). Caller supplies the prank.
     function _submit(bytes32 platformId, string memory disclosed) internal {
-        bytes memory payload = _payload(V1, disclosed);
-        registry.bind(platformId, V1, payload);
+        bytes memory payload = _payload(V1);
+        registry.bind(platformId, V1, payload, disclosed);
     }
 
     /// Stage and bind privately as `who`.
@@ -158,7 +151,7 @@ contract IdentityRegistryTest is PrivacyScan {
         assertEq(registry.resolveHandle(X, "alice"), address(0));
 
         vm.prank(alice);
-        registry.bind(X, V1, payload);
+        registry.bind(X, V1, payload, "");
         assertEq(registry.resolveHandle(X, "alice"), alice, "the unspent payload does not bind");
     }
 
@@ -478,7 +471,7 @@ contract IdentityRegistryTest is PrivacyScan {
         _stage("123", "alice", alice, 200);
         bytes32 alicia = _hn(X, "alicia");
         bytes32 proved = _hn(X, "alice");
-        vm.expectRevert(abi.encodeWithSelector(HandleDisclosure.HandleNotProved.selector, alicia, proved));
+        vm.expectRevert(abi.encodeWithSelector(IdentityRegistry.HandleNotProved.selector, alicia, proved));
         vm.prank(alice);
         _submit(X, "alicia");
 
@@ -543,20 +536,18 @@ contract IdentityRegistryTest is PrivacyScan {
         bytes32 bobNode = _hn(X, "bob");
         bytes32 aliciaNode = _hn(X, "alicia");
 
-        bytes memory payload = _payloadAt(reuse, "bob");
-        vm.expectRevert(abi.encodeWithSelector(HandleDisclosure.HandleNotProved.selector, bobNode, proved));
+        bytes memory payload = _payloadAt(reuse);
+        vm.expectRevert(abi.encodeWithSelector(IdentityRegistry.HandleNotProved.selector, bobNode, proved));
         vm.prank(alice);
-        registry.bind(X, V1, payload);
+        registry.bind(X, V1, payload, "bob");
 
-        payload = _payloadAt(reuse, "alicia");
-        vm.expectRevert(abi.encodeWithSelector(HandleDisclosure.HandleNotProved.selector, aliciaNode, proved));
+        vm.expectRevert(abi.encodeWithSelector(IdentityRegistry.HandleNotProved.selector, aliciaNode, proved));
         vm.prank(alice);
-        registry.bind(X, V1, payload);
+        registry.bind(X, V1, payload, "alicia");
 
-        payload = _payloadAt(reuse, "@alice");
+        vm.expectRevert(abi.encodeWithSelector(IdentityRegistry.HandleNotProved.selector, _hn(X, "@alice"), proved));
         vm.prank(alice);
-        vm.expectRevert(abi.encodeWithSelector(HandleDisclosure.HandleNotProved.selector, _hn(X, "@alice"), proved));
-        registry.bind(X, V1, payload);
+        registry.bind(X, V1, payload, "@alice");
 
         assertEq(registry.resolveId(_id(X, "123")), address(0), "the id was bound");
         assertEq(registry.resolveHandle(X, "alice"), address(0), "the handle was bound");
@@ -564,21 +555,19 @@ contract IdentityRegistryTest is PrivacyScan {
         assertEq(registry.publishedHandleOf(alice, X), "");
         assertEq(registry.publishedHandleOf(bob, X), "");
 
-        payload = _payloadAt(reuse, "");
         vm.prank(alice);
-        registry.bind(X, V1, payload);
+        registry.bind(X, V1, payload, "");
         assertEq(registry.resolveHandle(X, "alice"), alice, "the digest was spent");
     }
 
     /// One submission's payload under a chosen nonce.
-    function _payloadAt(uint256 authorizationNonce, string memory handle) internal view returns (bytes memory) {
+    function _payloadAt(uint256 authorizationNonce) internal view returns (bytes memory) {
         return abi.encode(
             StubPlatformVerifier.StubPayload({
                 ceremonyVersion: V1,
                 operationDomain: keccak256(bytes("libid.claim-identity")),
                 authorizationNonce: bytes32(authorizationNonce),
-                transactionData: abi.encode(stagedTarget, uint256(0), address(0)),
-                handle: handle
+                transactionData: abi.encode(stagedTarget, uint256(0), address(0))
             })
         );
     }
@@ -1102,7 +1091,7 @@ contract IdentityRegistryTest is PrivacyScan {
 
         bytes memory payload = _payload(2);
         vm.prank(bob);
-        registry.bind(X, 2, payload);
+        registry.bind(X, 2, payload, "");
 
         (address idHolder, uint64 idAt) = registry.idBinding(_id(X, "456"));
         (address handleHolder, uint64 handleAt) = registry.handleBinding(_hn(X, "bob"));
@@ -1130,7 +1119,7 @@ contract IdentityRegistryTest is PrivacyScan {
 
     /// A platform the profiles name, with no verifier and nothing bound,
     /// answers nobody.
-    function test_aPlatformWithoutAVerifierAnswersNobody() public {
+    function test_aPlatformWithoutAVerifierAnswersNobody() public view {
         bytes32 google = CeremonyProfile.PLATFORM_GOOGLE;
         bytes32 idNode = _id(google, "123");
         bytes32 handleNode = _hn(google, "alice@gmail.com");

@@ -10,9 +10,8 @@ import {CeremonyProfile} from "../CeremonyProfile.sol";
 import {GooglePlatformVerifier, IGoogleJwtRoots} from "../GooglePlatformVerifier.sol";
 import {ICeremony} from "../ICeremony.sol";
 import {INotaryService} from "../INotaryService.sol";
-import {HandleDisclosure, IHonkVerifier, PlatformVerifierBase} from "../PlatformVerifierBase.sol";
+import {IHonkVerifier, PlatformVerifierBase} from "../PlatformVerifierBase.sol";
 import {TrustingJwtRoots} from "./TrustingJwtRoots.sol";
-import {TestNodes} from "../../identity/test/TestNodes.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {TlsNotaryVerifierBase} from "../TlsNotaryVerifierBase.sol";
 
@@ -260,24 +259,6 @@ contract GooglePlatformVerifierTest is Test {
         // The signed expiry, brought onto the shared scale. Raw, it would
         // beat every X or GitHub claim made in the same hour.
         assertEq(f.metadataObservedAt, EXP - GOOGLE_ALLOWANCE);
-    }
-
-    // A disclosed address is checked against the proof's handle node and
-    // returned folded; an empty one keeps the claim private.
-    function test_disclosesTheAddressTheProofBound() public {
-        GooglePlatformVerifier.GoogleProof memory s = _payload();
-        assertEq(this.run(s).handle, "", "a private claim discloses nothing");
-        s.handle = "A.B+tag@Example.COM";
-        assertEq(this.run(s).handle, "a.b+tag@example.com");
-    }
-
-    // An address the proof did not bind is refused, not disclosed.
-    function test_refusesToDiscloseAnAddressTheProofDidNotBind() public {
-        GooglePlatformVerifier.GoogleProof memory s = _payload();
-        s.handle = "other@example.com";
-        bytes32 other = TestNodes.handleNode(CeremonyProfile.PLATFORM_GOOGLE, "other@example.com");
-        vm.expectRevert(abi.encodeWithSelector(HandleDisclosure.HandleNotProved.selector, other, HANDLE_NODE));
-        this.run(s);
     }
 
     // ─── Zero attestations, zero fee ────────────────────────────────

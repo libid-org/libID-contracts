@@ -858,12 +858,11 @@ contract HandleEscrowTest is PrivacyScan {
                 ceremonyVersion: 1,
                 operationDomain: keccak256(bytes("libid.claim-identity")),
                 authorizationNonce: bytes32(++nonce),
-                transactionData: abi.encode(who, uint256(0), address(0)),
-                handle: ""
+                transactionData: abi.encode(who, uint256(0), address(0))
             })
         );
         vm.prank(who);
-        registry.bind(X, V1, payload);
+        registry.bind(X, V1, payload, "");
     }
 
     /// Deposit native value for text on X, at the node the registry names.

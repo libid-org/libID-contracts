@@ -47,8 +47,7 @@ contract CeremonyProofVerifierTest is Test {
                 ceremonyVersion: ceremonyVersion,
                 operationDomain: DOMAIN,
                 authorizationNonce: NONCE,
-                transactionData: _txData(),
-                handle: ""
+                transactionData: _txData()
             })
         );
     }

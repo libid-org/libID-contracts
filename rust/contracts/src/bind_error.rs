@@ -208,10 +208,7 @@ mod tests {
     };
 
     use super::*;
-    use crate::bindings::{
-        ceremony::TlsNotaryPlatformVerifier,
-        identity::IdentityRegistry,
-    };
+    use crate::bindings::identity::IdentityRegistry;
 
     /// Revert data built from the signature, independent of the bindings.
     fn revert(signature: &str, params: Vec<u8>) -> Vec<u8> {
@@ -224,7 +221,7 @@ mod tests {
     const BOUND: B256 = B256::repeat_byte(0xe2);
 
     #[test]
-    fn names_a_platform_verifier_refusal() {
+    fn names_a_disclosure_refusal_as_the_registry_s() {
         let data = revert(
             "HandleNotProved(bytes32,bytes32)",
             (DISCLOSED, BOUND).abi_encode_params(),
@@ -233,9 +230,7 @@ mod tests {
         assert_eq!(error.name(), "HandleNotProved");
         assert_eq!(error.signature(), "HandleNotProved(bytes32,bytes32)");
         match error {
-            BindError::TlsNotaryVerifier(
-                TlsNotaryPlatformVerifier::TlsNotaryPlatformVerifierErrors::HandleNotProved(e),
-            ) => {
+            BindError::Registry(IdentityRegistryErrors::HandleNotProved(e)) => {
                 assert_eq!((e.disclosed, e.proved), (DISCLOSED, BOUND));
             }
             other => panic!("decoded as {other}"),

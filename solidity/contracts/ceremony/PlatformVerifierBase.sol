@@ -9,33 +9,10 @@ import {CeremonyAttestation} from "./CeremonyAttestation.sol";
 import {CeremonyProfile} from "./CeremonyProfile.sol";
 import {ICeremony} from "./ICeremony.sol";
 import {INotaryService} from "./INotaryService.sol";
-import {HandleNode} from "../handles/HandleNode.sol";
 
 /// @dev The bb-generated proof verifier for this platform's circuit.
 interface IHonkVerifier {
     function verify(bytes calldata proof, bytes32[] calldata publicInputs) external view returns (bool);
-}
-
-/// @notice The check every verifier makes of a disclosed handle.
-library HandleDisclosure {
-    /// @dev The handle the payload discloses does not hash to the handle node
-    ///      the proof bound. Disclose the handle the platform shows for this
-    ///      account, as it shows it.
-    error HandleNotProved(bytes32 disclosed, bytes32 proved);
-
-    /// @dev The disclosed handle, folded, or empty when none is disclosed.
-    ///      Reverts unless it hashes to `handleNode` under the platform's tag.
-    function check(bytes32 platform, string memory handle, bytes32 handleNode)
-        internal
-        pure
-        returns (string memory folded)
-    {
-        if (bytes(handle).length != 0) {
-            bytes32 node;
-            (folded, node) = HandleNode.nodeOf(CeremonyProfile.handleTag(platform), handle);
-            if (node != handleNode) revert HandleNotProved(node, handleNode);
-        }
-    }
 }
 
 /// @title PlatformVerifierBase

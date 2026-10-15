@@ -7,7 +7,7 @@ import {CeremonyProfile} from "./CeremonyProfile.sol";
 import {CeremonyAuthorization} from "./CeremonyAuthorization.sol";
 import {CeremonyFields} from "./CeremonyFields.sol";
 import {IPlatformVerifier} from "./IPlatformVerifier.sol";
-import {HandleDisclosure, PlatformVerifierBase} from "./PlatformVerifierBase.sol";
+import {PlatformVerifierBase} from "./PlatformVerifierBase.sol";
 
 /// @title TlsNotaryVerifierBase
 /// @notice The flow both TLSNotary profiles share: two notarized sessions, one
@@ -55,7 +55,6 @@ abstract contract TlsNotaryVerifierBase is IPlatformVerifier, PlatformVerifierBa
     /// @param identitySession    The notarized identity read.
     /// @param idNode             `SHA256(user-id tag || id)`, bound by the proof.
     /// @param handleNode         `SHA256(handle tag || fold(handle))`, bound by the proof.
-    /// @param handle             Empty, or the handle to disclose; must hash to `handleNode`.
     /// @param proof              The Honk proof.
     struct TlsNotaryProof {
         uint16 ceremonyVersion;
@@ -66,7 +65,6 @@ abstract contract TlsNotaryVerifierBase is IPlatformVerifier, PlatformVerifierBa
         Attestation identitySession;
         bytes32 idNode;
         bytes32 handleNode;
-        string handle;
         bytes proof;
     }
 
@@ -141,10 +139,6 @@ abstract contract TlsNotaryVerifierBase is IPlatformVerifier, PlatformVerifierBa
         // check; the proof check refuses one made for another statement.
         TlsNotaryProof memory p = abi.decode(payload, (TlsNotaryProof));
         uint16 version = _requireCeremonyVersion(p.ceremonyVersion);
-        // A disclosure is checked against the node the payload claims, before
-        // anything is paid or proved: the proof below is what binds that node.
-        claimed.handle = HandleDisclosure.check(_platform(), p.handle, p.handleNode);
-
         // The digest, rebuilt from what was decoded, this verifier's own
         // version, and the chain it runs on. Never trusted for its content:
         // it is a commitment the token session's revealed `code_verifier` has

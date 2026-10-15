@@ -25,7 +25,6 @@ contract PayloadEncodingTest is Test {
         p.identitySession = AttestationBuilder.fixtureSession(session, ".identity");
         p.idNode = vm.parseJsonBytes32(extra, ".id_node");
         p.handleNode = vm.parseJsonBytes32(extra, ".handle_node");
-        p.handle = vm.parseJsonString(extra, ".handle");
         p.proof = vm.parseJsonBytes(vm.readFile(PROOF), ".proof");
     }
 

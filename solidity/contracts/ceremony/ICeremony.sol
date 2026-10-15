@@ -42,7 +42,6 @@ interface ICeremony {
     /// @param clientIdentifier    The exact authenticated bytes, never a digest (REQ-COMMON-16).
     /// @param idNode              `SHA256(user-id tag || id)`.
     /// @param handleNode          `SHA256(handle tag || fold(handle))`.
-    /// @param handle              The disclosed handle, normalized, or empty; hashes to `handleNode`.
     /// @param metadataObservedAt  When the platform stated the identity.
     struct VerifiedClaim {
         bytes32 sessionId;
@@ -52,7 +51,6 @@ interface ICeremony {
         bytes clientIdentifier;
         bytes32 idNode;
         bytes32 handleNode;
-        string handle;
         uint64 metadataObservedAt;
     }
 }

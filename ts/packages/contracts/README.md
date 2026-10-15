@@ -137,8 +137,9 @@ const fee = await client.readContract({
   functionName: 'quoteBind',
   args: [github, 1],
 })
-const call = calls.identityRegistry.bind(IDENTITY_REGISTRY, fee, github, 1, payload)
+const call = calls.identityRegistry.bind(IDENTITY_REGISTRY, fee, github, 1, payload, '')
 // call = { to, value, data } — sign and send from the address the payload names.
+// The last argument is the handle to publish, or '' to keep the bind private.
 ```
 
 The payload is one struct, `abi.encode`d, in the shape its Platform Verifier
@@ -154,7 +155,6 @@ const payload = encodeTlsNotaryProof({
   operationDomain, authorizationNonce, transactionData,
   tokenSession, identitySession,   // { attestedData, proof } each
   idNode, handleNode,
-  handle: '',                      // or the handle to publish
   proof,
 })
 ```
@@ -169,7 +169,7 @@ import { decodeErrorResult } from 'viem'
 import { bindErrorsAbi } from '@libid/contracts/abis'
 
 const { errorName, args } = decodeErrorResult({ abi: bindErrorsAbi, data: revertData })
-// 'HandleNotProved', [disclosed, proved]: the payload's handle is not the proved one.
+// 'HandleNotProved', [disclosed, proved]: the handle bind disclosed is not the proved one.
 ```
 
 The Honk verifiers raise their failures (`SumcheckFailed()` and the like)

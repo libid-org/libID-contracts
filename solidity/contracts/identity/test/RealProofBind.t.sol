@@ -15,7 +15,7 @@ import {INotaryService} from "../../ceremony/INotaryService.sol";
 import {IPlatformVerifier} from "../../ceremony/IPlatformVerifier.sol";
 import {IProofVerifier} from "../../ceremony/IProofVerifier.sol";
 import {NotaryService} from "../../ceremony/NotaryService.sol";
-import {HandleDisclosure, IHonkVerifier} from "../../ceremony/PlatformVerifierBase.sol";
+import {IHonkVerifier} from "../../ceremony/PlatformVerifierBase.sol";
 import {XPlatformVerifier} from "../../ceremony/XPlatformVerifier.sol";
 import {IdentityRegistry} from "../IdentityRegistry.sol";
 import {PrivacyScan} from "./PrivacyScan.sol";
@@ -36,7 +36,7 @@ abstract contract RealProofBindBase is PrivacyScan {
     function _platform() internal pure virtual returns (bytes32);
 
     /// The payload over the fixture, disclosing `handle` (empty when private).
-    function _payload(string memory handle) internal view virtual returns (bytes memory);
+    function _payload() internal view virtual returns (bytes memory);
 
     function _idNode() internal pure virtual returns (bytes32);
 
@@ -74,22 +74,22 @@ abstract contract RealProofBindBase is PrivacyScan {
         vm.deal(address(0xCAFE), 1 ether);
     }
 
-    function _bind(bytes memory payload) internal {
+    function _bind(bytes memory payload, string memory handle) internal {
         uint256 value = registry.quoteBind(_platform(), 1);
         vm.prank(BINDER);
-        registry.bind{value: value}(_platform(), 1, payload);
+        registry.bind{value: value}(_platform(), 1, payload, handle);
     }
 
     // ─── Bind, privately ────────────────────────────────────────────
 
     /// @dev A private bind leaves no byte of the id or the handle in logs, storage or calldata.
     function test_bindsPrivatelyAndDisclosesNothing() public {
-        bytes memory payload = _payload("");
+        bytes memory payload = _payload();
         assertFalse(_containsAny(payload), "the payload carries an id or handle");
 
         vm.startStateDiffRecording();
         vm.recordLogs();
-        _bind(payload);
+        _bind(payload, "");
         emit log_named_uint("bind gas", vm.lastCallGas().gasTotalUsed);
         Vm.AccountAccess[] memory accesses = vm.stopAndReturnStateDiff();
 
@@ -115,15 +115,16 @@ abstract contract RealProofBindBase is PrivacyScan {
         return false;
     }
 
-    // ─── Disclose in the payload ────────────────────────────────────
+    // ─── Disclose in the bind ───────────────────────────────────────
 
-    /// @dev A handle disclosed in the payload is checked against the proved node and stored folded.
+    /// @dev A handle disclosed beside the payload is checked against the proved node and stored folded.
     function test_bindsAndPublishesInOneCall() public {
-        bytes memory payload = _payload(_secrets()[1]);
+        bytes memory payload = _payload();
+        assertFalse(_containsAny(payload), "the payload carries an id or handle");
         vm.recordLogs();
         vm.expectEmit(address(registry));
         emit IdentityRegistry.HandlePublished(BINDER, _platform(), _handleNode(), _secrets()[2]);
-        _bind(payload);
+        _bind(payload, _secrets()[1]);
         assertEq(registry.publishedHandleOf(BINDER, _platform()), _secrets()[2]);
 
         assertTrue(_containsAny(_loggedRun(vm.getRecordedLogs())), "a disclosure logs the handle");
@@ -132,11 +133,11 @@ abstract contract RealProofBindBase is PrivacyScan {
     /// @dev A disclosure the proof does not back is refused before anything is written.
     function test_refusesToBindAHandleTheProofDidNotBind() public {
         (string memory other, bytes32 otherNode) = _otherHandle();
-        bytes memory payload = _payload(other);
+        bytes memory payload = _payload();
         uint256 value = registry.quoteBind(_platform(), 1);
-        vm.expectRevert(abi.encodeWithSelector(HandleDisclosure.HandleNotProved.selector, otherNode, _handleNode()));
+        vm.expectRevert(abi.encodeWithSelector(IdentityRegistry.HandleNotProved.selector, otherNode, _handleNode()));
         vm.prank(BINDER);
-        registry.bind{value: value}(_platform(), 1, payload);
+        registry.bind{value: value}(_platform(), 1, payload, other);
         assertEq(registry.resolveId(_idNode()), address(0));
     }
 
@@ -188,7 +189,7 @@ abstract contract RealTlsNotaryBind is RealProofBindBase {
     }
 
     /// The fixture's payload, naming its own transaction data.
-    function _payload(string memory handle) internal view override returns (bytes memory) {
+    function _payload() internal view override returns (bytes memory) {
         string memory session = vm.readFile(_session());
         TlsNotaryVerifierBase.TlsNotaryProof memory p;
         p.ceremonyVersion = uint16(vm.parseJsonUint(session, ".ceremony_version"));
@@ -199,7 +200,6 @@ abstract contract RealTlsNotaryBind is RealProofBindBase {
         p.identitySession = AttestationBuilder.fixtureSession(session, ".identity");
         p.idNode = _idNode();
         p.handleNode = _handleNode();
-        p.handle = handle;
         p.proof = vm.parseJsonBytes(vm.readFile(_proofFile()), ".proof");
         return abi.encode(p);
     }
@@ -272,7 +272,7 @@ contract RealProofBindTest is RealTlsNotaryBind {
 
     /// @dev The disclosed handle, in any case, is stored folded.
     function test_publishesTheHandleFolded() public {
-        _bind(_payload(""));
+        _bind(_payload(), "");
         vm.expectEmit(address(registry));
         emit IdentityRegistry.HandlePublished(BINDER, X, HANDLE_NODE, "alice_1");
         vm.prank(BINDER);
@@ -281,14 +281,14 @@ contract RealProofBindTest is RealTlsNotaryBind {
     }
 
     function test_refusesToPublishAHandleTheHolderDidNotProve() public {
-        _bind(_payload(""));
+        _bind(_payload(), "");
         vm.expectRevert(abi.encodeWithSelector(IdentityRegistry.NotYourHandle.selector, TestNodes.handleNode(X, "bob")));
         vm.prank(BINDER);
         registry.publish(X, "bob");
     }
 
     function test_refusesToPublishAnotherHoldersHandle() public {
-        _bind(_payload(""));
+        _bind(_payload(), "");
         vm.expectRevert(abi.encodeWithSelector(IdentityRegistry.NotYourHandle.selector, HANDLE_NODE));
         vm.prank(address(0xCAFE));
         registry.publish(X, "alice_1");
@@ -401,12 +401,12 @@ contract RealProofBindGoogleTest is RealProofBindBase {
         return ("other@example.com", 0x952d5e757983e3af1d1671b554bd9644d0934e06bbd97b6c5a2b0448bc0cb52c);
     }
 
-    function _payload(string memory handle) internal view override returns (bytes memory) {
-        return abi.encode(_proof(handle));
+    function _payload() internal view override returns (bytes memory) {
+        return abi.encode(_proof());
     }
 
     /// The `google/v1` payload the proof was made for, on chain 31337.
-    function _proof(string memory handle) internal view returns (GooglePlatformVerifier.GoogleProof memory s) {
+    function _proof() internal view returns (GooglePlatformVerifier.GoogleProof memory s) {
         string memory json = vm.readFile(PROOF);
         s.ceremonyVersion = 1;
         s.operationDomain = keccak256(bytes("libid.claim-identity"));
@@ -420,7 +420,6 @@ contract RealProofBindGoogleTest is RealProofBindBase {
         for (uint256 i = 0; i < 18; ++i) {
             s.modulus[i] = pi[39 + i];
         }
-        s.handle = handle;
         s.proof = vm.parseJsonBytes(json, ".proof");
     }
 
@@ -435,12 +434,12 @@ contract RealProofBindGoogleTest is RealProofBindBase {
 
     /// @dev A private payload naming another handle node fails the Honk verifier.
     function test_anotherHandleNodeFailsTheProof() public {
-        GooglePlatformVerifier.GoogleProof memory s = _proof("");
+        GooglePlatformVerifier.GoogleProof memory s = _proof();
         s.handleNode ^= bytes32(uint256(1));
         bytes memory payload = abi.encode(s);
         vm.prank(BINDER);
         vm.expectRevert(abi.encodeWithSignature("SumcheckFailed()"));
-        registry.bind(_platform(), 1, payload);
+        registry.bind(_platform(), 1, payload, "");
         assertEq(registry.resolveId(_idNode()), address(0));
         (address holder,) = registry.handleBinding(_handleNode());
         assertEq(holder, address(0));
