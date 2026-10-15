@@ -136,9 +136,9 @@ abstract contract TlsNotaryVerifierBase is IPlatformVerifier, PlatformVerifierBa
         // transit (REQ-COMMON-06D).
         if (msg.value != 2 * fee) revert WrongValue(2 * fee, msg.value);
 
-        // Decoded here and nowhere above. `abi.decode` refuses a payload that
-        // does not have exactly this shape, so there is no separate count or
-        // presence check for any field.
+        // Decoded here and nowhere above. `abi.decode` reverts on a payload
+        // too short or malformed for this shape, so no field needs a presence
+        // check; the proof check refuses one made for another statement.
         TlsNotaryProof memory p = abi.decode(payload, (TlsNotaryProof));
         uint16 version = _requireCeremonyVersion(p.ceremonyVersion);
         // A disclosure is checked against the node the payload claims, before
