@@ -30,6 +30,8 @@ contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable
     address public constant NATIVE = NATIVE_TOKEN;
 
     /// @notice As `expectedHolder`: the node must have no holder, so the deposit escrows.
+    ///         No binding holds address(1): a bind's holder is its sender, and
+    ///         address(1) is a precompile that sends nothing.
     address public constant UNHELD = address(1);
 
     /// @custom:storage-location erc7201:libid.storage.HandleEscrow

@@ -3,6 +3,8 @@ use alloy::primitives::{
     B256,
 };
 
+use crate::circuits::Circuit;
+
 /// Crate error type.
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -59,9 +61,9 @@ pub enum Error {
         /// The code hash wanted.
         expected_codehash: B256,
         /// The vendored circuit whose verifier has `expected_codehash`, if any.
-        expected: Option<crate::circuits::Circuit>,
+        expected: Option<Circuit>,
         /// The circuit whose verifier is at `address`, if any.
-        found: Option<crate::circuits::Circuit>,
+        found: Option<Circuit>,
         /// The code hash at `address`.
         codehash: B256,
     },

@@ -5,6 +5,8 @@
 //! buffer. Its format is the platform's. It mirrors the circuits'
 //! `lib/identity`; both run the `handles.json` vector table.
 
+use super::handle_vectors as v;
+
 /// Why a handle was refused. The kinds match the TypeScript ones and the
 /// circuits' messages, because the vector table names which refusal it expects.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -21,9 +23,9 @@ impl HandleError {
     /// The index the vector table uses for this kind.
     pub const fn kind(self) -> u8 {
         match self {
-            Self::Empty => super::handle_vectors::ERROR_EMPTY,
-            Self::TooLong => super::handle_vectors::ERROR_TOOLONG,
-            Self::BadCharacter => super::handle_vectors::ERROR_BADCHARACTER,
+            Self::Empty => v::ERROR_EMPTY,
+            Self::TooLong => v::ERROR_TOOLONG,
+            Self::BadCharacter => v::ERROR_BADCHARACTER,
         }
     }
 }
@@ -48,8 +50,6 @@ pub struct Rules {
     /// Bytes the circuit's buffer holds.
     pub max_length: usize,
 }
-
-use super::handle_vectors as v;
 
 impl Rules {
     /// X.
