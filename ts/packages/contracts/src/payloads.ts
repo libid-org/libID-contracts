@@ -6,6 +6,10 @@ import {
   decodeAbiParameters,
   encodeAbiParameters,
   type Hex,
+  hexToBigInt,
+  hexToBytes,
+  numberToHex,
+  sha256,
 } from 'viem'
 
 import { ceremonyPayloadsAbi } from './abis/ceremonyPayloads.js'
@@ -47,4 +51,40 @@ export function encodeGoogleProof(payload: GoogleProof): Hex {
 /// A Google payload back into its fields. Throws on bytes that are not one.
 export function decodeGoogleProof(data: Hex): GoogleProof {
   return decodeAbiParameters(GOOGLE_PROOF, data)[0]
+}
+
+/// The `google/v1` payload fields the verifier builds its public inputs from.
+export type GoogleProofFields = Pick<GoogleProof, 'idNode' | 'handleNode' | 'exp' | 'modulus'>
+
+/// The oidc-google public input that disagrees with the payload: the verifier
+/// would fail the proof, so a client checks before sending.
+export class GooglePublicInputMismatch extends Error {
+  constructor(readonly field: 'count' | 'digest' | 'audience') {
+    super(
+      `the proof's ${field} public input${field === 'count' ? 's do' : ' does'} not match the payload`,
+    )
+    this.name = 'GooglePublicInputMismatch'
+  }
+}
+
+/// The payload fields from the prover's 57 oidc-google public inputs
+/// (REQ-PLAT-16B), after checking the digest the token's `nonce` carried and
+/// the audience against what the verifier builds them from.
+export function googleProofFields(
+  publicInputs: readonly Hex[],
+  expected: { digest: Hex; clientIdentifier: Hex },
+): GoogleProofFields {
+  if (publicInputs.length !== 57) throw new GooglePublicInputMismatch('count')
+  const field = (i: number) => hexToBigInt(publicInputs[i] as Hex)
+  const node = (i: number) => numberToHex((field(i) << 128n) | field(i + 1), { size: 32 })
+  const digest = hexToBytes(expected.digest)
+  if (digest.some((b, i) => field(i) !== BigInt(b))) throw new GooglePublicInputMismatch('digest')
+  if (node(32) !== sha256(expected.clientIdentifier))
+    throw new GooglePublicInputMismatch('audience')
+  return {
+    idNode: node(34),
+    handleNode: node(36),
+    exp: field(38),
+    modulus: publicInputs.slice(39, 57) as unknown as GoogleProof['modulus'],
+  }
 }

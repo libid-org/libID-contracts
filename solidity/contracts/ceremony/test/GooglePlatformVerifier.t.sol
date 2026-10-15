@@ -79,17 +79,17 @@ contract GooglePlatformVerifierTest is Test {
         return bytes32(uint256(0x1000 + i));
     }
 
-    function _modulusHash() private pure returns (bytes32) {
-        bytes memory packed = new bytes(18 * 32);
+    function _modulus() private pure returns (bytes32[18] memory m) {
         for (uint256 i = 0; i < 18; ++i) {
-            bytes32 limb = _modulusLimb(i);
-            assembly {
-                mstore(add(add(packed, 32), mul(i, 32)), limb)
-            }
+            m[i] = _modulusLimb(i);
         }
-        return keccak256(packed);
     }
 
+    function _modulusHash() private pure returns (bytes32) {
+        return keccak256(abi.encodePacked(_modulus()));
+    }
+
+    /// REQ-PLAT-16B's layout, written out here rather than taken from the verifier.
     function _inputs(bytes32 digest_, bytes memory clientId, uint64 exp) private pure returns (bytes32[] memory pi) {
         pi = new bytes32[](57);
         for (uint256 i = 0; i < 32; ++i) {
@@ -112,16 +112,18 @@ contract GooglePlatformVerifierTest is Test {
         return abi.encode(address(0xBEEF), uint256(0), address(0));
     }
 
-    /// The `google/v1` payload the public inputs are made for. Nothing
-    /// notarized in it: the evidence is the proof over a signed token, and the
-    /// contract sees only its public inputs.
-    function _payload() private view returns (GooglePlatformVerifier.GoogleProof memory s) {
+    /// The `google/v1` payload. Nothing notarized in it: the evidence is the
+    /// proof over a signed token, and the verifier builds its public inputs.
+    function _payload() private pure returns (GooglePlatformVerifier.GoogleProof memory s) {
         s.ceremonyVersion = 1;
         s.operationDomain = DOMAIN;
         s.authorizationNonce = AUTH_NONCE;
         s.transactionData = _txData();
         s.clientIdentifier = CLIENT_ID;
-        s.publicInputs = _inputs(digest, CLIENT_ID, EXP);
+        s.idNode = USER_ID;
+        s.handleNode = HANDLE_NODE;
+        s.exp = EXP;
+        s.modulus = _modulus();
         s.proof = hex"00";
     }
 
@@ -143,7 +145,7 @@ contract GooglePlatformVerifierTest is Test {
     function test_rejectsAnExpiryFurtherAheadThanTheAllowance() public {
         uint64 farOut = uint64(block.timestamp) + GOOGLE_ALLOWANCE + 1;
         GooglePlatformVerifier.GoogleProof memory s = _payload();
-        s.publicInputs = _inputs(digest, CLIENT_ID, farOut);
+        s.exp = farOut;
         vm.expectPartialRevert(PlatformVerifierBase.ObservedInTheFuture.selector);
         this.run(s);
     }
@@ -170,20 +172,25 @@ contract GooglePlatformVerifierTest is Test {
                 )
             )
         );
+        bytes32[] memory pi = vm.parseJsonBytes32Array(json, ".public_inputs");
         s = _payload();
         s.clientIdentifier = bytes(vm.parseJsonString(json, ".client_identifier"));
-        s.publicInputs = vm.parseJsonBytes32Array(json, ".public_inputs");
-        s.proof = vm.parseJsonBytes(json, ".proof");
-
-        bytes memory modulus = new bytes(18 * 32);
+        s.idNode = bytes32((uint256(pi[34]) << 128) | uint256(pi[35]));
+        s.handleNode = bytes32((uint256(pi[36]) << 128) | uint256(pi[37]));
+        s.exp = uint64(uint256(pi[38]));
         for (uint256 i = 0; i < 18; ++i) {
-            bytes32 limb = s.publicInputs[39 + i];
-            assembly {
-                mstore(add(add(modulus, 32), mul(i, 32)), limb)
-            }
+            s.modulus[i] = pi[39 + i];
         }
-        roots.trust(keccak256(modulus), REAL_EXP + 86400);
+        s.proof = vm.parseJsonBytes(json, ".proof");
+        assertEq(s.exp, REAL_EXP);
+        roots.trust(keccak256(abi.encodePacked(s.modulus)), REAL_EXP + 86400);
         vm.warp(REAL_EXP - 3600);
+    }
+
+    /// The real proof fails once any value the verifier builds an input from changes.
+    function _refusedByTheRealProof(GooglePlatformVerifier real, GooglePlatformVerifier.GoogleProof memory s) private {
+        (bool ok,) = address(real).call{gas: 5_000_000}(abi.encodeCall(real.verify, (abi.encode(s))));
+        assertFalse(ok);
     }
 
     function test_verifiesARealProof() public {
@@ -196,12 +203,51 @@ contract GooglePlatformVerifierTest is Test {
         assertEq(f.handleNode, 0xfbda24950a7bc55993b7aacc3acbde636931dbb45f04c1ff6f6909027962885f);
     }
 
-    /// @dev The proof binds the digest: one changed bit is another account.
-    function test_refusesARealProofUnderAnotherUserId() public {
+    /// @dev One changed bit in either node is another account.
+    function test_refusesARealProofUnderAnotherNode() public {
         (GooglePlatformVerifier real, GooglePlatformVerifier.GoogleProof memory s) = _realProof();
-        s.publicInputs[35] ^= bytes32(uint256(1));
-        vm.expectRevert();
-        real.verify{gas: 5_000_000}(abi.encode(s));
+        s.idNode ^= bytes32(uint256(1));
+        _refusedByTheRealProof(real, s);
+        (, s) = _realProof();
+        s.handleNode ^= bytes32(uint256(1));
+        _refusedByTheRealProof(real, s);
+    }
+
+    /// @dev REQ-COMMON-02A: the digest the verifier rebuilds is the signed
+    ///      `nonce`, so another nonce, transaction or chain opens against nothing.
+    function test_refusesARealProofForAnotherDigest() public {
+        (GooglePlatformVerifier real, GooglePlatformVerifier.GoogleProof memory s) = _realProof();
+        s.authorizationNonce = bytes32(uint256(AUTH_NONCE) ^ 1);
+        _refusedByTheRealProof(real, s);
+        (, s) = _realProof();
+        s.transactionData = abi.encode(address(0xBEEF), uint256(1), address(0));
+        _refusedByTheRealProof(real, s);
+        (, s) = _realProof();
+        vm.chainId(block.chainid + 1);
+        _refusedByTheRealProof(real, s);
+    }
+
+    /// @dev REQ-PLAT-19A: the proof binds `sha256(aud)`, so another client
+    ///      identifier is refused.
+    function test_refusesARealProofForAnotherClientIdentifier() public {
+        (GooglePlatformVerifier real, GooglePlatformVerifier.GoogleProof memory s) = _realProof();
+        s.clientIdentifier = "attacker.apps.googleusercontent.com";
+        _refusedByTheRealProof(real, s);
+    }
+
+    /// @dev An earlier `exp` is still in the future, so only the proof refuses it.
+    function test_refusesARealProofForAnotherExpiry() public {
+        (GooglePlatformVerifier real, GooglePlatformVerifier.GoogleProof memory s) = _realProof();
+        s.exp = REAL_EXP - 1;
+        _refusedByTheRealProof(real, s);
+    }
+
+    /// @dev The verifier hands the Honk verifier REQ-PLAT-16B's layout, built
+    ///      from the payload, its own digest and `sha256(aud)`.
+    function test_buildsThePublicInputsInTheirFixedOrder() public {
+        GooglePlatformVerifier.GoogleProof memory s = _payload();
+        vm.expectCall(honk, abi.encodeCall(IHonkVerifier.verify, (s.proof, _inputs(digest, CLIENT_ID, EXP))));
+        this.run(s);
     }
 
     function test_verifiesAWholeGoogleCeremony() public {
@@ -214,15 +260,6 @@ contract GooglePlatformVerifierTest is Test {
         // The signed expiry, brought onto the shared scale. Raw, it would
         // beat every X or GitHub claim made in the same hour.
         assertEq(f.metadataObservedAt, EXP - GOOGLE_ALLOWANCE);
-    }
-
-    /// @dev The handle node is read from the proof's two halves and returned
-    ///      as read; folding is the circuit's.
-    function test_returnsTheHandleNodeTheCircuitOutputs() public {
-        GooglePlatformVerifier.GoogleProof memory s = _payload();
-        s.publicInputs[36] = bytes32(uint256(0x02));
-        s.publicInputs[37] = bytes32(uint256(0x1234));
-        assertEq(this.run(s).handleNode, bytes32((uint256(2) << 128) | 0x1234));
     }
 
     // A disclosed address is checked against the proof's handle node and
@@ -281,27 +318,7 @@ contract GooglePlatformVerifierTest is Test {
         this.run{value: 1}(s);
     }
 
-    // ─── The digest, bound the other way round ──────────────────────
-
-    /// @dev REQ-COMMON-02A. X and GitHub recompute a PKCE verifier; Google
-    ///      compares a public proof input carried by the signed `nonce`
-    ///      against the digest it rebuilds from the payload. A token proved
-    ///      for another digest does not match.
-    function test_rejectsAProofForAnotherDigest() public {
-        GooglePlatformVerifier.GoogleProof memory s = _payload();
-        s.publicInputs = _inputs(bytes32(uint256(digest) ^ 1), CLIENT_ID, EXP);
-        vm.expectPartialRevert(GooglePlatformVerifier.DigestMismatch.selector);
-        this.run(s);
-    }
-
-    /// @dev And the other way round: the same token, retargeted by changing a
-    ///      digest input in the payload, opens against nothing.
-    function test_rejectsAPayloadRetargetedToAnotherDigest() public {
-        GooglePlatformVerifier.GoogleProof memory s = _payload();
-        s.authorizationNonce = bytes32(uint256(AUTH_NONCE) ^ 1);
-        vm.expectPartialRevert(GooglePlatformVerifier.DigestMismatch.selector);
-        this.run(s);
-    }
+    // ─── The payload ────────────────────────────────────────────────
 
     function test_rejectsAPayloadForAnotherCeremonyVersion() public {
         GooglePlatformVerifier.GoogleProof memory s = _payload();
@@ -312,97 +329,10 @@ contract GooglePlatformVerifierTest is Test {
 
     // ─── The audience ───────────────────────────────────────────────
 
-    /// @dev REQ-PLAT-19A. The digest authenticates the bytes without the
-    ///      circuit packing a variable-length string into public inputs.
-    function test_rejectsAForgedClientIdentifier() public {
-        GooglePlatformVerifier.GoogleProof memory s = _payload();
-        s.clientIdentifier = "attacker.apps.googleusercontent.com";
-        vm.expectRevert(GooglePlatformVerifier.AudienceMismatch.selector);
-        this.run(s);
-    }
-
     function test_rejectsAMissingClientIdentifier() public {
         GooglePlatformVerifier.GoogleProof memory s = _payload();
         s.clientIdentifier = "";
         vm.expectRevert(GooglePlatformVerifier.MissingClientIdentifier.selector);
-        this.run(s);
-    }
-
-    /// @dev The audience hash arrives as two halves, and only the high one is
-    ///      shifted. So an over-wide LOW half alone reproduces any 256-bit
-    ///      value -- here the true hash of a client identifier the prover
-    ///      never held -- and the audience check passes for free. The contract
-    ///      cannot see the circuit's range constraints, so it states its own.
-    function test_rejectsAnOverwideLowAudienceHalf() public {
-        GooglePlatformVerifier.GoogleProof memory s = _payload();
-        bytes32 aud = sha256(CLIENT_ID);
-        s.publicInputs[32] = bytes32(0);
-        s.publicInputs[33] = aud;
-        vm.expectPartialRevert(GooglePlatformVerifier.PublicInputOverwide.selector);
-        this.run(s);
-    }
-
-    /// @dev The high half is shifted, so bits above its 128th fall off the top
-    ///      and many values agree. Same rule, same reason.
-    function test_rejectsAnOverwideHighAudienceHalf() public {
-        GooglePlatformVerifier.GoogleProof memory s = _payload();
-        s.publicInputs[32] = bytes32(uint256(s.publicInputs[32]) | (uint256(1) << 128));
-        vm.expectPartialRevert(GooglePlatformVerifier.PublicInputOverwide.selector);
-        this.run(s);
-    }
-
-    // ─── The user id ────────────────────────────────────────────────
-
-    /// @dev The id node is the circuit's digest, rebuilt from its halves
-    ///      `[high, low]` with the leading zeros kept.
-    function test_returnsTheUserIdDigestAsTheIdNode() public {
-        GooglePlatformVerifier.GoogleProof memory s = _payload();
-        s.publicInputs[34] = bytes32(uint256(0x01));
-        s.publicInputs[35] = bytes32(uint256(0xabcdef));
-        assertEq(this.run(s).idNode, bytes32((uint256(1) << 128) | 0xabcdef));
-    }
-
-    /// @dev The user id is a digest in two halves, like the audience, and the
-    ///      same over-wide low half would name any account at all.
-    function test_rejectsAnOverwideLowUserIdHalf() public {
-        GooglePlatformVerifier.GoogleProof memory s = _payload();
-        s.publicInputs[34] = bytes32(0);
-        s.publicInputs[35] = USER_ID;
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                GooglePlatformVerifier.PublicInputOverwide.selector, 35, uint256(s.publicInputs[35]), 128
-            )
-        );
-        this.run(s);
-    }
-
-    function test_rejectsAnOverwideHighUserIdHalf() public {
-        GooglePlatformVerifier.GoogleProof memory s = _payload();
-        uint256 widened = uint256(s.publicInputs[34]) | (uint256(1) << 128);
-        s.publicInputs[34] = bytes32(widened);
-        vm.expectRevert(abi.encodeWithSelector(GooglePlatformVerifier.PublicInputOverwide.selector, 34, widened, 128));
-        this.run(s);
-    }
-
-    // ─── The handle node ────────────────────────────────────────────
-
-    /// @dev The handle node is two halves like the id node, and an over-wide
-    ///      low half would name any handle at all.
-    function test_rejectsAnOverwideLowHandleHalf() public {
-        GooglePlatformVerifier.GoogleProof memory s = _payload();
-        s.publicInputs[36] = bytes32(0);
-        s.publicInputs[37] = HANDLE_NODE;
-        vm.expectRevert(
-            abi.encodeWithSelector(GooglePlatformVerifier.PublicInputOverwide.selector, 37, uint256(HANDLE_NODE), 128)
-        );
-        this.run(s);
-    }
-
-    function test_rejectsAnOverwideHighHandleHalf() public {
-        GooglePlatformVerifier.GoogleProof memory s = _payload();
-        uint256 widened = uint256(s.publicInputs[36]) | (uint256(1) << 128);
-        s.publicInputs[36] = bytes32(widened);
-        vm.expectRevert(abi.encodeWithSelector(GooglePlatformVerifier.PublicInputOverwide.selector, 36, widened, 128));
         this.run(s);
     }
 
@@ -454,43 +384,6 @@ contract GooglePlatformVerifierTest is Test {
         this.run(s);
     }
 
-    /// @dev 56 is the count of the circuit that published the `sub`, so this
-    ///      is also its proofs being refused.
-    function test_rejectsTheWrongPublicInputCount() public {
-        GooglePlatformVerifier.GoogleProof memory s = _payload();
-        s.publicInputs = new bytes32[](56);
-        vm.expectRevert(abi.encodeWithSelector(GooglePlatformVerifier.WrongPublicInputCount.selector, 57, 56));
-        this.run(s);
-    }
-
-    function test_rejectsTheSameSubmissionOnAnotherChain() public {
-        GooglePlatformVerifier.GoogleProof memory s = _payload();
-        vm.chainId(block.chainid + 1);
-        vm.expectPartialRevert(GooglePlatformVerifier.DigestMismatch.selector);
-        this.run(s);
-    }
-
-    function test_rejectsAnExpiryWiderThanUint64() public {
-        GooglePlatformVerifier.GoogleProof memory s = _payload();
-        s.publicInputs[38] = bytes32(uint256(type(uint64).max) + 1);
-        vm.expectPartialRevert(GooglePlatformVerifier.ExpiryNotAUint64.selector);
-        this.run(s);
-    }
-
-    function test_rejectsADigestInputThatIsNotAByte() public {
-        GooglePlatformVerifier.GoogleProof memory s = _payload();
-        s.publicInputs[0] = bytes32(uint256(0x100) | uint256(s.publicInputs[0]));
-        vm.expectPartialRevert(GooglePlatformVerifier.PublicInputNotAByte.selector);
-        this.run(s);
-    }
-
-    function test_rejectsFiftyEightPublicInputs() public {
-        GooglePlatformVerifier.GoogleProof memory s = _payload();
-        s.publicInputs = new bytes32[](58);
-        vm.expectRevert(abi.encodeWithSelector(GooglePlatformVerifier.WrongPublicInputCount.selector, 57, 58));
-        this.run(s);
-    }
-
     function test_onlyTheOwnerPointsAtJwtRoots() public {
         vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, address(this)));
         verifier.setJwtRoots(IGoogleJwtRoots(address(roots)));
@@ -499,17 +392,11 @@ contract GooglePlatformVerifierTest is Test {
         verifier.setJwtRoots(IGoogleJwtRoots(address(0)));
     }
 
-    /// @dev A TLSNotary-shaped payload at the Google verifier. The first four
-    ///      words are common to both layouts; after them the readings diverge,
-    ///      and word five points Google's `publicInputs` at the identity
-    ///      session, whose leading word reads as a length of 64 elements the
-    ///      payload does not carry. The decoder walks out of bounds and
-    ///      reverts with no data, so no later check ever runs.
-    function test_aTlsPayloadRevertsWithNoData() public {
+    /// @dev A TLSNotary-shaped payload at the Google verifier is refused.
+    function test_aTlsPayloadIsRefused() public {
         TlsNotaryVerifierBase.TlsNotaryProof memory x;
         x.ceremonyVersion = 1;
-        (bool ok, bytes memory ret) = address(verifier).call(abi.encodeCall(verifier.verify, (abi.encode(x))));
+        (bool ok,) = address(verifier).call(abi.encodeCall(verifier.verify, (abi.encode(x))));
         assertFalse(ok);
-        assertEq(ret.length, 0);
     }
 }

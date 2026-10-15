@@ -345,8 +345,6 @@ contract RealProofBindGoogleTest is RealProofBindBase {
     string constant PROOF = "contracts/ceremony/test/fixtures/google-ceremony-proof.json";
     /// The signed `exp` of the fixture's token.
     uint64 constant EXP = 1_893_456_000;
-    /// The handle node's low half among the public inputs.
-    uint256 constant HANDLE_LOW = 37;
 
     TrustingJwtRoots roots;
     address platformVerifier;
@@ -415,7 +413,13 @@ contract RealProofBindGoogleTest is RealProofBindBase {
         s.authorizationNonce = bytes32(uint256(0x5555555555555555555555555555555555555555555555555555555555555555));
         s.transactionData = abi.encode(BINDER, uint256(0), address(0));
         s.clientIdentifier = bytes(vm.parseJsonString(json, ".client_identifier"));
-        s.publicInputs = vm.parseJsonBytes32Array(json, ".public_inputs");
+        bytes32[] memory pi = vm.parseJsonBytes32Array(json, ".public_inputs");
+        s.idNode = bytes32((uint256(pi[34]) << 128) | uint256(pi[35]));
+        s.handleNode = bytes32((uint256(pi[36]) << 128) | uint256(pi[37]));
+        s.exp = uint64(uint256(pi[38]));
+        for (uint256 i = 0; i < 18; ++i) {
+            s.modulus[i] = pi[39 + i];
+        }
         s.handle = handle;
         s.proof = vm.parseJsonBytes(json, ".proof");
     }
@@ -432,7 +436,7 @@ contract RealProofBindGoogleTest is RealProofBindBase {
     /// @dev A private payload naming another handle node fails the Honk verifier.
     function test_anotherHandleNodeFailsTheProof() public {
         GooglePlatformVerifier.GoogleProof memory s = _proof("");
-        s.publicInputs[HANDLE_LOW] ^= bytes32(uint256(1));
+        s.handleNode ^= bytes32(uint256(1));
         bytes memory payload = abi.encode(s);
         vm.prank(BINDER);
         vm.expectRevert(abi.encodeWithSignature("SumcheckFailed()"));

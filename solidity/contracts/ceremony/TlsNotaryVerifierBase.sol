@@ -334,12 +334,6 @@ abstract contract TlsNotaryVerifierBase is IPlatformVerifier, PlatformVerifierBa
         inputs[at + 1] = bytes32(tag.length);
     }
 
-    /// @dev A 32-byte value as two big-endian 16-byte field elements.
-    function _halves(bytes32[] memory inputs, uint256 at, bytes32 value) private pure {
-        inputs[at] = value >> 128;
-        inputs[at + 1] = bytes32(uint256(uint128(uint256(value))));
-    }
-
     /// @dev The head's header lines: each required one exactly once with its
     ///      value, none of the forbidden names, one `content-length`, and
     ///      anything else ignored. Returns the declared length.

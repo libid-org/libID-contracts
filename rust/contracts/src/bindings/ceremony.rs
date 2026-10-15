@@ -416,15 +416,9 @@ mod google_platform_verifier_inner {
             error OwnableUnauthorizedAccount(address account);
             error OwnableInvalidOwner(address owner);
             // The ID token's checks.
-            error AudienceMismatch();
             error MissingClientIdentifier();
-            error DigestMismatch(bytes32 proved, bytes32 recomputed);
-            error ExpiryNotAUint64(uint256 value);
-            error PublicInputNotAByte(uint256 index, uint256 value);
-            error PublicInputOverwide(uint256 index, uint256 value, uint256 bits);
             error TokenExpired(uint64 exp, uint64 blockTime);
             error UntrustedModulus(bytes32 modulusHash);
-            error WrongPublicInputCount(uint256 expected, uint256 provided);
         }
     }
 }
@@ -474,7 +468,10 @@ mod payloads_inner {
                 bytes32 authorizationNonce;
                 bytes transactionData;
                 bytes clientIdentifier;
-                bytes32[] publicInputs;
+                bytes32 idNode;
+                bytes32 handleNode;
+                uint64 exp;
+                bytes32[18] modulus;
                 string handle;
                 bytes proof;
             }
@@ -659,7 +656,10 @@ mod tests {
             authorizationNonce: B256::repeat_byte(0x22),
             transactionData: vec![1, 2].into(),
             clientIdentifier: b"aud".to_vec().into(),
-            publicInputs: vec![B256::repeat_byte(0x33), B256::repeat_byte(0x44)],
+            idNode: B256::repeat_byte(0x33),
+            handleNode: B256::repeat_byte(0x44),
+            exp: 1_800_000_000,
+            modulus: [B256::repeat_byte(0x55); 18],
             handle: "alice@gmail.com".into(),
             proof: vec![0xde, 0xad].into(),
         };

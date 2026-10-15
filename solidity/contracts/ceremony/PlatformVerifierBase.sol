@@ -301,6 +301,12 @@ abstract contract PlatformVerifierBase is ICeremony, Initializable, UUPSUpgradea
         if (observedAt > limit) revert ObservedInTheFuture(observedAt, limit);
     }
 
+    /// @dev A 32-byte value as two big-endian 16-byte field elements.
+    function _halves(bytes32[] memory inputs, uint256 at, bytes32 value) internal pure {
+        inputs[at] = value >> 128;
+        inputs[at + 1] = bytes32(uint256(uint128(uint256(value))));
+    }
+
     /// @dev Verify the proof under the stored verifier, which must still be this
     ///      implementation's circuit's (REQ-COMMON-45).
     function _requireProof(bytes memory proof, bytes32[] memory publicInputs) internal view {

@@ -19,10 +19,11 @@ interface IGoogleJwtRoots {
 /// @notice One proof over a signed ID Token: no notarized session, no Notary
 ///         Service, no fee.
 ///
-/// @dev The digest is the signed OIDC `nonce`, a public input compared with
-///      the rebuilt digest (REQ-COMMON-02A). The circuit publishes the id node
-///      and the handle node; `exp` gives both `metadataObservedAt` and
-///      `proofValidUntil`.
+/// @dev The verifier builds the circuit's public inputs: the digest it
+///      rebuilds is the signed OIDC `nonce` (REQ-COMMON-02A), `sha256(aud)` is
+///      the audience, and the nodes, `exp` and modulus come from the payload.
+///      Any wrong value fails the proof. `exp` gives both `metadataObservedAt`
+///      and `proofValidUntil`.
 contract GooglePlatformVerifier is IPlatformVerifier, PlatformVerifierBase {
     /// @dev The public inputs REQ-PLAT-16B fixes, in the order it lists them.
     ///      The digest is 32 field elements of one byte each; the rest are
@@ -37,13 +38,16 @@ contract GooglePlatformVerifier is IPlatformVerifier, PlatformVerifierBase {
     uint256 private constant PUBLIC_INPUTS = 57;
 
     /// @notice The `google/v1` payload, as `abi.encode` of this struct.
-    /// @dev Public inputs are carried, and authentic only once the proof verifies.
+    /// @dev Every field is authentic only once the proof verifies.
     /// @param ceremonyVersion    Checked against the verifier's own first.
     /// @param operationDomain    Into the digest; returned.
     /// @param authorizationNonce Into the digest.
     /// @param transactionData    Into the digest; returned opaque.
-    /// @param clientIdentifier   The `aud` bytes, checked against their public-input hash (REQ-PLAT-19A).
-    /// @param publicInputs       The circuit's 57 public inputs (REQ-PLAT-16B order).
+    /// @param clientIdentifier   The `aud` bytes; their SHA-256 is a public input (REQ-PLAT-19A).
+    /// @param idNode             The circuit's id node.
+    /// @param handleNode         The circuit's handle node.
+    /// @param exp                The signed `exp`.
+    /// @param modulus            The signing key's 18 limbs, as the circuit takes them.
     /// @param handle             Empty, or the address to disclose; must hash to the handle node.
     /// @param proof              The Honk proof.
     struct GoogleProof {
@@ -52,7 +56,10 @@ contract GooglePlatformVerifier is IPlatformVerifier, PlatformVerifierBase {
         bytes32 authorizationNonce;
         bytes transactionData;
         bytes clientIdentifier;
-        bytes32[] publicInputs;
+        bytes32 idNode;
+        bytes32 handleNode;
+        uint64 exp;
+        bytes32[18] modulus;
         string handle;
         bytes proof;
     }
@@ -73,9 +80,6 @@ contract GooglePlatformVerifier is IPlatformVerifier, PlatformVerifierBase {
 
     event JwtRootsChanged(address roots);
 
-    error WrongPublicInputCount(uint256 expected, uint256 provided);
-    error DigestMismatch(bytes32 proved, bytes32 recomputed);
-    error AudienceMismatch();
     error MissingClientIdentifier();
     /// @dev The signing key is not in the active trusted set, or its trust has
     ///      lapsed (REQ-PLAT-23).
@@ -83,12 +87,6 @@ contract GooglePlatformVerifier is IPlatformVerifier, PlatformVerifierBase {
     /// @dev `Block Time >= proofValidUntil`, where the ceiling is the signed
     ///      `exp` itself (REQ-PLAT-22).
     error TokenExpired(uint64 exp, uint64 blockTime);
-    /// @dev A public input the circuit declares as a byte carried more.
-    error PublicInputNotAByte(uint256 index, uint256 value);
-    /// @dev A packed public input carries more bits than its slot reads.
-    error PublicInputOverwide(uint256 index, uint256 value, uint256 bits);
-    /// @dev The signed expiry does not fit the width every timestamp uses.
-    error ExpiryNotAUint64(uint256 value);
 
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
@@ -152,51 +150,35 @@ contract GooglePlatformVerifier is IPlatformVerifier, PlatformVerifierBase {
 
         GoogleProof memory p = abi.decode(payload, (GoogleProof));
         uint16 version = _requireCeremonyVersion(p.ceremonyVersion);
-        if (p.publicInputs.length != PUBLIC_INPUTS) {
-            revert WrongPublicInputCount(PUBLIC_INPUTS, p.publicInputs.length);
-        }
 
-        // REQ-COMMON-02A. Google's binding: the digest the ceremony committed
-        // as the signed `nonce` must equal the one rebuilt here from the
-        // decoded payload, this verifier's version and this chain.
+        // REQ-COMMON-02A. The digest rebuilt here from the decoded payload,
+        // this verifier's version and this chain is the signed `nonce` the
+        // proof must carry.
         bytes32 digest =
             CeremonyAuthorization.digestFor(p.operationDomain, version, p.authorizationNonce, p.transactionData);
-        bytes32 proved = _digestFromInputs(p.publicInputs);
-        if (proved != digest) revert DigestMismatch(proved, digest);
 
-        // REQ-PLAT-19A. The digest authenticates the bytes without the circuit
-        // packing a variable-length string into public inputs, and the Consumer
-        // still receives the readable value.
+        // REQ-PLAT-19A. The proof binds the bytes' hash, and the Consumer
+        // receives the readable value.
         if (p.clientIdentifier.length == 0) revert MissingClientIdentifier();
-        bytes32 audience = sha256(p.clientIdentifier);
-        if (audience != _hashFromHalves(p.publicInputs, OFF_AUDIENCE)) revert AudienceMismatch();
 
-        // REQ-PLAT-23. The circuit exposes the modulus that verified the JWS
-        // but decides no trust; that decision is here alone.
-        _requireTrustedModulus(p.publicInputs);
+        // REQ-PLAT-23. The circuit uses the modulus that verified the JWS but
+        // decides no trust; that decision is here alone.
+        _requireTrustedModulus(p.modulus);
 
-        // REQ-PLAT-22. The signed `exp` is the whole validity ceiling, so a
-        // field element that does not fit `u64` must not become one that does.
-        uint256 rawExp = uint256(p.publicInputs[OFF_EXP]);
-        if (rawExp > type(uint64).max) revert ExpiryNotAUint64(rawExp);
-        // Casting to uint64 is safe: the line above refuses anything wider.
-        // forge-lint: disable-next-line(unsafe-typecast)
-        uint64 exp = uint64(rawExp);
-        if (block.timestamp >= exp) revert TokenExpired(exp, uint64(block.timestamp));
-        // And a ceiling above it. Without one, a token minted with a distant
-        // expiry buys a proportionally long lock on the name.
-        _requireNotAhead(exp);
+        // REQ-PLAT-22. The signed `exp` is the whole validity ceiling, and a
+        // ceiling above it: without one, a token minted with a distant expiry
+        // buys a proportionally long lock on the name.
+        if (block.timestamp >= p.exp) revert TokenExpired(p.exp, uint64(block.timestamp));
+        _requireNotAhead(p.exp);
 
-        // The circuit's nodes, and a disclosure checked before the proof is paid for.
-        claimed.idNode = _hashFromHalves(p.publicInputs, OFF_ID_NODE);
-        claimed.handleNode = _hashFromHalves(p.publicInputs, OFF_HANDLE_NODE);
-        claimed.handle = HandleDisclosure.check(_platform(), p.handle, claimed.handleNode);
+        // A disclosure checked before the proof is paid for.
+        claimed.handle = HandleDisclosure.check(_platform(), p.handle, p.handleNode);
 
-        // Every public input read above becomes authentic here, and the whole
-        // transaction reverts if it does not; that is what makes reading them
-        // first safe.
-        _requireProof(p.proof, p.publicInputs);
-        claimed.metadataObservedAt = _onSharedScale(exp, _futureObservationAllowance());
+        // The inputs are built, never taken, so each value above is the one proved.
+        _requireProof(p.proof, _publicInputs(p, digest));
+        claimed.idNode = p.idNode;
+        claimed.handleNode = p.handleNode;
+        claimed.metadataObservedAt = _onSharedScale(p.exp, _futureObservationAllowance());
         claimed.clientIdentifier = p.clientIdentifier;
         claimed.sessionId = digest;
         claimed.operationDomain = p.operationDomain;
@@ -204,40 +186,25 @@ contract GooglePlatformVerifier is IPlatformVerifier, PlatformVerifierBase {
         claimed.ceremonyVersion = version;
     }
 
-    // ─── Reading the public inputs ──────────────────────────────────
+    // ─── Building the public inputs ─────────────────────────────────
 
-    /// @dev 32 field elements, one byte each.
-    function _digestFromInputs(bytes32[] memory publicInputs) private pure returns (bytes32 out) {
+    /// @dev REQ-PLAT-16B's 57 public inputs, in its order.
+    function _publicInputs(GoogleProof memory p, bytes32 digest) private pure returns (bytes32[] memory inputs) {
+        inputs = new bytes32[](PUBLIC_INPUTS);
         for (uint256 i = 0; i < 32; ++i) {
-            uint256 element = uint256(publicInputs[OFF_DIGEST + i]);
-            // Truncating here would rest the ONLY thing binding a Google
-            // ceremony to its transaction (REQ-COMMON-02A) on a range
-            // constraint this contract cannot see.
-            if (element > 0xff) revert PublicInputNotAByte(OFF_DIGEST + i, element);
-            out |= bytes32(element << (8 * (31 - i)));
+            inputs[OFF_DIGEST + i] = bytes32(uint256(uint8(digest[i])));
         }
-    }
-
-    /// @dev A SHA-256 digest as two big-endian 16-byte Fields: the signed
-    ///      `aud`'s, and the two nodes.
-    function _hashFromHalves(bytes32[] memory publicInputs, uint256 offset) private pure returns (bytes32) {
-        uint256 high = uint256(publicInputs[offset]);
-        uint256 low = uint256(publicInputs[offset + 1]);
-        // An over-wide `low` would spill into the high half and match any digest.
-        if (high >> 128 != 0) revert PublicInputOverwide(offset, high, 128);
-        if (low >> 128 != 0) revert PublicInputOverwide(offset + 1, low, 128);
-        return bytes32((high << 128) | low);
-    }
-
-    function _requireTrustedModulus(bytes32[] memory publicInputs) private view {
-        bytes memory packed = new bytes(MODULUS_LIMBS * 32);
+        _halves(inputs, OFF_AUDIENCE, sha256(p.clientIdentifier));
+        _halves(inputs, OFF_ID_NODE, p.idNode);
+        _halves(inputs, OFF_HANDLE_NODE, p.handleNode);
+        inputs[OFF_EXP] = bytes32(uint256(p.exp));
         for (uint256 i = 0; i < MODULUS_LIMBS; ++i) {
-            bytes32 limb = publicInputs[OFF_MODULUS + i];
-            assembly {
-                mstore(add(add(packed, 32), mul(i, 32)), limb)
-            }
+            inputs[OFF_MODULUS + i] = p.modulus[i];
         }
-        bytes32 modulusHash = keccak256(packed);
+    }
+
+    function _requireTrustedModulus(bytes32[18] memory modulus) private view {
+        bytes32 modulusHash = keccak256(abi.encodePacked(modulus));
         uint256 expiresAt = _g().jwtRoots.trustedHashExpiresAt(modulusHash);
         if (expiresAt == 0 || block.timestamp >= expiresAt) revert UntrustedModulus(modulusHash);
     }
