@@ -60,7 +60,7 @@ contract EscrowHandler is CommonBase, StdCheats, StdUtils {
             NoReturnToken(token).approve(address(ESCROW), amount);
         }
         vm.prank(from);
-        ESCROW.deposit{value: token == NATIVE ? amount : 0}(node, token, amount, refundTo, address(0));
+        ESCROW.deposit{value: token == NATIVE ? amount : 0}(PLATFORM, node, token, amount, refundTo, address(0));
         if (REGISTRY.holderOf(node) == address(0)) modelled[node][token][refundTo] += delivered;
     }
 

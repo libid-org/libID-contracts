@@ -173,23 +173,29 @@ contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable
     // ─── Depositing ─────────────────────────────────────────────────
 
     /// @notice Pay `amount` of `token` to a handle node (`IdentityRegistry.handleNodeOf`).
-    /// @dev Books what arrived. A wrong node funds a slot only `refundTo` can recover.
+    ///         Reverts `PlatformAcceptsNoBindings` when it would escrow on a platform nobody
+    ///         can bind now; a holder is still paid.
+    /// @dev Books what arrived. A wrong node, or a node of another platform than
+    ///      `platformId`, funds a slot only `refundTo` can recover.
+    /// @param platformId     The platform whose tag made `handleNode`.
     /// @param token          An ERC-20, or `NATIVE`, when `amount` must equal `msg.value`.
     /// @param refundTo       Who may refund an escrowed deposit; never zero or this contract.
     /// @param expectedHolder The holder the depositor saw: zero accepts either outcome, `UNHELD`
     ///                       requires no holder, any other address requires exactly that holder.
     ///                       Otherwise `UnexpectedHolder`.
-    function deposit(bytes32 handleNode, address token, uint256 amount, address refundTo, address expectedHolder)
-        external
-        payable
-        nonReentrant
-    {
-        _deposit(handleNode, bytes32(0), token, amount, refundTo, expectedHolder);
+    function deposit(
+        bytes32 platformId,
+        bytes32 handleNode,
+        address token,
+        uint256 amount,
+        address refundTo,
+        address expectedHolder
+    ) external payable nonReentrant {
+        _deposit(handleNode, platformId, token, amount, refundTo, expectedHolder);
     }
 
     /// @notice `deposit` to a handle given as text, which the calldata and the
-    ///         log make public. Reverts the registry's `UnknownPlatform` for a platform it does not know,
-    ///         and `PlatformAcceptsNoBindings` when it would escrow on one nobody can bind now.
+    ///         log make public. Reverts the registry's `UnknownPlatform` for a platform it does not know.
     /// @dev The node is the registry's `handleNodeOf`: the one `deposit` takes.
     ///      The log carries the handle folded, as `HandlePublished` does.
     function depositToHandle(
@@ -205,7 +211,6 @@ contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable
         emit DepositedToHandle(handleNode, platformId, HandleNode.fold(handle));
     }
 
-    /// @dev `platformId` is zero for a private deposit, which skips `acceptsBindings`.
     function _deposit(
         bytes32 handleNode,
         bytes32 platformId,
@@ -236,7 +241,7 @@ contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable
             return;
         }
 
-        if (platformId != 0 && !$.registry.acceptsBindings(platformId)) revert PlatformAcceptsNoBindings(platformId);
+        if (!$.registry.acceptsBindings(platformId)) revert PlatformAcceptsNoBindings(platformId);
         uint256 credited = _move(token, msg.sender, address(this), amount);
         if (credited == 0) revert ZeroAmount();
 

@@ -6,22 +6,24 @@ until then each deposit's `refundTo` can take its own contribution back. A
 handle somebody already holds is paid straight through.
 
 ```solidity
-escrow.deposit{value: amount}(handleNode, escrow.NATIVE(), amount, refundTo, expectedHolder);
+escrow.deposit{value: amount}(platformId, handleNode, escrow.NATIVE(), amount, refundTo, expectedHolder);
 escrow.claim(handleNode, tokens, recipient);   // the handle's holder
 escrow.refund(handleNode, token, recipient);   // refundTo, while unclaimed
 ```
 
 ## Private or public
 
-- `deposit(handleNode, …)` is private: the calldata and the logs carry the
-  node, never the handle.
+- `deposit(platformId, handleNode, …)` is private: the calldata and the logs
+  carry the node, never the handle. The calldata names the platform.
 - `depositToHandle(platformId, handle, …)` is public: the escrow asks the
   registry's `handleNodeOf` for the node, and `DepositedToHandle` logs the
   platform and the handle folded. It credits the same node, so a claim
   takes both kinds together. Text other than a handle as the platform sends it
-  (`@alice`, a space) lands on a node nobody can prove; only `refundTo` gets it back. A deposit that would
-  escrow reverts `PlatformAcceptsNoBindings` while the registry's
-  `acceptsBindings` is false for the platform; a holder is still paid.
+  (`@alice`, a space) lands on a node nobody can prove; only `refundTo` gets it back.
+- Either kind reverts `PlatformAcceptsNoBindings` when it would escrow while
+  the registry's `acceptsBindings` is false for the platform; a holder is
+  still paid. `deposit` checks the platform it is given: a node of another
+  platform escrows only for `refundTo`.
 
 ## Integrating
 

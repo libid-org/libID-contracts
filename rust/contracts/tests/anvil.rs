@@ -912,7 +912,7 @@ async fn escrows_value_against_an_unclaimed_handle() {
     let amount = U256::from(1_000_000_000_000_000_000u64);
     let unheld = escrow.UNHELD().call().await.unwrap();
     let receipt = escrow
-        .deposit(node, native, amount, deployer, unheld)
+        .deposit(platform_id, node, native, amount, deployer, unheld)
         .value(amount)
         .send()
         .await
