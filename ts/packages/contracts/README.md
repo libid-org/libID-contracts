@@ -103,7 +103,7 @@ const x = platformId(PLATFORM_X_KEY)
 // RPC. Case folds; text nobody proved, such as `@alice`, answers null.
 const holder = await resolveHandle(reader, x, 'Alice')
 
-// Before sending funds: does the id still agree with the handle?
+// Before sending funds: is this id still the account that proved the handle?
 const { idAgrees } = await resolveHandleAndId(reader, x, 'alice', idNode(PLATFORM_X_KEY, '42'))
 
 // The handle a holder displays, forward-checked on chain.

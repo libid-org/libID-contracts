@@ -71,8 +71,9 @@ const PLATFORM_BY_ID = new Map(PLATFORMS.map((p) => [platformId(p.key), p]))
 export interface HandleAndIdResolution {
   /// The handle's holder, or `null`.
   holder: Address | null
-  /// True only when the id node resolves to that same holder; false means
-  /// the handle was proved again since the caller learned the pair.
+  /// True only when the id node is the account that last proved the handle;
+  /// false means another account proved it since the caller learned the
+  /// pair, even one in the same wallet.
   idAgrees: boolean
 }
 

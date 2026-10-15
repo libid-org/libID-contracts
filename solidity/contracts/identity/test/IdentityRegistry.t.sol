@@ -433,6 +433,32 @@ contract IdentityRegistryTest is PrivacyScan {
         assertFalse(agrees, "the caller's id belongs to a different holder now");
     }
 
+    /// Two accounts of one wallet pass a handle between them: the pair learned
+    /// with the first account no longer goes together, though one wallet holds both.
+    function test_resolveHandleAndIdReportsAHandleThatPassedToAnotherAccountOfTheWallet() public {
+        _bind(alice, "123", "alice", 100);
+        _bind(alice, "123", "alice2", 200);
+        _bind(alice, "456", "alice", 300);
+
+        (address holder, bool agrees) = registry.resolveHandleAndId(X, "alice", _id(X, "123"));
+        assertEq(holder, alice);
+        assertFalse(agrees, "the handle belongs to the wallet's other account now");
+        (, agrees) = registry.resolveHandleAndId(X, "alice", _id(X, "456"));
+        assertTrue(agrees);
+        (, agrees) = registry.resolveHandleNodeAndId(X, _hn(X, "alice"), _id(X, "123"));
+        assertFalse(agrees);
+    }
+
+    /// An account that moves to another wallet keeps its pair.
+    function test_resolveHandleAndIdAgreesAfterTheAccountMovesWallets() public {
+        _bind(alice, "123", "alice", 100);
+        _bind(bob, "123", "alice", 200);
+
+        (address holder, bool agrees) = registry.resolveHandleAndId(X, "alice", _id(X, "123"));
+        assertEq(holder, bob);
+        assertTrue(agrees);
+    }
+
     /// An id the chain has never seen leaves a caller exactly as uninformed as
     /// a stale one, so it does not agree either.
     function test_resolveHandleAndIdDoesNotAgreeOnAnUnknownId() public {

@@ -452,7 +452,10 @@ contract IdentityRegistry is
         }
     }
 
-    /// @notice The holder of a handle, and whether it also holds `idNode` on that platform.
+    /// @notice The holder of a handle, and whether `idNode` is the account that
+    ///         last proved it: a `(handle, id)` pair learned earlier still goes
+    ///         together. An unknown id, or a handle with no holder, disagrees.
+    ///         Advice for the caller; it refuses nothing.
     function resolveHandleAndId(bytes32 platformId, string calldata handle, bytes32 idNode)
         external
         view
@@ -460,7 +463,7 @@ contract IdentityRegistry is
     {
         _requireKnown(platformId);
         (, bytes32 handleNode) = _handleNodeOf(platformId, handle);
-        return _resolveNodeAndId(platformId, handleNode, idNode);
+        return _resolveNodeAndId(handleNode, idNode);
     }
 
     /// @notice `resolveHandleAndId` for a handle node computed off chain, so
@@ -473,17 +476,19 @@ contract IdentityRegistry is
     {
         _requireKnown(platformId);
         if (_s().platformOfId[_s().idNodeByHandle[handleNode]] != platformId) return (address(0), false);
-        return _resolveNodeAndId(platformId, handleNode, idNode);
+        return _resolveNodeAndId(handleNode, idNode);
     }
 
-    function _resolveNodeAndId(bytes32 platformId, bytes32 handleNode, bytes32 idNode)
+    /// @dev The handle's pairing names the account that last proved it
+    ///      (REQ-PLAT-08I), so two accounts of one wallet passing a handle
+    ///      between them disagree, and a pairing never crosses platforms.
+    function _resolveNodeAndId(bytes32 handleNode, bytes32 idNode)
         private
         view
         returns (address holder, bool idAgrees)
     {
         holder = _s().handleBindings[handleNode].holder;
-        idAgrees =
-            holder != address(0) && _s().idBindings[idNode].holder == holder && _s().platformOfId[idNode] == platformId;
+        idAgrees = holder != address(0) && _s().idNodeByHandle[handleNode] == idNode;
     }
 
     // ─── Upgrades ───────────────────────────────────────────────────

@@ -59,7 +59,7 @@ mod registry_inner {
             /// The holder of an id node.
             function resolveId(bytes32 idNode) external view returns (address);
             function resolveHandle(bytes32 platformId, string calldata handle) external view returns (address);
-            /// The handle's holder, and whether `idNode` resolves to it too.
+            /// The handle's holder, and whether `idNode` is the account that last proved it.
             function resolveHandleAndId(bytes32 platformId, string calldata handle, bytes32 idNode) external view returns (address holder, bool idAgrees);
             /// `resolveHandleAndId` for a handle node computed off chain.
             function resolveHandleNodeAndId(bytes32 platformId, bytes32 handleNode, bytes32 idNode) external view returns (address holder, bool idAgrees);
