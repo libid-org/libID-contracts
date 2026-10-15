@@ -29,11 +29,6 @@ contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable
     /// @notice The native token of the chain, as a token address (EIP-7528).
     address public constant NATIVE = NATIVE_TOKEN;
 
-    /// @notice As `expectedHolder`: the node must have no holder, so the deposit escrows.
-    ///         No binding holds address(1): a bind's holder is its sender, and
-    ///         address(1) is a precompile that sends nothing.
-    address public constant UNHELD = address(1);
-
     /// @custom:storage-location erc7201:libid.storage.HandleEscrow
     struct HandleEscrowStorage {
         /// handle node -> token -> amount held.
@@ -127,8 +122,6 @@ contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable
     /// `refundTo` must be an address that can call `refund`: not zero, not
     /// this contract.
     error BadRefundTo(address refundTo);
-    /// The node's holder is not the one the depositor expected; `actual` is zero when unheld.
-    error UnexpectedHolder(address expected, address actual);
     /// A token other than `NATIVE` must have code.
     error BadToken(address token);
     /// A payout may not go to the zero address or this contract.
@@ -172,7 +165,8 @@ contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable
 
     // ─── Depositing ─────────────────────────────────────────────────
 
-    /// @notice Pay `amount` of `token` to a handle node (`IdentityRegistry.handleNodeOf`).
+    /// @notice Pay `amount` of `token` to a handle node (`IdentityRegistry.handleNodeOf`):
+    ///         to whoever holds it when the transaction executes, else into escrow.
     ///         Reverts `PlatformAcceptsNoBindings` when it would escrow on a platform nobody
     ///         can bind now; a holder is still paid.
     /// @dev Books what arrived. A wrong node, or a node of another platform than
@@ -180,18 +174,12 @@ contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable
     /// @param platformId     The platform whose tag made `handleNode`.
     /// @param token          An ERC-20, or `NATIVE`, when `amount` must equal `msg.value`.
     /// @param refundTo       Who may refund an escrowed deposit; never zero or this contract.
-    /// @param expectedHolder The holder the depositor saw: zero accepts either outcome, `UNHELD`
-    ///                       requires no holder, any other address requires exactly that holder.
-    ///                       Otherwise `UnexpectedHolder`.
-    function deposit(
-        bytes32 platformId,
-        bytes32 handleNode,
-        address token,
-        uint256 amount,
-        address refundTo,
-        address expectedHolder
-    ) external payable nonReentrant {
-        _deposit(handleNode, platformId, token, amount, refundTo, expectedHolder);
+    function deposit(bytes32 platformId, bytes32 handleNode, address token, uint256 amount, address refundTo)
+        external
+        payable
+        nonReentrant
+    {
+        _deposit(handleNode, platformId, token, amount, refundTo);
     }
 
     /// @notice `deposit` to a handle given as text, which the calldata and the
@@ -203,22 +191,14 @@ contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable
         string calldata handle,
         address token,
         uint256 amount,
-        address refundTo,
-        address expectedHolder
+        address refundTo
     ) external payable nonReentrant {
         bytes32 handleNode = _s().registry.handleNodeOf(platformId, handle);
-        _deposit(handleNode, platformId, token, amount, refundTo, expectedHolder);
+        _deposit(handleNode, platformId, token, amount, refundTo);
         emit DepositedToHandle(handleNode, platformId, HandleNode.fold(handle));
     }
 
-    function _deposit(
-        bytes32 handleNode,
-        bytes32 platformId,
-        address token,
-        uint256 amount,
-        address refundTo,
-        address expectedHolder
-    ) private {
+    function _deposit(bytes32 handleNode, bytes32 platformId, address token, uint256 amount, address refundTo) private {
         if (amount == 0) revert ZeroAmount();
         if (refundTo == address(0) || refundTo == address(this)) revert BadRefundTo(refundTo);
         if (token == NATIVE) {
@@ -230,9 +210,6 @@ contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable
 
         HandleEscrowStorage storage $ = _s();
         (address holder,) = $.registry.handleBinding(handleNode);
-        if (expectedHolder != address(0) && expectedHolder != (holder == address(0) ? UNHELD : holder)) {
-            revert UnexpectedHolder(expectedHolder, holder);
-        }
         if (holder != address(0)) {
             if (holder == msg.sender) revert PayingYourself(holder);
             uint256 received = _move(token, msg.sender, holder, amount);

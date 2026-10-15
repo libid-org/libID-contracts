@@ -910,9 +910,8 @@ async fn escrows_value_against_an_unclaimed_handle() {
 
     // Escrowed for nobody; an unheld node refuses a claim with the bound error.
     let amount = U256::from(1_000_000_000_000_000_000u64);
-    let unheld = escrow.UNHELD().call().await.unwrap();
     let receipt = escrow
-        .deposit(platform_id, node, native, amount, deployer, unheld)
+        .deposit(platform_id, node, native, amount, deployer)
         .value(amount)
         .send()
         .await

@@ -6,7 +6,7 @@ until then each deposit's `refundTo` can take its own contribution back. A
 handle somebody already holds is paid straight through.
 
 ```solidity
-escrow.deposit{value: amount}(platformId, handleNode, escrow.NATIVE(), amount, refundTo, expectedHolder);
+escrow.deposit{value: amount}(platformId, handleNode, escrow.NATIVE(), amount, refundTo);
 escrow.claim(handleNode, tokens, recipient);   // the handle's holder
 escrow.refund(handleNode, token, recipient);   // refundTo, while unclaimed
 ```
@@ -46,10 +46,8 @@ escrow.refund(handleNode, token, recipient);   // refundTo, while unclaimed
   node with `IdentityRegistry.IdentityBound`, or recompute it from a known
   handle.
 - Pay-through goes to whoever holds the handle when the transaction lands,
-  recycled handles included. Show `handleBinding(node)` first and pass the
-  holder shown as `expectedHolder`, or `UNHELD` (`address(1)`) for none: a
-  handle that changes hands before the deposit lands then reverts
-  `UnexpectedHolder`. Zero accepts either outcome. A
+  recycled handles included: a handle that changes hands before the deposit
+  lands pays its new holder, and a forward cannot be refunded. A
   holder that rejects ETH cannot be paid in ETH; a holder contract can burn
   its payers' gas.
 - Each token is one pool. Rebasing tokens are unsupported: after a negative

@@ -11,13 +11,13 @@ mod escrow_inner {
         interface HandleEscrow {
             function initialize(address owner_, address registry_) external;
 
-            /// Pay a handle by its node: forwarded to a holder, otherwise
-            /// escrowed and refundable to `refundTo` until claimed. A non-zero
-            /// `expectedHolder` (`UNHELD` for none) must match the holder.
-            function deposit(bytes32 platformId, bytes32 handleNode, address token, uint256 amount, address refundTo, address expectedHolder) external payable;
+            /// Pay a handle by its node: forwarded to whoever holds it when the
+            /// transaction executes, otherwise escrowed and refundable to
+            /// `refundTo` until claimed.
+            function deposit(bytes32 platformId, bytes32 handleNode, address token, uint256 amount, address refundTo) external payable;
             /// `deposit` to a handle given as text, at the registry's
             /// `handleNodeOf`; public, and logged as `DepositedToHandle`.
-            function depositToHandle(bytes32 platformId, string calldata handle, address token, uint256 amount, address refundTo, address expectedHolder) external payable;
+            function depositToHandle(bytes32 platformId, string calldata handle, address token, uint256 amount, address refundTo) external payable;
 
             /// Take everything held for a node in each of `tokens`; holder
             /// only. Tokens with nothing held are skipped; reverts
@@ -35,8 +35,6 @@ mod escrow_inner {
             function registry() external view returns (address);
             /// The EIP-7528 native-token address, `0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE`.
             function NATIVE() external view returns (address);
-            /// `expectedHolder` for a node with no holder: `address(1)`.
-            function UNHELD() external view returns (address);
 
             function owner() external view returns (address);
             function pendingOwner() external view returns (address);
@@ -101,8 +99,6 @@ mod escrow_inner {
             error NothingToRefund(bytes32 handleNode, address token, address refundTo);
             /// `refundTo` is zero or the escrow: nobody could refund.
             error BadRefundTo(address refundTo);
-            /// The holder is not `expected`; `actual` is zero when unheld.
-            error UnexpectedHolder(address expected, address actual);
             /// A token other than `NATIVE` has no code.
             error BadToken(address token);
             error BadRecipient(address recipient);
