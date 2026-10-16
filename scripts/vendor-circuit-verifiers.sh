@@ -5,12 +5,17 @@
 #   bearer-link  ->  BearerLinkHonkVerifier.sol  (the x and github profiles)
 #   oidc-google  ->  OidcGoogleHonkVerifier.sol  (the google profile)
 #
+# and, beside them, the platform table the circuits were built from:
+# platforms.json (each platform's node tags, buffers and id shape) and
+# handles.json (the shared vector table), the sources of CeremonyProfile's
+# tags and of the Rust and TypeScript handle tables.
+#
 # The pin is solidity/contracts/circuits/circuits.json: the release version
 # and each tarball's sha256. Downloads are checked against it, the release
-# manifest is held to it, and each circuit's handles-table.nr must be what
-# handles.json generates (`--compare-noir`). The sources are gitignored and
-# vendored before every build. Last, it writes the committed
-# CircuitCodehashes.sol, the runtime code hashes the Platform Verifiers pin.
+# manifest is held to it, and every circuit of a release must ship one
+# table. The vendored files are gitignored and vendored before every build.
+# Last, it writes the committed CircuitCodehashes.sol, the runtime code
+# hashes the Platform Verifiers pin.
 #
 # Moving the pin: write the new version and digests (from the release page)
 # into circuits.json, run this script, commit circuits.json and
@@ -20,10 +25,10 @@
 #   scripts/vendor-circuit-verifiers.sh                    # write the verifiers from the pin
 #   scripts/vendor-circuit-verifiers.sh --local <artifacts>
 #
-# --local takes the verifiers from a libid-circuits `scripts/build.sh --out
-# <artifacts>` build, for development only; the written files say so.
+# --local takes the files from a libid-circuits `scripts/build.sh --out
+# <artifacts>` build, for development only; the written verifiers say so.
 #
-# Requires curl, jq, tar, forge, cast, python3 and shasum or sha256sum.
+# Requires curl, jq, tar, forge, cast and shasum or sha256sum.
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -44,7 +49,7 @@ if [[ $# -gt 0 ]]; then
     exit 2
 fi
 
-for tool in curl jq tar forge cast; do
+for tool in curl jq tar forge cast cmp; do
     command -v "$tool" >/dev/null || { echo "$tool is required" >&2; exit 1; }
 done
 sha256() {
@@ -64,16 +69,22 @@ while IFS=$'\t' read -r circuit contract digest; do
     CIRCUITS+=("$circuit") CONTRACTS+=("$contract") DIGESTS+=("$digest")
 done < <(jq -r '.circuits | to_entries[] | "\(.key)\t\(.value.contract)\t\(.value.sha256)"' "$PIN")
 
-# The circuit in `$1` was compiled from this repository's handle table.
-require_table() {
-    local dir="$1" circuit="$2"
-    [[ -f "$dir/handles-table.nr" ]] ||
-        { echo "$circuit: no handles-table.nr; it predates the shipped handle table, or the build is not libid-circuits'" >&2; exit 1; }
-    python3 "$REPO_ROOT/scripts/regen-identity-handles.py" --compare-noir "$dir/handles-table.nr" >/dev/null || {
-        echo "$circuit was built from another handle table than contracts/handles/handles.json" >&2
-        echo "  regenerate: scripts/regen-identity-handles.py --noir-out <libid-circuits>/lib/identity/src/table.nr, then rebuild" >&2
-        exit 1
-    }
+# The platform table every circuit ships. Staged from the first circuit and
+# held byte-identical across the rest: the generators read one table, so a
+# release whose circuits were built from two must not vendor.
+TABLES=(platforms.json handles.json)
+stage_tables() {
+    local dir="$1" circuit="$2" name
+    for name in "${TABLES[@]}"; do
+        [[ -f "$dir/$name" ]] ||
+            { echo "$circuit: no $name; the build predates the shipped platform table, or is not libid-circuits'" >&2; exit 1; }
+        if [[ -f "$STAGE/$name" ]]; then
+            cmp -s "$dir/$name" "$STAGE/$name" ||
+                { echo "$circuit: its $name differs from another circuit's; the circuits were built from different tables" >&2; exit 1; }
+        else
+            cp "$dir/$name" "$STAGE/$name"
+        fi
+    done
 }
 
 # The interchange-format checks and the formatting, shared by both modes.
@@ -146,12 +157,13 @@ if [[ -n "$LOCAL" ]]; then
     fi
     for i in "${!CIRCUITS[@]}"; do
         circuit="${CIRCUITS[$i]}" contract="${CONTRACTS[$i]}"
-        require_table "$LOCAL/$circuit" "$circuit"
+        stage_tables "$LOCAL/$circuit" "$circuit"
         write_verifier "$LOCAL/$circuit/$contract.sol" "$contract" \
             "// UNRELEASED: $circuit, from $origin, by scripts/vendor-circuit-verifiers.sh --local.\n// Not pinned by circuits.json. Develop against it; never deploy it."
         echo "==> $circuit -> $DEST_REL/$contract.sol (local, unpinned)"
     done
-    cp "$STAGE"/*.sol "$DEST/"
+    cp "$STAGE"/*.sol "$STAGE"/*.json "$DEST/"
+    echo "==> ${TABLES[*]} -> $DEST_REL/ (local, unpinned)"
     write_codehashes "$origin (unreleased, unpinned)"
     exit 0
 fi
@@ -207,11 +219,12 @@ for i in "${!CIRCUITS[@]}"; do
             { echo "$tarball: $name sha256 $file_got, the manifest says $file_want" >&2; exit 1; }
     done < <(jq -r --arg t "$tarball" '.tarballs[$t].files | to_entries[] | "\(.key)\t\(.value)"' "$WORK/manifest.json")
 
-    require_table "$WORK/$circuit" "$circuit"
+    stage_tables "$WORK/$circuit" "$circuit"
     write_verifier "$WORK/$circuit/$contract.sol" "$contract" \
         "// Vendored from libid-circuits $TAG ($tarball) by scripts/vendor-circuit-verifiers.sh. Do not edit.\n// The pin is $DEST_REL/circuits.json; \`forge fmt\` is the only change to what shipped."
     echo "==> $circuit -> $DEST_REL/$contract.sol"
 done
 
-cp "$STAGE"/*.sol "$DEST/"
+cp "$STAGE"/*.sol "$STAGE"/*.json "$DEST/"
+echo "==> ${TABLES[*]} -> $DEST_REL/"
 write_codehashes "libid-circuits $TAG"
