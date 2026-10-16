@@ -55,10 +55,10 @@ describe('handle normalization', () => {
 })
 
 describe('the generated table', () => {
-  /// The constants carry the SHA-256 of `handles.json`.
-  it('comes from this handles.json', () => {
+  /// The constants carry the SHA-256 of the vendored `handles.json`.
+  it('comes from the vendored handles.json', () => {
     const table = readFileSync(
-      new URL('../../../../../solidity/contracts/handles/handles.json', import.meta.url),
+      new URL('../../../../../solidity/contracts/circuits/handles.json', import.meta.url),
     )
     expect(createHash('sha256').update(table).digest('hex')).toBe(TABLE_SHA256)
   })

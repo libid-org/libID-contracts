@@ -44,7 +44,7 @@ impl std::fmt::Display for HandleError {
 
 impl std::error::Error for HandleError {}
 
-/// What one platform's circuit takes, generated from its profile's `keys`.
+/// What one platform's circuit takes, generated from the circuits' `platforms.json`.
 #[derive(Debug, Clone, Copy)]
 pub struct Rules {
     /// Bytes the circuit's buffer holds.
@@ -122,15 +122,16 @@ mod tests {
         }
     }
 
-    /// The generated constants carry the SHA-256 of `handles.json`.
+    /// The generated constants carry the SHA-256 of the vendored `handles.json`.
     #[test]
     fn the_generated_constants_come_from_this_table() {
         use sha2::Digest as _;
         let path = concat!(
             env!("CARGO_MANIFEST_DIR"),
-            "/../../solidity/contracts/handles/handles.json"
+            "/../../solidity/contracts/circuits/handles.json"
         );
-        let table = std::fs::read(path).expect("handles.json beside the crate");
+        let table = std::fs::read(path)
+            .expect("the vendored handles.json; run scripts/vendor-circuit-verifiers.sh");
         let digest: String = sha2::Sha256::digest(&table)
             .iter()
             .map(|b| format!("{b:02x}"))

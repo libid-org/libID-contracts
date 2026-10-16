@@ -15,9 +15,10 @@ solidity/            # Foundry project root
     ceremony/        # NotaryService, CeremonyProofVerifier, Platform Verifiers,
                      # GoogleJwtRoots
     circuits/        # the UltraHonk verifiers the Platform Verifiers pin:
-                     # circuits.json pins a libid-circuits release, the
-                     # Solidity is vendored from it and not committed
-    handles/         # HandleNode: the A-Z fold and the node hash; handles.json
+                     # circuits.json pins a libid-circuits release; the
+                     # Solidity and the platform table (platforms.json,
+                     # handles.json) are vendored from it and not committed
+    handles/         # HandleNode: the A-Z fold and the node hash
     identity/        # IdentityRegistry
     factory/         # LibidFactory: deterministic CREATE3 deployment
     WTIA9.sol        # wrapped TIA
@@ -41,9 +42,10 @@ forge build
 forge test
 ```
 
-Nothing generated is committed. The Honk verifiers are downloaded from the
-pinned [libID-circuits](https://github.com/libid-org/libID-circuits) release
-(see [Circuit verifiers](#circuit-verifiers)), so a fresh clone vendors them
+Nothing generated is committed. The Honk verifiers and the platform table
+the circuits were built from are downloaded from the pinned
+[libID-circuits](https://github.com/libid-org/libID-circuits) release (see
+[Circuit verifiers](#circuit-verifiers)), so a fresh clone vendors them
 before its first `forge build`, which needs curl, jq, tar and forge. `forge
 build` is in turn the input to the two generated trees. Generate them once
 after cloning, and again after any change to a contract they cover:
@@ -63,22 +65,26 @@ and npm package carry the generated output even though git does not.
 
 ## Handle vectors
 
-Each platform's node tags and the circuits' buffers are its `keys` in
-`solidity/contracts/ceremony/profiles.json`, which also generates
-`CeremonyProfile.sol` (the platform ids and tags the contracts read).
-`solidity/contracts/handles/handles.json` holds the shared vector table.
-After editing either:
+Each platform's node tags, the circuits' buffers and its id shape are
+libID-circuits' `lib/identity/platforms.json`, and the shared vector table
+its `lib/identity/handles.json`. The pinned release ships both beside each
+verifier, and `scripts/vendor-circuit-verifiers.sh` vendors them into
+`solidity/contracts/circuits/`, gitignored like the verifiers. After the pin
+moves:
 
 ```sh
 python3 scripts/regen-identity-handles.py          # rewrite generated outputs
 python3 scripts/regen-identity-handles.py --check  # verify nothing drifted
+python3 scripts/regen-ceremony-profiles.py         # the tags in CeremonyProfile.sol
 ```
 
-This generates `rust/identity/src/handle_vectors.rs` and
-`ts/packages/contracts/src/identity/handleVectors.ts`; CI's handle-tables job
-fails when either drifts from its sources. On chain a handle is only folded,
-by the hand-written `HandleNode`, and forge runs the accepted vectors read
-from `handles.json` itself.
+The first generates `rust/identity/src/handle_vectors.rs` and
+`ts/packages/contracts/src/identity/handleVectors.ts`; the second reads each
+profile's tags from `platforms.json` into `CeremonyProfile.sol` beside the
+rest of `profiles.json`. CI's Generated tables job vendors the release and
+fails when either drifts. On chain a handle is only folded, by the
+hand-written `HandleNode`, and forge runs the accepted vectors read from the
+vendored `handles.json` itself.
 
 ## Circuit verifiers
 
@@ -88,7 +94,9 @@ each from its circuit's verification key, and
 ships the Solidity in its release tarballs. `scripts/vendor-circuit-verifiers.sh`
 downloads it into `solidity/contracts/circuits/`, formatted, where `forge
 build` compiles it and the crate embeds it, so no consumer runs `bb`. The
-files are gitignored: they are another repository's release asset, and the
+platform table the circuits were built from, `platforms.json` and
+`handles.json`, ships in the same tarballs and is vendored beside them. The
+files are gitignored: they are another repository's release assets, and the
 pin says which bytes they must be. `solidity/foundry.toml` compiles them on
 the legacy pipeline and everything else via IR: solc cannot compile bb's
 optimized verifier via IR.
@@ -102,16 +110,9 @@ To move it, download the new release's tarballs, take their digests with
 scripts/vendor-circuit-verifiers.sh   # rewrite the verifiers from the pin
 ```
 
-A change spanning both repositories lands in this order:
-
-1. Cut a libID-circuits pre-release tag from the circuits PR branch.
-2. Pin it in `circuits.json` (version and sha256s).
-3. This repository's CI goes green and its PR merges.
-4. libID-circuits moves `contracts.ref` to the merged commit on main, and
-   its PR merges.
-
-A squash merge of the circuits PR must keep the tagged tree identical apart
-from `contracts.ref`, so the pinned release still matches main.
+A change spanning both repositories lands circuits first: libID-circuits
+merges and tags a release, then `circuits.json` pins it here and the tables
+are regenerated from what it ships.
 
 CI's forge-build action runs the same script before every build, test,
 dry-run and publish, refusing any tarball whose digest is not the pin's; a
