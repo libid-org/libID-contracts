@@ -136,7 +136,8 @@ contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable
     error RegistryLacks(address registry, bytes4 selector);
     /// Ownership cannot be renounced; see `renounceOwnership`.
     error RenounceDisabled();
-    /// A deposit to an unheld node: nobody can bind on this platform now, so nobody could claim.
+    /// A deposit to an unheld node on a platform the registry knows but nobody can bind now,
+    /// so nobody could claim. A platform it does not know reverts its `UnknownPlatform`.
     error PlatformAcceptsNoBindings(bytes32 platformId);
 
     // ─── Setup ──────────────────────────────────────────────────────
@@ -168,7 +169,8 @@ contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable
     /// @notice Pay `amount` of `token` to a handle node (`IdentityRegistry.handleNodeOf`):
     ///         to whoever holds it when the transaction executes, else into escrow.
     ///         Reverts `PlatformAcceptsNoBindings` when it would escrow on a platform nobody
-    ///         can bind now; a holder is still paid.
+    ///         can bind now, and the registry's `UnknownPlatform` when it would escrow on a
+    ///         platform the registry does not know; a holder is still paid.
     /// @dev Books what arrived. A wrong node funds a slot only `refundTo` can
     ///      recover. A node of another platform than `platformId` escrows until
     ///      its own platform binds it; then its holder can claim.
@@ -184,8 +186,8 @@ contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable
     }
 
     /// @notice `deposit` to a handle given as text, which the calldata and the
-    ///         log make public. A platform the registry does not know reverts
-    ///         `PlatformAcceptsNoBindings`, as `deposit` does.
+    ///         log make public. Reverts the registry's `UnknownPlatform` for a platform it
+    ///         does not know, as `deposit` does.
     /// @dev The node is the registry's `handleNodeOf`: the one `deposit` takes.
     ///      The log carries the handle folded, as `HandlePublished` does.
     function depositToHandle(
@@ -195,26 +197,9 @@ contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable
         uint256 amount,
         address refundTo
     ) external payable nonReentrant {
-        bytes32 handleNode = _handleNodeOf(platformId, handle);
+        bytes32 handleNode = _s().registry.handleNodeOf(platformId, handle);
         _deposit(handleNode, platformId, token, amount, refundTo);
         emit DepositedToHandle(handleNode, platformId, HandleNode.fold(handle));
-    }
-
-    /// @dev The registry's `handleNodeOf`, with `UnknownPlatform` as `PlatformAcceptsNoBindings`.
-    function _handleNodeOf(bytes32 platformId, string calldata handle) private view returns (bytes32) {
-        try _s().registry.handleNodeOf(platformId, handle) returns (bytes32 node) {
-            return node;
-        } catch (bytes memory reason) {
-            if (
-                keccak256(reason)
-                    == keccak256(abi.encodeWithSelector(IIdentityRegistry.UnknownPlatform.selector, platformId))
-            ) {
-                revert PlatformAcceptsNoBindings(platformId);
-            }
-            assembly {
-                revert(add(reason, 32), mload(reason))
-            }
-        }
     }
 
     function _deposit(bytes32 handleNode, bytes32 platformId, address token, uint256 amount, address refundTo) private {
@@ -237,7 +222,10 @@ contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable
             return;
         }
 
-        if (!$.registry.acceptsBindings(platformId)) revert PlatformAcceptsNoBindings(platformId);
+        if (!$.registry.acceptsBindings(platformId)) {
+            if (!_knows($.registry, platformId)) revert IIdentityRegistry.UnknownPlatform(platformId);
+            revert PlatformAcceptsNoBindings(platformId);
+        }
         uint256 credited = _move(token, msg.sender, address(this), amount);
         if (credited == 0) revert ZeroAmount();
 
@@ -353,11 +341,8 @@ contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable
         if (!ok || result.length != 32 || abi.decode(result, (uint256)) != 1) {
             revert RegistryLacks(address(registry_), IIdentityRegistry.nodeKeyed.selector);
         }
-        (ok, result) = address(registry_).staticcall(abi.encodeCall(IIdentityRegistry.handleNodeOf, (bytes32(0), "")));
-        bool answered = ok
-            ? result.length == 32
-            : keccak256(result)
-                == keccak256(abi.encodeWithSelector(IIdentityRegistry.UnknownPlatform.selector, bytes32(0)));
+        (ok, result) = _probeHandleNodeOf(registry_, bytes32(0));
+        bool answered = ok ? result.length == 32 : _isUnknownPlatform(result, bytes32(0));
         if (!answered) {
             revert RegistryLacks(address(registry_), IIdentityRegistry.handleNodeOf.selector);
         }
@@ -365,6 +350,27 @@ contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable
         if (!ok || result.length != 32 || abi.decode(result, (uint256)) > 1) {
             revert RegistryLacks(address(registry_), IIdentityRegistry.acceptsBindings.selector);
         }
+    }
+
+    /// @dev Whether the registry knows `platformId`: its `handleNodeOf` refuses a platform it
+    ///      does not know with `UnknownPlatform`, and answers or refuses a known one otherwise.
+    function _knows(IIdentityRegistry registry_, bytes32 platformId) private view returns (bool) {
+        (bool ok, bytes memory result) = _probeHandleNodeOf(registry_, platformId);
+        return ok || !_isUnknownPlatform(result, platformId);
+    }
+
+    function _probeHandleNodeOf(IIdentityRegistry registry_, bytes32 platformId)
+        private
+        view
+        returns (bool ok, bytes memory result)
+    {
+        return address(registry_).staticcall(abi.encodeCall(IIdentityRegistry.handleNodeOf, (platformId, "")));
+    }
+
+    function _isUnknownPlatform(bytes memory reason, bytes32 platformId) private pure returns (bool) {
+        return
+            keccak256(reason)
+                == keccak256(abi.encodeWithSelector(IIdentityRegistry.UnknownPlatform.selector, platformId));
     }
 
     // ─── Upgrade ────────────────────────────────────────────────────
