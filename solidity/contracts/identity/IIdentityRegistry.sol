@@ -3,7 +3,7 @@ pragma solidity ^0.8.20;
 
 /// @notice What other contracts ask the identity registry.
 interface IIdentityRegistry {
-    /// No ceremony profile names the platform, or a resolver's platform cannot be used.
+    /// No ceremony profile names the platform.
     error UnknownPlatform(bytes32 platformId);
 
     /// @notice The holder of this handle node (zero if none), and when it was last proved.

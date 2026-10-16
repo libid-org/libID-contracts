@@ -24,6 +24,7 @@ import {
     NoHandleNodeOfRegistry,
     NotNodeKeyedRegistry,
     PreNodeRegistry,
+    RefusingHandleNodeOfRegistry,
     RejectEther,
     RevertingHandleNodeOfRegistry,
     SettableRegistry,
@@ -292,11 +293,22 @@ contract HandleEscrowTest is PrivacyScan {
         assertEq(escrow.refundable(aliceNode, NATIVE, sender), 3 ether);
     }
 
-    function test_aPublicDepositRefusesAnUnknownPlatform() public {
+    /// Both modes name an unknown platform's refusal alike.
+    function test_aDepositRefusesAnUnknownPlatform() public {
         bytes32 nowhere = keccak256("nowhere");
-        vm.prank(sender);
-        vm.expectRevert(abi.encodeWithSelector(IIdentityRegistry.UnknownPlatform.selector, nowhere));
+        vm.startPrank(sender);
+        vm.expectRevert(abi.encodeWithSelector(HandleEscrow.PlatformAcceptsNoBindings.selector, nowhere));
         escrow.depositToHandle{value: 1 ether}(nowhere, "alice", NATIVE, 1 ether, sender);
+        vm.expectRevert(abi.encodeWithSelector(HandleEscrow.PlatformAcceptsNoBindings.selector, nowhere));
+        escrow.deposit{value: 1 ether}(nowhere, aliceNode, NATIVE, 1 ether, sender);
+        vm.stopPrank();
+    }
+
+    function test_aPublicDepositPassesOnTheRegistrysOtherRefusals() public {
+        HandleEscrow refused = _deploy(address(new RefusingHandleNodeOfRegistry()));
+        vm.prank(sender);
+        vm.expectRevert(bytes("alice"));
+        refused.depositToHandle{value: 1 ether}(X, "alice", NATIVE, 1 ether, sender);
     }
 
     /// A public deposit to a held node is paid through and still names its handle.

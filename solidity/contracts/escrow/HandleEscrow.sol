@@ -136,7 +136,7 @@ contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable
     error RegistryLacks(address registry, bytes4 selector);
     /// Ownership cannot be renounced; see `renounceOwnership`.
     error RenounceDisabled();
-    /// `depositToHandle` to an unheld node: nobody can bind on this platform now, so nobody could claim.
+    /// A deposit to an unheld node: nobody can bind on this platform now, so nobody could claim.
     error PlatformAcceptsNoBindings(bytes32 platformId);
 
     // ─── Setup ──────────────────────────────────────────────────────
@@ -169,8 +169,9 @@ contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable
     ///         to whoever holds it when the transaction executes, else into escrow.
     ///         Reverts `PlatformAcceptsNoBindings` when it would escrow on a platform nobody
     ///         can bind now; a holder is still paid.
-    /// @dev Books what arrived. A wrong node, or a node of another platform than
-    ///      `platformId`, funds a slot only `refundTo` can recover.
+    /// @dev Books what arrived. A wrong node funds a slot only `refundTo` can
+    ///      recover. A node of another platform than `platformId` escrows until
+    ///      its own platform binds it; then its holder can claim.
     /// @param platformId     The platform whose tag made `handleNode`.
     /// @param token          An ERC-20, or `NATIVE`, when `amount` must equal `msg.value`.
     /// @param refundTo       Who may refund an escrowed deposit; never zero or this contract.
@@ -183,7 +184,8 @@ contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable
     }
 
     /// @notice `deposit` to a handle given as text, which the calldata and the
-    ///         log make public. Reverts the registry's `UnknownPlatform` for a platform it does not know.
+    ///         log make public. A platform the registry does not know reverts
+    ///         `PlatformAcceptsNoBindings`, as `deposit` does.
     /// @dev The node is the registry's `handleNodeOf`: the one `deposit` takes.
     ///      The log carries the handle folded, as `HandlePublished` does.
     function depositToHandle(
@@ -193,9 +195,26 @@ contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable
         uint256 amount,
         address refundTo
     ) external payable nonReentrant {
-        bytes32 handleNode = _s().registry.handleNodeOf(platformId, handle);
+        bytes32 handleNode = _handleNodeOf(platformId, handle);
         _deposit(handleNode, platformId, token, amount, refundTo);
         emit DepositedToHandle(handleNode, platformId, HandleNode.fold(handle));
+    }
+
+    /// @dev The registry's `handleNodeOf`, with `UnknownPlatform` as `PlatformAcceptsNoBindings`.
+    function _handleNodeOf(bytes32 platformId, string calldata handle) private view returns (bytes32) {
+        try _s().registry.handleNodeOf(platformId, handle) returns (bytes32 node) {
+            return node;
+        } catch (bytes memory reason) {
+            if (
+                keccak256(reason)
+                    == keccak256(abi.encodeWithSelector(IIdentityRegistry.UnknownPlatform.selector, platformId))
+            ) {
+                revert PlatformAcceptsNoBindings(platformId);
+            }
+            assembly {
+                revert(add(reason, 32), mload(reason))
+            }
+        }
     }
 
     function _deposit(bytes32 handleNode, bytes32 platformId, address token, uint256 amount, address refundTo) private {

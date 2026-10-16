@@ -25,7 +25,12 @@ contract SettableRegistry is IIdentityRegistry {
         return (holderOf[handleNode], 0);
     }
 
-    function handleNodeOf(bytes32 platformId, string calldata handle) external pure returns (bytes32 handleNode) {
+    function handleNodeOf(bytes32 platformId, string calldata handle)
+        external
+        pure
+        virtual
+        returns (bytes32 handleNode)
+    {
         (, handleNode) = HandleNode.nodeOf(CeremonyProfile.handleTag(platformId), handle);
     }
 
@@ -35,6 +40,14 @@ contract SettableRegistry is IIdentityRegistry {
 
     function nodeKeyed() external pure virtual returns (bool) {
         return true;
+    }
+}
+
+/// @notice Its `handleNodeOf` reverts with the handle as the reason on every known platform.
+contract RefusingHandleNodeOfRegistry is SettableRegistry {
+    function handleNodeOf(bytes32 platformId, string calldata handle) external pure override returns (bytes32) {
+        if (!CeremonyProfile.knows(platformId)) revert UnknownPlatform(platformId);
+        revert(handle);
     }
 }
 

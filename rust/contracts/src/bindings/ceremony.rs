@@ -439,7 +439,7 @@ mod payloads_inner {
             }
 
             /// `TlsNotaryVerifierBase.TlsNotaryProof`: the `x/v1` and
-            /// `github/v1` payload. An empty `handle` discloses none.
+            /// `github/v1` payload.
             #[derive(Debug, PartialEq, Eq)]
             struct TlsNotaryProof {
                 uint16 ceremonyVersion;
