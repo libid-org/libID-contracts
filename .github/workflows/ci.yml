@@ -7,10 +7,10 @@ name: CI
 # cache key, and whichever run warms the cache first makes the build a fast
 # no-op everywhere else.
 #
-# Nothing generated is committed: the vendored Honk verifiers,
-# rust/contracts/artifacts and ts/packages/contracts/src/abis are all
-# gitignored. The forge-build composite vendors the verifiers before it
-# builds, and every job that compiles the crate or the package regenerates
+# Nothing generated is committed: the vendored Honk verifiers and platform
+# table, rust/contracts/artifacts and ts/packages/contracts/src/abis are all
+# gitignored. The forge-build composite vendors the circuits release before
+# it builds, and every job that compiles the crate or the package regenerates
 # its tree first — publishing included.
 #
 # Job ids are stable on purpose (solidity, generated-tables, rust, ts, dco):
@@ -151,10 +151,11 @@ jobs:
           fi
 
   # ---------------------------------------------------------------------------
-  # Generated files match their source. profiles.json and handles.json
-  # generate the platform constants and the handle vector table for every
-  # language; a drift between the source and a committed output leaves every
-  # per-language test green while the languages disagree with each other. The Honk verifiers are not
+  # Generated files match their sources. profiles.json and the pinned
+  # circuits release's platforms.json and handles.json generate the platform
+  # constants and the handle vector table for every language; a drift between
+  # a source and a committed output leaves every per-language test green
+  # while the languages disagree with each other. The Honk verifiers are not
   # checked here: nothing of theirs is committed but the pin, and the
   # forge-build composite holds every download to it.
   # ---------------------------------------------------------------------------
@@ -165,15 +166,21 @@ jobs:
     steps:
       # No submodules: the scripts format their Solidity output through
       # `forge fmt --raw -` (stdin), which reads foundry.toml but compiles
-      # nothing, so the libraries are never consulted.
+      # nothing, and the vendor script compiles only the two verifiers, which
+      # import nothing, so the libraries are never consulted.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       # Not the forge-build composite: this job needs the `forge` binary for
-      # fmt, not the artifacts, and skipping the build keeps the check at the
-      # seconds it should cost.
+      # fmt and the vendor script, not the artifacts, and skipping the build
+      # keeps the check at the seconds it should cost.
       - uses: foundry-rs/foundry-toolchain@908c540300062bd5a7e473851cdb4282204cee09 # v1.9.1
         with:
           version: ${{ env.FOUNDRY_VERSION }}
+
+      # The generators read the platform table the pinned release ships,
+      # vendored beside the verifiers and held to the pin's sha256s.
+      - name: Vendor the circuits release
+        run: ./scripts/vendor-circuit-verifiers.sh
 
       - name: Generated handle tables are current
         run: python3 scripts/regen-identity-handles.py --check

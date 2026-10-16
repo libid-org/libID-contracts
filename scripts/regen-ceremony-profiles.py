@@ -10,7 +10,10 @@ it, then run this script. Up to three files are written and never drift apart:
 
 An output is skipped with a note until its target directory appears. The
 Platform Verifiers and `IdentityRegistry` are hand written in Solidity and READ
-these constants, the node tags among them. Only the values come from here.
+these constants. Only the values come from here, except the node tags: those
+are the pinned libID-circuits release's `platforms.json`, vendored into
+`solidity/contracts/circuits/` by `scripts/vendor-circuit-verifiers.sh`, and
+`CeremonyProfile` carries each profile's.
 That is the point: four components must produce the same bytes, and a
 disagreement between them is silent -- a Consumer dispatching on one string and
 a verifier registered under another simply never meet.
@@ -33,6 +36,8 @@ REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 SOLIDITY_ROOT = REPO_ROOT / "solidity"
 SOURCE = SOLIDITY_ROOT / "contracts" / "ceremony" / "profiles.json"
 SOURCE_REL = SOURCE.relative_to(REPO_ROOT).as_posix()
+PLATFORMS = SOLIDITY_ROOT / "contracts" / "circuits" / "platforms.json"
+PLATFORMS_REL = PLATFORMS.relative_to(REPO_ROOT).as_posix()
 
 SOL_OUT = SOLIDITY_ROOT / "contracts" / "ceremony" / "CeremonyProfile.sol"
 RUST_OUT = REPO_ROOT / "rust" / "profiles" / "src" / "profiles.rs"
@@ -311,27 +316,24 @@ def validate(spec: dict[str, Any]) -> None:
         if len(sessions_of(profile)) == 1:
             raise SystemExit(f"ERROR: {platform!r} has one session; expected none or both")
         validate_validity(profile)
-        validate_keys(profile)
-    tags = [t for p in spec["profiles"] for t in (p["keys"]["userIdTag"], p["keys"]["handleTag"])]
-    for i, a in enumerate(tags):
-        for b in tags[i + 1:]:
-            if a == b or a.startswith(b) or b.startswith(a):
-                raise SystemExit(f"ERROR: tags {a!r} and {b!r} overlap; tags must be distinct and prefix-free")
 
 
-def validate_keys(profile: dict[str, Any]) -> None:
-    """A platform's node tags and the circuits' buffers for it."""
-    keys = profile["keys"]
-    for tag in (keys["userIdTag"], keys["handleTag"]):
-        safe(tag, "tag")
-        # bearer-link takes a tag as one public-input Field.
-        if not 0 < len(tag) < 32:
-            raise SystemExit(f"ERROR: tag {tag!r} must be 1 to 31 bytes")
-    if keys["idShape"] not in ("decimal", "string"):
-        raise SystemExit(f"ERROR: unknown keys.idShape {keys['idShape']!r}")
-    for field in ("maxHandle", "maxId"):
-        if not (isinstance(keys[field], int) and keys[field] > 0):
-            raise SystemExit(f"ERROR: keys.{field} must be a positive integer")
+def attach_tags(spec: dict[str, Any], table: dict[str, Any]) -> None:
+    """Give each profile its node tags from the vendored platforms.json, as
+    `tags: {userId, handle}`. The circuits' generator holds the tags to their
+    length and prefix-freedom; here each only has to be a literal."""
+    by_platform = {p["platform"]: p for p in table["platforms"]}
+    for profile in spec["profiles"]:
+        platform = profile["platform"]
+        if platform not in by_platform:
+            raise SystemExit(
+                f"ERROR: {platform!r} has no entry in {PLATFORMS_REL}; the pinned circuits know no such platform"
+            )
+        entry = by_platform[platform]
+        profile["tags"] = {
+            "userId": safe(entry["userIdTag"], "tag"),
+            "handle": safe(entry["handleTag"], "tag"),
+        }
 
 
 def validate_validity(profile: dict[str, Any]) -> None:
@@ -394,6 +396,7 @@ def gen_sol(spec: dict[str, Any]) -> str:
         "pragma solidity ^0.8.24;",
         "",
         header("//").rstrip("\n"),
+        f"// The node tags are the pinned libID-circuits release's platforms.json, vendored at {PLATFORMS_REL}.",
         "",
         "/// @title CeremonyProfile",
         "/// @notice The tags a Platform Verifier pins, and the validity window",
@@ -420,9 +423,9 @@ def gen_sol(spec: dict[str, Any]) -> str:
     ]
     for profile in profiles:
         name = upper(profile["platform"])
-        keys = profile["keys"]
-        lines.append(f'    bytes internal constant {name}_USER_ID_TAG = "{keys["userIdTag"]}";')
-        lines.append(f'    bytes internal constant {name}_HANDLE_TAG = "{keys["handleTag"]}";')
+        tags = profile["tags"]
+        lines.append(f'    bytes internal constant {name}_USER_ID_TAG = "{tags["userId"]}";')
+        lines.append(f'    bytes internal constant {name}_HANDLE_TAG = "{tags["handle"]}";')
 
     lines += [
         "",
@@ -1092,8 +1095,12 @@ def main() -> int:
     if not SOURCE.exists():
         print(f"ERROR: {SOURCE} is missing", file=sys.stderr)
         return 1
+    if not PLATFORMS.exists():
+        print(f"ERROR: {PLATFORMS_REL} is missing; run scripts/vendor-circuit-verifiers.sh", file=sys.stderr)
+        return 1
     spec = json.loads(SOURCE.read_text(encoding="utf-8"))
     validate(spec)
+    attach_tags(spec, json.loads(PLATFORMS.read_text(encoding="utf-8")))
 
     outputs = [(SOL_OUT, sol_formatted(gen_sol(spec)))]
     skipped = []

@@ -3,11 +3,11 @@ pragma solidity ^0.8.24;
 
 import {Vm} from "forge-std/Vm.sol";
 
-/// @notice The accepted rows of `handles.json`, read from the file itself.
+/// @notice The accepted rows of the vendored `handles.json`, read from the file itself.
 library HandleTable {
     Vm private constant VM = Vm(address(uint160(uint256(keccak256("hevm cheat code")))));
 
-    string internal constant PATH = "contracts/handles/handles.json";
+    string internal constant PATH = "contracts/circuits/handles.json";
 
     struct Row {
         string platform;
