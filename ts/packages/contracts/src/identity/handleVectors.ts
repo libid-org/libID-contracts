@@ -41,7 +41,7 @@ export interface Platform {
 }
 
 /** SHA-256 of the handles.json this file was generated from. */
-export const TABLE_SHA256 = 'd6667cc10b9366933533349b94971cf19007ef656286eff3d8d11fe7e40f5b9b'
+export const TABLE_SHA256 = 'dbcb8e8b99912beeaea52d5a185071f9e2acf3548c155330cb300849c0af856c'
 
 /** keccak256 of this string is the platform id. */
 export const PLATFORM_GOOGLE_KEY = 'google'
@@ -98,6 +98,7 @@ export function platform(key: string): Platform | undefined {
 export const ERROR_EMPTY = 0
 export const ERROR_TOOLONG = 1
 export const ERROR_BADCHARACTER = 2
+export const ERROR_BADSHAPE = 3
 
 export const HANDLE_VECTORS: HandleVector[] = [
   { platform: "x", input: "Alice_1", output: "alice_1", accepted: true, errorKind: 0, handleNode: "0xe09c4f5bfbbc723bc35701ea9d718a1c5edb29b1ed5bb0cb0fabb3c43d8136af" },
@@ -134,8 +135,13 @@ export const HANDLE_VECTORS: HandleVector[] = [
 export const ID_VECTORS: IdVector[] = [
   { platform: "x", input: "2244994945", accepted: true, errorKind: 0, idNode: "0x68291869976ffad2abf3e933ec9ab2623395ff8b3b9242e655e1da3ef43d4f94" },
   { platform: "x", input: "7", accepted: true, errorKind: 0, idNode: "0x5c228a76caebd7cc0148637f2344c022228820a028f1fbd0d840227da5b5fa6f" },
-  { platform: "x", input: "0123", accepted: true, errorKind: 0, idNode: "0x68ceaf8a314f0264ed9fb64143960fdedd2a5223c2c87fe65de6232f1cfc9ebf" },
-  { platform: "x", input: "18446744073709551616", accepted: true, errorKind: 0, idNode: "0xe065622d687c739269f8ff862dac12c5acc087e87d676041148e2c1df17b429f" },
+  { platform: "x", input: "1", accepted: true, errorKind: 0, idNode: "0x7ae74974aded3c7dc81c333042ab69c89a3c2da2fca55df6b3679d46f383c0e5" },
+  { platform: "x", input: "18446744073709551615", accepted: true, errorKind: 0, idNode: "0xf5341a892456cd845598d346a1102f6154b9c6a00b434a22cb305965a1efd045" },
+  { platform: "x", input: "0", accepted: false, errorKind: 3, idNode: "" },
+  { platform: "x", input: "007", accepted: false, errorKind: 3, idNode: "" },
+  { platform: "x", input: "0123", accepted: false, errorKind: 3, idNode: "" },
+  { platform: "x", input: "18446744073709551616", accepted: false, errorKind: 3, idNode: "" },
+  { platform: "x", input: "99999999999999999999", accepted: false, errorKind: 3, idNode: "" },
   { platform: "x", input: "123456789012345678901", accepted: false, errorKind: 1, idNode: "" },
   { platform: "x", input: "", accepted: false, errorKind: 0, idNode: "" },
   { platform: "x", input: "12a4", accepted: false, errorKind: 2, idNode: "" },
@@ -143,6 +149,10 @@ export const ID_VECTORS: IdVector[] = [
   { platform: "github", input: "583231", accepted: true, errorKind: 0, idNode: "0x475902b27989feb395b9b0cd3156aa573a9676c13155b8e7e3ddaf3e77181847" },
   { platform: "github", input: " 583231", accepted: false, errorKind: 2, idNode: "" },
   { platform: "github", input: "583231,", accepted: false, errorKind: 2, idNode: "" },
+  { platform: "github", input: "18446744073709551615", accepted: true, errorKind: 0, idNode: "0xdaaed93a4b3862ac845bdc7e3db729492757f8c0b53c6572e6897d9ae0ff54fd" },
+  { platform: "github", input: "0", accepted: false, errorKind: 3, idNode: "" },
+  { platform: "github", input: "0583231", accepted: false, errorKind: 3, idNode: "" },
+  { platform: "github", input: "18446744073709551616", accepted: false, errorKind: 3, idNode: "" },
   { platform: "github", input: "123456789012345678901", accepted: false, errorKind: 1, idNode: "" },
   { platform: "github", input: "", accepted: false, errorKind: 0, idNode: "" },
   { platform: "google", input: "110169484474386276334", accepted: true, errorKind: 0, idNode: "0x620866cfb4d2776a32cd94d8e8b55577526af86115ebf125d4ca1ca7bf07737e" },

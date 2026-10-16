@@ -7,17 +7,24 @@ import { concat, type Hex, sha256, toHex } from 'viem'
 import { isStringByte, normalize } from './handle.js'
 import {
   ERROR_BADCHARACTER,
+  ERROR_BADSHAPE,
   ERROR_EMPTY,
   ERROR_TOOLONG,
   type Platform,
   platform,
 } from './handleVectors.js'
 
+/// The largest decimal id, 2^64-1 (REQ-PLAT-06), as its 20 digits.
+const MAX_DECIMAL_ID = '18446744073709551615'
+
 /// What a platform allows in an id, as the generated table states it.
 export interface IdRules {
   /** Bytes the circuit's buffer holds. */
   maxLength: number
-  /** ASCII digits; otherwise printable ASCII without a quote or backslash. */
+  /**
+   * REQ-PLAT-06's `^[1-9][0-9]{0,19}$` with a value at most 2^64-1;
+   * otherwise printable ASCII without a quote or backslash.
+   */
   decimal: boolean
 }
 
@@ -64,6 +71,14 @@ export function checkId(platformKey: string, id: string): void {
   for (const b of bytes) {
     const ok = rules.decimal ? b >= 0x30 && b <= 0x39 : isStringByte(b)
     if (!ok) throw new IdError(ERROR_BADCHARACTER, 'the id has a byte this platform does not allow')
+  }
+  // A leading zero, "0" included; equal-length digit strings order as their
+  // numbers do, and a shorter one is below the bound.
+  if (
+    rules.decimal &&
+    (id[0] === '0' || (id.length === MAX_DECIMAL_ID.length && id > MAX_DECIMAL_ID))
+  ) {
+    throw new IdError(ERROR_BADSHAPE, 'the id is not a number this platform issues')
   }
 }
 

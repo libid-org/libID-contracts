@@ -65,6 +65,7 @@ mod tests {
                     "ERROR_EMPTY" => v::ERROR_EMPTY,
                     "ERROR_TOOLONG" => v::ERROR_TOOLONG,
                     "ERROR_BADCHARACTER" => v::ERROR_BADCHARACTER,
+                    "ERROR_BADSHAPE" => v::ERROR_BADSHAPE,
                     other => panic!("{file}: unknown kind {other}"),
                 };
                 (kind, rest.split('\'').nth(1).expect("message").to_owned())
@@ -80,7 +81,12 @@ mod tests {
             HandleError::TooLong,
             HandleError::BadCharacter,
         ];
-        let id = [IdError::Empty, IdError::TooLong, IdError::BadCharacter];
+        let id = [
+            IdError::Empty,
+            IdError::TooLong,
+            IdError::BadCharacter,
+            IdError::BadShape,
+        ];
         let rust_handle: BTreeSet<_> =
             handle.iter().map(|e| (e.kind(), e.to_string())).collect();
         let rust_id: BTreeSet<_> = id.iter().map(|e| (e.kind(), e.to_string())).collect();

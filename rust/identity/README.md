@@ -18,9 +18,10 @@ assert_eq!(normalize("Alice_1", Rules::X), Ok("alice_1".to_string()));
 assert_eq!(normalize("Ali\"ce", Rules::X), Err(HandleError::BadCharacter));
 ```
 
-`check_id(id, rules)` accepts an id exactly as the platform sent it (digits for
-X and GitHub, a JSON string's bytes for Google), or says why no circuit would
-hash it. Ids are never normalized.
+`check_id(id, rules)` accepts an id exactly as the platform sent it (for X and
+GitHub REQ-PLAT-06's `^[1-9][0-9]{0,19}$` with a value at most 2^64-1, for
+Google a JSON string's bytes), or says why no circuit would hash it. Ids are
+never normalized.
 
 With the `node` feature, `handle_node(platform_key, raw)` and
 `id_node(platform_key, id)` compute `SHA256(tag || value)`, the node the

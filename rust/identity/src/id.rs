@@ -1,10 +1,14 @@
 //! What a platform's user id must be before it is hashed into a node: one
-//! JSON token as sent, digits for a number, otherwise a string's bytes.
+//! JSON token as sent, a number under REQ-PLAT-06's grammar, otherwise a
+//! string's bytes.
 //!
 //! Ids are never normalized; these checks mirror the circuits' `check_id`
 //! and run the same `idVectors` table.
 
 use super::handle_vectors as v;
+
+/// The largest decimal id, 2^64-1 (REQ-PLAT-06), as its 20 digits.
+const MAX_DECIMAL_ID: &[u8] = b"18446744073709551615";
 
 /// Why no circuit would hash an id. The kinds are the handle table's.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -15,6 +19,9 @@ pub enum IdError {
     TooLong,
     /// A byte the platform does not allow.
     BadCharacter,
+    /// A number the platform never issues: a leading zero, or a value past
+    /// 2^64-1.
+    BadShape,
 }
 
 impl IdError {
@@ -24,6 +31,7 @@ impl IdError {
             Self::Empty => v::ERROR_EMPTY,
             Self::TooLong => v::ERROR_TOOLONG,
             Self::BadCharacter => v::ERROR_BADCHARACTER,
+            Self::BadShape => v::ERROR_BADSHAPE,
         }
     }
 }
@@ -34,6 +42,7 @@ impl std::fmt::Display for IdError {
             Self::Empty => "the id is empty",
             Self::TooLong => "the id is too long for this platform",
             Self::BadCharacter => "the id has a byte this platform does not allow",
+            Self::BadShape => "the id is not a number this platform issues",
         })
     }
 }
@@ -45,7 +54,8 @@ impl std::error::Error for IdError {}
 pub struct IdRules {
     /// Bytes the circuit's buffer holds.
     pub max_length: usize,
-    /// ASCII digits; otherwise printable ASCII without `"` or `\`.
+    /// REQ-PLAT-06's `^[1-9][0-9]{0,19}$` with a value at most 2^64-1;
+    /// otherwise printable ASCII without `"` or `\`.
     pub decimal: bool,
 }
 
@@ -82,6 +92,14 @@ pub fn check_id(id: &str, rules: IdRules) -> Result<(), IdError> {
     if !bytes.iter().all(|&b| allowed(b)) {
         return Err(IdError::BadCharacter);
     }
+    // A leading zero, "0" included; equal-length digit strings order as
+    // their numbers do, and a shorter one is below the bound.
+    if rules.decimal
+        && (bytes[0] == b'0'
+            || (bytes.len() == MAX_DECIMAL_ID.len() && bytes > MAX_DECIMAL_ID))
+    {
+        return Err(IdError::BadShape);
+    }
     Ok(())
 }
 
@@ -89,6 +107,54 @@ pub fn check_id(id: &str, rules: IdRules) -> Result<(), IdError> {
 mod tests {
     use super::*;
     use crate::handle_vectors::ID_VECTORS;
+
+    #[test]
+    fn the_bound_on_a_decimal_id_is_the_largest_u64() {
+        assert_eq!(MAX_DECIMAL_ID, u64::MAX.to_string().as_bytes());
+        assert_eq!(MAX_DECIMAL_ID.len(), IdRules::X.max_length);
+        assert_eq!(MAX_DECIMAL_ID.len(), IdRules::GITHUB.max_length);
+    }
+
+    /// REQ-PLAT-06: `^[1-9][0-9]{0,19}$` with a value at most 2^64-1.
+    #[test]
+    fn a_decimal_id_follows_the_grammar() {
+        for id in [
+            "1",
+            "2244994945",
+            "9999999999999999999",
+            "18446744073709551615",
+        ] {
+            assert_eq!(check_id(id, IdRules::X), Ok(()), "{id}");
+            assert_eq!(check_id(id, IdRules::GITHUB), Ok(()), "{id}");
+        }
+        for id in [
+            "0",
+            "007",
+            "0123",
+            "18446744073709551616",
+            "99999999999999999999",
+        ] {
+            assert_eq!(check_id(id, IdRules::X), Err(IdError::BadShape), "{id}");
+            assert_eq!(
+                check_id(id, IdRules::GITHUB),
+                Err(IdError::BadShape),
+                "{id}"
+            );
+        }
+        assert_eq!(
+            check_id("123456789012345678901", IdRules::X),
+            Err(IdError::TooLong)
+        );
+        assert_eq!(check_id("", IdRules::X), Err(IdError::Empty));
+        assert_eq!(check_id("12a4", IdRules::X), Err(IdError::BadCharacter));
+    }
+
+    /// The grammar is a decimal id's: a Google `sub` is opaque.
+    #[test]
+    fn a_string_id_keeps_its_leading_zero() {
+        assert_eq!(check_id("0123", IdRules::GOOGLE), Ok(()));
+        assert_eq!(check_id("0", IdRules::GOOGLE), Ok(()));
+    }
 
     /// TypeScript's `checkId` words its refusals the same way.
     #[test]
@@ -99,6 +165,7 @@ mod tests {
             refused("12a"),
             "the id has a byte this platform does not allow"
         );
+        assert_eq!(refused("0"), "the id is not a number this platform issues");
     }
 
     #[test]

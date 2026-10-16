@@ -51,6 +51,32 @@ describe('handleNode and idNode', () => {
     }
   })
 
+  /// REQ-PLAT-06: `^[1-9][0-9]{0,19}$` with a value at most 2^64-1, as Rust's
+  /// `check_id` and the circuit refuse it.
+  it('hold a decimal id to its grammar, and leave a string id as sent', () => {
+    for (const id of ['1', '2244994945', '9999999999999999999', '18446744073709551615']) {
+      expect(() => checkId(PLATFORM_X_KEY, id), id).not.toThrow()
+      expect(() => checkId(PLATFORM_GITHUB_KEY, id), id).not.toThrow()
+    }
+    for (const id of ['0', '007', '0123', '18446744073709551616', '99999999999999999999']) {
+      expect(() => checkId(PLATFORM_X_KEY, id), id).toThrow(
+        'the id is not a number this platform issues',
+      )
+      expect(() => checkId(PLATFORM_GITHUB_KEY, id), id).toThrow(
+        'the id is not a number this platform issues',
+      )
+    }
+    expect(() => checkId(PLATFORM_X_KEY, '123456789012345678901')).toThrow(
+      'the id is too long for this platform',
+    )
+    expect(() => checkId(PLATFORM_X_KEY, '')).toThrow('the id is empty')
+    expect(() => checkId(PLATFORM_X_KEY, '12a4')).toThrow(
+      'the id has a byte this platform does not allow',
+    )
+    expect(() => checkId('google', '0123')).not.toThrow()
+    expect(() => checkId('google', '0')).not.toThrow()
+  })
+
   it('give two spellings of one handle one node, and keep platforms apart', () => {
     expect(handleNode('google', 'Alice@Gmail.com')).toBe(handleNode('google', 'alice@gmail.com'))
     expect(handleNode(PLATFORM_X_KEY, 'alice')).not.toBe(handleNode(PLATFORM_GITHUB_KEY, 'alice'))
