@@ -21,10 +21,11 @@ escrow.refund(handleNode, token, recipient);   // refundTo, while unclaimed
   takes both kinds together. Text other than a handle as the platform sends it
   (`@alice`, a space) lands on a node nobody can prove; only `refundTo` gets it back.
 - Either kind reverts `PlatformAcceptsNoBindings` when it would escrow while
-  the registry's `acceptsBindings` is false for the platform, or the platform
-  is unknown; a holder is still paid. `deposit` checks the platform it is
-  given: a node of another platform escrows until its own platform binds it,
-  then its holder can claim; `refundTo` can refund until then.
+  the registry's `acceptsBindings` is false for a platform it knows, and the
+  registry's `UnknownPlatform` for a platform it does not; a holder is still
+  paid. `deposit` checks the platform it is given: a node of another platform
+  escrows until its own platform binds it, then its holder can claim;
+  `refundTo` can refund until then.
 
 ## Integrating
 

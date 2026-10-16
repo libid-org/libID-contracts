@@ -109,8 +109,12 @@ mod escrow_inner {
             /// `initialize`: the registry does not answer `selector`.
             error RegistryLacks(address registry, bytes4 selector);
             error RenounceDisabled();
-            /// A deposit to an unheld node: the registry's `acceptsBindings` is false.
+            /// A deposit to an unheld node on a platform the registry knows but
+            /// nobody can bind now.
             error PlatformAcceptsNoBindings(bytes32 platformId);
+            /// A deposit naming a platform the registry does not know: its own
+            /// `IIdentityRegistry.UnknownPlatform`.
+            error UnknownPlatform(bytes32 platformId);
             error OwnableUnauthorizedAccount(address account);
             error OwnableInvalidOwner(address owner);
             /// A deposit, claim or refund was entered again from inside one.

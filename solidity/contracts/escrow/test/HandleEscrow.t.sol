@@ -293,14 +293,16 @@ contract HandleEscrowTest is PrivacyScan {
         assertEq(escrow.refundable(aliceNode, NATIVE, sender), 3 ether);
     }
 
-    /// Both modes name an unknown platform's refusal alike.
+    /// Both modes refuse a platform the registry does not know with its `UnknownPlatform`.
     function test_aDepositRefusesAnUnknownPlatform() public {
         bytes32 nowhere = keccak256("nowhere");
         vm.startPrank(sender);
-        vm.expectRevert(abi.encodeWithSelector(HandleEscrow.PlatformAcceptsNoBindings.selector, nowhere));
+        vm.expectRevert(abi.encodeWithSelector(IIdentityRegistry.UnknownPlatform.selector, nowhere));
         escrow.depositToHandle{value: 1 ether}(nowhere, "alice", NATIVE, 1 ether, sender);
-        vm.expectRevert(abi.encodeWithSelector(HandleEscrow.PlatformAcceptsNoBindings.selector, nowhere));
+        vm.expectRevert(abi.encodeWithSelector(IIdentityRegistry.UnknownPlatform.selector, nowhere));
         escrow.deposit{value: 1 ether}(nowhere, aliceNode, NATIVE, 1 ether, sender);
+        vm.expectRevert(abi.encodeWithSelector(IIdentityRegistry.UnknownPlatform.selector, bytes32(0)));
+        escrow.deposit{value: 1 ether}(bytes32(0), aliceNode, NATIVE, 1 ether, sender);
         vm.stopPrank();
     }
 
@@ -348,8 +350,6 @@ contract HandleEscrowTest is PrivacyScan {
         escrow.depositToHandle{value: 1 ether}(GOOGLE, "alice@gmail.com", NATIVE, 1 ether, sender);
         vm.expectRevert(abi.encodeWithSelector(HandleEscrow.PlatformAcceptsNoBindings.selector, GOOGLE));
         escrow.deposit{value: 1 ether}(GOOGLE, node, NATIVE, 1 ether, sender);
-        vm.expectRevert(abi.encodeWithSelector(HandleEscrow.PlatformAcceptsNoBindings.selector, bytes32(0)));
-        escrow.deposit{value: 1 ether}(bytes32(0), aliceNode, NATIVE, 1 ether, sender);
         vm.stopPrank();
         assertEq(escrow.escrowed(node, NATIVE), 0);
     }
