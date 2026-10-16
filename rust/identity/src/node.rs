@@ -26,29 +26,42 @@ fn tagged(tag: &str, value: &str) -> [u8; 32] {
     hasher.finalize().into()
 }
 
-/// The node a typed handle is bound under, or why it has none. `None` for
-/// an unknown platform.
+impl v::Platform {
+    /// The node a typed handle is bound under, or why it has none.
+    pub fn handle_node(&self, raw: &str) -> Result<[u8; 32], HandleError> {
+        normalize(raw, self.rules).map(|normalized| tagged(self.handle_tag, &normalized))
+    }
+
+    /// `text` with A-Z folded to a-z, and its node: the registry's
+    /// `handleNodeOf`, which applies no other rule.
+    pub fn folded_handle_node(&self, text: &str) -> (String, [u8; 32]) {
+        let folded = text.to_ascii_lowercase();
+        let node = tagged(self.handle_tag, &folded);
+        (folded, node)
+    }
+
+    /// The node a user id is bound under. The id is hashed exactly as given.
+    pub fn id_node(&self, id: &str) -> Result<[u8; 32], IdError> {
+        check_id(id, self.id_rules).map(|()| tagged(self.user_id_tag, id))
+    }
+}
+
+/// [`v::Platform::handle_node`] by platform key; `None` for an unknown platform.
 pub fn handle_node(
     platform_key: &str,
     raw: &str,
 ) -> Option<Result<[u8; 32], HandleError>> {
-    let p = v::platform(platform_key)?;
-    Some(normalize(raw, p.rules).map(|normalized| tagged(p.handle_tag, &normalized)))
+    v::platform(platform_key).map(|p| p.handle_node(raw))
 }
 
-/// `text` with A-Z folded to a-z, and its node: the registry's
-/// `handleNodeOf`, which applies no other rule. `None` for an unknown platform.
+/// [`v::Platform::folded_handle_node`] by platform key; `None` for an unknown platform.
 pub fn folded_handle_node(platform_key: &str, text: &str) -> Option<(String, [u8; 32])> {
-    let p = v::platform(platform_key)?;
-    let folded = text.to_ascii_lowercase();
-    let node = tagged(p.handle_tag, &folded);
-    Some((folded, node))
+    v::platform(platform_key).map(|p| p.folded_handle_node(text))
 }
 
-/// The node a user id is bound under. The id is hashed exactly as given.
+/// [`v::Platform::id_node`] by platform key; `None` for an unknown platform.
 pub fn id_node(platform_key: &str, id: &str) -> Option<Result<[u8; 32], IdError>> {
-    let p = v::platform(platform_key)?;
-    Some(check_id(id, p.id_rules).map(|()| tagged(p.user_id_tag, id)))
+    v::platform(platform_key).map(|p| p.id_node(id))
 }
 
 #[cfg(test)]
@@ -110,6 +123,19 @@ mod tests {
             "0x650dc467b55054ff038aed82e055439b80903460291078585ad72e334bf0050a"
         );
         assert!(folded_handle_node("myspace", "tom").is_none());
+    }
+
+    #[test]
+    fn a_platform_s_nodes_match_its_key_s() {
+        assert_eq!(
+            v::PLATFORM_X.handle_node("Alice_1"),
+            handle_node("x", "Alice_1").unwrap()
+        );
+        assert_eq!(v::PLATFORM_X.id_node("7"), id_node("x", "7").unwrap());
+        assert_eq!(
+            v::PLATFORM_GITHUB.folded_handle_node("Bob"),
+            folded_handle_node("github", "Bob").unwrap()
+        );
     }
 
     #[test]
