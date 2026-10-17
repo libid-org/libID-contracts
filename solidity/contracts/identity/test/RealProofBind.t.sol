@@ -90,7 +90,7 @@ abstract contract RealProofBindBase is PrivacyScan {
         vm.startStateDiffRecording();
         vm.recordLogs();
         _bind(payload, "");
-        emit log_named_uint("bind gas", vm.lastCallGas().gasTotalUsed);
+        emit log_named_uint("bind gas", vm.lastFrameGas().gasTotalUsed);
         Vm.AccountAccess[] memory accesses = vm.stopAndReturnStateDiff();
 
         _assertLogsHideTheSecrets(vm.getRecordedLogs());

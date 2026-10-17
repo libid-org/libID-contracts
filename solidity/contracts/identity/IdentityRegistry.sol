@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
-import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
+import {Initializable} from "@openzeppelin/contracts/proxy/utils/Initializable.sol";
+import {UUPSUpgradeable} from "@openzeppelin/contracts/proxy/utils/UUPSUpgradeable.sol";
 import {Ownable2StepUpgradeable} from "@openzeppelin/contracts-upgradeable/access/Ownable2StepUpgradeable.sol";
-import {ReentrancyGuardUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardUpgradeable.sol";
+import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
 import {ICeremony} from "../ceremony/ICeremony.sol";
 import {IProofVerifier} from "../ceremony/IProofVerifier.sol";
@@ -23,7 +23,7 @@ contract IdentityRegistry is
     Initializable,
     UUPSUpgradeable,
     Ownable2StepUpgradeable,
-    ReentrancyGuardUpgradeable
+    ReentrancyGuard
 {
     using IdentityList for IdentityList.Data;
 
@@ -181,8 +181,6 @@ contract IdentityRegistry is
     function initialize(address owner_) external initializer {
         __Ownable_init(owner_);
         __Ownable2Step_init();
-        __UUPSUpgradeable_init();
-        __ReentrancyGuard_init();
     }
 
     // ─── Binding ────────────────────────────────────────────────────

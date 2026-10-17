@@ -229,9 +229,13 @@ contract LayoutForgeryTest is Test {
     }
 
     function _honestIdentityRecv() private pure returns (AttestationBuilder.Direction memory received) {
-        received.commit('{"data":{', bytes32(uint256(0x5555))).reveal('"id":"')
-            .commit("2244994945", bytes32(uint256(0x3333))).reveal('","username":"')
-            .commit("alice", bytes32(uint256(0x4444))).reveal('"').commit("}}", bytes32(uint256(0x5555)));
+        received.commit('{"data":{', bytes32(uint256(0x5555)))
+            .reveal('"id":"')
+            .commit("2244994945", bytes32(uint256(0x3333)))
+            .reveal('","username":"')
+            .commit("alice", bytes32(uint256(0x4444)))
+            .reveal('"')
+            .commit("}}", bytes32(uint256(0x5555)));
     }
 
     /// The request line must BEGIN the transcript, not merely be listed first.

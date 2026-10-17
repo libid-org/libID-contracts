@@ -14,7 +14,7 @@ import {IHonkVerifier} from "../PlatformVerifierBase.sol";
 import {XPlatformVerifier} from "../XPlatformVerifier.sol";
 import {TlsNotaryVerifierBase} from "../TlsNotaryVerifierBase.sol";
 
-/// @notice The gas of each verifier's `verify` on a real claim (`vm.lastCallGas`),
+/// @notice The gas of each verifier's `verify` on a real claim (`vm.lastFrameGas`),
 ///         recorded in `snapshots/claim-verification.json` by
 ///         `FOUNDRY_PROFILE=gas forge test`, under Osaka as eden-testnet runs.
 contract ClaimVerificationGasTest is Test {
@@ -114,7 +114,7 @@ contract ClaimVerificationGasTest is Test {
         vm.warp(vm.parseJsonUint(session, ".created_at") + 60);
         uint256 fee = verifier.quote();
         verifier.verify{value: fee}(payload);
-        vm.snapshotValue(GROUP, name, vm.lastCallGas().gasTotalUsed);
+        vm.snapshotValue(GROUP, name, vm.lastFrameGas().gasTotalUsed);
     }
 
     function _verifyProof(IHonkVerifier verifier, string memory fixture, string memory name) private {
@@ -122,6 +122,6 @@ contract ClaimVerificationGasTest is Test {
         bytes memory proof = vm.parseJsonBytes(json, ".proof");
         bytes32[] memory inputs = vm.parseJsonBytes32Array(json, ".public_inputs");
         assertTrue(verifier.verify(proof, inputs), "the proof does not verify");
-        vm.snapshotValue(GROUP, name, vm.lastCallGas().gasTotalUsed);
+        vm.snapshotValue(GROUP, name, vm.lastFrameGas().gasTotalUsed);
     }
 }

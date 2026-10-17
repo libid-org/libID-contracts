@@ -198,16 +198,24 @@ contract GitHubPlatformVerifierTest is RealTlsNotaryProofTest {
     /// The pretty-printed identity response: anchors revealed, login and id
     /// each committed, every other byte committed.
     function _identityResponse() private pure returns (AttestationBuilder.Direction memory received) {
-        received.commit("HTTP/1.1 200 OK\r\ncontent-type: application/json\r\n\r\n{\n  ", OTHER).reveal('"login": "')
-            .commit("OctoCat", HANDLE_COMMITMENT).reveal('"').commit(",\n  ", OTHER).reveal('"id": ')
-            .commit("583231", ID_COMMITMENT).reveal(",")
+        received.commit("HTTP/1.1 200 OK\r\ncontent-type: application/json\r\n\r\n{\n  ", OTHER)
+            .reveal('"login": "')
+            .commit("OctoCat", HANDLE_COMMITMENT)
+            .reveal('"')
+            .commit(",\n  ", OTHER)
+            .reveal('"id": ')
+            .commit("583231", ID_COMMITMENT)
+            .reveal(",")
             .commit('\n  "node_id": "MDQ6VXNlcjU4MzIzMQ==",\n  "name": "The Octocat"\n}', OTHER);
     }
 
     /// The response up to the id's anchor, honest: the login framed.
     function _upToTheId() private pure returns (AttestationBuilder.Direction memory received) {
-        received.commit("HTTP/1.1 200 OK\r\n\r\n{\n  ", OTHER).reveal('"login": "').commit("OctoCat", HANDLE_COMMITMENT)
-            .reveal('"').commit(",\n  ", OTHER);
+        received.commit("HTTP/1.1 200 OK\r\n\r\n{\n  ", OTHER)
+            .reveal('"login": "')
+            .commit("OctoCat", HANDLE_COMMITMENT)
+            .reveal('"')
+            .commit(",\n  ", OTHER);
     }
 
     /// The honest identity request around `received`, from `authority`.
@@ -219,7 +227,9 @@ contract GitHubPlatformVerifierTest is RealTlsNotaryProofTest {
         AttestationBuilder.Direction memory sent;
         sent.reveal(
                 "GET /user HTTP/1.1\r\naccept: application/vnd.github+json\r\nhost: api.github.com\r\nauthorization: Bearer "
-            ).commit("gho_TOKENTOKENTOKEN", IDENTITY_COMMITMENT).reveal("\r\nconnection: close\r\n\r\n");
+            )
+            .commit("gho_TOKENTOKENTOKEN", IDENTITY_COMMITMENT)
+            .reveal("\r\nconnection: close\r\n\r\n");
         bytes memory attested = AttestationBuilder.encode(authority, T0, sent, received);
         return ICeremony.Attestation({attestedData: attested, proof: AttestationBuilder.sign(NOTARY_KEY, attested)});
     }
@@ -720,7 +730,11 @@ contract GitHubPlatformVerifierTest is RealTlsNotaryProofTest {
     /// @dev The key cut by a hidden byte: `"i`, a commitment, `d": `.
     function test_refusesAnIdAnchorSplitAroundACommittedGap() public {
         AttestationBuilder.Direction memory received = _upToTheId();
-        received.reveal('"i').commit("d", OTHER).reveal('": ').commit("583231", ID_COMMITMENT).reveal(",")
+        received.reveal('"i')
+            .commit("d", OTHER)
+            .reveal('": ')
+            .commit("583231", ID_COMMITMENT)
+            .reveal(",")
             .commit("}", OTHER);
         _refusedFraming(received, CeremonyAttestation.NoFramedCommitment.selector);
     }
@@ -728,8 +742,13 @@ contract GitHubPlatformVerifierTest is RealTlsNotaryProofTest {
     /// @dev Two id anchors revealed, each framing a commitment.
     function test_refusesTwoFramedIds() public {
         AttestationBuilder.Direction memory received = _upToTheId();
-        received.reveal('"id": ').commit("583231", ID_COMMITMENT).reveal(",").commit("\n  ", OTHER).reveal('"id": ')
-            .commit("1", OTHER).reveal("}");
+        received.reveal('"id": ')
+            .commit("583231", ID_COMMITMENT)
+            .reveal(",")
+            .commit("\n  ", OTHER)
+            .reveal('"id": ')
+            .commit("1", OTHER)
+            .reveal("}");
         _refusedFraming(received, CeremonyAttestation.AmbiguousFraming.selector);
     }
 
@@ -737,8 +756,13 @@ contract GitHubPlatformVerifierTest is RealTlsNotaryProofTest {
 
     function test_rejectsAResponseWithNoLogin() public {
         AttestationBuilder.Direction memory received;
-        received.commit("HTTP/1.1 200 OK\r\n\r\n{", OTHER).reveal('"username":"').commit("OctoCat", HANDLE_COMMITMENT)
-            .reveal('",').reveal('"id":').commit("583231", ID_COMMITMENT).reveal("}");
+        received.commit("HTTP/1.1 200 OK\r\n\r\n{", OTHER)
+            .reveal('"username":"')
+            .commit("OctoCat", HANDLE_COMMITMENT)
+            .reveal('",')
+            .reveal('"id":')
+            .commit("583231", ID_COMMITMENT)
+            .reveal("}");
         _refusedFraming(received, CeremonyAttestation.NoFramedCommitment.selector);
     }
 
@@ -746,17 +770,27 @@ contract GitHubPlatformVerifierTest is RealTlsNotaryProofTest {
     ///      count compares with JSON whitespace removed.
     function test_rejectsADuplicateMemberInAnotherWhitespaceSpelling() public {
         AttestationBuilder.Direction memory received = _upToTheId();
-        received.reveal('"id": ').commit("583231", ID_COMMITMENT).reveal(",").commit("\n  ", OTHER)
-            .reveal('"login" : "').commit("mallory", OTHER).reveal('"}');
+        received.reveal('"id": ')
+            .commit("583231", ID_COMMITMENT)
+            .reveal(",")
+            .commit("\n  ", OTHER)
+            .reveal('"login" : "')
+            .commit("mallory", OTHER)
+            .reveal('"}');
         _refusedFraming(received, CeremonyAttestation.AmbiguousFraming.selector);
     }
 
     /// @dev The login committed with its closing quote frames nothing.
     function test_refusesALoginCommittedWithItsClosingQuote() public {
         AttestationBuilder.Direction memory received;
-        received.commit("HTTP/1.1 200 OK\r\n\r\n{\n  ", OTHER).reveal('"login": "')
-            .commit('OctoCat"', HANDLE_COMMITMENT).reveal(",").commit("\n  ", OTHER).reveal('"id": ')
-            .commit("583231", ID_COMMITMENT).reveal("}");
+        received.commit("HTTP/1.1 200 OK\r\n\r\n{\n  ", OTHER)
+            .reveal('"login": "')
+            .commit('OctoCat"', HANDLE_COMMITMENT)
+            .reveal(",")
+            .commit("\n  ", OTHER)
+            .reveal('"id": ')
+            .commit("583231", ID_COMMITMENT)
+            .reveal("}");
         _refusedFraming(received, CeremonyAttestation.NoFramedCommitment.selector);
     }
 
@@ -989,9 +1023,15 @@ contract GitHubPlatformVerifierTest is RealTlsNotaryProofTest {
     ///      removed.
     function test_framesTheIdentityGitHubPrettyPrints() public {
         AttestationBuilder.Direction memory received;
-        received.commit("HTTP/1.1 200 OK\r\n\r\n{\n  ", OTHER).reveal('"login" :  "')
-            .commit("OctoCat", HANDLE_COMMITMENT).reveal('"').commit(",\n  ", OTHER).reveal('"id"\t:\n ')
-            .commit("583231", ID_COMMITMENT).reveal("\n,").commit('"name": "The Octocat"\n}', OTHER);
+        received.commit("HTTP/1.1 200 OK\r\n\r\n{\n  ", OTHER)
+            .reveal('"login" :  "')
+            .commit("OctoCat", HANDLE_COMMITMENT)
+            .reveal('"')
+            .commit(",\n  ", OTHER)
+            .reveal('"id"\t:\n ')
+            .commit("583231", ID_COMMITMENT)
+            .reveal("\n,")
+            .commit('"name": "The Octocat"\n}', OTHER);
         ICeremony.VerifiedClaim memory f = _accepted(received);
         assertEq(f.idNode, ID_NODE);
         assertEq(f.handleNode, HANDLE_NODE);

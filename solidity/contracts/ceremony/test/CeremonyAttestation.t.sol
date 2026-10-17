@@ -275,7 +275,10 @@ contract CeremonyAttestationTest is Test {
     /// `after_` revealed and a committed rest.
     function _integer(bytes memory after_) private view returns (CeremonyAttestation.DirectionBlock memory) {
         AttestationBuilder.Direction memory d;
-        d.commit("{\n  ", bytes32(uint256(1))).reveal('"id": ').commit("583231", bytes32(uint256(7))).reveal(after_)
+        d.commit("{\n  ", bytes32(uint256(1)))
+            .reveal('"id": ')
+            .commit("583231", bytes32(uint256(7)))
+            .reveal(after_)
             .commit('"x"}', bytes32(uint256(2)));
         return _received(d);
     }

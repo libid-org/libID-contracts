@@ -20,10 +20,6 @@ updates:
       - dependency-type: "all"
     patterns: ["*"]
     multi-ecosystem-group: "dependencies"
-  - package-ecosystem: "gitsubmodule"
-    directory: "/"
-    patterns: ["*"]
-    multi-ecosystem-group: "dependencies"
   - package-ecosystem: "github-actions"
     directories:
       - "/"

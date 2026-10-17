@@ -5,7 +5,7 @@ import {HonkStub} from "./HonkStub.sol";
 import {Test} from "forge-std/Test.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
-import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
+import {Initializable} from "@openzeppelin/contracts/proxy/utils/Initializable.sol";
 
 import {CeremonyProofVerifier} from "../CeremonyProofVerifier.sol";
 import {NotaryService} from "../NotaryService.sol";

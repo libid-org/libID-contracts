@@ -13,8 +13,8 @@ import {IdentityRegistry} from "../IdentityRegistry.sol";
 import {TestNodes} from "./TestNodes.sol";
 import {StubPlatformVerifier} from "./StubPlatformVerifier.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
-import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
-import {ReentrancyGuardUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardUpgradeable.sol";
+import {Initializable} from "@openzeppelin/contracts/proxy/utils/Initializable.sol";
+import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
 /// @notice IdentityRegistry wearing the Consumer role, over a real Proof Verifier
 ///         and a stubbed Platform Verifier.
@@ -526,7 +526,7 @@ contract CeremonyBindTest is Test {
         bytes memory p = _payload(WALLET, bytes32(uint256(1)));
         evil.setInner(_payload(address(evil), bytes32(uint256(2))));
         vm.prank(WALLET);
-        vm.expectRevert(ReentrancyGuardUpgradeable.ReentrancyGuardReentrantCall.selector);
+        vm.expectRevert(ReentrancyGuard.ReentrancyGuardReentrantCall.selector);
         registry.bind(PLATFORM, 1, p, "");
         assertFalse(registry.digestSpent(_digest(WALLET, bytes32(uint256(1)))));
         assertFalse(registry.digestSpent(_digest(address(evil), bytes32(uint256(2)))));
@@ -563,7 +563,9 @@ contract ReenteringVerifier is IPlatformVerifier {
             armed = false;
             (bool ok, bytes memory ret) =
                 address(REGISTRY).call(abi.encodeCall(IdentityRegistry.bind, (PLATFORM, 1, innerPayload, "")));
-            if (!ok) assembly { revert(add(ret, 32), mload(ret)) }
+            if (!ok) {
+                assembly { revert(add(ret, 32), mload(ret)) }
+            }
         }
         return c;
     }

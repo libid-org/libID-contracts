@@ -132,9 +132,13 @@ contract PlantedRangeForgeryTest is Test {
         // The anchor-only reveal: the id and handle committed, the anchors
         // around them revealed, every other byte behind a commitment.
         AttestationBuilder.Direction memory received;
-        received.commit('{"data":{', bytes32(uint256(0x5555))).reveal('"id":"')
-            .commit("2244994945", bytes32(uint256(0x3333))).reveal('","username":"')
-            .commit("alice", bytes32(uint256(0x4444))).reveal('"').commit("}}", bytes32(uint256(0x5555)));
+        received.commit('{"data":{', bytes32(uint256(0x5555)))
+            .reveal('"id":"')
+            .commit("2244994945", bytes32(uint256(0x3333)))
+            .reveal('","username":"')
+            .commit("alice", bytes32(uint256(0x4444)))
+            .reveal('"')
+            .commit("}}", bytes32(uint256(0x5555)));
         bytes memory attested = AttestationBuilder.encode(CeremonyProfile.AUTHORITY_X_API, T0, sent, received);
         return ICeremony.Attestation({attestedData: attested, proof: AttestationBuilder.sign(NOTARY_KEY, attested)});
     }

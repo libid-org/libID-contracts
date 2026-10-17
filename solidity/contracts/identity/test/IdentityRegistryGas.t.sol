@@ -19,7 +19,7 @@ import {StubPlatformVerifier} from "./StubPlatformVerifier.sol";
 ///      thousand. Each operation runs for both from cold storage, and the gas
 ///      the contract used is compared exactly rather than within a tolerance:
 ///      one storage read more would show as thousands. The measured call is
-///      the last one a helper makes, which is what `vm.lastCallGas` reports
+///      the last one a helper makes, which is what `vm.lastFrameGas` reports
 ///      on.
 contract IdentityRegistryGasTest is Test {
     IdentityRegistry internal registry;
@@ -117,7 +117,7 @@ contract IdentityRegistryGasTest is Test {
     }
 
     function _used() internal view returns (uint64) {
-        return vm.lastCallGas().gasTotalUsed;
+        return vm.lastFrameGas().gasTotalUsed;
     }
 
     /// A cold bind made out to `who` that discloses the handle.

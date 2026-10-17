@@ -258,7 +258,9 @@ contract XPlatformVerifierTest is RealTlsNotaryProofTest {
                     extraHeader,
                     "authorization: Bearer "
                 )
-            ).commit("TOKENTOKENTOKEN", IDENTITY_COMMITMENT).reveal("\r\nconnection: close\r\n\r\n");
+            )
+            .commit("TOKENTOKENTOKEN", IDENTITY_COMMITMENT)
+            .reveal("\r\nconnection: close\r\n\r\n");
     }
 
     /// The identity response: anchors revealed, id and handle each committed,
@@ -268,9 +270,15 @@ contract XPlatformVerifierTest is RealTlsNotaryProofTest {
         pure
         returns (AttestationBuilder.Direction memory received)
     {
-        received.commit('HTTP/1.1 200 OK\r\ncontent-type: application/json\r\n\r\n{"data":{', OTHER).reveal('"id":"')
-            .commit(id, ID_COMMITMENT).reveal('"').commit(',"name":"Alice",', OTHER).reveal('"username":"')
-            .commit(handle, HANDLE_COMMITMENT).reveal('"').commit("}}", OTHER);
+        received.commit('HTTP/1.1 200 OK\r\ncontent-type: application/json\r\n\r\n{"data":{', OTHER)
+            .reveal('"id":"')
+            .commit(id, ID_COMMITMENT)
+            .reveal('"')
+            .commit(',"name":"Alice",', OTHER)
+            .reveal('"username":"')
+            .commit(handle, HANDLE_COMMITMENT)
+            .reveal('"')
+            .commit("}}", OTHER);
     }
 
     /// An identity attestation over these two directions, signed by the
@@ -565,9 +573,15 @@ contract XPlatformVerifierTest is RealTlsNotaryProofTest {
     function test_findsTheIdAndHandleByTheirAnchorsNotTheirOrder() public {
         TlsNotaryVerifierBase.TlsNotaryProof memory s = _payload();
         AttestationBuilder.Direction memory received;
-        received.commit('HTTP/1.1 200 OK\r\n\r\n{"data":{', OTHER).reveal('"username":"')
-            .commit("Alice_1", HANDLE_COMMITMENT).reveal('"').commit(",", OTHER).reveal('"id":"')
-            .commit("2244994945", ID_COMMITMENT).reveal('"').commit("}}", OTHER);
+        received.commit('HTTP/1.1 200 OK\r\n\r\n{"data":{', OTHER)
+            .reveal('"username":"')
+            .commit("Alice_1", HANDLE_COMMITMENT)
+            .reveal('"')
+            .commit(",", OTHER)
+            .reveal('"id":"')
+            .commit("2244994945", ID_COMMITMENT)
+            .reveal('"')
+            .commit("}}", OTHER);
         s.identitySession = _identityReceiving(received);
         vm.expectCall(
             address(honk),
@@ -1039,14 +1053,21 @@ contract XPlatformVerifierTest is RealTlsNotaryProofTest {
 
     /// The response up to the handle's anchor, honest: the id framed.
     function _upToTheHandle() private pure returns (AttestationBuilder.Direction memory received) {
-        received.commit('HTTP/1.1 200 OK\r\n\r\n{"data":{', OTHER).reveal('"id":"').commit("2244994945", ID_COMMITMENT)
-            .reveal('"').commit(",", OTHER);
+        received.commit('HTTP/1.1 200 OK\r\n\r\n{"data":{', OTHER)
+            .reveal('"id":"')
+            .commit("2244994945", ID_COMMITMENT)
+            .reveal('"')
+            .commit(",", OTHER);
     }
 
     /// @dev The key revealed in two pieces around a commitment is no anchor.
     function test_refusesAHandleAnchorSplitAroundACommittedGap() public {
         AttestationBuilder.Direction memory received = _upToTheHandle();
-        received.reveal('"user').commit("name", OTHER).reveal('":"').commit("Alice_1", HANDLE_COMMITMENT).reveal('"')
+        received.reveal('"user')
+            .commit("name", OTHER)
+            .reveal('":"')
+            .commit("Alice_1", HANDLE_COMMITMENT)
+            .reveal('"')
             .commit("}}", OTHER);
         _refusedFraming(received, CeremonyAttestation.NoFramedCommitment.selector);
     }
@@ -1063,8 +1084,14 @@ contract XPlatformVerifierTest is RealTlsNotaryProofTest {
     ///      commitment followed by anything else is not the whole value.
     function test_refusesAnIdWithNoClosingQuote() public {
         AttestationBuilder.Direction memory received;
-        received.commit('HTTP/1.1 200 OK\r\n\r\n{"data":{', OTHER).reveal('"id":"').commit("2244994945", ID_COMMITMENT)
-            .reveal("',").reveal('"username":"').commit("Alice_1", HANDLE_COMMITMENT).reveal('"').commit("}}", OTHER);
+        received.commit('HTTP/1.1 200 OK\r\n\r\n{"data":{', OTHER)
+            .reveal('"id":"')
+            .commit("2244994945", ID_COMMITMENT)
+            .reveal("',")
+            .reveal('"username":"')
+            .commit("Alice_1", HANDLE_COMMITMENT)
+            .reveal('"')
+            .commit("}}", OTHER);
         _refusedFraming(received, CeremonyAttestation.NoFramedCommitment.selector);
     }
 
@@ -1083,9 +1110,13 @@ contract XPlatformVerifierTest is RealTlsNotaryProofTest {
         bytes[2] memory decoys = [bytes('"name":"x\\"id\\":\\"999\\"y",'), bytes('"bio":"\\"id\\":999,",')];
         for (uint256 i = 0; i < decoys.length; ++i) {
             AttestationBuilder.Direction memory received;
-            received.commit('HTTP/1.1 200 OK\r\n\r\n{"data":{', OTHER).reveal(decoys[i])
-                .commit('"id":"2244994945",', OTHER).reveal('"username":"').commit("Alice_1", HANDLE_COMMITMENT)
-                .reveal('"').commit("}}", OTHER);
+            received.commit('HTTP/1.1 200 OK\r\n\r\n{"data":{', OTHER)
+                .reveal(decoys[i])
+                .commit('"id":"2244994945",', OTHER)
+                .reveal('"username":"')
+                .commit("Alice_1", HANDLE_COMMITMENT)
+                .reveal('"')
+                .commit("}}", OTHER);
             _refusedFraming(received, CeremonyAttestation.NoFramedCommitment.selector);
         }
     }
@@ -1101,8 +1132,14 @@ contract XPlatformVerifierTest is RealTlsNotaryProofTest {
     ///      commitment. Two places the anchor could point, so it names none.
     function test_refusesTwoHandleAnchorsInTheRevealedBytes() public {
         AttestationBuilder.Direction memory received = _upToTheHandle();
-        received.reveal('"username":"').commit("Alice_1", HANDLE_COMMITMENT).reveal('"').commit(",", OTHER)
-            .reveal('"username":"').commit("mallory", OTHER).reveal('"').commit("}}", OTHER);
+        received.reveal('"username":"')
+            .commit("Alice_1", HANDLE_COMMITMENT)
+            .reveal('"')
+            .commit(",", OTHER)
+            .reveal('"username":"')
+            .commit("mallory", OTHER)
+            .reveal('"')
+            .commit("}}", OTHER);
         _refusedFraming(received, CeremonyAttestation.AmbiguousFraming.selector);
     }
 
@@ -1119,9 +1156,19 @@ contract XPlatformVerifierTest is RealTlsNotaryProofTest {
     ///      commitment: two commitments both framed.
     function test_refusesTwoFramedIdCommitments() public {
         AttestationBuilder.Direction memory received;
-        received.commit('HTTP/1.1 200 OK\r\n\r\n{"data":{', OTHER).reveal('"id":"').commit("2244994945", ID_COMMITMENT)
-            .reveal('"').commit(",", OTHER).reveal('"id":"').commit("1", OTHER).reveal('"').commit(",", OTHER)
-            .reveal('"username":"').commit("Alice_1", HANDLE_COMMITMENT).reveal('"').commit("}}", OTHER);
+        received.commit('HTTP/1.1 200 OK\r\n\r\n{"data":{', OTHER)
+            .reveal('"id":"')
+            .commit("2244994945", ID_COMMITMENT)
+            .reveal('"')
+            .commit(",", OTHER)
+            .reveal('"id":"')
+            .commit("1", OTHER)
+            .reveal('"')
+            .commit(",", OTHER)
+            .reveal('"username":"')
+            .commit("Alice_1", HANDLE_COMMITMENT)
+            .reveal('"')
+            .commit("}}", OTHER);
         _refusedFraming(received, CeremonyAttestation.AmbiguousFraming.selector);
     }
 
@@ -1173,8 +1220,11 @@ contract XPlatformVerifierTest is RealTlsNotaryProofTest {
         AttestationBuilder.Direction memory received = _upToTheHandle();
         // `"username":"victim",` sits behind a commitment; the prover frames
         // the member after it.
-        received.commit('"username":"victim",', OTHER).reveal('"username":"').commit("Alice_1", HANDLE_COMMITMENT)
-            .reveal('"').commit("}}", OTHER);
+        received.commit('"username":"victim",', OTHER)
+            .reveal('"username":"')
+            .commit("Alice_1", HANDLE_COMMITMENT)
+            .reveal('"')
+            .commit("}}", OTHER);
         TlsNotaryVerifierBase.TlsNotaryProof memory s = _payload();
         s.identitySession = _identityReceiving(received);
         assertEq(this.run{value: quote}(s).handleNode, HANDLE_NODE);
@@ -1183,9 +1233,15 @@ contract XPlatformVerifierTest is RealTlsNotaryProofTest {
     /// @dev Not caught: which object a framed member belongs to (ASM-PROV-06).
     function test_acceptsAnAnchorInAnotherObject() public {
         AttestationBuilder.Direction memory received;
-        received.commit('HTTP/1.1 200 OK\r\n\r\n{"data":{', OTHER).reveal('"id":"').commit("2244994945", ID_COMMITMENT)
-            .reveal('"').commit('},"includes":{', OTHER).reveal('"username":"').commit("Alice_1", HANDLE_COMMITMENT)
-            .reveal('"').commit("}}", OTHER);
+        received.commit('HTTP/1.1 200 OK\r\n\r\n{"data":{', OTHER)
+            .reveal('"id":"')
+            .commit("2244994945", ID_COMMITMENT)
+            .reveal('"')
+            .commit('},"includes":{', OTHER)
+            .reveal('"username":"')
+            .commit("Alice_1", HANDLE_COMMITMENT)
+            .reveal('"')
+            .commit("}}", OTHER);
         TlsNotaryVerifierBase.TlsNotaryProof memory s = _payload();
         s.identitySession = _identityReceiving(received);
         assertEq(this.run{value: quote}(s).handleNode, HANDLE_NODE);

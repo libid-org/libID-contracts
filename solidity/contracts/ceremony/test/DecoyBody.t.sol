@@ -126,9 +126,13 @@ contract DecoyBodyTest is Test {
         // The anchor-only reveal: the id and handle committed, the anchors
         // around them revealed, every other byte behind a commitment.
         AttestationBuilder.Direction memory recv;
-        recv.commit('{"data":{', bytes32(uint256(0x5555))).reveal('"id":"')
-            .commit("2244994945", bytes32(uint256(0x3333))).reveal('","username":"')
-            .commit("victim", bytes32(uint256(0x4444))).reveal('"').commit("}}", bytes32(uint256(0x5555)));
+        recv.commit('{"data":{', bytes32(uint256(0x5555)))
+            .reveal('"id":"')
+            .commit("2244994945", bytes32(uint256(0x3333)))
+            .reveal('","username":"')
+            .commit("victim", bytes32(uint256(0x4444)))
+            .reveal('"')
+            .commit("}}", bytes32(uint256(0x5555)));
         bytes memory att = AttestationBuilder.encode(CeremonyProfile.AUTHORITY_X_API, T0, sent, recv);
         return ICeremony.Attestation({attestedData: att, proof: AttestationBuilder.sign(KEY, att)});
     }

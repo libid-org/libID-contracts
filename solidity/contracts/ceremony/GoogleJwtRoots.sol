@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
-import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
+import {Initializable} from "@openzeppelin/contracts/proxy/utils/Initializable.sol";
+import {UUPSUpgradeable} from "@openzeppelin/contracts/proxy/utils/UUPSUpgradeable.sol";
 import {Ownable2StepUpgradeable} from "@openzeppelin/contracts-upgradeable/access/Ownable2StepUpgradeable.sol";
 
 import {CeremonyAttestation} from "./CeremonyAttestation.sol";
@@ -269,7 +269,6 @@ contract GoogleJwtRoots is Initializable, UUPSUpgradeable, Ownable2StepUpgradeab
     function initialize(address owner_, INotaryService notary_) external initializer {
         __Ownable_init(owner_);
         __Ownable2Step_init();
-        __UUPSUpgradeable_init();
         _setNotaryService(notary_);
     }
 
