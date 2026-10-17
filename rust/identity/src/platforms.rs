@@ -82,11 +82,11 @@ pub fn platform(key: &str) -> Option<&'static Platform> {
 /// Why a handle was refused.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HandleError {
-    /// The value is empty.
+    /// Zero bytes.
     Empty,
-    /// More bytes than the circuit's buffer holds.
+    /// More bytes than the platform's buffer in platforms.json.
     TooLong,
-    /// A byte that is not part of the token as sent.
+    /// A byte outside printable ASCII, a quote, a backslash, or a non-digit in a decimal id.
     BadCharacter,
 }
 
@@ -105,11 +105,11 @@ impl Error for HandleError {}
 /// Why no circuit would hash an id.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum IdError {
-    /// The value is empty.
+    /// Zero bytes.
     Empty,
-    /// More bytes than the circuit's buffer holds.
+    /// More bytes than the platform's buffer in platforms.json.
     TooLong,
-    /// A byte that is not part of the token as sent.
+    /// A byte outside printable ASCII, a quote, a backslash, or a non-digit in a decimal id.
     BadCharacter,
 }
 
