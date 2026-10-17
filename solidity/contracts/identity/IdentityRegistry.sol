@@ -27,7 +27,7 @@ contract IdentityRegistry is
 {
     using IdentityList for IdentityList.Data;
 
-    /// @notice A node's holder, and the moment the platform stated it.
+    /// @notice A node's holder, and when the platform stated it.
     /// @dev `observedAt` is the provider's time, less the profile's future allowance.
     struct Binding {
         address holder;
@@ -47,14 +47,14 @@ contract IdentityRegistry is
 
     /// @custom:storage-location erc7201:libid.storage.IdentityRegistry
     struct IdentityRegistryStorage {
-        /// idNode -> the holder that proved that id. Ids are hashed verbatim, never folded.
+        /// idNode -> the holder that proved that id. Ids are hashed as sent, never folded.
         mapping(bytes32 => Binding) idBindings;
         /// handleNode -> the holder that last proved that handle.
         mapping(bytes32 => Binding) handleBindings;
         /// holder -> platformId -> the handle it disclosed as its name there.
         mapping(address => mapping(bytes32 => string)) published;
         /// idNode -> the handle node that identity last proved, and back.
-        /// The reverse map lets a rename retire only a handle still pointing here.
+        /// The reverse map lets a rename retire only a handle still paired with this id.
         mapping(bytes32 => bytes32) handleNodeById;
         mapping(bytes32 => bytes32) idNodeByHandle;
         /// The Proof Verifier, which owns the Supported Version Set.
@@ -114,13 +114,11 @@ contract IdentityRegistry is
         bytes32 indexed authorizationDigest, address indexed holder, bytes32 indexed platformId, bytes clientIdentifier
     );
 
-    /// @notice The service fee named by a binding's own Authorized Transaction
-    ///         Data was delivered.
+    /// @notice A binding paid the service fee its Authorized Transaction Data names.
     event BindFeePaid(bytes32 indexed authorizationDigest, address indexed receiver, uint256 amount);
 
     /// @notice A handle stopped resolving because the identity that had it
     ///         proved a different one. `holder` is the address that held it.
-    /// @dev Nobody else's entry can be retired this way. See `bind`.
     event HandleRetired(bytes32 indexed platformId, bytes32 indexed handleNode, address indexed holder);
 
     /// @notice This Consumer was pointed at a Proof Verifier.
@@ -185,10 +183,8 @@ contract IdentityRegistry is
 
     // ─── Binding ────────────────────────────────────────────────────
 
-    /// @notice Bind an identity from a ceremony. A nonempty `handle` is disclosed:
-    ///         folded and hashed under the platform's tag, it must be the proved
-    ///         handle node, and becomes the caller's name there. Empty keeps the
-    ///         bind private.
+    /// @notice Bind an identity from a ceremony. A nonempty `handle` must fold and
+    ///         hash to the proved handle node, and becomes the caller's name there.
     /// @dev `msg.value` is `quoteBind` plus the fee the transaction data names.
     function bind(bytes32 platformId, uint16 verifierVersion, bytes calldata payload, string calldata handle)
         external
@@ -314,9 +310,8 @@ contract IdentityRegistry is
         emit IdentityBound(msg.sender, idNode, handleNode, platformId, observedAt, ceremonyVersion);
     }
 
-    /// @dev Retire the handle node this identity wrote before, if it still
-    ///      points back here, and withdraw its holder's name for it. A node
-    ///      another identity has since proved is that identity's, and is left alone.
+    /// @dev Retire the handle node this identity proved before, if no other
+    ///      identity has proved it since, and withdraw its holder's name for it.
     function _retirePreviousHandle(bytes32 platformId, bytes32 idNode, bytes32 handleNode) private {
         bytes32 previous = _s().handleNodeById[idNode];
         if (previous == bytes32(0) || previous == handleNode) return;
@@ -329,8 +324,7 @@ contract IdentityRegistry is
     }
 
     /// @dev Withdraw `holder`'s name on the platform if it names `handleNode`,
-    ///      which `holder` no longer holds. Else proving that handle again,
-    ///      privately, would show the name again.
+    ///      which `holder` no longer holds, so a later private proof of it shows no name.
     function _withdrawName(address holder, bytes32 platformId, bytes32 handleNode) private {
         if (holder == address(0)) return;
         string memory name = _s().published[holder][platformId];
@@ -390,8 +384,8 @@ contract IdentityRegistry is
 
     // ─── Views ──────────────────────────────────────────────────────
 
-    /// @notice The node a handle is bound under, from the handle as typed:
-    ///         folded, then hashed under the platform's tag.
+    /// @notice The node a handle as typed is bound under: folded, then hashed
+    ///         under the platform's tag.
     function handleNodeOf(bytes32 platformId, string calldata handle) external pure returns (bytes32 handleNode) {
         (, handleNode) = _handleNodeOf(platformId, handle);
     }
@@ -403,15 +397,14 @@ contract IdentityRegistry is
         return address(pv) != address(0) && pv.verifiesPlatform(platformId);
     }
 
-    /// @notice The holder of an id node. An id node is the unsalted
-    ///         `SHA256(user-id tag || id)`, so a guess can be tested; the id
-    ///         is never stored.
+    /// @notice The holder of an id node, the unsalted `SHA256(user-id tag || id)`.
+    ///         The id itself is never stored.
     function resolveId(bytes32 idNode) external view returns (address) {
         return _s().idBindings[idNode].holder;
     }
 
-    /// @notice The holder of a handle as typed, or zero for text no binding
-    ///         has, on any platform the profiles name.
+    /// @notice The holder of a handle as typed, or zero if none. Reverts
+    ///         `UnknownPlatform` for a platform no profile names.
     function resolveHandle(bytes32 platformId, string calldata handle) external view returns (address) {
         _requireKnown(platformId);
         (, bytes32 handleNode) = _handleNodeOf(platformId, handle);
@@ -451,9 +444,7 @@ contract IdentityRegistry is
     }
 
     /// @notice The holder of a handle, and whether `idNode` is the account that
-    ///         last proved it: a `(handle, id)` pair learned earlier still goes
-    ///         together. An unknown id, or a handle with no holder, disagrees.
-    ///         Advice for the caller; it refuses nothing.
+    ///         last proved it. An unknown id or an unheld handle disagrees.
     function resolveHandleAndId(bytes32 platformId, string calldata handle, bytes32 idNode)
         external
         view
@@ -465,8 +456,8 @@ contract IdentityRegistry is
     }
 
     /// @notice `resolveHandleAndId` for a handle node computed off chain, so
-    ///         the handle itself never reaches the RPC. A node proved on
-    ///         another platform resolves as an unknown handle does.
+    ///         the handle never reaches the RPC. A node of another platform
+    ///         resolves as unknown.
     function resolveHandleNodeAndId(bytes32 platformId, bytes32 handleNode, bytes32 idNode)
         external
         view
@@ -477,9 +468,9 @@ contract IdentityRegistry is
         return _resolveNodeAndId(handleNode, idNode);
     }
 
-    /// @dev The handle's pairing names the account that last proved it
-    ///      (REQ-PLAT-08I), so two accounts of one wallet passing a handle
-    ///      between them disagree, and a pairing never crosses platforms.
+    /// @dev The pairing names the account that last proved the handle
+    ///      (REQ-PLAT-08I), so a handle passed between two accounts of one
+    ///      wallet disagrees with the earlier one.
     function _resolveNodeAndId(bytes32 handleNode, bytes32 idNode)
         private
         view

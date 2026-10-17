@@ -4,8 +4,8 @@ pragma solidity ^0.8.24;
 /// @title CeremonyFields
 /// @notice Byte searches and JSON whitespace removal over revealed bytes, and
 ///         holding a form body to exactly the fields it should carry.
-/// @dev Parses no document: templates only. A delimiter matching more than
-///      once is refused via `occurrences` (REQ-COMMON-19A).
+/// @dev Matches templates rather than parsing documents. A delimiter matching
+///      more than once is refused via `occurrences` (REQ-COMMON-19A).
 library CeremonyFields {
     /// @dev The form names the field more than once (REQ-COMMON-19A).
     error AmbiguousField(string name);
@@ -207,9 +207,8 @@ library CeremonyFields {
     }
 
     /// @notice The value of field `name` in a body `requireExactForm` accepted.
-    ///
-    /// @dev Listed names carry no form delimiter (the generator refuses one),
-    ///      so each recorded value is the one a form parser reads for its name.
+    /// @dev The generator refuses a listed name carrying a form delimiter, so
+    ///      each recorded value is the one a form parser reads for its name.
     function valueOf(Form memory form, string memory name) internal pure returns (bytes memory) {
         bytes32 wanted = keccak256(bytes(name));
         uint256 found = type(uint256).max;
@@ -224,37 +223,21 @@ library CeremonyFields {
 
     /// @notice `body` is the WHATWG form serialization of exactly the fields
     ///         `names` lists, `&`-joined, in that order, each once with a
-    ///         nonempty value -- and nothing else.
+    ///         nonempty value, and nothing else.
     ///
-    /// @dev REQ-PLAT-61. Reading one field by its literal name cannot answer
-    ///      "what else is here": an encoded spelling (`code%5Fverifier=`) is
-    ///      invisible to a literal match, and a value read to the next `&` lets
-    ///      a raw `;` or `=` be a pair to some parsers and a value to others.
-    ///      Resting on that alone rests on the platform refusing what was not
-    ///      counted (ASM-PROV-07). This check removes the assumption: one
-    ///      cursor walks the body once, and
-    ///      every byte of it is accounted for -- a literal name, `=`, a value
-    ///      in the serializer's output alphabet, `&` between pairs, the end
-    ///      of the body after the last. A sixth pair, a duplicate, a reordering,
-    ///      a name in another spelling and a delimiter smuggled into a value
-    ///      all put a byte where the grammar allows no such byte.
+    /// @dev REQ-PLAT-61, so acceptance never rests on the platform refusing
+    ///      fields nobody counted (ASM-PROV-07). One cursor accounts for every
+    ///      byte: a literal name, `=`, a value in the serializer's output
+    ///      alphabet, `&` between pairs, the end after the last. An extra
+    ///      pair, a duplicate, a reordering, another spelling of a name or a
+    ///      delimiter inside a value each puts a byte the grammar refuses.
     ///
-    ///      The alphabet is the serializer's OUTPUT, not the input's: the bytes
-    ///      it passes through (`[A-Za-z0-9*._-]`), `+` for a space, and `%`
-    ///      followed by two UPPERCASE hex digits for everything else. Every
-    ///      byte has exactly one spelling under that serializer, so any other
-    ///      spelling of the same byte is refused: an escape in lowercase, an
-    ///      escape of a byte the serializer passes through (`%61` for `a`),
-    ///      an escape of the space it writes as `+` (`%20`). A truncated one
-    ///      is not an escape at all. This is the specification's "serialize
-    ///      the decoded tuple and compare byte for byte", done without the
-    ///      round trip: a body every token of which is canonical IS the
-    ///      serialization of what it decodes to. Values are validated, never
-    ///      decoded, so the bytes GitHub parsed are the bytes judged, and an
-    ///      encoded delimiter stays one value's byte (`%26`) rather than
-    ///      becoming a pair. What a value decodes TO is not judged: a value
-    ///      in this alphabet cannot become another field, and a verifier
-    ///      reads only the values it compares.
+    ///      The output alphabet is `[A-Za-z0-9*._-]` passed through, `+` for a
+    ///      space, and `%` with two uppercase hex digits for every other byte.
+    ///      Each byte has one spelling, so a lowercase escape, `%61` for `a`
+    ///      and `%20` for a space are refused. A body of canonical tokens is
+    ///      the serialization of what it decodes to, so this equals the spec's
+    ///      re-serialize-and-compare. Values are validated, never decoded.
     ///
     /// @return form Where each listed field's value lies, for `valueOf`.
     function requireExactForm(bytes memory body, bytes memory names) internal pure returns (Form memory form) {
@@ -272,8 +255,7 @@ library CeremonyFields {
         for (uint256 field = 0;; ++field) {
             uint256 to = indexOfByte(names, from, "&");
 
-            // The pair begins with the literal name and `=`, or it is not the
-            // pair expected here: a reordering, a duplicate, another spelling.
+            // The pair must begin with the expected literal name and `=`.
             uint256 start = at;
             at += to - from;
             if (at > body.length || _hash(body, start, at) != _hash(names, from, to)) revert MalformedForm(start);
@@ -427,14 +409,10 @@ library CeremonyFields {
         }
     }
 
-    /// @notice Whether every byte lies in the serializer's byte-identical ASCII
-    ///         subset, `[A-Za-z0-9*._-]`.
-    ///
-    /// @dev REQ-COMMON-16B. The WHATWG form serializer passes exactly this set
-    ///      through unchanged and percent-encodes everything else, so bytes
-    ///      outside it are the SERIALIZATION rather than the identifier.
-    ///      Returning those would hand a Consumer `my%2Bapp` where the client is
-    ///      `my+app`.
+    /// @notice Whether `value` is nonempty and every byte lies in the
+    ///         serializer's pass-through set `[A-Za-z0-9*._-]`.
+    /// @dev REQ-COMMON-16B. Outside this set the bytes are the serialization,
+    ///      not the identifier: `my%2Bapp` where the client is `my+app`.
     function isSerializerSafe(bytes memory value) internal pure returns (bool) {
         if (value.length == 0) return false;
         for (uint256 i = 0; i < value.length; i += 32) {

@@ -8,22 +8,19 @@ import {INotaryService} from "./INotaryService.sol";
 import {IPlatformVerifier} from "./IPlatformVerifier.sol";
 import {IHonkVerifier, PlatformVerifierBase} from "./PlatformVerifierBase.sol";
 
-/// @dev Where the deployment keeps the Google signing keys it trusts:
-///      `GoogleJwtRoots`, kept beside this verifier.
+/// @dev The Google signing keys the deployment trusts, held by `GoogleJwtRoots`.
 interface IGoogleJwtRoots {
     function trustedHashExpiresAt(bytes32 modulusHash) external view returns (uint256);
 }
 
 /// @title GooglePlatformVerifier — the `google/v1` profile.
 ///
-/// @notice One proof over a signed ID Token: no notarized session, no Notary
-///         Service, no fee.
+/// @notice One proof over a signed ID Token, with no notarized session and no fee.
 ///
-/// @dev The verifier builds the circuit's public inputs: the digest it
-///      rebuilds is the signed OIDC `nonce` (REQ-COMMON-02A), `sha256(aud)` is
-///      the audience, and the nodes, `exp` and modulus come from the payload.
-///      Any wrong value fails the proof. `exp` gives both `metadataObservedAt`
-///      and `proofValidUntil`.
+/// @dev The verifier builds the circuit's public inputs: the rebuilt digest
+///      is the signed OIDC `nonce` (REQ-COMMON-02A), `sha256(aud)` the
+///      audience, and the nodes, `exp` and modulus come from the payload.
+///      `exp` gives both `metadataObservedAt` and `proofValidUntil`.
 contract GooglePlatformVerifier is IPlatformVerifier, PlatformVerifierBase {
     /// @dev The public inputs REQ-PLAT-16B fixes, in the order it lists them.
     ///      The digest is 32 field elements of one byte each; the rest are
@@ -91,9 +88,8 @@ contract GooglePlatformVerifier is IPlatformVerifier, PlatformVerifierBase {
         _disableInitializers();
     }
 
-    /// @dev `notary_` is the base's; this verifier never calls it, since a
-    ///      profile whose Attestation Count is zero must not reach a Notary
-    ///      Service (REQ-COMMON-05D).
+    /// @dev `notary_` must be zero: a profile whose Attestation Count is zero
+    ///      holds no Notary Service (REQ-COMMON-05D).
     function initialize(address owner_, INotaryService notary_, IHonkVerifier honkVerifier_, IGoogleJwtRoots jwtRoots_)
         external
         initializer
@@ -118,7 +114,7 @@ contract GooglePlatformVerifier is IPlatformVerifier, PlatformVerifierBase {
         emit JwtRootsChanged(address(roots));
     }
 
-    /// @dev `oidc-google`'s verifier, and no other.
+    /// @dev The `oidc-google` circuit's verifier.
     function _circuitCodehash() internal pure override returns (bytes32) {
         return CircuitCodehashes.OIDC_GOOGLE;
     }
@@ -133,25 +129,20 @@ contract GooglePlatformVerifier is IPlatformVerifier, PlatformVerifierBase {
     }
 
     /// @inheritdoc IPlatformVerifier
-    /// @dev Zero. Its Attestation Count is zero, so it verifies nothing that
-    ///      charges (REQ-COMMON-06E).
+    /// @dev Zero: the Attestation Count is zero (REQ-COMMON-06E).
     function quote() public pure returns (uint256) {
         return 0;
     }
 
     /// @inheritdoc IPlatformVerifier
     function verify(bytes calldata payload) external payable returns (VerifiedClaim memory claimed) {
-        // Not merely "no fee required" but "no value accepted": there is
-        // nothing downstream to forward it to, and value left here would be
-        // captured in transit.
+        // No value is accepted: nothing downstream takes it.
         if (msg.value != 0) revert WrongValue(0, msg.value);
 
         GoogleProof memory p = abi.decode(payload, (GoogleProof));
         uint16 version = _requireCeremonyVersion(p.ceremonyVersion);
 
-        // REQ-COMMON-02A. The digest rebuilt here from the decoded payload,
-        // this verifier's version and this chain is the signed `nonce` the
-        // proof must carry.
+        // REQ-COMMON-02A: the proof must carry this digest as the signed `nonce`.
         bytes32 digest =
             CeremonyAuthorization.digestFor(p.operationDomain, version, p.authorizationNonce, p.transactionData);
 
@@ -163,13 +154,12 @@ contract GooglePlatformVerifier is IPlatformVerifier, PlatformVerifierBase {
         // decides no trust; that decision is here alone.
         _requireTrustedModulus(p.modulus);
 
-        // REQ-PLAT-22. The signed `exp` is the whole validity ceiling, and a
-        // ceiling above it: without one, a token minted with a distant expiry
-        // buys a proportionally long lock on the name.
+        // REQ-PLAT-22. The signed `exp` is the validity ceiling, and itself
+        // capped, so a distant expiry cannot hold a name for longer.
         if (block.timestamp >= p.exp) revert TokenExpired(p.exp, uint64(block.timestamp));
         _requireNotAhead(p.exp);
 
-        // The inputs are built, never taken, so each value above is the one proved.
+        // The inputs are built here, so each value above is the one proved.
         _requireProof(p.proof, _publicInputs(p, digest));
         claimed.idNode = p.idNode;
         claimed.handleNode = p.handleNode;

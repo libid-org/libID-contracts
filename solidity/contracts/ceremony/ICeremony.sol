@@ -6,28 +6,16 @@ pragma solidity ^0.8.24;
 ///         section 5.1: Consumer to Proof Verifier to Platform Verifier to
 ///         Notary Service.
 ///
-/// @dev What a Consumer submits is NOT declared here. It is opaque bytes: the
-///      Consumer names a platform and a verifier version, the Proof Verifier
-///      routes on that pair, and only the Platform Verifier at the end of the
-///      route knows the shape of what it decodes. Each verifier declares its
-///      own payload struct, because the shapes genuinely differ -- two notarized
-///      sessions and a PKCE nonce for X and GitHub, a signed token's public
-///      inputs for Google -- and nothing above the verifier needs to read them.
+/// @dev A Consumer submits opaque bytes. The Proof Verifier routes on
+///      platform and verifier version, and each Platform Verifier declares
+///      and decodes its own payload struct (see `ICeremonyPayloads`).
 interface ICeremony {
     /// @notice One attestation and the notary's proof that it stood behind it.
-    /// @dev The Notary Service authenticates this pair by itself and accepts
-    ///      no caller-supplied digest, preimage hash, or verifying key: a
-    ///      caller-computed digest authenticates whatever the caller hashed,
-    ///      not the bytes the Platform Verifier goes on to read
-    ///      (REQ-COMMON-33).
-    ///
-    ///      Both halves are opaque above the Notary Service. The attested
-    ///      bytes are the notary's format, not this chain's -- one notary
-    ///      serves every chain, so what it attests is chain-agnostic and is
-    ///      decoded by the Notary Service alone. The proof is whatever that
-    ///      service accepts: a signature today, and nothing here would change
-    ///      if it became a threshold of them or a zero-knowledge argument. The
-    ///      envelope around the pair is what each chain encodes its own way.
+    /// @dev The Notary Service authenticates the pair itself, taking no
+    ///      caller-supplied digest or key, so it authenticates the bytes the
+    ///      Platform Verifier reads (REQ-COMMON-33). Both fields are opaque
+    ///      above the Notary Service: `attestedData` is the notary's
+    ///      chain-agnostic format, `proof` whatever that service accepts.
     struct Attestation {
         bytes attestedData;
         bytes proof;

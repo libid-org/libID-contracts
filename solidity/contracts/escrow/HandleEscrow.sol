@@ -17,12 +17,8 @@ address constant NATIVE_TOKEN = 0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE;
 /// @title HandleEscrow - send to a platform handle before anybody holds it.
 /// @notice Holds value against a handle node until its holder claims it; each
 ///         deposit's `refundTo` can take its own contribution back until then.
-/// @dev - A held node is paid straight through; an unheld one escrows.
-///      - A claim empties the slot and opens a new round, ending the old
-///        round's refunds. Refunds have no delay and no pause gates them.
-///      - Each token is one pool across all nodes; a payout that debits it by
-///        more than it books reverts `OverDebited`, so a token that charges
-///        its sender on `transfer` deposits but never pays out.
+/// @dev A claim empties the slot and opens a new round, ending the old round's
+///      refunds. Integration notes are in README.md beside this file.
 contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, ReentrancyGuard {
     using SafeERC20 for IERC20;
 
@@ -147,8 +143,7 @@ contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable
         _disableInitializers();
     }
 
-    /// @dev Reverts `RegistryLacks` unless `registry_` answers the four `IIdentityRegistry` views
-    ///      like the node-keyed `IdentityRegistry`.
+    /// @dev Reverts `RegistryLacks` unless `registry_` passes `_requireAnswers`.
     function initialize(address owner_, IIdentityRegistry registry_) external initializer {
         if (address(registry_) == address(0)) revert NoRegistry();
         _requireAnswers(registry_);
@@ -183,11 +178,10 @@ contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable
         _deposit(handleNode, platformId, token, amount, refundTo);
     }
 
-    /// @notice `deposit` to a handle given as text, which the calldata and the
-    ///         log make public. Reverts the registry's `UnknownPlatform` for a platform it
-    ///         does not know, as `deposit` does.
-    /// @dev The node is the registry's `handleNodeOf`: the one `deposit` takes.
-    ///      The log carries the handle folded, as `HandlePublished` does.
+    /// @notice `deposit` to a handle given as text, which the calldata and the log
+    ///         make public. Reverts the registry's `UnknownPlatform` for a platform
+    ///         it does not know, even when the handle is held.
+    /// @dev The node is the registry's `handleNodeOf`; the log carries the handle folded.
     function depositToHandle(
         bytes32 platformId,
         string calldata handle,

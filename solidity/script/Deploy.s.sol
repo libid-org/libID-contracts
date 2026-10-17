@@ -10,10 +10,9 @@ import {CeremonyProofVerifier} from "../contracts/ceremony/CeremonyProofVerifier
 import {IProofVerifier} from "../contracts/ceremony/IProofVerifier.sol";
 import {GoogleJwtRoots} from "../contracts/ceremony/GoogleJwtRoots.sol";
 
-/// @notice Deploy the identity stack to any EVM chain.
-///
-/// Four UUPS proxies: Notary Service, Proof Verifier, identity registry and
-/// Google JWT root list. No Platform Verifier is registered here.
+/// @notice Deploy the identity stack to any EVM chain: four UUPS proxies for the
+/// Notary Service, Proof Verifier, identity registry and Google JWT root list.
+/// No Platform Verifier is registered.
 ///
 /// Usage:
 ///   forge script script/Deploy.s.sol \
@@ -29,7 +28,7 @@ contract Deploy is Script {
     function run() external {
         string memory deployerKeyHex = vm.envOr("DEPLOYER_KEY", vm.envOr("PRIVATE_KEY", string("")));
         require(bytes(deployerKeyHex).length > 0, "set DEPLOYER_KEY or PRIVATE_KEY");
-        // Forge injects PRIVATE_KEY without 0x prefix via --private-key flag.
+        // Accept a 64-hex key without its 0x prefix.
         if (bytes(deployerKeyHex).length == 64) {
             deployerKeyHex = string.concat("0x", deployerKeyHex);
         }
@@ -40,13 +39,9 @@ contract Deploy is Script {
 
         vm.startBroadcast(deployerKey);
 
-        // 1. The Notary Service (UUPS proxy) -- the ONE place a notary
-        //    attestation is authenticated, deployed first so its proxy address
-        //    can be wired into every consumer's initialize. It derives the
-        //    digest from the attested bytes itself (REQ-COMMON-33) and charges
-        //    the Notary Fee. Key rotation is `setNotary`; a fee change is
-        //    `setFee`; a proof-system change is a UUPS upgrade of this proxy
-        //    alone.
+        // 1. The Notary Service, the one place a notary attestation is
+        //    authenticated (REQ-COMMON-33). First, so consumers can be
+        //    initialized with its address.
         NotaryService notaryServiceImpl = new NotaryService();
         address notaryServiceAddr = address(
             new ERC1967Proxy(
@@ -54,16 +49,12 @@ contract Deploy is Script {
             )
         );
 
-        // 2. The ceremony core the Consumer dispatches through. Without it
-        //    `proofVerifier` reads zero, `quoteBind` calls address zero and
-        //    every resolver reverts `UnknownPlatform` -- a deployment that can
-        //    bind nothing.
+        // 2. The Proof Verifier every binding is verified through.
         CeremonyProofVerifier pvImpl = new CeremonyProofVerifier();
         address proofVerifierAddr =
             address(new ERC1967Proxy(address(pvImpl), abi.encodeCall(CeremonyProofVerifier.initialize, (deployer))));
 
-        // 3. The identity registry: one contract holding the bindings,
-        //    dispatching every one through the Proof Verifier above.
+        // 3. The identity registry, pointed at the Proof Verifier.
         IdentityRegistry registryImpl = new IdentityRegistry();
         address identityRegistryAddr =
             address(new ERC1967Proxy(address(registryImpl), abi.encodeCall(IdentityRegistry.initialize, (deployer))));
@@ -71,11 +62,9 @@ contract Deploy is Script {
         registry.setProofVerifier(IProofVerifier(proofVerifierAddr));
         // A platform is enabled by `CeremonyProofVerifier.setVerifier`, which needs circuit artifacts.
 
-        // 4. The Google JWT root list, beside the Platform Verifier it serves.
-        //    That verifier reads the trusted moduli through it, and nothing
-        //    is trusted until a notarized reading of Google's JWKS lands --
-        //    verified through the Notary Service above, like every other
-        //    notarized session, and paying the same fee.
+        // 4. The Google JWT root list the Google Platform Verifier reads its
+        //    trusted moduli from. It verifies notarized JWKS readings through
+        //    the Notary Service and starts empty.
         GoogleJwtRoots rootsImpl = new GoogleJwtRoots();
         address jwtRootsAddr = address(
             new ERC1967Proxy(
@@ -96,9 +85,7 @@ contract Deploy is Script {
         console.log("      CeremonyProofVerifier.setVerifier once the ceremony");
         console.log("      circuit artifacts are released. Until then no");
         console.log("      platform can bind.");
-        // Nothing is trusted until a notarized reading of Google's JWKS lands.
-        // Until then every Google binding reverts `UntrustedModulus`, which reads
-        // as a bad proof rather than an unseeded list.
+        // Until the first JWKS reading lands, every Google binding reverts `UntrustedModulus`.
         console.log("NOTE: point the keeper at GOOGLE_JWT_ROOTS_ADDRESS");
         console.log("      before Google bindings work. The trust list starts empty.");
     }
