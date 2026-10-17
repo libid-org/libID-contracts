@@ -3,8 +3,9 @@
 # `forge build` runs this composite.
 #
 # The cache key depends only on the Foundry version, the profile and the
-# sources, so the first job to save it warms the others. forge's own cache is
-# content-addressed, so a restored `out/` rebuilds only what changed.
+# sources, so the first job to save it warms the others on the same tree. Only
+# an exact key restores: forge rebuilding part of another tree's `out/` under
+# via_ir can emit different bytecode than a full build.
 name: forge-build
 description: Install Foundry, restore the shared forge cache, and run `forge build` in solidity/.
 
@@ -19,6 +20,12 @@ inputs:
       would only make forge rebuild it.
     required: false
     default: default
+  cache:
+    description: >-
+      Restore and save the forge artifact cache. The release jobs turn it off,
+      so what ships is built from the checkout alone.
+    required: false
+    default: "true"
 
 runs:
   using: composite
@@ -50,17 +57,15 @@ runs:
     # the key. The Foundry version is in the key because artifacts embed
     # compiler metadata.
     - name: Restore forge artifacts
+      if: inputs.cache == 'true'
       uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
         path: |
           solidity/out
           solidity/cache
         key: forge-${{ runner.os }}-${{ inputs.foundry-version }}-${{ inputs.profile }}-${{ hashFiles('solidity/**/*.sol', 'solidity/foundry.toml', 'solidity/remappings.txt', 'solidity/lib/**') }}
-        restore-keys: |
-          forge-${{ runner.os }}-${{ inputs.foundry-version }}-${{ inputs.profile }}-
 
-    # No `--force`: forge's content-addressed cache rebuilds whatever changed,
-    # and a warm cache makes this step a near no-op.
+    # On an exact cache hit this is a no-op; otherwise a full build.
     - name: Build contracts
       shell: bash
       working-directory: solidity
