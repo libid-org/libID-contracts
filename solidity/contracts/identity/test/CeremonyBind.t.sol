@@ -551,7 +551,9 @@ contract ReenteringVerifier is IPlatformVerifier {
             armed = false;
             (bool ok, bytes memory ret) =
                 address(REGISTRY).call(abi.encodeCall(IdentityRegistry.bind, (PLATFORM, 1, innerPayload, false)));
-            if (!ok) assembly { revert(add(ret, 32), mload(ret)) }
+            if (!ok) {
+                assembly { revert(add(ret, 32), mload(ret)) }
+            }
         }
         return c;
     }

@@ -47,7 +47,7 @@ env:
   CARGO_INCREMENTAL: 0
   # Foundry stable release, current at the time of pinning. Part of the forge
   # cache key, so bumping it starts a fresh artifact cache.
-  FOUNDRY_VERSION: v1.7.1
+  FOUNDRY_VERSION: v1.8.5
   # Rust stable, pinned so a toolchain release cannot break CI mid-PR.
   RUST_VERSION: 1.97.1
   # Nightly is for `cargo +nightly fmt` ONLY: rustfmt options like
