@@ -1282,12 +1282,8 @@ contract TranscriptEquivalenceTest is Test {
         _realRequests("contracts/ceremony/test/fixtures/github-ceremony-real.json", address(github), address(refGitHub));
     }
 
-    /// @dev Their identity responses predate the anchor-only reveal.
-    function test_theRealIdentityResponsesMatchReference() public {
-        vm.skip(
-            true,
-            "the *-ceremony-real.json identity responses predate the hashed identities: they reveal the id and handle; recapture under the anchor-only reveal"
-        );
+    /// @dev And their identity responses, the anchors revealed.
+    function test_theRealIdentityResponsesMatchReference() public view {
         _real("contracts/ceremony/test/fixtures/x-ceremony-real.json", address(x), address(refX));
         _real("contracts/ceremony/test/fixtures/github-ceremony-real.json", address(github), address(refGitHub));
     }
