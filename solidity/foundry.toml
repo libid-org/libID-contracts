@@ -25,7 +25,6 @@ fs_permissions = [
     { access = "read", path = "contracts/ceremony/test/fixtures" },
     # Real proofs of each circuit, for the Honk verifiers (see HonkVerifierProofs.t.sol).
     { access = "read", path = "contracts/circuits/test/fixtures" },
-    { access = "read", path = "out" }, # the factory tests read creation code from the artifacts
     # The shared handle vectors from the pinned circuits release (HandleNode.t.sol).
     { access = "read", path = "contracts/circuits/handles.json" },
 ]

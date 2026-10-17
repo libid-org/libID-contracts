@@ -133,10 +133,11 @@ jobs:
           fi
 
   # ---------------------------------------------------------------------------
-  # Generated files match their sources: profiles.json, and the pinned
-  # circuits release's platforms.json and handles.json. A stale output passes
-  # every per-language test while the languages disagree. The forge-build
-  # composite checks the Honk verifiers against their pin.
+  # Generated files match their sources: profiles.json, the pinned circuits
+  # release's platforms.json and handles.json, and regen-bind-route.py's
+  # `bind` route. A stale output passes every per-language test while the
+  # languages disagree. The forge-build composite checks the Honk verifiers
+  # against their pin.
   # ---------------------------------------------------------------------------
   generated-tables:
     name: Generated tables
@@ -161,6 +162,9 @@ jobs:
 
       - name: Generated ceremony profiles are current
         run: python3 scripts/regen-ceremony-profiles.py --check
+
+      - name: Generated bind route is current
+        run: python3 scripts/regen-bind-route.py --check
 
   # ---------------------------------------------------------------------------
   # Rust: vendored artifacts, formatting, clippy, tests. The artifacts come

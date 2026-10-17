@@ -38,12 +38,13 @@ runs:
       shell: bash
       run: ./scripts/vendor-circuit-verifiers.sh
 
-    # The vendor step rewrites CircuitCodehashes.sol, so HonkVerifiers.t.sol
-    # would compare the file with itself. This diff holds the committed file
-    # to the pinned verifiers.
-    - name: CircuitCodehashes.sol matches the vendored verifiers
+    # The vendor step rewrites CircuitCodehashes.sol and IHonkVerifierErrors.sol
+    # from the verifiers it just wrote; the committed files must match.
+    - name: Generated circuit files match the vendored verifiers
       shell: bash
-      run: git diff --exit-code solidity/contracts/circuits/CircuitCodehashes.sol
+      run: |
+        git diff --exit-code solidity/contracts/circuits/CircuitCodehashes.sol \
+          solidity/contracts/circuits/IHonkVerifierErrors.sol
 
     # `solidity/lib/**` hashes the submodule trees, so a submodule bump changes
     # the key. The Foundry version is in the key because artifacts embed

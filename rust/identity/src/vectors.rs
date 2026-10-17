@@ -9,9 +9,6 @@ use crate::{
     IdError,
 };
 
-/// SHA-256 of the handles.json this file was generated from.
-pub const TABLE_SHA256: &str = "d6667cc10b9366933533349b94971cf19007ef656286eff3d8d11fe7e40f5b9b";
-
 /// An accepted handle: its folded form and its node.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Folded {

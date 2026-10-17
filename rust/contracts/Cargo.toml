@@ -9,7 +9,7 @@ description = "Typed alloy bindings, embedded forge artifacts, and deploy/upgrad
 keywords = ["ethereum", "alloy", "contracts", "deployment"]
 categories = ["cryptography::cryptocurrencies"]
 # `include_dir!` embeds `artifacts/`, so it ships with the crate.
-include = ["src/**", "artifacts/**", "README.md"]
+include = ["src/**", "artifacts/**", "abi/**", "README.md"]
 
 [dependencies]
 alloy = { version = "1", features = [

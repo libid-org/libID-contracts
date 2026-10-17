@@ -18,6 +18,3 @@ sha2 = { version = "0.10", optional = true }
 node = ["dep:sha2"]
 # The shared vector tables (`vectors`), for a consumer's tests.
 test-helpers = []
-
-[dev-dependencies]
-sha2 = "0.10"

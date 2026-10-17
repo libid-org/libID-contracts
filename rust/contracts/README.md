@@ -9,13 +9,14 @@ trusts), the identity registry (`IdentityRegistry`), and the deterministic
 deployment factory (`LibidFactory`).
 
 The compiled artifacts are embedded in the crate, so a consumer deploys or
-upgrades the stack with no filesystem access at runtime. Every helper is
-generic over an alloy `Provider` you have already wired with a wallet.
+upgrades the stack with no filesystem access at runtime. The bindings are
+`alloy::sol!` over the compiled ABIs. Every helper is generic over an alloy
+`Provider` you have already wired with a wallet.
 
-`artifacts/` is generated, not committed. After cloning, run
-`scripts/vendor-circuit-verifiers.sh` then `scripts/vendor-artifacts.sh`;
-until then `cargo build` fails at `include_dir!`. CI runs both before every
-build, test and publish.
+`artifacts/` and `abi/` are generated from `solidity/`, not committed. After
+cloning, run `scripts/vendor-circuit-verifiers.sh` then
+`scripts/vendor-artifacts.sh`; until then `cargo build` fails at
+`include_dir!`. CI runs both before every build, test and publish.
 
 ## Example: deploy the Notary Service and the Google JWT root list
 
@@ -151,10 +152,9 @@ Other entry points:
 - `circuits::version` — the `libid-circuits` release the vendored verifiers
   came from.
 - `PlatformVerifier::rotation_codehash_at` — the code hash `setTrustRoots`
-  takes, or `Error::WrongCircuit` unless the address holds the verifier the
+  wants, or `Error::WrongCircuit` unless the address holds the verifier the
   proxy's `circuitCodehash()` pins. `platform_verifier::codehash_at` reads
   any address's code hash, unchecked.
-- `Artifacts::method_identifiers` — a vendored contract's selectors.
 - `BindError::decode` — a refused `bind` by name (`HandleNotProved`,
   `NotYourHandle`, `SumcheckFailed`, …), from every contract on the route
   and bb's Honk verifiers. A revert does not say which contract raised it,

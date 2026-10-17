@@ -400,7 +400,9 @@ async fn deploys_and_initializes_every_platform_verifier() {
     use libid_contracts::{
         bindings::ceremony::{
             GooglePlatformVerifier,
-            TlsNotaryPlatformVerifier,
+            IPlatformVerifier,
+            PlatformVerifierBase,
+            XPlatformVerifier,
         },
         circuits::{
             deploy_honk_verifier,
@@ -520,7 +522,7 @@ async fn deploys_and_initializes_every_platform_verifier() {
         // One Notary Fee per attestation the profile requires.
         let quote = match verifier {
             PlatformVerifier::X | PlatformVerifier::GitHub => {
-                let v = TlsNotaryPlatformVerifier::new(proxy, &provider);
+                let v = PlatformVerifierBase::new(proxy, &provider);
                 assert_eq!(v.owner().call().await.unwrap(), deployer);
                 assert_eq!(v.notaryService().call().await.unwrap(), notary_proxy);
                 assert_eq!(v.honkVerifier().call().await.unwrap(), honk);
@@ -550,7 +552,11 @@ async fn deploys_and_initializes_every_platform_verifier() {
                     window,
                     "{verifier:?}"
                 );
-                let quote = v.quote().call().await.unwrap();
+                let quote = IPlatformVerifier::new(proxy, &provider)
+                    .quote()
+                    .call()
+                    .await
+                    .unwrap();
                 assert_eq!(quote, fee * U256::from(2));
                 quote
             }
@@ -576,7 +582,7 @@ async fn deploys_and_initializes_every_platform_verifier() {
 
         // The contract answers for the platform the crate says it serves,
         // and the Proof Verifier registers it under that platform.
-        let platform_id = TlsNotaryPlatformVerifier::new(proxy, &provider)
+        let platform_id = IPlatformVerifier::new(proxy, &provider)
             .platformId()
             .call()
             .await
@@ -732,7 +738,7 @@ async fn deploys_and_initializes_every_platform_verifier() {
         )),
         "{err}"
     );
-    let x_wrong_circuit = TlsNotaryPlatformVerifier::initializeCall {
+    let x_wrong_circuit = XPlatformVerifier::initializeCall {
         owner_: deployer,
         notary_: notary_proxy,
         honkVerifier_: oidc_google,
@@ -747,9 +753,8 @@ async fn deploys_and_initializes_every_platform_verifier() {
     .await
     .unwrap_err();
     assert!(
-        err.to_string().contains(&hex::encode(
-            TlsNotaryPlatformVerifier::WrongCircuit::SELECTOR
-        )),
+        err.to_string()
+            .contains(&hex::encode(XPlatformVerifier::WrongCircuit::SELECTOR)),
         "{err}"
     );
 }
@@ -962,7 +967,10 @@ async fn deploys_the_honk_verifiers_over_their_own_circuits() {
         sol_types::SolError,
     };
     use libid_contracts::{
-        bindings::circuits::HonkVerifier,
+        bindings::circuits::{
+            HonkVerifier,
+            IHonkVerifierErrors,
+        },
         circuits::{
             deploy_honk_verifier,
             version,
@@ -1008,13 +1016,14 @@ async fn deploys_the_honk_verifiers_over_their_own_circuits() {
         let data = err
             .as_revert_data()
             .expect("the verifier reverted with data");
-        let decoded = HonkVerifier::ProofLengthWrongWithLogN::abi_decode(&data)
+        // `ProofLengthWrongWithLogN(logN, actualLength, expectedLength)`.
+        let decoded = IHonkVerifierErrors::ProofLengthWrongWithLogN::abi_decode(&data)
             .expect("only a Honk verifier raises ProofLengthWrongWithLogN");
         assert!(
-            decoded.logN > U256::ZERO,
+            decoded._0 > U256::ZERO,
             "{circuit:?} reports no circuit size"
         );
-        deployed.push((address, decoded.logN));
+        deployed.push((address, decoded._0));
     }
     // One verification key per circuit.
     for (i, (a, _)) in deployed.iter().enumerate() {

@@ -1,9 +1,7 @@
-import { createHash } from 'node:crypto'
-import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { normalize, RULES_GITHUB, RULES_GOOGLE, RULES_X, type Rules, rulesFor } from './handle.js'
 import { HandleError, type RefusalKind } from './platforms.js'
-import { HANDLE_VECTORS, TABLE_SHA256 } from './vectors.js'
+import { HANDLE_VECTORS } from './vectors.js'
 
 /// What `normalize` answers, or the refusal it threw, in the vector table's shape.
 function normalized(
@@ -45,15 +43,5 @@ describe('handle normalization', () => {
     expect(normalize('A.B+tag@Example.COM', RULES_GOOGLE)).toBe('a.b+tag@example.com')
     expect(normalize('Alice_1', RULES_X)).toBe('alice_1')
     expect(normalize('Octo-Cat', RULES_GITHUB)).toBe('octo-cat')
-  })
-})
-
-describe('the generated table', () => {
-  /// The constants carry the SHA-256 of the vendored `handles.json`.
-  it('comes from the vendored handles.json', () => {
-    const table = readFileSync(
-      new URL('../../../../../solidity/contracts/circuits/handles.json', import.meta.url),
-    )
-    expect(createHash('sha256').update(table).digest('hex')).toBe(TABLE_SHA256)
   })
 })

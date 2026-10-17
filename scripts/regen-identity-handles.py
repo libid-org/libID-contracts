@@ -13,10 +13,9 @@ It writes:
     ts/packages/contracts/src/identity/vectors.ts   # TypeScript vectors (tests)
 
 The refusals are handles.json's `errors`, worded per subject by `WORDING`.
-Each vectors file carries the SHA-256 of handles.json, as the circuits' table
-does. Every handleNode and idNode is recomputed with hashlib and must match.
-The transform (the token check and the fold) is hand written in Rust,
-TypeScript and Noir. Solidity reads the tags from `CeremonyProfile`, folds in
+Every handleNode and idNode is recomputed with hashlib and must match. The
+transform (the token check and the fold) is hand written in Rust, TypeScript
+and Noir. Solidity reads the tags from `CeremonyProfile`, folds in
 `HandleNode`, and its tests read handles.json directly.
 
 Run: ./scripts/regen-identity-handles.py [--check]
@@ -48,13 +47,6 @@ BANNER = [
 
 def header(comment: str) -> str:
     return "".join(f"{comment} {line}\n" for line in BANNER)
-
-
-def table_sha256(raw: bytes) -> str:
-    """SHA-256 of handles.json, as the circuits' table.nr carries it in
-    TABLE_SHA256, so every language can tell which vectors it ran. The tags
-    and buffers from platforms.json are compared by value (`--check`)."""
-    return hashlib.sha256(raw).hexdigest()
 
 
 @dataclass(frozen=True)
@@ -365,7 +357,7 @@ def rust_platforms(table: Table) -> str:
     return "\n".join(lines) + "\n"
 
 
-def rust_vectors(table: Table, digest: str) -> str:
+def rust_vectors(table: Table) -> str:
     """The vector tables: what the tests of libid-identity and its consumers run."""
     lines = [
         header("//").rstrip("\n"),
@@ -376,9 +368,6 @@ def rust_vectors(table: Table, digest: str) -> str:
         "    HandleError,",
         "    IdError,",
         "};",
-        "",
-        "/// SHA-256 of the handles.json this file was generated from.",
-        f'pub const TABLE_SHA256: &str = "{digest}";',
         "",
         "/// An accepted handle: its folded form and its node.",
         "#[derive(Debug, Clone, Copy, PartialEq, Eq)]",
@@ -523,7 +512,7 @@ def ts_platforms(table: Table) -> str:
     return "\n".join(lines) + "\n"
 
 
-def ts_vectors(table: Table, digest: str) -> str:
+def ts_vectors(table: Table) -> str:
     """The vector tables the TypeScript tests run."""
     lines = [
         header("//").rstrip("\n"),
@@ -531,9 +520,6 @@ def ts_vectors(table: Table, digest: str) -> str:
         "/// The shared handle and id vector tables every language runs.",
         "",
         "import type { RefusalKind } from './platforms.js'",
-        "",
-        "/** SHA-256 of the handles.json this file was generated from. */",
-        f"export const TABLE_SHA256 = '{digest}'",
         "",
         "/** What the transform answers for a handle: its folded form and node, or the refusal. */",
         "export type HandleExpected =",
@@ -613,13 +599,12 @@ def main() -> int:
     )
     table.check_refusals()
     check_nodes(table)
-    digest = table_sha256(raw)
 
     outputs = [
         (RUST_SRC / "platforms.rs", rust_platforms(table)),
-        (RUST_SRC / "vectors.rs", rust_vectors(table, digest)),
+        (RUST_SRC / "vectors.rs", rust_vectors(table)),
         (TS_SRC / "platforms.ts", ts_platforms(table)),
-        (TS_SRC / "vectors.ts", ts_vectors(table, digest)),
+        (TS_SRC / "vectors.ts", ts_vectors(table)),
     ]
 
     if args.check:

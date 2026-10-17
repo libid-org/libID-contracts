@@ -2,11 +2,11 @@
 //! the libid identity stack. Every helper takes a provider already wired with
 //! a wallet.
 //!
-//! - [`bindings`] — hand-written `alloy::sol!` interfaces for every contract a
-//!   consumer talks to, kept in lockstep with `solidity/contracts`.
-//! - [`artifacts`] — creation bytecode and method identifiers of every
-//!   deployable contract, embedded at compile time ([`Artifacts::embedded`])
-//!   or read from a forge `out/` tree ([`Artifacts::from_dir`]).
+//! - [`bindings`] — `alloy::sol!` bindings, read from the compiled ABIs, for
+//!   every contract a consumer talks to.
+//! - [`artifacts`] — creation bytecode of every deployable contract, embedded
+//!   at compile time ([`Artifacts::embedded`]) or read from a forge `out/`
+//!   tree ([`Artifacts::from_dir`]).
 //! - [`deploy`] — deploy and upgrade over any alloy
 //!   [`Provider`](alloy::providers::Provider): plain deploys, constructor
 //!   args, ERC1967 proxies and UUPS upgrades.
@@ -24,6 +24,8 @@
 
 pub mod artifacts;
 pub mod bind_error;
+#[rustfmt::skip]
+mod bind_route;
 pub mod bindings;
 pub mod circuits;
 pub mod deploy;

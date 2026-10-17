@@ -1,16 +1,10 @@
-import { readdirSync, readFileSync } from 'node:fs'
-import { dirname, join } from 'node:path'
-import { fileURLToPath } from 'node:url'
-
 import { concatHex, decodeErrorResult, keccak256, pad, slice, toBytes } from 'viem'
 import { describe, expect, it } from 'vitest'
 
-import { bindErrorsAbi, honkVerifierErrorsAbi } from './index.js'
+import { bindErrorsAbi } from './index.js'
 
 // The selector from the signature itself, independent of the ABI under test.
 const selector = (signature: string) => slice(keccak256(toBytes(signature)), 0, 4)
-const selectorOf = (e: { name: string; inputs: readonly { type: string }[] }) =>
-  selector(`${e.name}(${e.inputs.map((i) => i.type).join(',')})`)
 
 const DISCLOSED = `0x${'d1'.repeat(32)}` as const
 const PROVED = `0x${'e2'.repeat(32)}` as const
@@ -33,6 +27,8 @@ describe('bindErrorsAbi', () => {
       ['NotYourHandle', concatHex([selector('NotYourHandle(bytes32)'), PROVED])],
       ['NoFramedCommitment', selector('NoFramedCommitment()')],
       ['AmbiguousFraming', selector('AmbiguousFraming()')],
+      ['SumcheckFailed', selector('SumcheckFailed()')],
+      ['MODEXP_FAILED', selector('MODEXP_FAILED()')],
       ['UntrustedModulus', concatHex([selector('UntrustedModulus(bytes32)'), PROVED])],
       [
         'UnknownVersion',
@@ -49,32 +45,5 @@ describe('bindErrorsAbi', () => {
       (e) => `${e.name}(${e.inputs.map((i: { type: string }) => i.type).join(',')})`,
     )
     expect(new Set(signatures).size).toBe(signatures.length)
-  })
-
-  // `IHonkVerifierErrors` declares exactly the vendored verifiers' `*_SELECTOR`s.
-  it('names every error the vendored Honk verifiers raise, and no other', () => {
-    const circuits = join(
-      dirname(fileURLToPath(import.meta.url)),
-      '..',
-      '..',
-      '..',
-      '..',
-      'solidity',
-      'contracts',
-      'circuits',
-    )
-    const files = readdirSync(circuits).filter((f) => f.endsWith('HonkVerifier.sol'))
-    expect(files.length).toBeGreaterThan(0)
-    const vendored = new Set<string>()
-    for (const file of files) {
-      const source = readFileSync(join(circuits, file), 'utf8')
-      for (const m of source.matchAll(/\b[A-Z0-9_]+_SELECTOR = (0x[0-9a-f]{8});/g)) {
-        vendored.add(m[1] as string)
-      }
-    }
-    const declared = honkVerifierErrorsAbi.map(selectorOf)
-    expect([...declared].sort()).toEqual([...vendored].sort())
-    const route = new Set(bindErrorsAbi.map(selectorOf))
-    for (const selector of declared) expect(route.has(selector), selector).toBe(true)
   })
 })
