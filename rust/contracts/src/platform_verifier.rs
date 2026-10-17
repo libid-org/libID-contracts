@@ -7,6 +7,7 @@
 //! ERC1967 proxy with it.
 
 use alloy::{
+    contract::Error as ContractError,
     primitives::{
         keccak256,
         Address,
@@ -119,7 +120,7 @@ impl PlatformVerifier {
         proxy: Address,
         address: Address,
     ) -> Result<B256> {
-        let read = |what: &str, e: alloy::contract::Error| Error::Rpc {
+        let read = |what: &str, e: ContractError| Error::Rpc {
             detail: format!("failed to read {what} at {proxy}: {e}"),
         };
         // Both bindings declare the same two views.

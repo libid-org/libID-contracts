@@ -4,6 +4,11 @@
 //! Ids are never normalized; these checks mirror the circuits' `check_id`
 //! and run the same `idVectors` table.
 
+use std::{
+    error::Error,
+    fmt,
+};
+
 use super::handle_vectors as v;
 
 /// Why no circuit would hash an id. The kinds are the handle table's.
@@ -28,8 +33,8 @@ impl IdError {
     }
 }
 
-impl std::fmt::Display for IdError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl fmt::Display for IdError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(match self {
             Self::Empty => "the id is empty",
             Self::TooLong => "the id is too long for this platform",
@@ -38,7 +43,7 @@ impl std::fmt::Display for IdError {
     }
 }
 
-impl std::error::Error for IdError {}
+impl Error for IdError {}
 
 /// What a platform allows in an id.
 #[derive(Debug, Clone, Copy)]

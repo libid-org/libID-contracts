@@ -5,6 +5,8 @@
 //! verifier (`IHonkVerifierErrors`) last, then a Solidity `Panic`.
 //! TypeScript's `bindErrorsAbi` has the same sets.
 
+use std::fmt;
+
 use alloy::{
     primitives::U256,
     sol_types::{
@@ -184,14 +186,14 @@ impl BindError {
 }
 
 /// Candidate contracts and signature; the generated enums carry no `Debug`.
-impl std::fmt::Debug for BindError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl fmt::Debug for BindError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}::{}", self.contracts().join("|"), self.signature())
     }
 }
 
-impl std::fmt::Display for BindError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl fmt::Display for BindError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(self.name())
     }
 }

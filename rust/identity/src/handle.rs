@@ -5,6 +5,11 @@
 //! buffer. Its format is the platform's. It mirrors the circuits'
 //! `lib/identity`; both run the `handles.json` vector table.
 
+use std::{
+    error::Error,
+    fmt,
+};
+
 use super::handle_vectors as v;
 
 /// Why a handle was refused. The kinds match the TypeScript ones and the
@@ -30,8 +35,8 @@ impl HandleError {
     }
 }
 
-impl std::fmt::Display for HandleError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl fmt::Display for HandleError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(match self {
             Self::Empty => "the handle is empty",
             Self::TooLong => "the handle is too long for this platform",
@@ -42,7 +47,7 @@ impl std::fmt::Display for HandleError {
     }
 }
 
-impl std::error::Error for HandleError {}
+impl Error for HandleError {}
 
 /// What one platform's circuit takes, generated from the circuits' `platforms.json`.
 #[derive(Debug, Clone, Copy)]
@@ -91,8 +96,18 @@ pub fn normalize(raw: &str, rules: Rules) -> Result<String, HandleError> {
 
 #[cfg(test)]
 mod tests {
+    use std::fs;
+
+    use sha2::{
+        Digest,
+        Sha256,
+    };
+
     use super::*;
-    use crate::handle_vectors::VECTORS;
+    use crate::handle_vectors::{
+        TABLE_SHA256,
+        VECTORS,
+    };
 
     /// The shared table, run against this normalizer. TypeScript and the
     /// circuits run the same cases, so a language that disagrees fails here.
@@ -125,20 +140,18 @@ mod tests {
     /// The generated constants carry the SHA-256 of the vendored `handles.json`.
     #[test]
     fn the_generated_constants_come_from_this_table() {
-        use sha2::Digest as _;
         let path = concat!(
             env!("CARGO_MANIFEST_DIR"),
             "/../../solidity/contracts/circuits/handles.json"
         );
-        let table = std::fs::read(path)
+        let table = fs::read(path)
             .expect("the vendored handles.json; run scripts/vendor-circuit-verifiers.sh");
-        let digest: String = sha2::Sha256::digest(&table)
+        let digest: String = Sha256::digest(&table)
             .iter()
             .map(|b| format!("{b:02x}"))
             .collect();
         assert_eq!(
-            digest,
-            crate::handle_vectors::TABLE_SHA256,
+            digest, TABLE_SHA256,
             "handle_vectors.rs is stale: run scripts/regen-identity-handles.py"
         );
     }
