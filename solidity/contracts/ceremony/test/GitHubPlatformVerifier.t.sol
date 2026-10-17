@@ -1022,13 +1022,9 @@ contract GitHubPlatformVerifierTest is RealTlsNotaryProofTest {
         assertEq(transcripts.identityRequest(identityData), identityData.sent.commitments[0].commitment);
     }
 
-    /// @dev The whole captured record: its response reveals the login and id,
-    ///      which the anchor-only framing refuses.
+    /// @dev The whole captured record: its response reveals the anchors and
+    ///      commits the login and the id.
     function test_verifiesTheRecordsACeremonyProduced() public {
-        vm.skip(
-            true,
-            "github-ceremony-real.json's identity response predates the hashed identities: it reveals the id and login; recapture with libid-rs capture_ceremony under the anchor-only reveal"
-        );
         string memory json = vm.readFile(REAL_SESSION);
         assertEq(vm.parseJsonBytes32(json, ".authorization_digest"), digest, "bound to this suite's digest");
         vm.warp(vm.parseJsonUint(json, ".identity.created_at") + 60);
