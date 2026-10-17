@@ -74,7 +74,7 @@ python3 scripts/regen-ceremony-profiles.py         # the ceremony profile consta
 ```
 
 `regen-identity-handles.py` writes the platform tables and refusals
-(`rust/identity/src/platforms.rs`, `ts/packages/contracts/src/identity/platforms.ts`)
+(`rust/identity/src/platforms.rs`, `ts/packages/contracts/src/platforms/platforms.ts`)
 and the vector tables beside them (`vectors.rs`, `vectors.ts`).
 `regen-ceremony-profiles.py` writes `CeremonyProfile.sol` and its Rust and
 TypeScript mirrors from `profiles.json`, taking the node tags from

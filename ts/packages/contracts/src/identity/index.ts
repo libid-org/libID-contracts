@@ -4,7 +4,6 @@
 /// Normalization applies the token check and the fold the circuits enforce;
 /// the chain only folds A-Z. Calldata for the writes is in `../calls`.
 
-export * from './handle.js'
-export * from './platforms.js'
+export * from '../platforms/index.js'
 export * from './node.js'
 export * from './resolve.js'

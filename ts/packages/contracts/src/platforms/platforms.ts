@@ -6,7 +6,7 @@
 /// refusals the handle and id checks share.
 
 import type { Rules } from './handle.js'
-import type { IdRules } from './node.js'
+import type { IdRules } from './id.js'
 
 /** A platform: its key, node tags and buffers. */
 export interface Platform {
