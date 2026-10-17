@@ -10,18 +10,14 @@ keywords = ["ethereum", "identity", "oauth", "tlsnotary"]
 categories = ["cryptography::cryptocurrencies"]
 include = ["src/**", "README.md"]
 
-# No runtime dependencies: a prover, a notary and a backend read these
-# constants without inheriting anything. Hashing a platform name into an id is
-# the caller's, so keccak is a dev-dependency only.
+# Callers hash a platform name into its id, so keccak is a dev-dependency.
 [dependencies]
 
-# Tests only. The vectors below hash the strings and compare against the
-# numbers `CeremonyProfile.t.sol` pins, so nothing published carries this.
+# The vectors hash the strings and compare with the numbers
+# `CeremonyProfile.t.sol` pins.
 [dev-dependencies]
 tiny-keccak = { version = "2.0", features = ["keccak"] }
-# The head this table pins is a claim about what hyper writes, so the test that
-# checks it drives the real encoder rather than a model of one. Tests only:
-# nothing published carries any of this.
+# The test of the pinned request head drives hyper's real encoder.
 hyper = { version = "1.1", features = ["client", "http1"] }
 hyper-util = { version = "0.1", features = ["tokio"] }
 http-body-util = "0.1"

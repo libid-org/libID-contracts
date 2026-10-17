@@ -36,11 +36,11 @@ mod registry_inner {
             function pendingOwner() external view returns (address);
             function transferOwnership(address newOwner) external;
             function acceptOwnership() external;
-            /// Always reverts; the contract declares it `pure`.
+            /// Always reverts.
             function renounceOwnership() external pure;
 
-            /// Which contract holds the Supported Version Set. Registering a
-            /// version is that contract's call, not this one's.
+            /// Sets the Proof Verifier, which holds the Supported Version Set
+            /// and registers versions.
             function setProofVerifier(address verifier) external;
             function proofVerifier() external view returns (address);
 
@@ -73,11 +73,10 @@ mod registry_inner {
 
             /// How many identities a holder has, on every platform together.
             function identityCount(address holder) external view returns (uint256);
-            /// A page of a holder's identities, on every platform
-            /// together: the indices `[from, from + limit)`, counted from
-            /// zero and clipped to the list. Order is arbitrary and changes
-            /// when an identity leaves the list, so a reader that needs every
-            /// identity reads `identityCount` and the pages in one block.
+            /// A page of a holder's identities on every platform: indices
+            /// `[from, from + limit)`, clipped to the list. Order changes when
+            /// an identity leaves, so read `identityCount` and every page at
+            /// one block.
             function identitiesOf(address holder, uint256 from, uint256 limit) external view returns (Identity[] memory);
 
             /// The two nodes a binding wrote, and the proving version.
@@ -96,7 +95,7 @@ mod registry_inner {
                 bytes32 indexed handleNode,
                 string handle
             );
-            /// A platform no ceremony profile names, or one never bound.
+            /// No ceremony profile names the platform.
             error UnknownPlatform(bytes32 platformId);
 
             event OwnershipTransferStarted(address indexed previousOwner, address indexed newOwner);
@@ -127,13 +126,11 @@ mod registry_inner {
 
             event HandleRetired(bytes32 indexed platformId, bytes32 indexed handleNode, address indexed holder);
             event ProofVerifierConfigured(address verifier);
-            /// The service fee a binding's own Authorized Transaction Data named
-            /// was delivered. Emitted only when there is one.
+            /// The service fee a binding's Authorized Transaction Data named was
+            /// delivered. Emitted only when there is one.
             event BindFeePaid(bytes32 indexed authorizationDigest, address indexed receiver, uint256 amount);
             event HandleUnpublished(address indexed holder, bytes32 indexed platformId);
-            /// The OAuth client a ceremony authenticated. Nothing stores it, so
-            /// "which application produced these bindings" is answerable only
-            /// from this log.
+            /// The OAuth client a ceremony authenticated. Only this log records it.
             event CeremonyBound(
                 bytes32 indexed authorizationDigest,
                 address indexed holder,

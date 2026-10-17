@@ -8,16 +8,14 @@ they pin, and `GoogleJwtRoots`, the signing keys the `google/v1` verifier
 trusts), the identity registry (`IdentityRegistry`), and the deterministic
 deployment factory (`LibidFactory`).
 
-The compiled artifacts are vendored into the crate, so a consumer can deploy
-or upgrade the whole stack against a live network with **zero filesystem
-dependencies at runtime**. They are generated, not committed:
-`scripts/vendor-artifacts.sh` produces `artifacts/` from `solidity/` and CI
-runs it before every build, test and publish. Working in this repo, run
-`scripts/vendor-circuit-verifiers.sh` and then it once after cloning — the
-Honk verifiers are vendored too, and the crate embeds the directory with
-`include_dir!`, so until it exists `cargo build` fails at macro expansion. Signing stays on the
-consumer's side: every helper is generic over an alloy `Provider` you have
-already wired with a wallet.
+The compiled artifacts are embedded in the crate, so a consumer deploys or
+upgrades the stack with no filesystem access at runtime. Every helper is
+generic over an alloy `Provider` you have already wired with a wallet.
+
+`artifacts/` is generated, not committed. After cloning, run
+`scripts/vendor-circuit-verifiers.sh` then `scripts/vendor-artifacts.sh`;
+until then `cargo build` fails at `include_dir!`. CI runs both before every
+build, test and publish.
 
 ## Example: deploy the Notary Service and the Google JWT root list
 
@@ -38,8 +36,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let artifacts = Artifacts::embedded();
     let (owner, notary_key): (Address, Address) = todo!();
 
-    // The Notary Service first: every notarized session is verified through
-    // it, and it charges the Notary Fee for doing so.
+    // Every notarized session is verified through the Notary Service, for
+    // the Notary Fee.
     let notary = deploy_behind_proxy(
         &provider,
         &artifacts,
@@ -53,8 +51,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     )
     .await?;
 
-    // The Google JWT root list pays that fee on every rotation. It starts empty:
-    // a keeper submits a notarized reading of Google's JWKS to seed it.
+    // The Google JWT root list pays that fee on every rotation. It starts
+    // empty until a keeper submits a notarized reading of Google's JWKS.
     let roots = deploy_behind_proxy(
         &provider,
         &artifacts,
@@ -78,20 +76,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 ## Example: deploy a Platform Verifier on its circuit's Honk verifier
 
-A Platform Verifier wires the bb-generated UltraHonk verifier for its circuit,
-and holds a Notary Service only if its profile notarizes anything. Its
-validity window is its profile's, compiled in, so the initializer takes none.
-`platform_verifier::Initializer` knows those rules: it refuses what the
-contract would refuse and builds the exact `initialize` call. The contract
-pins its circuit's runtime code hash (`circuitCodehash()`) and reverts
-`WrongCircuit` for any other Honk verifier; `deploy_platform_verifier` reads
-the code hash off the chain and says so (`Error::WrongCircuit`) before any
-transaction.
+A Platform Verifier wires the UltraHonk verifier for its circuit, and a
+Notary Service only if its profile notarizes. Its validity window is
+compiled in from its profile. `platform_verifier::Initializer` refuses what
+the contract would refuse and builds the `initialize` call.
 
-The Honk verifier is vendored here too, from the pinned `libid-circuits`
-release: bb's optimized verifier, one contract per circuit.
-`circuits::deploy_honk_verifier` deploys a circuit's verifier in one
-transaction and returns the address the initializer wires.
+The contract reverts `WrongCircuit` for a Honk verifier whose code hash is
+not its `circuitCodehash()`. `deploy_platform_verifier` reads the code hash
+on chain and returns `Error::WrongCircuit` before any transaction.
+
+The Honk verifiers are vendored from the pinned `libid-circuits` release,
+one contract per circuit. `circuits::deploy_honk_verifier` deploys one in a
+single transaction and returns the address the initializer wires.
 
 ```rust,no_run
 use alloy::{primitives::Address, providers::ProviderBuilder};
@@ -115,9 +111,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let honk_verifier =
         deploy_honk_verifier(&provider, &artifacts, PlatformVerifier::X.circuit(), None).await?;
 
-    // `x/v1`: two notarized sessions, so a Notary Service is required.
-    // `Initializer::Google` takes `GoogleRoots` instead — no Notary Service
-    // (the profile notarizes nothing) and the JWT root list in its place.
+    // `x/v1` notarizes two sessions, so it needs a Notary Service.
+    // `Initializer::Google` takes `GoogleRoots`: the JWT root list instead.
     let verifier = deploy_platform_verifier(
         &provider,
         &artifacts,
@@ -154,20 +149,16 @@ Other entry points:
   canonical cross-network factory where missing and deploy protocol proxies
   through it at name-derived CREATE3 addresses.
 - `circuits::version` — the `libid-circuits` release the vendored verifiers
-  came from, for a consumer that names a deployment after its artifact.
+  came from.
 - `PlatformVerifier::rotation_codehash_at` — the code hash `setTrustRoots`
-  wants on a deployed Platform Verifier, refused (`Error::WrongCircuit`)
-  unless the address holds the verifier whose code hash the proxy's
-  `circuitCodehash()` pins. `platform_verifier::codehash_at` reads any address's
-  code hash, unchecked.
-- `Artifacts::method_identifiers` — selector extraction from the vendored
-  `methodIdentifiers`.
+  takes, or `Error::WrongCircuit` unless the address holds the verifier the
+  proxy's `circuitCodehash()` pins. `platform_verifier::codehash_at` reads
+  any address's code hash, unchecked.
+- `Artifacts::method_identifiers` — a vendored contract's selectors.
 - `BindError::decode` — a refused `bind` by name (`HandleNotProved`,
-  `NotYourHandle`, `SumcheckFailed`, …), from the error sets of the
-  registry, the Proof Verifier, the Platform Verifiers, the Notary Service
-  and bb's Honk verifiers (`bindings::circuits::IHonkVerifierErrors`).
-  `contracts()` lists every contract that declares the error; a revert does
-  not say which one raised it.
+  `NotYourHandle`, `SumcheckFailed`, …), from every contract on the route
+  and bb's Honk verifiers. A revert does not say which contract raised it,
+  so `contracts()` lists every one that declares the error.
 - `bindings::ceremony::{TlsNotaryProof, GoogleProof}` — the payload a Platform
   Verifier decodes; its `SolValue::abi_encode` is the `payload` `bind` takes.
 
@@ -177,7 +168,7 @@ Unit tests run everywhere; the integration tests in `tests/anvil.rs` spawn
 `anvil` (foundry) and deploy the stack for real. From `rust/`:
 
 ```sh
-cargo +nightly fmt --all      # nightly only — stable rustfmt mangles imports
+cargo +nightly-2026-08-10 fmt --all   # CI's pin; rustfmt.toml needs nightly
 cargo clippy --all-targets --all-features -- -D warnings
 cargo test --all
 ```

@@ -338,10 +338,9 @@ mod tests {
         assert!(BindError::decode(&[]).is_none());
     }
 
-    /// TypeScript's `bindErrorsAbi` is built from `bindRoute` in
-    /// `codegen.mjs`. It lists the same contracts in `ROUTE`'s order, which
-    /// is the order `decode` tries, with X's and GitHub's verifiers under the
-    /// one binding.
+    /// `bindRoute` in `codegen.mjs`, the source of TypeScript's
+    /// `bindErrorsAbi`, lists `ROUTE`'s contracts in order, with X's and
+    /// GitHub's verifiers under one binding.
     #[test]
     fn the_typescript_bind_route_is_the_one_decode_tries() {
         let codegen = std::fs::read_to_string(concat!(

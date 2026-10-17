@@ -2,9 +2,9 @@
 //! `solidity/contracts/circuits`: the one call a Platform Verifier makes of
 //! them, and the error that says which circuit a deployed one answers for.
 
-/// Bindings for a bb-generated UltraHonk verifier, one interface for the
-/// three circuits' verifiers. A wrong-length proof's `logN` is how a test
-/// identifies the circuit, since the verifier exposes no getter.
+/// Bindings for a bb-generated UltraHonk verifier, one interface for every
+/// circuit's verifier. The verifier has no getter, so a test identifies its
+/// circuit by a wrong-length proof's `logN`.
 #[allow(unused_attributes)]
 mod honk_verifier_inner {
     use alloy::sol;
@@ -27,8 +27,8 @@ mod honk_verifier_inner {
 pub use honk_verifier_inner::HonkVerifier;
 
 /// Bindings for `circuits/IHonkVerifierErrors.sol`: what a vendored Honk
-/// verifier reverts with, under bb's names. bb's artifact declares none of
-/// them; [`BindError::decode`](crate::BindError::decode) uses these.
+/// verifier reverts with, under bb's names, which bb's own ABI omits.
+/// [`BindError::decode`](crate::BindError::decode) uses these.
 #[allow(non_camel_case_types, unused_attributes)]
 mod honk_verifier_errors_inner {
     use alloy::sol;
@@ -67,9 +67,7 @@ mod tests {
         Artifacts,
     };
 
-    /// `verify` is what a Platform Verifier calls; a vendored verifier
-    /// without that selector would be pinned and revert at the first
-    /// user's proof.
+    /// Every vendored verifier answers the `verify` a Platform Verifier calls.
     #[test]
     fn every_circuit_verifier_answers_verify() {
         let artifacts = Artifacts::embedded();

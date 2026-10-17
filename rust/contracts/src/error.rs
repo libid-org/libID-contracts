@@ -42,7 +42,7 @@ pub enum Error {
     },
     /// A Honk verifier whose code hash is not the one wanted: the platform's
     /// vendored circuit's for an initializer, the proxy's `circuitCodehash()`
-    /// for a rotation (the contract's `WrongCircuit`, caught off chain).
+    /// for a rotation. The off-chain form of the contract's `WrongCircuit`.
     #[error(
         "trust root error: {contract}: the Honk verifier at {address} (code hash {codehash}) \
          is {}; wanted code hash {expected_codehash}, {}",

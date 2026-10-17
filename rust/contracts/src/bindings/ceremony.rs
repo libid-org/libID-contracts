@@ -1,27 +1,20 @@
 //! Bindings for the ceremony verification path (`solidity/contracts/ceremony/`):
 //! the Notary Service every notarized session is authenticated through, the
 //! Proof Verifier that routes a claim to the Platform Verifier registered for
-//! its version, the three launch Platform Verifiers it routes to, and the
-//! Google JWT root list the `google/v1` verifier reads.
+//! its version, the three launch Platform Verifiers, and the Google JWT root
+//! list the `google/v1` verifier reads.
 //!
-//! `verify` is on none of the Platform Verifier interfaces, for the reason it
-//! is on neither `NotaryService` nor `CeremonyProofVerifier`: a contract on
-//! the route calls it with the fee attached, and the decoded claim comes back
-//! to that contract. What an operator does from here is initialize and
-//! rotate the trust roots — see
-//! [`platform_verifier`](crate::platform_verifier) for the initializer that
-//! checks the rules first.
+//! `verify` is on none of these interfaces: a contract on the route calls it
+//! with the fee attached and receives the decoded claim.
+//! [`platform_verifier`](crate::platform_verifier) checks a Platform Verifier
+//! initializer before it is sent.
 
-/// Bindings for `ceremony/NotaryService.sol` (which implements
-/// `INotaryService`).
+/// Bindings for `ceremony/NotaryService.sol`, an `INotaryService`.
 ///
 /// Authenticates one attestation and charges one fee for it. The digest is
-/// derived from the attested bytes on chain, never taken from the caller
-/// (REQ-COMMON-33), which is why `verify` is not on this interface: a
-/// consumer contract calls it with the fee attached, and the decoded record
-/// comes back to that contract, not to an off-chain reader. What an operator
-/// does from here is hold the trusted key set, set the fee and withdraw what
-/// accrued.
+/// derived on chain from the attested bytes, never taken from the caller
+/// (REQ-COMMON-33). The operator holds the trusted key set, sets the fee and
+/// withdraws what accrued.
 #[allow(clippy::too_many_arguments, unused_attributes)]
 mod notary_service_inner {
     use alloy::sol;
@@ -29,20 +22,17 @@ mod notary_service_inner {
     sol! {
         #[sol(rpc, abi)]
         interface NotaryService {
-            /// `notary_` is the first trusted key; `fee_` may be zero (a
-            /// deployment may meter at no charge, and the exact-value rule
-            /// still applies).
+            /// `notary_` is the first trusted key. `fee_` may be zero; the
+            /// exact-value rule still applies.
             function initialize(address owner_, address notary_, uint256 fee_) external;
             /// What one verification costs, in the chain's native asset.
-            /// Readable before a submission is built, so it can be bounded.
             function fee() external view returns (uint256);
             function setFee(uint256 fee_) external;
-            /// Add or remove a trusted notary key. Several are held at once so
-            /// a rotation can overlap: add the incoming key, remove the
-            /// outgoing one once nothing can still present under it.
+            /// Add or remove a trusted notary key. To rotate, add the incoming
+            /// key and remove the outgoing one once nothing presents under it.
             function setNotary(address key, bool trusted_) external;
             function isTrustedNotary(address key) external view returns (bool);
-            /// Fees accrue here rather than being forwarded per verification.
+            /// Pay out fees, which accrue here per verification.
             function withdraw(address to, uint256 amount) external;
 
             function owner() external view returns (address);
@@ -75,14 +65,11 @@ mod notary_service_inner {
 
 pub use notary_service_inner::NotaryService;
 
-/// Bindings for `ceremony/CeremonyProofVerifier.sol` (which implements
-/// `IProofVerifier`).
+/// Bindings for `ceremony/CeremonyProofVerifier.sol`, an `IProofVerifier`.
 ///
 /// The Supported Version Set: which Platform Verifier answers for a
 /// `(platformId, verifierVersion)` pair. Governance registers one with
-/// `setVerifier`; `IdentityRegistry.bind` dispatches through `verify`, which is
-/// not on this interface for the same reason `NotaryService.verify` is not —
-/// it is called by the consumer contract with the fee attached.
+/// `setVerifier`; `IdentityRegistry.bind` dispatches through `verify`.
 #[allow(clippy::too_many_arguments, unused_attributes)]
 mod proof_verifier_inner {
     use alloy::sol;
@@ -91,15 +78,15 @@ mod proof_verifier_inner {
         #[sol(rpc, abi)]
         interface CeremonyProofVerifier {
             function initialize(address owner_) external;
-            /// Register (or, with the zero address, remove) the Platform
-            /// Verifier for a pair. The verifier must serve `platformId`.
+            /// Register the Platform Verifier for a pair, or remove it with the
+            /// zero address. The verifier must serve `platformId`.
             function setVerifier(bytes32 platformId, uint16 verifierVersion, address verifier) external;
             /// The Platform Verifier registered for a pair, or zero.
             function verifierOf(bytes32 platformId, uint16 verifierVersion) external view returns (address);
             /// What one claim under this pair costs: the registered
             /// verifier's quote, forwarded whole.
             function quote(bytes32 platformId, uint16 verifierVersion) external view returns (uint256);
-            /// Whether any version is registered for the platform at all.
+            /// Whether any version is registered for the platform.
             function verifiesPlatform(bytes32 platformId) external view returns (bool);
             /// This chain's identifier, as the digest construction takes it.
             function chainId() external view returns (bytes32);
@@ -125,25 +112,20 @@ mod proof_verifier_inner {
 
 pub use proof_verifier_inner::CeremonyProofVerifier;
 
-/// Bindings for `ceremony/GoogleJwtRoots.sol` — the signing keys the
-/// `google/v1` Platform Verifier trusts, and until when. Starts EMPTY:
-/// Google names bind only once a notarized reading of Google's JWKS has
-/// landed here.
+/// Bindings for `ceremony/GoogleJwtRoots.sol`: the signing keys the
+/// `google/v1` Platform Verifier trusts, and until when. It starts empty, so
+/// Google bindings fail until the first notarized reading of Google's JWKS.
 ///
-/// The list is two generations of Google's key set and nothing else:
-/// `current` is the latest reading applied, `previous` the reading before
-/// it, kept for the tokens still in flight under a key Google has since
-/// dropped. A newer reading of the same set restarts `current`'s clock
-/// (`ReadingRefreshed`); a newer reading of a different set shifts `current`
-/// into `previous` and drops what `previous` held (`KeysRotated`). A
-/// generation is trusted until `READING_LIFETIME` after its reading's own
-/// `createdAt`, so there is nothing to prune or untrust by hand.
+/// It holds two generations: `current`, the latest reading, and `previous`,
+/// kept for tokens issued under a key Google has since dropped. A newer
+/// reading of the same set restarts `current`'s clock (`ReadingRefreshed`).
+/// A different set shifts `current` into `previous` (`KeysRotated`). A
+/// generation is trusted until `READING_LIFETIME` after its reading's
+/// `createdAt`, so nothing is pruned by hand.
 ///
-/// A rotation is an ordinary notarized session: the keeper reveals the whole
-/// `GET /oauth2/v3/certs` exchange, `rotate` hands the attested bytes and the
-/// notary's proof to the Notary Service with the Notary Fee attached (read
-/// it with `quoteRotation`, which is the service's `fee()`), and the contract
-/// reads the JWKS out of the transcript it vouched for.
+/// `rotate` takes a notarized `GET /oauth2/v3/certs` exchange, verifies it
+/// through the Notary Service with the fee `quoteRotation` returns, and reads
+/// the JWKS from the transcript.
 #[allow(clippy::too_many_arguments, unused_attributes)]
 mod google_jwt_roots_inner {
     use alloy::sol;
@@ -168,10 +150,8 @@ mod google_jwt_roots_inner {
             function quoteRotation() external view returns (uint256);
             /// Permissionless. `attestedData` is the platform-ceremonies
             /// section 4.1 record of the JWKS session, `proof` the notary's
-            /// authentication of it (a 65-byte EIP-191 signature today). A
-            /// reading dated no later than the current generation is refused
-            /// with `NotNewer(createdAt, observedAt)`, and the revert hands
-            /// the fee back.
+            /// authentication of it. A reading no newer than the current
+            /// generation reverts `NotNewer(createdAt, observedAt)`.
             function rotate(bytes calldata attestedData, bytes calldata proof) external payable;
 
             /// What `GooglePlatformVerifier` reads: modulus hash -> when it
@@ -207,20 +187,15 @@ mod google_jwt_roots_inner {
 pub use google_jwt_roots_inner::GoogleJwtRoots;
 
 /// Bindings for the two TLSNotary Platform Verifiers, `ceremony/XPlatformVerifier.sol`
-/// and `ceremony/GitHubPlatformVerifier.sol`. One interface serves both: they
-/// differ in the revealed layout they accept, not in the surface an operator
-/// touches, and each answers for itself through `platformId()`. The same
-/// module is exported as [`XPlatformVerifier`] and [`GitHubPlatformVerifier`],
-/// so a consumer names the contract it means.
+/// and `ceremony/GitHubPlatformVerifier.sol`. They differ only in the revealed
+/// layout they accept, so one interface serves both, exported as
+/// [`XPlatformVerifier`] and [`GitHubPlatformVerifier`].
 ///
 /// The initializer takes what `PlatformVerifierBase.__PlatformVerifierBase_init`
-/// takes. `notary_` is required here (nonzero): a TLSNotary profile
-/// authenticates two attestations through it, and the base refuses a zero
-/// address for a profile whose Attestation Count is nonzero
-/// (`WrongNotaryForProfile`). `honkVerifier_` must hold the code hash
-/// `circuitCodehash()` names (`WrongCircuit`). The validity window is the
-/// profile's, fixed in the contract: `protocolParameters()` reads it, and
-/// nothing sets it.
+/// takes. `notary_` must be nonzero, since a TLSNotary profile authenticates
+/// two attestations (`WrongNotaryForProfile`). `honkVerifier_` must hold the
+/// code hash `circuitCodehash()` names (`WrongCircuit`). The validity window
+/// is the profile's, compiled in; `protocolParameters()` reads it.
 #[allow(clippy::too_many_arguments, unused_attributes)]
 mod tls_notary_platform_verifier_inner {
     use alloy::sol;
@@ -228,8 +203,7 @@ mod tls_notary_platform_verifier_inner {
     sol! {
         #[sol(rpc, abi)]
         interface TlsNotaryPlatformVerifier {
-            /// Derives so the built call can be compared and printed by the
-            /// initializer that assembles it.
+            /// Comparable and printable, for the initializer that builds it.
             #[derive(Debug, PartialEq, Eq)]
             function initialize(address owner_, address notary_, address honkVerifier_) external;
 
@@ -238,7 +212,7 @@ mod tls_notary_platform_verifier_inner {
             /// under another platform.
             function platformId() external pure returns (bytes32);
             /// What a submission must carry: one Notary Fee per attestation
-            /// the profile requires — two, for a TLSNotary profile.
+            /// the profile requires, two for a TLSNotary profile.
             function quote() external view returns (uint256);
 
             function notaryService() external view returns (address);
@@ -257,7 +231,7 @@ mod tls_notary_platform_verifier_inner {
             function pendingOwner() external view returns (address);
             function transferOwnership(address newOwner) external;
             function acceptOwnership() external;
-            /// Always reverts; the contract declares it `pure`.
+            /// Always reverts.
             function renounceOwnership() external pure;
 
             event TrustRootsChanged(address notary, address honkVerifier);
@@ -328,21 +302,17 @@ pub use tls_notary_platform_verifier_inner::{
     TlsNotaryPlatformVerifier as XPlatformVerifier,
 };
 
-/// Bindings for `ceremony/GooglePlatformVerifier.sol` — the `google/v1`
+/// Bindings for `ceremony/GooglePlatformVerifier.sol`, the `google/v1`
 /// profile.
 ///
-/// A different shape from the other two: no notarized session, so no Notary
-/// Service, no fee, no proof lifetime and no attestation skew. The evidence
-/// is a signed ID Token whose `exp` is the whole validity ceiling, and the
-/// signing keys it trusts are read from `GoogleJwtRoots`.
+/// The profile has no notarized session, so no Notary Service, fee, proof
+/// lifetime or attestation skew. The evidence is a signed ID Token whose `exp`
+/// is the validity ceiling, checked against keys read from `GoogleJwtRoots`.
 ///
-/// `notary_` must therefore be the ZERO address: the base refuses a Notary
-/// Service for a profile whose Attestation Count is zero
-/// (`WrongNotaryForProfile`), because `notaryService()` would otherwise
-/// report a collaborator nothing on this path calls. `jwtRoots_` must be
-/// nonzero (`ZeroAddress`). The code hash follows the same rules as the
-/// TLSNotary verifiers'. `protocolParameters()` reads the profile's
-/// allowance, and a lifetime and skew of zero.
+/// `notary_` must be zero (`WrongNotaryForProfile`) and `jwtRoots_` nonzero
+/// (`ZeroAddress`). The code hash rule is the TLSNotary verifiers'.
+/// `protocolParameters()` returns the profile's allowance and a zero lifetime
+/// and skew.
 #[allow(clippy::too_many_arguments, unused_attributes)]
 mod google_platform_verifier_inner {
     use alloy::sol;
@@ -383,7 +353,7 @@ mod google_platform_verifier_inner {
             function pendingOwner() external view returns (address);
             function transferOwnership(address newOwner) external;
             function acceptOwnership() external;
-            /// Always reverts; the contract declares it `pure`.
+            /// Always reverts.
             function renounceOwnership() external pure;
 
             event JwtRootsChanged(address roots);
@@ -696,11 +666,8 @@ mod tests {
         );
     }
 
-    /// A Platform Verifier binding and its vendored artifact come from one
-    /// tree, so every bound selector is one the compiled contract answers.
-    /// The initializer is the one that matters: an `initialize` the proxy's
-    /// implementation has no function for reaches its fallback, and the
-    /// proxy is left uninitialized for anyone to claim.
+    /// Every bound Platform Verifier selector exists in its vendored artifact.
+    /// An unknown `initialize` would leave the proxy uninitialized.
     #[test]
     fn every_bound_platform_verifier_selector_exists_in_its_artifact() {
         let artifacts = Artifacts::embedded();

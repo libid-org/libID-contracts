@@ -24,7 +24,7 @@ impl Rules {
     /// GitHub.
     pub const GITHUB: Self = v::PLATFORM_GITHUB.rules;
 
-    /// Google: an address.
+    /// Google: an email address.
     pub const GOOGLE: Self = v::PLATFORM_GOOGLE.rules;
 }
 
@@ -70,8 +70,7 @@ mod tests {
         VECTORS,
     };
 
-    /// The shared table, run against this normalizer. TypeScript and the
-    /// circuits run the same cases, so a language that disagrees fails here.
+    /// The shared table, which TypeScript and the circuits also run.
     #[test]
     fn every_vector_matches_the_shared_table() {
         for (i, v) in VECTORS.iter().enumerate() {
@@ -104,8 +103,8 @@ mod tests {
         );
     }
 
-    /// The table must keep covering both outcomes. A regeneration that dropped
-    /// every refusal would leave the test green and prove nothing.
+    /// The table holds accepted and refused cases, or the vector test proves
+    /// nothing.
     #[test]
     fn the_table_covers_both_outcomes() {
         let accepted = VECTORS.iter().filter(|v| v.expected.is_ok()).count();

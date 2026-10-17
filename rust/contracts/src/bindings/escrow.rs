@@ -16,7 +16,7 @@ mod escrow_inner {
             /// `refundTo` until claimed.
             function deposit(bytes32 platformId, bytes32 handleNode, address token, uint256 amount, address refundTo) external payable;
             /// `deposit` to a handle given as text, at the registry's
-            /// `handleNodeOf`; public, and logged as `DepositedToHandle`.
+            /// `handleNodeOf`. The handle is public in `DepositedToHandle`.
             function depositToHandle(bytes32 platformId, string calldata handle, address token, uint256 amount, address refundTo) external payable;
 
             /// Take everything held for a node in each of `tokens`; holder
@@ -65,8 +65,8 @@ mod escrow_inner {
                 uint256 amount,
                 uint256 received
             );
-            /// `released` (here and in `Refunded`) left the books; `received`
-            /// is what `recipient` gained. `round` is the one this claim closed.
+            /// `released` left the books and `recipient` gained `received`.
+            /// `round` is the round this claim closed.
             event Claimed(
                 bytes32 indexed handleNode,
                 address indexed token,
@@ -78,6 +78,7 @@ mod escrow_inner {
             );
             event OwnershipTransferStarted(address indexed previousOwner, address indexed newOwner);
             event OwnershipTransferred(address indexed previousOwner, address indexed newOwner);
+            /// `released` left the books and `recipient` gained `received`.
             event Refunded(
                 bytes32 indexed handleNode,
                 address indexed token,
@@ -112,8 +113,8 @@ mod escrow_inner {
             /// A deposit to an unheld node on a platform the registry knows but
             /// nobody can bind now.
             error PlatformAcceptsNoBindings(bytes32 platformId);
-            /// A deposit naming a platform the registry does not know: its own
-            /// `IIdentityRegistry.UnknownPlatform`.
+            /// A deposit naming a platform the registry does not know, raised by
+            /// the registry.
             error UnknownPlatform(bytes32 platformId);
             error OwnableUnauthorizedAccount(address account);
             error OwnableInvalidOwner(address owner);
