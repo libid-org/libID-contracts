@@ -26,7 +26,7 @@ With the `node` feature, a table platform computes `SHA256(tag || value)`:
 `handle_node(raw)` and `id_node(id)` give the node the platform's circuit
 outputs and `IdentityRegistry` and `HandleEscrow` key by, and
 `folded_handle_node(text)` is the registry's `handleNodeOf`: it folds A-Z and
-hashes, checking no byte. `handle_vectors::platform(key)` finds a platform by
+hashes, checking no byte. `platforms::platform(key)` finds a platform by
 its key, `None` for a key the table does not know:
 
 ```toml
@@ -34,7 +34,7 @@ libid-identity = { version = "0.17", features = ["node"] }
 ```
 
 ```rust
-use libid_identity::handle_vectors::platform;
+use libid_identity::platforms::platform;
 
 let github = platform("github").unwrap();
 // hashlib.sha256(b"libid.github.handleoctocat"): what HandleEscrow.deposit takes.
@@ -53,11 +53,14 @@ release's `platforms.json` and `handles.json`, vendored into
 Rust, TypeScript and Noir each run the
 same table, so a normalizer that drifted from the circuits fails a test
 instead of looking up a node the chain never wrote. On chain only the fold
-runs.
+runs. The vectors are in `vectors`, which the `test-helpers` feature exposes
+to a consumer's tests; each row's `expected` is the `Result` the transform
+answers.
 
-`handle_vectors` also carries each platform key (`PLATFORM_X_KEY`, …), and
-`rules_for` returns a platform's buffers by its key; `keccak256` of the key is
-the platform id the contracts take.
+`platforms` also carries each platform key (`PLATFORM_X_KEY`, …) and the
+`HandleError` and `IdError` refusals, and `rules_for` returns a platform's
+buffers by its key; `keccak256` of the key is the platform id the contracts
+take.
 
 ## Dependencies
 
