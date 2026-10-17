@@ -9,10 +9,10 @@
 #
 # The cache key is the SAME in every job that builds the same profile — it is
 # derived only from inputs.foundry-version, inputs.profile and the checked-out
-# sources — so whichever job saves first warms all the others: on the next run
-# `forge build` restores a fully built `out/` and is a near no-op, because
-# forge's own cache is content-addressed over the sources and the solc version
-# and rebuilds nothing that did not change.
+# sources — so whichever job saves first warms the others on the same tree.
+# Only an exact key restores: forge rebuilding part of another tree's `out/`
+# under via_ir can emit different bytecode than a full build, so a new tree
+# always builds from scratch.
 name: forge-build
 description: Install Foundry, restore the shared forge cache, and run `forge build` in solidity/.
 
@@ -27,6 +27,12 @@ inputs:
       would only make forge rebuild it.
     required: false
     default: default
+  cache:
+    description: >-
+      Restore and save the forge artifact cache. The release jobs turn it off,
+      so what ships is built from the checkout alone.
+    required: false
+    default: "true"
 
 runs:
   using: composite
@@ -63,18 +69,15 @@ runs:
     # artifacts embed solc metadata, and a stale `out/` from another compiler
     # is exactly the confusion a cache must not introduce.
     - name: Restore forge artifacts
+      if: inputs.cache == 'true'
       uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
         path: |
           solidity/out
           solidity/cache
         key: forge-${{ runner.os }}-${{ inputs.foundry-version }}-${{ inputs.profile }}-${{ hashFiles('solidity/**/*.sol', 'solidity/foundry.toml', 'solidity/remappings.txt', 'solidity/lib/**') }}
-        restore-keys: |
-          forge-${{ runner.os }}-${{ inputs.foundry-version }}-${{ inputs.profile }}-
 
-    # Deliberately not `--force`: forge's cache is content-addressed, so a
-    # stale artifact cannot outlive a source change, and on a warm cache this
-    # step is the fast no-op the whole arrangement exists to buy.
+    # On an exact cache hit this is a no-op; otherwise a full build.
     - name: Build contracts
       shell: bash
       working-directory: solidity

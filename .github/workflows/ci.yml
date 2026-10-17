@@ -511,14 +511,11 @@ jobs:
         uses: ./.github/actions/forge-build
         with:
           foundry-version: ${{ env.FOUNDRY_VERSION }}
+          cache: false
 
       - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable
         with:
           toolchain: ${{ env.RUST_VERSION }}
-
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
-        with:
-          workspaces: rust
 
       # Idempotent-ish: a re-run after a partially failed release (say npm
       # setup was missing) must not hard-fail on the half that already landed.
@@ -586,6 +583,7 @@ jobs:
         uses: ./.github/actions/forge-build
         with:
           foundry-version: ${{ env.FOUNDRY_VERSION }}
+          cache: false
 
       - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
         with:
@@ -593,8 +591,6 @@ jobs:
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 24
-          cache: pnpm
-          cache-dependency-path: ts/pnpm-lock.yaml
 
       # OIDC trusted publishing needs npm >= 11.5; the npm bundled with the
       # pinned Node may lag behind.
