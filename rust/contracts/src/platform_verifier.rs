@@ -197,8 +197,11 @@ pub struct GoogleRoots {
 /// What one Platform Verifier is initialized with.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Initializer {
+    /// `XPlatformVerifier`.
     X(TlsNotaryRoots),
+    /// `GitHubPlatformVerifier`.
     GitHub(TlsNotaryRoots),
+    /// `GooglePlatformVerifier`.
     Google(GoogleRoots),
 }
 

@@ -33,6 +33,9 @@
 //! Signing is the consumer's concern: every helper takes a provider you have
 //! already wired with a wallet.
 
+#![deny(dead_code)]
+#![deny(missing_docs)]
+
 pub mod artifacts;
 pub mod bind_error;
 pub mod bindings;
