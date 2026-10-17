@@ -22,6 +22,8 @@ import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
+import { bindRoute } from './bind-route.mjs'
+
 /** @typedef {import('viem').Abi} Abi */
 /** @typedef {import('viem').AbiFunction} AbiFunction */
 /** @typedef {Extract<Abi[number], { type: 'error' }>} AbiError */
@@ -65,19 +67,6 @@ const contracts = [
   },
   { file: 'LibidFactory.sol', name: 'LibidFactory', exportName: 'libidFactoryAbi' },
   { file: 'WTIA9.sol', name: 'WTIA9', exportName: 'wtia9Abi' },
-]
-
-// Every contract a `bind` passes through, in call order; a revert from any
-// comes back out of `bind` unchanged. The Honk verifier's errors come from
-// `IHonkVerifierErrors`, since bb's artifacts declare none.
-const bindRoute = [
-  ['IdentityRegistry.sol', 'IdentityRegistry'],
-  ['CeremonyProofVerifier.sol', 'CeremonyProofVerifier'],
-  ['XPlatformVerifier.sol', 'XPlatformVerifier'],
-  ['GitHubPlatformVerifier.sol', 'GitHubPlatformVerifier'],
-  ['GooglePlatformVerifier.sol', 'GooglePlatformVerifier'],
-  ['NotaryService.sol', 'NotaryService'],
-  ['IHonkVerifierErrors.sol', 'IHonkVerifierErrors'],
 ]
 
 /**

@@ -153,7 +153,8 @@ jobs:
   # ---------------------------------------------------------------------------
   # Generated files match their sources. profiles.json and the pinned
   # circuits release's platforms.json and handles.json generate the platform
-  # constants and the handle vector table for every language; a drift between
+  # constants and the handle vector table for every language, and
+  # regen-bind-route.py the `bind` route for Rust and TypeScript; a drift between
   # a source and a committed output leaves every per-language test green
   # while the languages disagree with each other. The Honk verifiers are not
   # checked here: nothing of theirs is committed but the pin, and the
@@ -187,6 +188,9 @@ jobs:
 
       - name: Generated ceremony profiles are current
         run: python3 scripts/regen-ceremony-profiles.py --check
+
+      - name: Generated bind route is current
+        run: python3 scripts/regen-bind-route.py --check
 
   # ---------------------------------------------------------------------------
   # Rust: vendored artifacts, formatting, clippy, tests. Needs forge twice

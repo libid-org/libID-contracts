@@ -37,6 +37,8 @@
 
 pub mod artifacts;
 pub mod bind_error;
+#[rustfmt::skip]
+mod bind_route;
 pub mod bindings;
 pub mod circuits;
 pub mod deploy;
