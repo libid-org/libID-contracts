@@ -2,114 +2,83 @@
 src = "contracts"
 out = "out"
 libs = ["lib"]
-# Tests live beside the code they cover — contracts/ceremony/test, contracts/
-# identity/test, contracts/factory/test — so discovery goes through src
-# rather than one test directory.
+# Tests live beside the code they cover, in contracts/*/test.
 test = "contracts"
 solc = "0.8.33"
 evm_version = "cancun"
 via_ir = true
 # The vendored Honk verifiers compile on the legacy pipeline: solc cannot lay
-# out the stack of bb's optimized assembly via IR ("Could not create stack
-# layout after 1000 iterations"). Everything else needs IR to fit EIP-170.
+# out the stack of bb's optimized assembly via IR. Everything else needs IR to
+# fit EIP-170.
 additional_compiler_profiles = [{ name = "verifiers", via_ir = false }]
 compilation_restrictions = [{ paths = "contracts/circuits/*HonkVerifier.sol", via_ir = false }]
 optimizer = true
 optimizer_runs = 200
-# No CBOR metadata / ipfs hash in bytecode: via_ir compiles the tree as one
-# unit, so the metadata hash of every contract changes when any source does —
-# which would make the vendored artifacts under rust/contracts/artifacts churn
-# on unrelated edits. Explorer verification still works via standard-json.
+# No metadata hash in bytecode, so runtime code, and the hashes in
+# CircuitCodehashes.sol, depend on the source and compiler settings alone.
+# Explorer verification works via standard-json.
 bytecode_hash = "none"
 cbor_metadata = false
 fs_permissions = [
-    # Google's real JWKS body, as served today, so the root list's parser is
-    # tested against the document it will actually read rather than a shape
-    # a test author remembered (see GoogleJwtRoots.t.sol) -- and a whole
-    # notarized session of it, signature included, so the real path is tested
-    # end to end (see GoogleJwtRootsRealSession.t.sol).
+    # Google's real JWKS body and a notarized session of it
+    # (GoogleJwtRoots.t.sol, GoogleJwtRootsRealSession.t.sol).
     { access = "read", path = "contracts/ceremony/test/fixtures" },
     # Real proofs of each circuit, for the Honk verifiers (see HonkVerifierProofs.t.sol).
     { access = "read", path = "contracts/circuits/test/fixtures" },
     { access = "read", path = "out" }, # the factory tests read creation code from the artifacts
-    # The shared handle vectors, vendored from the pinned circuits release, run
-    # against the Solidity fold (see HandleNode.t.sol).
+    # The shared handle vectors from the pinned circuits release (HandleNode.t.sol).
     { access = "read", path = "contracts/circuits/handles.json" },
 ]
-# Gas snapshots are measured under eden-testnet's rules, so only the `gas`
-# profile below writes them: a default run would overwrite them with cancun's.
+# Only the `gas` profile writes gas snapshots: they are measured under
+# eden-testnet's rules, which a default run would overwrite with cancun's.
 gas_snapshot_emit = false
 
 # What verifying a claim costs, recorded in snapshots/ by
-# ClaimVerificationGas.t.sol. CI fails when the committed numbers are not what
-# the code measures: update them with `FOUNDRY_PROFILE=gas forge test`.
+# ClaimVerificationGas.t.sol. CI fails when the committed numbers are stale:
+# update them with `FOUNDRY_PROFILE=gas forge test`.
 #
-# Osaka because eden-testnet executes under it: EIP-7883 at least triples the
-# price of MODEXP, which the Honk verifiers call. `vm.setEvmVersion` cannot
-# stand in, because forge prices precompiles by the version a transaction
-# starts under. solc 0.8.33 compiles this tree to the same bytecode for osaka
-# as for cancun, so the numbers are the deployed code's. Compare the two builds
-# when solc moves.
+# Osaka because eden-testnet executes under it, and EIP-7883 reprices the
+# MODEXP the Honk verifiers call. `vm.setEvmVersion` cannot stand in: forge
+# prices precompiles by the version a transaction starts under. solc 0.8.33
+# emits the same bytecode for osaka as for cancun; compare the two builds when
+# solc moves.
 #
-# Not isolated: an isolated test call runs as a transaction of its own, so its
-# number would add a base fee, its calldata and cold state, none of which the
-# `verify` frame pays inside a claim transaction.
+# Not isolated: an isolated call would add a base fee, calldata and cold state
+# that the `verify` frame inside a claim does not pay.
 [profile.gas]
 evm_version = "osaka"
 isolate = false
 gas_snapshot_emit = true
 match_path = "contracts/ceremony/test/ClaimVerificationGas.t.sol"
 
-# Lint findings fail CI: the Solidity job runs `forge lint -D notes`, the
-# counterpart of `cargo clippy -D warnings` and `pnpm lint` in the jobs beside
-# it. A plain `forge build` runs the same linter (lint_on_build, the default)
-# but only prints; run the CI command locally to see the failure first. Two
-# things about that command are not obvious:
+# CI runs `forge lint -D notes`, which fails on any finding. `forge build`
+# runs the same linter but only prints.
 #
-#   - `forge lint` compiles before it lints, and `-D` covers the compiler too:
-#     on a cold cache a solc warning fails the command the way a note does.
-#     The tree compiles without one, libraries included -- which is why
-#     forge-std is at v1.14 or later. Before that, its `memory-safe-assembly`
-#     comments drew 698 deprecation warnings from solc 0.8.33, past solc's
-#     cap of 256, and the "more than 256 warnings" marker is itself a warning
-#     with no file, so nothing ignores it.
-#   - The lint ids below are the pinned Foundry's (FOUNDRY_VERSION in ci.yml).
-#     An older forge refuses the ones it has never heard of -- "Unknown lint
-#     ID" -- so match the pin locally: `foundryup -i <version>`.
+#   - `-D` also fails on a solc warning, libraries included. forge-std must
+#     stay at v1.14 or later: older versions draw solc deprecation warnings.
+#   - The lint ids below are the pinned Foundry's (FOUNDRY_VERSION in ci.yml);
+#     an older forge refuses unknown ids. Match it with `foundryup -i <version>`.
 #
-# Every lint switched off below says why. A single site that is right as
-# written carries a `// forge-lint: disable-...` comment with its reason
-# instead, so the lint stays on for the next one.
+# A single site that is right as written carries a `// forge-lint: disable-...`
+# comment with its reason, so the lint stays on elsewhere.
 [lint]
-# The vendored Honk verifiers are bb's output, not ours: the notes they draw
-# (naming, unchecked casts) would be fixed in Aztec's generator, and the
-# files are not committed: `scripts/vendor-circuit-verifiers.sh` writes them
-# before every build, so a fix made here does not outlive the next run. They
-# still compile under `-D` like everything else; only the linter skips them.
+# The vendored Honk verifiers are bb's output, rewritten by
+# `scripts/vendor-circuit-verifiers.sh` before every build. They still compile
+# under `-D`; only the linter skips them.
 ignore = ["contracts/circuits/*HonkVerifier.sol"]
-# Foundry's default stops at `low`, which leaves the style lints off: naming,
-# named struct fields, unused and unaliased imports. They are on. `gas` and
-# `code-size` stay off because their advice -- assembly keccak, a custom error
-# for every require string, modifier bodies moved into functions -- is a
-# rewrite, not a check.
+# `info` turns on the style lints: naming, named struct fields, unused and
+# unaliased imports. `gas` and `code-size` stay off: their advice is a rewrite,
+# not a check.
 severity = ["high", "med", "low", "info"]
 exclude_lints = [
-    # Fires on every comparison that reads block.timestamp. Each one here
-    # decides a validity window -- a token's or a signature's expiry, the
-    # freshness of a notarized reading, the grace for a clock that runs ahead
-    # -- measured in minutes at the least. A validator's latitude over the
-    # timestamp is seconds: it moves the edge of such a window, and nothing
-    # here rides on the edge.
+    # Every block.timestamp comparison here decides a validity window of
+    # minutes or more; a validator's seconds of latitude only move its edge.
     "block-timestamp",
-    # A test's stubs and adversaries -- a Honk verifier that says yes, a
-    # receiver that reenters `claim` -- live in the file with the test that
-    # reads them. The two production files with an interface beside their
-    # contract declare what that contract asks of a collaborator
-    # (IGoogleJwtRoots, IHonkVerifier), not the collaborator itself.
+    # Test stubs live in the file of the test that reads them. Two production
+    # files declare, beside their contract, the interface it asks of a
+    # collaborator (IGoogleJwtRoots, IHonkVerifier).
     "multi-contract-file",
-    # The cheatcodes it names are file access, `ffi`, `setEnv` and `deriveKey`.
-    # File access is what fs_permissions above confines already -- read-only,
-    # to the test fixtures, `out` and handles.json -- and `ffi` is off. The
-    # uses on the tree are tests reading those.
+    # The uses are tests reading files, which fs_permissions above confines to
+    # read-only paths; `ffi` is off.
     "unsafe-cheatcode",
 ]

@@ -1,18 +1,10 @@
 # Install Foundry, vendor the Honk verifiers and the platform table, restore
-# the forge artifact cache, and build the contracts.
+# the forge artifact cache, and build the contracts. Every job that needs
+# `forge build` runs this composite.
 #
-# Every job that needs `forge build` — solidity runs the tests over it, rust
-# vendors the artifacts into the crate, ts generates bindings from them, and
-# the publish dry-run and both publish jobs do the last two for real — runs
-# this composite. Repeating the install + vendor + cache + build stanza in each
-# job is how the copies drift, so the sequence lives here once.
-#
-# The cache key is the SAME in every job that builds the same profile — it is
-# derived only from inputs.foundry-version, inputs.profile and the checked-out
-# sources — so whichever job saves first warms all the others: on the next run
-# `forge build` restores a fully built `out/` and is a near no-op, because
-# forge's own cache is content-addressed over the sources and the solc version
-# and rebuilds nothing that did not change.
+# The cache key depends only on the Foundry version, the profile and the
+# sources, so the first job to save it warms the others. forge's own cache is
+# content-addressed, so a restored `out/` rebuilds only what changed.
 name: forge-build
 description: Install Foundry, restore the shared forge cache, and run `forge build` in solidity/.
 
@@ -31,35 +23,31 @@ inputs:
 runs:
   using: composite
   steps:
-    # Also provides `anvil`, which the rust integration tests spawn, and
-    # `cast`. Pinned by commit because this action runs in credential-adjacent
-    # jobs and a moved tag should not be able to change what executes.
+    # Also provides `anvil`, which the Rust integration tests spawn, and
+    # `cast`. Pinned by commit: a moved tag must not change what runs in the
+    # publish jobs.
     - uses: foundry-rs/foundry-toolchain@908c540300062bd5a7e473851cdb4282204cee09 # v1.9.1
       with:
         version: ${{ inputs.foundry-version }}
 
-    # The Honk verifiers and the platform table (platforms.json, handles.json)
-    # are not in the checkout: they are gitignored, and
-    # scripts/vendor-circuit-verifiers.sh downloads them from the pinned
-    # libid-circuits release, refusing any tarball whose sha256 is not the
-    # literal in solidity/contracts/circuits/circuits.json. So every build,
-    # test, dry-run and publish compiles a download the pin has just checked.
-    # Before the cache step, so the vendored sources are in the key's hash.
+    # The Honk verifiers and the platform table are gitignored. The script
+    # downloads them from the pinned libid-circuits release and checks each
+    # tarball against the sha256 in solidity/contracts/circuits/circuits.json.
+    # It runs before the cache step so the vendored sources are in the key.
     - name: Vendor circuit verifiers
       shell: bash
       run: ./scripts/vendor-circuit-verifiers.sh
 
-    # The vendor step rewrites CircuitCodehashes.sol from the verifiers it
-    # just wrote, so the drift test in HonkVerifiers.t.sol would compare the
-    # file with itself. The committed file must be what the pin vendors.
+    # The vendor step rewrites CircuitCodehashes.sol, so HonkVerifiers.t.sol
+    # would compare the file with itself. This diff holds the committed file
+    # to the pinned verifiers.
     - name: CircuitCodehashes.sol matches the vendored verifiers
       shell: bash
       run: git diff --exit-code solidity/contracts/circuits/CircuitCodehashes.sol
 
-    # `solidity/lib/**` hashes the checked-out submodule trees, so bumping a
-    # submodule pointer changes the key. The foundry version is in the key too:
-    # artifacts embed solc metadata, and a stale `out/` from another compiler
-    # is exactly the confusion a cache must not introduce.
+    # `solidity/lib/**` hashes the submodule trees, so a submodule bump changes
+    # the key. The Foundry version is in the key because artifacts embed
+    # compiler metadata.
     - name: Restore forge artifacts
       uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
@@ -70,9 +58,8 @@ runs:
         restore-keys: |
           forge-${{ runner.os }}-${{ inputs.foundry-version }}-${{ inputs.profile }}-
 
-    # Deliberately not `--force`: forge's cache is content-addressed, so a
-    # stale artifact cannot outlive a source change, and on a warm cache this
-    # step is the fast no-op the whole arrangement exists to buy.
+    # No `--force`: forge's content-addressed cache rebuilds whatever changed,
+    # and a warm cache makes this step a near no-op.
     - name: Build contracts
       shell: bash
       working-directory: solidity
