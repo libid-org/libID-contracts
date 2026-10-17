@@ -3,8 +3,8 @@ pragma solidity ^0.8.24;
 
 import {Test} from "forge-std/Test.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
-import {ReentrancyGuardUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardUpgradeable.sol";
-import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
+import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import {Initializable} from "@openzeppelin/contracts/proxy/utils/Initializable.sol";
 import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 
 import {HandleNormalizer} from "../../identity/HandleNormalizer.sol";
@@ -491,10 +491,7 @@ contract HandleEscrowTest is Test {
 
         payee.take(abi.encodeCall(HandleEscrow.claim, (aliceNode, one(NATIVE), address(payee))));
         assertEq(payee.heldDuringPayout(), 0);
-        assertEq(
-            payee.reentryError(),
-            abi.encodeWithSelector(ReentrancyGuardUpgradeable.ReentrancyGuardReentrantCall.selector)
-        );
+        assertEq(payee.reentryError(), abi.encodeWithSelector(ReentrancyGuard.ReentrancyGuardReentrantCall.selector));
         assertEq(address(payee).balance, 1 ether);
         assertEq(address(escrow).balance, 1 ether);
     }
@@ -590,10 +587,7 @@ contract HandleEscrowTest is Test {
         payee.take(abi.encodeCall(HandleEscrow.refund, (aliceNode, NATIVE, address(payee))));
         assertEq(payee.refundableDuringPayout(), 0);
         assertEq(payee.heldDuringPayout(), 1 ether);
-        assertEq(
-            payee.reentryError(),
-            abi.encodeWithSelector(ReentrancyGuardUpgradeable.ReentrancyGuardReentrantCall.selector)
-        );
+        assertEq(payee.reentryError(), abi.encodeWithSelector(ReentrancyGuard.ReentrancyGuardReentrantCall.selector));
         assertEq(address(payee).balance, 1 ether);
     }
 
@@ -673,10 +667,11 @@ contract HandleEscrowTest is Test {
         impl.initialize(owner, IIdentityRegistry(address(registry)));
     }
 
-    /// `initialize` arms the guard, and a guarded call leaves it armed.
-    function test_initializeArmsTheReentrancyGuard() public {
+    /// The guard's slot starts empty behind the proxy, and a guarded call
+    /// leaves it not entered.
+    function test_aGuardedCallLeavesTheReentrancyGuardNotEntered() public {
         bytes32 guardSlot = 0x9b779b17422d0df92223018b32b4d1fa46e071723d6817e2486d003becc55f00;
-        assertEq(uint256(vm.load(address(escrow), guardSlot)), 1);
+        assertEq(uint256(vm.load(address(escrow), guardSlot)), 0);
         _depositNative("alice", 1 ether);
         assertEq(uint256(vm.load(address(escrow), guardSlot)), 1);
     }
