@@ -12,10 +12,11 @@ regenerates them before every build, test and publish. Each ABI is exported
 `as const satisfies Abi`, so viem infers argument and return types from it, and
 each call builder reads its arguments off that ABI, so adding a write function
 to a contract produces its wrapper instead of requiring someone to remember to
-write one. The handle vector table in `src/identity/handleVectors.ts` is
-generated from the pinned libID-circuits release's `platforms.json` and
-`handles.json`, vendored into `solidity/contracts/circuits/`, by
-`scripts/regen-identity-handles.py`.
+write one. The platform table and refusals in `src/identity/platforms.ts`,
+and the vector table the tests run in `src/identity/vectors.ts` (not
+published), are generated from the pinned libID-circuits release's
+`platforms.json` and `handles.json`, vendored into
+`solidity/contracts/circuits/`, by `scripts/regen-identity-handles.py`.
 
 ```sh
 pnpm add @libid/contracts viem

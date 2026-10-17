@@ -78,8 +78,10 @@ python3 scripts/regen-identity-handles.py --check  # verify nothing drifted
 python3 scripts/regen-ceremony-profiles.py         # the tags in CeremonyProfile.sol
 ```
 
-The first generates `rust/identity/src/handle_vectors.rs` and
-`ts/packages/contracts/src/identity/handleVectors.ts`; the second reads each
+The first generates the platform table and refusals
+(`rust/identity/src/platforms.rs`, `ts/packages/contracts/src/identity/platforms.ts`)
+and the vector tables the tests run (`vectors.rs`, `vectors.ts` beside them);
+the second reads each
 profile's tags from `platforms.json` into `CeremonyProfile.sol` beside the
 rest of `profiles.json`. CI's Generated tables job vendors the release and
 fails when either drifts. On chain a handle is only folded, by the
@@ -155,7 +157,7 @@ upgrade a live proxy onto it:
 - `HandleEscrow` is redeployed against the new registry, never upgraded or
   re-pointed: its deposits are keyed by handle node, and a node means nothing
   to the registry before it. `initialize` asks `nodeKeyed()`, which only the
-  new registry answers true, and reverts `RegistryLacks` against the old one.
+  new registry answers true, and reverts against the old one, which lacks it.
 
 ## Releasing
 

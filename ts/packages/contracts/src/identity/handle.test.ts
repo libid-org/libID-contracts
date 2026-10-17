@@ -1,9 +1,20 @@
-import { createHash } from 'node:crypto'
-import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
-import { HandleError, normalize, RULES_GITHUB, RULES_GOOGLE, RULES_X, rulesFor } from './handle.js'
+import { normalize, RULES_GITHUB, RULES_GOOGLE, RULES_X, type Rules, rulesFor } from './handle.js'
+import { HandleError, type RefusalKind } from './platforms.js'
+import { HANDLE_VECTORS } from './vectors.js'
 
-import { HANDLE_VECTORS, TABLE_SHA256 } from './handleVectors.js'
+/// What `normalize` answers, or the refusal it threw, in the vector table's shape.
+function normalized(
+  input: string,
+  rules: Rules,
+): { ok: true; handle: string } | { ok: false; refusal: RefusalKind } {
+  try {
+    return { ok: true, handle: normalize(input, rules) }
+  } catch (e) {
+    if (!(e instanceof HandleError)) throw e
+    return { ok: false, refusal: e.kind }
+  }
+}
 
 /// The shared handle vector table, run against the TypeScript normalizer.
 ///
@@ -16,31 +27,17 @@ describe('handle normalization', () => {
       const rules = rulesFor(v.platform)
       expect(rules, `vector ${i}: unknown platform ${v.platform}`).not.toBeNull()
 
-      if (v.accepted) {
-        expect(normalize(v.input, rules!), `vector ${i}`).toBe(v.output)
-        continue
-      }
-
-      // The table names WHICH refusal, not merely that one happened. Accepting
-      // any error would pass when the normalizer refused for the wrong reason,
-      // and the reason is what the three languages must agree on.
-      let thrown: unknown
-      try {
-        normalize(v.input, rules!)
-      } catch (e) {
-        thrown = e
-      }
-      expect(thrown, `vector ${i}: expected a refusal`).toBeInstanceOf(HandleError)
-      expect((thrown as HandleError).kind, `vector ${i}: refused for the wrong reason`).toBe(
-        v.errorKind,
-      )
+      // The table names WHICH refusal, not merely that one happened: the
+      // reason is what the three languages must agree on.
+      const expected = v.expected.ok ? { ok: true, handle: v.expected.handle } : v.expected
+      expect(normalized(v.input, rules!), `vector ${i}`).toEqual(expected)
     }
   })
 
   /// The table must keep covering both outcomes. A regeneration that dropped
   /// every refusal would leave the test green and prove nothing.
   it('keeps covering both outcomes', () => {
-    const accepted = HANDLE_VECTORS.filter((v) => v.accepted).length
+    const accepted = HANDLE_VECTORS.filter((v) => v.expected.ok).length
     expect(accepted).toBeGreaterThan(0)
     expect(HANDLE_VECTORS.length - accepted).toBeGreaterThan(0)
   })
@@ -51,15 +48,5 @@ describe('handle normalization', () => {
     expect(normalize('A.B+tag@Example.COM', RULES_GOOGLE)).toBe('a.b+tag@example.com')
     expect(normalize('Alice_1', RULES_X)).toBe('alice_1')
     expect(normalize('Octo-Cat', RULES_GITHUB)).toBe('octo-cat')
-  })
-})
-
-describe('the generated table', () => {
-  /// The constants carry the SHA-256 of the vendored `handles.json`.
-  it('comes from the vendored handles.json', () => {
-    const table = readFileSync(
-      new URL('../../../../../solidity/contracts/circuits/handles.json', import.meta.url),
-    )
-    expect(createHash('sha256').update(table).digest('hex')).toBe(TABLE_SHA256)
   })
 })

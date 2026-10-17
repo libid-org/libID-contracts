@@ -22,25 +22,28 @@ assert_eq!(normalize("Ali\"ce", Rules::X), Err(HandleError::BadCharacter));
 X and GitHub, a JSON string's bytes for Google), or says why no circuit would
 hash it. Ids are never normalized.
 
-With the `node` feature, `handle_node(platform_key, raw)` and
-`id_node(platform_key, id)` compute `SHA256(tag || value)`, the node the
-platform's circuit outputs and `IdentityRegistry` and `HandleEscrow` key by.
-`folded_handle_node(platform_key, text)` is the registry's `handleNodeOf`: it
-folds A-Z and hashes, checking no byte. All three answer `None` for a
-platform key the table does not know:
+With the `node` feature, a table platform computes `SHA256(tag || value)`:
+`handle_node(raw)` and `id_node(id)` give the node the platform's circuit
+outputs and `IdentityRegistry` and `HandleEscrow` key by, and
+`folded_handle_node(text)` is the registry's `handleNodeOf`: it folds A-Z and
+hashes, checking no byte. `platforms::platform(key)` finds a platform by
+its key, `None` for a key the table does not know:
 
 ```toml
 libid-identity = { version = "0.17", features = ["node"] }
 ```
 
 ```rust
+use libid_identity::platforms::platform;
+
+let github = platform("github").unwrap();
 // hashlib.sha256(b"libid.github.handleoctocat"): what HandleEscrow.deposit takes.
-let node = libid_identity::handle_node("github", "OctoCat").unwrap().unwrap();
+let node = github.handle_node("OctoCat").unwrap();
 assert_eq!(node[..4], [0x38, 0x1f, 0xb9, 0xd7]);
 // hashlib.sha256(b"libid.github.user-id583231"): what resolveId takes.
-let id = libid_identity::id_node("github", "583231").unwrap().unwrap();
+let id = github.id_node("583231").unwrap();
 assert_eq!(id[..4], [0x47, 0x59, 0x02, 0xb2]);
-assert!(libid_identity::handle_node("myspace", "tom").is_none());
+assert!(platform("myspace").is_none());
 ```
 
 The per-platform buffers (`Rules::X`, `Rules::GITHUB`, `Rules::GOOGLE`), the
@@ -50,11 +53,14 @@ release's `platforms.json` and `handles.json`, vendored into
 Rust, TypeScript and Noir each run the
 same table, so a normalizer that drifted from the circuits fails a test
 instead of looking up a node the chain never wrote. On chain only the fold
-runs.
+runs. The vectors are in `vectors`, which the `test-helpers` feature exposes
+to a consumer's tests; each row's `expected` is the `Result` the transform
+answers.
 
-`handle_vectors` also carries each platform key (`PLATFORM_X_KEY`, …), and
-`rules_for` returns a platform's buffers by its key; `keccak256` of the key is
-the platform id the contracts take.
+`platforms` also carries each platform key (`PLATFORM_X_KEY`, …) and the
+`HandleError` and `IdError` refusals, and `rules_for` returns a platform's
+buffers by its key; `keccak256` of the key is the platform id the contracts
+take.
 
 ## Dependencies
 

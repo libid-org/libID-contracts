@@ -13,7 +13,8 @@ interface IIdentityRegistry {
     ///         for a platform the registry does not know.
     function handleNodeOf(bytes32 platformId, string calldata handle) external view returns (bytes32 handleNode);
 
-    /// @notice Whether a platform can be bound right now.
+    /// @notice Whether a platform can be bound right now. Reverts `UnknownPlatform`
+    ///         for a platform the registry does not know.
     function acceptsBindings(bytes32 platformId) external view returns (bool);
 
     /// @notice True: `handleBinding` is keyed by the handle nodes a circuit outputs.

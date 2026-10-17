@@ -7,7 +7,8 @@
       "!**/dist",
       "!**/node_modules",
       "!packages/contracts/src/abis",
-      "!packages/contracts/src/identity/handleVectors.ts"
+      "!packages/contracts/src/identity/platforms.ts",
+      "!packages/contracts/src/identity/vectors.ts"
     ]
   },
   "formatter": {
@@ -31,5 +32,30 @@
         "noNonNullAssertion": "off"
       }
     }
-  }
+  },
+  "overrides": [
+    {
+      "includes": [
+        "packages/contracts/src/ceremony/**",
+        "!packages/contracts/src/ceremony/**/*.test.ts"
+      ],
+      "linter": {
+        "rules": {
+          "style": {
+            "noRestrictedImports": {
+              "level": "error",
+              "options": {
+                "patterns": [
+                  {
+                    "group": ["**", "!./*"],
+                    "message": "The ceremony layer imports only its own directory: viem is an optional peer, and a browser ceremony reads these profiles without it."
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
 }

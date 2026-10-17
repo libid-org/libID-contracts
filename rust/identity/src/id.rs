@@ -4,41 +4,10 @@
 //! Ids are never normalized; these checks mirror the circuits' `check_id`
 //! and run the same `idVectors` table.
 
-use super::handle_vectors as v;
-
-/// Why no circuit would hash an id. The kinds are the handle table's.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum IdError {
-    /// No bytes at all.
-    Empty,
-    /// More bytes than the platform allows.
-    TooLong,
-    /// A byte the platform does not allow.
-    BadCharacter,
-}
-
-impl IdError {
-    /// The index the vector table uses for this kind.
-    pub const fn kind(self) -> u8 {
-        match self {
-            Self::Empty => v::ERROR_EMPTY,
-            Self::TooLong => v::ERROR_TOOLONG,
-            Self::BadCharacter => v::ERROR_BADCHARACTER,
-        }
-    }
-}
-
-impl std::fmt::Display for IdError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(match self {
-            Self::Empty => "the id is empty",
-            Self::TooLong => "the id is too long for this platform",
-            Self::BadCharacter => "the id has a byte this platform does not allow",
-        })
-    }
-}
-
-impl std::error::Error for IdError {}
+use crate::platforms::{
+    self as v,
+    IdError,
+};
 
 /// What a platform allows in an id.
 #[derive(Debug, Clone, Copy)]
@@ -56,11 +25,6 @@ impl IdRules {
     pub const GITHUB: Self = v::PLATFORM_GITHUB.id_rules;
     /// Google: the OIDC `sub`.
     pub const GOOGLE: Self = v::PLATFORM_GOOGLE.id_rules;
-}
-
-/// The id rules for a platform key, from the generated table.
-pub fn id_rules_for(platform_key: &str) -> Option<IdRules> {
-    v::platform(platform_key).map(|p| p.id_rules)
 }
 
 /// Accept an id exactly as given, or say why no circuit would hash it.
@@ -88,7 +52,7 @@ pub fn check_id(id: &str, rules: IdRules) -> Result<(), IdError> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::handle_vectors::ID_VECTORS;
+    use crate::vectors::ID_VECTORS;
 
     /// TypeScript's `checkId` words its refusals the same way.
     #[test]
@@ -104,14 +68,13 @@ mod tests {
     #[test]
     fn every_id_vector_matches_the_shared_table() {
         for (i, v) in ID_VECTORS.iter().enumerate() {
-            let rules = id_rules_for(v.platform).expect("known platform");
-            match check_id(v.input, rules) {
-                Ok(()) => assert!(v.accepted, "id vector {i}: expected a refusal"),
-                Err(e) => {
-                    assert!(!v.accepted, "id vector {i}: refused ({e:?})");
-                    assert_eq!(e.kind(), v.error_kind, "id vector {i}: wrong reason");
-                }
-            }
+            let rules = v::platform(v.platform).expect("known platform").id_rules;
+            assert_eq!(
+                check_id(v.input, rules),
+                v.expected.map(|_| ()),
+                "id vector {i}: {:?}",
+                v.input
+            );
         }
     }
 }

@@ -17,6 +17,9 @@
 //! [`platform_verifier::Initializer`](crate::platform_verifier::Initializer)
 //! wires.
 
+#[cfg(test)]
+use std::collections::BTreeMap;
+
 use alloy::{
     primitives::{
         keccak256,
@@ -83,7 +86,7 @@ impl Circuit {
 
     /// Every circuit beside its [`runtime_codehash`](Self::runtime_codehash),
     /// in [`ALL`](Self::ALL)'s order.
-    pub fn runtime_codehashes(artifacts: &Artifacts) -> Result<Vec<(Self, B256)>> {
+    pub(crate) fn runtime_codehashes(artifacts: &Artifacts) -> Result<Vec<(Self, B256)>> {
         Self::ALL
             .into_iter()
             .map(|c| Ok((c, c.runtime_codehash(artifacts)?)))
@@ -91,7 +94,7 @@ impl Circuit {
     }
 
     /// The circuit `codehashes` pairs with `codehash`, if any.
-    pub fn with_runtime_codehash(
+    pub(crate) fn with_runtime_codehash(
         codehashes: &[(Self, B256)],
         codehash: B256,
     ) -> Option<Self> {
@@ -107,7 +110,7 @@ impl Circuit {
 struct Pin {
     version: String,
     #[cfg(test)]
-    circuits: std::collections::BTreeMap<String, PinnedCircuit>,
+    circuits: BTreeMap<String, PinnedCircuit>,
 }
 
 #[cfg(test)]
@@ -119,11 +122,7 @@ struct PinnedCircuit {
 }
 
 fn pin(artifacts: &Artifacts) -> Result<Pin> {
-    serde_json::from_value(artifacts.read_json("circuits.json")?).map_err(|e| {
-        Error::Artifact {
-            detail: format!("circuits.json: {e}"),
-        }
-    })
+    artifacts.read("circuits.json")
 }
 
 /// Whether `version` is `X.Y.Z` or the pre-release `X.Y.Z-rc.N`.
@@ -199,8 +198,8 @@ mod tests {
             for b in &Circuit::ALL[i + 1..] {
                 assert_ne!(a.contract(), b.contract());
                 assert_ne!(
-                    artifacts.bytecode_hex(a.contract(), a.contract()).unwrap(),
-                    artifacts.bytecode_hex(b.contract(), b.contract()).unwrap(),
+                    artifacts.bytecode(a.contract()).unwrap(),
+                    artifacts.bytecode(b.contract()).unwrap(),
                     "{a:?} and {b:?}"
                 );
             }

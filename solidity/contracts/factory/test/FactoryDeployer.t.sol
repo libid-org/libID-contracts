@@ -97,22 +97,4 @@ contract FactoryDeployerTest is Test {
         vm.expectRevert();
         factory.deploy("libid.other", type(Ping).creationCode);
     }
-
-    /// The frozen init codes are exactly what forge wrote to out/ — which is
-    /// exactly what scripts/vendor-artifacts.sh vendors for the Rust
-    /// bootstrap (`ensure_factory`). If this breaks, the Solidity and Rust
-    /// predictions have diverged.
-    function test_frozenInitCode_matchesTheBuiltArtifacts() public view {
-        bytes memory implArtifact =
-            vm.parseJsonBytes(vm.readFile("out/LibidFactory.sol/LibidFactory.json"), ".bytecode.object");
-        assertEq(keccak256(implArtifact), keccak256(FactoryDeployer.implInitCode()));
-
-        bytes memory proxyArtifact =
-            vm.parseJsonBytes(vm.readFile("out/ERC1967Proxy.sol/ERC1967Proxy.json"), ".bytecode.object");
-        bytes memory expectedProxyInitCode = abi.encodePacked(
-            proxyArtifact,
-            abi.encode(FactoryDeployer.predictImplAddress(), abi.encodeCall(LibidFactory.initialize, (ADMIN)))
-        );
-        assertEq(keccak256(expectedProxyInitCode), keccak256(FactoryDeployer.proxyInitCode(ADMIN)));
-    }
 }

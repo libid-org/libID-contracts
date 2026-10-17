@@ -8,7 +8,7 @@
 //! only reads fields forge emits.
 
 use std::{
-    collections::BTreeMap,
+    fs,
     path::PathBuf,
 };
 
@@ -19,6 +19,10 @@ use alloy::{
 use include_dir::{
     include_dir,
     Dir,
+};
+use serde::{
+    de::DeserializeOwned,
+    Deserialize,
 };
 
 use crate::error::{
@@ -84,14 +88,9 @@ impl Artifacts {
         }
     }
 
-    /// The raw artifact JSON for `out/<file>.sol/<contract>.json`.
-    pub fn raw(&self, file: &str, contract: &str) -> Result<serde_json::Value> {
-        self.read_json(&format!("{file}.sol/{contract}.json"))
-    }
-
-    /// Any JSON file at `rel` inside the source: an artifact, or the
+    /// The JSON document at `rel` inside the source: an artifact, or the
     /// `circuits.json` pin the vendor script copies in beside them.
-    pub(crate) fn read_json(&self, rel: &str) -> Result<serde_json::Value> {
+    pub(crate) fn read<T: DeserializeOwned>(&self, rel: &str) -> Result<T> {
         let contents = match &self.source {
             Source::Embedded => EMBEDDED
                 .get_file(rel)
@@ -102,7 +101,7 @@ impl Artifacts {
                 })?,
             Source::Dir(dir) => {
                 let path = dir.join(rel);
-                std::fs::read_to_string(&path).map_err(|e| Error::Artifact {
+                fs::read_to_string(&path).map_err(|e| Error::Artifact {
                     detail: format!("failed to read artifact {}: {e}", path.display()),
                 })?
             }
@@ -110,6 +109,11 @@ impl Artifacts {
         serde_json::from_str(&contents).map_err(|e| Error::Artifact {
             detail: format!("failed to parse artifact {rel}: {e}"),
         })
+    }
+
+    /// The artifact at `<file>.sol/<contract>.json`.
+    fn artifact(&self, file: &str, contract: &str) -> Result<Artifact> {
+        self.read(&format!("{file}.sol/{contract}.json"))
     }
 
     /// Creation bytecode of a contract whose `.sol` file name matches the
@@ -121,62 +125,79 @@ impl Artifacts {
     /// Creation bytecode where the source file and contract names differ
     /// (a bb-generated `Verifier.sol` holding `HonkVerifier`, say).
     pub fn bytecode_named(&self, file: &str, contract: &str) -> Result<Bytes> {
-        let hex_str = self.bytecode_hex(file, contract)?;
-        let bytes = hex::decode(&hex_str).map_err(|e| Error::Artifact {
-            detail: format!("invalid bytecode hex for {file}.sol:{contract}: {e}"),
-        })?;
-        Ok(Bytes::from(bytes))
-    }
-
-    /// The artifact's `methodIdentifiers`: `"sig(args)" -> 4-byte selector`
-    /// (8 hex chars, no `0x`).
-    pub fn method_identifiers(&self, contract: &str) -> Result<BTreeMap<String, String>> {
-        let json = self.raw(contract, contract)?;
-        let methods =
-            json["methodIdentifiers"]
-                .as_object()
-                .ok_or_else(|| Error::Artifact {
-                    detail: format!(
-                        "no methodIdentifiers in {contract}.sol/{contract}.json"
-                    ),
-                })?;
-        methods
-            .iter()
-            .map(|(sig, value)| {
-                let sel = value.as_str().ok_or_else(|| Error::Artifact {
-                    detail: format!("non-string selector for {sig} in {contract}"),
-                })?;
-                Ok((sig.clone(), sel.to_owned()))
-            })
-            .collect()
+        self.code(file, contract, CodeKind::Creation)
     }
 
     /// Runtime bytecode where the source file and contract names differ.
     /// Matches deployed code only for contracts without immutables.
-    pub fn deployed_bytecode_named(&self, file: &str, contract: &str) -> Result<Bytes> {
-        let hex_str = self.object_hex(file, contract, "deployedBytecode")?;
-        let bytes = hex::decode(&hex_str).map_err(|e| Error::Artifact {
-            detail: format!(
-                "invalid deployedBytecode hex for {file}.sol:{contract}: {e}"
-            ),
+    pub(crate) fn deployed_bytecode_named(
+        &self,
+        file: &str,
+        contract: &str,
+    ) -> Result<Bytes> {
+        self.code(file, contract, CodeKind::Runtime)
+    }
+
+    /// The `kind` code of `<file>.sol/<contract>.json`, decoded.
+    fn code(&self, file: &str, contract: &str, kind: CodeKind) -> Result<Bytes> {
+        let member = kind.member();
+        let code =
+            kind.of(self.artifact(file, contract)?)
+                .ok_or_else(|| Error::Artifact {
+                    detail: format!("no {member}.object in {file}.sol/{contract}.json"),
+                })?;
+        let bytes = hex::decode(code.hex()).map_err(|e| Error::Artifact {
+            detail: format!("invalid {member} hex for {file}.sol:{contract}: {e}"),
         })?;
         Ok(Bytes::from(bytes))
     }
+}
 
-    /// The raw `bytecode.object` hex, without `0x`.
-    pub(crate) fn bytecode_hex(&self, file: &str, contract: &str) -> Result<String> {
-        self.object_hex(file, contract, "bytecode")
+/// A forge artifact, read for the members the crate uses; a raw forge
+/// artifact's other members are skipped.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct Artifact {
+    bytecode: Option<Code>,
+    deployed_bytecode: Option<Code>,
+}
+
+/// An artifact's `bytecode` or `deployedBytecode` member.
+#[derive(Deserialize)]
+struct Code {
+    /// Hex, with or without `0x`.
+    object: String,
+}
+
+impl Code {
+    /// The hex without `0x`.
+    fn hex(&self) -> &str {
+        self.object.strip_prefix("0x").unwrap_or(&self.object)
+    }
+}
+
+/// Which code of an artifact: what a deploy sends, or what an account holds.
+#[derive(Clone, Copy)]
+enum CodeKind {
+    Creation,
+    Runtime,
+}
+
+impl CodeKind {
+    /// The artifact member holding it.
+    const fn member(self) -> &'static str {
+        match self {
+            Self::Creation => "bytecode",
+            Self::Runtime => "deployedBytecode",
+        }
     }
 
-    /// The raw `<field>.object` hex, without `0x`.
-    fn object_hex(&self, file: &str, contract: &str, field: &str) -> Result<String> {
-        let json = self.raw(file, contract)?;
-        let raw = json[field]["object"]
-            .as_str()
-            .ok_or_else(|| Error::Artifact {
-                detail: format!("no {field}.object in {file}.sol/{contract}.json"),
-            })?;
-        Ok(raw.strip_prefix("0x").unwrap_or(raw).to_owned())
+    /// This code of `artifact`, if it carries it.
+    fn of(self, artifact: Artifact) -> Option<Code> {
+        match self {
+            Self::Creation => artifact.bytecode,
+            Self::Runtime => artifact.deployed_bytecode,
+        }
     }
 }
 

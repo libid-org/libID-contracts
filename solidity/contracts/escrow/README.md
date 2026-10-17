@@ -21,8 +21,8 @@ escrow.refund(handleNode, token, recipient);   // refundTo, while unclaimed
   takes both kinds together. Text other than a handle as the platform sends it
   (`@alice`, a space) lands on a node nobody can prove; only `refundTo` gets it back.
 - Either kind reverts `PlatformAcceptsNoBindings` when it would escrow while
-  the registry's `acceptsBindings` is false for a platform it knows, and the
-  registry's `UnknownPlatform` for a platform it does not; a holder is still
+  the registry's `acceptsBindings` is false, and passes on the registry's
+  `UnknownPlatform` for a platform it does not know; a holder is still
   paid. `deposit` checks the platform it is given: a node of another platform
   escrows until its own platform binds it, then its holder can claim;
   `refundTo` can refund until then.
@@ -66,17 +66,11 @@ escrow.refund(handleNode, token, recipient);   // refundTo, while unclaimed
 
 ## Deploying
 
-- `initialize` reverts `RegistryLacks` unless the registry answers all four
-  probes:
-  - `handleBinding(0)` with two words;
-  - `nodeKeyed()` with true, which only the registry that keys identities by
-    node does;
-  - `handleNodeOf(0, "")` with 32 bytes, or reverts exactly
-    `UnknownPlatform(0)`;
-  - `acceptsBindings(0)` with 0 or 1.
-
-  The escrow is deployed against that registry; one deployed against the
-  registry before it is not upgraded onto it.
+- `initialize` calls the registry's `nodeKeyed()`, which only the registry
+  that keys identities by node answers true. It reverts
+  `RegistryNotNodeKeyed` on false, and on the call itself against a registry
+  without the function. The escrow is deployed against that registry; one
+  deployed against the registry before it is not upgraded onto it.
 - The escrow keeps that `IdentityRegistry` for life. There is no setter, so no
   key can point claims elsewhere; deploy the escrow once the registry sits at
   its final address, and move it later only by upgrade.

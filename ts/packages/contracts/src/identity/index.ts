@@ -7,6 +7,6 @@
 /// writes is generated in `../calls`.
 
 export * from './handle.js'
-export * from './handleVectors.js'
+export * from './platforms.js'
 export * from './node.js'
 export * from './resolve.js'

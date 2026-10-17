@@ -5,13 +5,7 @@
 import { concat, type Hex, sha256, toHex } from 'viem'
 
 import { isStringByte, normalize } from './handle.js'
-import {
-  ERROR_BADCHARACTER,
-  ERROR_EMPTY,
-  ERROR_TOOLONG,
-  type Platform,
-  platform,
-} from './handleVectors.js'
+import { IdError, type Platform, platform } from './platforms.js'
 
 /// What a platform allows in an id, as the generated table states it.
 export interface IdRules {
@@ -19,18 +13,6 @@ export interface IdRules {
   maxLength: number
   /** ASCII digits; otherwise printable ASCII without a quote or backslash. */
   decimal: boolean
-}
-
-/// Why no circuit would hash an id. The kinds are the handle table's, and
-/// kinds and messages match Rust's `IdError`.
-export class IdError extends Error {
-  constructor(
-    readonly kind: number,
-    message: string,
-  ) {
-    super(message)
-    this.name = 'IdError'
-  }
 }
 
 function keysOf(platformKey: string): Platform {
@@ -57,13 +39,11 @@ export function foldedHandleNode(platformKey: string, text: string): Hex {
 export function checkId(platformKey: string, id: string): void {
   const rules = keysOf(platformKey).idRules
   const bytes = new TextEncoder().encode(id)
-  if (bytes.length === 0) throw new IdError(ERROR_EMPTY, 'the id is empty')
-  if (bytes.length > rules.maxLength) {
-    throw new IdError(ERROR_TOOLONG, 'the id is too long for this platform')
-  }
+  if (bytes.length === 0) throw new IdError('Empty')
+  if (bytes.length > rules.maxLength) throw new IdError('TooLong')
   for (const b of bytes) {
     const ok = rules.decimal ? b >= 0x30 && b <= 0x39 : isStringByte(b)
-    if (!ok) throw new IdError(ERROR_BADCHARACTER, 'the id has a byte this platform does not allow')
+    if (!ok) throw new IdError('BadCharacter')
   }
 }
 

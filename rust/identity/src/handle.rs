@@ -5,44 +5,10 @@
 //! buffer. Its format is the platform's. It mirrors the circuits'
 //! `lib/identity`; both run the `handles.json` vector table.
 
-use super::handle_vectors as v;
-
-/// Why a handle was refused. The kinds match the TypeScript ones and the
-/// circuits' messages, because the vector table names which refusal it expects.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum HandleError {
-    /// No bytes at all.
-    Empty,
-    /// More bytes than the circuit's buffer holds.
-    TooLong,
-    /// A byte outside printable ASCII, or a quote or backslash.
-    BadCharacter,
-}
-
-impl HandleError {
-    /// The index the vector table uses for this kind.
-    pub const fn kind(self) -> u8 {
-        match self {
-            Self::Empty => v::ERROR_EMPTY,
-            Self::TooLong => v::ERROR_TOOLONG,
-            Self::BadCharacter => v::ERROR_BADCHARACTER,
-        }
-    }
-}
-
-impl std::fmt::Display for HandleError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(match self {
-            Self::Empty => "the handle is empty",
-            Self::TooLong => "the handle is too long for this platform",
-            Self::BadCharacter => {
-                "the handle has a byte outside printable ASCII, or a quote or backslash"
-            }
-        })
-    }
-}
-
-impl std::error::Error for HandleError {}
+use crate::platforms::{
+    self as v,
+    HandleError,
+};
 
 /// What one platform's circuit takes, generated from the circuits' `platforms.json`.
 #[derive(Debug, Clone, Copy)]
@@ -92,62 +58,28 @@ pub fn normalize(raw: &str, rules: Rules) -> Result<String, HandleError> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::handle_vectors::VECTORS;
+    use crate::vectors::VECTORS;
 
     /// The shared table, run against this normalizer. TypeScript and the
     /// circuits run the same cases, so a language that disagrees fails here.
     #[test]
     fn every_vector_matches_the_shared_table() {
         for (i, v) in VECTORS.iter().enumerate() {
-            let rules = rules_for(v.platform)
-                .unwrap_or_else(|| panic!("vector {i}: unknown platform {}", v.platform));
-            match normalize(v.input, rules) {
-                Ok(got) => {
-                    assert!(v.accepted, "vector {i}: expected a refusal, got {got:?}");
-                    assert_eq!(got, v.output, "vector {i}: wrong normalized handle");
-                }
-                Err(e) => {
-                    assert!(
-                        !v.accepted,
-                        "vector {i}: expected {:?}, got {e:?}",
-                        v.output
-                    );
-                    assert_eq!(
-                        e.kind(),
-                        v.error_kind,
-                        "vector {i}: refused for the wrong reason ({e:?})"
-                    );
-                }
-            }
+            let rules = rules_for(v.platform).expect("known platform");
+            assert_eq!(
+                normalize(v.input, rules),
+                v.expected.map(|folded| folded.handle.to_owned()),
+                "vector {i}: {:?}",
+                v.input
+            );
         }
-    }
-
-    /// The generated constants carry the SHA-256 of the vendored `handles.json`.
-    #[test]
-    fn the_generated_constants_come_from_this_table() {
-        use sha2::Digest as _;
-        let path = concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../../solidity/contracts/circuits/handles.json"
-        );
-        let table = std::fs::read(path)
-            .expect("the vendored handles.json; run scripts/vendor-circuit-verifiers.sh");
-        let digest: String = sha2::Sha256::digest(&table)
-            .iter()
-            .map(|b| format!("{b:02x}"))
-            .collect();
-        assert_eq!(
-            digest,
-            crate::handle_vectors::TABLE_SHA256,
-            "handle_vectors.rs is stale: run scripts/regen-identity-handles.py"
-        );
     }
 
     /// The table must keep covering both outcomes. A regeneration that dropped
     /// every refusal would leave the test green and prove nothing.
     #[test]
     fn the_table_covers_both_outcomes() {
-        let accepted = VECTORS.iter().filter(|v| v.accepted).count();
+        let accepted = VECTORS.iter().filter(|v| v.expected.is_ok()).count();
         let refused = VECTORS.len() - accepted;
         assert!(accepted > 0, "the table accepts nothing");
         assert!(refused > 0, "the table refuses nothing");

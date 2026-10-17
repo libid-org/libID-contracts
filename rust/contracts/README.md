@@ -10,9 +10,10 @@ deployment factory (`LibidFactory`).
 
 The compiled artifacts are vendored into the crate, so a consumer can deploy
 or upgrade the whole stack against a live network with **zero filesystem
-dependencies at runtime**. They are generated, not committed:
-`scripts/vendor-artifacts.sh` produces `artifacts/` from `solidity/` and CI
-runs it before every build, test and publish. Working in this repo, run
+dependencies at runtime**. The bindings are `alloy::sol!` over the compiled
+ABIs. Both are generated, not committed: `scripts/vendor-artifacts.sh`
+produces `artifacts/` and `abi/` from `solidity/` and CI runs it before every
+build, test and publish. Working in this repo, run
 `scripts/vendor-circuit-verifiers.sh` and then it once after cloning — the
 Honk verifiers are vendored too, and the crate embeds the directory with
 `include_dir!`, so until it exists `cargo build` fails at macro expansion. Signing stays on the
@@ -160,8 +161,6 @@ Other entry points:
   unless the address holds the verifier whose code hash the proxy's
   `circuitCodehash()` pins. `platform_verifier::codehash_at` reads any address's
   code hash, unchecked.
-- `Artifacts::method_identifiers` — selector extraction from the vendored
-  `methodIdentifiers`.
 - `BindError::decode` — a refused `bind` by name (`HandleNotProved`,
   `NotYourHandle`, `SumcheckFailed`, …), from the error sets of the
   registry, the Proof Verifier, the Platform Verifiers, the Notary Service

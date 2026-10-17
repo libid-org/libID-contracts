@@ -1,15 +1,31 @@
 import { concat, sha256, toHex } from 'viem'
 import { describe, expect, it } from 'vitest'
 
-import { HandleError } from './handle.js'
+import { normalize } from './handle.js'
+import { foldedHandleNode, handleNode, idNode } from './node.js'
 import {
-  HANDLE_VECTORS,
-  ID_VECTORS,
+  HandleError,
+  IdError,
   PLATFORM_GITHUB_KEY,
   PLATFORM_X,
   PLATFORM_X_KEY,
-} from './handleVectors.js'
-import { checkId, foldedHandleNode, handleNode, IdError, idNode } from './node.js'
+  platform,
+  type RefusalKind,
+} from './platforms.js'
+import { HANDLE_VECTORS, type HandleExpected, ID_VECTORS, type IdExpected } from './vectors.js'
+
+/// What `f` answers, or the `refusal` of the `kind` error it threw.
+function attempt<T>(
+  kind: typeof HandleError | typeof IdError,
+  f: () => T,
+): T | { ok: false; refusal: RefusalKind } {
+  try {
+    return f()
+  } catch (e) {
+    if (!(e instanceof kind)) throw e
+    return { ok: false, refusal: e.kind }
+  }
+}
 
 /// Python's hashlib, as the circuits, Solidity and Rust pin them:
 ///   hashlib.sha256(b"libid.x.handlealice_1")
@@ -24,30 +40,27 @@ describe('handleNode and idNode', () => {
   })
 
   /// Every node in the table was computed independently with hashlib.
-  it('hash every accepted handle vector to the node the table states', () => {
-    const accepted = HANDLE_VECTORS.filter((v) => v.accepted)
-    expect(accepted.length).toBeGreaterThan(0)
-    for (const [i, v] of accepted.entries()) {
-      expect(handleNode(v.platform, v.input), `vector ${i}`).toBe(v.handleNode)
+  it('answer every handle vector as the table states', () => {
+    for (const [i, v] of HANDLE_VECTORS.entries()) {
+      const got = attempt(
+        HandleError,
+        (): HandleExpected => ({
+          ok: true,
+          handle: normalize(v.input, platform(v.platform)!.rules),
+          handleNode: handleNode(v.platform, v.input),
+        }),
+      )
+      expect(got, `vector ${i}`).toEqual(v.expected)
     }
   })
 
-  it('hash every accepted id vector, and refuse the rest for the stated reason', () => {
+  it('answer every id vector as the table states', () => {
     for (const [i, v] of ID_VECTORS.entries()) {
-      if (v.accepted) {
-        expect(idNode(v.platform, v.input), `id vector ${i}`).toBe(v.idNode)
-        continue
-      }
-      let thrown: unknown
-      try {
-        checkId(v.platform, v.input)
-      } catch (e) {
-        thrown = e
-      }
-      expect(thrown, `id vector ${i}: expected a refusal`).toBeInstanceOf(IdError)
-      expect(thrown, `id vector ${i}: a handle refusal`).not.toBeInstanceOf(HandleError)
-      expect((thrown as IdError).name).toBe('IdError')
-      expect((thrown as IdError).kind, `id vector ${i}: wrong reason`).toBe(v.errorKind)
+      const got = attempt(
+        IdError,
+        (): IdExpected => ({ ok: true, idNode: idNode(v.platform, v.input) }),
+      )
+      expect(got, `id vector ${i}`).toEqual(v.expected)
     }
   })
 
