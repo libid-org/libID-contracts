@@ -74,6 +74,7 @@ import re
 import subprocess
 import sys
 from dataclasses import dataclass
+from typing import Any
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 SOLIDITY_ROOT = REPO_ROOT / "solidity"
@@ -155,6 +156,60 @@ LAYOUTS = (
 )
 
 
+@dataclass(frozen=True)
+class StorageItem:
+    """A state variable or struct member of a forge `storageLayout`."""
+
+    label: str
+    slot: str
+    offset: int
+    type: str
+    """The compiler's type id, a key of the layout's `types`."""
+
+    @classmethod
+    def from_json(cls, raw: dict[str, Any]) -> StorageItem:
+        return cls(label=raw["label"], slot=raw["slot"], offset=raw["offset"], type=raw["type"])
+
+
+@dataclass(frozen=True)
+class StorageType:
+    """A type of a forge `storageLayout`."""
+
+    label: str
+    members: list[StorageItem] | None
+    """A struct's members; None for any other type."""
+    value: str | None
+    """A mapping's value type id."""
+    base: str | None
+    """An array's element type id."""
+
+    @classmethod
+    def from_json(cls, raw: dict[str, Any]) -> StorageType:
+        members = raw.get("members")
+        return cls(
+            label=raw["label"],
+            members=None if members is None else [StorageItem.from_json(m) for m in members],
+            value=raw.get("value"),
+            base=raw.get("base"),
+        )
+
+
+@dataclass(frozen=True)
+class StorageLayout:
+    """`forge inspect <contract> storageLayout --json`."""
+
+    storage: list[StorageItem]
+    types: dict[str, StorageType]
+    """By type id; forge writes null for a contract without storage."""
+
+    @classmethod
+    def from_json(cls, raw: dict[str, Any]) -> StorageLayout:
+        return cls(
+            storage=[StorageItem.from_json(item) for item in raw["storage"]],
+            types={type_id: StorageType.from_json(kind) for type_id, kind in (raw["types"] or {}).items()},
+        )
+
+
 RESET = "# Reset for a redeploy, not an upgrade: "
 
 
@@ -187,16 +242,16 @@ def run(*args: str) -> str:
         sys.exit(f"`{' '.join(args)}` exited {failed.returncode}:\n{failed.stderr.strip() or failed.stdout.strip()}")
 
 
-def inspect(contract: str) -> dict:
+def inspect(contract: str) -> StorageLayout:
     # --no-cache: a cached artifact from `forge build` carries no storage
     # layout, and inspect refuses it. Without the cache, forge compiles just
     # this contract's sources for the layout, in about a second.
-    return json.loads(run("forge", "inspect", contract, "storageLayout", "--json", "--no-cache"))
+    return StorageLayout.from_json(json.loads(run("forge", "inspect", contract, "storageLayout", "--json", "--no-cache")))
 
 
-def entry(section: str, item: dict, types: dict, owner: str | None = None) -> str:
+def entry(section: str, item: StorageItem, types: dict[str, StorageType], owner: str | None = None) -> str:
     who = f" {owner}" if owner else ""
-    return f"{section}{who} slot={item['slot']} offset={item['offset']} {item['label']}: {types[item['type']]['label']}"
+    return f"{section}{who} slot={item.slot} offset={item.offset} {item.label}: {types[item.type].label}"
 
 
 def root(layout: Layout) -> str:
@@ -214,41 +269,41 @@ def root(layout: Layout) -> str:
     return f"root erc7201:{namespace} {derived.lower()}"
 
 
-def nested(items: list[dict], types: dict) -> list[str]:
+def nested(items: list[StorageItem], types: dict[str, StorageType]) -> list[str]:
     """`struct` lines for every struct `items` reach, in first-reached order."""
     lines: list[str] = []
     seen: set[str] = set()
-    pending = [item["type"] for item in items]
+    pending = [item.type for item in items]
     while pending:
         type_id = pending.pop(0)
         kind = types[type_id]
-        # A mapping's value, an array's element: `value` and `base`.
-        pending += [kind[key] for key in ("value", "base") if key in kind]
-        if "members" not in kind or type_id in seen:
+        # A mapping's value, an array's element.
+        pending += [inner for inner in (kind.value, kind.base) if inner is not None]
+        if kind.members is None or type_id in seen:
             continue
         seen.add(type_id)
-        name = kind["label"].removeprefix("struct ")
-        lines += [entry("struct", member, types, name) for member in kind["members"]]
-        pending += [member["type"] for member in kind["members"]]
+        name = kind.label.removeprefix("struct ")
+        lines += [entry("struct", member, types, name) for member in kind.members]
+        pending += [member.type for member in kind.members]
     return lines
 
 
-def fields(struct: str, probe: dict) -> list[str]:
-    types = probe["types"]
-    held = [types[item["type"]] for item in probe["storage"] if types[item["type"]]["label"] == f"struct {struct}"]
+def fields(struct: str, probe: StorageLayout) -> list[str]:
+    types = probe.types
+    held = [types[item.type] for item in probe.storage if types[item.type].label == f"struct {struct}"]
     if len(held) != 1:
         sys.exit(f"{PROBE} holds {struct} {len(held)} times; it must hold it once")
-    members = held[0]["members"]
+    members = held[0].members or []
     return [entry("field", member, types) for member in members] + nested(members, types)
 
 
-def current(layout: Layout, probe: dict) -> list[str]:
+def current(layout: Layout, probe: StorageLayout) -> list[str]:
     lines = [root(layout)] if layout.struct else []
     plain: list[str] = []
     for contract in layout.contracts:
         own = inspect(contract)
-        lines += [entry("contract", item, own["types"], contract) for item in own["storage"]]
-        plain += nested(own["storage"], own["types"])
+        lines += [entry("contract", item, own.types, contract) for item in own.storage]
+        plain += nested(own.storage, own.types)
     if layout.struct:
         lines += fields(layout.struct, probe)
     return lines + [line for line in dict.fromkeys(plain) if line not in lines]
@@ -393,7 +448,7 @@ def renames(old: list[str], new: list[str]) -> str:
     return "\n".join(f"  - {a}\n  + {b}" for a, b in zip(old, new) if a != b)
 
 
-def check(layout: Layout, probe: dict, update: bool, why: str | None = None) -> bool:
+def check(layout: Layout, probe: StorageLayout, update: bool, why: str | None = None) -> bool:
     return settle(layout, recorded(layout), current(layout, probe), update, why)
 
 
