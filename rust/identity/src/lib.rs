@@ -29,16 +29,8 @@ pub use handle::{
 };
 pub use id::{
     check_id,
-    id_rules_for,
     IdError,
     IdRules,
-};
-#[cfg(feature = "node")]
-pub use node::{
-    folded_handle_node,
-    handle_node,
-    id_node,
-    tags_for,
 };
 
 #[cfg(test)]

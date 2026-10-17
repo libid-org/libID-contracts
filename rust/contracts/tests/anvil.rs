@@ -29,6 +29,7 @@ use libid_contracts::{
     },
     Artifacts,
 };
+use libid_identity::handle_vectors::PLATFORM_GITHUB;
 
 fn test_provider() -> impl Provider + Clone {
     ProviderBuilder::new().connect_anvil_with_wallet()
@@ -143,9 +144,7 @@ async fn deploys_the_identity_stack_behind_proxies() {
             .await
             .unwrap()
             .0,
-        libid_identity::handle_node("github", "OctoCat")
-            .unwrap()
-            .unwrap()
+        PLATFORM_GITHUB.handle_node("OctoCat").unwrap()
     );
 
     // The root list points at the Notary Service, quotes its fee, and starts
@@ -899,12 +898,7 @@ async fn escrows_value_against_an_unclaimed_handle() {
         node,
         b256!("308384ccaaa9a343d9ff4eee1905eb96c737a7151658d8f8af847ef5ce363fb1")
     );
-    assert_eq!(
-        node.0,
-        libid_identity::handle_node("github", "Alice-1")
-            .unwrap()
-            .unwrap()
-    );
+    assert_eq!(node.0, PLATFORM_GITHUB.handle_node("Alice-1").unwrap());
 
     // Escrowed for nobody; an unheld node refuses a claim with the bound error.
     let amount = U256::from(1_000_000_000_000_000_000u64);

@@ -63,11 +63,6 @@ impl IdRules {
     pub const GOOGLE: Self = v::PLATFORM_GOOGLE.id_rules;
 }
 
-/// The id rules for a platform key, from the generated table.
-pub fn id_rules_for(platform_key: &str) -> Option<IdRules> {
-    v::platform(platform_key).map(|p| p.id_rules)
-}
-
 /// Accept an id exactly as given, or say why no circuit would hash it.
 pub fn check_id(id: &str, rules: IdRules) -> Result<(), IdError> {
     let bytes = id.as_bytes();
@@ -109,7 +104,7 @@ mod tests {
     #[test]
     fn every_id_vector_matches_the_shared_table() {
         for (i, v) in ID_VECTORS.iter().enumerate() {
-            let rules = id_rules_for(v.platform).expect("known platform");
+            let rules = v::platform(v.platform).expect("known platform").id_rules;
             match check_id(v.input, rules) {
                 Ok(()) => assert!(v.accepted, "id vector {i}: expected a refusal"),
                 Err(e) => {

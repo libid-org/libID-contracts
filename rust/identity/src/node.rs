@@ -14,11 +14,6 @@ use crate::{
     IdError,
 };
 
-/// The tags a platform's nodes are hashed under: `(user id, handle)`.
-pub fn tags_for(platform_key: &str) -> Option<(&'static str, &'static str)> {
-    v::platform(platform_key).map(|p| (p.user_id_tag, p.handle_tag))
-}
-
 fn tagged(tag: &str, value: &str) -> [u8; 32] {
     let mut hasher = Sha256::new();
     hasher.update(tag.as_bytes());
@@ -46,31 +41,19 @@ impl v::Platform {
     }
 }
 
-/// [`v::Platform::handle_node`] by platform key; `None` for an unknown platform.
-pub fn handle_node(
-    platform_key: &str,
-    raw: &str,
-) -> Option<Result<[u8; 32], HandleError>> {
-    v::platform(platform_key).map(|p| p.handle_node(raw))
-}
-
-/// [`v::Platform::folded_handle_node`] by platform key; `None` for an unknown platform.
-pub fn folded_handle_node(platform_key: &str, text: &str) -> Option<(String, [u8; 32])> {
-    v::platform(platform_key).map(|p| p.folded_handle_node(text))
-}
-
-/// [`v::Platform::id_node`] by platform key; `None` for an unknown platform.
-pub fn id_node(platform_key: &str, id: &str) -> Option<Result<[u8; 32], IdError>> {
-    v::platform(platform_key).map(|p| p.id_node(id))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::handle_vectors::{
+        platform,
         ID_VECTORS,
         VECTORS,
     };
+
+    /// The table platform with this key.
+    fn known(key: &str) -> &'static v::Platform {
+        platform(key).expect("known platform")
+    }
 
     fn hex(node: [u8; 32]) -> String {
         node.iter().fold(String::from("0x"), |mut s, b| {
@@ -82,7 +65,7 @@ mod tests {
     #[test]
     fn every_handle_node_matches_the_table() {
         for (i, v) in VECTORS.iter().enumerate() {
-            match handle_node(v.platform, v.input).expect("known platform") {
+            match known(v.platform).handle_node(v.input) {
                 Ok(node) => assert_eq!(hex(node), v.handle_node, "vector {i}"),
                 Err(_) => assert!(!v.accepted, "vector {i}: refused"),
             }
@@ -92,7 +75,7 @@ mod tests {
     #[test]
     fn every_id_node_matches_the_table() {
         for (i, v) in ID_VECTORS.iter().enumerate() {
-            match id_node(v.platform, v.input).expect("known platform") {
+            match known(v.platform).id_node(v.input) {
                 Ok(node) => assert_eq!(hex(node), v.id_node, "id vector {i}"),
                 Err(_) => assert!(!v.accepted, "id vector {i}: refused"),
             }
@@ -102,7 +85,7 @@ mod tests {
     #[test]
     fn folding_alone_reaches_every_accepted_node() {
         for (i, v) in VECTORS.iter().filter(|v| v.accepted).enumerate() {
-            let (folded, node) = folded_handle_node(v.platform, v.input).unwrap();
+            let (folded, node) = known(v.platform).folded_handle_node(v.input);
             assert_eq!(
                 (folded.as_str(), hex(node)),
                 (v.output, v.handle_node.into()),
@@ -115,36 +98,32 @@ mod tests {
     /// `SHA256("libid.x.handle" || "bo\"b")` from `sha256sum`.
     #[test]
     fn a_refused_handle_has_a_fold_only_node() {
-        assert!(handle_node("x", "Bo\"b").unwrap().is_err());
-        let (folded, node) = folded_handle_node("x", "Bo\"b").unwrap();
+        assert!(v::PLATFORM_X.handle_node("Bo\"b").is_err());
+        let (folded, node) = v::PLATFORM_X.folded_handle_node("Bo\"b");
         assert_eq!(folded, "bo\"b");
         assert_eq!(
             hex(node),
             "0x650dc467b55054ff038aed82e055439b80903460291078585ad72e334bf0050a"
         );
-        assert!(folded_handle_node("myspace", "tom").is_none());
+        assert!(platform("myspace").is_none());
     }
 
     #[test]
-    fn a_platform_s_nodes_match_its_key_s() {
+    fn a_key_finds_its_platform() {
+        assert_eq!(known("x").key, v::PLATFORM_X.key);
         assert_eq!(
-            v::PLATFORM_X.handle_node("Alice_1"),
-            handle_node("x", "Alice_1").unwrap()
-        );
-        assert_eq!(v::PLATFORM_X.id_node("7"), id_node("x", "7").unwrap());
-        assert_eq!(
-            v::PLATFORM_GITHUB.folded_handle_node("Bob"),
-            folded_handle_node("github", "Bob").unwrap()
+            known("github").folded_handle_node("Bob"),
+            v::PLATFORM_GITHUB.folded_handle_node("Bob")
         );
     }
 
     #[test]
     fn a_platform_s_tag_keeps_its_keys_apart_from_another_s() {
-        let x = handle_node("x", "alice").unwrap().unwrap();
-        let github = handle_node("github", "alice").unwrap().unwrap();
+        let x = v::PLATFORM_X.handle_node("alice").unwrap();
+        let github = v::PLATFORM_GITHUB.handle_node("alice").unwrap();
         assert_ne!(x, github);
-        let id = id_node("x", "7").unwrap().unwrap();
-        let handle = handle_node("x", "7").unwrap().unwrap();
+        let id = v::PLATFORM_X.id_node("7").unwrap();
+        let handle = v::PLATFORM_X.handle_node("7").unwrap();
         assert_ne!(id, handle, "an id and a handle with the same text");
     }
 }
