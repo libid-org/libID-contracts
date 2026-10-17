@@ -1,5 +1,6 @@
 # HandleEscrow storage layout. Checked in CI by scripts/check-storage-layout.py.
 # Fields may only be APPENDED. Record an append with --update; see the script.
+# Reset for a redeploy, not an upgrade: node derivation changed, so balances held under old nodes would be orphaned; ships fresh under new canonical names
 root erc7201:libid.storage.HandleEscrow 0xfcca8d7d2c66f78c2760f3fcd99e0bf938b0aeb0d0b471f481dd50b8aff6b400
 field slot=0 offset=0 held: mapping(bytes32 => mapping(address => uint256))
 field slot=1 offset=0 registry: contract IIdentityRegistry

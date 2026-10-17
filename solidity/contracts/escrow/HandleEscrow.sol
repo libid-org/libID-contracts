@@ -8,20 +8,16 @@ import {UUPSUpgradeable} from "@openzeppelin/contracts/proxy/utils/UUPSUpgradeab
 import {Ownable2StepUpgradeable} from "@openzeppelin/contracts-upgradeable/access/Ownable2StepUpgradeable.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
+import {HandleNode} from "../handles/HandleNode.sol";
 import {IIdentityRegistry} from "../identity/IIdentityRegistry.sol";
 
 // The EIP-7528 address that stands for the chain's native token.
 address constant NATIVE_TOKEN = 0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE;
 
 /// @title HandleEscrow - send to a platform handle before anybody holds it.
-///
-/// @notice Holds value against the handle node `IdentityRegistry` binds. The
-///         node's holder claims it; until then each deposit's `refundTo`
-///         can take its own contribution back. Integrator notes, privacy and
-///         trust: `README.md` beside this file.
-///
-/// @dev - A held node is paid straight through; only an unheld node on a
-///        platform that `acceptsBindings` escrows.
+/// @notice Holds value against a handle node until its holder claims it; each
+///         deposit's `refundTo` can take its own contribution back until then.
+/// @dev - A held node is paid straight through; an unheld one escrows.
 ///      - A claim empties the slot and opens a new round, ending the old
 ///        round's refunds. Refunds have no delay and no pause gates them.
 ///      - Each token is one pool across all nodes; a payout that debits it by
@@ -66,10 +62,12 @@ contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable
         address indexed token,
         address indexed refundTo,
         address depositor,
-        bytes32 platformId,
         uint256 round,
         uint256 amount
     );
+
+    /// @notice A `depositToHandle` named its handle: `handle` folded, on `platformId`.
+    event DepositedToHandle(bytes32 indexed handleNode, bytes32 indexed platformId, string handle);
 
     /// @notice A deposit for a held node was paid straight to `holder`.
     ///         `amount` was asked for; `received` is what the holder gained.
@@ -78,7 +76,6 @@ contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable
         address indexed token,
         address indexed depositor,
         address holder,
-        bytes32 platformId,
         uint256 amount,
         uint256 received
     );
@@ -125,10 +122,10 @@ contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable
     /// `refundTo` must be an address that can call `refund`: not zero, not
     /// this contract.
     error BadRefundTo(address refundTo);
+    /// A token other than `NATIVE` must have code.
+    error BadToken(address token);
     /// A payout may not go to the zero address or this contract.
     error BadRecipient(address recipient);
-    /// Nobody holds the node and nothing new can bind on this platform.
-    error PlatformAcceptsNoBindings(bytes32 platformId);
     /// A payout took more of this contract's balance than it booked.
     error OverDebited(address token, uint256 booked, uint256 debited);
     /// The recipient refused the transfer.
@@ -139,6 +136,9 @@ contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable
     error RegistryLacks(address registry, bytes4 selector);
     /// Ownership cannot be renounced; see `renounceOwnership`.
     error RenounceDisabled();
+    /// A deposit to an unheld node on a platform the registry knows but nobody can bind now,
+    /// so nobody could claim. A platform it does not know reverts its `UnknownPlatform`.
+    error PlatformAcceptsNoBindings(bytes32 platformId);
 
     // ─── Setup ──────────────────────────────────────────────────────
 
@@ -147,8 +147,8 @@ contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable
         _disableInitializers();
     }
 
-    /// @dev Reverts `RegistryLacks` unless `registry_` answers like
-    ///      `IdentityRegistry`.
+    /// @dev Reverts `RegistryLacks` unless `registry_` answers the four `IIdentityRegistry` views
+    ///      like the node-keyed `IdentityRegistry`.
     function initialize(address owner_, IIdentityRegistry registry_) external initializer {
         if (address(registry_) == address(0)) revert NoRegistry();
         _requireAnswers(registry_);
@@ -164,49 +164,73 @@ contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable
 
     // ─── Depositing ─────────────────────────────────────────────────
 
-    /// @notice Pay `amount` of `token` to a handle, given as `keccak256` of its
-    ///         normalized form (`IdentityRegistry.handleHashOf`).
-    ///
-    /// @dev The hash cannot be checked: a wrong one funds a slot nobody can
-    ///      claim, which `refundTo` can refund. Both branches book what
-    ///      arrived, so fee-on-transfer tokens work; nothing arriving reverts
-    ///      `ZeroAmount`.
-    /// @param token    An ERC-20, or `NATIVE`, when `amount` must equal `msg.value`.
-    /// @param refundTo Who may refund an escrowed deposit; never zero or this contract.
-    function deposit(bytes32 platformId, bytes32 handleHash, address token, uint256 amount, address refundTo)
+    /// @notice Pay `amount` of `token` to a handle node (`IdentityRegistry.handleNodeOf`):
+    ///         to whoever holds it when the transaction executes, else into escrow.
+    ///         Reverts `PlatformAcceptsNoBindings` when it would escrow on a platform nobody
+    ///         can bind now, and the registry's `UnknownPlatform` when it would escrow on a
+    ///         platform the registry does not know; a holder is still paid.
+    /// @dev Books what arrived. A wrong node funds a slot only `refundTo` can
+    ///      recover. A node of another platform than `platformId` escrows until
+    ///      its own platform binds it; then its holder can claim.
+    /// @param platformId     The platform whose tag made `handleNode`.
+    /// @param token          An ERC-20, or `NATIVE`, when `amount` must equal `msg.value`.
+    /// @param refundTo       Who may refund an escrowed deposit; never zero or this contract.
+    function deposit(bytes32 platformId, bytes32 handleNode, address token, uint256 amount, address refundTo)
         external
         payable
         nonReentrant
     {
+        _deposit(handleNode, platformId, token, amount, refundTo);
+    }
+
+    /// @notice `deposit` to a handle given as text, which the calldata and the
+    ///         log make public. Reverts the registry's `UnknownPlatform` for a platform it
+    ///         does not know, as `deposit` does.
+    /// @dev The node is the registry's `handleNodeOf`: the one `deposit` takes.
+    ///      The log carries the handle folded, as `HandlePublished` does.
+    function depositToHandle(
+        bytes32 platformId,
+        string calldata handle,
+        address token,
+        uint256 amount,
+        address refundTo
+    ) external payable nonReentrant {
+        bytes32 handleNode = _s().registry.handleNodeOf(platformId, handle);
+        _deposit(handleNode, platformId, token, amount, refundTo);
+        emit DepositedToHandle(handleNode, platformId, HandleNode.fold(handle));
+    }
+
+    function _deposit(bytes32 handleNode, bytes32 platformId, address token, uint256 amount, address refundTo) private {
         if (amount == 0) revert ZeroAmount();
         if (refundTo == address(0) || refundTo == address(this)) revert BadRefundTo(refundTo);
-
         if (token == NATIVE) {
             if (msg.value != amount) revert ValueMismatch(amount, msg.value);
-        } else if (msg.value != 0) {
-            revert ValueMismatch(0, msg.value);
+        } else {
+            if (token.code.length == 0) revert BadToken(token);
+            if (msg.value != 0) revert ValueMismatch(0, msg.value);
         }
 
         HandleEscrowStorage storage $ = _s();
-        bytes32 node = $.registry.handleNodeOfHash(platformId, handleHash);
-        (address holder,) = $.registry.handleBinding(node);
+        (address holder,) = $.registry.handleBinding(handleNode);
         if (holder != address(0)) {
             if (holder == msg.sender) revert PayingYourself(holder);
             uint256 received = _move(token, msg.sender, holder, amount);
             if (received == 0) revert ZeroAmount();
-            emit Forwarded(node, token, msg.sender, holder, platformId, amount, received);
+            emit Forwarded(handleNode, token, msg.sender, holder, amount, received);
             return;
         }
 
-        if (!$.registry.acceptsBindings(platformId)) revert PlatformAcceptsNoBindings(platformId);
-
+        if (!$.registry.acceptsBindings(platformId)) {
+            if (!_knows($.registry, platformId)) revert IIdentityRegistry.UnknownPlatform(platformId);
+            revert PlatformAcceptsNoBindings(platformId);
+        }
         uint256 credited = _move(token, msg.sender, address(this), amount);
         if (credited == 0) revert ZeroAmount();
 
-        uint256 round = $.round[node][token];
-        $.held[node][token] += credited;
-        $.contributions[node][token][round][refundTo] += credited;
-        emit Deposited(node, token, refundTo, msg.sender, platformId, round, credited);
+        uint256 round = $.round[handleNode][token];
+        $.held[handleNode][token] += credited;
+        $.contributions[handleNode][token][round][refundTo] += credited;
+        emit Deposited(handleNode, token, refundTo, msg.sender, round, credited);
     }
 
     // ─── Claiming ───────────────────────────────────────────────────
@@ -302,32 +326,49 @@ contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable
         if (!ok) revert NativeTransferFailed(to, amount);
     }
 
-    /// @dev Refuses a registry that does not answer the three calls the
-    ///      escrow makes in their shape: a two-word binding, a boolean, and a
-    ///      nonzero node that depends on the hash.
+    /// @dev Refuses a registry that does not answer `handleBinding`, `handleNodeOf`
+    ///      and `acceptsBindings` in shape, or does not state `nodeKeyed()`.
+    ///      `handleNodeOf` may answer the zero platform with `UnknownPlatform`.
     function _requireAnswers(IIdentityRegistry registry_) private view {
         (bool ok, bytes memory result) =
             address(registry_).staticcall(abi.encodeCall(IIdentityRegistry.handleBinding, (bytes32(0))));
         if (!ok || result.length != 64) {
             revert RegistryLacks(address(registry_), IIdentityRegistry.handleBinding.selector);
         }
-
+        (ok, result) = address(registry_).staticcall(abi.encodeCall(IIdentityRegistry.nodeKeyed, ()));
+        if (!ok || result.length != 32 || abi.decode(result, (uint256)) != 1) {
+            revert RegistryLacks(address(registry_), IIdentityRegistry.nodeKeyed.selector);
+        }
+        (ok, result) = _probeHandleNodeOf(registry_, bytes32(0));
+        bool answered = ok ? result.length == 32 : _isUnknownPlatform(result, bytes32(0));
+        if (!answered) {
+            revert RegistryLacks(address(registry_), IIdentityRegistry.handleNodeOf.selector);
+        }
         (ok, result) = address(registry_).staticcall(abi.encodeCall(IIdentityRegistry.acceptsBindings, (bytes32(0))));
         if (!ok || result.length != 32 || abi.decode(result, (uint256)) > 1) {
             revert RegistryLacks(address(registry_), IIdentityRegistry.acceptsBindings.selector);
         }
-
-        bytes32 a = _handleNodeOfHashAnswer(registry_, bytes32(0));
-        bytes32 b = _handleNodeOfHashAnswer(registry_, bytes32(uint256(1)));
-        if (a == 0 || b == 0 || a == b) {
-            revert RegistryLacks(address(registry_), IIdentityRegistry.handleNodeOfHash.selector);
-        }
     }
 
-    function _handleNodeOfHashAnswer(IIdentityRegistry registry_, bytes32 handleHash) private view returns (bytes32) {
-        (bool ok, bytes memory result) =
-            address(registry_).staticcall(abi.encodeCall(IIdentityRegistry.handleNodeOfHash, (bytes32(0), handleHash)));
-        return ok && result.length == 32 ? abi.decode(result, (bytes32)) : bytes32(0);
+    /// @dev Whether the registry knows `platformId`: its `handleNodeOf` refuses a platform it
+    ///      does not know with `UnknownPlatform`, and answers or refuses a known one otherwise.
+    function _knows(IIdentityRegistry registry_, bytes32 platformId) private view returns (bool) {
+        (bool ok, bytes memory result) = _probeHandleNodeOf(registry_, platformId);
+        return ok || !_isUnknownPlatform(result, platformId);
+    }
+
+    function _probeHandleNodeOf(IIdentityRegistry registry_, bytes32 platformId)
+        private
+        view
+        returns (bool ok, bytes memory result)
+    {
+        return address(registry_).staticcall(abi.encodeCall(IIdentityRegistry.handleNodeOf, (platformId, "")));
+    }
+
+    function _isUnknownPlatform(bytes memory reason, bytes32 platformId) private pure returns (bool) {
+        return
+            keccak256(reason)
+                == keccak256(abi.encodeWithSelector(IIdentityRegistry.UnknownPlatform.selector, platformId));
     }
 
     // ─── Upgrade ────────────────────────────────────────────────────

@@ -15,12 +15,17 @@
 //! The verifier is bb's optimized template: one contract, deployed in one
 //! transaction by [`deploy_honk_verifier`]. Its address is what a
 //! [`platform_verifier::Initializer`](crate::platform_verifier::Initializer)
-//! pins, beside the code hash it reads off the chain.
+//! wires.
 
 use alloy::{
-    primitives::Address,
+    primitives::{
+        keccak256,
+        Address,
+        B256,
+    },
     providers::Provider,
 };
+use serde::Deserialize;
 
 use crate::{
     artifacts::Artifacts,
@@ -32,14 +37,10 @@ use crate::{
 };
 
 /// One ceremony circuit, and so one vendored Honk verifier.
-///
-/// Two, not three: `oidc-google` proves the Google ID Token, and
-/// `bearer-link` ties a token exchange to an identity for X and GitHub
-/// alike, because their statements are the same.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Circuit {
-    /// The token-exchange circuit, shared by the `x/v1` and `github/v1`
-    /// profiles.
+    /// The token exchange, identity read and account keys, for `x/v1` and
+    /// `github/v1`; the Platform Verifier passes its platform's tags.
     BearerLink,
     /// The Google OIDC circuit, for `google/v1`.
     OidcGoogle,
@@ -70,24 +71,87 @@ impl Circuit {
     }
 }
 
-/// The `libid-circuits` release the vendored verifiers came from, read from
-/// the pin `scripts/vendor-artifacts.sh` copies in as `circuits.json`.
+impl Circuit {
+    /// `keccak256` of the vendored runtime code: the `EXTCODEHASH` of every
+    /// deployed copy, since bb's verifier has no immutables.
+    pub fn runtime_codehash(self, artifacts: &Artifacts) -> Result<B256> {
+        Ok(keccak256(artifacts.deployed_bytecode_named(
+            self.contract(),
+            self.contract(),
+        )?))
+    }
+
+    /// Every circuit beside its [`runtime_codehash`](Self::runtime_codehash),
+    /// in [`ALL`](Self::ALL)'s order.
+    pub fn runtime_codehashes(artifacts: &Artifacts) -> Result<Vec<(Self, B256)>> {
+        Self::ALL
+            .into_iter()
+            .map(|c| Ok((c, c.runtime_codehash(artifacts)?)))
+            .collect()
+    }
+
+    /// The circuit `codehashes` pairs with `codehash`, if any.
+    pub fn with_runtime_codehash(
+        codehashes: &[(Self, B256)],
+        codehash: B256,
+    ) -> Option<Self> {
+        codehashes
+            .iter()
+            .find(|(_, hash)| *hash == codehash)
+            .map(|&(circuit, _)| circuit)
+    }
+}
+
+/// `circuits.json`: the pinned release and, for the tests, each circuit's tarball.
+#[derive(Deserialize)]
+struct Pin {
+    version: String,
+    #[cfg(test)]
+    circuits: std::collections::BTreeMap<String, PinnedCircuit>,
+}
+
+#[cfg(test)]
+#[derive(Deserialize)]
+struct PinnedCircuit {
+    contract: String,
+    /// `None` until a release is pinned.
+    sha256: Option<String>,
+}
+
+fn pin(artifacts: &Artifacts) -> Result<Pin> {
+    serde_json::from_value(artifacts.read_json("circuits.json")?).map_err(|e| {
+        Error::Artifact {
+            detail: format!("circuits.json: {e}"),
+        }
+    })
+}
+
+/// Whether `version` is `X.Y.Z` or the pre-release `X.Y.Z-rc.N`.
+fn is_release_version(version: &str) -> bool {
+    let numeric = |s: &str| !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit());
+    let (release, rc) = match version.split_once("-rc.") {
+        Some((release, n)) => (release, Some(n)),
+        None => (version, None),
+    };
+    release.split('.').count() == 3
+        && release.split('.').all(numeric)
+        && rc.is_none_or(numeric)
+}
+
+/// The `libid-circuits` release the vendored verifiers came from
+/// (`circuits.json`): `X.Y.Z`, or a release candidate `X.Y.Z-rc.N`.
 ///
-/// A Honk verifier IS its verification key, so a consumer that names a
-/// deployment after its artifact — a CREATE3 name, say — wants this in the
-/// name: a new circuits release is a different contract and must land at a
-/// different address rather than silently replace the old one.
-///
-/// Errors for an [`Artifacts::from_dir`] over a raw forge `out/`, which
-/// carries no pin.
+/// Errors for an [`Artifacts::from_dir`] over a raw forge `out/`, which carries no pin.
 pub fn version(artifacts: &Artifacts) -> Result<String> {
-    let pin: serde_json::Value = artifacts.read_json("circuits.json")?;
-    pin["version"]
-        .as_str()
-        .map(str::to_owned)
-        .ok_or_else(|| Error::Artifact {
-            detail: "circuits.json has no version".into(),
-        })
+    let version = pin(artifacts)?.version;
+    if !is_release_version(&version) {
+        return Err(Error::Artifact {
+            detail: format!(
+                "circuits.json version '{version}' is not X.Y.Z or X.Y.Z-rc.N"
+            ),
+        });
+    }
+    Ok(version)
 }
 
 /// Deploy `circuit`'s Honk verifier and return its address, which a
@@ -127,20 +191,37 @@ mod tests {
         }
     }
 
-    /// The two circuits are distinct artifacts: a shared one would wire
-    /// both platforms to one verification key.
+    /// Each platform's circuit is a distinct artifact.
     #[test]
-    fn the_two_circuits_are_different_artifacts() {
+    fn the_circuits_are_different_artifacts() {
         let artifacts = Artifacts::embedded();
-        let [bearer, oidc] = Circuit::ALL;
-        assert_ne!(bearer.contract(), oidc.contract());
-        assert_ne!(
-            artifacts
-                .bytecode_hex(bearer.contract(), bearer.contract())
-                .unwrap(),
-            artifacts
-                .bytecode_hex(oidc.contract(), oidc.contract())
-                .unwrap()
+        for (i, a) in Circuit::ALL.iter().enumerate() {
+            for b in &Circuit::ALL[i + 1..] {
+                assert_ne!(a.contract(), b.contract());
+                assert_ne!(
+                    artifacts.bytecode_hex(a.contract(), a.contract()).unwrap(),
+                    artifacts.bytecode_hex(b.contract(), b.contract()).unwrap(),
+                    "{a:?} and {b:?}"
+                );
+            }
+        }
+    }
+
+    /// Each circuit's runtime code hash names it back, and no other.
+    #[test]
+    fn a_runtime_codehash_names_its_circuit() {
+        let artifacts = Artifacts::embedded();
+        let codehashes = Circuit::runtime_codehashes(&artifacts).unwrap();
+        for circuit in Circuit::ALL {
+            let codehash = circuit.runtime_codehash(&artifacts).unwrap();
+            assert_eq!(
+                Circuit::with_runtime_codehash(&codehashes, codehash),
+                Some(circuit)
+            );
+        }
+        assert_eq!(
+            Circuit::with_runtime_codehash(&codehashes, B256::ZERO),
+            None
         );
     }
 
@@ -149,20 +230,36 @@ mod tests {
     /// a consumer deploys by.
     #[test]
     fn the_enum_matches_the_pin() {
-        let artifacts = Artifacts::embedded();
-        let pin: serde_json::Value = artifacts.read_json("circuits.json").unwrap();
-        let circuits = pin["circuits"].as_object().expect("circuits object");
-        assert_eq!(circuits.len(), Circuit::ALL.len());
+        let pin = pin(&Artifacts::embedded()).unwrap();
+        assert_eq!(pin.circuits.len(), Circuit::ALL.len());
         for circuit in Circuit::ALL {
-            let entry = &circuits[circuit.name()];
-            assert_eq!(entry["contract"].as_str(), Some(circuit.contract()));
-            let digest = entry["sha256"].as_str().expect("sha256 string");
+            let entry = &pin.circuits[circuit.name()];
+            assert_eq!(entry.contract, circuit.contract());
+            let digest = entry.sha256.as_deref().expect("sha256 string");
             assert_eq!(digest.len(), 64, "{}: not a sha256", circuit.name());
         }
-        let version = version(&artifacts).unwrap();
         assert!(
-            version.split('.').count() == 3,
-            "circuits.json version '{version}' is not major.minor.patch"
+            is_release_version(&pin.version),
+            "circuits.json version '{}' is not X.Y.Z or X.Y.Z-rc.N",
+            pin.version
         );
+    }
+
+    #[test]
+    fn a_release_version_may_be_a_release_candidate() {
+        for good in ["0.6.0", "10.0.12", "0.7.0-rc.1", "1.2.3-rc.10"] {
+            assert!(is_release_version(good), "{good}");
+        }
+        for bad in [
+            "0.6",
+            "0.6.0.1",
+            "v0.6.0",
+            "0.6.0-rc",
+            "0.6.0-rc.",
+            "0.6.0-beta.1",
+            "0.x.0",
+        ] {
+            assert!(!is_release_version(bad), "{bad}");
+        }
     }
 }

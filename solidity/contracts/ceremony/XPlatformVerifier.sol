@@ -9,25 +9,10 @@ import {TlsNotaryVerifierBase} from "./TlsNotaryVerifierBase.sol";
 
 /// @title XPlatformVerifier — the `x/v1` profile.
 ///
-/// @dev THE REVEALED LAYOUT IS A PROFILE DECISION. REQ-COMMON-17A requires the
-///      profile to list the exact ranges a session reveals but does not fix
-///      them, so `x/v1` pins them here:
-///
-///        token request  — ONE revealed sent range, from offset 0 through the
-///                         whole form body. X uses a public client and hides no
-///                         body field, so the request is revealed entire and
-///                         `_tokenBody` refuses any other count. The body is
-///                         held to exactly `X_TOKEN_FIELDS` in order, as every
-///                         profile's is (REQ-PLAT-63).
-///        token response — the `"access_token":"` delimiter and its closing
-///                         quote revealed; the bearer and every other byte
-///                         committed.
-///        identity request — the bearer committed, every other byte revealed and
-///                         tiled exactly, per REQ-COMMON-35.
-///        identity response — `id` and `username` with their full delimiters.
-///
-///      A notary emitting a different layout produces attestations this
-///      verifier rejects, so the layout must be agreed before either ships.
+/// @dev Revealed layout (REQ-COMMON-17A): the token request whole; the
+///      `"access_token":"` delimiter and closing quote; the identity request
+///      except the bearer (REQ-COMMON-35); the `"id":"` and `"username":"`
+///      anchors and closing quotes, with id and handle committed for the circuit.
 contract XPlatformVerifier is TlsNotaryVerifierBase {
     bytes private constant GRANT_TYPE = "authorization_code";
 
@@ -38,65 +23,12 @@ contract XPlatformVerifier is TlsNotaryVerifierBase {
         _disableInitializers();
     }
 
-    function initialize(
-        address owner_,
-        INotaryService notary_,
-        IHonkVerifier honkVerifier_,
-        bytes32 honkVerifierCodehash_
-    ) external initializer {
-        __PlatformVerifierBase_init(owner_, notary_, honkVerifier_, honkVerifierCodehash_);
+    function initialize(address owner_, INotaryService notary_, IHonkVerifier honkVerifier_) external initializer {
+        __PlatformVerifierBase_init(owner_, notary_, honkVerifier_);
     }
 
     function _platform() internal pure override returns (bytes32) {
         return CeremonyProfile.PLATFORM_X;
-    }
-
-    /// @dev The ceremony version this contract implements. The digest binds it;
-    ///      a payload claiming another is refused before any fee moves.
-    function _ceremonyVersion() internal pure override returns (uint16) {
-        return CeremonyProfile.LAUNCH_VERSION;
-    }
-
-    function _proofLifetime() internal pure override returns (uint64) {
-        return CeremonyProfile.PROOF_LIFETIME_SECONDS_X;
-    }
-
-    function _maxFutureAttestationSkew() internal pure override returns (uint64) {
-        return CeremonyProfile.MAX_FUTURE_ATTESTATION_SKEW_SECONDS_X;
-    }
-
-    function _futureObservationAllowance() internal pure override returns (uint64) {
-        return CeremonyProfile.FUTURE_OBSERVATION_ALLOWANCE_SECONDS_X;
-    }
-
-    /// @dev Both X sessions are served by the same host.
-    function _tokenAuthority() internal pure override returns (bytes32) {
-        return CeremonyProfile.AUTHORITY_X_API;
-    }
-
-    function _identityAuthority() internal pure override returns (bytes32) {
-        return CeremonyProfile.AUTHORITY_X_API;
-    }
-
-    function _tokenRequestLine() internal pure override returns (bytes memory) {
-        return CeremonyProfile.X_TOKEN_REQUEST_LINE;
-    }
-
-    /// @dev REQ-COMMON-21B. `host`, and the media type that makes X parse the
-    ///      body as the form this verifier reads. Revealed but uncompared, the
-    ///      media type was a byte a prover chose in a request every other
-    ///      field of which is pinned. The rest of what the browser sends is
-    ///      not compared: it changes what X answers, never what X parses.
-    function _tokenRequiredHeaders() internal pure override returns (bytes memory) {
-        return CeremonyProfile.X_TOKEN_REQUIRED_HEADERS;
-    }
-
-    function _identityRequestLine() internal pure override returns (bytes memory) {
-        return CeremonyProfile.X_IDENTITY_REQUEST_LINE;
-    }
-
-    function _tokenFields() internal pure override returns (bytes memory) {
-        return CeremonyProfile.X_TOKEN_FIELDS;
     }
 
     /// @dev REQ-PLAT-56, and X's only value check of its own. The runtime's own
@@ -114,17 +46,5 @@ contract XPlatformVerifier is TlsNotaryVerifierBase {
     function _checkTokenBody(CeremonyFields.Form memory form) internal pure override {
         bytes memory grantType = CeremonyFields.valueOf(form, "grant_type");
         if (keccak256(grantType) != keccak256(GRANT_TYPE)) revert WrongGrantType(grantType);
-    }
-
-    /// @dev REQ-PLAT-31. X's `id` is a JSON string, so both members are read by
-    ///      their full `"field":"` delimiters, refusing a transcript where
-    ///      either matches twice.
-    function _identityFields()
-        internal
-        pure
-        override
-        returns (string memory idField, IdShape idShape, string memory handleField)
-    {
-        return (CeremonyProfile.X_ID_FIELD, IdShape.JsonString, CeremonyProfile.X_HANDLE_FIELD);
     }
 }

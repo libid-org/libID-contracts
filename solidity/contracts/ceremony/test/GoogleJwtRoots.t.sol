@@ -93,16 +93,6 @@ contract GoogleJwtRootsTest is Test {
 
     // ─── Building a reading ─────────────────────────────────────────
 
-    function _signWith(uint256 key, bytes memory attested) private pure returns (bytes memory) {
-        bytes32 ethHash = keccak256(abi.encodePacked("\x19Ethereum Signed Message:\n32", keccak256(attested)));
-        (uint8 v, bytes32 r, bytes32 s) = vm.sign(key, ethHash);
-        return abi.encodePacked(r, s, v);
-    }
-
-    function _sign(bytes memory attested) private pure returns (bytes memory) {
-        return _signWith(NOTARY_KEY, attested);
-    }
-
     /// The JWKS layout: one revealed range covering the whole direction,
     /// nothing committed.
     function _whole(bytes memory transcript) private pure returns (AttestationBuilder.Direction memory) {
@@ -133,13 +123,13 @@ contract GoogleJwtRootsTest is Test {
     }
 
     function _rotate(bytes memory attested) private {
-        roots.rotate{value: FEE}(attested, _sign(attested));
+        roots.rotate{value: FEE}(attested, AttestationBuilder.sign(NOTARY_KEY, attested));
     }
 
     /// Signed BEFORE the expectation: `vm.sign` is an external call, and one
     /// inside the call under test would consume the `expectRevert`.
     function _refuses(bytes memory attested, bytes memory err) private {
-        bytes memory sig = _sign(attested);
+        bytes memory sig = AttestationBuilder.sign(NOTARY_KEY, attested);
         vm.expectRevert(err);
         roots.rotate{value: FEE}(attested, sig);
     }
@@ -391,7 +381,7 @@ contract GoogleJwtRootsTest is Test {
     /// trust.
     function test_anybodyMaySubmitARotation() public {
         bytes memory attested = _reading(_oneKey("kid-1", "one"));
-        bytes memory sig = _sign(attested);
+        bytes memory sig = AttestationBuilder.sign(NOTARY_KEY, attested);
         vm.prank(keeper);
         roots.rotate{value: FEE}(attested, sig);
         assertEq(_current().moduli, _one(_hash("one")));
@@ -472,7 +462,7 @@ contract GoogleJwtRootsTest is Test {
     function test_aFrontRunKeeperLosesGasOnly() public {
         uint64 at = _now();
         bytes memory attested = _reading(_oneKey("kid-1", "one"));
-        bytes memory sig = _sign(attested);
+        bytes memory sig = AttestationBuilder.sign(NOTARY_KEY, attested);
         address stranger = makeAddr("stranger");
         vm.deal(stranger, 1 ether);
         vm.prank(stranger);
@@ -487,7 +477,7 @@ contract GoogleJwtRootsTest is Test {
 
         vm.warp(at + 1 minutes);
         bytes memory next = _reading(_oneKey("kid-1", "one"));
-        sig = _sign(next);
+        sig = AttestationBuilder.sign(NOTARY_KEY, next);
         vm.prank(keeper);
         roots.rotate{value: FEE}(next, sig);
         assertEq(roots.freshestObservedAt(), at + 1 minutes, "the keeper's next reading landed");
@@ -691,12 +681,12 @@ contract GoogleJwtRootsTest is Test {
 
         // The old service's key no longer vouches for anything here...
         bytes memory attested = _reading(_oneKey("kid-1", "one"));
-        bytes memory oldSig = _sign(attested);
+        bytes memory oldSig = AttestationBuilder.sign(NOTARY_KEY, attested);
         vm.expectRevert(abi.encodeWithSelector(NotaryService.UntrustedNotary.selector, vm.addr(NOTARY_KEY)));
         roots.rotate{value: 2 * FEE}(attested, oldSig);
 
         // ...and the new one's does, at the new fee.
-        roots.rotate{value: 2 * FEE}(attested, _signWith(otherKey, attested));
+        roots.rotate{value: 2 * FEE}(attested, AttestationBuilder.sign(otherKey, attested));
         assertEq(_current().moduli, _one(_hash("one")));
         assertEq(address(other).balance, 2 * FEE);
     }
@@ -731,7 +721,7 @@ contract GoogleJwtRootsTest is Test {
     /// too, so there is no overpayment to refund and no silent overcharge.
     function test_refusesAnyValueOtherThanTheFee() public {
         bytes memory attested = _reading(_oneKey("kid-1", "one"));
-        bytes memory sig = _sign(attested);
+        bytes memory sig = AttestationBuilder.sign(NOTARY_KEY, attested);
 
         vm.expectRevert(abi.encodeWithSelector(GoogleJwtRoots.WrongValue.selector, FEE, FEE - 1));
         roots.rotate{value: FEE - 1}(attested, sig);
@@ -749,7 +739,7 @@ contract GoogleJwtRootsTest is Test {
     function test_refusesAnUntrustedNotaryKey() public {
         uint256 stranger = 0xB0B;
         bytes memory attested = _reading(_oneKey("kid-1", "one"));
-        bytes memory sig = _signWith(stranger, attested);
+        bytes memory sig = AttestationBuilder.sign(stranger, attested);
         vm.expectRevert(abi.encodeWithSelector(NotaryService.UntrustedNotary.selector, vm.addr(stranger)));
         roots.rotate{value: FEE}(attested, sig);
     }
@@ -760,7 +750,7 @@ contract GoogleJwtRootsTest is Test {
     /// signing: not the host, not the clock, not a modulus.
     function test_refusesATamperedAttestedByte() public {
         bytes memory attested = _reading(_oneKey("kid-1", "one"));
-        bytes memory sig = _sign(attested);
+        bytes memory sig = AttestationBuilder.sign(NOTARY_KEY, attested);
         attested[attested.length - 40] = bytes1(uint8(attested[attested.length - 40]) ^ 0x01);
         vm.expectPartialRevert(NotaryService.UntrustedNotary.selector);
         roots.rotate{value: FEE}(attested, sig);

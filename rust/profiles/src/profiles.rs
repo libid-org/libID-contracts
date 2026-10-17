@@ -19,8 +19,9 @@
 //! request line a prover composes one byte differently is an attestation
 //! rejected with no error that says why.
 //!
-//! Changing a value here changes what a deployed verifier accepts. That is a
-//! new ceremonyVersion, not an edit.
+//! Changing a value here changes what a deployed verifier accepts. On a
+//! live deployment that is a new ceremonyVersion, not an edit; a fresh
+//! deployment under new canonical addresses keeps its versions.
 
 /// Which shape a platform's immutable identifier takes in its response.
 ///
@@ -74,6 +75,9 @@ pub struct TokenSession {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct IdentitySession {
     pub session: Session,
+    /// The header lines a Platform Verifier requires, each exactly once with
+    /// its value: `host`.
+    pub required_headers: &'static [&'static str],
     pub id_field: &'static str,
     pub id_shape: IdShape,
     pub handle_field: &'static str,
@@ -140,6 +144,7 @@ pub const X: Profile = Profile {
             path: "/2/users/me",
             request_line: "GET /2/users/me ",
         },
+        required_headers: &["host: api.x.com"],
         id_field: "id",
         id_shape: IdShape::JsonString,
         handle_field: "username",
@@ -179,6 +184,7 @@ pub const GITHUB: Profile = Profile {
             path: "/user",
             request_line: "GET /user ",
         },
+        required_headers: &["host: api.github.com"],
         id_field: "id",
         id_shape: IdShape::JsonInteger,
         handle_field: "login",
@@ -205,11 +211,12 @@ pub fn launch(platform: &str) -> Option<&'static Profile> {
 /// it parses, `cookie` which session it answers for, the three override
 /// names which method it runs. The identity request is excepted from
 /// `authorization` alone: its one such header, under any scheme, is what
-/// REQ-COMMON-39 counts. On the token request the verifier further
-/// requires each session's requiredHeaders, `host` and `content-type`,
-/// reads `content-length`, and ignores every other header: one outside
-/// both lists changes only what the platform answers, and a wrong answer
-/// is a response the verifier cannot read.
+/// REQ-COMMON-39 counts. The verifier further requires each session's
+/// requiredHeaders once with their value -- `host` on both requests,
+/// `content-type` on the token request -- reads the token request's
+/// `content-length`, and ignores every other header: one outside both
+/// lists changes only what the platform answers, and a wrong answer is a
+/// response the verifier cannot read.
 pub const FORBIDDEN_REQUEST_HEADERS: &[&str] = &[
     "authorization",
     "content-encoding",

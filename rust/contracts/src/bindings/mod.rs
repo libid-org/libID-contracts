@@ -80,6 +80,19 @@ pub(crate) mod drift {
         bound: &JsonAbi,
         omitted: &[&str],
     ) {
+        assert_shared_binding_matches_artifact(file, contract, bound, omitted, &[]);
+    }
+
+    /// The same, for a binding one interface shares between contracts:
+    /// `elsewhere` lists the bound items, by full signature, that this
+    /// contract lacks and a sibling has.
+    pub(crate) fn assert_shared_binding_matches_artifact(
+        file: &str,
+        contract: &str,
+        bound: &JsonAbi,
+        omitted: &[&str],
+        elsewhere: &[&str],
+    ) {
         // The crate embeds no ABI; the check reads forge's build output.
         let out = concat!(env!("CARGO_MANIFEST_DIR"), "/../../solidity/out");
         let json = Artifacts::from_dir(out)
@@ -109,6 +122,7 @@ pub(crate) mod drift {
             .keys()
             .filter(|full| !compiled.contains_key(*full))
             .map(String::as_str)
+            .filter(|full| !elsewhere.contains(full))
             .collect();
         assert!(
             extra.is_empty(),

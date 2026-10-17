@@ -39,18 +39,6 @@ abstract contract PlatformVerifierBase is ICeremony, Initializable, UUPSUpgradea
         /// The exact artifact governance selected for this platform and
         /// version. Never a caller-supplied one (REQ-COMMON-45).
         IHonkVerifier honkVerifier;
-        /// Neither read nor written: the profile fixes these three values, and
-        /// the verifier reads them from `CeremonyProfile`. The fields keep
-        /// their slots so `honkVerifierCodehash` keeps its own.
-        uint64 proofLifetime;
-        uint64 maxFutureAttestationSkew;
-        uint64 futureObservationAllowance;
-        /// The code hash of the artifact above, recorded when it was wired.
-        ///
-        /// bb-generated Honk verifiers embed their verification key as code
-        /// constants and expose no getter, so the code hash is the only handle
-        /// on WHICH circuit a deployed verifier answers for.
-        bytes32 honkVerifierCodehash;
     }
 
     // keccak256(abi.encode(uint256(keccak256("libid.storage.PlatformVerifier")) - 1)) & ~bytes32(uint256(0xff))
@@ -63,7 +51,7 @@ abstract contract PlatformVerifierBase is ICeremony, Initializable, UUPSUpgradea
         }
     }
 
-    event TrustRootsChanged(address notary, address honkVerifier, bytes32 honkVerifierCodehash);
+    event TrustRootsChanged(address notary, address honkVerifier);
 
     /// @dev A profile that verifies no attestation holds a Notary Service, or
     ///      one that verifies some holds none.
@@ -81,21 +69,19 @@ abstract contract PlatformVerifierBase is ICeremony, Initializable, UUPSUpgradea
     error ObservedInTheFuture(uint64 observedAt, uint64 limit);
     error BadProof();
     error ZeroAddress();
-    /// @dev The verifier at that address is not the artifact governance named.
-    error WrongVerifierArtifact(bytes32 expected, bytes32 found);
+    /// @dev The verifier at that address is not this platform's circuit's.
+    error WrongCircuit(bytes32 expected, bytes32 found);
 
     // OpenZeppelin's initializer convention -- `__Contract_init`, so a child's
     // initializer reads which base each call sets up -- over mixedCase.
     // forge-lint: disable-next-line(mixed-case-function)
-    function __PlatformVerifierBase_init(
-        address owner_,
-        INotaryService notary_,
-        IHonkVerifier honkVerifier_,
-        bytes32 honkVerifierCodehash_
-    ) internal onlyInitializing {
+    function __PlatformVerifierBase_init(address owner_, INotaryService notary_, IHonkVerifier honkVerifier_)
+        internal
+        onlyInitializing
+    {
         __Ownable_init(owner_);
         __Ownable2Step_init();
-        _setTrustRoots(notary_, honkVerifier_, honkVerifierCodehash_);
+        _setTrustRoots(notary_, honkVerifier_);
     }
 
     // ─── Trust roots and validity ───────────────────────────────────
@@ -108,10 +94,10 @@ abstract contract PlatformVerifierBase is ICeremony, Initializable, UUPSUpgradea
         return address(_base().honkVerifier);
     }
 
-    /// @notice The code hash of the artifact currently wired, so a reader can
-    ///         tell which circuit release this verifier answers for.
-    function honkVerifierCodehash() external view returns (bytes32) {
-        return _base().honkVerifierCodehash;
+    /// @notice The runtime code hash of this platform's vendored circuit verifier:
+    ///         the only Honk verifier `setTrustRoots` and `verify` accept.
+    function circuitCodehash() external pure returns (bytes32) {
+        return _circuitCodehash();
     }
 
     /// @notice The validity window this verifier enforces, in seconds: the
@@ -124,28 +110,27 @@ abstract contract PlatformVerifierBase is ICeremony, Initializable, UUPSUpgradea
         return (_proofLifetime(), _maxFutureAttestationSkew(), _futureObservationAllowance());
     }
 
-    /// @dev The caller names the artifact it means to wire, by code hash, and
-    ///      the call fails if the address does not hold it. REQ-COMMON-45 asks
-    ///      for the EXACT artifact governance selected; an address alone does
-    ///      not say which circuit answers behind it, and a mismatch found at
-    ///      the first user's proof is found in production.
-    function setTrustRoots(INotaryService notary_, IHonkVerifier honkVerifier_, bytes32 honkVerifierCodehash_)
-        external
-        onlyOwner
-    {
-        _setTrustRoots(notary_, honkVerifier_, honkVerifierCodehash_);
+    /// @dev The Honk verifier must be this platform's circuit's, `circuitCodehash()`
+    ///      (REQ-COMMON-45; `WrongCircuit`).
+    function setTrustRoots(INotaryService notary_, IHonkVerifier honkVerifier_) external onlyOwner {
+        _setTrustRoots(notary_, honkVerifier_);
     }
 
     /// @dev The platform this verifier answers for. Asked during
     ///      initialization, so it must not read storage.
     function _platform() internal pure virtual returns (bytes32);
 
+    /// @dev This platform's `CircuitCodehashes` constant.
+    function _circuitCodehash() internal pure virtual returns (bytes32);
+
     /// @dev The ceremony version this verifier implements: the protocol
     ///      revision the Authorization Digest binds, hardcoded here because it
     ///      is a property of the code, not of a deployment. Unrelated to the
     ///      verifier version the Proof Verifier routes on, which is this
     ///      chain's slot number.
-    function _ceremonyVersion() internal pure virtual returns (uint16);
+    function _ceremonyVersion() internal pure virtual returns (uint16) {
+        return CeremonyProfile.ceremonyVersion(_platform());
+    }
 
     /// @dev The validity window, read from `CeremonyProfile` for this
     ///      verifier's profile. A property of the code like the ceremony
@@ -158,8 +143,13 @@ abstract contract PlatformVerifierBase is ICeremony, Initializable, UUPSUpgradea
     ///      The first is the maximum age of the token attestation, the second
     ///      its maximum lead over Block Time. A profile that notarizes nothing
     ///      has no token attestation, and both are zero.
-    function _proofLifetime() internal pure virtual returns (uint64);
-    function _maxFutureAttestationSkew() internal pure virtual returns (uint64);
+    function _proofLifetime() internal pure virtual returns (uint64) {
+        return CeremonyProfile.proofLifetime(_platform());
+    }
+
+    function _maxFutureAttestationSkew() internal pure virtual returns (uint64) {
+        return CeremonyProfile.maxFutureAttestationSkew(_platform());
+    }
 
     /// @dev How far ahead of Block Time this profile's evidence time may run.
     ///
@@ -170,17 +160,18 @@ abstract contract PlatformVerifierBase is ICeremony, Initializable, UUPSUpgradea
     ///      verifier subtracts its own allowance and returns a time on one
     ///      shared scale. It is also the ceiling: evidence dated further ahead
     ///      than this is refused rather than normalised.
-    function _futureObservationAllowance() internal pure virtual returns (uint64);
+    function _futureObservationAllowance() internal pure virtual returns (uint64) {
+        return CeremonyProfile.futureObservationAllowance(_platform());
+    }
 
-    /// @dev Refuse a payload made for another ceremony version, by name.
-    function _requireCeremonyVersion(uint16 claimed) internal pure {
-        uint16 expected = _ceremonyVersion();
+    /// @dev Refuse a payload made for another ceremony version, by name;
+    ///      returns this verifier's version.
+    function _requireCeremonyVersion(uint16 claimed) internal pure returns (uint16 expected) {
+        expected = _ceremonyVersion();
         if (claimed != expected) revert WrongCeremonyVersion(expected, claimed);
     }
 
-    function _setTrustRoots(INotaryService notary_, IHonkVerifier honkVerifier_, bytes32 honkVerifierCodehash_)
-        private
-    {
+    function _setTrustRoots(INotaryService notary_, IHonkVerifier honkVerifier_) private {
         if (address(honkVerifier_) == address(0)) revert ZeroAddress();
 
         // The profile decides whether a Notary Service belongs here at all.
@@ -194,21 +185,15 @@ abstract contract PlatformVerifierBase is ICeremony, Initializable, UUPSUpgradea
         if (wantsNotary != (address(notary_) != address(0))) {
             revert WrongNotaryForProfile(platform, address(notary_));
         }
-        // An account with no code hashes to zero (EIP-1052) and an account
-        // with empty code to keccak256(""), so either as the EXPECTED value
-        // turns this comparison into one that any such address satisfies --
-        // and the mis-wiring surfaces at the first user's proof, which is the
-        // production failure the check exists to prevent.
-        if (honkVerifierCodehash_ == bytes32(0) || honkVerifierCodehash_ == keccak256("")) {
-            revert WrongVerifierArtifact(honkVerifierCodehash_, honkVerifierCodehash_);
-        }
+        // bb's verifiers embed their key as code, so the code hash names the
+        // circuit; a release's own hash is compiled in (REQ-COMMON-45).
         bytes32 found = address(honkVerifier_).codehash;
-        if (found != honkVerifierCodehash_) revert WrongVerifierArtifact(honkVerifierCodehash_, found);
+        bytes32 circuit = _circuitCodehash();
+        if (found != circuit) revert WrongCircuit(circuit, found);
 
         _base().notary = notary_;
         _base().honkVerifier = honkVerifier_;
-        _base().honkVerifierCodehash = honkVerifierCodehash_;
-        emit TrustRootsChanged(address(notary_), address(honkVerifier_), honkVerifierCodehash_);
+        emit TrustRootsChanged(address(notary_), address(honkVerifier_));
     }
 
     // ─── Shared duties ──────────────────────────────────────────────
@@ -292,11 +277,19 @@ abstract contract PlatformVerifierBase is ICeremony, Initializable, UUPSUpgradea
         if (observedAt > limit) revert ObservedInTheFuture(observedAt, limit);
     }
 
-    /// @dev Verify the proof under the artifact governance selected. Without
-    ///      this, every public input the surrounding checks compare is a number
-    ///      the caller wrote down (REQ-COMMON-45).
+    /// @dev A 32-byte value as two big-endian 16-byte field elements.
+    function _halves(bytes32[] memory inputs, uint256 at, bytes32 value) internal pure {
+        inputs[at] = value >> 128;
+        inputs[at + 1] = bytes32(uint256(uint128(uint256(value))));
+    }
+
+    /// @dev Verify the proof under the stored verifier, which must still be this
+    ///      implementation's circuit's (REQ-COMMON-45).
     function _requireProof(bytes memory proof, bytes32[] memory publicInputs) internal view {
-        if (!_base().honkVerifier.verify(proof, publicInputs)) revert BadProof();
+        IHonkVerifier verifier = _base().honkVerifier;
+        bytes32 circuit = _circuitCodehash();
+        if (address(verifier).codehash != circuit) revert WrongCircuit(circuit, address(verifier).codehash);
+        if (!verifier.verify(proof, publicInputs)) revert BadProof();
     }
 
     /// @dev Required by UUPS -- only the owner can upgrade.

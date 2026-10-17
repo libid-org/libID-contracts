@@ -52,6 +52,16 @@ something to record, it is something to undo. A new upgradeable contract gets
 an entry in LAYOUTS, a field in `StorageLayoutProbe` if it has a namespace,
 and a first snapshot from `--update`.
 
+The one exception is a contract that ships as a fresh deployment, never as an
+upgrade of a live proxy. Its snapshot may be reset to the current layout,
+whatever changed:
+
+    ./scripts/check-storage-layout.py --redeploy PlatformVerifierBase --why "..."
+
+This rewrites that one snapshot and stamps it with the reason; every other
+entry is checked as usual. The stamp stays through later `--update`s, and
+appends are checked against the reset layout.
+
 Needs `forge` and `cast` on PATH. It runs `forge inspect --no-cache` in
 solidity/, which compiles what it needs and leaves the build cache alone.
 """
@@ -145,11 +155,29 @@ LAYOUTS = (
 )
 
 
+RESET = "# Reset for a redeploy, not an upgrade: "
+
+
 def header(layout: Layout) -> list[str]:
     return [
         f"# {layout.name} storage layout. Checked in CI by scripts/check-storage-layout.py.",
         "# Fields may only be APPENDED. Record an append with --update; see the script.",
     ]
+
+
+def stamp(layout: Layout) -> list[str]:
+    """The snapshot's redeploy stamp, if it has one."""
+    if not layout.snapshot.exists():
+        return []
+    return [line for line in layout.snapshot.read_text().splitlines() if line.startswith(RESET)]
+
+
+def write(layout: Layout, lines: list[str], reset: list[str]) -> None:
+    layout.snapshot.write_text("\n".join(header(layout) + reset + lines) + "\n")
+
+
+def shown(path: pathlib.Path) -> pathlib.Path:
+    return path.relative_to(REPO_ROOT) if path.is_relative_to(REPO_ROOT) else path
 
 
 def run(*args: str) -> str:
@@ -365,20 +393,30 @@ def renames(old: list[str], new: list[str]) -> str:
     return "\n".join(f"  - {a}\n  + {b}" for a, b in zip(old, new) if a != b)
 
 
-def check(layout: Layout, probe: dict, update: bool) -> bool:
-    old, new = recorded(layout), current(layout, probe)
-    snapshot = layout.snapshot.relative_to(REPO_ROOT)
+def check(layout: Layout, probe: dict, update: bool, why: str | None = None) -> bool:
+    return settle(layout, recorded(layout), current(layout, probe), update, why)
+
+
+def settle(layout: Layout, old: list[str] | None, new: list[str], update: bool, why: str | None) -> bool:
+    """Compare and, when allowed, record. `why` resets the snapshot for a redeploy."""
+    snapshot = shown(layout.snapshot)
+    if why is not None:
+        write(layout, new, [RESET + why])
+        print(f"reset {snapshot} for a redeploy")
+        return True
+
     verdict = "append" if old is None else classify(old, new, snapshot)
 
     if verdict == "incompatible":
         print(f"INCOMPATIBLE: {layout.name}'s storage layout was reordered, removed or retyped.", file=sys.stderr)
         print(diff(old or [], new), file=sys.stderr)
         print("Undo the change; fields may only be appended at the end of the struct.", file=sys.stderr)
+        print(f"Only for a fresh deployment, never a live proxy: --redeploy {layout.name} --why ...", file=sys.stderr)
         return False
 
     if verdict in ("append", "rename"):
         if update:
-            layout.snapshot.write_text("\n".join(header(layout) + new) + "\n")
+            write(layout, new, stamp(layout))
             print(f"recorded {snapshot}")
             return True
         if verdict == "append":
@@ -397,7 +435,18 @@ def check(layout: Layout, probe: dict, update: bool) -> bool:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--update", action="store_true", help="record an exact match, a pure append or a pure rename")
+    parser.add_argument(
+        "--redeploy",
+        metavar="NAME",
+        choices=[layout.name for layout in LAYOUTS],
+        help="reset this snapshot to the current layout, for a contract that ships as a fresh deployment",
+    )
+    parser.add_argument("--why", help="with --redeploy: the reason, stamped into the snapshot")
     args = parser.parse_args()
+    if (args.redeploy is None) != (args.why is None) or (args.why is not None and not args.why.strip()):
+        parser.error("--redeploy and --why go together, and --why needs a reason")
+    if args.why is not None and "\n" in args.why:
+        parser.error("--why is one line")
 
     covered = {contract for layout in LAYOUTS for contract in layout.contracts}
     missing = sorted(upgradeable_contracts() - covered)
@@ -406,7 +455,7 @@ def main() -> int:
         return 1
 
     probe = inspect(PROBE)
-    results = [check(layout, probe, args.update) for layout in LAYOUTS]
+    results = [check(layout, probe, args.update, args.why if layout.name == args.redeploy else None) for layout in LAYOUTS]
     return 0 if all(results) else 1
 
 

@@ -1,23 +1,36 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-import {Test} from "forge-std/Test.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import {Initializable} from "@openzeppelin/contracts/proxy/utils/Initializable.sol";
 import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 
-import {HandleNormalizer} from "../../identity/HandleNormalizer.sol";
-import {HandleVectors} from "../../identity/HandleVectors.sol";
+import {CeremonyProfile} from "../../ceremony/CeremonyProfile.sol";
+import {HandleTable} from "../../handles/test/HandleTable.sol";
 import {IdentityRegistry} from "../../identity/IdentityRegistry.sol";
-import {IdentityNodes} from "../../identity/IdentityNodes.sol";
 import {IIdentityRegistry} from "../../identity/IIdentityRegistry.sol";
 import {StubPlatformVerifier} from "../../identity/test/StubPlatformVerifier.sol";
+import {TestNodes} from "../../identity/test/TestNodes.sol";
+import {PrivacyScan} from "../../identity/test/PrivacyScan.sol";
 import {CeremonyProofVerifier} from "../../ceremony/CeremonyProofVerifier.sol";
 import {IPlatformVerifier} from "../../ceremony/IPlatformVerifier.sol";
 import {IProofVerifier} from "../../ceremony/IProofVerifier.sol";
 import {HandleEscrow, NATIVE_TOKEN} from "../HandleEscrow.sol";
-import {FeeToken, InertToken, RejectEther, TestERC20, one} from "./EscrowMocks.sol";
+import {
+    FeeToken,
+    InertToken,
+    NoAcceptsBindingsRegistry,
+    NoHandleNodeOfRegistry,
+    NotNodeKeyedRegistry,
+    PreNodeRegistry,
+    RefusingHandleNodeOfRegistry,
+    RejectEther,
+    RevertingHandleNodeOfRegistry,
+    SettableRegistry,
+    TestERC20,
+    one
+} from "./EscrowMocks.sol";
 
 // The native token as the escrow names it.
 address constant NATIVE = NATIVE_TOKEN;
@@ -70,7 +83,7 @@ contract TextPayer {
 
     function pay(bytes32 platformId, string calldata handle) external payable {
         ESCROW.deposit{value: msg.value}(
-            platformId, REGISTRY.handleHashOf(platformId, handle), NATIVE, msg.value, msg.sender
+            platformId, REGISTRY.handleNodeOf(platformId, handle), NATIVE, msg.value, msg.sender
         );
     }
 }
@@ -102,8 +115,8 @@ contract ObservingPayee {
         (ESCROW, NODE) = (escrow_, node_);
     }
 
-    function fund(bytes32 platformId, bytes32 handleHash) external payable {
-        ESCROW.deposit{value: msg.value}(platformId, handleHash, NATIVE, msg.value, address(this));
+    function fund(bytes32 handleNode) external payable {
+        ESCROW.deposit{value: msg.value}(CeremonyProfile.PLATFORM_X, handleNode, NATIVE, msg.value, address(this));
     }
 
     function take(bytes calldata data) external {
@@ -124,15 +137,7 @@ contract ObservingPayee {
 }
 
 /// @notice Registries `initialize` must refuse or accept.
-contract RegistryBeforeTheEscrow {
-    function handleBinding(bytes32) external pure returns (address, uint64) {}
-}
-
-contract RegistryWithoutHandleNodeOfHash is RegistryBeforeTheEscrow {
-    function acceptsBindings(bytes32) external pure returns (bool) {}
-}
-
-contract RegistryWithAZeroFallback is RegistryWithoutHandleNodeOfHash {
+contract RegistryWithAOneWordFallback {
     fallback() external {
         assembly {
             mstore(0, 0)
@@ -141,34 +146,25 @@ contract RegistryWithAZeroFallback is RegistryWithoutHandleNodeOfHash {
     }
 }
 
-contract RegistryWithAConstantNode is RegistryWithoutHandleNodeOfHash {
-    function handleNodeOfHash(bytes32, bytes32) external pure returns (bytes32) {
-        return bytes32(uint256(1));
-    }
-}
-
-contract RegistryWithAnotherNodeDerivation is RegistryWithoutHandleNodeOfHash {
-    function handleNodeOfHash(bytes32 platformId, bytes32 handleHash) external pure returns (bytes32) {
-        return keccak256(abi.encode(platformId, handleHash));
-    }
-}
-
-contract RegistryWithASilentFallback is RegistryBeforeTheEscrow {
+contract RegistryWithASilentFallback {
     fallback() external {}
 }
 
+contract RegistryWithHandleBindingOnly {
+    function handleBinding(bytes32) external pure returns (address, uint64) {}
+}
+
 /// @notice The handle node escrow, against the real registry.
-contract HandleEscrowTest is Test {
+contract HandleEscrowTest is PrivacyScan {
     IdentityRegistry internal registry;
     CeremonyProofVerifier internal proofVerifier;
     StubPlatformVerifier internal xVerifier;
     HandleEscrow internal escrow;
     TestERC20 internal token;
 
-    bytes32 internal constant X = HandleVectors.PLATFORM_X;
-    bytes32 internal constant GITHUB = HandleVectors.PLATFORM_GITHUB;
-    bytes32 internal constant GOOGLE = HandleVectors.PLATFORM_GOOGLE;
-    bytes32 internal constant UNWIRED = keccak256("no such platform");
+    bytes32 internal constant X = CeremonyProfile.PLATFORM_X;
+    bytes32 internal constant GITHUB = CeremonyProfile.PLATFORM_GITHUB;
+    bytes32 internal constant GOOGLE = CeremonyProfile.PLATFORM_GOOGLE;
     uint16 internal constant V1 = 1;
 
     address internal alice = makeAddr("alice");
@@ -176,8 +172,7 @@ contract HandleEscrowTest is Test {
     address internal sender = makeAddr("sender");
     address internal owner = makeAddr("owner");
 
-    bytes32 internal aliceNode = IdentityNodes.handleNode(X, "alice");
-    bytes32 internal aliceHash = keccak256("alice");
+    bytes32 internal aliceNode = TestNodes.handleNode(X, "alice");
     uint256 private nonce;
 
     function setUp() public {
@@ -196,9 +191,7 @@ contract HandleEscrowTest is Test {
         xVerifier = new StubPlatformVerifier(X, 0);
         vm.startPrank(owner);
         registry.setProofVerifier(IProofVerifier(address(proofVerifier)));
-        registry.setPlatform(X, HandleVectors.rulesFor(X));
         proofVerifier.setVerifier(X, V1, IPlatformVerifier(address(xVerifier)));
-        registry.setPlatform(GITHUB, HandleVectors.rulesFor(GITHUB));
         proofVerifier.setVerifier(GITHUB, V1, IPlatformVerifier(address(new StubPlatformVerifier(GITHUB, 0))));
         vm.stopPrank();
 
@@ -213,72 +206,55 @@ contract HandleEscrowTest is Test {
 
     // ─── The node ───────────────────────────────────────────────────
 
-    /// Every row of the shared handle table lands on the node the registry binds, or is refused.
-    function test_everyVectorRowLandsOnTheNodeTheRegistryBinds() public {
-        vm.startPrank(owner);
-        registry.setPlatform(GOOGLE, HandleVectors.rulesFor(GOOGLE));
-        proofVerifier.setVerifier(GOOGLE, V1, IPlatformVerifier(address(new StubPlatformVerifier(GOOGLE, 0))));
-        vm.stopPrank();
-
-        HandleVectors.Vector[] memory vectors = HandleVectors.all();
-        for (uint256 i = 0; i < vectors.length; i++) {
-            HandleVectors.Vector memory v = vectors[i];
-            bytes32 platformId = keccak256(bytes(v.platform));
-            if (v.accepted) {
-                assertEq(registry.handleHashOf(platformId, v.input), keccak256(bytes(v.output)), vm.toString(i));
-                assertEq(
-                    registry.handleNodeOf(platformId, v.input),
-                    IdentityNodes.handleNode(platformId, v.output),
-                    vm.toString(i)
-                );
-            } else {
-                vm.expectRevert(
-                    abi.encodeWithSelector(
-                        IIdentityRegistry.UnusableHandle.selector, HandleNormalizer.Problem(v.errorKind + 1)
-                    )
-                );
-                registry.handleHashOf(platformId, v.input);
-            }
+    /// Every accepted row of the shared handle table lands on the node the registry binds.
+    function test_everyVectorRowLandsOnTheNodeTheRegistryBinds() public view {
+        HandleTable.Row[] memory rows = HandleTable.accepted();
+        for (uint256 i = 0; i < rows.length; i++) {
+            HandleTable.Row memory v = rows[i];
+            assertEq(registry.handleNodeOf(keccak256(bytes(v.platform)), v.input), v.handleNode, vm.toString(i));
         }
     }
 
-    /// A `cast` literal, so the TypeScript derivation cannot drift and still pass its own tests.
+    /// Pinned to a `hashlib.sha256(b"libid.x.handlealice_1")` literal.
     function test_theNodeDerivationIsPinned() public view {
-        bytes32 pinned = 0x1c43d5d3cf3d99e9d5b6e8c74c23d14bcbb6a743712cf7fa7c15750c4fc2150d;
-        assertEq(registry.handleNodeOf(X, " Alice_1 "), pinned);
-        assertEq(IdentityNodes.handleNode(X, "alice_1"), pinned);
+        bytes32 pinned = 0xe09c4f5bfbbc723bc35701ea9d718a1c5edb29b1ed5bb0cb0fabb3c43d8136af;
+        assertEq(registry.handleNodeOf(X, "Alice_1"), pinned);
+        assertEq(TestNodes.handleNode(X, "alice_1"), pinned);
+        HandleTable.Row memory row = HandleTable.accepted()[0];
+        assertEq(row.output, "alice_1");
+        assertEq(row.handleNode, pinned);
     }
 
-    /// Spellings of one handle, and a locally computed hash, meet in one slot; the same hash on
-    /// another platform is another slot, and pays nobody on the first.
+    /// Spellings of one handle, and a locally computed node, meet in one slot; the same handle on
+    /// another platform is another node, and pays nobody on the first.
     function test_theSlotIsTheNormalizedHandleOnItsPlatform() public {
-        _depositNative("@alice", 1 ether);
-        _depositNative(" ALICE ", 2 ether);
+        bytes32 githubAlice = TestNodes.handleNode(GITHUB, "alice");
+        _depositNative("Alice", 1 ether);
+        _depositNative("ALICE", 2 ether);
         vm.startPrank(sender);
-        escrow.deposit{value: 3 ether}(X, aliceHash, NATIVE, 3 ether, sender);
-        escrow.deposit{value: 4 ether}(GITHUB, aliceHash, NATIVE, 4 ether, sender);
+        escrow.deposit{value: 3 ether}(X, aliceNode, NATIVE, 3 ether, sender);
+        escrow.deposit{value: 4 ether}(GITHUB, githubAlice, NATIVE, 4 ether, sender);
         vm.stopPrank();
         assertEq(escrow.escrowed(aliceNode, NATIVE), 6 ether);
-        assertEq(escrow.escrowed(IdentityNodes.handleNode(GITHUB, "alice"), NATIVE), 4 ether);
+        assertEq(escrow.escrowed(githubAlice, NATIVE), 4 ether);
 
         _bind(alice, "1", "alice", 100); // on X only
         _claimNative(alice, alice);
         assertEq(alice.balance, 6 ether);
         vm.prank(alice);
         vm.expectRevert(abi.encodeWithSelector(HandleEscrow.NotTheHolder.selector, address(0), alice));
-        escrow.claim(IdentityNodes.handleNode(GITHUB, "alice"), one(NATIVE), alice);
+        escrow.claim(githubAlice, one(NATIVE), alice);
     }
 
-    /// Text goes through `handleHashOf`: refused where the rules refuse it, and otherwise landing on
-    /// the node a proof binds, refundable by the router's caller.
+    /// Text goes through `handleNodeOf`: text no platform sends lands on a node no proof binds, and
+    /// the rest on the node a proof binds, refundable by the router's caller.
     function test_textHashedByTheRegistryLandsOnTheProvedNode() public {
         TextPayer payer = new TextPayer(escrow, registry);
         vm.startPrank(sender);
-        vm.expectRevert(
-            abi.encodeWithSelector(IIdentityRegistry.UnusableHandle.selector, HandleNormalizer.Problem.BadChar)
-        );
-        payer.pay{value: 1 ether}(X, "ali-ce");
-        payer.pay{value: 1 ether}(X, "  @Alice ");
+        payer.pay{value: 1 ether}(X, "@alice");
+        assertEq(escrow.escrowed(TestNodes.handleNode(X, "@alice"), NATIVE), 1 ether);
+        escrow.refund(TestNodes.handleNode(X, "@alice"), NATIVE, sender);
+        payer.pay{value: 1 ether}(X, "Alice");
         payer.pay{value: 2 ether}(X, "ALICE");
         escrow.refund(aliceNode, NATIVE, sender);
         payer.pay{value: 3 ether}(X, "alice");
@@ -290,23 +266,124 @@ contract HandleEscrowTest is Test {
         assertEq(alice.balance, 3 ether);
     }
 
+    // ─── Depositing by handle ───────────────────────────────────────
+
+    /// A deposit by text lands on the node `deposit` takes, names its platform and text, and is
+    /// claimed like any other.
+    function test_aPublicDepositIsClaimedFromTheNode() public {
+        vm.expectEmit(address(escrow));
+        emit HandleEscrow.Deposited(aliceNode, NATIVE, sender, sender, 0, 1 ether);
+        vm.expectEmit(address(escrow));
+        emit HandleEscrow.DepositedToHandle(aliceNode, X, "alice");
+        vm.prank(sender);
+        escrow.depositToHandle{value: 1 ether}(X, "Alice", NATIVE, 1 ether, sender);
+
+        _bind(alice, "1", "alice", 100);
+        _claimNative(alice, alice);
+        assertEq(alice.balance, 1 ether);
+    }
+
+    /// Public and private deposits to one node share one balance.
+    function test_publicAndPrivateDepositsToOneNodeSum() public {
+        vm.startPrank(sender);
+        escrow.depositToHandle{value: 1 ether}(X, "ALICE", NATIVE, 1 ether, sender);
+        escrow.deposit{value: 2 ether}(X, aliceNode, NATIVE, 2 ether, sender);
+        vm.stopPrank();
+        assertEq(escrow.escrowed(aliceNode, NATIVE), 3 ether);
+        assertEq(escrow.refundable(aliceNode, NATIVE, sender), 3 ether);
+    }
+
+    /// Both modes refuse a platform the registry does not know with its `UnknownPlatform`.
+    function test_aDepositRefusesAnUnknownPlatform() public {
+        bytes32 nowhere = keccak256("nowhere");
+        vm.startPrank(sender);
+        vm.expectRevert(abi.encodeWithSelector(IIdentityRegistry.UnknownPlatform.selector, nowhere));
+        escrow.depositToHandle{value: 1 ether}(nowhere, "alice", NATIVE, 1 ether, sender);
+        vm.expectRevert(abi.encodeWithSelector(IIdentityRegistry.UnknownPlatform.selector, nowhere));
+        escrow.deposit{value: 1 ether}(nowhere, aliceNode, NATIVE, 1 ether, sender);
+        vm.expectRevert(abi.encodeWithSelector(IIdentityRegistry.UnknownPlatform.selector, bytes32(0)));
+        escrow.deposit{value: 1 ether}(bytes32(0), aliceNode, NATIVE, 1 ether, sender);
+        vm.stopPrank();
+    }
+
+    function test_aPublicDepositPassesOnTheRegistrysOtherRefusals() public {
+        HandleEscrow refused = _deploy(address(new RefusingHandleNodeOfRegistry()));
+        vm.prank(sender);
+        vm.expectRevert(bytes("alice"));
+        refused.depositToHandle{value: 1 ether}(X, "alice", NATIVE, 1 ether, sender);
+    }
+
+    /// A public deposit to a held node is paid through and still names its handle.
+    function test_aPublicDepositToAHeldNodeIsPaidThrough() public {
+        _bind(alice, "1", "alice", 100);
+        vm.expectEmit(address(escrow));
+        emit HandleEscrow.Forwarded(aliceNode, NATIVE, sender, alice, 1 ether, 1 ether);
+        vm.expectEmit(address(escrow));
+        emit HandleEscrow.DepositedToHandle(aliceNode, X, "alice");
+        vm.prank(sender);
+        escrow.depositToHandle{value: 1 ether}(X, "Alice", NATIVE, 1 ether, sender);
+        assertEq(alice.balance, 1 ether);
+        assertEq(escrow.escrowed(aliceNode, NATIVE), 0);
+    }
+
+    /// A private deposit's calldata and logs carry no handle text; a public one's carry it.
+    function test_aPrivateDepositPutsNoHandleOnChain() public {
+        bytes memory privateCall = abi.encodeCall(HandleEscrow.deposit, (X, aliceNode, NATIVE, 1 ether, sender));
+        assertFalse(_containsAny(privateCall), "the handle in the calldata");
+        vm.recordLogs();
+        _send(privateCall);
+        _assertLogsHideTheSecrets(vm.getRecordedLogs());
+
+        bytes memory publicCall = abi.encodeCall(HandleEscrow.depositToHandle, (X, "Alice", NATIVE, 1 ether, sender));
+        assertTrue(_containsAny(publicCall), "the scan misses the handle in calldata");
+        vm.recordLogs();
+        _send(publicCall);
+        assertTrue(_containsAny(_loggedRun(vm.getRecordedLogs())), "the scan misses the handle in the logs");
+        assertEq(escrow.escrowed(aliceNode, NATIVE), 2 ether);
+    }
+
+    /// Public and private deposits alike refuse to escrow on a known platform no verifier serves.
+    function test_aDepositRefusesToEscrowOnAPlatformThatAcceptsNoBindings() public {
+        bytes32 node = TestNodes.handleNode(GOOGLE, "alice@gmail.com");
+        vm.startPrank(sender);
+        vm.expectRevert(abi.encodeWithSelector(HandleEscrow.PlatformAcceptsNoBindings.selector, GOOGLE));
+        escrow.depositToHandle{value: 1 ether}(GOOGLE, "alice@gmail.com", NATIVE, 1 ether, sender);
+        vm.expectRevert(abi.encodeWithSelector(HandleEscrow.PlatformAcceptsNoBindings.selector, GOOGLE));
+        escrow.deposit{value: 1 ether}(GOOGLE, node, NATIVE, 1 ether, sender);
+        vm.stopPrank();
+        assertEq(escrow.escrowed(node, NATIVE), 0);
+    }
+
+    /// A public deposit to a holder on a platform that no longer binds is paid through.
+    function test_aPublicDepositPaysAHolderOnAPlatformThatAcceptsNoBindings() public {
+        _bind(alice, "1", "alice", 100);
+        vm.prank(owner);
+        proofVerifier.setVerifier(X, V1, IPlatformVerifier(address(0)));
+        assertFalse(registry.acceptsBindings(X));
+
+        vm.prank(sender);
+        escrow.depositToHandle{value: 1 ether}(X, "Alice", NATIVE, 1 ether, sender);
+        assertEq(alice.balance, 1 ether);
+        assertEq(escrow.escrowed(aliceNode, NATIVE), 0);
+    }
+
     // ─── Depositing ─────────────────────────────────────────────────
 
     /// Unheld: held and announced. Held: paid straight through and announced, the earlier deposit
     /// still waiting for its claim.
     function test_anUnheldHandleEscrowsAndAHeldOnePaysThrough() public {
         vm.expectEmit(address(escrow));
-        emit HandleEscrow.Deposited(aliceNode, address(token), sender, sender, X, 0, 10 ether);
+        emit HandleEscrow.Deposited(aliceNode, address(token), sender, sender, 0, 10 ether);
         vm.prank(sender);
-        escrow.deposit(X, aliceHash, address(token), 10 ether, sender);
+        escrow.deposit(X, aliceNode, address(token), 10 ether, sender);
         assertEq(token.balanceOf(address(escrow)), 10 ether);
 
         _bind(alice, "1", "alice", 100);
         vm.expectEmit(address(escrow));
-        emit HandleEscrow.Forwarded(aliceNode, NATIVE, sender, alice, X, 1 ether, 1 ether);
+        emit HandleEscrow.Forwarded(aliceNode, NATIVE, sender, alice, 1 ether, 1 ether);
         vm.startPrank(sender);
-        escrow.deposit{value: 1 ether}(X, aliceHash, NATIVE, 1 ether, sender);
-        escrow.deposit(X, aliceHash, address(token), 5 ether, sender);
+        escrow.deposit{value: 1 ether}(X, aliceNode, NATIVE, 1 ether, sender);
+        escrow.deposit(X, aliceNode, address(token), 5 ether, sender);
         vm.stopPrank();
         assertEq(alice.balance, 1 ether);
         assertEq(token.balanceOf(alice), 5 ether);
@@ -321,20 +398,33 @@ contract HandleEscrowTest is Test {
         vm.startPrank(sender);
         fee.approve(address(escrow), type(uint256).max);
         vm.expectEmit(address(escrow));
-        emit HandleEscrow.Forwarded(aliceNode, address(fee), sender, alice, X, 100 ether, 99 ether);
-        escrow.deposit(X, aliceHash, address(fee), 100 ether, sender);
+        emit HandleEscrow.Forwarded(aliceNode, address(fee), sender, alice, 100 ether, 99 ether);
+        escrow.deposit(X, aliceNode, address(fee), 100 ether, sender);
         vm.stopPrank();
     }
 
     function test_badAmountsAreRefused() public {
         vm.startPrank(sender);
         vm.expectRevert(HandleEscrow.ZeroAmount.selector);
-        escrow.deposit(X, aliceHash, NATIVE, 0, sender);
+        escrow.deposit(X, aliceNode, NATIVE, 0, sender);
         vm.expectRevert(abi.encodeWithSelector(HandleEscrow.ValueMismatch.selector, 2 ether, 1 ether));
-        escrow.deposit{value: 1 ether}(X, aliceHash, NATIVE, 2 ether, sender);
+        escrow.deposit{value: 1 ether}(X, aliceNode, NATIVE, 2 ether, sender);
         vm.expectRevert(abi.encodeWithSelector(HandleEscrow.ValueMismatch.selector, 0, 1 ether));
-        escrow.deposit{value: 1 ether}(X, aliceHash, address(token), 10 ether, sender);
+        escrow.deposit{value: 1 ether}(X, aliceNode, address(token), 10 ether, sender);
         vm.stopPrank();
+    }
+
+    /// A token with no code, zero included, is refused, held node or not.
+    function test_aTokenWithNoCodeIsRefused() public {
+        address[2] memory bad = [address(0), makeAddr("no code")];
+        for (uint256 i = 0; i < 2; i++) {
+            if (i == 1) _bind(alice, "1", "alice", 100);
+            for (uint256 j = 0; j < 2; j++) {
+                vm.prank(sender);
+                vm.expectRevert(abi.encodeWithSelector(HandleEscrow.BadToken.selector, bad[j]));
+                escrow.deposit(X, aliceNode, bad[j], 1 ether, sender);
+            }
+        }
     }
 
     /// A token that reports success and moves nothing credits nothing, escrowed or paid through.
@@ -342,11 +432,11 @@ contract HandleEscrowTest is Test {
         InertToken inert = new InertToken();
         vm.prank(sender);
         vm.expectRevert(HandleEscrow.ZeroAmount.selector);
-        escrow.deposit(X, aliceHash, address(inert), 10 ether, sender);
+        escrow.deposit(X, aliceNode, address(inert), 10 ether, sender);
         _bind(alice, "1", "alice", 100);
         vm.prank(sender);
         vm.expectRevert(HandleEscrow.ZeroAmount.selector);
-        escrow.deposit(X, aliceHash, address(inert), 10 ether, sender);
+        escrow.deposit(X, aliceNode, address(inert), 10 ether, sender);
     }
 
     /// A holder paying its own node is refused before anything moves or is announced.
@@ -358,40 +448,38 @@ contract HandleEscrowTest is Test {
         token.approve(address(escrow), type(uint256).max);
         vm.recordLogs();
         vm.expectRevert(abi.encodeWithSelector(HandleEscrow.PayingYourself.selector, alice));
-        escrow.deposit{value: 10 ether}(X, aliceHash, NATIVE, 10 ether, alice);
+        escrow.deposit{value: 10 ether}(X, aliceNode, NATIVE, 10 ether, alice);
         vm.expectRevert(abi.encodeWithSelector(HandleEscrow.PayingYourself.selector, alice));
-        escrow.deposit(X, aliceHash, address(token), 10 ether, alice);
+        escrow.deposit(X, aliceNode, address(token), 10 ether, alice);
         vm.stopPrank();
         assertEq(vm.getRecordedLogs().length, 0);
         assertEq(token.balanceOf(alice), 10 ether);
     }
 
-    /// Escrow needs a platform a claim could bind on: unwired, not verifying yet, or retired all
-    /// refuse new escrow, while a holder is still paid through and held value still refunds.
-    function test_escrowNeedsAPlatformThatAcceptsClaims() public {
-        vm.startPrank(sender);
-        vm.expectRevert(abi.encodeWithSelector(HandleEscrow.PlatformAcceptsNoBindings.selector, UNWIRED));
-        escrow.deposit{value: 1 ether}(UNWIRED, aliceHash, NATIVE, 1 ether, sender);
-        vm.stopPrank();
-        vm.prank(owner);
-        registry.setPlatform(GOOGLE, HandleVectors.rulesFor(GOOGLE));
+    /// Once a platform's verifier is retired, its escrowed deposits still refund, a new
+    /// escrow there is refused, and a holder there is still paid through.
+    function test_aPlatformThatStopsBindingRefundsWhatItHolds() public {
+        bytes32 carol = TestNodes.handleNode(X, "carol");
         vm.prank(sender);
-        vm.expectRevert(abi.encodeWithSelector(HandleEscrow.PlatformAcceptsNoBindings.selector, GOOGLE));
-        escrow.deposit{value: 1 ether}(GOOGLE, keccak256("alice@example.com"), NATIVE, 1 ether, sender);
+        escrow.deposit(X, carol, address(token), 1 ether, sender);
+        assertEq(escrow.escrowed(carol, address(token)), 1 ether);
 
-        _depositNative("bob", 1 ether);
         _bind(alice, "1", "alice", 100);
         vm.prank(owner);
         proofVerifier.setVerifier(X, V1, IPlatformVerifier(address(0)));
+        assertFalse(registry.acceptsBindings(X));
 
         _depositNative("alice", 2 ether);
         assertEq(alice.balance, 2 ether, "the holder was not paid through");
         vm.prank(sender);
         vm.expectRevert(abi.encodeWithSelector(HandleEscrow.PlatformAcceptsNoBindings.selector, X));
-        escrow.deposit(X, keccak256("carol"), address(token), 1 ether, sender);
-        vm.prank(sender);
-        escrow.refund(IdentityNodes.handleNode(X, "bob"), NATIVE, sender);
+        escrow.deposit(X, carol, address(token), 1 ether, sender);
+
+        vm.startPrank(sender);
+        escrow.refund(carol, address(token), sender);
+        vm.stopPrank();
         assertEq(address(escrow).balance, 0);
+        assertEq(token.balanceOf(address(escrow)), 0);
     }
 
     // ─── Claiming ───────────────────────────────────────────────────
@@ -404,8 +492,8 @@ contract HandleEscrowTest is Test {
         second.mint(sender, 5 ether);
         vm.startPrank(sender);
         second.approve(address(escrow), type(uint256).max);
-        escrow.deposit(X, aliceHash, address(token), 3 ether, sender);
-        escrow.deposit(X, aliceHash, address(second), 5 ether, sender);
+        escrow.deposit(X, aliceNode, address(token), 3 ether, sender);
+        escrow.deposit(X, aliceNode, address(second), 5 ether, sender);
         vm.stopPrank();
         _bind(alice, "1", "alice", 100);
 
@@ -476,9 +564,10 @@ contract HandleEscrowTest is Test {
         escrow.claim(aliceNode, one(NATIVE), rejector);
 
         _bind(rejector, "2", "bob", 100);
+        bytes32 bobNode = TestNodes.handleNode(X, "bob");
         vm.prank(sender);
         vm.expectRevert(abi.encodeWithSelector(HandleEscrow.NativeTransferFailed.selector, rejector, 1 ether));
-        escrow.deposit{value: 1 ether}(X, keccak256("bob"), NATIVE, 1 ether, sender);
+        escrow.deposit{value: 1 ether}(X, bobNode, NATIVE, 1 ether, sender);
         assertEq(escrow.escrowed(aliceNode, NATIVE), 1 ether);
     }
 
@@ -504,10 +593,10 @@ contract HandleEscrowTest is Test {
         SharedForwarder forwarder = new SharedForwarder();
         vm.prank(sender);
         forwarder.forward{value: 1 ether}(
-            address(escrow), abi.encodeCall(HandleEscrow.deposit, (X, aliceHash, NATIVE, 1 ether, sender))
+            address(escrow), abi.encodeCall(HandleEscrow.deposit, (X, aliceNode, NATIVE, 1 ether, sender))
         );
         vm.prank(sender);
-        escrow.deposit(X, aliceHash, address(token), 10 ether, bob);
+        escrow.deposit(X, aliceNode, address(token), 10 ether, bob);
 
         vm.prank(bob);
         vm.expectRevert(abi.encodeWithSelector(HandleEscrow.NothingToRefund.selector, aliceNode, NATIVE, bob));
@@ -539,18 +628,17 @@ contract HandleEscrowTest is Test {
             for (uint256 j = 0; j < 2; j++) {
                 vm.prank(sender);
                 vm.expectRevert(abi.encodeWithSelector(HandleEscrow.BadRefundTo.selector, bad[j]));
-                escrow.deposit{value: 1 ether}(X, aliceHash, NATIVE, 1 ether, bad[j]);
+                escrow.deposit{value: 1 ether}(X, aliceNode, NATIVE, 1 ether, bad[j]);
             }
         }
         assertEq(alice.balance, 0);
     }
 
-    /// A hash of no handle funds a slot nobody claims; its `refundTo` takes it back.
-    function test_aWrongHashIsRecoverableByRefund() public {
-        bytes32 garbageHash = keccak256("not the hash of any handle");
-        bytes32 garbage = IdentityNodes.handleNodeOfHash(X, garbageHash);
+    /// A node of no handle funds a slot nobody claims; its `refundTo` takes it back.
+    function test_aWrongNodeIsRecoverableByRefund() public {
+        bytes32 garbage = keccak256("not the node of any handle");
         vm.prank(sender);
-        escrow.deposit{value: 1 ether}(X, garbageHash, NATIVE, 1 ether, sender);
+        escrow.deposit{value: 1 ether}(X, garbage, NATIVE, 1 ether, sender);
         vm.prank(sender);
         escrow.refund(garbage, NATIVE, sender);
         assertEq(address(escrow).balance, 0);
@@ -581,7 +669,7 @@ contract HandleEscrowTest is Test {
     /// The refund settles the contribution and the slot before paying, and the guard refuses a second.
     function test_aRefundSettlesBeforePayingAndTheGuardRefusesReentry() public {
         ObservingPayee payee = new ObservingPayee(escrow, aliceNode);
-        payee.fund{value: 1 ether}(X, aliceHash);
+        payee.fund{value: 1 ether}(aliceNode);
         _depositNative("alice", 1 ether);
 
         payee.take(abi.encodeCall(HandleEscrow.refund, (aliceNode, NATIVE, address(payee))));
@@ -609,21 +697,29 @@ contract HandleEscrowTest is Test {
         assertEq(bob.balance, 2 ether);
     }
 
-    /// A claim reads the holder only, so narrowing the platform's rules does not stop it.
-    function test_aRulesChangeDoesNotStopTheHolderClaiming() public {
-        _depositNative("alice_9", 1 ether);
-        _bind(alice, "1", "alice_9", 100);
-        HandleNormalizer.Rules memory narrowed = HandleVectors.rulesFor(X);
-        narrowed.allowUnderscore = false;
-        vm.prank(owner);
-        registry.setPlatform(X, narrowed);
+    /// A deposit pays whoever holds the handle when it executes: after a takeover
+    /// between signing and mining, the new holder, by node or by text.
+    function test_ACCEPTED_aDepositPaysTheHolderWhenItExecutes() public {
+        _bind(alice, "1", "alice", 100);
+        _bind(alice, "1", "alice2", 200);
+        _bind(bob, "2", "alice", 300);
+        for (uint256 i = 0; i < 2; i++) {
+            _depositAlice(i == 1);
+        }
+        assertEq(bob.balance, 2 ether);
+        assertEq(alice.balance, 0);
+        assertEq(escrow.escrowed(aliceNode, NATIVE), 0);
+    }
 
-        vm.expectRevert(
-            abi.encodeWithSelector(IIdentityRegistry.UnusableHandle.selector, HandleNormalizer.Problem.BadChar)
-        );
-        registry.handleHashOf(X, "alice_9");
-        vm.prank(alice);
-        escrow.claim(IdentityNodes.handleNode(X, "alice_9"), one(NATIVE), alice);
+    /// A claim reads the holder only, so a platform that stops accepting bindings does not stop it.
+    function test_aRetiredPlatformDoesNotStopTheHolderClaiming() public {
+        _depositNative("alice", 1 ether);
+        _bind(alice, "1", "alice", 100);
+        vm.prank(owner);
+        proofVerifier.setVerifier(X, V1, IPlatformVerifier(address(0)));
+        assertFalse(registry.acceptsBindings(X));
+
+        _claimNative(alice, alice);
         assertEq(alice.balance, 1 ether);
     }
 
@@ -638,7 +734,7 @@ contract HandleEscrowTest is Test {
 
         _bind(alice, "1", "alice2", 200);
         vm.expectEmit(address(escrow));
-        emit HandleEscrow.Deposited(aliceNode, NATIVE, sender, sender, X, 1, 2 ether);
+        emit HandleEscrow.Deposited(aliceNode, NATIVE, sender, sender, 1, 2 ether);
         _depositNative("alice", 2 ether);
         vm.expectEmit(address(escrow));
         emit HandleEscrow.Refunded(aliceNode, NATIVE, sender, sender, 1, 2 ether, 2 ether);
@@ -649,18 +745,24 @@ contract HandleEscrowTest is Test {
 
     // ─── Wiring and upgrades ────────────────────────────────────────
 
-    /// `initialize` refuses a registry that does not answer the three calls in shape, names the
-    /// first one missing, and accepts any node derivation that depends on the hash.
+    /// `initialize` refuses a registry that does not answer `handleBinding`,
+    /// `handleNodeOf` or `acceptsBindings` in shape, or is not the registry
+    /// that keys identities by node.
     function test_initializeChecksTheRegistry() public {
         assertEq(address(escrow.registry()), address(registry));
         _assertRefused(address(0), abi.encodeWithSelector(HandleEscrow.NoRegistry.selector));
         _assertLacks(makeAddr("no code"), IIdentityRegistry.handleBinding.selector);
-        _assertLacks(address(new RegistryBeforeTheEscrow()), IIdentityRegistry.acceptsBindings.selector);
-        _assertLacks(address(new RegistryWithASilentFallback()), IIdentityRegistry.acceptsBindings.selector);
-        _assertLacks(address(new RegistryWithoutHandleNodeOfHash()), IIdentityRegistry.handleNodeOfHash.selector);
-        _assertLacks(address(new RegistryWithAZeroFallback()), IIdentityRegistry.handleNodeOfHash.selector);
-        _assertLacks(address(new RegistryWithAConstantNode()), IIdentityRegistry.handleNodeOfHash.selector);
-        _deploy(address(new RegistryWithAnotherNodeDerivation()));
+        _assertLacks(address(new RegistryWithAOneWordFallback()), IIdentityRegistry.handleBinding.selector);
+        _assertLacks(address(new RegistryWithASilentFallback()), IIdentityRegistry.handleBinding.selector);
+        // Answers `handleBinding` but does not state `nodeKeyed`.
+        _assertLacks(address(new PreNodeRegistry()), IIdentityRegistry.nodeKeyed.selector);
+        _assertLacks(address(new RegistryWithHandleBindingOnly()), IIdentityRegistry.nodeKeyed.selector);
+        _assertLacks(address(new NotNodeKeyedRegistry()), IIdentityRegistry.nodeKeyed.selector);
+        _assertLacks(address(new NoHandleNodeOfRegistry()), IIdentityRegistry.handleNodeOf.selector);
+        _assertLacks(address(new RevertingHandleNodeOfRegistry()), IIdentityRegistry.handleNodeOf.selector);
+        _assertLacks(address(new NoAcceptsBindingsRegistry()), IIdentityRegistry.acceptsBindings.selector);
+        // The four views in their shapes are all it asks.
+        _deploy(address(new SettableRegistry()));
 
         HandleEscrow impl = new HandleEscrow();
         vm.expectRevert(Initializable.InvalidInitialization.selector);
@@ -715,6 +817,24 @@ contract HandleEscrowTest is Test {
 
     // ─── Helpers ────────────────────────────────────────────────────
 
+    function _secrets() internal pure override returns (string[3] memory) {
+        return ["Alice", "alice", "ALICE"];
+    }
+
+    /// Pay alice on X 1 ether, by text when `byText`, else by node.
+    function _depositAlice(bool byText) internal {
+        vm.prank(sender);
+        if (byText) escrow.depositToHandle{value: 1 ether}(X, "Alice", NATIVE, 1 ether, sender);
+        else escrow.deposit{value: 1 ether}(X, aliceNode, NATIVE, 1 ether, sender);
+    }
+
+    /// Send `data` to the escrow from `sender` with 1 ether.
+    function _send(bytes memory data) internal {
+        vm.prank(sender);
+        (bool ok,) = address(escrow).call{value: 1 ether}(data);
+        assertTrue(ok, "the deposit failed");
+    }
+
     function _deploy(address registry_) internal returns (HandleEscrow) {
         return HandleEscrow(
             address(
@@ -749,14 +869,14 @@ contract HandleEscrowTest is Test {
             })
         );
         vm.prank(who);
-        registry.bind(X, V1, payload, false);
+        registry.bind(X, V1, payload, "");
     }
 
-    /// Deposit native value for text on X, hashed by the registry.
+    /// Deposit native value for text on X, at the node the registry names.
     function _depositNative(string memory handle, uint256 amount) internal {
-        bytes32 handleHash = registry.handleHashOf(X, handle);
+        bytes32 handleNode = registry.handleNodeOf(X, handle);
         vm.prank(sender);
-        escrow.deposit{value: amount}(X, handleHash, NATIVE, amount, sender);
+        escrow.deposit{value: amount}(X, handleNode, NATIVE, amount, sender);
     }
 
     function _claimNative(address holder, address recipient) internal {

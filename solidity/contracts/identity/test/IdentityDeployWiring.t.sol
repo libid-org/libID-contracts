@@ -4,21 +4,16 @@ pragma solidity ^0.8.20;
 import {Test} from "forge-std/Test.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
-import {HandleNormalizer} from "../HandleNormalizer.sol";
-import {HandleVectors} from "../HandleVectors.sol";
 import {IdentityRegistry} from "../IdentityRegistry.sol";
+import {IIdentityRegistry} from "../IIdentityRegistry.sol";
 import {IPlatformVerifier} from "../../ceremony/IPlatformVerifier.sol";
 import {IProofVerifier} from "../../ceremony/IProofVerifier.sol";
+import {CeremonyProfile} from "../../ceremony/CeremonyProfile.sol";
 import {CeremonyProofVerifier} from "../../ceremony/CeremonyProofVerifier.sol";
 import {StubPlatformVerifier} from "./StubPlatformVerifier.sol";
 
-/// The deploy wires three platforms into one registry. A wrong rule set there
-/// writes wrong nodes for every handle on that platform, and nothing later
-/// would notice: the handle would simply resolve to nothing.
-///
-/// So the wiring is asserted rather than assumed — that the rules the deploy
-/// installs are the ones `handles.json` states, and that every platform it
-/// wires comes out resolvable.
+/// A deployed registry knows the three platforms the ceremony profiles name, with
+/// their tags, and a registered verifier makes each resolvable.
 contract IdentityDeployWiringTest is Test {
     IdentityRegistry internal registry;
     CeremonyProofVerifier internal proofVerifier;
@@ -37,65 +32,51 @@ contract IdentityDeployWiringTest is Test {
         registry.setProofVerifier(IProofVerifier(address(proofVerifier)));
     }
 
-    /// The rules come from the generated table, so a change to `handles.json`
-    /// reaches the deploy without anybody editing it.
-    function test_theGeneratedRulesAreTheOnesTheDeployInstalls() public pure {
-        HandleNormalizer.Rules memory x = HandleVectors.rulesFor(HandleVectors.PLATFORM_X);
-        assertEq(x.maxLength, uint16(HandleVectors.MAX_LENGTH_X), "X length");
-        assertTrue(x.stripLeadingAt, "X strips a leading @");
-        assertTrue(x.allowUnderscore, "X allows underscore");
-        assertFalse(x.allowHyphen, "X allows no hyphen");
-        assertFalse(x.isEmail, "X is not an email");
-
-        HandleNormalizer.Rules memory gh = HandleVectors.rulesFor(HandleVectors.PLATFORM_GITHUB);
-        assertEq(gh.maxLength, uint16(HandleVectors.MAX_LENGTH_GITHUB), "GitHub length");
-        assertTrue(gh.allowHyphen, "GitHub allows hyphen");
-        assertFalse(gh.allowUnderscore, "GitHub allows no underscore");
-
-        HandleNormalizer.Rules memory g = HandleVectors.rulesFor(HandleVectors.PLATFORM_GOOGLE);
-        assertEq(g.maxLength, uint16(HandleVectors.MAX_LENGTH_GOOGLE), "Google length");
-        assertTrue(g.isEmail, "Google is an email");
-        assertFalse(g.stripLeadingAt, "an email keeps its @");
+    /// An unknown platform reverts rather than hashing under a default tag.
+    function test_anUnknownPlatformHasNoTag() public {
+        bytes32 nowhere = keccak256("nowhere");
+        vm.expectRevert(abi.encodeWithSelector(CeremonyProfile.UnknownPlatform.selector, nowhere));
+        this.handleTagForExternally(nowhere);
     }
 
-    /// An unknown platform reverts rather than returning a permissive default.
-    /// A default would silently normalize with the wrong rules.
-    function test_anUnknownPlatformHasNoRules() public {
-        vm.expectRevert(bytes("unknown platform"));
-        this.rulesForExternally(keccak256("nowhere"));
+    /// The ceremony profiles sit below identity, so they keep their own copy
+    /// of the registry's error; the two are one error.
+    function test_everyUnknownPlatformIsTheRegistrysError() public pure {
+        assertEq(CeremonyProfile.UnknownPlatform.selector, IIdentityRegistry.UnknownPlatform.selector);
     }
 
-    /// `rulesFor` is an internal library call, which `expectRevert` cannot see.
+    /// `handleTag` is an internal library call, which `expectRevert` cannot see.
     /// This gives it a call boundary to watch.
-    function rulesForExternally(bytes32 platformId) external pure returns (HandleNormalizer.Rules memory) {
-        return HandleVectors.rulesFor(platformId);
+    function handleTagForExternally(bytes32 platformId) external pure returns (bytes memory) {
+        return CeremonyProfile.handleTag(platformId);
     }
 
-    /// Wiring all three the way the deploy does leaves each one resolvable.
-    function test_theDeployWiringLeavesEveryPlatformUsable() public {
+    /// A platform the profiles name answers "nobody" before its verifier is
+    /// registered and after; only a registered verifier lets it bind.
+    function test_aKnownPlatformResolvesWithOrWithoutAVerifier() public {
+        assertEq(registry.resolveHandle(CeremonyProfile.PLATFORM_GOOGLE, "nobody@example.com"), address(0));
+        assertFalse(registry.acceptsBindings(CeremonyProfile.PLATFORM_GOOGLE));
+
         vm.startPrank(owner);
-        address x = _wireIdentityPlatform(HandleVectors.PLATFORM_X);
-        address gh = _wireIdentityPlatform(HandleVectors.PLATFORM_GITHUB);
-        address g = _wireIdentityPlatform(HandleVectors.PLATFORM_GOOGLE);
+        address x = _wireIdentityPlatform(CeremonyProfile.PLATFORM_X);
+        address gh = _wireIdentityPlatform(CeremonyProfile.PLATFORM_GITHUB);
+        address g = _wireIdentityPlatform(CeremonyProfile.PLATFORM_GOOGLE);
         vm.stopPrank();
 
         // The version a deployment registers its first verifier under.
         uint16 v = 1;
-        assertEq(address(proofVerifier.verifierOf(HandleVectors.PLATFORM_X, v)), x);
-        assertEq(address(proofVerifier.verifierOf(HandleVectors.PLATFORM_GITHUB, v)), gh);
-        assertEq(address(proofVerifier.verifierOf(HandleVectors.PLATFORM_GOOGLE, v)), g);
+        assertEq(address(proofVerifier.verifierOf(CeremonyProfile.PLATFORM_X, v)), x);
+        assertEq(address(proofVerifier.verifierOf(CeremonyProfile.PLATFORM_GITHUB, v)), gh);
+        assertEq(address(proofVerifier.verifierOf(CeremonyProfile.PLATFORM_GOOGLE, v)), g);
 
-        // Resolvable means the platform answers "nobody" rather than reverting
-        // `UnknownPlatform`, which is what an unwired one does.
-        assertEq(registry.resolveHandle(HandleVectors.PLATFORM_X, "nobody"), address(0));
-        assertEq(registry.resolveHandle(HandleVectors.PLATFORM_GITHUB, "nobody"), address(0));
-        assertEq(registry.resolveHandle(HandleVectors.PLATFORM_GOOGLE, "nobody@example.com"), address(0));
+        assertTrue(registry.acceptsBindings(CeremonyProfile.PLATFORM_GOOGLE));
+        assertEq(registry.resolveHandle(CeremonyProfile.PLATFORM_X, "nobody"), address(0));
+        assertEq(registry.resolveHandle(CeremonyProfile.PLATFORM_GITHUB, "nobody"), address(0));
+        assertEq(registry.resolveHandle(CeremonyProfile.PLATFORM_GOOGLE, "nobody@example.com"), address(0));
     }
 
-    /// The deploy script's wiring, mirrored. Both sides call one helper so this
-    /// test cannot drift from the script it exists to prove.
+    /// Enable a platform: register a first verifier for it.
     function _wireIdentityPlatform(bytes32 platformId) internal returns (address verifier) {
-        registry.setPlatform(platformId, HandleVectors.rulesFor(platformId));
         verifier = address(new StubPlatformVerifier(platformId, 0));
         proofVerifier.setVerifier(platformId, 1, IPlatformVerifier(verifier));
     }

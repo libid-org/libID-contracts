@@ -4,9 +4,9 @@ pragma solidity ^0.8.24;
 import {Test} from "forge-std/Test.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
-import {HandleVectors} from "../HandleVectors.sol";
+import {CeremonyProfile} from "../../ceremony/CeremonyProfile.sol";
 import {IdentityRegistry} from "../IdentityRegistry.sol";
-import {IdentityNodes} from "../IdentityNodes.sol";
+import {TestNodes} from "./TestNodes.sol";
 import {CeremonyProofVerifier} from "../../ceremony/CeremonyProofVerifier.sol";
 import {IPlatformVerifier} from "../../ceremony/IPlatformVerifier.sol";
 import {IProofVerifier} from "../../ceremony/IProofVerifier.sol";
@@ -26,7 +26,7 @@ contract IdentityRegistryGasTest is Test {
     CeremonyProofVerifier internal proofVerifier;
     StubPlatformVerifier internal xVerifier;
 
-    bytes32 internal constant X = HandleVectors.PLATFORM_X;
+    bytes32 internal constant X = CeremonyProfile.PLATFORM_X;
     uint16 internal constant V1 = 1;
     uint256 internal constant FEW = 4;
     uint256 internal constant MANY = 1000;
@@ -50,7 +50,6 @@ contract IdentityRegistryGasTest is Test {
         xVerifier = new StubPlatformVerifier(X, 0);
         vm.startPrank(owner);
         registry.setProofVerifier(IProofVerifier(address(proofVerifier)));
-        registry.setPlatform(X, HandleVectors.rulesFor(X));
         proofVerifier.setVerifier(X, V1, IPlatformVerifier(address(xVerifier)));
         vm.stopPrank();
         vm.warp(1_000_000);
@@ -121,7 +120,7 @@ contract IdentityRegistryGasTest is Test {
         return vm.lastFrameGas().gasTotalUsed;
     }
 
-    /// A bind made out to `who`, from cold storage.
+    /// A cold bind made out to `who` that discloses the handle.
     function _prove(address who, string memory id, string memory handle) internal {
         xVerifier.set(id, handle);
         xVerifier.setObservedAt(++clock);
@@ -135,7 +134,7 @@ contract IdentityRegistryGasTest is Test {
         );
         _cool();
         vm.prank(who);
-        registry.bind(X, V1, payload, true);
+        registry.bind(X, V1, payload, handle);
     }
 
     // ─── Writes ─────────────────────────────────────────────────────
@@ -215,17 +214,17 @@ contract IdentityRegistryGasTest is Test {
     /// The reads under the resolvers: a binding by its node, and a digest.
     function test_theRawReadsCostTheSame() public measured {
         _cool();
-        registry.idBinding(IdentityNodes.idNode(X, _id(1, 0)));
+        registry.idBinding(TestNodes.idNode(X, _id(1, 0)));
         uint64 atFew = _used();
         _cool();
-        registry.idBinding(IdentityNodes.idNode(X, _id(2, 0)));
+        registry.idBinding(TestNodes.idNode(X, _id(2, 0)));
         assertEq(atFew, _used(), "idBinding");
 
         _cool();
-        registry.handleBinding(IdentityNodes.handleNode(X, _handle(1, 0)));
+        registry.handleBinding(TestNodes.handleNode(X, _handle(1, 0)));
         atFew = _used();
         _cool();
-        registry.handleBinding(IdentityNodes.handleNode(X, _handle(2, 0)));
+        registry.handleBinding(TestNodes.handleNode(X, _handle(2, 0)));
         assertEq(atFew, _used(), "handleBinding");
 
         _prove(few, _id(1, 900_003), _handle(1, 900_003));
@@ -249,17 +248,17 @@ contract IdentityRegistryGasTest is Test {
         assertEq(atFew, _used(), "resolveHandle");
 
         _cool();
-        registry.resolveId(X, _id(1, 0));
+        registry.resolveId(TestNodes.idNode(X, _id(1, 0)));
         atFew = _used();
         _cool();
-        registry.resolveId(X, _id(2, 0));
+        registry.resolveId(TestNodes.idNode(X, _id(2, 0)));
         assertEq(atFew, _used(), "resolveId");
 
         _cool();
-        registry.resolveHandleAndId(X, _handle(1, 0), _id(1, 0));
+        registry.resolveHandleAndId(X, _handle(1, 0), TestNodes.idNode(X, _id(1, 0)));
         atFew = _used();
         _cool();
-        registry.resolveHandleAndId(X, _handle(2, 0), _id(2, 0));
+        registry.resolveHandleAndId(X, _handle(2, 0), TestNodes.idNode(X, _id(2, 0)));
         assertEq(atFew, _used(), "resolveHandleAndId");
 
         _cool();

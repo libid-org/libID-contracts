@@ -1,5 +1,5 @@
-# Install Foundry, vendor the Honk verifiers, restore the forge artifact cache,
-# and build the contracts.
+# Install Foundry, vendor the Honk verifiers and the platform table, restore
+# the forge artifact cache, and build the contracts.
 #
 # Every job that needs `forge build` — solidity runs the tests over it, rust
 # vendors the artifacts into the crate, ts generates bindings from them, and
@@ -38,7 +38,8 @@ runs:
       with:
         version: ${{ inputs.foundry-version }}
 
-    # The Honk verifiers are not in the checkout: they are gitignored, and
+    # The Honk verifiers and the platform table (platforms.json, handles.json)
+    # are not in the checkout: they are gitignored, and
     # scripts/vendor-circuit-verifiers.sh downloads them from the pinned
     # libid-circuits release, refusing any tarball whose sha256 is not the
     # literal in solidity/contracts/circuits/circuits.json. So every build,
@@ -47,6 +48,13 @@ runs:
     - name: Vendor circuit verifiers
       shell: bash
       run: ./scripts/vendor-circuit-verifiers.sh
+
+    # The vendor step rewrites CircuitCodehashes.sol from the verifiers it
+    # just wrote, so the drift test in HonkVerifiers.t.sol would compare the
+    # file with itself. The committed file must be what the pin vendors.
+    - name: CircuitCodehashes.sol matches the vendored verifiers
+      shell: bash
+      run: git diff --exit-code solidity/contracts/circuits/CircuitCodehashes.sol
 
     # `solidity/lib/**` hashes the checked-out submodule trees, so bumping a
     # submodule pointer changes the key. The foundry version is in the key too:

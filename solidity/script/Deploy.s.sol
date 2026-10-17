@@ -8,17 +8,12 @@ import {NotaryService} from "../contracts/ceremony/NotaryService.sol";
 import {INotaryService} from "../contracts/ceremony/INotaryService.sol";
 import {CeremonyProofVerifier} from "../contracts/ceremony/CeremonyProofVerifier.sol";
 import {IProofVerifier} from "../contracts/ceremony/IProofVerifier.sol";
-import {HandleVectors} from "../contracts/identity/HandleVectors.sol";
 import {GoogleJwtRoots} from "../contracts/ceremony/GoogleJwtRoots.sol";
 
 /// @notice Deploy the identity stack to any EVM chain.
 ///
-/// Four UUPS proxies, in dependency order: the Notary Service every notarized
-/// session is verified through, the Proof Verifier the identity registry
-/// dispatches bindings through, the registry itself with handle rules per
-/// platform, and the Google JWT root list that pays the Notary Service for
-/// each rotation. No Platform Verifier is registered here -- that needs the
-/// ceremony circuit artifacts, which arrive with their own release.
+/// Four UUPS proxies: Notary Service, Proof Verifier, identity registry and
+/// Google JWT root list. No Platform Verifier is registered here.
 ///
 /// Usage:
 ///   forge script script/Deploy.s.sol \
@@ -74,14 +69,7 @@ contract Deploy is Script {
             address(new ERC1967Proxy(address(registryImpl), abi.encodeCall(IdentityRegistry.initialize, (deployer))));
         IdentityRegistry registry = IdentityRegistry(identityRegistryAddr);
         registry.setProofVerifier(IProofVerifier(proofVerifierAddr));
-
-        // Handle rules per platform. Registering a Platform Verifier against a
-        // version is `CeremonyProofVerifier.setVerifier`, and one needs the
-        // ceremony circuit's artifact and its code hash -- neither of which
-        // this script has until that release lands.
-        _wireIdentityPlatform(registry, HandleVectors.PLATFORM_X);
-        _wireIdentityPlatform(registry, HandleVectors.PLATFORM_GITHUB);
-        _wireIdentityPlatform(registry, HandleVectors.PLATFORM_GOOGLE);
+        // A platform is enabled by `CeremonyProofVerifier.setVerifier`, which needs circuit artifacts.
 
         // 4. The Google JWT root list, beside the Platform Verifier it serves.
         //    That verifier reads the trusted moduli through it, and nothing
@@ -106,22 +94,12 @@ contract Deploy is Script {
         console.log("GOOGLE_JWT_ROOTS_ADDRESS= ", jwtRootsAddr);
         console.log("NOTE: no Platform Verifier is registered yet. Add one with");
         console.log("      CeremonyProofVerifier.setVerifier once the ceremony");
-        console.log("      circuit artifacts are released. Until then a platform");
-        console.log("      has its rules and can verify nothing.");
+        console.log("      circuit artifacts are released. Until then no");
+        console.log("      platform can bind.");
         // Nothing is trusted until a notarized reading of Google's JWKS lands.
         // Until then every Google binding reverts `UntrustedModulus`, which reads
         // as a bad proof rather than an unseeded list.
         console.log("NOTE: point the keeper at GOOGLE_JWT_ROOTS_ADDRESS");
         console.log("      before Google bindings work. The trust list starts empty.");
-    }
-
-    /// @dev Give a platform its handle rules.
-    ///
-    ///      One helper rather than the call spelled out per platform: the rules
-    ///      come from the generated table keyed by platform id, so a new
-    ///      platform is one line here and cannot pick up a neighbour's rules by
-    ///      a copy-paste slip.
-    function _wireIdentityPlatform(IdentityRegistry registry, bytes32 platformId) internal {
-        registry.setPlatform(platformId, HandleVectors.rulesFor(platformId));
     }
 }

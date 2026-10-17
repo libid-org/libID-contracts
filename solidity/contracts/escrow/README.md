@@ -6,10 +6,26 @@ until then each deposit's `refundTo` can take its own contribution back. A
 handle somebody already holds is paid straight through.
 
 ```solidity
-escrow.deposit{value: amount}(platformId, handleHash, escrow.NATIVE(), amount, refundTo);
+escrow.deposit{value: amount}(platformId, handleNode, escrow.NATIVE(), amount, refundTo);
 escrow.claim(handleNode, tokens, recipient);   // the handle's holder
 escrow.refund(handleNode, token, recipient);   // refundTo, while unclaimed
 ```
+
+## Private or public
+
+- `deposit(platformId, handleNode, …)` is private: the calldata and the logs
+  carry the node, never the handle. The calldata names the platform.
+- `depositToHandle(platformId, handle, …)` is public: the escrow asks the
+  registry's `handleNodeOf` for the node, and `DepositedToHandle` logs the
+  platform and the handle folded. It credits the same node, so a claim
+  takes both kinds together. Text other than a handle as the platform sends it
+  (`@alice`, a space) lands on a node nobody can prove; only `refundTo` gets it back.
+- Either kind reverts `PlatformAcceptsNoBindings` when it would escrow while
+  the registry's `acceptsBindings` is false for a platform it knows, and the
+  registry's `UnknownPlatform` for a platform it does not; a holder is still
+  paid. `deposit` checks the platform it is given: a node of another platform
+  escrows until its own platform binds it, then its holder can claim;
+  `refundTo` can refund until then.
 
 ## Integrating
 
@@ -17,18 +33,23 @@ escrow.refund(handleNode, token, recipient);   // refundTo, while unclaimed
   refund.
 - `NATIVE`, the EIP-7528 address `0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE`,
   names the chain's own coin in `deposit`, `claim`, `refund` and every event.
-- `handleHash` is `keccak256` of the handle normalized under the chain's
-  current rules (`IdentityRegistry.rulesOf`). Hash locally: `handleHashOf` over
-  RPC sends the handle to the provider. A wrong hash funds a slot only
-  `refundTo` can recover. Take `handleNode` from `Deposited`.
+  Any other token without code, the zero address included, reverts
+  `BadToken`.
+- `handleNode` is `SHA256(handle tag || normalized handle)`, the node the
+  platform's circuit binds the handle under. Compute it locally with
+  `@libid/contracts` or `libid-identity` (`handleNode`);
+  `IdentityRegistry.handleNodeOf` over RPC sends the handle to the provider. A
+  wrong node funds a slot only `refundTo` can recover.
 - Escrowed value is refundable until claimed; a refund and a claim race.
 - `Deposited`, `Claimed` and `Refunded` name their round. A claim closes the
   round it names and the next deposit opens the next, so a `Refunded` belongs
   to the `Deposited` of its round and a `Claimed` took what that round still
-  held. `Claimed` and `Refunded` name no platform: join on the node with
-  `Deposited` or `IdentityRegistry.IdentityBound`.
+  held. Only `DepositedToHandle` names a platform: otherwise join on the
+  node with `IdentityRegistry.IdentityBound`, or recompute it from a known
+  handle.
 - Pay-through goes to whoever holds the handle when the transaction lands,
-  recycled handles included. Show `handleBinding(node).observedAt` first. A
+  recycled handles included: a handle that changes hands before the deposit
+  lands pays its new holder, and a forward cannot be refunded. A
   holder that rejects ETH cannot be paid in ETH; a holder contract can burn
   its payers' gas.
 - Each token is one pool. Rebasing tokens are unsupported: after a negative
@@ -37,24 +58,38 @@ escrow.refund(handleNode, token, recipient);   // refundTo, while unclaimed
   reverts `OverDebited`, and only an upgrade can release it. A token that
   blocklists the escrow freezes its slots; value sent outside `deposit` is
   never swept.
-- Refunds work whatever the platform's rules or `acceptsBindings` say.
+- Refunds work whatever the platform's state. A private deposit to a node on
+  a platform that no longer binds escrows like any other and can only be
+  refunded.
 - Indexers should allow-list tokens: anyone can emit `Deposited` for a token
   they wrote.
 
 ## Deploying
 
-- Upgrade the deployed `IdentityRegistry` first: `initialize` reverts
-  `RegistryLacks` unless it answers `handleBinding`, `acceptsBindings` and
-  `handleNodeOfHash`.
+- `initialize` reverts `RegistryLacks` unless the registry answers all four
+  probes:
+  - `handleBinding(0)` with two words;
+  - `nodeKeyed()` with true, which only the registry that keys identities by
+    node does;
+  - `handleNodeOf(0, "")` with 32 bytes, or reverts exactly
+    `UnknownPlatform(0)`;
+  - `acceptsBindings(0)` with 0 or 1.
+
+  The escrow is deployed against that registry; one deployed against the
+  registry before it is not upgraded onto it.
 - The escrow keeps that `IdentityRegistry` for life. There is no setter, so no
   key can point claims elsewhere; deploy the escrow once the registry sits at
   its final address, and move it later only by upgrade.
 
 ## Privacy and trust
 
-A hash keeps the handle out of the sender's calldata but is not secret: anyone
-can hash a guess. A Google recipient claims through today's Google profile,
-which puts the email on chain in plaintext.
+A node keeps the handle text out of the sender's calldata, but it is an
+unsalted tagged SHA-256, so anyone can test a guess against it. The bind's
+attestation also makes the id's and the handle's byte lengths public, in its
+commitment offsets. GitHub ids are sequential, so a GitHub id node is in effect
+public. Claiming adds nothing: the holder's binding is keyed by the same node.
+A binding that publishes no handle keeps it undisclosed, not unlinkable: every
+use of a node links to every other.
 
 Every key that can change what `handleBinding` answers can take escrowed value
 through an ordinary identity binding: the `IdentityRegistry`,

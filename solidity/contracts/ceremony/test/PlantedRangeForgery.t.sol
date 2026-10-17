@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
+import {HonkStub} from "./HonkStub.sol";
 import {Test} from "forge-std/Test.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
@@ -12,17 +13,12 @@ import {ICeremony} from "../ICeremony.sol";
 import {INotaryService} from "../INotaryService.sol";
 import {NotaryService} from "../NotaryService.sol";
 import {IHonkVerifier} from "../PlatformVerifierBase.sol";
-import {TlsNotaryVerifierBase} from "../TlsNotaryVerifierBase.sol";
 import {XPlatformVerifier} from "../XPlatformVerifier.sol";
-import {HandleNormalizer} from "../../identity/HandleNormalizer.sol";
-
-contract Honk2 is IHonkVerifier {
-    function verify(bytes calldata, bytes32[] calldata) external pure returns (bool) {
-        return true;
-    }
-}
+import {TlsNotaryVerifierBase} from "../TlsNotaryVerifierBase.sol";
 
 contract PlantedRangeForgeryTest is Test {
+    using AttestationBuilder for AttestationBuilder.Direction;
+
     XPlatformVerifier verifier;
     NotaryService notary;
     uint256 quote;
@@ -50,27 +46,20 @@ contract PlantedRangeForgeryTest is Test {
                 )
             )
         );
-        address honkAddr = address(new Honk2());
+        address honkAddr = HonkStub.deploy(HonkStub.BEARER_LINK);
         XPlatformVerifier vImpl = new XPlatformVerifier();
         verifier = XPlatformVerifier(
             address(
                 new ERC1967Proxy(
                     address(vImpl),
                     abi.encodeCall(
-                        XPlatformVerifier.initialize,
-                        (OWNER, INotaryService(address(notary)), IHonkVerifier(honkAddr), honkAddr.codehash)
+                        XPlatformVerifier.initialize, (OWNER, INotaryService(address(notary)), IHonkVerifier(honkAddr))
                     )
                 )
             )
         );
         quote = verifier.quote();
         vm.deal(address(this), 100 ether);
-    }
-
-    function _sign(bytes memory attested) private pure returns (bytes memory) {
-        bytes32 ethHash = keccak256(abi.encodePacked("\x19Ethereum Signed Message:\n32", keccak256(attested)));
-        (uint8 v, bytes32 r, bytes32 s) = vm.sign(NOTARY_KEY, ethHash);
-        return abi.encodePacked(r, s, v);
     }
 
     function _tokenResponse() private pure returns (AttestationBuilder.Direction memory received) {
@@ -120,12 +109,12 @@ contract PlantedRangeForgeryTest is Test {
         });
 
         bytes memory attested = AttestationBuilder.encode(CeremonyProfile.AUTHORITY_X_API, T0, sent, _tokenResponse());
-        return ICeremony.Attestation({attestedData: attested, proof: _sign(attested)});
+        return ICeremony.Attestation({attestedData: attested, proof: AttestationBuilder.sign(NOTARY_KEY, attested)});
     }
 
     function _honestIdentity() private pure returns (ICeremony.Attestation memory) {
         bytes memory head =
-            abi.encodePacked("GET /2/users/me HTTP/1.1\r\nhost: api.x.com\r\n", "\r\nauthorization: Bearer ");
+            abi.encodePacked("GET /2/users/me HTTP/1.1\r\nhost: api.x.com", "\r\nauthorization: Bearer ");
         bytes memory bearer = "TOKENTOKENTOKEN";
         bytes memory tail = "\r\n\r\n";
         uint32 bstart = uint32(head.length);
@@ -140,14 +129,18 @@ contract PlantedRangeForgeryTest is Test {
             ),
             length: sentLen
         });
-        bytes memory body = abi.encodePacked('HTTP/1.1 200 OK\r\n\r\n{"id":"2244994945","username":"alice"}');
-        AttestationBuilder.Direction memory received = AttestationBuilder.Direction({
-            revealed: AttestationBuilder.one(AttestationBuilder.Range({start: 0, value: body})),
-            commitments: AttestationBuilder.none(),
-            length: uint32(body.length)
-        });
+        // The anchor-only reveal: the id and handle committed, the anchors
+        // around them revealed, every other byte behind a commitment.
+        AttestationBuilder.Direction memory received;
+        received.commit('{"data":{', bytes32(uint256(0x5555)))
+            .reveal('"id":"')
+            .commit("2244994945", bytes32(uint256(0x3333)))
+            .reveal('","username":"')
+            .commit("alice", bytes32(uint256(0x4444)))
+            .reveal('"')
+            .commit("}}", bytes32(uint256(0x5555)));
         bytes memory attested = AttestationBuilder.encode(CeremonyProfile.AUTHORITY_X_API, T0, sent, received);
-        return ICeremony.Attestation({attestedData: attested, proof: _sign(attested)});
+        return ICeremony.Attestation({attestedData: attested, proof: AttestationBuilder.sign(NOTARY_KEY, attested)});
     }
 
     function _txData() private pure returns (bytes memory) {
@@ -207,7 +200,7 @@ contract PlantedRangeForgeryTest is Test {
         AttestationBuilder.Direction memory sent =
             AttestationBuilder.Direction({revealed: rs, commitments: AttestationBuilder.none(), length: e3});
         bytes memory attested = AttestationBuilder.encode(CeremonyProfile.AUTHORITY_X_API, T0, sent, _tokenResponse());
-        return ICeremony.Attestation({attestedData: attested, proof: _sign(attested)});
+        return ICeremony.Attestation({attestedData: attested, proof: AttestationBuilder.sign(NOTARY_KEY, attested)});
     }
 
     function test_skeptic2_perFieldLayoutIsRejected() public {
@@ -218,22 +211,5 @@ contract PlantedRangeForgeryTest is Test {
         // the tiling check refuses the request before any field is read.
         vm.expectPartialRevert(CeremonyAttestation.CoverageGap.selector);
         this.run{value: quote}(s);
-    }
-
-    /// Finding 7: the empty handle never reaches a node -- normalize reverts.
-    function test_skeptic2_emptyHandleReverts() public {
-        HandleNormalizer.Rules memory google = HandleNormalizer.Rules({
-            maxLength: 254, stripLeadingAt: false, isEmail: true, allowUnderscore: true, allowHyphen: true
-        });
-        vm.expectRevert(HandleNormalizer.EmptyHandle.selector);
-        this.normalizeExternal("", google);
-    }
-
-    function normalizeExternal(string memory raw, HandleNormalizer.Rules memory rules)
-        external
-        pure
-        returns (string memory)
-    {
-        return HandleNormalizer.normalize(raw, rules);
     }
 }

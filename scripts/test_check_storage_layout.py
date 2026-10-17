@@ -2,9 +2,12 @@
 """Synthetic cases for check-storage-layout.py's classification. Needs no forge."""
 from __future__ import annotations
 
+import contextlib
 import importlib.util
+import io
 import pathlib
 import sys
+import tempfile
 import unittest
 
 SCRIPT = pathlib.Path(__file__).resolve().parent / "check-storage-layout.py"
@@ -110,6 +113,47 @@ class Classify(unittest.TestCase):
         old = [ROOT, "field slot=0 offset=0 a: uint256", "field slot=1 offset=0 b: uint256"]
         new = [ROOT, "field slot=0 offset=0 b: uint256", "field slot=1 offset=0 a: uint256"]
         self.assertEqual(classify(old, new), "incompatible")
+
+
+class Settle(unittest.TestCase):
+    OLD = [ROOT, "field slot=0 offset=0 a: uint256", "field slot=1 offset=0 dead: uint64"]
+    NEW = [ROOT, "field slot=0 offset=0 a: uint256"]
+
+    def setUp(self) -> None:
+        self.dir = tempfile.TemporaryDirectory()
+        root = pathlib.Path(self.dir.name)
+        self.saved = check.REPO_ROOT, check.CONTRACTS_ROOT
+        check.REPO_ROOT, check.CONTRACTS_ROOT = root, root
+        self.layout = check.Layout("T.sol", ("T",), "T.S", "S")
+        self.layout.snapshot.write_text("\n".join(check.header(self.layout) + self.OLD) + "\n")
+
+    def tearDown(self) -> None:
+        check.REPO_ROOT, check.CONTRACTS_ROOT = self.saved
+        self.dir.cleanup()
+
+    def settle(self, new: list[str], update: bool, why: str | None) -> bool:
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            return check.settle(self.layout, check.recorded(self.layout), new, update, why)
+
+    def test_a_removal_is_refused_and_not_recorded(self) -> None:
+        before = self.layout.snapshot.read_text()
+        self.assertFalse(self.settle(self.NEW, update=True, why=None))
+        self.assertEqual(self.layout.snapshot.read_text(), before)
+
+    def test_a_redeploy_resets_the_snapshot_and_says_why(self) -> None:
+        self.assertTrue(self.settle(self.NEW, update=False, why="ships fresh"))
+        lines = self.layout.snapshot.read_text().splitlines()
+        self.assertEqual(lines[:2], check.header(self.layout))
+        self.assertEqual(lines[2], check.RESET + "ships fresh")
+        self.assertEqual(check.recorded(self.layout), self.NEW)
+
+    def test_the_stamp_survives_an_append_and_appends_are_checked_against_the_reset(self) -> None:
+        self.settle(self.NEW, update=False, why="ships fresh")
+        appended = self.NEW + ["field slot=1 offset=0 b: address"]
+        self.assertTrue(self.settle(appended, update=True, why=None))
+        self.assertEqual(check.stamp(self.layout), [check.RESET + "ships fresh"])
+        self.assertEqual(check.recorded(self.layout), appended)
+        self.assertFalse(self.settle(self.NEW, update=True, why=None))
 
 
 class Coverage(unittest.TestCase):

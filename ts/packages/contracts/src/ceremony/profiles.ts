@@ -20,8 +20,9 @@
  * request line a prover composes one byte differently is an attestation
  * rejected with no error that says why.
  *
- * Changing a value here changes what a deployed verifier accepts. That is a
- * new ceremonyVersion, not an edit.
+ * Changing a value here changes what a deployed verifier accepts. On a
+ * live deployment that is a new ceremonyVersion, not an edit; a fresh
+ * deployment under new canonical addresses keeps its versions.
  */
 
 /** Which shape a platform's immutable identifier takes in its response. */
@@ -52,6 +53,9 @@ export interface TokenSession {
 
 export interface IdentitySession {
   readonly session: Session
+  /** The header lines a Platform Verifier requires, each exactly once with
+   * its value: `host`. */
+  readonly requiredHeaders: readonly string[]
   readonly idField: string
   readonly idShape: IdShape
   readonly handleField: string
@@ -101,6 +105,7 @@ export const X: Profile = {
       path: '/2/users/me',
       requestLine: 'GET /2/users/me ',
     },
+    requiredHeaders: ['host: api.x.com'],
     idField: 'id',
     idShape: 'jsonString',
     handleField: 'username',
@@ -133,6 +138,7 @@ export const GITHUB: Profile = {
       path: '/user',
       requestLine: 'GET /user ',
     },
+    requiredHeaders: ['host: api.github.com'],
     idField: 'id',
     idShape: 'jsonInteger',
     handleField: 'login',
@@ -161,11 +167,12 @@ export function attestationCount(profile: Profile): number {
  * it parses, `cookie` which session it answers for, the three override
  * names which method it runs. The identity request is excepted from
  * `authorization` alone: its one such header, under any scheme, is what
- * REQ-COMMON-39 counts. On the token request the verifier further
- * requires each session's requiredHeaders, `host` and `content-type`,
- * reads `content-length`, and ignores every other header: one outside
- * both lists changes only what the platform answers, and a wrong answer
- * is a response the verifier cannot read.
+ * REQ-COMMON-39 counts. The verifier further requires each session's
+ * requiredHeaders once with their value -- `host` on both requests,
+ * `content-type` on the token request -- reads the token request's
+ * `content-length`, and ignores every other header: one outside both
+ * lists changes only what the platform answers, and a wrong answer is a
+ * response the verifier cannot read.
  */
 export const FORBIDDEN_REQUEST_HEADERS: readonly string[] = [
   'authorization',

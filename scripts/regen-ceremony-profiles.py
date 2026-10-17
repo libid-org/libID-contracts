@@ -9,8 +9,11 @@ it, then run this script. Up to three files are written and never drift apart:
     ts/packages/contracts/src/ceremony/profiles.ts    # TypeScript constants
 
 An output is skipped with a note until its target directory appears. The
-Platform Verifiers are hand written in Solidity and READ these constants, the
-way `HandleNormalizer` reads `HandleVectors`. Only the values come from here.
+Platform Verifiers and `IdentityRegistry` are hand written in Solidity and READ
+these constants. Only the values come from here, except the node tags: those
+are the pinned libID-circuits release's `platforms.json`, vendored into
+`solidity/contracts/circuits/` by `scripts/vendor-circuit-verifiers.sh`, and
+`CeremonyProfile` carries each profile's.
 That is the point: four components must produce the same bytes, and a
 disagreement between them is silent -- a Consumer dispatching on one string and
 a verifier registered under another simply never meet.
@@ -33,6 +36,8 @@ REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 SOLIDITY_ROOT = REPO_ROOT / "solidity"
 SOURCE = SOLIDITY_ROOT / "contracts" / "ceremony" / "profiles.json"
 SOURCE_REL = SOURCE.relative_to(REPO_ROOT).as_posix()
+PLATFORMS = SOLIDITY_ROOT / "contracts" / "circuits" / "platforms.json"
+PLATFORMS_REL = PLATFORMS.relative_to(REPO_ROOT).as_posix()
 
 SOL_OUT = SOLIDITY_ROOT / "contracts" / "ceremony" / "CeremonyProfile.sol"
 RUST_OUT = REPO_ROOT / "rust" / "profiles" / "src" / "profiles.rs"
@@ -122,14 +127,14 @@ def request_line(session: dict[str, Any]) -> str:
     return f"{session['method']} {session['path']} "
 
 
-# The header names a Platform Verifier requires of every token request, and
-# the only header data a profile carries. `host` because a profile whose
-# pinned authority and pinned host name different servers contradicts itself,
-# and `content-type` because it selects the platform's request parser
-# (REQ-COMMON-21B). Nothing else a runtime sends changes what the platform
-# parses, so nothing else is compared, and nothing else is stated: what a
-# runtime adds beyond these is its own.
-REQUIRED_NAMES = ("host", "content-type")
+# The header names a Platform Verifier requires of each session's request, and
+# the only header data a profile carries. `host` on both, because a profile
+# whose pinned authority and pinned host name different servers contradicts
+# itself, and `content-type` on the token request, because it selects the
+# platform's request parser (REQ-COMMON-21B). Nothing else a runtime sends
+# changes what the platform parses, so nothing else is compared, and nothing
+# else is stated: what a runtime adds beyond these is its own.
+REQUIRED_NAMES = {"token": ("host", "content-type"), "identity": ("host",)}
 
 # Lowercase field names, so a verifier lowercasing what it reads can compare
 # against the list as it is.
@@ -154,7 +159,7 @@ def forbidden_headers(spec: dict[str, Any]) -> list[str]:
     for name in names:
         if not isinstance(name, str) or not NAME.fullmatch(name):
             raise SystemExit(f"ERROR: forbidden header {name!r} is not a lowercase field name")
-        if name in REQUIRED_NAMES or name == "content-length":
+        if any(name in names for names in REQUIRED_NAMES.values()) or name == "content-length":
             raise SystemExit(f"ERROR: {name!r} is read by the verifier and cannot be forbidden")
     if len(set(names)) != len(names):
         raise SystemExit("ERROR: requests.forbiddenHeaders names one header twice")
@@ -215,25 +220,25 @@ def escaped(value: str) -> str:
 HEADER = re.compile(r"^[a-z][a-z0-9-]*: [\x20-\x21\x23-\x26\x28-\x5b\x5d-\x7e]+$")
 
 
-def required_headers(session: dict[str, Any]) -> list[str]:
-    """The lines a verifier holds a token request's head to, validated.
+def required_headers(session: dict[str, Any], kind: str = "token") -> list[str]:
+    """The lines a verifier holds a `kind` request's head to, validated.
 
-    Exactly the names in `REQUIRED_NAMES`, each as `lowercase-name: value`, the
-    `host` one naming the pinned authority. A verifier compares these lines
-    raw, so a line the wire spells differently is a profile that rejects every
-    honest session, and says so here rather than as a rejection with no
-    reason.
+    Exactly the names `REQUIRED_NAMES` gives `kind`, each as
+    `lowercase-name: value`, the `host` one naming the pinned authority. A
+    verifier compares these lines raw, so a line the wire spells differently
+    is a profile that rejects every honest session, and says so here rather
+    than as a rejection with no reason.
     """
     headers = session["requiredHeaders"]
     if not isinstance(headers, list):
-        raise SystemExit("ERROR: a token session must list its required headers")
+        raise SystemExit(f"ERROR: a {kind} session must list its required headers")
     names: list[str] = []
     for line in headers:
         if not isinstance(line, str) or not HEADER.fullmatch(line):
             raise SystemExit(f"ERROR: header {line!r} is not `lowercase-name: value`")
         names.append(line.split(":", 1)[0])
-    if sorted(names) != sorted(REQUIRED_NAMES):
-        raise SystemExit(f"ERROR: the required headers must be exactly {REQUIRED_NAMES}, got {names}")
+    if sorted(names) != sorted(REQUIRED_NAMES[kind]):
+        raise SystemExit(f"ERROR: the {kind} required headers must be exactly {REQUIRED_NAMES[kind]}, got {names}")
     # The `Host` header is prover-composed text and says nothing about which
     # server answered -- but a profile whose pinned header names one host while
     # its pinned authority names another contradicts itself, and only one of the
@@ -292,6 +297,7 @@ def validate(spec: dict[str, Any]) -> None:
                 required_headers(session)
                 token_fields(session)
             if name == "identity":
+                required_headers(session, "identity")
                 safe(session["idField"], "idField")
                 safe(session["handleField"], "handleField")
             if host != host.lower() or host.endswith("."):
@@ -310,6 +316,24 @@ def validate(spec: dict[str, Any]) -> None:
         if len(sessions_of(profile)) == 1:
             raise SystemExit(f"ERROR: {platform!r} has one session; expected none or both")
         validate_validity(profile)
+
+
+def attach_tags(spec: dict[str, Any], table: dict[str, Any]) -> None:
+    """Give each profile its node tags from the vendored platforms.json, as
+    `tags: {userId, handle}`. The circuits' generator holds the tags to their
+    length and prefix-freedom; here each only has to be a literal."""
+    by_platform = {p["platform"]: p for p in table["platforms"]}
+    for profile in spec["profiles"]:
+        platform = profile["platform"]
+        if platform not in by_platform:
+            raise SystemExit(
+                f"ERROR: {platform!r} has no entry in {PLATFORMS_REL}; the pinned circuits know no such platform"
+            )
+        entry = by_platform[platform]
+        profile["tags"] = {
+            "userId": safe(entry["userIdTag"], "tag"),
+            "handle": safe(entry["handleTag"], "tag"),
+        }
 
 
 def validate_validity(profile: dict[str, Any]) -> None:
@@ -372,6 +396,7 @@ def gen_sol(spec: dict[str, Any]) -> str:
         "pragma solidity ^0.8.24;",
         "",
         header("//").rstrip("\n"),
+        f"// The node tags are the pinned libID-circuits release's platforms.json, vendored at {PLATFORMS_REL}.",
         "",
         "/// @title CeremonyProfile",
         "/// @notice The tags a Platform Verifier pins, and the validity window",
@@ -389,6 +414,18 @@ def gen_sol(spec: dict[str, Any]) -> str:
         lines.append(
             f'    bytes32 internal constant PLATFORM_{name} = keccak256(bytes("{profile["platform"]}"));'
         )
+
+    lines += [
+        "",
+        "    // --- Node tags ----------------------------------------------------------",
+        "",
+        "    /// @dev A node is SHA256 of its tag, then the id or the folded handle.",
+    ]
+    for profile in profiles:
+        name = upper(profile["platform"])
+        tags = profile["tags"]
+        lines.append(f'    bytes internal constant {name}_USER_ID_TAG = "{tags["userId"]}";')
+        lines.append(f'    bytes internal constant {name}_HANDLE_TAG = "{tags["handle"]}";')
 
     lines += [
         "",
@@ -423,22 +460,20 @@ def gen_sol(spec: dict[str, Any]) -> str:
 
     lines += [
         "",
-        "    /// @dev The lines a verifier requires of the token request's head, each",
+        "    /// @dev The lines a verifier requires of each request's head, each",
         "    ///      exactly once with its value: `host` naming the pinned authority,",
-        "    ///      and the media type that selects the platform's request parser",
-        "    ///      (REQ-COMMON-21B). Revealed but uncompared, the media type was a",
-        "    ///      byte a prover chose in a request every other field of which is",
-        "    ///      pinned. What else a runtime sends is its own and not stated here.",
+        "    ///      and on the token request the media type that selects the",
+        "    ///      platform's request parser (REQ-COMMON-21B), pinned like every",
+        "    ///      other field of that request. What else a runtime sends is its",
+        "    ///      own and not stated here.",
         "",
     ]
     for profile in profiles:
-        token = profile["sessions"].get("token")
-        if token is None:
-            continue
-        const = f"{upper(profile['platform'])}_TOKEN_REQUIRED_HEADERS"
-        lines.append(
-            f'    bytes internal constant {const} = "{escaped(crlf(required_headers(token)))}";'
-        )
+        for session_name, session in sessions_of(profile):
+            const = f"{upper(profile['platform'])}_{upper(session_name)}_REQUIRED_HEADERS"
+            lines.append(
+                f'    bytes internal constant {const} = "{escaped(crlf(required_headers(session, session_name)))}";'
+            )
 
     lines += [
         "",
@@ -475,8 +510,8 @@ def gen_sol(spec: dict[str, Any]) -> str:
 
     lines += [
         "",
-        "    /// @dev The two identity members a Platform Verifier reads out of the",
-        "    ///      revealed response bytes (REQ-PLAT-51).",
+        "    /// @dev The two identity members a Platform Verifier finds as",
+        "    ///      commitments by their revealed anchors (REQ-PLAT-51).",
         "",
     ]
     for profile in profiles:
@@ -525,11 +560,142 @@ def gen_sol(spec: dict[str, Any]) -> str:
         "        revert UnknownPlatform(platformId);",
         "    }",
         "",
+    ]
+    lines += sol_lookups(spec)
+    lines += [
         "    error UnknownPlatform(bytes32 platformId);",
         "}",
         "",
     ]
     return "\n".join(lines)
+
+
+def header_value(line: str) -> str:
+    """A required line's value as a verifier reads it: after the colon, trimmed."""
+    return line.split(":", 1)[1].strip(" \t")
+
+
+def sol_lookups(spec: dict[str, Any]) -> list[str]:
+    """The profile constants by platform id, so a verifier reads its own
+    through `_platform()` with no override per value. A known platform
+    without a session reverts like an unknown one; without a validity value,
+    it reads zero."""
+    profiles = spec["profiles"]
+    lines = [
+        "    // --- By platform ----------------------------------------------------------",
+        "",
+    ]
+
+    def lookup(name: str, returns: str, cases: list[tuple[str, str]], default: str | None, doc: str) -> None:
+        lines.extend(sol_doc(textwrap.wrap(doc, width=72)))
+        lines.append(f"    function {name}(bytes32 platformId) internal pure returns ({returns}) {{")
+        for platform, value in cases:
+            lines.append(f"        if (platformId == PLATFORM_{upper(platform)}) return {value};")
+        if default is not None:
+            known = [p["platform"] for p in profiles if p["platform"] not in {c for c, _ in cases}]
+            if known:
+                test = " || ".join(f"platformId == PLATFORM_{upper(k)}" for k in known)
+                lines.append(f"        if ({test}) return {default};")
+        lines.extend(["        revert UnknownPlatform(platformId);", "    }", ""])
+
+    lines.append("    /// @dev Whether a profile names this platform.")
+    lines.append("    function knows(bytes32 platformId) internal pure returns (bool) {")
+    lines.append(
+        "        return " + " || ".join(f"platformId == PLATFORM_{upper(p['platform'])}" for p in profiles) + ";"
+    )
+    lines += ["    }", ""]
+    lookup(
+        "userIdTag",
+        "bytes memory",
+        [(p["platform"], f"{upper(p['platform'])}_USER_ID_TAG") for p in profiles],
+        None,
+        "The tag the platform's id nodes are hashed under.",
+    )
+    lookup(
+        "handleTag",
+        "bytes memory",
+        [(p["platform"], f"{upper(p['platform'])}_HANDLE_TAG") for p in profiles],
+        None,
+        "The tag the platform's handle nodes are hashed under.",
+    )
+    lookup(
+        "ceremonyVersion",
+        "uint16",
+        [(p["platform"], str(p["ceremonyVersion"])) for p in profiles],
+        None,
+        "The ceremony version the profile is.",
+    )
+    for key, stem, _, bounds in VALIDITY:
+        fn = stem.lower().split("_seconds")[0]
+        fn = fn.split("_")[0] + "".join(w.capitalize() for w in fn.split("_")[1:])
+        lookup(
+            fn,
+            "uint64",
+            [(p["platform"], f"{stem}_{upper(p['platform'])}") for p in profiles if key in p["validity"]],
+            "0",
+            f"In seconds: {bounds}",
+        )
+    for session_name in SESSIONS:
+        with_session = [(p["platform"], p["sessions"][session_name]) for p in profiles if session_name in p["sessions"]]
+        lookup(
+            f"{session_name}Authority",
+            "bytes32",
+            [(p, f"AUTHORITY_{authority_name(sess['authority'])}") for p, sess in with_session],
+            None,
+            f"The {session_name} session's authority.",
+        )
+        lookup(
+            f"{session_name}RequestLine",
+            "bytes memory",
+            [(p, f"{upper(p)}_{upper(session_name)}_REQUEST_LINE") for p, _ in with_session],
+            None,
+            f"The {session_name} session's request-line prefix.",
+        )
+        # The hashes `_field` and `_hash` compute from each required line, so
+        # no verifier parses the CRLF block at run time.
+        lines.append(f"    /// @dev keccak256 of the name and trimmed value of each line of the")
+        lines.append(f"    ///      platform's `*_{upper(session_name)}_REQUIRED_HEADERS`, in order.")
+        lines.append(f"    function {session_name}RequiredHeaderHashes(bytes32 platformId)")
+        lines += ["        internal", "        pure", "        returns (bytes32[] memory names, bytes32[] memory values)", "    {"]
+        for platform, sess in with_session:
+            required = required_headers(sess, session_name)
+            lines.append(f"        if (platformId == PLATFORM_{upper(platform)}) {{")
+            lines.append(f"            names = new bytes32[]({len(required)});")
+            lines.append(f"            values = new bytes32[]({len(required)});")
+            for i, line in enumerate(required):
+                name = line.split(":", 1)[0]
+                lines.append(
+                    f'            (names[{i}], values[{i}]) = (keccak256("{name}"), keccak256("{header_value(line)}"));'
+                )
+            lines += ["            return (names, values);", "        }"]
+        lines += ["        revert UnknownPlatform(platformId);", "    }", ""]
+    lookup(
+        "tokenFields",
+        "bytes memory",
+        [(p["platform"], f"{upper(p['platform'])}_TOKEN_FIELDS") for p in profiles if "token" in p["sessions"]],
+        None,
+        "The token body's field list.",
+    )
+    lines.append("    /// @dev The identity members the commitments are framed by; `idIsInteger`")
+    lines.append("    ///      for a bare JSON integer id, else a JSON string.")
+    lines.append("    function identityFields(bytes32 platformId)")
+    lines += [
+        "        internal",
+        "        pure",
+        "        returns (string memory idField, bool idIsInteger, string memory handleField)",
+        "    {",
+    ]
+    for p in profiles:
+        identity = p["sessions"].get("identity")
+        if identity is None:
+            continue
+        name = upper(p["platform"])
+        integer = "true" if identity["idShape"] == "jsonInteger" else "false"
+        lines.append(
+            f"        if (platformId == PLATFORM_{name}) return ({name}_ID_FIELD, {integer}, {name}_HANDLE_FIELD);"
+        )
+    lines += ["        revert UnknownPlatform(platformId);", "    }", ""]
+    return lines
 
 
 def sol_formatted(source: str) -> str:
@@ -660,6 +826,9 @@ def gen_rust(spec: dict[str, Any]) -> str:
         "#[derive(Clone, Copy, Debug, PartialEq, Eq)]",
         "pub struct IdentitySession {",
         "    pub session: Session,",
+        "    /// The header lines a Platform Verifier requires, each exactly once with",
+        "    /// its value: `host`.",
+        "    pub required_headers: &'static [&'static str],",
         "    pub id_field: &'static str,",
         "    pub id_shape: IdShape,",
         "    pub handle_field: &'static str,",
@@ -711,6 +880,7 @@ def gen_rust(spec: dict[str, Any]) -> str:
             shape = "JsonString" if identity["idShape"] == "jsonString" else "JsonInteger"
             lines.append("    identity: Some(IdentitySession {")
             lines += rust_session(identity, 8)
+            lines += rust_array("required_headers: ", required_headers(identity, "identity"), "        ", ",")
             lines.append(f'        id_field: "{identity["idField"]}",')
             lines.append(f"        id_shape: IdShape::{shape},")
             lines.append(f'        handle_field: "{identity["handleField"]}",')
@@ -833,6 +1003,9 @@ def gen_ts(spec: dict[str, Any]) -> str:
         "",
         "export interface IdentitySession {",
         "  readonly session: Session",
+        "  /** The header lines a Platform Verifier requires, each exactly once with",
+        "   * its value: `host`. */",
+        "  readonly requiredHeaders: readonly string[]",
         "  readonly idField: string",
         "  readonly idShape: IdShape",
         "  readonly handleField: string",
@@ -871,6 +1044,7 @@ def gen_ts(spec: dict[str, Any]) -> str:
         else:
             lines.append("  identity: {")
             lines += ts_session(identity, 4)
+            lines += ts_array("requiredHeaders: ", required_headers(identity, "identity"), "    ", ",")
             lines.append(f"    idField: {ts_str(identity['idField'])},")
             lines.append(f"    idShape: {ts_str(identity['idShape'])},")
             lines.append(f"    handleField: {ts_str(identity['handleField'])},")
@@ -921,8 +1095,12 @@ def main() -> int:
     if not SOURCE.exists():
         print(f"ERROR: {SOURCE} is missing", file=sys.stderr)
         return 1
+    if not PLATFORMS.exists():
+        print(f"ERROR: {PLATFORMS_REL} is missing; run scripts/vendor-circuit-verifiers.sh", file=sys.stderr)
+        return 1
     spec = json.loads(SOURCE.read_text(encoding="utf-8"))
     validate(spec)
+    attach_tags(spec, json.loads(PLATFORMS.read_text(encoding="utf-8")))
 
     outputs = [(SOL_OUT, sol_formatted(gen_sol(spec)))]
     skipped = []

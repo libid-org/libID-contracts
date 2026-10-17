@@ -34,4 +34,7 @@ alloy = { version = "1", features = ["node-bindings", "signer-local"] }
 # publishes without a dependency on the sibling crate, and this is what pins
 # the restatement to the generated table.
 libid-profiles = { path = "../profiles" }
+# Tests only, path only: the anvil suite checks the registry's node against
+# the one libid-identity computes off chain.
+libid-identity = { path = "../identity", features = ["node"] }
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }

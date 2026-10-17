@@ -1,3 +1,10 @@
+use alloy::primitives::{
+    Address,
+    B256,
+};
+
+use crate::circuits::Circuit;
+
 /// Crate error type.
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -19,6 +26,46 @@ pub enum Error {
     Initializer {
         /// Which rule, and which contract.
         detail: String,
+    },
+    /// A proxy that serves another platform than the one asked about.
+    #[error(
+        "platform error: the Platform Verifier at {proxy} serves platform {found}, \
+         not {expected}; ask with the platform it serves"
+    )]
+    WrongPlatform {
+        /// The proxy asked.
+        proxy: Address,
+        /// The platform id the caller named.
+        expected: B256,
+        /// The platform id the proxy answers.
+        found: B256,
+    },
+    /// A Honk verifier whose code hash is not the one wanted: the platform's
+    /// vendored circuit's for an initializer, the proxy's `circuitCodehash()`
+    /// for a rotation (the contract's `WrongCircuit`, caught off chain).
+    #[error(
+        "trust root error: {contract}: the Honk verifier at {address} (code hash {codehash}) \
+         is {}; wanted code hash {expected_codehash}, {}",
+        .found.map_or("no vendored circuit's verifier", |c| c.name()),
+        .expected.map_or(
+            "a circuit release not vendored here: vendor the circuits.json release that \
+             built it, or upgrade the proxy",
+            |c| c.name()
+        )
+    )]
+    WrongCircuit {
+        /// The Platform Verifier being initialized or rotated.
+        contract: &'static str,
+        /// The address it was handed.
+        address: Address,
+        /// The code hash wanted.
+        expected_codehash: B256,
+        /// The vendored circuit whose verifier has `expected_codehash`, if any.
+        expected: Option<Circuit>,
+        /// The circuit whose verifier is at `address`, if any.
+        found: Option<Circuit>,
+        /// The code hash at `address`.
+        codehash: B256,
     },
 }
 
