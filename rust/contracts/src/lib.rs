@@ -3,16 +3,15 @@
 //!
 //! The crate has four layers:
 //!
-//! - [`bindings`] — hand-written `alloy::sol!` interfaces for every contract a
-//!   consumer talks to: the ceremony verification path (`NotaryService`,
-//!   `CeremonyProofVerifier`, the three launch Platform Verifiers it routes
-//!   to, and `GoogleJwtRoots`, the Google signing keys the `google/v1`
-//!   verifier trusts), the identity registry (`IdentityRegistry`), the
-//!   deterministic factory, and the UltraHonk verifiers the Platform
-//!   Verifiers pin. Kept in lockstep with the Solidity sources in
-//!   `solidity/contracts`.
-//! - [`artifacts`] — the compiled creation bytecode and method identifiers
-//!   of every deployable contract, embedded at compile time
+//! - [`bindings`] — `alloy::sol!` bindings, read from the compiled ABIs, for
+//!   every contract a consumer talks to: the ceremony verification path
+//!   (`NotaryService`, `CeremonyProofVerifier`, the three launch Platform
+//!   Verifiers it routes to, and `GoogleJwtRoots`, the Google signing keys
+//!   the `google/v1` verifier trusts), the identity registry
+//!   (`IdentityRegistry`), the deterministic factory, and the UltraHonk
+//!   verifiers the Platform Verifiers pin.
+//! - [`artifacts`] — the compiled creation bytecode of every deployable
+//!   contract, embedded at compile time
 //!   ([`Artifacts::embedded`]) so deployment needs no filesystem at runtime. A
 //!   directory-backed variant ([`Artifacts::from_dir`]) reads a forge `out/`
 //!   tree instead.

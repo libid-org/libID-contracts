@@ -5,13 +5,14 @@ ts/node_modules/
 ts/packages/*/node_modules/
 ts/packages/*/dist/
 
-# Generated from `forge build`, never committed. Both are packaged into their
-# published artefact (the crate embeds artifacts/ via include_dir!, the npm
-# package ships src/abis), so CI regenerates them before every build, test,
-# dry-run and publish. Locally:
-#   scripts/vendor-artifacts.sh     # -> rust/contracts/artifacts
+# Generated from `forge build`, never committed. They are packaged into their
+# published artefact (the crate embeds artifacts/ via include_dir! and binds
+# abi/ with sol!, the npm package ships src/abis), so CI regenerates them
+# before every build, test, dry-run and publish. Locally:
+#   scripts/vendor-artifacts.sh     # -> rust/contracts/artifacts, rust/contracts/abi
 #   pnpm -C ts codegen              # -> ts/packages/contracts/src/abis
 rust/contracts/artifacts/
+rust/contracts/abi/
 ts/packages/contracts/src/abis/
 ts/packages/contracts/src/calls/
 

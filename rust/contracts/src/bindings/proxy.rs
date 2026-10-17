@@ -1,29 +1,38 @@
-//! Proxy plumbing shared by every proxied contract: the ERC1967 proxy constructor and
-//! the UUPS upgrade entrypoint.
+//! Proxy plumbing shared by every proxied contract, read from OpenZeppelin's
+//! compiled artifacts: the ERC1967 proxy constructor and the UUPS upgrade
+//! entrypoint.
 
-#[allow(clippy::too_many_arguments, unused_attributes)]
-mod inner {
-    use alloy::sol;
-
-    sol! {
-        /// OpenZeppelin `ERC1967Proxy` — deployed with the implementation
-        /// address and the ABI-encoded initializer calldata.
-        #[sol(rpc)]
-        contract ERC1967Proxy {
-            constructor(address implementation, bytes memory _data);
-        }
-    }
-
-    sol! {
-        /// The UUPS upgrade surface every proxied contract here exposes.
-        #[sol(rpc)]
-        interface IUUPSUpgradeable {
-            function upgradeToAndCall(address newImplementation, bytes calldata data) external;
-        }
-    }
+#[allow(
+    clippy::too_many_arguments,
+    missing_docs,
+    non_camel_case_types,
+    unused_attributes
+)]
+mod erc1967_proxy {
+    alloy::sol!(
+        #[sol(rpc, all_derives)]
+        ERC1967Proxy,
+        "abi/ERC1967Proxy.json"
+    );
 }
 
-pub use inner::{
-    ERC1967Proxy,
-    IUUPSUpgradeable,
-};
+#[allow(
+    clippy::too_many_arguments,
+    missing_docs,
+    non_camel_case_types,
+    unused_attributes
+)]
+mod uups {
+    alloy::sol!(
+        #[sol(rpc, all_derives)]
+        IUUPSUpgradeable,
+        "abi/UUPSUpgradeable.json"
+    );
+}
+
+/// OpenZeppelin `ERC1967Proxy`, deployed with the implementation address and
+/// the ABI-encoded initializer calldata.
+pub use erc1967_proxy::ERC1967Proxy;
+/// OpenZeppelin `UUPSUpgradeable`: the upgrade surface every proxied contract
+/// here exposes.
+pub use uups::IUUPSUpgradeable;

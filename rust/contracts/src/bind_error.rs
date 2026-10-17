@@ -19,9 +19,10 @@ use alloy::{
 use crate::bindings::{
     ceremony::{
         CeremonyProofVerifier::CeremonyProofVerifierErrors,
+        GitHubPlatformVerifier::GitHubPlatformVerifierErrors,
         GooglePlatformVerifier::GooglePlatformVerifierErrors,
         NotaryService::NotaryServiceErrors,
-        TlsNotaryPlatformVerifier::TlsNotaryPlatformVerifierErrors,
+        XPlatformVerifier::XPlatformVerifierErrors,
     },
     circuits::IHonkVerifierErrors::IHonkVerifierErrorsErrors,
     identity::IdentityRegistry::IdentityRegistryErrors,
@@ -36,8 +37,10 @@ pub enum BindError {
     Registry(IdentityRegistryErrors),
     /// `CeremonyProofVerifier`.
     ProofVerifier(CeremonyProofVerifierErrors),
-    /// `XPlatformVerifier` or `GitHubPlatformVerifier`.
-    TlsNotaryVerifier(TlsNotaryPlatformVerifierErrors),
+    /// `XPlatformVerifier`.
+    XVerifier(XPlatformVerifierErrors),
+    /// `GitHubPlatformVerifier`.
+    GitHubVerifier(GitHubPlatformVerifierErrors),
     /// `GooglePlatformVerifier`.
     GoogleVerifier(GooglePlatformVerifierErrors),
     /// `NotaryService`.
@@ -80,8 +83,11 @@ impl BindError {
             Self::ProofVerifier(e) => {
                 CeremonyProofVerifierErrors::signature_by_selector(e.selector())
             }
-            Self::TlsNotaryVerifier(e) => {
-                TlsNotaryPlatformVerifierErrors::signature_by_selector(e.selector())
+            Self::XVerifier(e) => {
+                XPlatformVerifierErrors::signature_by_selector(e.selector())
+            }
+            Self::GitHubVerifier(e) => {
+                GitHubPlatformVerifierErrors::signature_by_selector(e.selector())
             }
             Self::GoogleVerifier(e) => {
                 GooglePlatformVerifierErrors::signature_by_selector(e.selector())
@@ -105,7 +111,7 @@ type Declares = fn([u8; 4]) -> bool;
 type Decode = fn(&[u8]) -> Option<BindError>;
 
 /// The route's error sets, in the order `decode` tries them.
-const ROUTE: [(&str, Declares, Decode); 6] = [
+const ROUTE: [(&str, Declares, Decode); 7] = [
     (
         "IdentityRegistry",
         IdentityRegistryErrors::valid_selector,
@@ -125,12 +131,21 @@ const ROUTE: [(&str, Declares, Decode); 6] = [
         },
     ),
     (
-        "TlsNotaryPlatformVerifier",
-        TlsNotaryPlatformVerifierErrors::valid_selector,
+        "XPlatformVerifier",
+        XPlatformVerifierErrors::valid_selector,
         |d| {
-            TlsNotaryPlatformVerifierErrors::abi_decode(d)
+            XPlatformVerifierErrors::abi_decode(d)
                 .ok()
-                .map(BindError::TlsNotaryVerifier)
+                .map(BindError::XVerifier)
+        },
+    ),
+    (
+        "GitHubPlatformVerifier",
+        GitHubPlatformVerifierErrors::valid_selector,
+        |d| {
+            GitHubPlatformVerifierErrors::abi_decode(d)
+                .ok()
+                .map(BindError::GitHubVerifier)
         },
     ),
     (
@@ -176,7 +191,8 @@ impl BindError {
         match self {
             Self::Registry(e) => e.selector(),
             Self::ProofVerifier(e) => e.selector(),
-            Self::TlsNotaryVerifier(e) => e.selector(),
+            Self::XVerifier(e) => e.selector(),
+            Self::GitHubVerifier(e) => e.selector(),
             Self::GoogleVerifier(e) => e.selector(),
             Self::NotaryService(e) => e.selector(),
             Self::HonkVerifier(e) => e.selector(),
@@ -297,7 +313,7 @@ mod tests {
                 IHonkVerifierErrorsErrors::ProofLengthWrongWithLogN(e),
             ) => {
                 assert_eq!(
-                    (e.logN, e.actualLength, e.expectedLength),
+                    (e._0, e._1, e._2),
                     (U256::from(17), U256::from(100), U256::from(200))
                 );
             }
@@ -320,7 +336,8 @@ mod tests {
             error.contracts(),
             [
                 "IdentityRegistry",
-                "TlsNotaryPlatformVerifier",
+                "XPlatformVerifier",
+                "GitHubPlatformVerifier",
                 "GooglePlatformVerifier"
             ]
         );

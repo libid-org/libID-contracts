@@ -20,8 +20,11 @@ use alloy::{
 use crate::{
     artifacts::Artifacts,
     bindings::ceremony::{
+        GitHubPlatformVerifier,
         GooglePlatformVerifier,
-        TlsNotaryPlatformVerifier,
+        IPlatformVerifier,
+        PlatformVerifierBase,
+        XPlatformVerifier,
     },
     circuits::Circuit,
     deploy::deploy_behind_proxy,
@@ -123,9 +126,7 @@ impl PlatformVerifier {
         let read = |what: &str, e: ContractError| Error::Rpc {
             detail: format!("failed to read {what} at {proxy}: {e}"),
         };
-        // Both bindings declare the same two views.
-        let verifier = TlsNotaryPlatformVerifier::new(proxy, provider);
-        let found = verifier
+        let found = IPlatformVerifier::new(proxy, provider)
             .platformId()
             .call()
             .await
@@ -137,7 +138,7 @@ impl PlatformVerifier {
                 found,
             });
         }
-        let pinned = verifier
+        let pinned = PlatformVerifierBase::new(proxy, provider)
             .circuitCodehash()
             .call()
             .await
@@ -211,9 +212,10 @@ pub enum Initializer {
 /// or as part of the creation code a [factory](crate::factory) deploy takes.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum InitializeCall {
-    /// `XPlatformVerifier.initialize` or `GitHubPlatformVerifier.initialize`
-    /// (one signature).
-    TlsNotary(TlsNotaryPlatformVerifier::initializeCall),
+    /// `XPlatformVerifier.initialize`.
+    X(XPlatformVerifier::initializeCall),
+    /// `GitHubPlatformVerifier.initialize`.
+    GitHub(GitHubPlatformVerifier::initializeCall),
     /// `GooglePlatformVerifier.initialize`.
     Google(GooglePlatformVerifier::initializeCall),
 }
@@ -222,7 +224,8 @@ impl InitializeCall {
     /// The ABI-encoded call.
     pub fn abi_encode(&self) -> Vec<u8> {
         match self {
-            Self::TlsNotary(call) => call.abi_encode(),
+            Self::X(call) => call.abi_encode(),
+            Self::GitHub(call) => call.abi_encode(),
             Self::Google(call) => call.abi_encode(),
         }
     }
@@ -288,8 +291,13 @@ impl Initializer {
     pub fn call(&self) -> Result<InitializeCall> {
         self.check()?;
         Ok(match self {
-            Self::X(roots) | Self::GitHub(roots) => {
-                InitializeCall::TlsNotary(TlsNotaryPlatformVerifier::initializeCall {
+            Self::X(roots) => InitializeCall::X(XPlatformVerifier::initializeCall {
+                owner_: roots.owner,
+                notary_: roots.notary_service,
+                honkVerifier_: roots.honk_verifier,
+            }),
+            Self::GitHub(roots) => {
+                InitializeCall::GitHub(GitHubPlatformVerifier::initializeCall {
                     owner_: roots.owner,
                     notary_: roots.notary_service,
                     honkVerifier_: roots.honk_verifier,
@@ -354,7 +362,10 @@ pub async fn deploy_platform_verifier<P: Provider>(
             other => other,
         })?;
     match call {
-        InitializeCall::TlsNotary(call) => {
+        InitializeCall::X(call) => {
+            deploy_behind_proxy(provider, artifacts, contract, &call, sender).await
+        }
+        InitializeCall::GitHub(call) => {
             deploy_behind_proxy(provider, artifacts, contract, &call, sender).await
         }
         InitializeCall::Google(call) => {

@@ -8,7 +8,6 @@
 //! only reads fields forge emits.
 
 use std::{
-    collections::BTreeMap,
     fs,
     path::PathBuf,
 };
@@ -129,16 +128,6 @@ impl Artifacts {
         self.code(file, contract, CodeKind::Creation)
     }
 
-    /// The artifact's `methodIdentifiers`: `"sig(args)" -> 4-byte selector`
-    /// (8 hex chars, no `0x`).
-    pub fn method_identifiers(&self, contract: &str) -> Result<BTreeMap<String, String>> {
-        self.artifact(contract, contract)?
-            .method_identifiers
-            .ok_or_else(|| Error::Artifact {
-                detail: format!("no methodIdentifiers in {contract}.sol/{contract}.json"),
-            })
-    }
-
     /// Runtime bytecode where the source file and contract names differ.
     /// Matches deployed code only for contracts without immutables.
     pub(crate) fn deployed_bytecode_named(
@@ -171,7 +160,6 @@ impl Artifacts {
 struct Artifact {
     bytecode: Option<Code>,
     deployed_bytecode: Option<Code>,
-    method_identifiers: Option<BTreeMap<String, String>>,
 }
 
 /// An artifact's `bytecode` or `deployedBytecode` member.
