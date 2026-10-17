@@ -1,18 +1,23 @@
 import { concat, sha256, toHex } from 'viem'
 import { describe, expect, it } from 'vitest'
 
-import { normalize } from './handle.js'
 import { foldedHandleNode, handleNode, idNode } from './node.js'
 import {
   HandleError,
   IdError,
+  normalize,
   PLATFORM_GITHUB_KEY,
   PLATFORM_X,
   PLATFORM_X_KEY,
   platform,
   type RefusalKind,
-} from './platforms.js'
-import { HANDLE_VECTORS, type HandleExpected, ID_VECTORS, type IdExpected } from './vectors.js'
+} from '../platforms/index.js'
+import {
+  HANDLE_VECTORS,
+  type HandleExpected,
+  ID_VECTORS,
+  type IdExpected,
+} from '../platforms/vectors.js'
 
 /// What `f` answers, or the `refusal` of the `kind` error it threw.
 function attempt<T>(

@@ -3,16 +3,7 @@
 
 import { concat, type Hex, sha256, toHex } from 'viem'
 
-import { isStringByte, normalize } from './handle.js'
-import { IdError, type Platform, platform } from './platforms.js'
-
-/// What a platform allows in an id, as the generated table states it.
-export interface IdRules {
-  /** Bytes the circuit's buffer holds. */
-  maxLength: number
-  /** True: ASCII digits. False: printable ASCII without a quote or backslash. */
-  decimal: boolean
-}
+import { checkId, normalize, type Platform, platform } from '../platforms/index.js'
 
 function keysOf(platformKey: string): Platform {
   const keys = platform(platformKey)
@@ -32,18 +23,6 @@ export function handleNode(platformKey: string, raw: string): Hex {
 export function foldedHandleNode(platformKey: string, text: string): Hex {
   const bytes = new TextEncoder().encode(text).map((b) => (b >= 0x41 && b <= 0x5a ? b + 0x20 : b))
   return sha256(concat([toHex(keysOf(platformKey).handleTag), toHex(bytes)]))
-}
-
-/// Accept an id exactly as given, or throw an `IdError` saying why no circuit would hash it.
-export function checkId(platformKey: string, id: string): void {
-  const rules = keysOf(platformKey).idRules
-  const bytes = new TextEncoder().encode(id)
-  if (bytes.length === 0) throw new IdError('Empty')
-  if (bytes.length > rules.maxLength) throw new IdError('TooLong')
-  for (const b of bytes) {
-    const ok = rules.decimal ? b >= 0x30 && b <= 0x39 : isStringByte(b)
-    if (!ok) throw new IdError('BadCharacter')
-  }
 }
 
 /// The node an id is bound under: the id as given, under its user-id tag.

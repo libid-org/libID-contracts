@@ -7,8 +7,8 @@
       "!**/dist",
       "!**/node_modules",
       "!packages/contracts/src/abis",
-      "!packages/contracts/src/identity/platforms.ts",
-      "!packages/contracts/src/identity/vectors.ts"
+      "!packages/contracts/src/platforms/platforms.ts",
+      "!packages/contracts/src/platforms/vectors.ts"
     ]
   },
   "formatter": {
@@ -34,6 +34,29 @@
     }
   },
   "overrides": [
+    {
+      "includes": [
+        "packages/contracts/src/platforms/**",
+        "!packages/contracts/src/platforms/**/*.test.ts"
+      ],
+      "linter": {
+        "rules": {
+          "style": {
+            "noRestrictedImports": {
+              "level": "error",
+              "options": {
+                "patterns": [
+                  {
+                    "group": ["**", "!./*"],
+                    "message": "The platforms layer imports only its own directory, type-only imports included: it loads without viem, the optional peer."
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
     {
       "includes": [
         "packages/contracts/src/ceremony/**",

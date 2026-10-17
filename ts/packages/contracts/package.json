@@ -16,7 +16,7 @@
     "dist",
     "src",
     "!src/**/*.test.ts",
-    "!src/identity/vectors.ts"
+    "!src/platforms/vectors.ts"
   ],
   "exports": {
     ".": {
@@ -30,6 +30,10 @@
     "./ceremony": {
       "types": "./dist/ceremony/index.d.ts",
       "default": "./dist/ceremony/index.js"
+    },
+    "./platforms": {
+      "types": "./dist/platforms/index.d.ts",
+      "default": "./dist/platforms/index.js"
     },
     "./identity": {
       "types": "./dist/identity/index.d.ts",

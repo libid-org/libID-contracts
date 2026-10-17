@@ -11,7 +11,7 @@ handle normalization, node derivation and resolution.
 exported `as const satisfies Abi`, so viem infers argument and return types,
 and each call builder takes its arguments from that ABI.
 `scripts/regen-identity-handles.py` generates the platform table
-(`src/identity/platforms.ts`) and the test vectors (`src/identity/vectors.ts`,
+(`src/platforms/platforms.ts`) and the test vectors (`src/platforms/vectors.ts`,
 not published) from the pinned libID-circuits release's `platforms.json` and
 `handles.json`, vendored into `solidity/contracts/circuits/`.
 
@@ -19,8 +19,8 @@ not published) from the pinned libID-circuits release's `platforms.json` and
 pnpm add @libid/contracts viem
 ```
 
-`viem` is an optional peer. The root export, `calls` and `identity` import it;
-a consumer of `@libid/contracts/ceremony` alone can leave it out.
+`viem` is an optional peer. The root export, `calls` and `identity` import it.
+`ceremony` and `platforms` load without it.
 
 ## Reading a contract with viem
 
@@ -170,16 +170,22 @@ omits. `honkVerifierErrorsAbi` declares them under bb's names, and
 
 ## Normalizing a handle locally
 
+`@libid/contracts/platforms` holds the platform table and the checks the
+circuits apply to handles and ids, and loads without viem.
+`@libid/contracts/identity` re-exports it and adds node hashing and the
+registry reads, which need viem.
+
 Only A–Z fold to a–z. Text no circuit hashes throws
 `HandleError`: empty text, a byte outside printable ASCII, a quote, a
 backslash, or more bytes than the circuit's buffer.
 
 ```ts
-import { normalize, RULES_X, HandleError } from '@libid/contracts/identity'
+import { checkId, normalize, PLATFORM_X_KEY, RULES_X, HandleError } from '@libid/contracts/platforms'
 
 normalize('Alice_1', RULES_X) // 'alice_1'
 normalize(' @Alice_1 ', RULES_X) // ' @alice_1 ': nothing is trimmed or stripped
 normalize('Ali"ce', RULES_X) // throws HandleError: a quote is refused
+checkId(PLATFORM_X_KEY, '2244994945') // passes; checkId(PLATFORM_X_KEY, 'x1') throws IdError
 ```
 
 On chain only the fold runs; text the circuits refuse has no binding, so it

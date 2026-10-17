@@ -1,4 +1,4 @@
 {
   "extends": "./tsconfig.json",
-  "exclude": ["src/**/*.test.ts", "src/identity/vectors.ts"]
+  "exclude": ["src/**/*.test.ts", "src/platforms/vectors.ts"]
 }
