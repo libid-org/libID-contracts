@@ -761,7 +761,8 @@ async fn deploys_and_initializes_every_platform_verifier() {
 
 /// The handle escrow: pay an unclaimed handle by its node, check the value
 /// lands on the registry's node, and refund it. The payout path needs a stub
-/// Platform Verifier, so the Solidity suite covers it.
+/// Platform Verifier, which this crate does not ship, so the Solidity suite
+/// covers it.
 #[tokio::test]
 async fn escrows_value_against_an_unclaimed_handle() {
     use alloy::{

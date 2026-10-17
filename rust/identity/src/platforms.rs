@@ -86,7 +86,7 @@ pub enum HandleError {
     Empty,
     /// More bytes than the platform's buffer in platforms.json.
     TooLong,
-    /// A byte outside printable ASCII, a quote, a backslash, or a non-digit in a decimal id.
+    /// A byte outside printable ASCII, a quote or a backslash.
     BadCharacter,
 }
 

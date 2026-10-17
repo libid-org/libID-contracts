@@ -2,8 +2,8 @@ name: CI
 
 # `forge build` feeds the Solidity tests, the vendored Rust artifacts and the
 # TypeScript codegen. Jobs that need it run the .github/actions/forge-build
-# composite with one cache key, so the first run to warm the cache speeds up
-# the rest.
+# composite with one cache key per profile, so the first run to warm the
+# cache speeds up the rest.
 #
 # Generated trees are gitignored: the vendored Honk verifiers and platform
 # table, rust/contracts/artifacts and ts/packages/contracts/src/abis. Every

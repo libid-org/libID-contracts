@@ -434,8 +434,9 @@ contract GitHubPlatformVerifierTest is RealTlsNotaryProofTest {
         this.run{value: quote}(s);
     }
 
-    /// @dev REQ-PLAT-61, TEST-PLAT-12: `%61` (written bare as `a`) and `%20`
-    ///      (written `+`) are refused at their `%`, in the credential too.
+    /// @dev REQ-PLAT-61, TEST-PLAT-12: escapes of bytes the serializer writes
+    ///      bare -- `%61`, `%20` (written `+`), and `%2A` in the credential --
+    ///      are refused at their `%`.
     function test_rejectsAnExchangeWithAnEscapeTheSerializerWritesBare() public {
         bytes memory body = _exchangeBody("%61bc", "https%3A%2F%2Fa.example", "0123456789abcdef0123456789abcdef");
         TlsNotaryVerifierBase.TlsNotaryProof memory s = _withExchangeBody(body);

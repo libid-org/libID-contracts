@@ -21,7 +21,7 @@ interface IHonkVerifier {
 /// @dev Authenticates attestations and checks their pinned authority, holds
 ///      the trust roots, and turns a signed creation time into the profile's
 ///      validity window. Field checks and payload decoding stay in each
-///      verifier, the one authoritative reader of each field (REQ-COMMON-19E).
+///      verifier; REQ-COMMON-19E names one authoritative reader per field.
 abstract contract PlatformVerifierBase is ICeremony, Initializable, UUPSUpgradeable, Ownable2StepUpgradeable {
     /// @custom:storage-location erc7201:libid.storage.PlatformVerifier
     struct PlatformVerifierStorage {
@@ -120,8 +120,8 @@ abstract contract PlatformVerifierBase is ICeremony, Initializable, UUPSUpgradea
 
     /// @dev The validity window, from `CeremonyProfile`: fixed per ceremony
     ///      version, since a browser derives a proof's expiry from the version
-    ///      it ran (REQ-PARAM-01). A different window is a new ceremony
-    ///      version (REQ-PARAM-02).
+    ///      it ran; a different window is a new ceremony version
+    ///      (REQ-PARAM-01). No caller substitute exists (REQ-PARAM-02).
     ///
     ///      The maximum age of the token attestation; `_maxFutureAttestationSkew`
     ///      is its maximum lead over Block Time. Both are zero for a profile

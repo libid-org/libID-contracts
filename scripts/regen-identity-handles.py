@@ -170,11 +170,15 @@ class Table:
 
 @dataclass(frozen=True)
 class Wording:
-    """What one refusal of handles.json `errors` says about a handle and about an id."""
+    """What one refusal of handles.json `errors` says about a handle and about an id.
+
+    `handle_note` replaces the refusal's handles.json `note` in the handle
+    error's doc where the shared note also words ids."""
 
     key: str
     handle: str
     id: str
+    handle_note: str | None = None
 
 
 # The refusal messages, in handles.json `errors` order. Rust's Display and the
@@ -186,6 +190,7 @@ WORDING = (
         "BadCharacter",
         "the handle has a byte outside printable ASCII, or a quote or backslash",
         "the id has a byte this platform does not allow",
+        "A byte outside printable ASCII, a quote or a backslash.",
     ),
 )
 
@@ -202,6 +207,9 @@ class Subject:
 
     def message(self, wording: Wording) -> str:
         return wording.handle if self.is_handle else wording.id
+
+    def note(self, err: ErrorKind, wording: Wording) -> str:
+        return wording.handle_note if self.is_handle and wording.handle_note else err.note
 
 
 SUBJECTS = (
@@ -336,8 +344,8 @@ def rust_platforms(table: Table) -> str:
             "#[derive(Debug, Clone, Copy, PartialEq, Eq)]",
             f"pub enum {subject.rust_type} {{",
         ]
-        for err in table.errors:
-            lines += [f"    /// {err.note}", f"    {err.key},"]
+        for err, wording in zip(table.errors, WORDING):
+            lines += [f"    /// {subject.note(err, wording)}", f"    {err.key},"]
         lines += [
             "}",
             "",

@@ -171,8 +171,8 @@ omits. `honkVerifierErrorsAbi` declares them under bb's names, and
 ## Normalizing a handle locally
 
 Only A–Z fold to a–z. Text no circuit hashes throws
-`HandleError`: a byte outside printable ASCII, a quote, a backslash, or
-more bytes than the circuit's buffer.
+`HandleError`: empty text, a byte outside printable ASCII, a quote, a
+backslash, or more bytes than the circuit's buffer.
 
 ```ts
 import { normalize, RULES_X, HandleError } from '@libid/contracts/identity'

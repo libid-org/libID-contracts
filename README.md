@@ -46,7 +46,7 @@ forge test
 The Honk verifiers and the platform table are gitignored and downloaded from
 the pinned [libID-circuits](https://github.com/libid-org/libID-circuits)
 release (see [Circuit verifiers](#circuit-verifiers)). The vendor script needs
-curl, jq, tar, forge and cast. Two more gitignored trees are generated from
+curl, jq, tar, forge, cast, cmp and shasum or sha256sum. Two more gitignored trees are generated from
 `forge build`; regenerate them after any change to a contract they cover:
 
 ```sh
@@ -112,10 +112,11 @@ the committed file. Locally:
 
 ```sh
 scripts/vendor-circuit-verifiers.sh
-git diff --exit-code solidity/contracts/circuits/CircuitCodehashes.sol
+git diff --exit-code solidity/contracts/circuits/CircuitCodehashes.sol \
+  solidity/contracts/circuits/IHonkVerifierErrors.sol
 ```
 
-Commit it with `circuits.json` whenever the pin moves. A new circuit release
+Commit both generated files with `circuits.json` whenever the pin moves. A new circuit release
 is a new Platform Verifier implementation, not a trust-root rotation.
 
 ## Deploying hashed identities

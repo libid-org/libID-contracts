@@ -1,8 +1,8 @@
 # HandleEscrow
 
-Send value to an X or GitHub handle or a Google account address before its
-holder has proved it in `IdentityRegistry`. The address that proves the handle
-claims it; until then each deposit's `refundTo` can take its own contribution
+Send value to an X or GitHub handle or a Google account's email address before
+its holder has proved it in `IdentityRegistry`. The address that proves the
+handle claims it; until then each deposit's `refundTo` can take its own contribution
 back. A handle somebody already holds is paid straight through. Each
 function's behaviour and reverts are in the NatSpec of `HandleEscrow.sol`.
 

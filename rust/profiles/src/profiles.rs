@@ -2,14 +2,13 @@
 // The source of truth is solidity/contracts/ceremony/profiles.json.
 
 //! The ceremony profiles. scripts/regen-ceremony-profiles.py generates
-//! the Solidity, Rust and TypeScript constants from this file, and the
-//! hand-written Platform Verifiers read them.
+//! the Solidity, Rust and TypeScript constants from profiles.json, and
+//! the hand-written Platform Verifiers read them.
 //!
-//! These literals are this repository's: REQ-PLAT-01 fixes the profile
-//! names and the specification fixes no other byte. The verifiers, the
-//! browser that notarizes the sessions and the notary must produce the
-//! same bytes. A mismatch fails silently: a Consumer and a verifier keyed
-//! by different strings never meet, and a request line composed one byte
+//! These literals are the one copy the verifiers, the browser that
+//! notarizes the sessions and the notary must reproduce byte for byte.
+//! A mismatch fails silently: a Consumer and a verifier keyed by
+//! different strings never meet, and a request line composed one byte
 //! differently is refused with no reason given.
 //!
 //! Changing a value changes what a deployed verifier accepts. On a live
@@ -52,8 +51,9 @@ pub struct TokenSession {
     /// absent: the HTTP client writes it and the verifier reads it.
     pub required_headers: &'static [&'static str],
     /// The body's form fields in serialization order. Verifiers require
-    /// exactly these names in this order, each once with a nonempty value.
-    /// GitHub's list is REQ-PLAT-61's and X's is REQ-PLAT-63's.
+    /// exactly these names in this order, each once with a nonempty value,
+    /// and nothing after the last. GitHub's list is REQ-PLAT-61's and X's
+    /// is REQ-PLAT-63's.
     pub token_fields: &'static [&'static str],
 }
 

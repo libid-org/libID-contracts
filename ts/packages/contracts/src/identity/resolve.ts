@@ -69,7 +69,9 @@ export interface HandleAndIdResolution {
 /// Resolve a handle and report whether an id node still agrees with it.
 /// Read it before signing to warn the payer; do not let it block a transfer.
 /// Only the handle's node is sent. Text no circuit hashes is sent as the zero
-/// node and resolves to `{holder: null, idAgrees: false}`.
+/// node and resolves to `{holder: null, idAgrees: false}`. Reverts such as
+/// `UnknownPlatform` propagate; a platform missing from this package's table
+/// throws.
 export async function resolveHandleAndId(
   reader: RegistryReader,
   id: `0x${string}`,
