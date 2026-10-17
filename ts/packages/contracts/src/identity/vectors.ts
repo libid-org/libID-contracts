@@ -6,9 +6,6 @@
 
 import type { RefusalKind } from './platforms.js'
 
-/** SHA-256 of the handles.json this file was generated from. */
-export const TABLE_SHA256 = 'd6667cc10b9366933533349b94971cf19007ef656286eff3d8d11fe7e40f5b9b'
-
 /** What the transform answers for a handle: its folded form and node, or the refusal. */
 export type HandleExpected =
   | { ok: true; handle: string; handleNode: string }

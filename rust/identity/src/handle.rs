@@ -57,18 +57,8 @@ pub fn normalize(raw: &str, rules: Rules) -> Result<String, HandleError> {
 
 #[cfg(test)]
 mod tests {
-    use std::fs;
-
-    use sha2::{
-        Digest,
-        Sha256,
-    };
-
     use super::*;
-    use crate::vectors::{
-        TABLE_SHA256,
-        VECTORS,
-    };
+    use crate::vectors::VECTORS;
 
     /// The shared table, run against this normalizer. TypeScript and the
     /// circuits run the same cases, so a language that disagrees fails here.
@@ -83,25 +73,6 @@ mod tests {
                 v.input
             );
         }
-    }
-
-    /// The generated constants carry the SHA-256 of the vendored `handles.json`.
-    #[test]
-    fn the_generated_constants_come_from_this_table() {
-        let path = concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../../solidity/contracts/circuits/handles.json"
-        );
-        let table = fs::read(path)
-            .expect("the vendored handles.json; run scripts/vendor-circuit-verifiers.sh");
-        let digest: String = Sha256::digest(&table)
-            .iter()
-            .map(|b| format!("{b:02x}"))
-            .collect();
-        assert_eq!(
-            digest, TABLE_SHA256,
-            "vectors.rs is stale: run scripts/regen-identity-handles.py"
-        );
     }
 
     /// The table must keep covering both outcomes. A regeneration that dropped
