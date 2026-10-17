@@ -31,7 +31,6 @@ fs_permissions = [
     { access = "read", path = "contracts/ceremony/test/fixtures" },
     # Real proofs of each circuit, for the Honk verifiers (see HonkVerifierProofs.t.sol).
     { access = "read", path = "contracts/circuits/test/fixtures" },
-    { access = "read", path = "out" }, # the factory tests read creation code from the artifacts
     # The shared handle vectors, vendored from the pinned circuits release, run
     # against the Solidity fold (see HandleNode.t.sol).
     { access = "read", path = "contracts/circuits/handles.json" },
@@ -109,7 +108,7 @@ exclude_lints = [
     "multi-contract-file",
     # The cheatcodes it names are file access, `ffi`, `setEnv` and `deriveKey`.
     # File access is what fs_permissions above confines already -- read-only,
-    # to the test fixtures, `out` and handles.json -- and `ffi` is off. The
+    # to the test fixtures and handles.json -- and `ffi` is off. The
     # uses on the tree are tests reading those.
     "unsafe-cheatcode",
 ]

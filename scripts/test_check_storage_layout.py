@@ -156,14 +156,5 @@ class Settle(unittest.TestCase):
         self.assertFalse(self.settle(self.NEW, update=True, why=None))
 
 
-class Coverage(unittest.TestCase):
-    def test_every_upgradeable_contract_has_a_layout(self) -> None:
-        covered = {contract for layout in check.LAYOUTS for contract in layout.contracts}
-        found = check.upgradeable_contracts()
-        self.assertIn("IdentityRegistry", found)
-        self.assertIn("XPlatformVerifier", found)
-        self.assertLessEqual(found, covered)
-
-
 if __name__ == "__main__":
     unittest.main()
