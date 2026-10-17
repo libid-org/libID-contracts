@@ -100,8 +100,8 @@ contract SharedForwarder {
     }
 }
 
-/// @notice Takes a native payout by `call`, and from inside it reads the books and repeats the call,
-///         catching the refusal, so both defences show on their own.
+/// @notice Takes a native payout and, from inside it, reads the books and repeats the call,
+///         recording the refusal.
 contract ObservingPayee {
     HandleEscrow private immutable ESCROW;
     bytes32 private immutable NODE;
@@ -136,7 +136,7 @@ contract ObservingPayee {
     }
 }
 
-/// @notice Registries `initialize` must refuse or accept.
+/// @notice Registries `initialize` refuses.
 contract RegistryWithAOneWordFallback {
     fallback() external {
         assembly {
@@ -679,10 +679,10 @@ contract HandleEscrowTest is PrivacyScan {
         assertEq(address(payee).balance, 1 ether);
     }
 
-    // ─── Consequences accepted on purpose ───────────────────────────
+    // ─── Accepted consequences ──────────────────────────────────────
 
-    /// NOT a vulnerability. An unclaimed slot follows the handle, not the id: renamed away, the
-    /// identity cannot claim, the depositor can still refund, and the handle's next holder claims.
+    /// An unclaimed slot follows the handle, not the id: renamed away, the identity cannot claim,
+    /// the depositor can still refund, and the handle's next holder claims.
     function test_ACCEPTED_aRecycledHandlePaysTheNewHolder() public {
         _depositNative("alice", 2 ether);
         _bind(alice, "1", "alice", 100);
@@ -754,7 +754,6 @@ contract HandleEscrowTest is PrivacyScan {
         _assertLacks(makeAddr("no code"), IIdentityRegistry.handleBinding.selector);
         _assertLacks(address(new RegistryWithAOneWordFallback()), IIdentityRegistry.handleBinding.selector);
         _assertLacks(address(new RegistryWithASilentFallback()), IIdentityRegistry.handleBinding.selector);
-        // Answers `handleBinding` but does not state `nodeKeyed`.
         _assertLacks(address(new PreNodeRegistry()), IIdentityRegistry.nodeKeyed.selector);
         _assertLacks(address(new RegistryWithHandleBindingOnly()), IIdentityRegistry.nodeKeyed.selector);
         _assertLacks(address(new NotNodeKeyedRegistry()), IIdentityRegistry.nodeKeyed.selector);

@@ -3,8 +3,7 @@ pragma solidity ^0.8.24;
 
 import {IGoogleJwtRoots} from "../GooglePlatformVerifier.sol";
 
-/// @notice A JWT root list trusting what the test tells it to, and nothing
-///         until it is told.
+/// @notice A JWT root list that trusts each modulus hash until the expiry the test sets.
 contract TrustingJwtRoots is IGoogleJwtRoots {
     mapping(bytes32 => uint256) public expiry;
 

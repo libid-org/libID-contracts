@@ -13,8 +13,8 @@ import {StubPlatformVerifier} from "../../identity/test/StubPlatformVerifier.sol
 import {TestNodes} from "../../identity/test/TestNodes.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 
-/// @notice The Proof Verifier as dispatch: it routes, forwards value, and
-///         forwards what comes back. It reads nothing in between.
+/// @notice The Proof Verifier routes a payload and its fee to a Platform Verifier
+///         and returns the claim unchanged.
 contract CeremonyProofVerifierTest is Test {
     CeremonyProofVerifier pv;
     StubPlatformVerifier platform;
@@ -40,7 +40,7 @@ contract CeremonyProofVerifierTest is Test {
         return abi.encode(address(0xBEEF));
     }
 
-    /// The stub's payload, as the bytes a Consumer would hand this contract.
+    /// The stub's payload as a Consumer submits it.
     function _payload(uint16 ceremonyVersion) private pure returns (bytes memory) {
         return abi.encode(
             StubPlatformVerifier.StubPayload({
@@ -54,25 +54,22 @@ contract CeremonyProofVerifierTest is Test {
 
     // ─── The payload is opaque here ─────────────────────────────────
 
-    /// @dev The bytes reach the Platform Verifier exactly as submitted. This
-    ///      contract does not decode them, so it cannot have changed them.
+    /// @dev The bytes reach the Platform Verifier exactly as submitted.
     function test_forwardsThePayloadUntouched() public {
         bytes memory payload = _payload(1);
         pv.verify{value: FEE}(PLATFORM_ID, 1, payload);
         assertEq(platform.lastPayload(), payload);
     }
 
-    /// @dev The digest is the Platform Verifier's to build, from the payload it
-    ///      decoded and the chain it runs on. Nothing at this hop computes one.
+    /// @dev The Platform Verifier builds the digest from the payload and this chain.
     function test_theVerifierBuildsTheDigestFromThisChain() public {
         pv.verify{value: FEE}(PLATFORM_ID, 1, _payload(1));
         assertEq(platform.lastDigest(), CeremonyAuthorization.digestFor(DOMAIN, 1, NONCE, _txData()));
         assertEq(platform.lastDigest(), CeremonyAuthorization.digest(DOMAIN, 1, pv.chainId(), NONCE, _txData()));
     }
 
-    /// @dev The payload carries no chain identifier, so there is nothing in it
-    ///      for a caller to choose (REQ-COMMON-06C). Moving the chain must
-    ///      therefore move the digest.
+    /// @dev The payload carries no chain identifier; the digest takes the chain's
+    ///      (REQ-COMMON-06C).
     function test_theDigestFollowsTheChainAndNotTheCaller() public {
         pv.verify{value: FEE}(PLATFORM_ID, 1, _payload(1));
         bytes32 onThisChain = platform.lastDigest();
@@ -83,11 +80,8 @@ contract CeremonyProofVerifierTest is Test {
         assertTrue(platform.lastDigest() != onThisChain);
     }
 
-    /// @dev Two versions, and only one of them is in the digest. The VERIFIER
-    ///      version is this chain's routing slot: two slots holding verifiers
-    ///      of the same ceremony version share a digest space, which is what
-    ///      lets a proof outlive a verifier upgrade. The CEREMONY version is
-    ///      what the digest binds, so changing it separates the evidence.
+    /// @dev The verifier version is a routing slot, so a proof survives a verifier
+    ///      upgrade; the digest binds the ceremony version.
     function test_theCeremonyVersionIsInTheDigestAndTheVerifierVersionIsNot() public {
         StubPlatformVerifier second = new StubPlatformVerifier(PLATFORM_ID, FEE);
         vm.prank(OWNER);
@@ -119,8 +113,6 @@ contract CeremonyProofVerifierTest is Test {
         assertEq(second.lastValue(), FEE);
     }
 
-    /// @dev A verifier registered under a platform it does not serve would take
-    ///      payloads it cannot check and reject every one.
     function test_refusesAVerifierThatServesAnotherPlatform() public {
         StubPlatformVerifier other = new StubPlatformVerifier(CeremonyProfile.PLATFORM_GITHUB, FEE);
         vm.prank(OWNER);
@@ -132,8 +124,7 @@ contract CeremonyProofVerifierTest is Test {
         pv.setVerifier(PLATFORM_ID, 5, IPlatformVerifier(address(other)));
     }
 
-    /// @dev The set decides which proof statements this chain accepts, so it is
-    ///      authority rather than configuration (REQ-COMMON-05C).
+    /// @dev The set decides which proof statements this chain accepts (REQ-COMMON-05C).
     function test_onlyGovernanceMovesTheSupportedVersionSet() public {
         vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, address(this)));
         pv.setVerifier(PLATFORM_ID, 6, IPlatformVerifier(address(platform)));
@@ -145,8 +136,7 @@ contract CeremonyProofVerifierTest is Test {
         assertEq(pv.quote(PLATFORM_ID, 1), FEE);
     }
 
-    /// @dev Exact value at every hop: no refund path, so no partial-failure
-    ///      rule is needed and nothing can be captured in transit.
+    /// @dev Every hop takes the exact quote; there is no refund path.
     function test_rejectsAValueOtherThanTheQuote() public {
         bytes memory payload = _payload(1);
         vm.expectRevert(abi.encodeWithSelector(CeremonyProofVerifier.WrongValue.selector, FEE, FEE - 1));
@@ -164,9 +154,8 @@ contract CeremonyProofVerifierTest is Test {
 
     // ─── What comes back ────────────────────────────────────────────
 
-    /// @dev The claim goes through untouched. The transaction data is opaque
-    ///      at this hop as at the one above: deciding what the bytes mean
-    ///      belongs to the Consumer that fixed the domain (REQ-COMMON-06B).
+    /// @dev The transaction data is opaque here; the Consumer that fixed the
+    ///      domain interprets it (REQ-COMMON-06B).
     function test_returnsTheClaimWithTheDataUntouched() public {
         ICeremony.VerifiedClaim memory c = pv.verify{value: FEE}(PLATFORM_ID, 1, _payload(1));
 
@@ -179,7 +168,7 @@ contract CeremonyProofVerifierTest is Test {
         assertEq(c.sessionId, platform.lastDigest());
     }
 
-    // ─── Telling "not wired" from "nobody holds it" ──────────────────
+    // ─── Platform support and ownership ─────────────────────────────
 
     function test_reportsWhetherAPlatformCanBeVerifiedAtAll() public {
         assertTrue(pv.verifiesPlatform(PLATFORM_ID));
@@ -198,7 +187,7 @@ contract CeremonyProofVerifierTest is Test {
 
     function test_setVerifierWithAnEoaReverts() public {
         vm.prank(OWNER);
-        vm.expectRevert(); // high-level call to an address holding no code; no selector available
+        vm.expectRevert(); // a call to an address with no code reverts without a selector
         pv.setVerifier(CeremonyProfile.PLATFORM_X, 1, IPlatformVerifier(address(0xB0B)));
     }
 }

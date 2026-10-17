@@ -203,7 +203,7 @@ contract HandleEscrowHostileTokensTest is Test {
         assertEq(token.balanceOf(other), 11 ether);
     }
 
-    /// KNOWN LIMITATION: a token blocking the escrow freezes every slot in it until it stops.
+    /// A token blocking the escrow freezes every slot in it until it stops.
     function test_ACCEPTED_aTokenBlockingTheEscrowFreezesItsSlots() public {
         BlocklistToken token = new BlocklistToken();
         _escrow(address(token), depositor, NODE, 10 ether);
@@ -224,9 +224,8 @@ contract HandleEscrowHostileTokensTest is Test {
         assertEq(token.balanceOf(holder), 10 ether);
     }
 
-    /// KNOWN LIMITATION: a token charging its sender on `transfer` deposits but never pays out. Every
-    /// claim and refund would take more of the pool than it books and is refused, which is what keeps
-    /// one node from spending another's; only an upgrade can release the value.
+    /// A token charging its sender on `transfer` never pays out: every payout over-debits the pool
+    /// and is refused, so no node spends another's.
     function test_ACCEPTED_aSenderFeeTokenDepositsButNeverPaysOut() public {
         SenderFeeToken token = new SenderFeeToken();
         _escrow(address(token), depositor, NODE, 10 ether);
@@ -246,7 +245,7 @@ contract HandleEscrowHostileTokensTest is Test {
         assertEq(escrow.refundable(NODE, address(token), depositor), 10 ether);
     }
 
-    /// KNOWN LIMITATION: a negative rebase shrinks the shared pool; the last withdrawal fails.
+    /// A negative rebase shrinks the shared pool; the last withdrawal fails.
     function test_ACCEPTED_aNegativeRebaseStrandsTheLastWithdrawal() public {
         RebasingToken token = new RebasingToken();
         _escrow(address(token), depositor, NODE, 10 ether);

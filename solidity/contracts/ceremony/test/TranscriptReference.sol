@@ -26,8 +26,7 @@ library RefCeremonyAttestation {
 
     // ─── Framing, over the transcript rebuilt ───────────────────────
     //
-    // Rebuilds the transcript as a byte map and reads the rule of
-    // `CeremonyAttestation.requireFramedCommitment` off it.
+    // `CeremonyAttestation.requireFramedCommitment` read off a byte map of the transcript.
 
     uint8 private constant UNKNOWN = 0;
     uint8 private constant REVEALED = 1;
@@ -118,12 +117,12 @@ library RefCeremonyAttestation {
         }
     }
 
-    /// @dev Whether the revealed range whose last byte sits right before `at`
-    ///      -- and that range alone -- ends, whitespace removed, with `prefix`.
+    /// @dev Whether the single revealed range ending right before `at` ends with
+    ///      `prefix`, whitespace removed.
     function _anchorEndsWith(ByteMap memory m, uint256 at, bytes memory prefix) private pure returns (bool) {
         if (at == 0 || at > m.kind.length || m.kind[at - 1] != REVEALED) return false;
         uint256 range = m.owner[at - 1];
-        // The range has to END here, not run on past the commitment's start.
+        // The range must end at `at`.
         if (at < m.kind.length && m.kind[at] == REVEALED && m.owner[at] == range) return false;
         uint256 from = at - 1;
         while (from > 0 && m.kind[from - 1] == REVEALED && m.owner[from - 1] == range) {
@@ -169,8 +168,7 @@ library RefCeremonyAttestation {
     function _countIn(bytes memory haystack, bytes memory needle) private pure returns (uint256 count) {
         if (needle.length == 0) return haystack.length + 1;
         uint256 matched;
-        // Each start offset is tracked by how far its match has got; a match
-        // that fails is dropped, and one that completes is counted.
+        // Tracks each start offset's match progress; failed matches drop, complete ones count.
         uint256[] memory progress = new uint256[](haystack.length);
         uint256 live;
         for (uint256 i = 0; i < haystack.length; ++i) {
@@ -228,9 +226,8 @@ library RefCeremonyAttestation {
         }
     }
 
-    /// @dev One `\r\n\r\n` in the revealed bytes joined, ending them, and
-    ///      the transcript ending where the last revealed byte does. A plain
-    ///      byte loop over every offset, where production tries only the CRs.
+    /// @dev One `\r\n\r\n` at the end of the joined revealed bytes, and the
+    ///      transcript ending there. Tries every offset; production tries only CRs.
     function _requireOneBodilessRequest(
         CeremonyAttestation.DirectionBlock memory block_,
         bytes memory revealed,
@@ -331,8 +328,7 @@ library RefCeremonyAttestation {
                     for (uint256 j = 0; j < take; ++j) {
                         out[n++] = r.value[offset + j];
                     }
-                    // Casting to uint32 is safe: `take` is clamped to `to - at`
-                    // above, and both of those are uint32.
+                    // Casting to uint32 is safe: `take` is at most `to - at`, both uint32.
                     // forge-lint: disable-next-line(unsafe-typecast)
                     at += uint32(take);
                     found = true;
@@ -599,8 +595,7 @@ library RefTranscript {
         });
     }
 
-    /// @dev `_tokenSession` between `_authenticate` and `_requireFresh`, with
-    ///      `expected` the code verifier `CeremonyAuthorization` derives.
+    /// @dev `_tokenTranscript`, with `expected` the code verifier `CeremonyAuthorization` derives.
     function tokenTranscript(
         CeremonyAttestation.AttestedData memory data,
         bytes memory expected,
@@ -690,9 +685,7 @@ library RefTranscript {
         .commitment;
     }
 
-    // `1 << i` is the mask for line i. The lint's heuristic reads a literal on
-    // the left of a shift as swapped operands, which is what building a mask
-    // looks like.
+    // `1 << i` is the mask for line i; the lint reads a shifted literal as swapped operands.
     // forge-lint: disable-next-item(incorrect-shift)
     function _checkTokenHead(bytes memory head, bytes memory required) internal pure returns (uint256 declared) {
         RefCeremonyAttestation.requireCrlfLineEndings(head);

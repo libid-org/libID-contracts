@@ -19,7 +19,7 @@ abstract contract RealTlsNotaryProofTest is Test {
     uint256 constant NOTARY_KEY = 0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80;
 
     /// The low byte of proof word 29, the first sumcheck coefficient.
-    /// Flipping a curve point instead would burn all the gas.
+    /// A flipped curve point would exhaust the gas instead.
     uint256 constant FLIPPED_PROOF_BYTE = 29 * 32 + 31;
 
     // ─── What each suite supplies ───────────────────────────────────
@@ -28,8 +28,7 @@ abstract contract RealTlsNotaryProofTest is Test {
 
     function _notary() internal view virtual returns (INotaryService);
 
-    /// The suite's honest payload, which the fixtures' records replace the
-    /// sessions of.
+    /// The suite's honest payload; `_realProofPayload` swaps in the fixture's sessions.
     function _payload() internal view virtual returns (TlsNotaryVerifierBase.TlsNotaryProof memory);
 
     /// The session fixture libid-rs wrote, and the proof bb made of it.
@@ -122,8 +121,6 @@ abstract contract RealTlsNotaryProofTest is Test {
         }
     }
 
-    /// @dev The id and handle commitments swapped in the record: the proof
-    ///      refuses it.
     function test_refusesARealProofWithTheIdAndHandleCommitmentsSwapped() public {
         (TlsNotaryVerifierBase.TlsNotaryProof memory s,,) = _realProofPayload();
         string memory json = vm.readFile(_session());
@@ -133,7 +130,7 @@ abstract contract RealTlsNotaryProofTest is Test {
         _refuses(s, IHonkVerifierErrors.SumcheckFailed.selector);
     }
 
-    /// @dev The other platform's identity session is refused by its host.
+    /// @dev The other platform's identity session fails the authority check.
     function test_refusesAnotherPlatformsIdentitySession() public {
         (TlsNotaryVerifierBase.TlsNotaryProof memory s,,) = _realProofPayload();
         s.identitySession = AttestationBuilder.fixtureSession(vm.readFile(_otherSession()), ".identity");

@@ -5,12 +5,8 @@ import {Test} from "forge-std/Test.sol";
 import {CeremonyProfile} from "../CeremonyProfile.sol";
 
 /// @notice Pins the profile tags to fixed bytes.
-/// @dev These strings are a cross-implementation agreement, not a reading of
-///      the specification, which fixes no literal of its own. The notary
-///      writes them and the verifier compares them; a silent disagreement
-///      rejects every genuine attestation with no error that says why. The
-///      expected values below were computed with `cast keccak`, independently
-///      of this library.
+/// @dev The notary writes these tags and the verifier compares them; a mismatch
+///      rejects every genuine attestation. Expected values come from `cast keccak`.
 contract CeremonyProfileTest is Test {
     function test_platformIdsArePinnedAndDistinct() public pure {
         assertEq(CeremonyProfile.PLATFORM_GOOGLE, 0x8f2f90d8304f6eb382d037c47a041d8c8b4d18bdd8b082fa32828e016a584ca7);
@@ -29,14 +25,13 @@ contract CeremonyProfileTest is Test {
         );
     }
 
-    /// @dev GitHub's exchange is served by github.com and its identity read by
-    ///      api.github.com, so one pinned authority per profile would be wrong.
+    /// @dev GitHub's exchange is served by github.com and its identity by api.github.com.
     function test_githubNotarizesTwoDifferentAuthorities() public pure {
         assertTrue(CeremonyProfile.AUTHORITY_GITHUB != CeremonyProfile.AUTHORITY_GITHUB_API);
     }
 
-    /// @dev The precomputed header hashes are what each CRLF block parses to:
-    ///      the name before the colon, and the value after it, trimmed.
+    /// @dev Each precomputed header hash pair is the block's name before the colon
+    ///      and its trimmed value after it.
     function test_theRequiredHeaderHashesAreTheBlocksParsed() public pure {
         bytes32[2] memory platforms = [CeremonyProfile.PLATFORM_X, CeremonyProfile.PLATFORM_GITHUB];
         bytes[2] memory tokens =
@@ -85,7 +80,7 @@ contract CeremonyProfileTest is Test {
     }
 
     function test_attestationCountsFollowTheProfiles() public pure {
-        // Google's path stops at the Platform Verifier and costs nothing.
+        // Google uses no notary attestation.
         assertEq(CeremonyProfile.attestationCount(CeremonyProfile.PLATFORM_GOOGLE), 0);
         assertEq(CeremonyProfile.attestationCount(CeremonyProfile.PLATFORM_X), 2);
         assertEq(CeremonyProfile.attestationCount(CeremonyProfile.PLATFORM_GITHUB), 2);
@@ -105,9 +100,8 @@ contract CeremonyProfileTest is Test {
         assertEq(CeremonyProfile.LAUNCH_VERSION, 1);
     }
 
-    /// @dev A browser derives a proof's expiry from the version it ran, so a
-    ///      launch window is part of `v1` like its request lines: a different
-    ///      value is a new ceremonyVersion, not an edit (REQ-PARAM-01).
+    /// @dev The windows are part of ceremony version 1; a different value is a
+    ///      new ceremonyVersion (REQ-PARAM-01).
     function test_launchValidityWindowsArePinned() public pure {
         assertEq(CeremonyProfile.PROOF_LIFETIME_SECONDS_X, 3600);
         assertEq(CeremonyProfile.MAX_FUTURE_ATTESTATION_SKEW_SECONDS_X, 300);
@@ -118,9 +112,8 @@ contract CeremonyProfileTest is Test {
         assertEq(CeremonyProfile.FUTURE_OBSERVATION_ALLOWANCE_SECONDS_GOOGLE, 7200);
     }
 
-    /// @dev The ordering the allowances exist for: an OIDC claim carries the
-    ///      token's `exp` and reads about an hour ahead, a notarized
-    ///      observation is wall-clock and never is.
+    /// @dev An OIDC claim carries the token's `exp`, about an hour ahead; a
+    ///      notarized observation is wall-clock time.
     function test_anOidcClaimIsAllowedFurtherAheadThanANotarizedOne() public pure {
         assertGt(
             CeremonyProfile.FUTURE_OBSERVATION_ALLOWANCE_SECONDS_GOOGLE,
@@ -134,9 +127,8 @@ contract CeremonyProfileTest is Test {
         );
     }
 
-    /// @dev `isForbiddenRequestHeader` is true for every listed name and false
-    ///      for near misses: a header the verifier reads, another case, a
-    ///      trailing space, the empty name, two names joined.
+    /// @dev True for every listed name; false for a read header, another case, a
+    ///      trailing space, the empty name and two joined names.
     function test_theForbiddenNamesAreTheListedOnes() public pure {
         bytes memory list = CeremonyProfile.FORBIDDEN_REQUEST_HEADERS;
         uint256 listed;
@@ -159,10 +151,7 @@ contract CeremonyProfileTest is Test {
         }
     }
 
-    /// @dev The pinned fixture in CeremonyAttestation.t.sol opens with the
-    ///      X API authority id and nothing else names a platform. If
-    ///      these constants and that fixture ever drift apart, one of them is
-    ///      wrong.
+    /// @dev Pins `PLATFORM_X` to the hash of `x`.
     function test_theAttestationFixtureUsesTheseConstants() public pure {
         assertEq(CeremonyProfile.PLATFORM_X, keccak256(bytes("x")));
     }

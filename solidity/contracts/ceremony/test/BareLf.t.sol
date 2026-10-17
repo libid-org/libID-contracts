@@ -4,7 +4,7 @@ pragma solidity ^0.8.24;
 import {Test} from "forge-std/Test.sol";
 import {CeremonyAttestation} from "../CeremonyAttestation.sol";
 
-/// Did the bare-LF guard actually close anything? Verified, not assumed.
+/// The bearer header request check against headers on bare-LF lines.
 contract BareLfTest is Test {
     function run(CeremonyAttestation.DirectionBlock memory b, uint32 len) external pure {
         CeremonyAttestation.requireBearerHeaderRequest(b, len);
@@ -25,8 +25,7 @@ contract BareLfTest is Test {
         b.commitments[0] = CeremonyAttestation.RangeCommitment({start: s, end: e, commitment: bytes32(uint256(1))});
     }
 
-    /// A second authorization header on a BARE-LF line. The needle is
-    /// CRLF-anchored, so before the guard this counted zero and passed.
+    /// A second authorization header on a bare-LF line is refused.
     function test_aBareLfHeaderIsRefused() public {
         (CeremonyAttestation.DirectionBlock memory b, uint32 len) = _req("x-pad: a\nauthorization: Bearer STOLEN\r\n");
         vm.expectPartialRevert(CeremonyAttestation.BareLineFeed.selector);

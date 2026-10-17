@@ -39,20 +39,17 @@ contract IdentityDeployWiringTest is Test {
         this.handleTagForExternally(nowhere);
     }
 
-    /// The ceremony profiles sit below identity, so they keep their own copy
-    /// of the registry's error; the two are one error.
+    /// The profiles' copy of `UnknownPlatform` has the registry's selector.
     function test_everyUnknownPlatformIsTheRegistrysError() public pure {
         assertEq(CeremonyProfile.UnknownPlatform.selector, IIdentityRegistry.UnknownPlatform.selector);
     }
 
-    /// `handleTag` is an internal library call, which `expectRevert` cannot see.
-    /// This gives it a call boundary to watch.
+    /// An external call boundary around `handleTag`, so `expectRevert` can see its revert.
     function handleTagForExternally(bytes32 platformId) external pure returns (bytes memory) {
         return CeremonyProfile.handleTag(platformId);
     }
 
-    /// A platform the profiles name answers "nobody" before its verifier is
-    /// registered and after; only a registered verifier lets it bind.
+    /// A known platform answers nobody with or without a verifier; only a verifier lets it bind.
     function test_aKnownPlatformResolvesWithOrWithoutAVerifier() public {
         assertEq(registry.resolveHandle(CeremonyProfile.PLATFORM_GOOGLE, "nobody@example.com"), address(0));
         assertFalse(registry.acceptsBindings(CeremonyProfile.PLATFORM_GOOGLE));

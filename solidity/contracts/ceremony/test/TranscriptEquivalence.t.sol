@@ -221,9 +221,8 @@ contract RefHelpers {
     }
 }
 
-/// @notice Seeded transcripts: an honest session of each kind, bent by the
-///         edits the checks exist to catch, so an input can pass some checks
-///         and fail a later one. Random bytes rarely pass the first.
+/// @notice Seeded transcripts: an honest session of each kind with edits the
+///         checks must catch, so an input can pass early checks and fail a later one.
 library Gen {
     struct Rng {
         uint256 state;
@@ -273,8 +272,7 @@ library Gen {
         }
     }
 
-    /// @dev `data` with one of a few small edits: a byte replaced, inserted
-    ///      or deleted, each drawn from `alphabet`.
+    /// @dev `data` with a byte from `alphabet` replaced, inserted or deleted.
     function mutate(Rng memory r, bytes memory data, bytes memory alphabet) internal pure returns (bytes memory) {
         uint256 kind = pick(r, 3);
         uint256 at = data.length == 0 ? 0 : pick(r, data.length);
@@ -312,10 +310,8 @@ library Gen {
     uint8 internal constant COMMIT = 1;
     uint8 internal constant GAP = 2;
 
-    /// @dev A direction over `t`: segments `[cuts[i], cuts[i + 1])`, each
-    ///      revealed, committed or left uncovered. Ascending, nonempty and
-    ///      disjoint by construction, as `CeremonyAttestation.decode` leaves
-    ///      every block it returns.
+    /// @dev A direction over `t`: segments `[cuts[i], cuts[i + 1])`, each revealed,
+    ///      committed or uncovered; ascending, nonempty and disjoint, as `decode` returns.
     function layout(bytes memory t, uint256[] memory cuts, uint8[] memory segmentKinds)
         internal
         pure
@@ -333,8 +329,7 @@ library Gen {
         (reveals, commits) = (0, 0);
         for (uint256 i = 0; i + 1 < cuts.length; ++i) {
             if (cuts[i] == cuts[i + 1]) continue;
-            // Casting to uint32 is safe: every cut is an offset into a
-            // transcript these generators keep far below 2**32 bytes.
+            // Casting to uint32 is safe: generated transcripts stay far below 2**32 bytes.
             // forge-lint: disable-next-line(unsafe-typecast)
             (uint32 start, uint32 end) = (uint32(cuts[i]), uint32(cuts[i + 1]));
             if (segmentKinds[i] == REVEAL) {
@@ -348,10 +343,9 @@ library Gen {
         }
     }
 
-    /// @dev `t` cut at every offset in `bounds` and at up to `extra` random
-    ///      ones; the segments `bounds` makes take `boundKinds` in order and every
-    ///      further cut splits a segment into two of the same kind. Now and
-    ///      then a segment turns to a gap, or its kind flips.
+    /// @dev `t` cut at `bounds`, whose segments take `boundKinds` in order, and at up
+    ///      to `extra` random offsets that split a segment; sometimes a segment becomes
+    ///      a gap or flips kind.
     function split(Rng memory r, bytes memory t, uint256[] memory bounds, uint8[] memory boundKinds, uint256 extra)
         internal
         pure
@@ -396,13 +390,11 @@ library Gen {
         return layout(t, trimmed, segmentKinds);
     }
 
-    /// @dev The signed length of a direction over `t`: its length, or now and
-    ///      then 1 to 3 bytes more.
+    /// @dev The signed length of a direction over `t`: its length, or sometimes 1 to 3 bytes more.
     function length(Rng memory r, bytes memory t) internal pure returns (uint32) {
         uint256 len = t.length;
         if (chance(r, 2)) len += 1 + pick(r, 3);
-        // Casting to uint32 is safe: the transcripts here are a few hundred
-        // bytes long.
+        // Casting to uint32 is safe: the transcripts here are a few hundred bytes.
         // forge-lint: disable-next-line(unsafe-typecast)
         return uint32(len);
     }
@@ -495,8 +487,7 @@ library Gen {
         return values[pick(r, values.length)];
     }
 
-    /// @dev `name: value` in one of the spellings HTTP reads as the same
-    ///      header, or now and then one it does not.
+    /// @dev `name: value` in a spelling HTTP reads as the same header, or sometimes one it does not.
     function headerLine(Rng memory r, bytes memory name, bytes memory value) internal pure returns (bytes memory) {
         bytes memory before = chance(r, 15) ? oneOf(r, list(" ", "\t", "  ")) : bytes("");
         bytes memory afterColon = oneOf(r, list(" ", "", "\t", "  "));
@@ -507,8 +498,7 @@ library Gen {
         return line;
     }
 
-    /// @dev The line separator: CRLF, or now and then something a lenient
-    ///      parser might also end a line on.
+    /// @dev The line separator: CRLF, or sometimes another line ending a lenient parser accepts.
     function eol(Rng memory r) internal pure returns (bytes memory) {
         if (!chance(r, 2)) return "\r\n";
         return oneOf(r, list("\n", "\r", "\r\n ", "\r\n\t"));
@@ -535,8 +525,8 @@ library Gen {
         }
     }
 
-    /// @dev The body a profile's field list asks for, `code_verifier`
-    ///      mostly the one the digest derives, then now and then bent.
+    /// @dev The body a profile's field list asks for, `code_verifier` mostly the
+    ///      derived one, sometimes edited.
     function tokenBody(Rng memory r, bytes memory names, bytes memory verifier)
         internal
         pure
@@ -566,9 +556,8 @@ library Gen {
         if (chance(r, 2)) body = mutate(r, body, FORM_ALPHABET);
     }
 
-    /// @dev A token request: the pinned request line, a head holding the
-    ///      required headers among others, the length it declares, and a
-    ///      body. The length is the body's own unless the head is being bent.
+    /// @dev A token request: the pinned request line, a head with the required
+    ///      headers among others, a declared length matching the body unless edited, and a body.
     function tokenRequest(Rng memory r, bytes memory requestLine, bytes memory required, bytes memory body)
         internal
         pure
@@ -595,7 +584,7 @@ library Gen {
         for (uint256 i = 0; i < extra && n < lines.length; ++i) {
             lines[n++] = headerLine(r, headerName(r), headerValue(r));
         }
-        // Shuffled, since nothing is pinned by position.
+        // Header order is not pinned.
         for (uint256 i = n; i > 1; --i) {
             uint256 j = pick(r, i);
             (lines[i - 1], lines[j]) = (lines[j], lines[i - 1]);
@@ -639,9 +628,8 @@ library Gen {
 
     // ─── Token response ─────────────────────────────────────────────
 
-    /// @dev A token response revealing only the bearer's anchors, the bearer
-    ///      and every other byte committed -- then bent: whitespace inside the
-    ///      delimiter, a second delimiter revealed, the quote hidden, a gap.
+    /// @dev A token response revealing only the bearer's anchors, edited with
+    ///      whitespace in the delimiter, a second revealed delimiter, a hidden quote or a gap.
     function tokenResponse(Rng memory r) internal pure returns (CeremonyAttestation.DirectionBlock memory, uint32) {
         bytes memory prefix = oneOf(r, list('"access_token":"', '"access_token" : "', '"access_token":\n"'));
         bytes memory head = "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\n\r\n{";
@@ -652,8 +640,7 @@ library Gen {
         uint256 a = head.length + decoy.length;
         uint256 b = a + prefix.length;
         uint256 c = b + bearer.length;
-        // The decoy, when there is one, revealed now and then: a second
-        // delimiter in the open is what makes the framing ambiguous.
+        // A revealed decoy delimiter makes the framing ambiguous.
         uint8 decoyKind = chance(r, 50) ? REVEAL : COMMIT;
         CeremonyAttestation.DirectionBlock memory block_ = split(
             r,
@@ -667,11 +654,8 @@ library Gen {
 
     // ─── Identity request ───────────────────────────────────────────
 
-    /// @dev An identity request: the pinned request line, headers in any
-    ///      order around one `authorization: Bearer` line whose value is
-    ///      committed, the required `host` line among them in the profile's
-    ///      spelling or another, the rest revealed and sometimes cut into more
-    ///      ranges.
+    /// @dev An identity request: the pinned request line and headers in any order,
+    ///      one `authorization: Bearer` line with its value committed, the rest revealed.
     function identityRequest(Rng memory r, bytes memory requestLine, bytes memory hostLine)
         internal
         pure
@@ -735,16 +719,15 @@ library Gen {
 
     // ─── Identity response ──────────────────────────────────────────
 
-    /// @dev One identity member as libid-rs reveals it: the anchor, the
-    ///      value, and the byte that closes it -- a quote, or the `,` or `}`
-    ///      that ends a bare integer.
+    /// @dev One identity member as libid-rs reveals it: the anchor, the value, and
+    ///      its closing quote, or the `,` or `}` ending a bare integer.
     struct Member {
         bytes anchor;
         bytes value;
         bytes close;
     }
 
-    /// @dev An anchor-only JSON response with two members, then bent: whitespace,
+    /// @dev An anchor-only JSON response with two members, edited: whitespace,
     ///      decoys, quoting, moved value boundaries, cut anchors.
     function identityResponse(Rng memory r, bool integerId, bytes memory handleField)
         internal
@@ -762,8 +745,7 @@ library Gen {
         bytes memory decoy = chance(r, 10)
             ? oneOf(r, list('"name":"\\"id\\":\\"1\\"",', abi.encodePacked('"', handleField, '":"x",'), '"id":5,'))
             : bytes("");
-        // An integer id that comes first closes on its own comma; anything
-        // else is followed by one.
+        // A leading integer id closes on its own comma; anything else is followed by one.
         bytes memory sep = idFirst && integerId
             ? oneOf(r, list("", " ", "\n  "))
             : (chance(r, 85) ? oneOf(r, list(",", ", ", ",\n  ")) : oneOf(r, list(ws, "}", " ")));
@@ -780,8 +762,8 @@ library Gen {
         );
     }
 
-    /// @dev The id member: a JSON string for X, a bare integer for GitHub --
-    ///      and now and then the other shape, which neither framing admits.
+    /// @dev The id member: a JSON string for X, a bare integer for GitHub, or
+    ///      sometimes the other platform's shape.
     function idMember(Rng memory r, bool integerId, bytes memory ws, bool first)
         internal
         pure
@@ -846,8 +828,8 @@ library Gen {
 
 /// @notice Every transcript check the verifiers run, against its copy in
 ///         `TranscriptReference.sol`: equal results and equal revert data.
-/// @dev Whole sessions per stage and profile, so the order of the checks is
-///      compared too; and each library helper other contracts call, on its own.
+/// @dev Whole sessions per stage and profile also compare the order of checks;
+///      each library helper is compared on its own.
 contract TranscriptEquivalenceTest is Test {
     using Gen for Gen.Rng;
 
@@ -870,8 +852,7 @@ contract TranscriptEquivalenceTest is Test {
         ref = new RefHelpers();
     }
 
-    /// @dev Both calls, the same answer: success with equal return data, or
-    ///      a revert with equal revert data.
+    /// @dev Both calls succeed with equal return data or revert with equal revert data.
     function _same(address a, bytes memory callA, address b, bytes memory callB) private view returns (bool ok) {
         (bool okA, bytes memory retA) = a.staticcall(callA);
         (bool okB, bytes memory retB) = b.staticcall(callB);
@@ -896,8 +877,7 @@ contract TranscriptEquivalenceTest is Test {
         bytes memory request = r.tokenRequest(p.tokenRequestLine, p.tokenRequiredHeaders, body);
         if (r.chance(90)) {
             data.sent = Gen.layout(request, Gen.marks(0, request.length), Gen.kinds(Gen.REVEAL, Gen.REVEAL));
-            // Casting to uint32 is safe: a generated request is a few hundred
-            // bytes long.
+            // Casting to uint32 is safe: a generated request is a few hundred bytes.
             // forge-lint: disable-next-line(unsafe-typecast)
             data.sentTranscriptLength = r.chance(97) ? uint32(request.length) : r.length(request);
         } else {
@@ -983,8 +963,7 @@ contract TranscriptEquivalenceTest is Test {
             r.chance(60) ? r.tokenBody(names, "5teBDl6cz4U77aFweV5PbMhBJ_lEFv6LLNKzqnDI5lo") : r.soup("ab_=&%2F+;", 30);
         string memory name = string(r.oneOf(Gen.list("client_id", "code_verifier", "grant_type", r.soup("ab_", 3))));
         bool exact = _same(address(live), address(ref), abi.encodeCall(LiveHelpers.requireExactForm, (body, names)));
-        // On an exact body, `valueOf` answers as the reference's `formField`
-        // does, errors included.
+        // On an exact body, `valueOf` matches the reference's `formField`, errors included.
         if (exact) {
             _same(
                 address(live),
@@ -1033,7 +1012,7 @@ contract TranscriptEquivalenceTest is Test {
         {
             return;
         }
-        // And the join it returns is the join of the revealed ranges.
+        // The join it returns is the join of the revealed ranges.
         _same(
             address(live),
             abi.encodeCall(LiveHelpers.bearerHeaderRequestJoin, (block_, len)),
@@ -1073,8 +1052,7 @@ contract TranscriptEquivalenceTest is Test {
         _same(address(live), address(ref), abi.encodeCall(LiveHelpers.requireFramedCommitment, (block_, '"id":"', '"')));
     }
 
-    /// @dev The generators above produce framings both sides accept, not
-    ///      only refusals.
+    /// @dev The generators produce framings both sides accept.
     function test_theFramingGeneratorsAcceptOften() public {
         uint256 runs = 300;
         uint256[5] memory accepted;
@@ -1098,8 +1076,8 @@ contract TranscriptEquivalenceTest is Test {
         }
     }
 
-    /// @dev Which of the framings, and the whole identity sessions, one seed's
-    ///      transcripts pass, both implementations agreeing on each.
+    /// @dev Which framings and identity sessions one seed's transcripts pass, both
+    ///      implementations agreeing.
     function framingOutcomes(uint256 seed) external view returns (bool[5] memory outcome) {
         Gen.Rng memory r = Gen.Rng(seed);
         (CeremonyAttestation.DirectionBlock memory token,) = r.tokenResponse();
@@ -1205,8 +1183,7 @@ contract TranscriptEquivalenceTest is Test {
         assertEq(CeremonyFields.indexOfByte(data, from, b), expected);
     }
 
-    /// @dev And a byte equal to `b` just past the end, in the same word the
-    ///      search reads, is not an answer.
+    /// @dev A byte equal to `b` just past the end, in the word the search reads, is not found.
     /// forge-config: default.fuzz.runs = 5000
     function testFuzz_indexOfByteIgnoresBytesPastTheEnd(uint256 seed, uint256 length, uint256 from) public pure {
         Gen.Rng memory r = Gen.Rng(seed);
@@ -1245,8 +1222,8 @@ contract TranscriptEquivalenceTest is Test {
         }
     }
 
-    /// @dev Every byte value in every position, beside neighbours in the set
-    ///      and outside it: no byte's answer leaks into the next.
+    /// @dev Every byte value in every position, beside neighbours in and outside the
+    ///      set: no byte's answer leaks into the next.
     function test_serializerUnsafeBytesMarksExactlyTheBytesOutsideTheSet() public pure {
         uint8[4] memory fillers = [0x61, 0x3b, 0x00, 0xff];
         for (uint256 f = 0; f < fillers.length; ++f) {
@@ -1268,21 +1245,19 @@ contract TranscriptEquivalenceTest is Test {
 
     // ─── The real sessions ──────────────────────────────────────────
 
-    /// @dev The records libid-rs produces, stage by stage: the honest path,
-    ///      where a divergence would cost users.
+    /// @dev The session records libid-rs produces, stage by stage.
     function test_theLibidRsSessionsMatchReference() public view {
         _real("contracts/ceremony/test/fixtures/x-ceremony-session.json", address(x), address(refX));
         _real("contracts/ceremony/test/fixtures/github-ceremony-session.json", address(github), address(refGitHub));
     }
 
-    /// @dev And the token session and identity request of the two captured
-    ///      ceremonies.
+    /// @dev The token session and identity request of the two captured ceremonies.
     function test_theRealSessionsMatchReference() public view {
         _realRequests("contracts/ceremony/test/fixtures/x-ceremony-real.json", address(x), address(refX));
         _realRequests("contracts/ceremony/test/fixtures/github-ceremony-real.json", address(github), address(refGitHub));
     }
 
-    /// @dev And their identity responses, the anchors revealed.
+    /// @dev The captured ceremonies' identity responses, anchors revealed.
     function test_theRealIdentityResponsesMatchReference() public view {
         _real("contracts/ceremony/test/fixtures/x-ceremony-real.json", address(x), address(refX));
         _real("contracts/ceremony/test/fixtures/github-ceremony-real.json", address(github), address(refGitHub));
@@ -1296,8 +1271,7 @@ contract TranscriptEquivalenceTest is Test {
         assertTrue(_same(live_, ref_, abi.encodeCall(XTranscripts.identityTranscript, (identity))));
     }
 
-    /// @dev Both implementations accept the token session and the identity
-    ///      request, and agree on what they return.
+    /// @dev Both implementations accept the token session and identity request and return the same.
     function _realRequests(string memory path, address live_, address ref_) private view {
         string memory json = vm.readFile(path);
         CeremonyAttestation.AttestedData memory token = this.decode(vm.parseJsonBytes(json, ".token.attested_data"));

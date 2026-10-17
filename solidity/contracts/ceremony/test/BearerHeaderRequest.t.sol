@@ -4,8 +4,7 @@ pragma solidity ^0.8.24;
 import {Test} from "forge-std/Test.sol";
 import {CeremonyAttestation} from "../CeremonyAttestation.sol";
 
-/// @notice The identity-session request checks of REQ-COMMON-35, -39 and -40,
-///         exercised against the attacks each one exists to stop.
+/// @notice The identity-session request checks of REQ-COMMON-35, -39 and -40.
 /// @dev Mirrors `libid-rs/crates/libid-ceremony/src/attestation.rs`.
 contract BearerHeaderRequestTest is Test {
     bytes constant BEARER = "AAAAbbbbCCCCdddd";
@@ -18,8 +17,7 @@ contract BearerHeaderRequestTest is Test {
         (commitment,) = CeremonyAttestation.requireBearerHeaderRequest(block_, length);
     }
 
-    /// A real `/2/users/me` request: the bearer committed, every other byte
-    /// revealed, tiled exactly.
+    /// A `/2/users/me` request: the bearer committed, every other byte revealed.
     function _request(string memory extraHeader, string memory bearerPrefix)
         private
         pure
@@ -53,11 +51,8 @@ contract BearerHeaderRequestTest is Test {
         return _request("", "authorization: Bearer ");
     }
 
-    /// @dev The prover picks where the reveals are cut. Cutting one through the
-    ///      middle of a second `\r\nauthorization:` used to make neither half
-    ///      contain the needle -- two header lines, a count of one, and the
-    ///      platform answering to whichever bearer it honoured. The count runs
-    ///      over the concatenation for exactly this.
+    /// @dev A second `\r\nauthorization:` cut across two revealed ranges is still
+    ///      counted: the count runs over their concatenation.
     function test_rejectsANeedleSplitAcrossAdjacentRanges() public {
         bytes memory head = "GET /2/users/me HTTP/1.1\r\nhost: api.x.com";
         bytes memory victim = "\r\nauthorization: Bearer VICTIMTOKENVICTIM";
@@ -104,8 +99,7 @@ contract BearerHeaderRequestTest is Test {
         this.run(b, len);
     }
 
-    /// @dev Field names and the scheme token are case-insensitive and the colon
-    ///      admits whitespace, so a literal search would miss this one.
+    /// @dev Field names and the scheme are case-insensitive and the colon admits whitespace.
     function test_rejectsACaseAndWhitespaceEvadedSecondHeader() public {
         (CeremonyAttestation.DirectionBlock memory b, uint32 len) =
             _request("AuThOrIzAtIoN:\tBeArEr stolen\r\n", "authorization: Bearer ");
@@ -113,9 +107,8 @@ contract BearerHeaderRequestTest is Test {
         this.run(b, len);
     }
 
-    /// @dev The gap a security review found. `authorization:\r\n Bearer x`
-    ///      normalizes to `authorization:\r\nbearer`, so the needle does not
-    ///      match and the header is never counted.
+    /// @dev `authorization:\r\n Bearer x` would escape the header count, so a
+    ///      folded line is refused.
     function test_rejectsAnObsoleteLineFold() public {
         (CeremonyAttestation.DirectionBlock memory b, uint32 len) =
             _request("authorization:\r\n Bearer stolen\r\n", "authorization: Bearer ");
@@ -129,8 +122,7 @@ contract BearerHeaderRequestTest is Test {
         this.run(b, len);
     }
 
-    /// @dev Why the three are one call: open a gap and the hidden bytes are
-    ///      never scanned at all.
+    /// @dev Bytes in a coverage gap would never be scanned, so the gap is refused.
     function test_rejectsAGapTheScanWouldNeverRead() public {
         (CeremonyAttestation.DirectionBlock memory b, uint32 len) = _honest();
         b.revealed[0].end -= 1;
@@ -142,9 +134,8 @@ contract BearerHeaderRequestTest is Test {
         this.run(b, len);
     }
 
-    /// @dev Framing alone: the authorization header is whole and revealed, so
-    ///      the needle counts once and coverage is exact, but the committed
-    ///      range sits in the `host` header instead.
+    /// @dev One authorization header and exact coverage, but the committed range
+    ///      sits in the `host` header.
     function test_rejectsACommitmentThatIsNotTheHeaderValue() public {
         bytes memory head =
             "GET /2/users/me HTTP/1.1\r\naccept: application/json\r\nauthorization: Bearer TOKEN123\r\nhost: ";
@@ -184,8 +175,7 @@ contract BearerHeaderRequestTest is Test {
         return _request("", "authorization: Bearer ", tail);
     }
 
-    /// @dev The session carries one request, as the token session does: a
-    ///      second head after the first is refused, whatever it carries.
+    /// @dev The session carries one request: a second head is refused.
     function test_rejectsASecondRequestAfterTheFirst() public {
         (CeremonyAttestation.DirectionBlock memory b, uint32 len) =
             _withTail("\r\nconnection: close\r\n\r\nGET /2/users/me HTTP/1.1\r\nhost: api.x.com\r\n\r\n");
@@ -193,8 +183,7 @@ contract BearerHeaderRequestTest is Test {
         this.run(b, len);
     }
 
-    /// @dev Including one with an authorization header of its own: the one
-    ///      request is required before any header is counted.
+    /// @dev The one-request check runs before any header is counted.
     function test_rejectsASecondRequestCarryingItsOwnAuthorization() public {
         (CeremonyAttestation.DirectionBlock memory b, uint32 len) = _withTail(
             "\r\n\r\nGET /2/users/me HTTP/1.1\r\nhost: api.x.com\r\nauthorization: Bearer OTHERTOKENOTHERT\r\n\r\n"
@@ -216,14 +205,13 @@ contract BearerHeaderRequestTest is Test {
         this.run(b, len);
     }
 
-    /// @dev A head end cut across two revealed ranges is still one, counted
-    ///      over the join: the honest request verifies however it is cut.
+    /// @dev A head end cut across two revealed ranges is counted over the join.
     function test_acceptsAHeadEndCutAcrossTwoRanges() public view {
         (CeremonyAttestation.DirectionBlock memory b, uint32 len) = _honest();
         this.run(_cutLast(b, 2), len);
     }
 
-    /// @dev And a second head end cut that way is still counted.
+    /// @dev A second head end cut across two revealed ranges is counted.
     function test_rejectsASecondHeadEndCutAcrossTwoRanges() public {
         (CeremonyAttestation.DirectionBlock memory b, uint32 len) =
             _withTail("\r\n\r\nGET /2/users/me HTTP/1.1\r\n\r\n");
@@ -231,8 +219,8 @@ contract BearerHeaderRequestTest is Test {
         this.run(_cutLast(b, 3), len);
     }
 
-    /// @dev A committed range after the last revealed byte is bytes after the
-    ///      head too, read off the signed length rather than the join.
+    /// @dev A committed range after the last revealed byte counts as bytes after
+    ///      the head, read off the signed length.
     function test_rejectsACommittedRangeAfterTheHead() public {
         (CeremonyAttestation.DirectionBlock memory b, uint32 len) = _honest();
         CeremonyAttestation.RangeCommitment[] memory com = new CeremonyAttestation.RangeCommitment[](2);

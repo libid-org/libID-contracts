@@ -19,10 +19,9 @@ import {IHonkVerifier, PlatformVerifierBase} from "../PlatformVerifierBase.sol";
 import {TlsNotaryVerifierBase} from "../TlsNotaryVerifierBase.sol";
 import {XPlatformVerifier} from "../XPlatformVerifier.sol";
 
-/// @notice The `github/v1` path. The shared flow is covered by the X suite, so
-///         this exercises what actually differs: two authorities, a bare-integer
-///         id, the `login` field, a revealed body credential, and the exact
-///         five-field form the body is held to.
+/// @notice The `github/v1` path beyond the flow the X suite covers: two authorities,
+///         a bare-integer id, the `login` field, a revealed body credential, and
+///         the exact five-field form.
 contract GitHubPlatformVerifierTest is RealTlsNotaryProofTest {
     using AttestationBuilder for AttestationBuilder.Direction;
 
@@ -37,8 +36,7 @@ contract GitHubPlatformVerifierTest is RealTlsNotaryProofTest {
 
     bytes32 constant DOMAIN = keccak256(bytes("libid.claim-identity"));
     bytes32 constant AUTH_NONCE = bytes32(uint256(0x5555555555555555555555555555555555555555555555555555555555555555));
-    /// The digest the fixtures are made for, derived in `setUp` from the
-    /// payload below and this chain.
+    /// The digest the fixtures are made for; set in `setUp`.
     bytes32 digest;
     bytes32 constant TOKEN_COMMITMENT = bytes32(uint256(0x1111));
     bytes32 constant IDENTITY_COMMITMENT = bytes32(uint256(0x2222));
@@ -88,8 +86,6 @@ contract GitHubPlatformVerifierTest is RealTlsNotaryProofTest {
         "host: github.com\r\ncontent-type: application/x-www-form-urlencoded\r\naccept: application/json\r\nconnection: close\r\n";
 
     /// The exchange request's head, declaring a body of `bodyLength` bytes.
-    /// Assembled from its parts so a test can change one header and watch the
-    /// verifier refuse it.
     function _exchangeHead(uint256 bodyLength) private pure returns (bytes memory) {
         return _exchangeHead(EXCHANGE_HEADERS, bodyLength);
     }
@@ -110,8 +106,7 @@ contract GitHubPlatformVerifierTest is RealTlsNotaryProofTest {
         return _exchangeBody("abc", "https%3A%2F%2Fa.example", "0123456789abcdef0123456789abcdef");
     }
 
-    /// The same, with the three values a test changes given: the digest-bound
-    /// verifier and the client identifier stay what the suite asserts on.
+    /// The exchange body with `code`, `redirect_uri` and `client_secret` given.
     function _exchangeBody(string memory code, string memory redirectUri, string memory clientSecret)
         private
         view
@@ -129,8 +124,7 @@ contract GitHubPlatformVerifierTest is RealTlsNotaryProofTest {
         );
     }
 
-    /// The same, with the verifier given: for the spellings of it the base
-    /// must refuse.
+    /// The exchange body with `code_verifier` given.
     function _exchangeBodyWithVerifier(bytes memory codeVerifier) private pure returns (bytes memory) {
         return abi.encodePacked(
             "client_id=Iv1.8a61f9b3a7aba766&code=abc&redirect_uri=https%3A%2F%2Fa.example&code_verifier=",
@@ -139,8 +133,7 @@ contract GitHubPlatformVerifierTest is RealTlsNotaryProofTest {
         );
     }
 
-    /// One revealed run covering a request whole, with no commitment: the
-    /// shape `github/v1` fixes for its exchange.
+    /// One revealed run over the whole request, the shape `github/v1` fixes for its exchange.
     function _wholeSent(bytes memory whole) private pure returns (AttestationBuilder.Direction memory) {
         return AttestationBuilder.Direction({
             revealed: AttestationBuilder.one(AttestationBuilder.Range({start: 0, value: whole})),
@@ -149,9 +142,7 @@ contract GitHubPlatformVerifierTest is RealTlsNotaryProofTest {
         });
     }
 
-    /// The exchange request as the profile fixes it: one revealed run over the
-    /// request whole. The head boundary sits inside that run, so the body is
-    /// located by the framing rather than by a range position.
+    /// The honest exchange request; the verifier locates its body by the HTTP framing.
     function _exchangeSent() private view returns (AttestationBuilder.Direction memory) {
         bytes memory body = _exchangeBody();
         return _wholeSent(abi.encodePacked(_exchangeHead(body.length), body));
@@ -263,8 +254,7 @@ contract GitHubPlatformVerifierTest is RealTlsNotaryProofTest {
 
     function test_verifiesAWholeGitHubCeremony() public {
         ICeremony.VerifiedClaim memory f = this.run{value: quote}(_payload());
-        // The nodes the payload claims, passed through: the proof is what
-        // binds them, and the stub here accepts any.
+        // Passed through from the payload; the stubbed proof accepts any nodes.
         assertEq(f.idNode, ID_NODE);
         assertEq(f.handleNode, HANDLE_NODE);
         assertEq(string(f.clientIdentifier), "Iv1.8a61f9b3a7aba766");
@@ -272,10 +262,8 @@ contract GitHubPlatformVerifierTest is RealTlsNotaryProofTest {
         assertEq(f.operationDomain, DOMAIN);
         assertEq(f.transactionData, _txData());
         assertEq(f.ceremonyVersion, 1);
-        // On the shared scale, not raw. Profiles disagree about "now" -- this
-        // one's evidence time is an attestation creation time, Google's is a
-        // signed expiry an hour ahead -- so each verifier subtracts its own
-        // allowance and a Consumer can compare the two.
+        // On the shared scale: each verifier subtracts its own allowance so
+        // claims from different profiles compare.
         assertEq(f.metadataObservedAt, T0 - ALLOWANCE);
     }
 
@@ -287,16 +275,12 @@ contract GitHubPlatformVerifierTest is RealTlsNotaryProofTest {
 
     // ─── The exact form (REQ-PLAT-61) ───────────────────────────────
 
-    /// The payload with its exchange composed over `body`: the head declares
-    /// the body's length and the response is the honest one, so the form
-    /// check is what a test of it exercises.
+    /// The payload with its exchange over `body`, its length declared honestly.
     function _withExchangeBody(bytes memory body) private view returns (TlsNotaryVerifierBase.TlsNotaryProof memory) {
         return _withExchange(_exchangeHead(body.length), body);
     }
 
-    /// The payload with its exchange composed over `head` and `body` as given,
-    /// so a test can misdeclare the length or add a header and watch the
-    /// verifier refuse it.
+    /// The payload with its exchange over `head` and `body` as given.
     function _withExchange(bytes memory head, bytes memory body)
         private
         view
@@ -308,9 +292,8 @@ contract GitHubPlatformVerifierTest is RealTlsNotaryProofTest {
         s.tokenSession = ICeremony.Attestation({attestedData: a, proof: AttestationBuilder.sign(NOTARY_KEY, a)});
     }
 
-    /// @dev REQ-PLAT-61, TEST-PLAT-12: the five fields in another order are
-    ///      not the canonical serialization, whatever GitHub makes of them.
-    ///      The first pair is not `client_id=`, so the body fails at byte 0.
+    /// @dev REQ-PLAT-61, TEST-PLAT-12: fields out of order fail at byte 0,
+    ///      where `client_id=` is expected.
     function test_rejectsAnExchangeWithItsFieldsReordered() public {
         bytes memory body = abi.encodePacked(
             "code=abc&client_id=Iv1.8a61f9b3a7aba766&redirect_uri=https%3A%2F%2Fa.example&code_verifier=",
@@ -322,9 +305,8 @@ contract GitHubPlatformVerifierTest is RealTlsNotaryProofTest {
         this.run{value: quote}(s);
     }
 
-    /// @dev REQ-PLAT-61, TEST-PLAT-12: no `grant_type` is admitted. Held to
-    ///      the exact form it is a sixth pair, refused at the `&` that begins
-    ///      it.
+    /// @dev REQ-PLAT-61, TEST-PLAT-12: a `grant_type` is a sixth pair, refused
+    ///      at the `&` that begins it.
     function test_rejectsAnExchangeCarryingAGrantType() public {
         bytes memory honest = _exchangeBody();
         TlsNotaryVerifierBase.TlsNotaryProof memory s =
@@ -333,8 +315,7 @@ contract GitHubPlatformVerifierTest is RealTlsNotaryProofTest {
         this.run{value: quote}(s);
     }
 
-    /// @dev REQ-PLAT-61, TEST-PLAT-12: nor a refresh grant's field. The pinned
-    ///      endpoint receives only the authorization-code request.
+    /// @dev REQ-PLAT-61, TEST-PLAT-12: a refresh grant's field is a sixth pair.
     function test_rejectsAnExchangeCarryingARefreshToken() public {
         bytes memory honest = _exchangeBody();
         TlsNotaryVerifierBase.TlsNotaryProof memory s =
@@ -343,8 +324,7 @@ contract GitHubPlatformVerifierTest is RealTlsNotaryProofTest {
         this.run{value: quote}(s);
     }
 
-    /// @dev REQ-PLAT-61, TEST-PLAT-12: nor a device grant's. Refused where
-    ///      the sixth pair begins, whatever its name.
+    /// @dev REQ-PLAT-61, TEST-PLAT-12: a device grant's field is a sixth pair.
     function test_rejectsAnExchangeCarryingADeviceCode() public {
         bytes memory honest = _exchangeBody();
         TlsNotaryVerifierBase.TlsNotaryProof memory s =
@@ -353,10 +333,8 @@ contract GitHubPlatformVerifierTest is RealTlsNotaryProofTest {
         this.run{value: quote}(s);
     }
 
-    /// @dev REQ-PLAT-61, TEST-PLAT-12: the right verifier in another spelling
-    ///      -- padded, base64 rather than section 7's unpadded base64url -- is
-    ///      a form the check admits and a value the base refuses: it recomputes
-    ///      the verifier and compares byte for byte.
+    /// @dev REQ-PLAT-61, TEST-PLAT-12: a padded verifier passes the form check
+    ///      but differs byte for byte from the recomputed one.
     function test_rejectsAnExchangeWithAPaddedVerifier() public {
         bytes memory padded = abi.encodePacked(CeremonyAuthorization.codeVerifier(digest, AUTH_NONCE), "%3D%3D");
         TlsNotaryVerifierBase.TlsNotaryProof memory s = _withExchangeBody(_exchangeBodyWithVerifier(padded));
@@ -364,7 +342,7 @@ contract GitHubPlatformVerifierTest is RealTlsNotaryProofTest {
         this.run{value: quote}(s);
     }
 
-    /// @dev REQ-PLAT-61, TEST-PLAT-12: and one byte short of it.
+    /// @dev REQ-PLAT-61, TEST-PLAT-12: a verifier one byte short is refused.
     function test_rejectsAnExchangeWithATruncatedVerifier() public {
         bytes memory codeVerifier = CeremonyAuthorization.codeVerifier(digest, AUTH_NONCE);
         bytes memory short = new bytes(codeVerifier.length - 1);
@@ -376,8 +354,8 @@ contract GitHubPlatformVerifierTest is RealTlsNotaryProofTest {
         this.run{value: quote}(s);
     }
 
-    /// @dev REQ-PLAT-61, TEST-PLAT-12: a duplicate in the literal spelling,
-    ///      refused where the second `client_id=` stands in place of `code=`.
+    /// @dev REQ-PLAT-61, TEST-PLAT-12: a duplicate is refused where the second
+    ///      `client_id=` stands in place of `code=`.
     function test_rejectsAnExchangeWithADuplicateField() public {
         bytes memory first = "client_id=Iv1.8a61f9b3a7aba766&";
         TlsNotaryVerifierBase.TlsNotaryProof memory s = _withExchangeBody(abi.encodePacked(first, _exchangeBody()));
@@ -385,10 +363,8 @@ contract GitHubPlatformVerifierTest is RealTlsNotaryProofTest {
         this.run{value: quote}(s);
     }
 
-    /// @dev REQ-PLAT-61, TEST-PLAT-12: a duplicate in an ENCODED spelling.
-    ///      `code%5Fverifier` is `code_verifier` to a form parser but no
-    ///      literal match for it, the case ASM-PROV-07 describes. It is a
-    ///      sixth pair here, refused like any other.
+    /// @dev REQ-PLAT-61, TEST-PLAT-12: `code%5Fverifier` decodes to `code_verifier`
+    ///      (ASM-PROV-07) and is refused as a sixth pair.
     function test_rejectsAnExchangeWithAnEncodedDuplicateName() public {
         bytes memory honest = _exchangeBody();
         TlsNotaryVerifierBase.TlsNotaryProof memory s =
@@ -397,7 +373,7 @@ contract GitHubPlatformVerifierTest is RealTlsNotaryProofTest {
         this.run{value: quote}(s);
     }
 
-    /// @dev REQ-PLAT-61, TEST-PLAT-12: each field once with a NONEMPTY value.
+    /// @dev REQ-PLAT-61, TEST-PLAT-12: every value is nonempty.
     function test_rejectsAnExchangeWithAnEmptyValue() public {
         TlsNotaryVerifierBase.TlsNotaryProof memory s =
             _withExchangeBody(_exchangeBody("", "https%3A%2F%2Fa.example", "0123456789abcdef0123456789abcdef"));
@@ -405,8 +381,8 @@ contract GitHubPlatformVerifierTest is RealTlsNotaryProofTest {
         this.run{value: quote}(s);
     }
 
-    /// @dev REQ-PLAT-61, TEST-PLAT-12, TEST-PLAT-14: four pairs are not five. The body ends
-    ///      where the `&` before `client_secret=` should stand.
+    /// @dev REQ-PLAT-61, TEST-PLAT-12, TEST-PLAT-14: four pairs fail where the `&`
+    ///      before `client_secret=` should stand.
     function test_rejectsAnExchangeMissingAField() public {
         bytes memory body = abi.encodePacked(
             "client_id=Iv1.8a61f9b3a7aba766&code=abc&redirect_uri=https%3A%2F%2Fa.example&code_verifier=",
@@ -417,8 +393,7 @@ contract GitHubPlatformVerifierTest is RealTlsNotaryProofTest {
         this.run{value: quote}(s);
     }
 
-    /// @dev REQ-PLAT-61, TEST-PLAT-12, TEST-PLAT-14: nothing after the last value, not even
-    ///      the delimiter that would begin a sixth pair.
+    /// @dev REQ-PLAT-61, TEST-PLAT-12, TEST-PLAT-14: nothing may follow the last value.
     function test_rejectsAnExchangeWithATrailingAmpersand() public {
         bytes memory honest = _exchangeBody();
         TlsNotaryVerifierBase.TlsNotaryProof memory s = _withExchangeBody(abi.encodePacked(honest, "&"));
@@ -426,11 +401,8 @@ contract GitHubPlatformVerifierTest is RealTlsNotaryProofTest {
         this.run{value: quote}(s);
     }
 
-    /// @dev REQ-PLAT-61, TEST-PLAT-12: a raw `;` inside the credential. Some
-    ///      form parsers split pairs on it, so to them this body carries a
-    ///      second `code_verifier`, while a reader splitting only on `&`
-    ///      counts one. The serializer never emits a raw `;`, so the byte
-    ///      itself is refused.
+    /// @dev REQ-PLAT-61, TEST-PLAT-12: some form parsers split pairs on `;`, and
+    ///      the serializer never emits it raw, so a raw `;` is refused.
     function test_rejectsAnExchangeWithARawSemicolonInAValue() public {
         bytes memory body = _exchangeBody(
             "abc", "https%3A%2F%2Fa.example", "0123456789abcdef;code_verifier=EVILEVILEVILEVILEVILEVILEVILEVILEVILEVIL0"
@@ -452,9 +424,7 @@ contract GitHubPlatformVerifierTest is RealTlsNotaryProofTest {
         this.run{value: quote}(s);
     }
 
-    /// @dev REQ-PLAT-61, TEST-PLAT-12: `%3a` decodes as `%3A` does and is not
-    ///      what the serializer writes, so it is a second spelling of the same
-    ///      redirect and refused as noncanonical.
+    /// @dev REQ-PLAT-61, TEST-PLAT-12: `%3a` is a noncanonical spelling of `%3A`.
     function test_rejectsAnExchangeWithALowercaseEscape() public {
         bytes memory body = _exchangeBody("abc", "https%3a%2F%2Fa.example", "0123456789abcdef0123456789abcdef");
         TlsNotaryVerifierBase.TlsNotaryProof memory s = _withExchangeBody(body);
@@ -464,10 +434,8 @@ contract GitHubPlatformVerifierTest is RealTlsNotaryProofTest {
         this.run{value: quote}(s);
     }
 
-    /// @dev REQ-PLAT-61, TEST-PLAT-12: `%61` decodes to the `a` the serializer
-    ///      writes bare, so `%61bc` is a second spelling of `abc`; `%20` is
-    ///      the space it writes `+`. Each is refused at its `%`, and the
-    ///      credential is held to the same alphabet.
+    /// @dev REQ-PLAT-61, TEST-PLAT-12: `%61` (written bare as `a`) and `%20`
+    ///      (written `+`) are refused at their `%`, in the credential too.
     function test_rejectsAnExchangeWithAnEscapeTheSerializerWritesBare() public {
         bytes memory body = _exchangeBody("%61bc", "https%3A%2F%2Fa.example", "0123456789abcdef0123456789abcdef");
         TlsNotaryVerifierBase.TlsNotaryProof memory s = _withExchangeBody(body);
@@ -491,10 +459,8 @@ contract GitHubPlatformVerifierTest is RealTlsNotaryProofTest {
         this.run{value: quote}(s);
     }
 
-    /// @dev TEST-PLAT-12: canonical escapes of bytes above ASCII in those
-    ///      two fields pass the form check. What the code and redirect
-    ///      should EQUAL is the Prover's comparison, not this verifier's,
-    ///      and what they decode to is read by nothing here.
+    /// @dev TEST-PLAT-12: canonical escapes of bytes above ASCII in the code and
+    ///      redirect pass the form check.
     function test_acceptsAnExchangeWithEscapedBytesInTheCodeAndRedirect() public {
         TlsNotaryVerifierBase.TlsNotaryProof memory s = _withExchangeBody(
             _exchangeBody("caf%C3%A9", "https%3A%2F%2Fa.example%2F%E2%82%AC", "0123456789abcdef0123456789abcdef")
@@ -502,11 +468,8 @@ contract GitHubPlatformVerifierTest is RealTlsNotaryProofTest {
         assertEq(this.run{value: quote}(s).handleNode, HANDLE_NODE);
     }
 
-    /// @dev TEST-PLAT-12: a `+`, an escaped tab and an escaped byte above
-    ///      ASCII in the credential are each one token of the alphabet, so
-    ///      the form accepts them. The verifier reads no value of this field:
-    ///      what a credential decodes to is GitHub's concern, and a value in
-    ///      the alphabet cannot become another field.
+    /// @dev TEST-PLAT-12: a `+`, an escaped tab and an escaped byte above ASCII
+    ///      are accepted in the credential.
     function test_acceptsACredentialTheVerifierNeverReads() public {
         string[3] memory secrets =
             ["0123456789abcdef+0123456789abcdef", "%090123456789abcdef", "0123456789abcdef%C3%A9"];
@@ -526,10 +489,8 @@ contract GitHubPlatformVerifierTest is RealTlsNotaryProofTest {
         assertEq(this.run{value: quote}(s).handleNode, HANDLE_NODE);
     }
 
-    /// @dev REQ-COMMON-16B, TEST-PLAT-12: `my%2Bapp` is the serialization of
-    ///      `my+app`, not an identifier. It passes the form grammar -- `%2B`
-    ///      is the canonical escape of `+` -- and fails the charset the base
-    ///      holds `client_id` to.
+    /// @dev REQ-COMMON-16B, TEST-PLAT-12: `my%2Bapp` passes the form check and
+    ///      fails the `client_id` charset.
     function test_rejectsAPercentEncodedClientIdentifier() public {
         bytes memory body = abi.encodePacked(
             "client_id=my%2Bapp&code=abc&redirect_uri=https%3A%2F%2Fa.example&code_verifier=",
@@ -543,8 +504,7 @@ contract GitHubPlatformVerifierTest is RealTlsNotaryProofTest {
         this.run{value: quote}(s);
     }
 
-    /// @dev REQ-COMMON-16B, TEST-PLAT-12: an empty identifier is refused by
-    ///      the form itself, before the charset is asked.
+    /// @dev REQ-COMMON-16B, TEST-PLAT-12: an empty identifier fails the form check.
     function test_rejectsAnEmptyClientIdentifier() public {
         bytes memory body = abi.encodePacked(
             "client_id=&code=abc&redirect_uri=https%3A%2F%2Fa.example&code_verifier=",
@@ -556,9 +516,7 @@ contract GitHubPlatformVerifierTest is RealTlsNotaryProofTest {
         this.run{value: quote}(s);
     }
 
-    /// @dev TEST-PLAT-14: `content-length` declares the complete revealed
-    ///      body. A head declaring ten bytes fewer describes a form GitHub
-    ///      did not parse.
+    /// @dev TEST-PLAT-14: `content-length` must declare the whole revealed body.
     function test_rejectsAnExchangeUnderdeclaringItsBody() public {
         bytes memory body = _exchangeBody();
         TlsNotaryVerifierBase.TlsNotaryProof memory s = _withExchange(_exchangeHead(body.length - 10), body);
@@ -570,9 +528,7 @@ contract GitHubPlatformVerifierTest is RealTlsNotaryProofTest {
         this.run{value: quote}(s);
     }
 
-    /// @dev REQ-PLAT-56A, TEST-PLAT-14: an `authorization` header on the
-    ///      exchange is refused. The credential travels in the body here and
-    ///      nowhere else.
+    /// @dev REQ-PLAT-56A, TEST-PLAT-14: the credential travels only in the body.
     function test_rejectsAForbiddenHeaderOnTheExchange() public {
         bytes memory body = _exchangeBody();
         bytes memory headers = abi.encodePacked(EXCHANGE_HEADERS, "authorization: Basic bXlDbGllbnQtMTpzM2NyZXQ=\r\n");
@@ -583,17 +539,14 @@ contract GitHubPlatformVerifierTest is RealTlsNotaryProofTest {
         this.run{value: quote}(s);
     }
 
-    /// @dev TEST-PLAT-12: `+` is the serializer's spelling of a space, and a
-    ///      code carrying one is still one value.
+    /// @dev TEST-PLAT-12: `+`, the serializer's space, stays inside one value.
     function test_acceptsAnExchangeWithAPlusInAValue() public {
         TlsNotaryVerifierBase.TlsNotaryProof memory s =
             _withExchangeBody(_exchangeBody("abc+def", "https%3A%2F%2Fa.example", "0123456789abcdef0123456789abcdef"));
         assertEq(this.run{value: quote}(s).handleNode, HANDLE_NODE);
     }
 
-    /// @dev TEST-PLAT-12: a credential with ENCODED delimiters remains one
-    ///      value. `%26` and `%3D` are bytes of the credential to every form
-    ///      parser, and the exact form never decodes them into a pair.
+    /// @dev TEST-PLAT-12: `%26` and `%3D` stay bytes of one value.
     function test_acceptsAnExchangeWithEncodedDelimitersInAValue() public {
         TlsNotaryVerifierBase.TlsNotaryProof memory s =
             _withExchangeBody(_exchangeBody("abc", "https%3A%2F%2Fa.example", "0123%26code_verifier%3DEVIL"));
@@ -602,9 +555,7 @@ contract GitHubPlatformVerifierTest is RealTlsNotaryProofTest {
 
     // ─── Two authorities, not one ───────────────────────────────────
 
-    /// @dev `github.com` serves the exchange and `api.github.com` the identity
-    ///      read. A profile pinning one authority would accept an identity
-    ///      attestation from the exchange host, or the reverse.
+    /// @dev `github.com` serves the exchange and `api.github.com` the identity read.
     function test_rejectsTheExchangeFromTheApiHost() public {
         TlsNotaryVerifierBase.TlsNotaryProof memory s = _payload();
         s.tokenSession = _exchange(CeremonyProfile.AUTHORITY_GITHUB_API);
@@ -634,8 +585,7 @@ contract GitHubPlatformVerifierTest is RealTlsNotaryProofTest {
         return this.run{value: quote}(s);
     }
 
-    /// @dev The id is GitHub's last member as often as not, so `}` ends it as
-    ///      well as `,`, with JSON whitespace before either.
+    /// @dev `}` ends the id as well as `,`, with JSON whitespace before either.
     function test_framesTheIdWithEitherTerminator() public {
         AttestationBuilder.Direction memory received = _upToTheId();
         received.reveal('"id": ').commit("583231", ID_COMMITMENT).reveal("\n}");
@@ -646,9 +596,7 @@ contract GitHubPlatformVerifierTest is RealTlsNotaryProofTest {
         assertEq(_accepted(received).idNode, ID_NODE);
     }
 
-    /// @dev The terminator proves the committed digits are the whole number
-    ///      rather than a prefix of a longer one. A commitment followed by
-    ///      anything else frames nothing.
+    /// @dev The terminator proves the committed digits are the whole number.
     function test_refusesAnIdWithoutAStructuralTerminator() public {
         AttestationBuilder.Direction memory received = _upToTheId();
         received.reveal('"id": ').commit("583231", ID_COMMITMENT).reveal(";").commit("}", OTHER);
@@ -698,17 +646,16 @@ contract GitHubPlatformVerifierTest is RealTlsNotaryProofTest {
         _refusedFraming(received, CeremonyAttestation.NoFramedCommitment.selector);
     }
 
-    /// @dev A quoted id is not the integer GitHub returns, and REQ-PLAT-08
-    ///      refuses it rather than coercing: with the quote revealed, the
-    ///      anchor is `"id":"`, which is not `"id":`.
+    /// @dev REQ-PLAT-08: with the quote revealed, the anchor is `"id":"`, not
+    ///      `"id":`, so nothing is framed.
     function test_rejectsAQuotedId() public {
         AttestationBuilder.Direction memory received = _upToTheId();
         received.reveal('"id": "').commit("583231", ID_COMMITMENT).reveal('",').commit("}", OTHER);
         _refusedFraming(received, CeremonyAttestation.NoFramedCommitment.selector);
     }
 
-    /// @dev A framed commitment over `007` or a quoted value reaches the
-    ///      proof; only the circuit's id rule refuses it.
+    /// @dev The verifier checks framing only: a framed commitment over `007` or
+    ///      a quoted value reaches the proof.
     function test_leavesTheIdsDigitsToTheCircuit() public {
         AttestationBuilder.Direction memory received = _upToTheId();
         received.reveal('"id": ').commit("007", ID_COMMITMENT).reveal(",").commit("}", OTHER);
@@ -807,10 +754,8 @@ contract GitHubPlatformVerifierTest is RealTlsNotaryProofTest {
         assertEq(verifier.quote(), 2 * FEE);
     }
 
-    /// @dev REQ-COMMON-19A on the identity read: a second `authorization:`
-    ///      header, revealed, anywhere in the request, is refused by the
-    ///      line-anchored count. The identity attestation is rebuilt with the
-    ///      extra header in its revealed head so the count sees two.
+    /// @dev REQ-COMMON-19A: a second revealed `authorization:` header on the
+    ///      identity read is refused.
     function test_rejectsASecondAuthorizationHeaderOnTheIdentityRead() public {
         TlsNotaryVerifierBase.TlsNotaryProof memory s = _payload();
         s.identitySession = _identityWithHeadPrefix("authorization: Bearer stolen\r\n");
@@ -818,10 +763,8 @@ contract GitHubPlatformVerifierTest is RealTlsNotaryProofTest {
         this.run{value: quote}(s);
     }
 
-    /// @dev GitHub honours `token` and Basic beside Bearer. A second
-    ///      `authorization` under either is counted all the same; counting only
-    ///      `bearer` left it uncounted, and a leaked personal token in it would
-    ///      have named someone else's account under this exchange's bearer.
+    /// @dev GitHub honours `token` and Basic beside Bearer, so a second
+    ///      `authorization` counts whatever its scheme.
     function test_rejectsASecondAuthorizationHeaderOfAnotherSchemeOnTheIdentityRead() public {
         TlsNotaryVerifierBase.TlsNotaryProof memory s = _payload();
         s.identitySession = _identityWithHeadPrefix("Authorization: token ghp_stolen\r\n");
@@ -829,8 +772,7 @@ contract GitHubPlatformVerifierTest is RealTlsNotaryProofTest {
         this.run{value: quote}(s);
     }
 
-    /// @dev The identity read carries exactly one HTTP request, as the token
-    ///      exchange does.
+    /// @dev The identity read carries exactly one HTTP request.
     function test_rejectsASecondRequestOnTheIdentityRead() public {
         TlsNotaryVerifierBase.TlsNotaryProof memory s = _payload();
         s.identitySession = _identityWithHead(
@@ -851,8 +793,7 @@ contract GitHubPlatformVerifierTest is RealTlsNotaryProofTest {
         this.run{value: quote}(s);
     }
 
-    /// @dev And `cookie`, the other credential a platform might honour over
-    ///      the bearer, is refused on the identity read by name.
+    /// @dev A `cookie` on the identity read is refused by name.
     function test_rejectsACookieOnTheIdentityRead() public {
         TlsNotaryVerifierBase.TlsNotaryProof memory s = _payload();
         s.identitySession = _identityWithHeadPrefix("cookie: user_session=stolen\r\n");
@@ -908,9 +849,7 @@ contract GitHubPlatformVerifierTest is RealTlsNotaryProofTest {
         assertEq(vm.parseJsonBytes32(json, ".authorization_nonce"), AUTH_NONCE);
         assertEq(vm.parseJsonAddress(json, ".notary"), vm.addr(NOTARY_KEY), "signed by the key this suite trusts");
         assertEq(uint64(vm.parseJsonUint(json, ".created_at")), T0);
-        // The identity response is formatted as GitHub formats it for the
-        // media type the profile pins, whitespace and all. A compact body here
-        // once let this fixture pass a verifier that refused every real read.
+        // The identity response keeps GitHub's pretty-printing for the pinned media type.
         assertTrue(
             AttestationBuilder.contains(vm.parseJsonBytes(json, ".identity.received"), bytes('"login": "OctoCat"')),
             "the fixture carries GitHub's pretty-printed response"
@@ -982,8 +921,7 @@ contract GitHubPlatformVerifierTest is RealTlsNotaryProofTest {
         return "contracts/ceremony/test/fixtures/x-ceremony-session.json";
     }
 
-    /// @dev A real proof through the circuit's verifier outputs the hashlib
-    ///      nodes for `583231` and `octocat` (folded from `OctoCat`).
+    /// @dev A real proof outputs the hashlib nodes for `583231` and `octocat`.
     function test_verifiesARealProofOfTheRecordsLibidRsProduces() public {
         (TlsNotaryVerifierBase.TlsNotaryProof memory s, address circuit, bytes32[] memory proved) = _realProofPayload();
         assertEq(proved.length, 16);
@@ -999,8 +937,7 @@ contract GitHubPlatformVerifierTest is RealTlsNotaryProofTest {
         assertEq(f.metadataObservedAt, T0 - ALLOWANCE);
     }
 
-    /// @dev And this suite's GitHub sessions and proof, sent to an X verifier
-    ///      wired to the X circuit, are refused at the first session.
+    /// @dev This suite's GitHub sessions and proof are refused by an X verifier.
     function test_anXVerifierRefusesAGitHubCeremony() public {
         (TlsNotaryVerifierBase.TlsNotaryProof memory s,,) = _realProofPayload();
         address circuit = vm.deployCode(HonkStub.BEARER_LINK);
@@ -1114,9 +1051,7 @@ contract GitHubPlatformVerifierTest is RealTlsNotaryProofTest {
         return ICeremony.Attestation({attestedData: attested, proof: AttestationBuilder.sign(NOTARY_KEY, attested)});
     }
 
-    /// A commitment over the request line, then one revealed run: the two
-    /// tile, so coverage passes and the origin rule is what refuses this --
-    /// before the commitment count is ever looked at.
+    /// A committed request line passes coverage and fails the origin rule.
     function test_rejectsAnExchangeWhoseRequestLineIsHidden() public {
         bytes memory prefix = abi.encodePacked(
             "client_id=Iv1.8a61f9b3a7aba766&code=abc&redirect_uri=https%3A%2F%2Fa.example&code_verifier=",
@@ -1137,10 +1072,7 @@ contract GitHubPlatformVerifierTest is RealTlsNotaryProofTest {
         this.run{value: quote}(s);
     }
 
-    /// @dev The exchange layout itself, asserted against the verifier rather
-    ///      than against the generated constant: a request that hides a body
-    ///      suffix behind a commitment is refused, however well formed the
-    ///      rest of it is.
+    /// @dev A request hiding a body suffix behind a commitment is refused.
     function test_rejectsAnExchangeThatCommitsABodySuffix() public {
         bytes memory body = _exchangeBody();
         bytes memory whole = abi.encodePacked(_exchangeHead(body.length + 8), body);
@@ -1159,12 +1091,8 @@ contract GitHubPlatformVerifierTest is RealTlsNotaryProofTest {
         this.run{value: quote}(s);
     }
 
-    /// @dev REQ-COMMON-21B, on the profile whose exchange this repository does
-    ///      not compose: `github/v1` pins its OWN head, so a prover sending a
-    ///      request X's constant would have accepted is still refused here.
-    ///      The media type is the header the requirement names, because it is
-    ///      what decides whether GitHub reads the bytes the verifier reads as
-    ///      a form at all.
+    /// @dev REQ-COMMON-21B: `github/v1` pins its exchange head; the media type
+    ///      decides whether GitHub parses the body as a form.
     function test_rejectsAnotherMediaTypeOnTheExchange() public {
         bytes memory body = _exchangeBody();
         bytes memory head = _exchangeHead(
@@ -1179,9 +1107,7 @@ contract GitHubPlatformVerifierTest is RealTlsNotaryProofTest {
         this.run{value: quote}(s);
     }
 
-    /// @dev A header the profile never mentions is the sender's own business
-    ///      -- a `user-agent`, say -- as long as it is not one of the
-    ///      forbidden names. The exchange still verifies.
+    /// @dev A header the profile does not name or forbid is accepted.
     function test_acceptsAnUnlistedHeaderOnTheExchange() public {
         bytes memory body = _exchangeBody();
         bytes memory head = _exchangeHead(
@@ -1197,8 +1123,7 @@ contract GitHubPlatformVerifierTest is RealTlsNotaryProofTest {
         assertEq(f.handleNode, HANDLE_NODE);
     }
 
-    /// @dev And the fixtures above compose that head from parts, so this is
-    ///      what says the two lines the profile requires are among them.
+    /// @dev The suite's composed head carries the headers the profile requires.
     function test_theFixtureHeadCarriesTheProfilesRequiredHeaders() public pure {
         bytes memory head = _exchangeHead(0);
         bytes memory needle = abi.encodePacked(CeremonyProfile.GITHUB_TOKEN_REQUIRED_HEADERS, "\r\n");

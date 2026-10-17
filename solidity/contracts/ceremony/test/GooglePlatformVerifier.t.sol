@@ -15,9 +15,8 @@ import {TrustingJwtRoots} from "./TrustingJwtRoots.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {TlsNotaryVerifierBase} from "../TlsNotaryVerifierBase.sol";
 
-/// @notice The `google/v1` profile: no notarized session, no Notary Service, no
-///         fee, and the digest bound as a public proof input rather than
-///         through PKCE.
+/// @notice The `google/v1` profile: no notarized session, Notary Service or fee;
+///         the digest is a public proof input.
 contract GooglePlatformVerifierTest is Test {
     GooglePlatformVerifier verifier;
     TrustingJwtRoots roots;
@@ -25,22 +24,19 @@ contract GooglePlatformVerifierTest is Test {
 
     address constant OWNER = address(0xA11CE);
     uint64 constant T0 = 1_770_000_000;
-    /// @dev Google id_tokens live an hour; two gives room without letting a
-    ///      claim lock a name for longer than the token itself was valid.
     uint64 constant GOOGLE_ALLOWANCE = CeremonyProfile.FUTURE_OBSERVATION_ALLOWANCE_SECONDS_GOOGLE;
     uint64 constant EXP = T0 + 3600;
 
     bytes32 constant DOMAIN = keccak256(bytes("libid.claim-identity"));
     bytes32 constant AUTH_NONCE = bytes32(uint256(0x5555555555555555555555555555555555555555555555555555555555555555));
-    /// The digest the public inputs carry as the signed `nonce`, derived in
-    /// `setUp` from the payload below and this chain.
+    /// The digest the public inputs carry as the signed `nonce`; set in `setUp`.
     bytes32 digest;
     bytes constant CLIENT_ID = "123456789-abcdef.apps.googleusercontent.com";
     string constant SUB = "123456789012345678901";
     /// The id node the oidc-google circuit outputs for `SUB`:
     ///   hashlib.sha256(b"libid.google.user-id123456789012345678901")
     bytes32 constant USER_ID = 0xa83e66b34468315fb68c3098b3c521b749aafb1db3390cb53ec03a8db139f2c7;
-    // The handle node for `A.B+tag@Example.COM`; only case folds:
+    // The handle node for `A.B+tag@Example.COM`, lowercased only:
     //   hashlib.sha256(b"libid.google.handlea.b+tag@example.com")
     bytes32 constant HANDLE_NODE = 0x40169b5cc6400158aeef2a13b73a14fc36e5e1df8595572b8fe282a269f26dd4;
     /// The signed `exp` of the real proof's token.
@@ -88,7 +84,7 @@ contract GooglePlatformVerifierTest is Test {
         return keccak256(abi.encodePacked(_modulus()));
     }
 
-    /// REQ-PLAT-16B's layout, written out here rather than taken from the verifier.
+    /// REQ-PLAT-16B's layout, written independently of the verifier.
     function _inputs(bytes32 digest_, bytes memory clientId, uint64 exp) private pure returns (bytes32[] memory pi) {
         pi = new bytes32[](57);
         for (uint256 i = 0; i < 32; ++i) {
@@ -111,8 +107,7 @@ contract GooglePlatformVerifierTest is Test {
         return abi.encode(address(0xBEEF), uint256(0), address(0));
     }
 
-    /// The `google/v1` payload. Nothing notarized in it: the evidence is the
-    /// proof over a signed token, and the verifier builds its public inputs.
+    /// The `google/v1` payload; the verifier builds the public inputs from it.
     function _payload() private pure returns (GooglePlatformVerifier.GoogleProof memory s) {
         s.ceremonyVersion = 1;
         s.operationDomain = DOMAIN;
@@ -136,11 +131,7 @@ contract GooglePlatformVerifierTest is Test {
 
     // ─── The happy path ─────────────────────────────────────────────
 
-    /// @dev Nothing bounded `exp` from above before. `block.timestamp >= exp`
-    ///      is a floor, so a token minted with a distant expiry wrote a
-    ///      watermark that far ahead -- and `_requireNewer` then refused the
-    ///      account owner's own re-proof for as long. Re-proving is the remedy
-    ///      for a lost name, so an unbounded expiry buys a lock on one.
+    /// @dev A far-future `exp` would set a watermark that refuses the holder's re-proof until then.
     function test_rejectsAnExpiryFurtherAheadThanTheAllowance() public {
         uint64 farOut = uint64(block.timestamp) + GOOGLE_ALLOWANCE + 1;
         GooglePlatformVerifier.GoogleProof memory s = _payload();
@@ -149,9 +140,8 @@ contract GooglePlatformVerifierTest is Test {
         this.run(s);
     }
 
-    /// @dev libid-circuits v0.6.0's oidc-google, proved over a token signed by
-    ///      a synthetic key whose nonce is this chain's digest for `_payload`,
-    ///      and checked by the verifier the pin ships.
+    /// @dev A real oidc-google proof whose nonce is this chain's digest for `_payload`.
+    ///      The fixture's `source` field says how it was made.
     function _realProof() private returns (GooglePlatformVerifier real, GooglePlatformVerifier.GoogleProof memory s) {
         string memory json = vm.readFile("contracts/ceremony/test/fixtures/google-ceremony-proof.json");
         address honkVerifier = vm.deployCode(HonkStub.GOOGLE);
@@ -197,7 +187,7 @@ contract GooglePlatformVerifierTest is Test {
         ICeremony.VerifiedClaim memory f = real.verify(abi.encode(s));
         // hashlib.sha256(b"libid.google.user-id100000000000000000001")
         assertEq(f.idNode, 0x5e13b7e56f17994a08b7464e5c5c5758228d6816db0a0af9bbd73f65335fcec8);
-        // The token's address is Fixture@Example.com; the circuit folded it:
+        // The token's email, Fixture@Example.com, lowercased:
         //   hashlib.sha256(b"libid.google.handlefixture@example.com")
         assertEq(f.handleNode, 0xfbda24950a7bc55993b7aacc3acbde636931dbb45f04c1ff6f6909027962885f);
     }
@@ -212,8 +202,8 @@ contract GooglePlatformVerifierTest is Test {
         _refusedByTheRealProof(real, s);
     }
 
-    /// @dev REQ-COMMON-02A: the digest the verifier rebuilds is the signed
-    ///      `nonce`, so another nonce, transaction or chain opens against nothing.
+    /// @dev REQ-COMMON-02A: the signed `nonce` is the digest, so another nonce,
+    ///      transaction or chain fails the proof.
     function test_refusesARealProofForAnotherDigest() public {
         (GooglePlatformVerifier real, GooglePlatformVerifier.GoogleProof memory s) = _realProof();
         s.authorizationNonce = bytes32(uint256(AUTH_NONCE) ^ 1);
@@ -254,20 +244,14 @@ contract GooglePlatformVerifierTest is Test {
         assertEq(f.idNode, USER_ID);
         assertEq(f.handleNode, HANDLE_NODE);
         assertEq(string(f.clientIdentifier), string(CLIENT_ID));
-        // Section 2.2: the signed `exp` supplies BOTH the watermark and the
-        // validity ceiling.
-        // The signed expiry, brought onto the shared scale. Raw, it would
-        // beat every X or GitHub claim made in the same hour.
+        // Section 2.2: the watermark is the signed `exp` on the shared scale,
+        // so it does not outrank X or GitHub claims from the same hour.
         assertEq(f.metadataObservedAt, EXP - GOOGLE_ALLOWANCE);
     }
 
     // ─── Zero attestations, zero fee ────────────────────────────────
 
-    /// @dev A path with nothing to verify carries no value.
-    /// @dev A profile that verifies no attestation holds no Notary Service.
-    ///      Requiring a live address would make a deployer supply a dependency
-    ///      purely to satisfy a check, and `notaryService()` would then report
-    ///      a collaborator this contract is forbidden to call.
+    /// @dev A profile that verifies no attestation refuses a Notary Service at initialization.
     function test_refusesANotaryItWouldNeverCall() public {
         GooglePlatformVerifier impl = new GooglePlatformVerifier();
         vm.expectPartialRevert(PlatformVerifierBase.WrongNotaryForProfile.selector);
@@ -280,9 +264,7 @@ contract GooglePlatformVerifierTest is Test {
         );
     }
 
-    /// @dev REQ-COMMON-05D: a profile requiring no attestation must not reach a
-    ///      Notary Service. It holds none at all, so there is nothing to reach
-    ///      and nothing for `setTrustRoots` to rotate.
+    /// @dev REQ-COMMON-05D: a profile requiring no attestation holds no Notary Service.
     function test_holdsNoNotary() public view {
         assertEq(verifier.notaryService(), address(0));
     }
@@ -291,8 +273,7 @@ contract GooglePlatformVerifierTest is Test {
         assertEq(verifier.quote(), 0);
     }
 
-    /// @dev Not merely "no fee required" but "no value accepted": there is
-    ///      nothing downstream to forward it to.
+    /// @dev With no Notary Service, there is nothing to forward value to.
     function test_refusesAnyValue() public {
         GooglePlatformVerifier.GoogleProof memory s = _payload();
         vm.expectRevert(abi.encodeWithSelector(PlatformVerifierBase.WrongValue.selector, 0, 1));
@@ -319,8 +300,7 @@ contract GooglePlatformVerifierTest is Test {
 
     // ─── The trusted modulus ────────────────────────────────────────
 
-    /// @dev REQ-PLAT-23. The circuit exposes the modulus that verified the JWS
-    ///      but decides no trust; that decision lives here alone.
+    /// @dev REQ-PLAT-23: the verifier, not the circuit, decides which modulus is trusted.
     function test_rejectsAnUntrustedModulus() public {
         TrustingJwtRoots empty = new TrustingJwtRoots();
         vm.prank(OWNER);
@@ -330,8 +310,7 @@ contract GooglePlatformVerifierTest is Test {
         this.run(s);
     }
 
-    /// @dev Google rotates weekly, so a lapsed key must fail closed rather than
-    ///      keep answering.
+    /// @dev Google rotates its keys, so a lapsed one fails closed.
     function test_rejectsAModulusWhoseTrustHasLapsed() public {
         TrustingJwtRoots lapsed = new TrustingJwtRoots();
         lapsed.trust(_modulusHash(), T0);

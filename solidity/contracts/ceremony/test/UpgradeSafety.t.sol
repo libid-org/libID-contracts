@@ -227,10 +227,7 @@ contract UpgradeSafetyTest is Test {
         vm.expectRevert(Initializable.InvalidInitialization.selector);
         r.initialize(OWNER, ns);
 
-        // Two rotations land BEFORE the upgrade -- two different one-key
-        // readings, so BOTH generations hold state -- and what has to survive
-        // is real state in the namespaced slots rather than the empty list
-        // initialize left behind.
+        // Two rotations with different keys fill both generations before the upgrade.
         uint256 notaryKey = 0xA11CE5;
         vm.prank(OWNER);
         NotaryService(address(ns)).setNotary(vm.addr(notaryKey), true);
@@ -254,14 +251,9 @@ contract UpgradeSafetyTest is Test {
         assertTrue(newer != older, "two different keys");
         uint256 lifetime = r.READING_LIFETIME();
 
-        // The layout those two generations sit in, pinned word by word.
-        // `notary` is word 0 of the namespace; a Generation is two words --
-        // its stamp, then the length word of its dynamic array, whose
-        // elements hang off keccak256(that word's slot) -- so `current` is
-        // words 1-2 and `previous` words 3-4. A field added to Generation
-        // moves `previous`, and an upgraded implementation would then read
-        // the old generation's stamp as the new field: this is where that
-        // has to fail, loudly, before any upgrade does.
+        // The namespace layout: `notary` at word 0, `current` at words 1-2, `previous` at 3-4.
+        // A Generation is its stamp then its moduli length word; the moduli sit at keccak256 of that slot.
+        // A field added to Generation moves `previous` and fails here.
         uint256 base = uint256(ROOTS_ROOT);
         assertEq(uint256(vm.load(address(r), bytes32(base))), uint256(uint160(address(ns))), "word 0: notary");
         assertEq(uint256(vm.load(address(r), bytes32(base + 1))), second, "word 1: current.observedAt");
@@ -299,8 +291,7 @@ contract UpgradeSafetyTest is Test {
         return abi.encodePacked(sigR, sigS, v);
     }
 
-    /// One notarized reading of Google's JWKS carrying one key: the request
-    /// and the response revealed whole, nothing committed.
+    /// One notarized reading of Google's JWKS carrying one key, request and response revealed whole.
     function _jwksReading(uint64 createdAt, string memory modulus) internal pure returns (bytes memory) {
         bytes memory sent = "GET /oauth2/v3/certs HTTP/1.1\r\nhost: www.googleapis.com\r\nconnection: close\r\n\r\n";
         bytes memory body = abi.encodePacked('{"keys":[{"kid":"k","n":"', modulus, '","e":"AQAB"}]}');
@@ -309,9 +300,7 @@ contract UpgradeSafetyTest is Test {
         return AttestationBuilder.encode(keccak256("www.googleapis.com"), createdAt, _whole(sent), _whole(received));
     }
 
-    /// A second 2048-bit modulus: the keeper's vector with its first
-    /// character changed -- still 342 characters of base64url, a different
-    /// key.
+    /// A second 2048-bit modulus: `JWKS_MODULUS` with its first character changed.
     function _otherModulus() internal pure returns (string memory) {
         bytes memory modulus = bytes(JWKS_MODULUS);
         modulus[0] = "C";
@@ -391,7 +380,7 @@ contract UpgradeSafetyTest is Test {
         assertTrue(registry.digestSpent(digest));
         assertEq(address(registry.proofVerifier()), address(proofVerifier));
         assertEq(registry.owner(), OWNER);
-        // and the contract still works after the upgrade (newer watermark)
+        // A newer binding still lands after the upgrade.
         stub.setObservedAt(1_780_000_000);
         _bindAs(alice, 2);
         (, uint64 at) = registry.idBinding(TestNodes.idNode(X, "2244994945"));
@@ -418,10 +407,8 @@ contract UpgradeSafetyTest is Test {
         assertEq(vm.load(address(registry), keccak256(abi.encode(idNode, root + 9))), X, "platformOfId");
     }
 
-    /// `Binding` once carried a `version` (uint32 at byte offset 28). Stale bits
-    /// in that word are ignored by the current reads, and a fresh write leaves them as-is.
-    /// The word is planted under the wallet that then proves it: a binding the
-    /// write path never made has no list entry for another wallet to take over.
+    /// Reads ignore bits 224..255 of a `Binding` word. The planted binding has no
+    /// list entry, so the wallet it names is the one that binds again.
     function test_bindingStaleVersionWordIsIgnored() public {
         _registry();
         bytes32 idNode = TestNodes.idNode(X, "2244994945");
@@ -439,7 +426,7 @@ contract UpgradeSafetyTest is Test {
         (o, at) = registry.idBinding(idNode);
         assertEq(o, bob);
         assertEq(at, 1_950_000_000);
-        // stale version bits (byte 28..31) survive a member-wise struct write?
+        // What a fresh write leaves in bits 224..255.
         emit log_named_uint("stale version bits after write", uint256(afterWord) >> 224);
     }
 }

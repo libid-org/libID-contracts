@@ -59,10 +59,9 @@ abstract contract HonkVerifierProofTest is Test {
         }
     }
 
-    /// Whether `verify` says yes. A Honk verifier rejects by reverting, so a
-    /// revert is a no. The call gets twice the bound, plenty for a proof it
-    /// accepts: an invalid curve point makes the precompile consume all the
-    /// gas the verifier forwards, and uncapped that would be the whole test's.
+    /// Whether `verify` says yes; a Honk verifier rejects by reverting. The call is
+    /// capped at twice the bound: an invalid curve point makes the precompile consume
+    /// all the gas the verifier forwards.
     function _verifies(bytes memory p, bytes32[] memory inputs) private view returns (bool) {
         try verifier.verify{gas: 2 * _verifyGasBound()}(p, inputs) returns (bool ok) {
             return ok;

@@ -17,14 +17,12 @@ import {
     XTranscripts
 } from "./TranscriptEquivalence.t.sol";
 
-/// @notice Inputs that put the bytes a word-at-a-time check decides on where
-///         a 32-byte word begins or ends: offsets and lengths within two of
-///         0, 32, 64 and 96, and bytes of every value.
+/// @notice Inputs that place decisive bytes at 32-byte word edges: offsets and
+///         lengths within two of 0, 32, 64 and 96, and every byte value.
 library Edge {
     using Gen for Gen.Rng;
 
-    /// @dev Within two of 0, 32, 64 or 96, capped at `max`, or now and then
-    ///      any value up to `max`.
+    /// @dev Within two of 0, 32, 64 or 96, capped at `max`, or sometimes any value up to `max`.
     function near(Gen.Rng memory r, uint256 max) internal pure returns (uint256 v) {
         if (r.chance(25)) return r.pick(max + 1);
         v = 32 * r.pick(4) + r.pick(5);
@@ -32,7 +30,7 @@ library Edge {
         if (v > max) v = max;
     }
 
-    /// @dev A byte of `alphabet`, or now and then any of the 256.
+    /// @dev A byte of `alphabet`, or sometimes any of the 256.
     function byteOf(Gen.Rng memory r, bytes memory alphabet) internal pure returns (bytes1) {
         // Casting to uint8 is safe: `pick(256)` is below 256.
         // forge-lint: disable-next-line(unsafe-typecast)
@@ -79,17 +77,15 @@ library Edge {
         return data;
     }
 
-    /// @dev A line `x-pad: aaa...` whose length moves every byte after it to
-    ///      another offset within its word.
+    /// @dev A line `x-pad: aaa...` whose length shifts every later byte within its word.
     function padLine(Gen.Rng memory r) internal pure returns (bytes memory) {
         return bytes.concat("x-pad: ", repeat("a", near(r, 70)));
     }
 }
 
-/// @notice The transcript checks against their reference where a word-at-a-time
-///         read turns: a delimiter, an escape or a line ending across a word
-///         boundary, an input ending one byte into a word, every byte value in
-///         every class test, and needles of 31, 32 and 33 bytes.
+/// @notice The transcript checks against their reference at word edges: delimiters,
+///         escapes and line endings across a boundary, inputs ending one byte into
+///         a word, every byte value in every class test, needles of 31 to 33 bytes.
 contract TranscriptWordEdgesTest is Test {
     using Gen for Gen.Rng;
     using Edge for Gen.Rng;
@@ -116,8 +112,7 @@ contract TranscriptWordEdgesTest is Test {
         ref = new RefHelpers();
     }
 
-    /// @dev Both calls, the same answer: success with equal return data, or
-    ///      a revert with equal revert data.
+    /// @dev Both calls succeed with equal return data or revert with equal revert data.
     function _same(address a, bytes memory callA, address b, bytes memory callB) private view returns (bool) {
         (bool okA, bytes memory retA) = a.staticcall(callA);
         (bool okB, bytes memory retB) = b.staticcall(callB);
@@ -144,8 +139,7 @@ contract TranscriptWordEdgesTest is Test {
         _same(address(live), address(ref), abi.encodeCall(LiveHelpers.normalizeJsonBytes, (data)));
     }
 
-    /// @dev Every byte value, beside whitespace and beside a structural byte,
-    ///      at each offset where one word ends and the next begins.
+    /// @dev Every byte value, beside whitespace and beside a structural byte, at each word edge.
     function test_jsonNormalizationSortsEveryByteValueAtWordEdges() public view {
         uint8[6] memory offsets = [0, 1, 30, 31, 32, 33];
         bytes[3] memory fillers = [bytes("a"), bytes(":"), bytes(" ")];
@@ -163,9 +157,8 @@ contract TranscriptWordEdgesTest is Test {
         }
     }
 
-    /// @dev A needle cut out of a periodic haystack at a word edge, the byte
-    ///      it ends on sometimes changed: a mask one byte short or long
-    ///      counts a copy that is not there or misses one that is.
+    /// @dev A needle cut from a periodic haystack at a word edge, its last byte
+    ///      sometimes changed, catches a mask one byte off.
     /// forge-config: default.fuzz.runs = 3000
     function testFuzz_occurrencesAtWordEdges(uint256 seed) public view {
         Gen.Rng memory r = Gen.Rng(seed);
@@ -194,10 +187,8 @@ contract TranscriptWordEdgesTest is Test {
 
     // ─── Forms ──────────────────────────────────────────────────────
 
-    /// @dev A value in the serializer's alphabet with pieces set into it at
-    ///      word edges: mostly escapes and `+`, now and then an escape in
-    ///      lowercase, of a byte passed through or of the space, one cut
-    ///      short, a delimiter, or any byte.
+    /// @dev A value in the serializer's alphabet with pieces at word edges: mostly
+    ///      escapes and `+`, sometimes a malformed or redundant escape, a delimiter or any byte.
     function _formValue(Gen.Rng memory r) private pure returns (bytes memory v) {
         v = r.strict(r.near(70), SAFE_ALPHABET);
         if (v.length == 0 && r.chance(80)) v = "a";
@@ -214,8 +205,7 @@ contract TranscriptWordEdgesTest is Test {
         }
     }
 
-    /// @dev The body `names` asks for with values of every length around a
-    ///      word, now and then bent.
+    /// @dev The body `names` asks for, values of every length around a word, sometimes altered.
     function _formBody(Gen.Rng memory r, bytes memory names, bytes memory verifier)
         private
         pure
@@ -250,8 +240,7 @@ contract TranscriptWordEdgesTest is Test {
         lists[1] = CeremonyProfile.GITHUB_TOKEN_FIELDS;
         lists[2] = bytes.concat(Edge.repeat("n", r.near(40)), "&client_id&code_verifier");
         lists[3] = bytes.concat("client_id&", Edge.repeat("n", 30 + r.pick(4)), "&grant_type");
-        // Names that are each other's prefix or suffix, so a read that took
-        // one name's pair for another's would answer with the wrong value.
+        // Names that are each other's prefix or suffix.
         lists[4] = "code&code_verifier&verifier&client_id";
         lists[5] = "id&client_id&grant_type&type&code_verifier";
         bytes memory names = r.oneOf(lists);
@@ -270,8 +259,8 @@ contract TranscriptWordEdgesTest is Test {
         }
     }
 
-    /// @dev Every byte value, bare and escaped, at each offset where a word
-    ///      ends, in a value that runs on past it or stops right there.
+    /// @dev Every byte value, bare and escaped, at each word end, in a value that
+    ///      runs past it or stops there.
     function test_formValueSortsEveryByteValueAtWordEdges() public view {
         uint8[5] memory offsets = [29, 30, 31, 32, 33];
         bytes memory hex_ = "0123456789ABCDEF";
@@ -322,10 +311,8 @@ contract TranscriptWordEdgesTest is Test {
         _same(address(live), address(ref), abi.encodeCall(LiveHelpers.requireCrlfLineEndings, (data)));
     }
 
-    /// @dev A header line that spells `authorization` or a prefix of it, in
-    ///      any case, with spaces and tabs inside but never first; an empty
-    ///      line; or a pad line. A line opening with a space or tab is a fold,
-    ///      refused before the count.
+    /// @dev A header line spelling `authorization` or a prefix of it in any case,
+    ///      with inner spaces and tabs, never leading; an empty line; or a pad line.
     function _authorizationLike(Gen.Rng memory r) private pure returns (bytes memory) {
         uint256 kind = r.pick(5);
         if (kind == 0) return r.padLine();
@@ -351,9 +338,8 @@ contract TranscriptWordEdgesTest is Test {
         return r.headerLine(r.headerName(), r.headerValue());
     }
 
-    /// @dev An identity request whose lines around the one bearer line are
-    ///      padding and `authorization` lookalikes, cut into ranges through
-    ///      the framing on both sides of the committed bearer.
+    /// @dev An identity request with padding and `authorization` lookalikes around
+    ///      the bearer line, cut into ranges through the framing on both sides.
     function _edgeIdentityRequest(Gen.Rng memory r, bytes memory requestLine, uint256 lookalikes)
         private
         pure
@@ -380,8 +366,7 @@ contract TranscriptWordEdgesTest is Test {
         (kinds[0], kinds[1], kinds[2], kinds[3], kinds[4]) =
         (Gen.REVEAL, Gen.REVEAL, Gen.COMMIT, Gen.REVEAL, Gen.REVEAL);
         block_ = Gen.layout(t, cuts, kinds);
-        // Casting to uint32 is safe: a generated request is a few hundred
-        // bytes long.
+        // Casting to uint32 is safe: a generated request is a few hundred bytes.
         // forge-lint: disable-next-line(unsafe-typecast)
         length = uint32(t.length);
     }
@@ -403,10 +388,8 @@ contract TranscriptWordEdgesTest is Test {
         );
     }
 
-    /// @dev Every pair of lines that open the `authorization` needle, break
-    ///      off, spell it in another case or with a tab inside, or repeat it,
-    ///      ahead of the one bearer line: the count restarts only at a
-    ///      carriage return, and two needles never share a byte.
+    /// @dev Pairs of partial, respelled or repeated `authorization` lines before the
+    ///      bearer line: the count restarts only at a CR and needles never share a byte.
     function test_authorizationCountRestartsOnlyAtALineStart() public view {
         bytes[9] memory lines = [
             bytes("authoriz"),
@@ -427,8 +410,7 @@ contract TranscriptWordEdgesTest is Test {
                 uint256 s = head.length + 24;
                 CeremonyAttestation.DirectionBlock memory block_ =
                     Gen.layout(t, Gen.marks(0, s, s + 5, t.length), Gen.kinds(Gen.REVEAL, Gen.COMMIT, Gen.REVEAL));
-                // Casting to uint32 is safe: the request is under a hundred
-                // bytes long.
+                // Casting to uint32 is safe: the request is under a hundred bytes.
                 // forge-lint: disable-next-line(unsafe-typecast)
                 uint32 length = uint32(t.length);
                 _same(
@@ -442,8 +424,7 @@ contract TranscriptWordEdgesTest is Test {
 
     // ─── Whole sessions ─────────────────────────────────────────────
 
-    /// @dev A header line of any bytes but CR and LF, most of them the ones a
-    ///      head is read by.
+    /// @dev A header line of any bytes but CR and LF, mostly the bytes the head check reads.
     function _anyHeaderLine(Gen.Rng memory r) private pure returns (bytes memory line) {
         line = bytes.concat(
             r.respell(r.strict(1 + r.near(40), "abc-_")), r.strict(r.pick(3), " \t"), ":", r.fill(r.near(40), "a: \t,;")
@@ -453,9 +434,8 @@ contract TranscriptWordEdgesTest is Test {
         }
     }
 
-    /// @dev The token request of `p`: a pad line first, so each byte after it
-    ///      lands at every offset in its word; the required lines, now and then
-    ///      respelled; lines of any bytes among them.
+    /// @dev The token request of `p`: a pad line, the required lines sometimes
+    ///      respelled, and lines of any bytes among them.
     function _edgeTokenRequest(Gen.Rng memory r, RefTranscript.Profile memory p, bytes memory body)
         private
         pure
@@ -499,15 +479,13 @@ contract TranscriptWordEdgesTest is Test {
         bytes memory body = _formBody(r, p.tokenFields, CeremonyAuthorization.codeVerifier(DIGEST, NONCE));
         bytes memory request = _edgeTokenRequest(r, p, body);
         data.sent = Gen.layout(request, Gen.marks(0, request.length), Gen.kinds(Gen.REVEAL, Gen.REVEAL));
-        // Casting to uint32 is safe: a generated request is a few hundred
-        // bytes long.
+        // Casting to uint32 is safe: a generated request is a few hundred bytes.
         // forge-lint: disable-next-line(unsafe-typecast)
         data.sentTranscriptLength = uint32(request.length);
         (data.received, data.recvTranscriptLength) = _edgeTokenResponse(r);
     }
 
-    /// @dev A token response whose bearer anchor ends anywhere in a word, in a
-    ///      revealed range as short as the anchor or shorter.
+    /// @dev A token response whose bearer anchor ends anywhere in a word.
     function _edgeTokenResponse(Gen.Rng memory r)
         private
         pure
@@ -519,8 +497,7 @@ contract TranscriptWordEdgesTest is Test {
         bytes memory pad = bytes.concat('"pad":"', Edge.repeat("p", r.near(70)), '",');
         bytes memory t = bytes.concat(head, pad, prefix, "gho_BEARER", '","token_type":"bearer"}');
         uint256 b = head.length + pad.length + prefix.length;
-        // The anchor's range: from anywhere in the pad, or exactly the anchor,
-        // or one byte short of it.
+        // The anchor's range: from anywhere in the pad, exactly the anchor, or one byte short.
         uint256 a = r.chance(60) ? head.length + r.pick(pad.length + 1) : b - prefix.length + r.pick(2);
         uint256 c = b + 10;
         uint256[] memory cuts = new uint256[](6);
@@ -529,14 +506,12 @@ contract TranscriptWordEdgesTest is Test {
         (kinds[0], kinds[1], kinds[2], kinds[3], kinds[4]) =
         (Gen.COMMIT, Gen.REVEAL, Gen.COMMIT, Gen.REVEAL, Gen.COMMIT);
         block_ = Gen.layout(t, cuts, kinds);
-        // Casting to uint32 is safe: a generated response is a few hundred
-        // bytes long.
+        // Casting to uint32 is safe: a generated response is a few hundred bytes.
         // forge-lint: disable-next-line(unsafe-typecast)
         length = uint32(t.length);
     }
 
-    /// @dev An anchor-only identity response with a pad member that moves the
-    ///      anchors through a word.
+    /// @dev An anchor-only identity response with a pad member that moves the anchors through a word.
     function _edgeIdentityResponse(Gen.Rng memory r, bool integerId, bytes memory handleField)
         private
         pure
@@ -577,15 +552,13 @@ contract TranscriptWordEdgesTest is Test {
         (data.received, data.recvTranscriptLength) = _edgeIdentityResponse(r, p.idIsInteger, bytes(p.handleField));
     }
 
-    /// @dev Every byte value inside a header name, at the last byte of a
-    ///      word and the first of the next, where the head check lowercases
-    ///      it, reads `_` as `-`, trims it before the colon, or keeps it.
+    /// @dev Every byte value inside a header name at a word edge, where the head
+    ///      check lowercases it, reads `_` as `-`, trims it or keeps it.
     function test_headerNamesSortEveryByteValueAtWordEdges() public view {
         bytes memory status = "HTTP/1.1 200 OK\r\n\r\n{";
         bytes memory response = bytes.concat(status, '"id":"1","username":"a"}');
         CeremonyAttestation.AttestedData memory data;
-        // The anchor-only reveal: `"id":"`, `","username":"` and `"}` in the
-        // open, the two values and the head committed.
+        // Anchors revealed; the head and the two values committed.
         uint256 id = status.length + 6;
         uint256 handle = id + 15;
         uint256[] memory cuts = new uint256[](7);
@@ -601,8 +574,7 @@ contract TranscriptWordEdgesTest is Test {
             // Casting to uint8 is safe: `v` is below 256.
             // forge-lint: disable-next-line(unsafe-typecast)
             bytes1 b = bytes1(uint8(v));
-            // After `GET /2/users/me HTTP/1.1\r\n`, byte 31 of the request is
-            // the sixth of the line and byte 32 the seventh.
+            // After `GET /2/users/me HTTP/1.1\r\n`, request bytes 31 and 32 are the line's sixth and seventh.
             bytes[3] memory lines = [
                 bytes.concat("cooki", b, ": a"),
                 bytes.concat("cookie", b, ": a"),
@@ -614,8 +586,7 @@ contract TranscriptWordEdgesTest is Test {
                 uint256 s = head.length + 24;
                 data.sent =
                     Gen.layout(t, Gen.marks(0, s, s + 5, t.length), Gen.kinds(Gen.REVEAL, Gen.COMMIT, Gen.REVEAL));
-                // Casting to uint32 is safe: the request is under a hundred
-                // bytes long.
+                // Casting to uint32 is safe: the request is under a hundred bytes.
                 // forge-lint: disable-next-line(unsafe-typecast)
                 data.sentTranscriptLength = uint32(t.length);
                 _same(address(x), address(refX), abi.encodeCall(XTranscripts.identityTranscript, (data)));
@@ -655,9 +626,8 @@ contract TranscriptWordEdgesTest is Test {
 
     // ─── The byte search ────────────────────────────────────────────
 
-    /// @dev Every byte value at every offset of inputs 31 to 65 bytes long,
-    ///      with the same byte filling the word past the end: found where it
-    ///      is, from every start at or before it, and not after.
+    /// @dev Every byte value at every offset of 31- to 65-byte inputs, with the
+    ///      byte also filling the word past the end: found from every start up to it.
     function test_indexOfByteFindsEveryByteValueAtEveryOffset() public pure {
         uint8[5] memory lengths = [31, 32, 33, 64, 65];
         bytes memory data = new bytes(97);

@@ -11,9 +11,7 @@ import {INotaryService} from "../INotaryService.sol";
 import {NotaryService} from "../NotaryService.sol";
 import {GoogleJwtRoots} from "../GoogleJwtRoots.sol";
 
-/// `_splitLimbs` is internal so the hash a reading will write can be computed
-/// test-side, independent of the list's state: a key's hash is asserted from
-/// its bytes, never read back from the contract that wrote it.
+/// Exposes `_splitLimbs` so a test computes a key's hash from its bytes, not from the list's state.
 contract LimbHasher is GoogleJwtRoots {
     function hashOf(bytes memory modulus) external pure returns (bytes32) {
         return keccak256(abi.encodePacked(_splitLimbs(modulus)));
@@ -27,13 +25,8 @@ contract LimbHasher is GoogleJwtRoots {
 /// The `google/v1` profile's trust list, fed by a notarized reading of
 /// Google's JWKS endpoint.
 ///
-/// The reading is an ordinary platform-ceremonies section 4.1 session: built
-/// with the same builder the X and GitHub Platform Verifier tests use, signed
-/// at test time by the anvil key, and authenticated by a real NotaryService
-/// behind a proxy charging a real fee. Nothing here mocks the thing under
-/// test. Google's real body rides along as a fixture, so the parser is tested
-/// against the document it will read rather than a shape a test author
-/// remembered.
+/// Readings are section 4.1 sessions signed by the anvil key and checked by a
+/// real NotaryService that charges a fee. Google's real body is a fixture.
 contract GoogleJwtRootsTest is Test {
     GoogleJwtRoots roots;
     NotaryService notary;
@@ -52,15 +45,13 @@ contract GoogleJwtRootsTest is Test {
     string constant GOOGLE_KID_1 = "943a3a5d7d919625a454e489b75c29adab57acba";
     string constant GOOGLE_KID_2 = "f10f87405a979c1df36df26606734f33cd85c271";
 
-    /// The keeper's limb-hash vector. `decision::modulus_hash` in the keeper
-    /// and `_splitLimbs` here must agree on this one, or a key the keeper
-    /// reports as trusted is one the verifier refuses.
+    /// The keeper's limb-hash vector. The keeper's `decision::modulus_hash` and
+    /// `_splitLimbs` must agree on it, or the verifier refuses keys the keeper trusts.
     string constant KEEPER_MODULUS =
         "BAsSGSAnLjU8Q0pRWF9mbXR7gomQl56lrLO6wcjP1t3k6_L5BQwTGiEoLzY9REtSWWBnbnV8g4qRmJ-mrbS7wsnQ197l7PP6Bg0UGyIpMDc-RUxTWmFob3Z9hIuSmaCnrrW8w8rR2N_m7fT7Bw4VHCMqMTg_Rk1UW2JpcHd-hYyTmqGor7a9xMvS2eDn7vUBCA8WHSQrMjlAR05VXGNqcXh_ho2Um6KpsLe-xczT2uHo7_YCCRAXHiUsMzpBSE9WXWRrcnmAh46VnKOqsbi_xs3U2-Lp8PcDChEYHyYtNDtCSVBXXmVsc3qBiI-WnaSrsrnAx87V3OPq8fgECxIZIA";
     bytes32 constant KEEPER_MODULUS_HASH = 0xc5c1457ba4adf8bb84324e8595bf883639aa7ebd7aa7e7626a0b51f90e6838bc;
 
-    /// The request the keeper's prover sends. The User-Agent value is not
-    /// read on chain, so the version it carries is immaterial.
+    /// The request the keeper's prover sends. The User-Agent is not read on chain.
     bytes constant REQUEST = "GET /oauth2/v3/certs HTTP/1.1\r\n" "host: www.googleapis.com\r\n" "connection: close\r\n"
         "accept: application/json\r\n" "user-agent: libid-keeper/0.1.0\r\n" "\r\n";
     bytes constant STATUS_OK = "HTTP/1.1 200 OK\r\n";
@@ -126,8 +117,7 @@ contract GoogleJwtRootsTest is Test {
         roots.rotate{value: FEE}(attested, AttestationBuilder.sign(NOTARY_KEY, attested));
     }
 
-    /// Signed BEFORE the expectation: `vm.sign` is an external call, and one
-    /// inside the call under test would consume the `expectRevert`.
+    /// Signs before `expectRevert`: `vm.sign` is an external call and would consume it.
     function _refuses(bytes memory attested, bytes memory err) private {
         bytes memory sig = AttestationBuilder.sign(NOTARY_KEY, attested);
         vm.expectRevert(err);
@@ -196,15 +186,12 @@ contract GoogleJwtRootsTest is Test {
         return _body(abi.encodePacked(_jwk(kidA, _modulus(seedA)), ",", _jwk(kidB, _modulus(seedB))));
     }
 
-    /// A 2048-bit modulus derived from `seed`, base64url without padding: 256
-    /// bytes encode to exactly 342 characters. Different seeds give different
-    /// keys, which is the only property the caller needs.
+    /// A 2048-bit modulus derived from `seed`: 256 bytes as 342 characters of unpadded base64url.
     function _modulus(string memory seed) private pure returns (string memory) {
         return string(_b64url(_bytes(seed, 256)));
     }
 
-    /// The limb hash the list writes for the key `seed` derives, computed
-    /// from the bytes rather than read back.
+    /// The limb hash the list writes for the key `seed` derives, computed from its bytes.
     function _hash(string memory seed) private view returns (bytes32) {
         return hasher.hashOf(_bytes(seed, 256));
     }
@@ -333,11 +320,8 @@ contract GoogleJwtRootsTest is Test {
         assertEq(roots.trustedHashExpiresAt(second), at + roots.READING_LIFETIME());
     }
 
-    /// Google serves the key set chunked. The chunk size here cuts the first
-    /// modulus value three times, so the de-chunker is what reassembles it;
-    /// the same body under `Content-Length` yields the same hash, which is the
-    /// framing being transparent -- the second reading refreshes the set
-    /// rather than rotating it.
+    /// Google serves the key set chunked; 100-byte chunks cut the first modulus three times.
+    /// The same body under `Content-Length` then refreshes the set rather than rotating it.
     function test_aChunkedReadingInstallsTheKeys() public {
         bytes memory body = _oneKey("kid-1", "one");
         _rotate(_attest(REQUEST, _chunked(body, 100), _now()));
@@ -349,9 +333,7 @@ contract GoogleJwtRootsTest is Test {
         _assertEmpty(_previous(), "framing changed the key");
     }
 
-    /// The document this contract exists to read: Google's body, verbatim,
-    /// pretty-printed with a space after every colon, in the framing Google
-    /// uses.
+    /// Google's real body, pretty-printed, in Google's chunked framing.
     function test_googlesRealBodyIsAccepted() public {
         bytes memory body = bytes(vm.readFile(GOOGLE_JWKS));
         assertEq(string(_slice(body, 0, 13)), "{\n  \"keys\": [", "the fixture is Google's pretty-printed body");
@@ -366,9 +348,8 @@ contract GoogleJwtRootsTest is Test {
         assertFalse(roots.needsRotation());
     }
 
-    /// Cross-language pin: the keeper's `decision::modulus_hash` and the
-    /// Google circuit produce this value for this modulus. The test-side
-    /// hasher is pinned to the same vector, so every `_hash` below is too.
+    /// Cross-language pin: the keeper's `decision::modulus_hash` gives this hash for
+    /// this modulus. `_hash` uses the same hasher.
     function test_theLimbHashMatchesTheKeeper() public {
         assertEq(hasher.hashOfB64url(KEEPER_MODULUS), KEEPER_MODULUS_HASH);
         _rotate(_reading(_body(_jwk("keeper", KEEPER_MODULUS))));
@@ -376,9 +357,7 @@ contract GoogleJwtRootsTest is Test {
         assertGt(roots.trustedHashExpiresAt(KEEPER_MODULUS_HASH), 0);
     }
 
-    /// Anyone may submit one. The reading carries its own authority -- the
-    /// notary signed it -- so gating the caller would only add a keeper to
-    /// trust.
+    /// Anyone may submit a reading: the notary's signature is its authority.
     function test_anybodyMaySubmitARotation() public {
         bytes memory attested = _reading(_oneKey("kid-1", "one"));
         bytes memory sig = AttestationBuilder.sign(NOTARY_KEY, attested);
@@ -387,8 +366,7 @@ contract GoogleJwtRootsTest is Test {
         assertEq(_current().moduli, _one(_hash("one")));
     }
 
-    /// The Notary Fee is the one thing a rotation costs beyond gas, and it
-    /// accrues where every other attestation's does.
+    /// A rotation pays the Notary Fee, which accrues on the Notary Service.
     function test_theRotationPaysTheNotaryFee() public {
         assertEq(roots.quoteRotation(), FEE);
         _install("kid-1", "one");
@@ -398,11 +376,8 @@ contract GoogleJwtRootsTest is Test {
 
     // ─── Which readings count ───────────────────────────────────────
 
-    /// Re-applying the reading in force is refused: `NotNewer`, with the
-    /// reading's own clock on both sides. Nothing is written -- in particular
-    /// the lifetime does NOT restart, so spamming one reading for its whole
-    /// freshness window cannot stretch trust by a second -- and the revert
-    /// hands the fee back rather than charging it for nothing done.
+    /// Re-applying the reading in force fails with `NotNewer`, returns the fee,
+    /// and leaves the list and the lifetime unchanged.
     function test_replayingTheReadingInForceIsRefused() public {
         uint64 at = _now();
         bytes memory attested = _reading(_oneKey("kid-1", "one"));
@@ -419,9 +394,7 @@ contract GoogleJwtRootsTest is Test {
         );
     }
 
-    /// Two readings dated the same second cannot disagree: the second is
-    /// refused whatever it carries, so equal evidence never swaps the set
-    /// and drops the keys Google still signs with.
+    /// A second reading dated the same second is refused whatever it carries.
     function test_aReadingDatedTheSameSecondIsRefused() public {
         uint64 at = _now();
         _rotate(_readingAt(_oneKey("kid-1", "one"), at));
@@ -435,11 +408,8 @@ contract GoogleJwtRootsTest is Test {
         assertEq(roots.trustedHashExpiresAt(_hash("two")), 0, "the same second installed a key");
     }
 
-    /// The rollback that matters: a GENUINELY signed older reading, replayed
-    /// inside its freshness window after a newer one has landed. The signature
-    /// verifies; the reading's own clock is what refuses the regression, and
-    /// the error carries both clocks, so a keeper reading it knows which
-    /// reading it lost to.
+    /// A genuinely signed older reading, replayed after a newer one, fails with
+    /// `NotNewer` carrying both clocks.
     function test_aGenuinelySignedOlderReadingIsRefused() public {
         uint64 dated = _now() - 30 minutes;
         bytes memory older = _readingAt(_oneKey("kid-1", "retired"), dated);
@@ -454,11 +424,8 @@ contract GoogleJwtRootsTest is Test {
         assertEq(roots.trustedHashExpiresAt(live), at + roots.READING_LIFETIME(), "live key lost trust");
     }
 
-    /// The front-run shape: a stranger lands the keeper's own reading first.
-    /// The keeper's transaction is refused, its fee comes back with the
-    /// revert -- gas is all it lost -- and its next reading lands as usual.
-    /// Nothing was consumed: with no nullifier there is nothing a
-    /// front-runner can spend on the keeper's behalf.
+    /// A stranger landing the keeper's reading first costs the keeper only gas:
+    /// the fee returns and its next reading lands.
     function test_aFrontRunKeeperLosesGasOnly() public {
         uint64 at = _now();
         bytes memory attested = _reading(_oneKey("kid-1", "one"));
@@ -484,9 +451,8 @@ contract GoogleJwtRootsTest is Test {
         assertEq(address(notary).balance, 2 * FEE);
     }
 
-    /// A newer reading of the set already current is Google saying the set
-    /// still stands: its lifetime restarts from the new reading, nothing
-    /// shifts, and the order Google listed the keys in is immaterial.
+    /// A newer reading of the current set restarts its lifetime without shifting;
+    /// key order is immaterial.
     function test_aNewerReadingOfTheSameSetRefreshesWithoutShifting() public {
         uint64 first = _now();
         _rotate(_readingAt(_twoKeys("kid-1", "one", "kid-2", "two"), first));
@@ -505,9 +471,8 @@ contract GoogleJwtRootsTest is Test {
         assertEq(roots.freshestObservedAt(), second);
     }
 
-    /// A newer reading of a different set is a rotation: what was current is
-    /// kept one generation back, the reading becomes current, and the event
-    /// carries the reading's keys in the order Google listed them.
+    /// A newer reading of a different set moves current to previous; the event
+    /// lists the keys in Google's order.
     function test_aNewerReadingOfADifferentSetRotates() public {
         uint64 first = _now();
         bytes32 old = _install("kid-a", "a");
@@ -527,9 +492,7 @@ contract GoogleJwtRootsTest is Test {
         assertEq(roots.freshestObservedAt(), second);
     }
 
-    /// Two generations and no history: a third distinct set drops the oldest
-    /// outright, and a key only that set listed stops being trusted -- with
-    /// no prune, no untrust, no transaction but the rotation itself.
+    /// A third distinct set drops the oldest, whose keys stop being trusted.
     function test_aThirdSetDropsTheOldest() public {
         uint64 first = _now();
         bytes32 a = _install("kid-a", "a");
@@ -547,9 +510,7 @@ contract GoogleJwtRootsTest is Test {
         assertEq(roots.trustedHashExpiresAt(c), third + roots.READING_LIFETIME());
     }
 
-    /// Google's sets overlap -- a key is usually in the reading before and
-    /// the reading after -- and a key in both generations carries the current
-    /// one's stamp: the later reading is the later word that it is listed.
+    /// Google's sets overlap; a key in both generations carries the current one's stamp.
     function test_aKeyInBothGenerationsCarriesTheCurrentStamp() public {
         uint64 first = _now();
         _rotate(_readingAt(_twoKeys("kid-1", "one", "kid-2", "two"), first));
@@ -562,10 +523,8 @@ contract GoogleJwtRootsTest is Test {
         assertEq(roots.trustedHashExpiresAt(_hash("three")), second + roots.READING_LIFETIME(), "current only");
     }
 
-    /// Trust lapses by the reading's own clock, with no transaction from
-    /// anyone: the stamp is `createdAt + READING_LIFETIME` -- the notary's
-    /// time, not the block the rotation landed in -- and past it the
-    /// verifier-facing read is already in the past.
+    /// Trust lapses at `createdAt + READING_LIFETIME`, by the notary's clock,
+    /// with no further transaction.
     function test_trustLapsesByTheReadingsOwnClockWithNoCall() public {
         uint64 observedAt = _now() - 30 minutes;
         _rotate(_readingAt(_oneKey("kid-1", "one"), observedAt));
@@ -580,9 +539,8 @@ contract GoogleJwtRootsTest is Test {
         _assertGeneration(_current(), observedAt, _one(_hash("one")), "the generation is still what was read");
     }
 
-    /// The freshest-reading mark is the current generation's clock: it only
-    /// ever moves forward, whether the newer reading refreshes or rotates,
-    /// and an older reading is refused against it.
+    /// `freshestObservedAt` is the current generation's clock: a refresh or a rotation
+    /// moves it forward, and an older reading is refused against it.
     function test_freshestObservedAtIsTheReadingInForce() public {
         assertEq(roots.freshestObservedAt(), 0);
         uint64 first = _now();
@@ -604,8 +562,6 @@ contract GoogleJwtRootsTest is Test {
 
     // ─── What a keeper reads ────────────────────────────────────────
 
-    /// Before any reading: two empty generations, a zero mark, and a list
-    /// that wants a rotation.
     function test_currentKeysStartsEmpty() public view {
         _assertEmpty(_current(), "current");
         _assertEmpty(_previous(), "previous");
@@ -613,13 +569,11 @@ contract GoogleJwtRootsTest is Test {
         assertTrue(roots.needsRotation());
     }
 
-    /// The single bit a keeper polls: true until the first rotation, false
-    /// while the current generation has RENEWAL_MARGIN of trusted runway,
-    /// true again as the runway shortens -- and long before it expires.
+    /// True until the first rotation, then again once less than RENEWAL_MARGIN
+    /// of trust remains.
     function test_needsRotationTracksTheTrustedRunway() public {
         assertTrue(roots.needsRotation(), "an empty list needs a rotation");
-        // Whatever the clock says: a fresh deployment on a chain younger than
-        // the lifetime must still ask for its first reading.
+        // A chain younger than the lifetime still asks for its first reading.
         vm.warp(1);
         assertTrue(roots.needsRotation(), "an empty list needs a rotation at any block time");
         vm.warp(T0 + 10);
@@ -635,9 +589,8 @@ contract GoogleJwtRootsTest is Test {
         assertTrue(roots.needsRotation(), "the margin should trip before expiry does");
     }
 
-    /// The rotation announces the reading's keys -- kids and limb hashes in
-    /// the order Google listed them -- with the reading's own timestamp, the
-    /// notary's clock, so a bot can follow the list from logs alone.
+    /// The event carries the reading's kids and limb hashes in Google's order,
+    /// stamped with the notary's clock.
     function test_aRotationAnnouncesTheKeysInReadingOrder() public {
         uint64 provenAt = _now() - 10 minutes;
 
@@ -658,8 +611,7 @@ contract GoogleJwtRootsTest is Test {
 
     // ─── Administration ─────────────────────────────────────────────
 
-    /// The Notary Service is the trust root. Pointing at another one moves
-    /// the whole list under that service's keys and fee.
+    /// Pointing at another Notary Service moves the list under its keys and fee.
     function test_theOwnerCanPointAtAnotherNotaryService() public {
         uint256 otherKey = 0xC0FFEE;
         NotaryService otherImpl = new NotaryService();
@@ -679,13 +631,13 @@ contract GoogleJwtRootsTest is Test {
         assertEq(roots.notaryService(), address(other));
         assertEq(roots.quoteRotation(), 2 * FEE);
 
-        // The old service's key no longer vouches for anything here...
+        // The old service's key is refused,
         bytes memory attested = _reading(_oneKey("kid-1", "one"));
         bytes memory oldSig = AttestationBuilder.sign(NOTARY_KEY, attested);
         vm.expectRevert(abi.encodeWithSelector(NotaryService.UntrustedNotary.selector, vm.addr(NOTARY_KEY)));
         roots.rotate{value: 2 * FEE}(attested, oldSig);
 
-        // ...and the new one's does, at the new fee.
+        // and the new one's is accepted at the new fee.
         roots.rotate{value: 2 * FEE}(attested, AttestationBuilder.sign(otherKey, attested));
         assertEq(_current().moduli, _one(_hash("one")));
         assertEq(address(other).balance, 2 * FEE);
@@ -707,8 +659,7 @@ contract GoogleJwtRootsTest is Test {
         new ERC1967Proxy(address(impl), abi.encodeCall(GoogleJwtRoots.initialize, (OWNER, INotaryService(address(0)))));
     }
 
-    /// Renouncing would freeze the list while Google's keys keep expiring, so
-    /// the Google verifier would stop accepting proofs with no way back.
+    /// Renouncing would freeze the list while Google's keys expire, halting Google claims.
     function test_renouncingIsDisabled() public {
         vm.prank(OWNER);
         vm.expectRevert(bytes("renounce disabled"));
@@ -717,8 +668,7 @@ contract GoogleJwtRootsTest is Test {
 
     // ─── What it refuses: the fee and the notary ────────────────────
 
-    /// An exact match, both ways. Underpaying is obvious; overpaying must fail
-    /// too, so there is no overpayment to refund and no silent overcharge.
+    /// Only the exact fee is accepted; an overpayment fails too, so nothing needs refunding.
     function test_refusesAnyValueOtherThanTheFee() public {
         bytes memory attested = _reading(_oneKey("kid-1", "one"));
         bytes memory sig = AttestationBuilder.sign(NOTARY_KEY, attested);
@@ -733,9 +683,7 @@ contract GoogleJwtRootsTest is Test {
         roots.rotate(attested, sig);
     }
 
-    /// The signature is the whole authority, so a reading the trusted notary
-    /// did not sign is worth nothing. Trust lives on the Notary Service, and
-    /// this list follows it.
+    /// A reading signed by a key the Notary Service does not trust is refused.
     function test_refusesAnUntrustedNotaryKey() public {
         uint256 stranger = 0xB0B;
         bytes memory attested = _reading(_oneKey("kid-1", "one"));
@@ -744,10 +692,7 @@ contract GoogleJwtRootsTest is Test {
         roots.rotate{value: FEE}(attested, sig);
     }
 
-    /// The signature is genuine and the key is trusted, but one byte of the
-    /// record differs -- so the digest the service derives differs and
-    /// recovery lands on nobody. Nothing in the record can be edited after
-    /// signing: not the host, not the clock, not a modulus.
+    /// One edited byte changes the digest, so the signature recovers an untrusted address.
     function test_refusesATamperedAttestedByte() public {
         bytes memory attested = _reading(_oneKey("kid-1", "one"));
         bytes memory sig = AttestationBuilder.sign(NOTARY_KEY, attested);
@@ -773,9 +718,7 @@ contract GoogleJwtRootsTest is Test {
 
     // ─── What it refuses: the session ───────────────────────────────
 
-    /// A reading genuinely signed for another host is refused on its merits.
-    /// The authority is the one field the notary observed rather than was
-    /// told, and it is checked before any byte of the transcript is read.
+    /// A reading signed for another host is refused before the transcript is read.
     function test_refusesAnotherAuthority() public {
         bytes32 other = keccak256("storage.googleapis.com");
         bytes memory attested =
@@ -786,12 +729,11 @@ contract GoogleJwtRootsTest is Test {
     function test_refusesAReadingFromTheFuture() public {
         uint64 ahead = _now() + uint64(roots.CLOCK_SKEW_GRACE()) + 1;
         _refuses(_readingAt(_oneKey("kid-1", "one"), ahead), GoogleJwtRoots.FutureProof.selector);
-        // And accepts one exactly at the grace, which is the boundary.
+        // One exactly at the grace is accepted.
         _rotate(_readingAt(_oneKey("kid-1", "one"), ahead - 1));
     }
 
-    /// Past the window the reading says nothing about what Google publishes
-    /// now, which is the only question this list answers.
+    /// A reading older than FRESHNESS_WINDOW is refused.
     function test_refusesAStaleReading() public {
         uint64 provenAt = _now();
         bytes memory attested = _readingAt(_oneKey("kid-1", "one"), provenAt);
@@ -799,8 +741,7 @@ contract GoogleJwtRootsTest is Test {
         _refuses(attested, GoogleJwtRoots.StaleProof.selector);
     }
 
-    /// Both directions must tile the signed length. A gap is where a prover
-    /// hides bytes, and this contract reads the join as the document.
+    /// Both directions must tile the signed length.
     function test_refusesACoverageGapInTheRequest() public {
         uint32 len = uint32(REQUEST.length);
         AttestationBuilder.Direction memory sent = AttestationBuilder.Direction({
@@ -825,8 +766,7 @@ contract GoogleJwtRootsTest is Test {
         _refuses(attested, abi.encodeWithSelector(CeremonyAttestation.CoverageGap.selector, 0, 1));
     }
 
-    /// A commitment tiles like a revealed range, so coverage passes -- and the
-    /// bytes behind it are exactly what this contract must not read around.
+    /// A commitment passes coverage but hides bytes, so it is refused.
     function test_refusesAHiddenByteInTheRequest() public {
         uint32 len = uint32(REQUEST.length);
         AttestationBuilder.Direction memory sent = AttestationBuilder.Direction({
@@ -855,8 +795,7 @@ contract GoogleJwtRootsTest is Test {
         _refuses(attested, GoogleJwtRoots.HiddenBytes.selector);
     }
 
-    /// An empty direction passes coverage against a zero signed length; it is
-    /// named rather than left to an out-of-bounds panic.
+    /// An empty direction passes coverage against a zero length and is refused by name.
     function test_refusesAnEmptyRequest() public {
         bytes memory attested =
             AttestationBuilder.encode(AUTHORITY, _now(), _empty(), _whole(_contentLength(_oneKey("kid-1", "one"))));
@@ -880,25 +819,21 @@ contract GoogleJwtRootsTest is Test {
         _refuses(_withRequest(request), GoogleJwtRoots.WrongRequestLine.selector);
     }
 
-    /// The path separates the key set from everything else the host serves.
     function test_refusesAnotherPath() public {
         bytes memory request =
             abi.encodePacked("GET /oauth2/v3/certs2 HTTP/1.1\r\n", _slice(REQUEST, 31, REQUEST.length));
         _refuses(_withRequest(request), GoogleJwtRoots.WrongRequestLine.selector);
     }
 
-    /// The same path with a query is another document. Google really serves
-    /// `/oauth2/v3/certs?callback=<name>` as a 200 `text/javascript` JSONP
-    /// body -- `<name>({...})` -- that begins with bytes the requester chose,
-    /// so the whole request line through its CRLF is pinned, and a query is
-    /// refused before any byte of the response is read.
+    /// A query is another document: `?callback=<name>` returns a JSONP body that
+    /// starts with bytes the requester chose. The whole request line is pinned.
     function test_refusesAQueryInTheRequestTarget() public {
         bytes memory request =
             abi.encodePacked("GET /oauth2/v3/certs?callback=foo HTTP/1.1\r\n", _slice(REQUEST, 31, REQUEST.length));
         _refuses(_withRequest(request), GoogleJwtRoots.WrongRequestLine.selector);
     }
 
-    /// Only the origin-form line, like every other verifier.
+    /// Only the origin-form request target is accepted.
     function test_refusesAnAbsoluteFormRequestTarget() public {
         bytes memory request = abi.encodePacked(
             "GET https://www.googleapis.com/oauth2/v3/certs HTTP/1.1\r\n", _slice(REQUEST, 31, REQUEST.length)
@@ -906,8 +841,7 @@ contract GoogleJwtRootsTest is Test {
         _refuses(_withRequest(request), GoogleJwtRoots.WrongRequestLine.selector);
     }
 
-    /// googleapis.com answers for many hosts under one certificate. With two
-    /// `Host` headers, which backend answered is the backend's business.
+    /// googleapis.com serves many hosts under one certificate, so exactly one `Host` is accepted.
     function test_refusesASecondHostHeader() public {
         bytes memory request = abi.encodePacked(
             "GET /oauth2/v3/certs HTTP/1.1\r\n",
@@ -930,11 +864,8 @@ contract GoogleJwtRootsTest is Test {
         _refuses(_withRequest(request), abi.encodeWithSelector(GoogleJwtRoots.NotOneHostHeader.selector, 2));
     }
 
-    /// The notary vouches for the bytes, not their HTTP shape. Google's front
-    /// end honours a second `Host` that a bare LF separates from the line
-    /// before it -- confirmed live: this request is answered by the storage
-    /// backend -- while a CRLF-anchored count sees one `Host`, the right one.
-    /// The bare LF is refused before anything is counted, at its offset.
+    /// Google's front end honours a `Host` after a bare LF, which a CRLF-anchored
+    /// count misses. The bare LF is refused at its offset before hosts are counted.
     function test_refusesASecondHostHeaderBehindABareLineFeed() public {
         bytes memory request = abi.encodePacked(
             "GET /oauth2/v3/certs HTTP/1.1\r\n",
@@ -945,18 +876,15 @@ contract GoogleJwtRootsTest is Test {
         _refuses(_withRequest(request), abi.encodeWithSelector(CeremonyAttestation.BareLineFeed.selector, 37));
     }
 
-    /// An obsolete line fold normalizes to `\r\nhost:` -- the fold's space is
-    /// stripped, its CRLF kept -- so a folded continuation would be counted as
-    /// the one legitimate `Host` and pair with a bare-LF second one. The fold
-    /// is refused first, at the CRLF that starts it.
+    /// An obsolete line fold normalizes to `\r\nhost:` and would count as the one
+    /// `Host`. It is refused at the CRLF that starts it.
     function test_refusesAnObsoleteLineFoldInTheRequest() public {
         bytes memory request = abi.encodePacked(
             "GET /oauth2/v3/certs HTTP/1.1\r\n", "x-a: b\r\n host: www.googleapis.com\r\n", "connection: close\r\n\r\n"
         );
         _refuses(_withRequest(request), abi.encodeWithSelector(CeremonyAttestation.ObsoleteLineFold.selector, 37));
 
-        // The pairing the fold enables: a folded right host over a bare-LF
-        // wrong one. The fold scan runs first and names the fold.
+        // A folded right host over a bare-LF wrong one: the fold is named first.
         request = abi.encodePacked(
             "GET /oauth2/v3/certs HTTP/1.1\r\n",
             "x-a: b\r\n host: www.googleapis.com\r\n",
@@ -966,8 +894,7 @@ contract GoogleJwtRootsTest is Test {
         _refuses(_withRequest(request), abi.encodeWithSelector(CeremonyAttestation.ObsoleteLineFold.selector, 37));
     }
 
-    /// The server reads hosts from the head. A `Host` after the blank line
-    /// is body bytes, and does not satisfy the count.
+    /// A `Host` after the blank line is body bytes and does not count.
     function test_aHostInTheRequestBodyDoesNotCount() public {
         bytes memory request = abi.encodePacked(
             "GET /oauth2/v3/certs HTTP/1.1\r\n", "connection: close\r\n\r\n", "host: www.googleapis.com\r\n"
@@ -975,7 +902,6 @@ contract GoogleJwtRootsTest is Test {
         _refuses(_withRequest(request), abi.encodeWithSelector(GoogleJwtRoots.NotOneHostHeader.selector, 0));
     }
 
-    /// A head that never ends has no head to count in.
     function test_refusesARequestWhoseHeadNeverEnds() public {
         bytes memory request = "GET /oauth2/v3/certs HTTP/1.1\r\nhost: www.googleapis.com\r\n";
         _refuses(_withRequest(request), GoogleJwtRoots.NoHeadBoundary.selector);
@@ -986,8 +912,8 @@ contract GoogleJwtRootsTest is Test {
         _refuses(_withRequest(request), abi.encodeWithSelector(GoogleJwtRoots.NotOneHostHeader.selector, 0));
     }
 
-    /// The TLS authority is the certificate's name; the `Host` header is
-    /// which of Google's backends answered. Both must be Google's JWKS host.
+    /// The TLS authority names the certificate and `Host` picks the backend; both
+    /// must be Google's JWKS host.
     function test_refusesAnotherGoogleHost() public {
         bytes memory request =
             "GET /oauth2/v3/certs HTTP/1.1\r\nhost: storage.googleapis.com\r\nconnection: close\r\n\r\n";
@@ -1010,8 +936,7 @@ contract GoogleJwtRootsTest is Test {
         return _attest(REQUEST, response, _now());
     }
 
-    /// Only the server's agreement counts. A redirect carries a body too, and
-    /// it is not the key set.
+    /// Only a 200 is accepted; a redirect's body is not the key set.
     function test_refusesARedirect() public {
         bytes memory response =
             abi.encodePacked("HTTP/1.1 302 Found\r\nlocation: /elsewhere\r\ncontent-length: 0\r\n\r\n");
@@ -1023,9 +948,8 @@ contract GoogleJwtRootsTest is Test {
         _refuses(_withResponse(response), GoogleJwtRoots.NoHeadBoundary.selector);
     }
 
-    /// The prover negotiates no compression, so a `Content-Encoding` is a
-    /// body this contract cannot read. Refused by name, before the framing
-    /// is even looked at, rather than as some byte deep in the JSON walk.
+    /// The prover negotiates no compression, so a `Content-Encoding` is refused by
+    /// name before the framing is read.
     function test_refusesAnEncodedBody() public {
         bytes memory body = _oneKey("kid-1", "one");
         bytes memory response = abi.encodePacked(
@@ -1040,9 +964,7 @@ contract GoogleJwtRootsTest is Test {
         _refuses(_withResponse(response), GoogleJwtRoots.EncodedBody.selector);
     }
 
-    /// Every deviation from strict chunked framing is one error: a size that
-    /// is not hex, a chunk extension, a missing terminator, trailers, an
-    /// over-long size, and chunk data not followed by CRLF.
+    /// Every deviation from strict chunked framing fails with `BadChunkFraming`.
     function test_refusesBadChunkFraming() public {
         bytes memory head = abi.encodePacked(STATUS_OK, CONTENT_TYPE, "transfer-encoding: chunked\r\n\r\n");
         bytes memory body = _oneKey("kid-1", "one");
@@ -1132,8 +1054,7 @@ contract GoogleJwtRootsTest is Test {
         );
     }
 
-    /// A decoy: two `keys` members, and nothing to say which one Google's
-    /// parser -- or a verifier's -- would honour.
+    /// Two `keys` members are ambiguous.
     function test_refusesADecoyKeysMember() public {
         bytes memory body = abi.encodePacked(
             '{"keys":[', _jwk("kid-1", _modulus("one")), '],"keys":[', _jwk("kid-2", _modulus("two")), "]}"
@@ -1151,14 +1072,12 @@ contract GoogleJwtRootsTest is Test {
         _refuses(_withBody(body), abi.encodeWithSelector(GoogleJwtRoots.MissingMember.selector, "kid"));
     }
 
-    /// The circuit verifies RS256 under 65537 and nothing else, and the
-    /// verifier trusts a key by its modulus alone -- so a key published with
-    /// any other exponent must never be listed, and one that names no
-    /// exponent is not a key this list can vouch for.
+    /// The circuit verifies RS256 under 65537 only and the verifier trusts a modulus
+    /// alone, so any other exponent is refused.
     function test_refusesAnotherExponent() public {
         bytes memory body = _body(abi.encodePacked('{"kid":"kid-1","n":"', _modulus("one"), '","e":"AQAC"}'));
         _refuses(_withBody(body), abi.encodeWithSelector(GoogleJwtRoots.WrongExponent.selector, bytes("AQAC")));
-        // 65537 in a padded or longer encoding is still not the token pinned.
+        // 65537 padded is not the pinned token either.
         body = _body(abi.encodePacked('{"kid":"kid-1","n":"', _modulus("one"), '","e":"AQAB="}'));
         _refuses(_withBody(body), abi.encodeWithSelector(GoogleJwtRoots.WrongExponent.selector, bytes("AQAB=")));
     }
@@ -1168,8 +1087,7 @@ contract GoogleJwtRootsTest is Test {
         _refuses(_withBody(body), abi.encodeWithSelector(GoogleJwtRoots.MissingMember.selector, "e"));
     }
 
-    /// Two `kid` members in one object: a duplicate leaves the value
-    /// undefined, and different parsers pick different ones.
+    /// A duplicate `kid` is ambiguous: parsers pick different ones.
     function test_refusesADuplicateKidMember() public {
         bytes memory body = _body(abi.encodePacked('{"kid":"kid-1","kid":"kid-2","n":"', _modulus("one"), '"}'));
         _refuses(_withBody(body), abi.encodeWithSelector(GoogleJwtRoots.AmbiguousMember.selector, "kid"));
@@ -1197,9 +1115,8 @@ contract GoogleJwtRootsTest is Test {
         );
     }
 
-    /// A backslash is refused rather than unescaped: a kid and a base64url
-    /// modulus need none, and unescaping is a parser this contract does not
-    /// carry.
+    /// A backslash is refused: kids and base64url moduli need no escapes, and the
+    /// parser does not unescape.
     function test_refusesAnEscapedValue() public {
         bytes memory body = _body(abi.encodePacked('{"kid":"kid\\"1","n":"', _modulus("one"), '"}'));
         _refuses(_withBody(body), abi.encodeWithSelector(GoogleJwtRoots.EscapedValue.selector, "kid"));
@@ -1222,8 +1139,7 @@ contract GoogleJwtRootsTest is Test {
         assertEq(_current().moduli.length, max, "the cap itself is a valid reading");
     }
 
-    /// A set, not a list: the same modulus twice is not the document Google
-    /// publishes, and a set with a repeat would compare as a set it is not.
+    /// The same modulus twice is not a set.
     function test_refusesADuplicateModulus() public {
         bytes memory body = _twoKeys("kid-1", "one", "kid-2", "one");
         _refuses(_withBody(body), abi.encodeWithSelector(GoogleJwtRoots.DuplicateKey.selector, _hash("one")));
@@ -1235,7 +1151,7 @@ contract GoogleJwtRootsTest is Test {
         _refuses(_withBody(abi.encodePacked(body, "{}")), GoogleJwtRoots.TrailingBytes.selector);
         // No closing brace at all.
         _refuses(_withBody(_slice(body, 0, body.length - 1)), GoogleJwtRoots.TrailingBytes.selector);
-        // But whitespace after it is what Google sends.
+        // Trailing whitespace, as Google sends, is accepted.
         _rotate(_withBody(abi.encodePacked(body, "\n")));
     }
 
@@ -1255,16 +1171,13 @@ contract GoogleJwtRootsTest is Test {
         _refuses(_withBody(body), GoogleJwtRoots.InvalidB64Length.selector);
     }
 
-    /// A reading with no keys says nothing about what Google publishes. It
-    /// would pay the fee and shift the live set into `previous` on the
-    /// strength of a document that names no key.
+    /// A reading with no keys is refused; it would shift the live set into `previous`.
     function test_refusesAnEmptyKeySet() public {
         _refuses(_withBody('{"keys":[]}'), GoogleJwtRoots.EmptyKeySet.selector);
         _refuses(_withBody('{"keys": [ ]}'), GoogleJwtRoots.EmptyKeySet.selector);
     }
 
-    /// The header the body is located by gets the rule every other read
-    /// gets: a delimiter that matches twice is refused, not chosen from.
+    /// A framing header that appears twice, or both framings at once, is refused.
     function test_refusesDuplicateOrConflictingFramingHeaders() public {
         bytes memory body = _oneKey("kid-1", "one");
         bytes memory length = abi.encodePacked("content-length: ", vm.toString(body.length), "\r\n");
@@ -1294,9 +1207,7 @@ contract GoogleJwtRootsTest is Test {
 
     // ─── Helpers ────────────────────────────────────────────────────
 
-    /// Read through the cheatcode rather than `block.timestamp`: under via-IR
-    /// the optimizer treats TIMESTAMP as movable and may re-read it after a
-    /// `vm.warp`, so a value captured before the warp is not one.
+    /// Reads the cheatcode: under via-IR, `block.timestamp` may be re-read after a `vm.warp`.
     function _now() private view returns (uint64) {
         return uint64(vm.getBlockTimestamp());
     }

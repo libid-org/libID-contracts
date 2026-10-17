@@ -12,15 +12,10 @@ import {IPlatformVerifier} from "../../ceremony/IPlatformVerifier.sol";
 import {IProofVerifier} from "../../ceremony/IProofVerifier.sol";
 import {StubPlatformVerifier} from "./StubPlatformVerifier.sol";
 
-/// @notice What a holder pays, and what reading it costs, does not depend on
-///         how many identities the holder has.
-///
-/// @dev Two holders on one contract, one with four identities and one with a
-///      thousand. Each operation runs for both from cold storage, and the gas
-///      the contract used is compared exactly rather than within a tolerance:
-///      one storage read more would show as thousands. The measured call is
-///      the last one a helper makes, which is what `vm.lastFrameGas` reports
-///      on.
+/// @notice A holder's write and read costs do not depend on how many identities it has.
+/// @dev Holders with four and a thousand identities run each operation from cold
+///      storage, and the gas must match exactly. `vm.lastFrameGas` reports the
+///      last call a helper makes.
 contract IdentityRegistryGasTest is Test {
     IdentityRegistry internal registry;
     CeremonyProofVerifier internal proofVerifier;
@@ -64,10 +59,8 @@ contract IdentityRegistryGasTest is Test {
 
     // ─── Fixed-width ids and handles ────────────────────────────────
 
-    /// Ids and handles of one width each, so a bind's hashing and
-    /// normalization cost the same whichever identity it names. A tag tells
-    /// one holder's identities from another's. Ten digits is the width of an
-    /// X id in the fixtures, fifteen characters the most X allows.
+    /// Ids of ten digits and handles of fifteen characters, so hashing and folding cost
+    /// the same for every identity. A tag tells the holders' identities apart.
     function _id(uint256 tag, uint256 k) internal pure returns (string memory) {
         return string(abi.encodePacked("17", _digits(tag, 2), _digits(k, 6)));
     }
@@ -90,19 +83,16 @@ contract IdentityRegistryGasTest is Test {
         return holder == few ? 1 : 2;
     }
 
-    /// How many identities a holder was given. Half of that is an identity
-    /// in the middle of its list: never the last one, so a removal has to move
-    /// the last one into its place.
+    /// How many identities a holder was given. Half of it indexes a mid-list
+    /// identity, whose removal moves the last one into its place.
     function _size(address holder) internal view returns (uint256) {
         return holder == few ? FEW : MANY;
     }
 
     // ─── Operations, each ending in the call to measure ─────────────
 
-    /// Every measurement starts from the same footing: the contracts are
-    /// warm, because a test begins with them cold and the first call would
-    /// otherwise pay the address accesses the second does not, and their
-    /// storage is cold, so what a call reads is paid for in full both times.
+    /// Warms the contracts so the first measured call pays no address access the
+    /// second skips; `_cool` leaves their storage cold for both.
     modifier measured() {
         registry.owner();
         proofVerifier.owner();

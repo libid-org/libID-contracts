@@ -15,8 +15,7 @@ import {IHonkVerifier} from "../PlatformVerifierBase.sol";
 import {TlsNotaryVerifierBase} from "../TlsNotaryVerifierBase.sol";
 import {XPlatformVerifier} from "../XPlatformVerifier.sol";
 
-/// @notice The real body is COMMITTED and a decoy body is revealed after it.
-///         Coverage tiles cleanly, so the direction looks honest.
+/// @notice A token request whose real body is committed and a decoy body is revealed after it.
 contract DecoyBodyTest is Test {
     using AttestationBuilder for AttestationBuilder.Direction;
 
@@ -30,8 +29,7 @@ contract DecoyBodyTest is Test {
     uint64 constant T0 = 1_770_000_000;
     bytes32 constant DOMAIN = keccak256(bytes("libid.claim-identity"));
     bytes32 constant AUTH_NONCE = bytes32(uint256(0x5555555555555555555555555555555555555555555555555555555555555555));
-    /// The digest the fixtures are made for, derived in `setUp` from the
-    /// payload below and this chain.
+    /// The digest the fixtures are made for, derived in `setUp`.
     bytes32 digest;
     bytes32 constant TOKEN_C = bytes32(uint256(0x1111));
     bytes32 constant ID_C = bytes32(uint256(0x2222));
@@ -65,9 +63,7 @@ contract DecoyBodyTest is Test {
             "grant_type=authorization_code&client_id=trustedApp&code_verifier=",
             CeremonyAuthorization.codeVerifier(digest, AUTH_NONCE)
         );
-        // The head is the profile's, declaring exactly the bytes that follow
-        // it: everything about this direction is honest except which of them
-        // was revealed.
+        // The head's content-length covers the committed body and the decoy.
         bytes memory head = abi.encodePacked(
             "POST /2/oauth2/token HTTP/1.1\r\nhost: api.x.com\r\n",
             "content-type: application/x-www-form-urlencoded\r\naccept: application/json\r\n",
@@ -123,8 +119,7 @@ contract DecoyBodyTest is Test {
             commitments: AttestationBuilder.one(AttestationBuilder.Commitment({start: s0, end: e0, value: ID_C})),
             length: l
         });
-        // The anchor-only reveal: the id and handle committed, the anchors
-        // around them revealed, every other byte behind a commitment.
+        // Id and handle committed, the anchors around them revealed.
         AttestationBuilder.Direction memory recv;
         recv.commit('{"data":{', bytes32(uint256(0x5555)))
             .reveal('"id":"')
@@ -159,14 +154,9 @@ contract DecoyBodyTest is Test {
         return verifier.verify{value: msg.value}(abi.encode(s));
     }
 
-    /// @dev The real body is committed and a decoy is revealed after it.
-    ///      Coverage tiles, so the direction looks honest -- but `grant_type`
-    ///      and `code_verifier` are read from bytes the platform never parsed.
+    /// @dev Coverage tiles, so only the token request layout check refuses it.
     function test_aCommittedBodyWithARevealedDecoyIsRejected() public {
         TlsNotaryVerifierBase.TlsNotaryProof memory s = _submission();
-        // Was: returned the victim's userId and handle with the attacker's
-        // clientIdentifier, while x.com had executed a refresh grant that no
-        // verifier ever read.
         vm.expectPartialRevert(TlsNotaryVerifierBase.WrongTokenRequestLayout.selector);
         this.run{value: quote}(s);
     }
