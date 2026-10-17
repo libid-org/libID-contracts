@@ -30,7 +30,8 @@ import shutil
 import subprocess
 import sys
 import textwrap
-from typing import Any
+from dataclasses import dataclass
+from typing import Any, ClassVar, Union
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 SOLIDITY_ROOT = REPO_ROOT / "solidity"
@@ -50,25 +51,39 @@ BANNER = [
 
 SESSIONS = ("token", "identity")
 
-# The seconds a profile fixes, in the order they are written: the JSON key, the
-# constant's stem, whether only a profile that notarizes has one, and what it
-# bounds.
-VALIDITY = (
-    ("proofLifetimeSeconds", "PROOF_LIFETIME_SECONDS", True, "maximum age of the token attestation."),
-    (
-        "maxFutureAttestationSkewSeconds",
-        "MAX_FUTURE_ATTESTATION_SKEW_SECONDS",
-        True,
-        "how far ahead of Block Time the token attestation may be dated.",
-    ),
-    (
-        "futureObservationAllowanceSeconds",
-        "FUTURE_OBSERVATION_ALLOWANCE_SECONDS",
-        False,
-        "how far ahead of Block Time the evidence time may run. The verifier "
-        "subtracts it, so every version of a platform reports time on one scale.",
-    ),
+# A note from a source file: one string to wrap, lines as written, or absent.
+Note = Union[str, list[str], None]
+
+
+@dataclass(frozen=True)
+class Window:
+    """One validity window a profile may fix: its key in the profile's
+    `validity`, the constant's stem, whether only a profile that notarizes has
+    one, and what it bounds."""
+
+    key: str
+    stem: str
+    notarized_only: bool
+    bounds: str
+
+
+PROOF_LIFETIME = Window("proofLifetimeSeconds", "PROOF_LIFETIME_SECONDS", True, "maximum age of the token attestation.")
+MAX_FUTURE_ATTESTATION_SKEW = Window(
+    "maxFutureAttestationSkewSeconds",
+    "MAX_FUTURE_ATTESTATION_SKEW_SECONDS",
+    True,
+    "how far ahead of Block Time the token attestation may be dated.",
 )
+FUTURE_OBSERVATION_ALLOWANCE = Window(
+    "futureObservationAllowanceSeconds",
+    "FUTURE_OBSERVATION_ALLOWANCE_SECONDS",
+    False,
+    "how far ahead of Block Time the evidence time may run. The verifier "
+    "subtracts it, so every version of a platform reports time on one scale.",
+)
+
+# The seconds a profile fixes, in the order they are written.
+VALIDITY = (PROOF_LIFETIME, MAX_FUTURE_ATTESTATION_SKEW, FUTURE_OBSERVATION_ALLOWANCE)
 
 VALIDITY_NOTE = [
     "The seconds each profile fixes. A Platform Verifier reads them as",
@@ -86,11 +101,216 @@ VALIDITY_NOTE = [
 HTTP_VERSION = "HTTP/1.1"
 
 
+@dataclass(frozen=True)
+class Session:
+    """One notarized request of a profile's `sessions`."""
+
+    # The header names a Platform Verifier requires of this session's request,
+    # and the only header data a profile carries. `host` on both, because a
+    # profile whose pinned authority and pinned host name different servers
+    # contradicts itself, and `content-type` on the token request, because it
+    # selects the platform's request parser (REQ-COMMON-21B). Nothing else a
+    # runtime sends changes what the platform parses, so nothing else is
+    # compared, and nothing else is stated: what a runtime adds beyond these is
+    # its own.
+    REQUIRED_NAMES: ClassVar[tuple[str, ...]] = ()
+    KIND: ClassVar[str] = ""
+
+    authority: str
+    method: str
+    path: str
+    required_headers: list[str]
+
+    @property
+    def request_line(self) -> str:
+        """The request-line prefix a Platform Verifier compares byte for byte.
+
+        The trailing space is load-bearing: without it `GET /user ` would prefix
+        `GET /users/me`, and one profile's path would answer for another's.
+        """
+        return f"{self.method} {self.path} "
+
+
+@dataclass(frozen=True)
+class TokenSession(Session):
+    """The OAuth exchange."""
+
+    REQUIRED_NAMES: ClassVar[tuple[str, ...]] = ("host", "content-type")
+    KIND: ClassVar[str] = "token"
+
+    token_fields: list[str]
+
+    @classmethod
+    def from_json(cls, raw: dict[str, Any]) -> TokenSession:
+        return cls(
+            authority=raw["authority"],
+            method=raw["method"],
+            path=raw["path"],
+            required_headers=raw["requiredHeaders"],
+            token_fields=raw["tokenFields"],
+        )
+
+
+@dataclass(frozen=True)
+class IdentitySession(Session):
+    """The authenticated read that names the account."""
+
+    REQUIRED_NAMES: ClassVar[tuple[str, ...]] = ("host",)
+    KIND: ClassVar[str] = "identity"
+
+    id_field: str
+    id_shape: str
+    handle_field: str
+
+    @classmethod
+    def from_json(cls, raw: dict[str, Any]) -> IdentitySession:
+        return cls(
+            authority=raw["authority"],
+            method=raw["method"],
+            path=raw["path"],
+            required_headers=raw["requiredHeaders"],
+            id_field=raw["idField"],
+            id_shape=raw["idShape"],
+            handle_field=raw["handleField"],
+        )
+
+
+@dataclass(frozen=True)
+class Validity:
+    """A profile's `validity`: the seconds it fixes, each absent or a value."""
+
+    proof_lifetime_seconds: int | None
+    max_future_attestation_skew_seconds: int | None
+    future_observation_allowance_seconds: int | None
+    note: Note
+
+    @classmethod
+    def from_json(cls, platform: str, raw: Any) -> Validity:
+        if not isinstance(raw, dict):
+            raise SystemExit(f"ERROR: {platform!r} has no validity object")
+        unknown = set(raw) - {window.key for window in VALIDITY} - {"note"}
+        if unknown:
+            raise SystemExit(f"ERROR: {platform!r} validity has unknown keys {sorted(unknown)}")
+        return cls(
+            proof_lifetime_seconds=raw.get(PROOF_LIFETIME.key),
+            max_future_attestation_skew_seconds=raw.get(MAX_FUTURE_ATTESTATION_SKEW.key),
+            future_observation_allowance_seconds=raw.get(FUTURE_OBSERVATION_ALLOWANCE.key),
+            note=raw.get("note"),
+        )
+
+    def seconds(self, window: Window) -> int | None:
+        """The value fixed for `window`, if any."""
+        if window is PROOF_LIFETIME:
+            return self.proof_lifetime_seconds
+        if window is MAX_FUTURE_ATTESTATION_SKEW:
+            return self.max_future_attestation_skew_seconds
+        return self.future_observation_allowance_seconds
+
+
+@dataclass(frozen=True)
+class Tags:
+    """The tags a platform's nodes are hashed under."""
+
+    user_id: str
+    handle: str
+
+    @classmethod
+    def of(cls, platform: str, platforms: list[CircuitPlatform]) -> Tags:
+        """The platform's tags from the vendored platforms.json. The circuits'
+        generator holds the tags to their length and prefix-freedom; here each
+        only has to be a literal."""
+        for entry in platforms:
+            if entry.platform == platform:
+                return cls(user_id=safe(entry.user_id_tag, "tag"), handle=safe(entry.handle_tag, "tag"))
+        raise SystemExit(
+            f"ERROR: {platform!r} has no entry in {PLATFORMS_REL}; the pinned circuits know no such platform"
+        )
+
+
+@dataclass(frozen=True)
+class Profile:
+    """One platform's ceremony profile."""
+
+    platform: str
+    ceremony_version: int
+    token: TokenSession | None
+    identity: IdentitySession | None
+    validity: Validity
+    note: Note
+    tags: Tags
+
+    @classmethod
+    def from_json(cls, raw: dict[str, Any], platforms: list[CircuitPlatform]) -> Profile:
+        platform = raw["platform"]
+        sessions = raw["sessions"]
+        return cls(
+            platform=platform,
+            ceremony_version=raw["ceremonyVersion"],
+            token=TokenSession.from_json(sessions["token"]) if "token" in sessions else None,
+            identity=IdentitySession.from_json(sessions["identity"]) if "identity" in sessions else None,
+            validity=Validity.from_json(platform, raw.get("validity")),
+            note=raw.get("note"),
+            tags=Tags.of(platform, platforms),
+        )
+
+    @property
+    def sessions(self) -> list[Session]:
+        """The profile's sessions in a fixed order, skipping those it has none of."""
+        return [session for session in (self.token, self.identity) if session is not None]
+
+    def session(self, kind: str) -> Session | None:
+        """The session of `kind` (one of `SESSIONS`), if the profile has one."""
+        return self.token if kind == TokenSession.KIND else self.identity
+
+
+@dataclass(frozen=True)
+class Requests:
+    """The spec's `requests`: what no notarized request may carry."""
+
+    forbidden_headers: list[str]
+    note: Note
+
+    @classmethod
+    def from_json(cls, raw: dict[str, Any]) -> Requests:
+        return cls(forbidden_headers=raw["forbiddenHeaders"], note=raw.get("note"))
+
+
+@dataclass(frozen=True)
+class Spec:
+    """profiles.json, each profile with its node tags from platforms.json."""
+
+    note: Note
+    requests: Requests
+    profiles: list[Profile]
+
+    @classmethod
+    def from_json(cls, raw: dict[str, Any], platforms: dict[str, Any]) -> Spec:
+        table = [CircuitPlatform.from_json(p) for p in platforms["platforms"]]
+        return cls(
+            note=raw.get("note"),
+            requests=Requests.from_json(raw["requests"]),
+            profiles=[Profile.from_json(profile, table) for profile in raw["profiles"]],
+        )
+
+
+@dataclass(frozen=True)
+class CircuitPlatform:
+    """One platform of the vendored platforms.json, read for its node tags."""
+
+    platform: str
+    user_id_tag: str
+    handle_tag: str
+
+    @classmethod
+    def from_json(cls, raw: dict[str, Any]) -> CircuitPlatform:
+        return cls(platform=raw["platform"], user_id_tag=raw["userIdTag"], handle_tag=raw["handleTag"])
+
+
 def header(comment: str) -> str:
     return "".join(f"{comment} {line}\n" for line in BANNER)
 
 
-def as_lines(note: Any, width: int = 68) -> list[str]:
+def as_lines(note: Note, width: int = 68) -> list[str]:
     """A note from the source file as comment lines."""
     if not note:
         return []
@@ -118,24 +338,6 @@ def authority_name(host: str) -> str:
     return "_".join(label.upper().replace("-", "_") for label in reversed(labels[:-1]))
 
 
-def request_line(session: dict[str, Any]) -> str:
-    """The request-line prefix a Platform Verifier compares byte for byte.
-
-    The trailing space is load-bearing: without it `GET /user ` would prefix
-    `GET /users/me`, and one profile's path would answer for another's.
-    """
-    return f"{session['method']} {session['path']} "
-
-
-# The header names a Platform Verifier requires of each session's request, and
-# the only header data a profile carries. `host` on both, because a profile
-# whose pinned authority and pinned host name different servers contradicts
-# itself, and `content-type` on the token request, because it selects the
-# platform's request parser (REQ-COMMON-21B). Nothing else a runtime sends
-# changes what the platform parses, so nothing else is compared, and nothing
-# else is stated: what a runtime adds beyond these is its own.
-REQUIRED_NAMES = {"token": ("host", "content-type"), "identity": ("host",)}
-
 # Lowercase field names, so a verifier lowercasing what it reads can compare
 # against the list as it is.
 NAME = re.compile(r"^[a-z][a-z0-9-]*$")
@@ -146,37 +348,33 @@ def crlf(lines: list[str]) -> str:
     return "\r\n".join(lines)
 
 
-def forbidden_headers(spec: dict[str, Any]) -> list[str]:
+def forbidden_headers(spec: Spec) -> list[str]:
     """The header names no notarized request may carry, checked by name alone.
 
     Each changes what the platform does with the request in a way no revealed
     byte shows, so a verifier can only refuse the name. Compared lowercased,
     which is why the list must be.
     """
-    names = spec["requests"]["forbiddenHeaders"]
+    names = spec.requests.forbidden_headers
     if not isinstance(names, list) or not names:
         raise SystemExit("ERROR: requests.forbiddenHeaders must list at least one name")
+    read = TokenSession.REQUIRED_NAMES + IdentitySession.REQUIRED_NAMES + ("content-length",)
     for name in names:
         if not isinstance(name, str) or not NAME.fullmatch(name):
             raise SystemExit(f"ERROR: forbidden header {name!r} is not a lowercase field name")
-        if any(name in names for names in REQUIRED_NAMES.values()) or name == "content-length":
+        if name in read:
             raise SystemExit(f"ERROR: {name!r} is read by the verifier and cannot be forbidden")
     if len(set(names)) != len(names):
         raise SystemExit("ERROR: requests.forbiddenHeaders names one header twice")
     return names
 
 
-def sessions_of(profile: dict[str, Any]) -> list[tuple[str, dict[str, Any]]]:
-    """The profile's sessions in a fixed order, skipping those it has none of."""
-    return [(name, profile["sessions"][name]) for name in SESSIONS if name in profile["sessions"]]
-
-
-def authorities(spec: dict[str, Any]) -> list[tuple[str, str]]:
+def authorities(spec: Spec) -> list[tuple[str, str]]:
     """Every distinct authority as (constant suffix, host), in first-seen order."""
     out: list[tuple[str, str]] = []
-    for profile in spec["profiles"]:
-        for _, session in sessions_of(profile):
-            entry = (authority_name(session["authority"]), session["authority"])
+    for profile in spec.profiles:
+        for session in profile.sessions:
+            entry = (authority_name(session.authority), session.authority)
             if entry not in out:
                 out.append(entry)
     clashes = {name for name, _ in out}
@@ -220,16 +418,17 @@ def escaped(value: str) -> str:
 HEADER = re.compile(r"^[a-z][a-z0-9-]*: [\x20-\x21\x23-\x26\x28-\x5b\x5d-\x7e]+$")
 
 
-def required_headers(session: dict[str, Any], kind: str = "token") -> list[str]:
-    """The lines a verifier holds a `kind` request's head to, validated.
+def required_headers(session: Session) -> list[str]:
+    """The lines a verifier holds a session's request head to, validated.
 
-    Exactly the names `REQUIRED_NAMES` gives `kind`, each as
+    Exactly the session's `REQUIRED_NAMES`, each as
     `lowercase-name: value`, the `host` one naming the pinned authority. A
     verifier compares these lines raw, so a line the wire spells differently
     is a profile that rejects every honest session, and says so here rather
     than as a rejection with no reason.
     """
-    headers = session["requiredHeaders"]
+    kind = session.KIND
+    headers = session.required_headers
     if not isinstance(headers, list):
         raise SystemExit(f"ERROR: a {kind} session must list its required headers")
     names: list[str] = []
@@ -237,13 +436,13 @@ def required_headers(session: dict[str, Any], kind: str = "token") -> list[str]:
         if not isinstance(line, str) or not HEADER.fullmatch(line):
             raise SystemExit(f"ERROR: header {line!r} is not `lowercase-name: value`")
         names.append(line.split(":", 1)[0])
-    if sorted(names) != sorted(REQUIRED_NAMES[kind]):
-        raise SystemExit(f"ERROR: the {kind} required headers must be exactly {REQUIRED_NAMES[kind]}, got {names}")
+    if sorted(names) != sorted(session.REQUIRED_NAMES):
+        raise SystemExit(f"ERROR: the {kind} required headers must be exactly {session.REQUIRED_NAMES}, got {names}")
     # The `Host` header is prover-composed text and says nothing about which
     # server answered -- but a profile whose pinned header names one host while
     # its pinned authority names another contradicts itself, and only one of the
     # two can be what the session did.
-    host = session["authority"]
+    host = session.authority
     if f"host: {host}" not in headers:
         raise SystemExit(f"ERROR: the required headers must carry `host: {host}`, the pinned authority")
     return headers
@@ -255,7 +454,7 @@ def required_headers(session: dict[str, Any], kind: str = "token") -> list[str]:
 FORM_DELIMITERS = "&=%+"
 
 
-def token_fields(session: dict[str, Any]) -> list[str]:
+def token_fields(session: TokenSession) -> list[str]:
     """The form fields a token request's body carries, in serialization order.
 
     Every prover composes the body from this list, and every Platform
@@ -263,7 +462,7 @@ def token_fields(session: dict[str, Any]) -> list[str]:
     the cursor: a name is refused here if it is empty, repeated, or carries
     a byte the form reads as a delimiter.
     """
-    names = session["tokenFields"]
+    names = session.token_fields
     if not isinstance(names, list) or not names:
         raise SystemExit("ERROR: a token session must list its tokenFields")
     for name in names:
@@ -277,96 +476,69 @@ def token_fields(session: dict[str, Any]) -> list[str]:
     return names
 
 
-def validate(spec: dict[str, Any]) -> None:
+def validate(spec: Spec) -> None:
     """Refuse a spec that would generate constants nothing can rely on."""
     forbidden_headers(spec)
     seen: set[str] = set()
-    for profile in spec["profiles"]:
-        platform = profile["platform"]
+    for profile in spec.profiles:
+        platform = profile.platform
         if platform in seen:
             raise SystemExit(f"ERROR: {platform!r} appears twice")
         seen.add(platform)
         if not platform.islower() or not platform.isascii():
             raise SystemExit(f"ERROR: platform {platform!r} must be lowercase ASCII")
         safe(platform, "platform")
-        for name, session in sessions_of(profile):
-            host = safe(session["authority"], "authority")
-            safe(session["method"], "method")
-            safe(session["path"], "path")
-            if name == "token":
-                required_headers(session)
+        for session in profile.sessions:
+            host = safe(session.authority, "authority")
+            safe(session.method, "method")
+            safe(session.path, "path")
+            required_headers(session)
+            if isinstance(session, TokenSession):
                 token_fields(session)
-            if name == "identity":
-                required_headers(session, "identity")
-                safe(session["idField"], "idField")
-                safe(session["handleField"], "handleField")
+            if isinstance(session, IdentitySession):
+                safe(session.id_field, "idField")
+                safe(session.handle_field, "handleField")
             if host != host.lower() or host.endswith("."):
                 raise SystemExit(
                     f"ERROR: authority {host!r} must be lowercase with no trailing dot"
                 )
-            if not session["path"].startswith("/"):
-                raise SystemExit(f"ERROR: path {session['path']!r} must be absolute")
-            if name == "identity":
-                shape = session["idShape"]
-                if shape not in ("jsonString", "jsonInteger"):
-                    raise SystemExit(f"ERROR: unknown idShape {shape!r}")
+            if not session.path.startswith("/"):
+                raise SystemExit(f"ERROR: path {session.path!r} must be absolute")
+            if isinstance(session, IdentitySession) and session.id_shape not in ("jsonString", "jsonInteger"):
+                raise SystemExit(f"ERROR: unknown idShape {session.id_shape!r}")
         # A profile notarizing one session cannot be right: the bearer of the
         # token session is what the identity session spends, and the circuit
         # links them.
-        if len(sessions_of(profile)) == 1:
+        if len(profile.sessions) == 1:
             raise SystemExit(f"ERROR: {platform!r} has one session; expected none or both")
         validate_validity(profile)
 
 
-def attach_tags(spec: dict[str, Any], table: dict[str, Any]) -> None:
-    """Give each profile its node tags from the vendored platforms.json, as
-    `tags: {userId, handle}`. The circuits' generator holds the tags to their
-    length and prefix-freedom; here each only has to be a literal."""
-    by_platform = {p["platform"]: p for p in table["platforms"]}
-    for profile in spec["profiles"]:
-        platform = profile["platform"]
-        if platform not in by_platform:
-            raise SystemExit(
-                f"ERROR: {platform!r} has no entry in {PLATFORMS_REL}; the pinned circuits know no such platform"
-            )
-        entry = by_platform[platform]
-        profile["tags"] = {
-            "userId": safe(entry["userIdTag"], "tag"),
-            "handle": safe(entry["handleTag"], "tag"),
-        }
-
-
-def validate_validity(profile: dict[str, Any]) -> None:
+def validate_validity(profile: Profile) -> None:
     """Refuse a validity window a verifier could not enforce as written."""
-    platform = profile["platform"]
-    validity = profile.get("validity")
-    if not isinstance(validity, dict):
-        raise SystemExit(f"ERROR: {platform!r} has no validity object")
-    unknown = set(validity) - {key for key, *_ in VALIDITY} - {"note"}
-    if unknown:
-        raise SystemExit(f"ERROR: {platform!r} validity has unknown keys {sorted(unknown)}")
-    notarizes = bool(sessions_of(profile))
-    for key, _, notarized_only, _ in VALIDITY:
-        if notarized_only and not notarizes:
-            if key in validity:
-                raise SystemExit(f"ERROR: {platform!r} notarizes nothing, so it has no {key}")
+    platform = profile.platform
+    validity = profile.validity
+    notarizes = bool(profile.sessions)
+    for window in VALIDITY:
+        value = validity.seconds(window)
+        if window.notarized_only and not notarizes:
+            if value is not None:
+                raise SystemExit(f"ERROR: {platform!r} notarizes nothing, so it has no {window.key}")
             continue
-        value = validity.get(key)
         # Under 2**32, so `blockTime + value` cannot overflow the uint64 a
         # verifier checks it in.
         if isinstance(value, bool) or not isinstance(value, int) or not 0 <= value < 2**32:
-            raise SystemExit(f"ERROR: {platform!r} {key} must be an integer in [0, 2**32)")
-    if notarizes and validity["proofLifetimeSeconds"] == 0:
+            raise SystemExit(f"ERROR: {platform!r} {window.key} must be an integer in [0, 2**32)")
+    if notarizes and validity.proof_lifetime_seconds == 0:
         raise SystemExit(f"ERROR: {platform!r} proofLifetimeSeconds must be positive")
 
 
-def validity_constants(profile: dict[str, Any]) -> list[tuple[str, int, str]]:
+def validity_constants(profile: Profile) -> list[tuple[str, int, str]]:
     """The seconds a profile fixes, as (constant name, value, what it bounds)."""
-    validity = profile["validity"]
     return [
-        (f"{stem}_{upper(profile['platform'])}", validity[key], bounds)
-        for key, stem, _, bounds in VALIDITY
-        if key in validity
+        (f"{window.stem}_{upper(profile.platform)}", value, window.bounds)
+        for window in VALIDITY
+        if (value := profile.validity.seconds(window)) is not None
     ]
 
 
@@ -375,7 +547,7 @@ def validity_constants(profile: dict[str, Any]) -> list[tuple[str, int, str]]:
 # --------------------------------------------------------------------------
 
 
-def sol_doc(note: Any, indent: str = "    ") -> list[str]:
+def sol_doc(note: Note, indent: str = "    ") -> list[str]:
     lines = as_lines(note)
     if not lines:
         return []
@@ -384,9 +556,9 @@ def sol_doc(note: Any, indent: str = "    ") -> list[str]:
     return out
 
 
-def gen_sol(spec: dict[str, Any]) -> str:
-    profiles = spec["profiles"]
-    versions = {p["ceremonyVersion"] for p in profiles}
+def gen_sol(spec: Spec) -> str:
+    profiles = spec.profiles
+    versions = {p.ceremony_version for p in profiles}
     if len(versions) != 1:
         raise SystemExit("ERROR: the Solidity LAUNCH_VERSION assumes one version for all profiles")
     launch_version = versions.pop()
@@ -403,16 +575,16 @@ def gen_sol(spec: dict[str, Any]) -> str:
         "///         each profile fixes.",
         "///",
     ]
-    lines += [f"/// {line}" if line else "///" for line in as_lines(spec.get("note"), width=70)]
+    lines += [f"/// {line}" if line else "///" for line in as_lines(spec.note, width=70)]
     lines += [
         "library CeremonyProfile {",
         "    // --- Platform identifiers -----------------------------------------------",
         "",
     ]
     for profile in profiles:
-        name = upper(profile["platform"])
+        name = upper(profile.platform)
         lines.append(
-            f'    bytes32 internal constant PLATFORM_{name} = keccak256(bytes("{profile["platform"]}"));'
+            f'    bytes32 internal constant PLATFORM_{name} = keccak256(bytes("{profile.platform}"));'
         )
 
     lines += [
@@ -422,10 +594,10 @@ def gen_sol(spec: dict[str, Any]) -> str:
         "    /// @dev A node is SHA256 of its tag, then the id or the folded handle.",
     ]
     for profile in profiles:
-        name = upper(profile["platform"])
-        tags = profile["tags"]
-        lines.append(f'    bytes internal constant {name}_USER_ID_TAG = "{tags["userId"]}";')
-        lines.append(f'    bytes internal constant {name}_HANDLE_TAG = "{tags["handle"]}";')
+        name = upper(profile.platform)
+        tags = profile.tags
+        lines.append(f'    bytes internal constant {name}_USER_ID_TAG = "{tags.user_id}";')
+        lines.append(f'    bytes internal constant {name}_HANDLE_TAG = "{tags.handle}";')
 
     lines += [
         "",
@@ -453,10 +625,10 @@ def gen_sol(spec: dict[str, Any]) -> str:
         "",
     ]
     for profile in profiles:
-        name = upper(profile["platform"])
-        for session_name, session in sessions_of(profile):
-            const = f"{name}_{upper(session_name)}_REQUEST_LINE"
-            lines.append(f'    bytes internal constant {const} = "{request_line(session)}";')
+        name = upper(profile.platform)
+        for session in profile.sessions:
+            const = f"{name}_{upper(session.KIND)}_REQUEST_LINE"
+            lines.append(f'    bytes internal constant {const} = "{session.request_line}";')
 
     lines += [
         "",
@@ -469,11 +641,9 @@ def gen_sol(spec: dict[str, Any]) -> str:
         "",
     ]
     for profile in profiles:
-        for session_name, session in sessions_of(profile):
-            const = f"{upper(profile['platform'])}_{upper(session_name)}_REQUIRED_HEADERS"
-            lines.append(
-                f'    bytes internal constant {const} = "{escaped(crlf(required_headers(session, session_name)))}";'
-            )
+        for session in profile.sessions:
+            const = f"{upper(profile.platform)}_{upper(session.KIND)}_REQUIRED_HEADERS"
+            lines.append(f'    bytes internal constant {const} = "{escaped(crlf(required_headers(session)))}";')
 
     lines += [
         "",
@@ -486,14 +656,14 @@ def gen_sol(spec: dict[str, Any]) -> str:
         "",
     ]
     for profile in profiles:
-        token = profile["sessions"].get("token")
+        token = profile.token
         if token is None:
             continue
-        const = f"{upper(profile['platform'])}_TOKEN_FIELDS"
+        const = f"{upper(profile.platform)}_TOKEN_FIELDS"
         lines.append(f'    bytes internal constant {const} = "{"&".join(token_fields(token))}";')
 
     lines += [""]
-    lines += sol_doc(spec["requests"].get("note"))
+    lines += sol_doc(spec.requests.note)
     lines.append(
         f'    bytes internal constant FORBIDDEN_REQUEST_HEADERS = "{escaped(crlf(forbidden_headers(spec)))}";'
     )
@@ -515,13 +685,13 @@ def gen_sol(spec: dict[str, Any]) -> str:
         "",
     ]
     for profile in profiles:
-        identity = profile["sessions"].get("identity")
+        identity = profile.identity
         if identity is None:
             continue
-        name = upper(profile["platform"])
-        lines.append(f'    string internal constant {name}_ID_FIELD = "{identity["idField"]}";')
+        name = upper(profile.platform)
+        lines.append(f'    string internal constant {name}_ID_FIELD = "{identity.id_field}";')
         lines.append(
-            f'    string internal constant {name}_HANDLE_FIELD = "{identity["handleField"]}";'
+            f'    string internal constant {name}_HANDLE_FIELD = "{identity.handle_field}";'
         )
 
     lines += [
@@ -532,7 +702,7 @@ def gen_sol(spec: dict[str, Any]) -> str:
     lines += sol_doc(VALIDITY_NOTE)
     for profile in profiles:
         lines.append("")
-        lines += [f"    // {line}" if line else "    //" for line in as_lines(profile["validity"].get("note"))]
+        lines += [f"    // {line}" if line else "    //" for line in as_lines(profile.validity.note)]
         for const, value, _ in validity_constants(profile):
             lines.append(f"    uint64 internal constant {const} = {value};")
 
@@ -541,7 +711,7 @@ def gen_sol(spec: dict[str, Any]) -> str:
         "    // --- Launch profile shape ------------------------------------------------",
         "",
         "    /// @dev Launch profiles are "
-        + ", ".join(f"`{p['platform']}/v{p['ceremonyVersion']}`" for p in profiles)
+        + ", ".join(f"`{p.platform}/v{p.ceremony_version}`" for p in profiles)
         + "",
         "    ///      (REQ-PLAT-01).",
         f"    uint16 internal constant LAUNCH_VERSION = {launch_version};",
@@ -552,7 +722,7 @@ def gen_sol(spec: dict[str, Any]) -> str:
     ]
     by_count: dict[int, list[str]] = {}
     for profile in profiles:
-        by_count.setdefault(len(sessions_of(profile)), []).append(upper(profile["platform"]))
+        by_count.setdefault(len(profile.sessions), []).append(upper(profile.platform))
     for count in sorted(by_count):
         test = " || ".join(f"platformId == PLATFORM_{name}" for name in by_count[count])
         lines.append(f"        if ({test}) return {count};")
@@ -575,12 +745,12 @@ def header_value(line: str) -> str:
     return line.split(":", 1)[1].strip(" \t")
 
 
-def sol_lookups(spec: dict[str, Any]) -> list[str]:
+def sol_lookups(spec: Spec) -> list[str]:
     """The profile constants by platform id, so a verifier reads its own
     through `_platform()` with no override per value. A known platform
     without a session reverts like an unknown one; without a validity value,
     it reads zero."""
-    profiles = spec["profiles"]
+    profiles = spec.profiles
     lines = [
         "    // --- By platform ----------------------------------------------------------",
         "",
@@ -592,7 +762,7 @@ def sol_lookups(spec: dict[str, Any]) -> list[str]:
         for platform, value in cases:
             lines.append(f"        if (platformId == PLATFORM_{upper(platform)}) return {value};")
         if default is not None:
-            known = [p["platform"] for p in profiles if p["platform"] not in {c for c, _ in cases}]
+            known = [p.platform for p in profiles if p.platform not in {c for c, _ in cases}]
             if known:
                 test = " || ".join(f"platformId == PLATFORM_{upper(k)}" for k in known)
                 lines.append(f"        if ({test}) return {default};")
@@ -601,46 +771,47 @@ def sol_lookups(spec: dict[str, Any]) -> list[str]:
     lines.append("    /// @dev Whether a profile names this platform.")
     lines.append("    function knows(bytes32 platformId) internal pure returns (bool) {")
     lines.append(
-        "        return " + " || ".join(f"platformId == PLATFORM_{upper(p['platform'])}" for p in profiles) + ";"
+        "        return " + " || ".join(f"platformId == PLATFORM_{upper(p.platform)}" for p in profiles) + ";"
     )
     lines += ["    }", ""]
     lookup(
         "userIdTag",
         "bytes memory",
-        [(p["platform"], f"{upper(p['platform'])}_USER_ID_TAG") for p in profiles],
+        [(p.platform, f"{upper(p.platform)}_USER_ID_TAG") for p in profiles],
         None,
         "The tag the platform's id nodes are hashed under.",
     )
     lookup(
         "handleTag",
         "bytes memory",
-        [(p["platform"], f"{upper(p['platform'])}_HANDLE_TAG") for p in profiles],
+        [(p.platform, f"{upper(p.platform)}_HANDLE_TAG") for p in profiles],
         None,
         "The tag the platform's handle nodes are hashed under.",
     )
     lookup(
         "ceremonyVersion",
         "uint16",
-        [(p["platform"], str(p["ceremonyVersion"])) for p in profiles],
+        [(p.platform, str(p.ceremony_version)) for p in profiles],
         None,
         "The ceremony version the profile is.",
     )
-    for key, stem, _, bounds in VALIDITY:
+    for window in VALIDITY:
+        stem = window.stem
         fn = stem.lower().split("_seconds")[0]
         fn = fn.split("_")[0] + "".join(w.capitalize() for w in fn.split("_")[1:])
         lookup(
             fn,
             "uint64",
-            [(p["platform"], f"{stem}_{upper(p['platform'])}") for p in profiles if key in p["validity"]],
+            [(p.platform, f"{stem}_{upper(p.platform)}") for p in profiles if p.validity.seconds(window) is not None],
             "0",
-            f"In seconds: {bounds}",
+            f"In seconds: {window.bounds}",
         )
     for session_name in SESSIONS:
-        with_session = [(p["platform"], p["sessions"][session_name]) for p in profiles if session_name in p["sessions"]]
+        with_session = [(p.platform, s) for p in profiles if (s := p.session(session_name)) is not None]
         lookup(
             f"{session_name}Authority",
             "bytes32",
-            [(p, f"AUTHORITY_{authority_name(sess['authority'])}") for p, sess in with_session],
+            [(p, f"AUTHORITY_{authority_name(sess.authority)}") for p, sess in with_session],
             None,
             f"The {session_name} session's authority.",
         )
@@ -658,7 +829,7 @@ def sol_lookups(spec: dict[str, Any]) -> list[str]:
         lines.append(f"    function {session_name}RequiredHeaderHashes(bytes32 platformId)")
         lines += ["        internal", "        pure", "        returns (bytes32[] memory names, bytes32[] memory values)", "    {"]
         for platform, sess in with_session:
-            required = required_headers(sess, session_name)
+            required = required_headers(sess)
             lines.append(f"        if (platformId == PLATFORM_{upper(platform)}) {{")
             lines.append(f"            names = new bytes32[]({len(required)});")
             lines.append(f"            values = new bytes32[]({len(required)});")
@@ -672,7 +843,7 @@ def sol_lookups(spec: dict[str, Any]) -> list[str]:
     lookup(
         "tokenFields",
         "bytes memory",
-        [(p["platform"], f"{upper(p['platform'])}_TOKEN_FIELDS") for p in profiles if "token" in p["sessions"]],
+        [(p.platform, f"{upper(p.platform)}_TOKEN_FIELDS") for p in profiles if p.token is not None],
         None,
         "The token body's field list.",
     )
@@ -686,11 +857,11 @@ def sol_lookups(spec: dict[str, Any]) -> list[str]:
         "    {",
     ]
     for p in profiles:
-        identity = p["sessions"].get("identity")
+        identity = p.identity
         if identity is None:
             continue
-        name = upper(p["platform"])
-        integer = "true" if identity["idShape"] == "jsonInteger" else "false"
+        name = upper(p.platform)
+        integer = "true" if identity.id_shape == "jsonInteger" else "false"
         lines.append(
             f"        if (platformId == PLATFORM_{name}) return ({name}_ID_FIELD, {integer}, {name}_HANDLE_FIELD);"
         )
@@ -721,7 +892,7 @@ def sol_formatted(source: str) -> str:
 # --------------------------------------------------------------------------
 
 
-def rust_doc(note: Any, indent: str = "", marker: str = "///") -> list[str]:
+def rust_doc(note: Note, indent: str = "", marker: str = "///") -> list[str]:
     return [f"{indent}{marker} {line}" if line else f"{indent}{marker}" for line in as_lines(note)]
 
 
@@ -732,14 +903,14 @@ def rust_str(value: str | None) -> str:
     return f'Some("{escaped}")'
 
 
-def rust_session(session: dict[str, Any], indent: int) -> list[str]:
+def rust_session(session: Session, indent: int) -> list[str]:
     pad = " " * indent
     return [
         f"{pad}session: Session {{",
-        f'{pad}    authority: "{session["authority"]}",',
-        f'{pad}    method: "{session["method"]}",',
-        f'{pad}    path: "{session["path"]}",',
-        f'{pad}    request_line: "{request_line(session)}",',
+        f'{pad}    authority: "{session.authority}",',
+        f'{pad}    method: "{session.method}",',
+        f'{pad}    path: "{session.path}",',
+        f'{pad}    request_line: "{session.request_line}",',
         f"{pad}}},",
     ]
 
@@ -769,9 +940,9 @@ def rust_array(prefix: str, items: list[str], indent: str, suffix: str) -> list[
     return [f"{indent}{prefix}&[", *(f'{indent}    "{item}",' for item in items), f"{indent}]{suffix}"]
 
 
-def gen_rust(spec: dict[str, Any]) -> str:
+def gen_rust(spec: Spec) -> str:
     lines = [header("//").rstrip("\n"), ""]
-    lines += rust_doc(spec.get("note"), marker="//!")
+    lines += rust_doc(spec.note, marker="//!")
     lines += [
         "",
         "/// Which shape a platform's immutable identifier takes in its response.",
@@ -856,14 +1027,14 @@ def gen_rust(spec: dict[str, Any]) -> str:
         "",
     ]
 
-    for profile in spec["profiles"]:
-        name = upper(profile["platform"])
-        lines += rust_doc(profile.get("note"))
+    for profile in spec.profiles:
+        name = upper(profile.platform)
+        lines += rust_doc(profile.note)
         lines.append(f"pub const {name}: Profile = Profile {{")
-        lines.append(f'    platform: "{profile["platform"]}",')
-        lines.append(f"    ceremony_version: {profile['ceremonyVersion']},")
+        lines.append(f'    platform: "{profile.platform}",')
+        lines.append(f"    ceremony_version: {profile.ceremony_version},")
 
-        token = profile["sessions"].get("token")
+        token = profile.token
         if token is None:
             lines.append("    token: None,")
         else:
@@ -873,21 +1044,21 @@ def gen_rust(spec: dict[str, Any]) -> str:
             lines += rust_array("token_fields: ", token_fields(token), "        ", ",")
             lines.append("    }),")
 
-        identity = profile["sessions"].get("identity")
+        identity = profile.identity
         if identity is None:
             lines.append("    identity: None,")
         else:
-            shape = "JsonString" if identity["idShape"] == "jsonString" else "JsonInteger"
+            shape = "JsonString" if identity.id_shape == "jsonString" else "JsonInteger"
             lines.append("    identity: Some(IdentitySession {")
             lines += rust_session(identity, 8)
-            lines += rust_array("required_headers: ", required_headers(identity, "identity"), "        ", ",")
-            lines.append(f'        id_field: "{identity["idField"]}",')
+            lines += rust_array("required_headers: ", required_headers(identity), "        ", ",")
+            lines.append(f'        id_field: "{identity.id_field}",')
             lines.append(f"        id_shape: IdShape::{shape},")
-            lines.append(f'        handle_field: "{identity["handleField"]}",')
+            lines.append(f'        handle_field: "{identity.handle_field}",')
             lines.append("    }),")
         lines += ["};", ""]
 
-    names = ", ".join(f"&{upper(p['platform'])}" for p in spec["profiles"])
+    names = ", ".join(f"&{upper(p.platform)}" for p in spec.profiles)
     lines += [
         "/// The closed launch list. A platform outside it has no profile, and",
         "/// `CeremonyProfile.attestationCount` reverts on one.",
@@ -902,15 +1073,15 @@ def gen_rust(spec: dict[str, Any]) -> str:
         "}",
         "",
     ]
-    lines += rust_doc(spec["requests"].get("note"))
+    lines += rust_doc(spec.requests.note)
     lines += rust_array("pub const FORBIDDEN_REQUEST_HEADERS: &[&str] = ", forbidden_headers(spec), "", ";")
     lines.append("")
     lines += rust_doc(VALIDITY_NOTE, marker="//")
-    for profile in spec["profiles"]:
+    for profile in spec.profiles:
         lines.append("")
-        lines += rust_doc(profile["validity"].get("note"), marker="//")
+        lines += rust_doc(profile.validity.note, marker="//")
         for const, value, bounds in validity_constants(profile):
-            lines += rust_doc(f"`{profile['platform']}/v{profile['ceremonyVersion']}`: {bounds}")
+            lines += rust_doc(f"`{profile.platform}/v{profile.ceremony_version}`: {bounds}")
             lines.append(f"pub const {const}: u64 = {value};")
     lines.append("")
     return "\n".join(lines)
@@ -928,7 +1099,7 @@ def ts_str(value: str | None) -> str:
     return f"'{escaped}'"
 
 
-def ts_doc(note: Any, indent: str = "") -> list[str]:
+def ts_doc(note: Note, indent: str = "") -> list[str]:
     lines = as_lines(note)
     if not lines:
         return []
@@ -938,16 +1109,27 @@ def ts_doc(note: Any, indent: str = "") -> list[str]:
     return out
 
 
-def ts_session(session: dict[str, Any], indent: int) -> list[str]:
+def ts_session(session: Session, indent: int) -> list[str]:
     pad = " " * indent
     return [
         f"{pad}session: {{",
-        f'{pad}  authority: {ts_str(session["authority"])},',
-        f'{pad}  method: {ts_str(session["method"])},',
-        f'{pad}  path: {ts_str(session["path"])},',
-        f"{pad}  requestLine: {ts_str(request_line(session))},",
+        f'{pad}  authority: {ts_str(session.authority)},',
+        f'{pad}  method: {ts_str(session.method)},',
+        f'{pad}  path: {ts_str(session.path)},',
+        f"{pad}  requestLine: {ts_str(session.request_line)},",
         f"{pad}}},",
     ]
+
+
+@dataclass(frozen=True)
+class BiomeConfig:
+    """ts/biome.json, read for the formatter's line width."""
+
+    line_width: int
+
+    @classmethod
+    def from_json(cls, raw: dict[str, Any]) -> BiomeConfig:
+        return cls(line_width=int(raw.get("formatter", {}).get("lineWidth", 80)))
 
 
 def ts_line_width() -> int:
@@ -955,7 +1137,7 @@ def ts_line_width() -> int:
     config = REPO_ROOT / "ts" / "biome.json"
     if not config.exists():
         return 80
-    return int(json.loads(config.read_text(encoding="utf-8")).get("formatter", {}).get("lineWidth", 80))
+    return BiomeConfig.from_json(json.loads(config.read_text(encoding="utf-8"))).line_width
 
 
 def ts_array(prefix: str, items: list[str], indent: str, suffix: str) -> list[str]:
@@ -970,9 +1152,9 @@ def ts_array(prefix: str, items: list[str], indent: str, suffix: str) -> list[st
     return [f"{indent}{prefix}[", *(f"{indent}  {ts_str(item)}," for item in items), f"{indent}]{suffix}"]
 
 
-def gen_ts(spec: dict[str, Any]) -> str:
+def gen_ts(spec: Spec) -> str:
     lines = [header("//").rstrip("\n"), ""]
-    lines += ts_doc(spec.get("note"))
+    lines += ts_doc(spec.note)
     lines += [
         "",
         "/** Which shape a platform's immutable identifier takes in its response. */",
@@ -1021,14 +1203,14 @@ def gen_ts(spec: dict[str, Any]) -> str:
         "",
     ]
 
-    for profile in spec["profiles"]:
-        name = upper(profile["platform"])
-        lines += ts_doc(profile.get("note"))
+    for profile in spec.profiles:
+        name = upper(profile.platform)
+        lines += ts_doc(profile.note)
         lines.append(f"export const {name}: Profile = {{")
-        lines.append(f"  platform: {ts_str(profile['platform'])},")
-        lines.append(f"  ceremonyVersion: {profile['ceremonyVersion']},")
+        lines.append(f"  platform: {ts_str(profile.platform)},")
+        lines.append(f"  ceremonyVersion: {profile.ceremony_version},")
 
-        token = profile["sessions"].get("token")
+        token = profile.token
         if token is None:
             lines.append("  token: null,")
         else:
@@ -1038,20 +1220,20 @@ def gen_ts(spec: dict[str, Any]) -> str:
             lines += ts_array("tokenFields: ", token_fields(token), "    ", ",")
             lines.append("  },")
 
-        identity = profile["sessions"].get("identity")
+        identity = profile.identity
         if identity is None:
             lines.append("  identity: null,")
         else:
             lines.append("  identity: {")
             lines += ts_session(identity, 4)
-            lines += ts_array("requiredHeaders: ", required_headers(identity, "identity"), "    ", ",")
-            lines.append(f"    idField: {ts_str(identity['idField'])},")
-            lines.append(f"    idShape: {ts_str(identity['idShape'])},")
-            lines.append(f"    handleField: {ts_str(identity['handleField'])},")
+            lines += ts_array("requiredHeaders: ", required_headers(identity), "    ", ",")
+            lines.append(f"    idField: {ts_str(identity.id_field)},")
+            lines.append(f"    idShape: {ts_str(identity.id_shape)},")
+            lines.append(f"    handleField: {ts_str(identity.handle_field)},")
             lines.append("  },")
         lines += ["}", ""]
 
-    names = ", ".join(upper(p["platform"]) for p in spec["profiles"])
+    names = ", ".join(upper(p.platform) for p in spec.profiles)
     lines += [
         "/** The closed launch list. */",
         f"export const LAUNCH: readonly Profile[] = [{names}]",
@@ -1067,17 +1249,17 @@ def gen_ts(spec: dict[str, Any]) -> str:
         "}",
         "",
     ]
-    lines += ts_doc(spec["requests"].get("note"))
+    lines += ts_doc(spec.requests.note)
     lines += ts_array(
         "export const FORBIDDEN_REQUEST_HEADERS: readonly string[] = ", forbidden_headers(spec), "", ""
     )
     lines.append("")
     lines += rust_doc(VALIDITY_NOTE, marker="//")
-    for profile in spec["profiles"]:
+    for profile in spec.profiles:
         lines.append("")
-        lines += rust_doc(profile["validity"].get("note"), marker="//")
+        lines += rust_doc(profile.validity.note, marker="//")
         for const, value, bounds in validity_constants(profile):
-            lines += ts_doc(f"`{profile['platform']}/v{profile['ceremonyVersion']}`: {bounds}")
+            lines += ts_doc(f"`{profile.platform}/v{profile.ceremony_version}`: {bounds}")
             lines.append(f"export const {const} = {value}")
     lines.append("")
     return "\n".join(lines)
@@ -1098,9 +1280,11 @@ def main() -> int:
     if not PLATFORMS.exists():
         print(f"ERROR: {PLATFORMS_REL} is missing; run scripts/vendor-circuit-verifiers.sh", file=sys.stderr)
         return 1
-    spec = json.loads(SOURCE.read_text(encoding="utf-8"))
+    spec = Spec.from_json(
+        json.loads(SOURCE.read_text(encoding="utf-8")),
+        json.loads(PLATFORMS.read_text(encoding="utf-8")),
+    )
     validate(spec)
-    attach_tags(spec, json.loads(PLATFORMS.read_text(encoding="utf-8")))
 
     outputs = [(SOL_OUT, sol_formatted(gen_sol(spec)))]
     skipped = []
