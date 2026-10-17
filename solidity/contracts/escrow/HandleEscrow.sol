@@ -128,12 +128,11 @@ contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable
     error NativeTransferFailed(address recipient, uint256 amount);
     /// The escrow needs an identity registry to resolve through.
     error NoRegistry();
-    /// The registry does not answer this function as expected.
-    error RegistryLacks(address registry, bytes4 selector);
+    /// The registry does not key identities by handle node (`nodeKeyed()` is false).
+    error RegistryNotNodeKeyed(address registry);
     /// Ownership cannot be renounced; see `renounceOwnership`.
     error RenounceDisabled();
-    /// A deposit to an unheld node on a platform the registry knows but nobody can bind now,
-    /// so nobody could claim. A platform it does not know reverts its `UnknownPlatform`.
+    /// A deposit to an unheld node on a platform nobody can bind now, so nobody could claim.
     error PlatformAcceptsNoBindings(bytes32 platformId);
 
     // ─── Setup ──────────────────────────────────────────────────────
@@ -143,10 +142,11 @@ contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable
         _disableInitializers();
     }
 
-    /// @dev Reverts `RegistryLacks` unless `registry_` passes `_requireAnswers`.
+    /// @dev Reverts `RegistryNotNodeKeyed` when `registry_.nodeKeyed()` is false, and on the call
+    ///      itself when `registry_` has no `nodeKeyed`.
     function initialize(address owner_, IIdentityRegistry registry_) external initializer {
         if (address(registry_) == address(0)) revert NoRegistry();
-        _requireAnswers(registry_);
+        if (!registry_.nodeKeyed()) revert RegistryNotNodeKeyed(address(registry_));
         __Ownable_init(owner_);
         __Ownable2Step_init();
         _s().registry = registry_;
@@ -214,10 +214,7 @@ contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable
             return;
         }
 
-        if (!$.registry.acceptsBindings(platformId)) {
-            if (!_knows($.registry, platformId)) revert IIdentityRegistry.UnknownPlatform(platformId);
-            revert PlatformAcceptsNoBindings(platformId);
-        }
+        if (!$.registry.acceptsBindings(platformId)) revert PlatformAcceptsNoBindings(platformId);
         uint256 credited = _move(token, msg.sender, address(this), amount);
         if (credited == 0) revert ZeroAmount();
 
@@ -318,51 +315,6 @@ contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable
     function _sendNative(address to, uint256 amount) private {
         (bool ok,) = to.call{value: amount}("");
         if (!ok) revert NativeTransferFailed(to, amount);
-    }
-
-    /// @dev Refuses a registry that does not answer `handleBinding`, `handleNodeOf`
-    ///      and `acceptsBindings` in shape, or does not state `nodeKeyed()`.
-    ///      `handleNodeOf` may answer the zero platform with `UnknownPlatform`.
-    function _requireAnswers(IIdentityRegistry registry_) private view {
-        (bool ok, bytes memory result) =
-            address(registry_).staticcall(abi.encodeCall(IIdentityRegistry.handleBinding, (bytes32(0))));
-        if (!ok || result.length != 64) {
-            revert RegistryLacks(address(registry_), IIdentityRegistry.handleBinding.selector);
-        }
-        (ok, result) = address(registry_).staticcall(abi.encodeCall(IIdentityRegistry.nodeKeyed, ()));
-        if (!ok || result.length != 32 || abi.decode(result, (uint256)) != 1) {
-            revert RegistryLacks(address(registry_), IIdentityRegistry.nodeKeyed.selector);
-        }
-        (ok, result) = _probeHandleNodeOf(registry_, bytes32(0));
-        bool answered = ok ? result.length == 32 : _isUnknownPlatform(result, bytes32(0));
-        if (!answered) {
-            revert RegistryLacks(address(registry_), IIdentityRegistry.handleNodeOf.selector);
-        }
-        (ok, result) = address(registry_).staticcall(abi.encodeCall(IIdentityRegistry.acceptsBindings, (bytes32(0))));
-        if (!ok || result.length != 32 || abi.decode(result, (uint256)) > 1) {
-            revert RegistryLacks(address(registry_), IIdentityRegistry.acceptsBindings.selector);
-        }
-    }
-
-    /// @dev Whether the registry knows `platformId`: its `handleNodeOf` refuses a platform it
-    ///      does not know with `UnknownPlatform`, and answers or refuses a known one otherwise.
-    function _knows(IIdentityRegistry registry_, bytes32 platformId) private view returns (bool) {
-        (bool ok, bytes memory result) = _probeHandleNodeOf(registry_, platformId);
-        return ok || !_isUnknownPlatform(result, platformId);
-    }
-
-    function _probeHandleNodeOf(IIdentityRegistry registry_, bytes32 platformId)
-        private
-        view
-        returns (bool ok, bytes memory result)
-    {
-        return address(registry_).staticcall(abi.encodeCall(IIdentityRegistry.handleNodeOf, (platformId, "")));
-    }
-
-    function _isUnknownPlatform(bytes memory reason, bytes32 platformId) private pure returns (bool) {
-        return
-            keccak256(reason)
-                == keccak256(abi.encodeWithSelector(IIdentityRegistry.UnknownPlatform.selector, platformId));
     }
 
     // ─── Upgrade ────────────────────────────────────────────────────

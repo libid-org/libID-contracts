@@ -133,7 +133,7 @@ proxy onto it:
   refused at decode.
 - `HandleEscrow` is deployed against this registry, never upgraded or
   re-pointed: its deposits are keyed by handle node, and `initialize` reverts
-  `RegistryLacks` unless the registry's `nodeKeyed()` returns true.
+  unless the registry's `nodeKeyed()` returns true.
 
 ## Releasing
 

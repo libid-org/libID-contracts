@@ -4,6 +4,7 @@ pragma solidity ^0.8.24;
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import {Initializable} from "@openzeppelin/contracts/proxy/utils/Initializable.sol";
+import {Errors} from "@openzeppelin/contracts/utils/Errors.sol";
 import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 
 import {CeremonyProfile} from "../../ceremony/CeremonyProfile.sol";
@@ -20,13 +21,10 @@ import {HandleEscrow, NATIVE_TOKEN} from "../HandleEscrow.sol";
 import {
     FeeToken,
     InertToken,
-    NoAcceptsBindingsRegistry,
-    NoHandleNodeOfRegistry,
     NotNodeKeyedRegistry,
     PreNodeRegistry,
     RefusingHandleNodeOfRegistry,
     RejectEther,
-    RevertingHandleNodeOfRegistry,
     SettableRegistry,
     TestERC20,
     one
@@ -745,22 +743,19 @@ contract HandleEscrowTest is PrivacyScan {
 
     // ─── Wiring and upgrades ────────────────────────────────────────
 
-    /// `initialize` refuses a registry that does not answer `handleBinding`,
-    /// `handleNodeOf` or `acceptsBindings` in shape, or is not the registry
-    /// that keys identities by node.
+    /// `initialize` takes only a registry that states `nodeKeyed()` true: one
+    /// without the function reverts on the call, one that answers false
+    /// reverts `RegistryNotNodeKeyed`.
     function test_initializeChecksTheRegistry() public {
         assertEq(address(escrow.registry()), address(registry));
         _assertRefused(address(0), abi.encodeWithSelector(HandleEscrow.NoRegistry.selector));
-        _assertLacks(makeAddr("no code"), IIdentityRegistry.handleBinding.selector);
-        _assertLacks(address(new RegistryWithAOneWordFallback()), IIdentityRegistry.handleBinding.selector);
-        _assertLacks(address(new RegistryWithASilentFallback()), IIdentityRegistry.handleBinding.selector);
-        _assertLacks(address(new PreNodeRegistry()), IIdentityRegistry.nodeKeyed.selector);
-        _assertLacks(address(new RegistryWithHandleBindingOnly()), IIdentityRegistry.nodeKeyed.selector);
-        _assertLacks(address(new NotNodeKeyedRegistry()), IIdentityRegistry.nodeKeyed.selector);
-        _assertLacks(address(new NoHandleNodeOfRegistry()), IIdentityRegistry.handleNodeOf.selector);
-        _assertLacks(address(new RevertingHandleNodeOfRegistry()), IIdentityRegistry.handleNodeOf.selector);
-        _assertLacks(address(new NoAcceptsBindingsRegistry()), IIdentityRegistry.acceptsBindings.selector);
-        // The four views in their shapes are all it asks.
+        _assertNoNodeKeyed(makeAddr("no code"));
+        _assertNoNodeKeyed(address(new RegistryWithASilentFallback()));
+        // Answers `handleBinding` but does not state `nodeKeyed`.
+        _assertNoNodeKeyed(address(new PreNodeRegistry()));
+        _assertNoNodeKeyed(address(new RegistryWithHandleBindingOnly()));
+        _assertNotNodeKeyed(address(new RegistryWithAOneWordFallback()));
+        _assertNotNodeKeyed(address(new NotNodeKeyedRegistry()));
         _deploy(address(new SettableRegistry()));
 
         HandleEscrow impl = new HandleEscrow();
@@ -845,8 +840,14 @@ contract HandleEscrowTest is PrivacyScan {
         );
     }
 
-    function _assertLacks(address registry_, bytes4 selector) internal {
-        _assertRefused(registry_, abi.encodeWithSelector(HandleEscrow.RegistryLacks.selector, registry_, selector));
+    /// The `nodeKeyed()` call itself reverts without data, which the proxy's
+    /// constructor reports as `FailedCall`.
+    function _assertNoNodeKeyed(address registry_) internal {
+        _assertRefused(registry_, abi.encodeWithSelector(Errors.FailedCall.selector));
+    }
+
+    function _assertNotNodeKeyed(address registry_) internal {
+        _assertRefused(registry_, abi.encodeWithSelector(HandleEscrow.RegistryNotNodeKeyed.selector, registry_));
     }
 
     function _assertRefused(address registry_, bytes memory reason) internal {

@@ -299,7 +299,7 @@ contract IdentityRegistryTest is PrivacyScan {
     // ─── Platforms ──────────────────────────────────────────────────
 
     /// Every entry point that names a platform refuses an unknown one.
-    /// `resolveId` takes a node and answers nobody; `acceptsBindings` answers false.
+    /// `resolveId` takes a node and answers nobody.
     function test_everyEntryPointRefusesAnUnknownPlatform() public {
         bytes32 unwired = keccak256("nowhere");
         bytes32 idNode = _id(X, "123");
@@ -311,7 +311,8 @@ contract IdentityRegistryTest is PrivacyScan {
         vm.prank(alice);
         vm.expectRevert(abi.encodeWithSelector(IIdentityRegistry.UnknownPlatform.selector, unwired));
         registry.publish(unwired, "alice");
-        assertFalse(registry.acceptsBindings(unwired));
+        vm.expectRevert(abi.encodeWithSelector(IIdentityRegistry.UnknownPlatform.selector, unwired));
+        registry.acceptsBindings(unwired);
         vm.prank(alice);
         vm.expectRevert(abi.encodeWithSelector(IIdentityRegistry.UnknownPlatform.selector, unwired));
         registry.unpublish(unwired);
@@ -1149,7 +1150,8 @@ contract IdentityRegistryTest is PrivacyScan {
         proofVerifier.setVerifier(keccak256("nowhere"), V1, IPlatformVerifier(address(unknownVerifier)));
         proofVerifier.setVerifier(google, V1, IPlatformVerifier(address(googleVerifier)));
         vm.stopPrank();
-        assertFalse(registry.acceptsBindings(keccak256("nowhere")), "no profile names it");
+        vm.expectRevert(abi.encodeWithSelector(IIdentityRegistry.UnknownPlatform.selector, keccak256("nowhere")));
+        registry.acceptsBindings(keccak256("nowhere"));
         assertTrue(registry.acceptsBindings(google));
 
         IdentityRegistry bare = IdentityRegistry(

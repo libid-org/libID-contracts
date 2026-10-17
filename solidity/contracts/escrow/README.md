@@ -53,8 +53,9 @@ escrow.refund(handleNode, token, recipient);   // refundTo, while unclaimed
 
 ## Deploying
 
-- `initialize` reverts `RegistryLacks` unless the registry answers the
-  `IIdentityRegistry` views in shape and `nodeKeyed()` returns true.
+- `initialize` reverts `RegistryNotNodeKeyed` unless the registry's
+  `nodeKeyed()` returns true, and reverts on the call against a registry
+  without it.
 - The registry is fixed at `initialize`, with no setter. Deploy the escrow
   once the registry has its final address; only an upgrade moves it.
 

@@ -390,9 +390,10 @@ contract IdentityRegistry is
         (, handleNode) = _handleNodeOf(platformId, handle);
     }
 
-    /// @notice Whether a platform can be bound right now.
+    /// @notice Whether a platform can be bound right now. Reverts `UnknownPlatform`
+    ///         for a platform no ceremony profile names.
     function acceptsBindings(bytes32 platformId) external view returns (bool) {
-        if (!CeremonyProfile.knows(platformId)) return false;
+        _requireKnown(platformId);
         IProofVerifier pv = _s().proofVerifier;
         return address(pv) != address(0) && pv.verifiesPlatform(platformId);
     }
