@@ -15,15 +15,53 @@ import {
 
 // The Solidity suite's fixtures; `x-ceremony-payload.json` pins solc's encoding.
 const fixtures = new URL('../../../../solidity/contracts/ceremony/test/fixtures/', import.meta.url)
-const read = (name: string) => JSON.parse(readFileSync(new URL(name, fixtures), 'utf8'))
+
+/** One session's notarized bytes and the notary's signature over them. */
+interface AttestationFixture {
+  attested_data: Hex
+  notary_signature: Hex
+}
+
+/** `x-ceremony-session.json`, read for the payload fields. */
+interface SessionFixture {
+  ceremony_version: number
+  operation_domain: Hex
+  authorization_nonce: Hex
+  transaction_data: Hex
+  token: AttestationFixture
+  identity: AttestationFixture
+}
+
+/** `x-ceremony-session-proof.json`, read for the proof. */
+interface ProofFixture {
+  proof: Hex
+}
+
+/** `x-ceremony-payload.json`: the nodes and the encoding solc pins. */
+interface PayloadFixture {
+  id_node: Hex
+  handle_node: Hex
+  keccak256: Hex
+  length: number
+}
+
+/** `google-ceremony-proof.json`: the oidc-google public inputs and the audience. */
+interface GoogleProofFixture {
+  public_inputs: Hex[]
+  client_identifier: string
+}
+
+function read<T>(name: string): T {
+  return JSON.parse(readFileSync(new URL(name, fixtures), 'utf8')) as T
+}
 
 function xPayload(): { payload: TlsNotaryProof; pinned: { keccak256: Hex; length: number } } {
-  const session = read('x-ceremony-session.json')
-  const proof = read('x-ceremony-session-proof.json')
-  const extra = read('x-ceremony-payload.json')
+  const session = read<SessionFixture>('x-ceremony-session.json')
+  const proof = read<ProofFixture>('x-ceremony-session-proof.json')
+  const extra = read<PayloadFixture>('x-ceremony-payload.json')
   return {
     payload: {
-      ceremonyVersion: Number(session.ceremony_version),
+      ceremonyVersion: session.ceremony_version,
       operationDomain: session.operation_domain,
       authorizationNonce: session.authorization_nonce,
       transactionData: session.transaction_data,
@@ -80,9 +118,9 @@ describe('encodeGoogleProof', () => {
 })
 
 describe('googleProofFields', () => {
-  const fixture = read('google-ceremony-proof.json')
-  const inputs: Hex[] = fixture.public_inputs
-  const clientIdentifier = toHex(fixture.client_identifier as string)
+  const fixture = read<GoogleProofFixture>('google-ceremony-proof.json')
+  const inputs = fixture.public_inputs
+  const clientIdentifier = toHex(fixture.client_identifier)
   // The digest the fixture's token signed as its `nonce`.
   const digest = toHex(Uint8Array.from(inputs.slice(0, 32), (b) => Number(BigInt(b))))
 
