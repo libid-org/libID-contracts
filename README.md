@@ -157,7 +157,7 @@ upgrade a live proxy onto it:
 - `HandleEscrow` is redeployed against the new registry, never upgraded or
   re-pointed: its deposits are keyed by handle node, and a node means nothing
   to the registry before it. `initialize` asks `nodeKeyed()`, which only the
-  new registry answers true, and reverts `RegistryLacks` against the old one.
+  new registry answers true, and reverts against the old one, which lacks it.
 
 ## Releasing
 
