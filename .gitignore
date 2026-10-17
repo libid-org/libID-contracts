@@ -5,10 +5,8 @@ ts/node_modules/
 ts/packages/*/node_modules/
 ts/packages/*/dist/
 
-# Generated from `forge build`, never committed. They are packaged into their
-# published artefact (the crate embeds artifacts/ via include_dir! and binds
-# abi/ with sol!, the npm package ships src/abis), so CI regenerates them
-# before every build, test, dry-run and publish. Locally:
+# Generated from `forge build` and packaged into the crate and the npm
+# package; CI regenerates them before every build, test, dry-run and publish.
 #   scripts/vendor-artifacts.sh     # -> rust/contracts/artifacts, rust/contracts/abi
 #   pnpm -C ts codegen              # -> ts/packages/contracts/src/abis
 rust/contracts/artifacts/
@@ -16,13 +14,9 @@ rust/contracts/abi/
 ts/packages/contracts/src/abis/
 ts/packages/contracts/src/calls/
 
-# Vendored from the pinned libid-circuits release, never committed: the Honk
-# verifiers and the platform table the circuits were built from (platforms.json,
-# handles.json) are that repository's release assets, and circuits.json beside
-# them (the version and each tarball's sha256, which IS committed) is the pin
-# every download is checked against. CI's forge-build action vendors them
-# before every build, test, dry-run and publish; the generators read the
-# table. Locally, before `forge build` or a regen script:
+# Vendored from the pinned libid-circuits release: the Honk verifiers and the
+# platform table. circuits.json beside them, committed, is the pin every
+# download is checked against. Vendor before `forge build` or a regen script:
 #   scripts/vendor-circuit-verifiers.sh  # -> solidity/contracts/circuits/*HonkVerifier.sol, platforms.json, handles.json
 solidity/contracts/circuits/*HonkVerifier.sol
 solidity/contracts/circuits/platforms.json

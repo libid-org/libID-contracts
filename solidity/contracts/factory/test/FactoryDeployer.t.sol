@@ -7,20 +7,17 @@ import {FactoryDeployer} from "../FactoryDeployer.sol";
 import {LibidFactory} from "../LibidFactory.sol";
 import {Ping} from "./Create3.t.sol";
 
-/// The canonical bootstrap path, simulated: Arachnid's deterministic-
-/// deployment proxy is etched at its well-known address (its runtime bytecode
-/// is fixed — every chain that has it has these exact bytes), then the frozen
-/// impl and proxy init codes are deployed through it exactly as
-/// `ensure_factory` does on a real network.
+/// The bootstrap path: Arachnid's deterministic-deployment proxy is etched at
+/// its well-known address, then the frozen impl and proxy init codes are
+/// deployed through it as `ensure_factory` does on a real network.
 contract FactoryDeployerTest is Test {
     /// The deployer key of this test's environment: the factory's owner from
     /// its first block.
     address internal constant ADMIN = address(0xAD1);
 
-    /// The runtime bytecode of the deterministic-deployment proxy — the code
-    /// that lives at 0x4e59b4…956C on every chain it was installed on.
-    /// Calldata format: 32-byte salt ++ init code; returns the 20-byte
-    /// deployed address.
+    /// The runtime bytecode at 0x4e59b4…956C on every chain that has the
+    /// deterministic-deployment proxy. Calldata: 32-byte salt ++ init code;
+    /// returns the 20-byte deployed address.
     bytes internal constant ARACHNID_RUNTIME =
         hex"7fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffe03601600081602082378035828234f58015156039578182fd5b8082525050506014600cf3";
 
@@ -54,10 +51,9 @@ contract FactoryDeployerTest is Test {
         assertGt(factoryAddr.code.length, 0);
     }
 
-    /// The anti-front-running property: the instant the proxy exists, it is
-    /// already initialized with its genesis admin. There is no
-    /// deploy-then-initialize gap.
-    /// A different admin is a different factory, at a different address.
+    /// The proxy is initialized with its genesis admin the instant it exists,
+    /// so nobody can front-run the initialization. A different admin is a
+    /// different factory, at a different address.
     function test_bootstrap_ownerIsTheGenesisAdminAtomically() public {
         (, address factoryAddr) = _bootstrap();
         LibidFactory factory = LibidFactory(factoryAddr);
@@ -78,8 +74,7 @@ contract FactoryDeployerTest is Test {
     }
 
     /// ERC1967Proxy's constructor refuses an implementation with no code, so
-    /// the proxy cannot be deployed ahead of the impl (wrong order fails
-    /// loudly instead of minting a broken factory).
+    /// the proxy cannot be deployed ahead of the impl.
     function test_bootstrap_proxyBeforeImplFails() public {
         (bool ok,) = _deployVia(FactoryDeployer.proxyDeployCalldata(ADMIN));
         assertFalse(ok);
