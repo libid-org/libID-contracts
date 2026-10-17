@@ -12,7 +12,7 @@ categories = ["cryptography::cryptocurrencies"]
 include = ["src/**", "artifacts/**", "abi/**", "README.md"]
 
 [dependencies]
-alloy = { version = "1", features = [
+alloy = { version = "2", features = [
     "contract",
     "providers",
     "network",
@@ -27,7 +27,7 @@ thiserror = "2"
 tokio = { version = "1", features = ["time"] }
 
 [dev-dependencies]
-alloy = { version = "1", features = ["node-bindings", "signer-local"] }
+alloy = { version = "2", features = ["node-bindings", "signer-local"] }
 # Path-only, so `cargo publish` drops it. Pins `PlatformVerifier::notarizes`
 # and the profile windows to the generated table.
 libid-profiles = { path = "../profiles" }
