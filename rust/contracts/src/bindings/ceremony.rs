@@ -483,7 +483,23 @@ pub use payloads_inner::ICeremonyPayloads::{
 
 #[cfg(test)]
 mod tests {
-    use alloy::sol_types::SolCall;
+    use std::fs;
+
+    use alloy::{
+        primitives::{
+            keccak256,
+            Bytes,
+            B256,
+        },
+        sol_types::{
+            SolCall,
+            SolValue,
+        },
+    };
+    use serde::{
+        de::DeserializeOwned,
+        Deserialize,
+    };
 
     use super::*;
     use crate::{
@@ -582,65 +598,86 @@ mod tests {
         );
     }
 
+    /// The notarized sessions in `x-ceremony-session.json`, read for the
+    /// payload fields.
+    #[derive(Deserialize)]
+    struct SessionFixture {
+        ceremony_version: u16,
+        operation_domain: B256,
+        authorization_nonce: B256,
+        transaction_data: Bytes,
+        token: AttestationFixture,
+        identity: AttestationFixture,
+    }
+
+    /// One session's notarized bytes and the notary's signature over them.
+    #[derive(Deserialize)]
+    struct AttestationFixture {
+        attested_data: Bytes,
+        notary_signature: Bytes,
+    }
+
+    impl From<AttestationFixture> for Attestation {
+        fn from(fixture: AttestationFixture) -> Self {
+            Self {
+                attestedData: fixture.attested_data,
+                proof: fixture.notary_signature,
+            }
+        }
+    }
+
+    /// `x-ceremony-session-proof.json`, read for the proof.
+    #[derive(Deserialize)]
+    struct ProofFixture {
+        proof: Bytes,
+    }
+
+    /// `x-ceremony-payload.json`: the nodes and the encoding solc pins.
+    #[derive(Deserialize)]
+    struct PayloadFixture {
+        id_node: B256,
+        handle_node: B256,
+        keccak256: B256,
+        length: usize,
+    }
+
+    /// A Solidity suite fixture.
+    fn fixture<T: DeserializeOwned>(name: &str) -> T {
+        let path = format!(
+            "{}/../../solidity/contracts/ceremony/test/fixtures/{name}",
+            env!("CARGO_MANIFEST_DIR")
+        );
+        let text = fs::read_to_string(&path).expect(&path);
+        serde_json::from_str(&text).expect(&path)
+    }
+
     /// The X fixture encodes to the hash `x-ceremony-payload.json` pins.
     #[test]
     fn the_x_fixture_payload_encodes_to_the_pinned_bytes() {
-        use alloy::{
-            primitives::{
-                keccak256,
-                Bytes,
-                B256,
-            },
-            sol_types::SolValue,
-        };
-
-        let dir = concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../../solidity/contracts/ceremony/test/fixtures/"
-        );
-        let read = |name: &str| -> serde_json::Value {
-            let text = std::fs::read_to_string(format!("{dir}{name}")).unwrap();
-            serde_json::from_str(&text).unwrap()
-        };
-        let session = read("x-ceremony-session.json");
-        let proof = read("x-ceremony-session-proof.json");
-        let extra = read("x-ceremony-payload.json");
-        let str_of = |v: &serde_json::Value| v.as_str().unwrap().to_owned();
-        let bytes = |v: &serde_json::Value| str_of(v).parse::<Bytes>().unwrap();
-        let word = |v: &serde_json::Value| str_of(v).parse::<B256>().unwrap();
+        let session: SessionFixture = fixture("x-ceremony-session.json");
+        let proof: ProofFixture = fixture("x-ceremony-session-proof.json");
+        let pinned: PayloadFixture = fixture("x-ceremony-payload.json");
 
         let payload = TlsNotaryProof {
-            ceremonyVersion: u16::try_from(session["ceremony_version"].as_u64().unwrap())
-                .unwrap(),
-            operationDomain: word(&session["operation_domain"]),
-            authorizationNonce: word(&session["authorization_nonce"]),
-            transactionData: bytes(&session["transaction_data"]),
-            tokenSession: Attestation {
-                attestedData: bytes(&session["token"]["attested_data"]),
-                proof: bytes(&session["token"]["notary_signature"]),
-            },
-            identitySession: Attestation {
-                attestedData: bytes(&session["identity"]["attested_data"]),
-                proof: bytes(&session["identity"]["notary_signature"]),
-            },
-            idNode: word(&extra["id_node"]),
-            handleNode: word(&extra["handle_node"]),
-            proof: bytes(&proof["proof"]),
+            ceremonyVersion: session.ceremony_version,
+            operationDomain: session.operation_domain,
+            authorizationNonce: session.authorization_nonce,
+            transactionData: session.transaction_data,
+            tokenSession: session.token.into(),
+            identitySession: session.identity.into(),
+            idNode: pinned.id_node,
+            handleNode: pinned.handle_node,
+            proof: proof.proof,
         };
 
         let encoded = payload.abi_encode();
-        assert_eq!(encoded.len() as u64, extra["length"].as_u64().unwrap());
-        assert_eq!(keccak256(&encoded), word(&extra["keccak256"]));
+        assert_eq!(encoded.len(), pinned.length);
+        assert_eq!(keccak256(&encoded), pinned.keccak256);
         assert_eq!(TlsNotaryProof::abi_decode(&encoded).unwrap(), payload);
     }
 
     #[test]
     fn a_google_payload_round_trips() {
-        use alloy::{
-            primitives::B256,
-            sol_types::SolValue,
-        };
-
         let payload = GoogleProof {
             ceremonyVersion: 1,
             operationDomain: B256::repeat_byte(0x11),
