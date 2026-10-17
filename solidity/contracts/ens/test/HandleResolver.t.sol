@@ -149,11 +149,13 @@ contract HandleResolverTest is Test {
 
     function test_anExpiredAnswerIsRefused() public {
         bytes memory request = abi.encodeWithSelector(IExtendedResolver.resolve.selector, ensName, data);
-        uint64 expires = uint64(block.timestamp + 300);
+        uint64 expires = uint64(vm.getBlockTimestamp() + 300);
         bytes memory response = _sign(signerKey, request, abi.encode(address(0xBEEF)), expires);
 
         vm.warp(uint256(expires) + 1);
-        vm.expectRevert(abi.encodeWithSelector(HandleResolver.SignatureExpired.selector, expires, block.timestamp));
+        vm.expectRevert(
+            abi.encodeWithSelector(HandleResolver.SignatureExpired.selector, expires, vm.getBlockTimestamp())
+        );
         resolver.resolveWithProof(response, request);
     }
 

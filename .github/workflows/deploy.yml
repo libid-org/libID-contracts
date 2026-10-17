@@ -94,7 +94,7 @@ permissions:
   id-token: write # required to mint the OIDC token AWS exchanges for the role
 
 env:
-  FOUNDRY_VERSION: v1.7.1
+  FOUNDRY_VERSION: v1.8.5
   AWS_REGION: eu-central-1
   # The network's deployer key, which owns that network's ENS name. A bare
   # alias resolves in the account of the role the job assumes.

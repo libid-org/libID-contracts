@@ -41,7 +41,7 @@ abstract contract HonkVerifierProofTest is Test {
         bytes memory p = proof;
         bytes32[] memory inputs = publicInputs;
         assertTrue(verifier.verify(p, inputs), "the proof does not verify");
-        uint64 used = vm.lastCallGas().gasTotalUsed;
+        uint64 used = vm.lastFrameGas().gasTotalUsed;
         emit log_named_uint("verify gas", used);
         assertLe(used, _verifyGasBound(), "verify costs more than its bound");
     }

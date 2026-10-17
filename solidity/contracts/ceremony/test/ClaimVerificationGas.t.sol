@@ -17,7 +17,7 @@ import {XPlatformVerifier} from "../XPlatformVerifier.sol";
 /// @notice The gas of each verifier's `verify` on a real claim, recorded in
 ///         `snapshots/claim-verification.json`.
 ///
-/// @dev Each number is what the `verify` frame used (`vm.lastCallGas`), not
+/// @dev Each number is what the `verify` frame used (`vm.lastFrameGas`), not
 ///      what the test spends around it. `FOUNDRY_PROFILE=gas forge test`
 ///      records them under Osaka, the rules eden-testnet executes. A default
 ///      run makes the same calls under cancun and leaves the file as it is.
@@ -124,7 +124,7 @@ contract ClaimVerificationGasTest is Test {
         vm.warp(vm.parseJsonUint(session, ".identity.created_at") + 60);
         uint256 fee = verifier.quote();
         verifier.verify{value: fee}(payload);
-        vm.snapshotValue(GROUP, name, vm.lastCallGas().gasTotalUsed);
+        vm.snapshotValue(GROUP, name, vm.lastFrameGas().gasTotalUsed);
     }
 
     function _verifyProof(IHonkVerifier verifier, string memory fixture, string memory name) private {
@@ -132,7 +132,7 @@ contract ClaimVerificationGasTest is Test {
         bytes memory proof = vm.parseJsonBytes(json, ".proof");
         bytes32[] memory inputs = vm.parseJsonBytes32Array(json, ".public_inputs");
         assertTrue(verifier.verify(proof, inputs), "the proof does not verify");
-        vm.snapshotValue(GROUP, name, vm.lastCallGas().gasTotalUsed);
+        vm.snapshotValue(GROUP, name, vm.lastFrameGas().gasTotalUsed);
     }
 
     /// `decode` reads calldata, so the test calls itself to decode.

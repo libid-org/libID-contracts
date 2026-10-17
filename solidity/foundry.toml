@@ -43,12 +43,17 @@ gas_snapshot_emit = false
 #
 # Osaka because eden-testnet executes under it: EIP-7883 at least triples the
 # price of MODEXP, which the Honk verifiers call. `vm.setEvmVersion` cannot
-# stand in, because forge 1.7.1 prices precompiles by the version a transaction
+# stand in, because forge prices precompiles by the version a transaction
 # starts under. solc 0.8.33 compiles this tree to the same bytecode for osaka
 # as for cancun, so the numbers are the deployed code's. Compare the two builds
 # when solc moves.
+#
+# Not isolated: an isolated test call runs as a transaction of its own, so its
+# number would add a base fee, its calldata and cold state, none of which the
+# `verify` frame pays inside a claim transaction.
 [profile.gas]
 evm_version = "osaka"
+isolate = false
 gas_snapshot_emit = true
 match_path = "contracts/ceremony/test/ClaimVerificationGas.t.sol"
 
