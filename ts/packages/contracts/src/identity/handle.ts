@@ -5,35 +5,7 @@
 /// format is the platform's. It mirrors the circuits and Rust; all run the
 /// `handles.json` vectors.
 
-import {
-  ERROR_BADCHARACTER,
-  ERROR_EMPTY,
-  ERROR_TOOLONG,
-  PLATFORM_GITHUB,
-  PLATFORM_GOOGLE,
-  PLATFORM_X,
-  platform,
-} from './handleVectors.js'
-
-/// Why a handle was refused. The kinds match the circuits' messages and the Rust
-/// ones, because the vector table names which refusal it expects.
-export class HandleError extends Error {
-  constructor(
-    readonly kind: number,
-    message: string,
-  ) {
-    super(message)
-    this.name = 'HandleError'
-  }
-}
-
-const EMPTY = () => new HandleError(ERROR_EMPTY, 'the handle is empty')
-const TOO_LONG = () => new HandleError(ERROR_TOOLONG, 'the handle is too long for this platform')
-const BAD_CHARACTER = () =>
-  new HandleError(
-    ERROR_BADCHARACTER,
-    'the handle has a byte outside printable ASCII, or a quote or backslash',
-  )
+import { HandleError, PLATFORM_GITHUB, PLATFORM_GOOGLE, PLATFORM_X, platform } from './platforms.js'
 
 /// What one platform's circuit takes, generated from the circuits' `platforms.json`.
 export interface Rules {
@@ -60,9 +32,9 @@ export function normalize(raw: string, rules: Rules): string {
   // Work on bytes, not code units. A character above 0x7f is several bytes and
   // must be refused as bytes, the way the circuits see it.
   const input = new TextEncoder().encode(raw)
-  if (input.length === 0) throw EMPTY()
-  if (input.length > rules.maxLength) throw TOO_LONG()
-  if (!input.every(isStringByte)) throw BAD_CHARACTER()
+  if (input.length === 0) throw new HandleError('Empty')
+  if (input.length > rules.maxLength) throw new HandleError('TooLong')
+  if (!input.every(isStringByte)) throw new HandleError('BadCharacter')
   // ASCII alone, so this folds A-Z and nothing else.
   return raw.toLowerCase()
 }

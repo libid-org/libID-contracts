@@ -6,10 +6,10 @@ use sha2::{
     Sha256,
 };
 
-use super::handle_vectors as v;
 use crate::{
     check_id,
     normalize,
+    platforms as v,
     HandleError,
     IdError,
 };
@@ -44,10 +44,12 @@ impl v::Platform {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::handle_vectors::{
-        platform,
-        ID_VECTORS,
-        VECTORS,
+    use crate::{
+        platforms::platform,
+        vectors::{
+            ID_VECTORS,
+            VECTORS,
+        },
     };
 
     /// The table platform with this key.
@@ -65,30 +67,35 @@ mod tests {
     #[test]
     fn every_handle_node_matches_the_table() {
         for (i, v) in VECTORS.iter().enumerate() {
-            match known(v.platform).handle_node(v.input) {
-                Ok(node) => assert_eq!(hex(node), v.handle_node, "vector {i}"),
-                Err(_) => assert!(!v.accepted, "vector {i}: refused"),
-            }
+            assert_eq!(
+                known(v.platform).handle_node(v.input).map(hex),
+                v.expected.map(|folded| folded.node.to_owned()),
+                "vector {i}: {:?}",
+                v.input
+            );
         }
     }
 
     #[test]
     fn every_id_node_matches_the_table() {
         for (i, v) in ID_VECTORS.iter().enumerate() {
-            match known(v.platform).id_node(v.input) {
-                Ok(node) => assert_eq!(hex(node), v.id_node, "id vector {i}"),
-                Err(_) => assert!(!v.accepted, "id vector {i}: refused"),
-            }
+            assert_eq!(
+                known(v.platform).id_node(v.input).map(hex),
+                v.expected.map(str::to_owned),
+                "id vector {i}: {:?}",
+                v.input
+            );
         }
     }
 
     #[test]
     fn folding_alone_reaches_every_accepted_node() {
-        for (i, v) in VECTORS.iter().filter(|v| v.accepted).enumerate() {
+        for (i, v) in VECTORS.iter().enumerate() {
+            let Ok(expected) = v.expected else { continue };
             let (folded, node) = known(v.platform).folded_handle_node(v.input);
             assert_eq!(
-                (folded.as_str(), hex(node)),
-                (v.output, v.handle_node.into()),
+                (folded.as_str(), hex(node).as_str()),
+                (expected.handle, expected.node),
                 "vector {i}"
             );
         }

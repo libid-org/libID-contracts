@@ -11,8 +11,8 @@
 import { type Address, keccak256, type PublicClient, toHex, zeroAddress, zeroHash } from 'viem'
 
 import { identityRegistryAbi } from '../abis/identityRegistry.js'
-import { HandleError } from './handle.js'
-import { PLATFORMS } from './handleVectors.js'
+import { HandleError } from './platforms.js'
+import { PLATFORMS } from './platforms.js'
 import { handleNode } from './node.js'
 
 /// A platform key (`'x'`, `'github'`, ...), refusing at compile time a value

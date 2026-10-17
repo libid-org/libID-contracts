@@ -29,7 +29,7 @@ use libid_contracts::{
     },
     Artifacts,
 };
-use libid_identity::handle_vectors::PLATFORM_GITHUB;
+use libid_identity::platforms::PLATFORM_GITHUB;
 
 fn test_provider() -> impl Provider + Clone {
     ProviderBuilder::new().connect_anvil_with_wallet()
