@@ -20,7 +20,15 @@ pub(crate) mod drift {
         JsonAbi,
     };
 
+    use serde::Deserialize;
+
     use crate::Artifacts;
+
+    /// A forge build artifact, read for its ABI.
+    #[derive(Deserialize)]
+    struct Compiled {
+        abi: JsonAbi,
+    }
 
     /// A function as the check compares it: its selector's signature, its
     /// output types and its state mutability. A selector alone would miss a
@@ -95,12 +103,10 @@ pub(crate) mod drift {
     ) {
         // The crate embeds no ABI; the check reads forge's build output.
         let out = concat!(env!("CARGO_MANIFEST_DIR"), "/../../solidity/out");
-        let json = Artifacts::from_dir(out)
-            .raw(file, contract)
-            .expect("no forge build output; run `forge build` in solidity/");
-        let compiled: JsonAbi = serde_json::from_value(json["abi"].clone())
-            .expect("the forge artifact has no ABI");
-        let compiled = items(&compiled);
+        let compiled: Compiled = Artifacts::from_dir(out)
+            .read(&format!("{file}.sol/{contract}.json"))
+            .expect("no forge build output with an ABI; run `forge build` in solidity/");
+        let compiled = items(&compiled.abi);
         let bound = items(bound);
 
         let mut unbound: Vec<&str> = compiled
