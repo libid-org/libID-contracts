@@ -29,13 +29,11 @@ import {LibidFactory} from "./LibidFactory.sol";
 ///
 /// @dev THE INIT CODES ARE FROZEN. They are pinned by the compiler settings
 ///      (solc 0.8.33, via_ir, 200 runs, no CBOR metadata) and by the sources;
-///      `test/FactoryDeployer.t.sol` asserts the built artifacts match
-///      `type(·).creationCode`, and the vendored artifacts in
-///      `rust/contracts/artifacts` carry the same bytes. Changing
-///      LibidFactory's source or the compiler settings changes the init code
-///      and therefore every factory address — that is a v2 factory and MUST
-///      use new salts (`libid.factory{,.impl}.v2`), never a silent
-///      replacement of v1. Factory-behavior changes that should NOT move the
+///      the vendored artifacts in `rust/contracts/artifacts` carry the same
+///      bytes. Changing LibidFactory's source or the compiler settings
+///      changes the init code and therefore every factory address — that is
+///      a v2 factory and MUST use new salts (`libid.factory{,.impl}.v2`),
+///      never a silent replacement of v1. Factory-behavior changes that should NOT move the
 ///      address go through the normal UUPS upgrade instead.
 ///
 ///      To deploy on a new network, send two transactions to

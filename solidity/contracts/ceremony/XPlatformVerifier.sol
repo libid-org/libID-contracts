@@ -31,18 +31,10 @@ contract XPlatformVerifier is TlsNotaryVerifierBase {
         return CeremonyProfile.PLATFORM_X;
     }
 
-    /// @dev REQ-PLAT-56, and X's only value check of its own. The runtime's own
-    ///      comparison runs in software the prover chooses whether to run, and
-    ///      `grant_type` is the one revealed field that changes what X did with
-    ///      the request: a body sending `refresh_token` while still carrying a
-    ///      code, a redirect_uri and a digest-derived verifier is processed as a
-    ///      refresh, returns a fresh bearer, and passes every other check — so
-    ///      an application holding a user's refresh token could mint identity
-    ///      proofs at arbitrary addresses indefinitely from one consent.
-    ///
-    ///      The form admits the value -- `refresh_token` is in the serializer's
-    ///      alphabet -- so it is this comparison, not the base's exact-form
-    ///      check, that refuses it.
+    /// @dev REQ-PLAT-56. `grant_type` is the one revealed field that changes
+    ///      what X does with the request: `refresh_token` with an otherwise
+    ///      valid body returns a fresh bearer. The exact-form check admits that
+    ///      value, so this comparison is what refuses it.
     function _checkTokenBody(CeremonyFields.Form memory form) internal pure override {
         bytes memory grantType = CeremonyFields.valueOf(form, "grant_type");
         if (keccak256(grantType) != keccak256(GRANT_TYPE)) revert WrongGrantType(grantType);

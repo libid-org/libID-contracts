@@ -8,12 +8,12 @@ import {TlsNotaryVerifierBase} from "./TlsNotaryVerifierBase.sol";
 
 /// @title GitHubPlatformVerifier — the `github/v1` profile.
 ///
-/// @notice The X relation for GitHub, proved under `bearer-link` with GitHub's tags.
+/// @notice The `bearer-link` proof under GitHub's tags.
 ///
 /// @dev Two authorities: `github.com` for the exchange, `api.github.com` for
 ///      the identity read. The token body is exactly `GITHUB_TOKEN_FIELDS`
-///      (REQ-PLAT-61), revealed whole, so the application credential is public.
-///      The identity response reveals the `"id":` and `"login":"` anchors and
+///      (REQ-PLAT-61), revealed whole, application credential included. The
+///      identity response reveals the `"id":` and `"login":"` anchors and
 ///      their terminators; id and handle are committed for the circuit.
 contract GitHubPlatformVerifier is TlsNotaryVerifierBase {
     /// @custom:oz-upgrades-unsafe-allow constructor

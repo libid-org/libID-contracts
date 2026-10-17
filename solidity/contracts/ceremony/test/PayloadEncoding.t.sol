@@ -28,7 +28,6 @@ contract PayloadEncodingTest is Test {
         p.proof = vm.parseJsonBytes(vm.readFile(PROOF), ".proof");
     }
 
-    /// The pinned hash is the encoding the other languages are compared to.
     function test_theXFixturePayloadEncodesToThePinnedBytes() public view {
         bytes memory encoded = abi.encode(_payload());
         string memory extra = vm.readFile(PAYLOAD);
@@ -45,8 +44,7 @@ contract PayloadEncodingTest is Test {
         assertEq(AttestationBuilder.nodeAt(inputs, 10), vm.parseJsonBytes32(extra, ".handle_node"));
     }
 
-    /// The interface's ABI is the struct's: its arguments encode as the
-    /// payload does.
+    /// The interface's arguments encode as the payload does.
     function test_theInterfaceArgumentsAreThePayload() public view {
         TlsNotaryVerifierBase.TlsNotaryProof memory p = _payload();
         assertEq(

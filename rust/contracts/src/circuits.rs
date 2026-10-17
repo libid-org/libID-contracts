@@ -1,21 +1,18 @@
 //! The ceremony circuits' UltraHonk verifiers: which circuit each platform
 //! proves under, and the deploy of a circuit's verifier.
 //!
-//! A Honk verifier is not written in this repository. bb derives it from a
-//! circuit's verification key, `libid-circuits` runs bb and ships the
-//! Solidity in its release tarballs, and `scripts/vendor-circuit-verifiers.sh`
-//! downloads the pinned release — checked against digests committed in
-//! `solidity/contracts/circuits/circuits.json` — formats it and writes it
-//! under `solidity/contracts/circuits`, gitignored and vendored again before
-//! every build. From there `forge build` compiles it, on the legacy
-//! pipeline `solidity/foundry.toml` sets for these files, and
-//! `scripts/vendor-artifacts.sh` embeds it, so a consumer deploys it from
-//! [`Artifacts::embedded`] with no `bb`.
+//! bb derives each verifier from a circuit's verification key and the
+//! `libid-circuits` release ships it. `scripts/vendor-circuit-verifiers.sh`
+//! downloads the pinned release, checks it against the digests in
+//! `solidity/contracts/circuits/circuits.json` and writes it under
+//! `solidity/contracts/circuits`. `forge build` compiles it on the legacy
+//! pipeline and `scripts/vendor-artifacts.sh` embeds it, so a consumer
+//! deploys it from [`Artifacts::embedded`] without bb.
 //!
 //! The verifier is bb's optimized template: one contract, deployed in one
-//! transaction by [`deploy_honk_verifier`]. Its address is what a
+//! transaction by [`deploy_honk_verifier`]. A
 //! [`platform_verifier::Initializer`](crate::platform_verifier::Initializer)
-//! wires.
+//! wires its address.
 
 #[cfg(test)]
 use std::collections::BTreeMap;
@@ -63,9 +60,8 @@ impl Circuit {
     }
 
     /// The vendored contract, which is also its `.sol` file and its entry
-    /// in [`COVERED`](crate::artifacts::COVERED). bb names every verifier
-    /// `HonkVerifier`; `libid-circuits` renames each so two can share a
-    /// project and one artifact path names one circuit.
+    /// in [`COVERED`](crate::artifacts::COVERED). `libid-circuits` renames
+    /// bb's `HonkVerifier` so each circuit has its own artifact path.
     pub const fn contract(self) -> &'static str {
         match self {
             Self::BearerLink => "BearerLinkHonkVerifier",

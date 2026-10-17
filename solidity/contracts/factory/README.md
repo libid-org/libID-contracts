@@ -78,9 +78,9 @@ present.
 
 `implInitCode()` and `proxyInitCode(admin)` must **never change** for a
 given admin: they are pinned by the LibidFactory/ERC1967Proxy sources and
-the compiler settings (solc 0.8.33, via_ir, 200 runs, no CBOR metadata). `test/FactoryDeployer.t.sol` asserts they match the built
-artifacts byte-for-byte, which are in turn vendored for the Rust bootstrap —
-one set of bytes everywhere. Behavior changes to the live factory go through
+the compiler settings (solc 0.8.33, via_ir, 200 runs, no CBOR metadata). The
+built artifacts are vendored for the Rust bootstrap, so one set of bytes is
+used everywhere. Behavior changes to the live factory go through
 its UUPS upgrade (address and records are kept). A change that *does* alter
 the init code — new sources you want deployed as the genesis bytes — is a
 **v2 factory**: new salts (`libid.factory{,.impl}.v2`), a new

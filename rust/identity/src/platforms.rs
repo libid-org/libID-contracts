@@ -10,7 +10,7 @@ use std::{
     fmt,
 };
 
-/// A platform the profiles name: its key, its node tags and its buffers.
+/// A platform: its key, node tags and buffers.
 pub struct Platform {
     /// keccak256 of this string is the platform id.
     pub key: &'static str,
@@ -31,7 +31,7 @@ pub const PLATFORM_X_KEY: &str = "x";
 /// keccak256 of this string is the platform id.
 pub const PLATFORM_GITHUB_KEY: &str = "github";
 
-/// google, as its profile states it.
+/// The google platform.
 pub const PLATFORM_GOOGLE: Platform = Platform {
     key: PLATFORM_GOOGLE_KEY,
     user_id_tag: "libid.google.user-id",
@@ -44,7 +44,7 @@ pub const PLATFORM_GOOGLE: Platform = Platform {
         decimal: false,
     },
 };
-/// x, as its profile states it.
+/// The x platform.
 pub const PLATFORM_X: Platform = Platform {
     key: PLATFORM_X_KEY,
     user_id_tag: "libid.x.user-id",
@@ -57,7 +57,7 @@ pub const PLATFORM_X: Platform = Platform {
         decimal: true,
     },
 };
-/// github, as its profile states it.
+/// The github platform.
 pub const PLATFORM_GITHUB: Platform = Platform {
     key: PLATFORM_GITHUB_KEY,
     user_id_tag: "libid.github.user-id",
@@ -82,11 +82,11 @@ pub fn platform(key: &str) -> Option<&'static Platform> {
 /// Why a handle was refused.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HandleError {
-    /// The value is empty.
+    /// Zero bytes.
     Empty,
-    /// More bytes than the circuit's buffer holds.
+    /// More bytes than the platform's buffer in platforms.json.
     TooLong,
-    /// A byte that is not part of the token as sent.
+    /// A byte outside printable ASCII, a quote or a backslash.
     BadCharacter,
 }
 
@@ -105,11 +105,11 @@ impl Error for HandleError {}
 /// Why no circuit would hash an id.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum IdError {
-    /// The value is empty.
+    /// Zero bytes.
     Empty,
-    /// More bytes than the circuit's buffer holds.
+    /// More bytes than the platform's buffer in platforms.json.
     TooLong,
-    /// A byte that is not part of the token as sent.
+    /// A byte outside printable ASCII, a quote, a backslash, or a non-digit in a decimal id.
     BadCharacter,
 }
 

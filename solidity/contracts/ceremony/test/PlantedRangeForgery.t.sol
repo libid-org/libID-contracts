@@ -29,8 +29,7 @@ contract PlantedRangeForgeryTest is Test {
     uint64 constant T0 = 1_770_000_000;
     bytes32 constant DOMAIN = keccak256(bytes("libid.claim-identity"));
     bytes32 constant AUTH_NONCE = bytes32(uint256(0x5555555555555555555555555555555555555555555555555555555555555555));
-    /// The digest the fixtures are made for, derived in `setUp` from the
-    /// payload below and this chain.
+    /// The digest the fixtures are made for, derived in `setUp`.
     bytes32 digest;
     bytes32 constant TOKEN_COMMITMENT = bytes32(uint256(0x1111));
     bytes32 constant IDENTITY_COMMITMENT = bytes32(uint256(0x2222));
@@ -82,11 +81,8 @@ contract PlantedRangeForgeryTest is Test {
         });
     }
 
-    /// A GENUINE refresh-token exchange to api.x.com. Offset 0 really is
-    /// `POST /2/oauth2/token HTTP/1.1`, and the prover reveals it honestly.
-    /// The prover added one header of its own choosing to the request it sent;
-    /// X ignores it. That header's value is the only other revealed range.
-    /// The real body -- grant_type=refresh_token -- is revealed to nobody.
+    /// A refresh-token exchange whose request line is revealed at offset 0 and
+    /// whose only other revealed range is a planted header value; the body stays hidden.
     function _plantedHeaderToken() private view returns (ICeremony.Attestation memory) {
         bytes memory v = CeremonyAuthorization.codeVerifier(digest, AUTH_NONCE);
 
@@ -96,7 +92,7 @@ contract PlantedRangeForgeryTest is Test {
         bytes memory planted = abi.encodePacked("grant_type=authorization_code&client_id=trustedApp&code_verifier=", v);
         uint32 plantedStart = 38;
         uint32 plantedEnd = plantedStart + uint32(planted.length);
-        // headers + the REAL refresh-grant body follow, and stay hidden.
+        // The remaining headers and the refresh-grant body stay hidden.
         uint32 total = plantedEnd + 200;
 
         AttestationBuilder.Direction memory sent = AttestationBuilder.Direction({
@@ -129,8 +125,7 @@ contract PlantedRangeForgeryTest is Test {
             ),
             length: sentLen
         });
-        // The anchor-only reveal: the id and handle committed, the anchors
-        // around them revealed, every other byte behind a commitment.
+        // Id and handle committed, the anchors around them revealed.
         AttestationBuilder.Direction memory received;
         received.commit('{"data":{', bytes32(uint256(0x5555)))
             .reveal('"id":"')
@@ -163,21 +158,16 @@ contract PlantedRangeForgeryTest is Test {
         return verifier.verify{value: msg.value}(abi.encode(s));
     }
 
-    /// Finding 2, the realistic shape: honest request line at offset 0, real
-    /// body never revealed, planted header value read as "the body".
-    /// A refresh grant dressed up with a planted header must not verify.
+    /// A refresh grant with a planted header value posing as the body is refused.
     function test_aPlantedTokenRequestIsRejected() public {
         TlsNotaryVerifierBase.TlsNotaryProof memory s = _base();
         s.tokenSession = _plantedHeaderToken();
         s.identitySession = _honestIdentity();
-        // Was: accepted a refresh grant. The compared `grant_type` came from a
-        // planted header value, not from the body X actually answered.
         vm.expectPartialRevert(CeremonyAttestation.CoverageGap.selector);
         this.run{value: quote}(s);
     }
 
-    /// Finding 4: a notary that reveals ONE FIELD PER RANGE, as the spec's
-    /// section 5.2 table lists them, is rejected.
+    /// Token session that reveals one body field per range.
     function _perFieldToken() private view returns (ICeremony.Attestation memory) {
         bytes memory v = CeremonyAuthorization.codeVerifier(digest, AUTH_NONCE);
         bytes memory line = "POST /2/oauth2/token ";
@@ -207,8 +197,7 @@ contract PlantedRangeForgeryTest is Test {
         TlsNotaryVerifierBase.TlsNotaryProof memory s = _base();
         s.tokenSession = _perFieldToken();
         s.identitySession = _honestIdentity();
-        // The per-field runs leave the delimiters between them uncovered, so
-        // the tiling check refuses the request before any field is read.
+        // The delimiters between the per-field ranges are uncovered.
         vm.expectPartialRevert(CeremonyAttestation.CoverageGap.selector);
         this.run{value: quote}(s);
     }

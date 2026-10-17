@@ -49,12 +49,11 @@ contract IdentityRegistryTest is PrivacyScan {
         _wire(GITHUB, address(githubVerifier));
         vm.stopPrank();
 
-        // Observations are provider timestamps, so the chain has to be past
-        // them for a proof to read as already-made rather than future-dated.
+        // Observation times are provider timestamps and must not be in the chain's future.
         vm.warp(1_000_000);
     }
 
-    /// The version every platform's first verifier lands on.
+    /// The version of every platform's first verifier.
     uint16 internal constant V1 = 1;
 
     /// Enable a platform: register its first verifier. Caller supplies the prank.
@@ -95,12 +94,10 @@ contract IdentityRegistryTest is PrivacyScan {
         return abi.encode(
             StubPlatformVerifier.StubPayload({
                 ceremonyVersion: ceremonyVersion,
-                // A literal, not `registry.OPERATION_DOMAIN()`: reading it
-                // is an external call, and it would spend the caller's prank.
+                // A literal: reading `registry.OPERATION_DOMAIN()` is an external call that spends the prank.
                 operationDomain: keccak256(bytes("libid.claim-identity")),
                 authorizationNonce: bytes32(++nonce),
-                // The free shape: these tests are about the binding rules, and
-                // a ceremony composed by hand pays no application.
+                // Target, no fee amount, no fee receiver.
                 transactionData: abi.encode(stagedTarget, uint256(0), address(0))
             })
         );
@@ -135,8 +132,7 @@ contract IdentityRegistryTest is PrivacyScan {
         assertEq(registry.resolveHandle(X, "alice"), alice, "the handle does not resolve");
     }
 
-    /// `claim` and the `bind` that took a publish flag reach no function, and the
-    /// payload stays unspent for `bind`.
+    /// `claim` and a `bind` with a publish flag reach no function; the payload stays unspent for `bind`.
     function test_theOldSelectorsAreGone() public {
         _stage("123", "alice", alice, 100);
         bytes memory payload = _payload(V1);
@@ -155,8 +151,7 @@ contract IdentityRegistryTest is PrivacyScan {
         assertEq(registry.resolveHandle(X, "alice"), alice, "the unspent payload does not bind");
     }
 
-    /// The one authorization rule. A proof read from the mempool is useless to
-    /// its reader, because spending it means being the address it names.
+    /// Only the address the proof names may spend it, so a proof read from the mempool is useless.
     function test_onlyTheProofsTargetMayBind() public {
         _stage("123", "alice", alice, 100);
 
@@ -165,9 +160,7 @@ contract IdentityRegistryTest is PrivacyScan {
         _submit(X, "");
     }
 
-    /// Authorized Transaction Data naming nobody is data anybody could redirect
-    /// at themselves. It is refused the same way any other address that is not
-    /// the caller is.
+    /// A zero target is refused like any address other than the caller.
     function test_aBindWithNoTargetIsRefused() public {
         _stage("123", "alice", address(0), 100);
 
@@ -214,16 +207,11 @@ contract IdentityRegistryTest is PrivacyScan {
 
     // ─── The watermark ──────────────────────────────────────────────
 
-    /// A proof held back must not undo a newer one. This is the case the
-    /// watermark exists for.
     function test_anOlderProofCannotTakeAHandleBack() public {
         _bind(alice, "123", "shared", 100);
-
-        // Bob proves the same handle later, which is a legitimate takeover.
         _bind(bob, "456", "shared", 200);
         assertEq(registry.resolveHandle(X, "shared"), bob);
 
-        // Alice submits a proof she was holding from before bob's.
         _stage("123", "shared", alice, 150);
         vm.prank(alice);
         vm.expectRevert(abi.encodeWithSelector(IdentityRegistry.StaleProof.selector, uint64(150), uint64(200)));
@@ -232,10 +220,7 @@ contract IdentityRegistryTest is PrivacyScan {
         assertEq(registry.resolveHandle(X, "shared"), bob, "the handle moved back");
     }
 
-    /// A second proof of the same observation, under a fresh digest, is
-    /// refused by the same rule, because equal is not newer. The exact proof
-    /// stops earlier, at its spent digest (`test_aDigestIsSpendableOnce` in
-    /// `CeremonyBind.t.sol`).
+    /// A second proof of the same observation under a fresh digest is stale: equal is not newer.
     function test_replayingAProofIsRefused() public {
         _bind(alice, "123", "alice", 100);
 
@@ -245,7 +230,6 @@ contract IdentityRegistryTest is PrivacyScan {
         _submit(X, "");
     }
 
-    /// A rename retires the handle the identity left.
     function test_aRenameRetiresTheHandleTheIdentityLeft() public {
         _bind(alice, "123", "alice", 100);
         _bind(alice, "123", "alice2", 200);
@@ -267,23 +251,17 @@ contract IdentityRegistryTest is PrivacyScan {
         _submit(X, "");
     }
 
-    /// Only the entry this identity itself wrote. One holder may have two
-    /// identities on a platform, and the second may have taken the handle the
-    /// first released — retiring that would delete a binding nobody renamed.
+    /// A rename leaves a handle that a second identity of the same holder took since.
     function test_aRetirementSkipsAHandleAnotherIdentityHasSinceTaken() public {
         _bind(alice, "123", "shared", 100);
-        // A second identity, same holder, takes the handle the first had.
         _bind(alice, "456", "shared", 200);
-        // Now the first identity renames. Its own record still names "shared".
         _bind(alice, "123", "renamed", 300);
 
         assertEq(registry.resolveHandle(X, "shared"), alice, "the second identity keeps it");
         assertEq(registry.resolveHandle(X, "renamed"), alice);
     }
 
-    /// Retiring clears the holder and keeps the watermark. Deleting the whole
-    /// record would return the node to `observedAt == 0` and let a proof older
-    /// than the retired one take it.
+    /// Retiring clears the holder and keeps the watermark.
     function test_aRetiredHandleStillOutranksAnOlderProof() public {
         _bind(alice, "123", "alice", 200);
         _bind(alice, "123", "alice2", 300);
@@ -294,8 +272,6 @@ contract IdentityRegistryTest is PrivacyScan {
         _submit(X, "");
     }
 
-    /// And a newer proof takes it as usual, so retiring frees the handle rather
-    /// than burning it.
     function test_aRetiredHandleIsFreeForANewerProof() public {
         _bind(alice, "123", "alice", 100);
         _bind(alice, "123", "alice2", 200);
@@ -304,8 +280,7 @@ contract IdentityRegistryTest is PrivacyScan {
         assertEq(registry.resolveHandle(X, "alice"), bob);
     }
 
-    /// A proof with no observation time cannot be ordered against any other, so
-    /// it is refused rather than treated as the oldest.
+    /// A proof with no observation time cannot be ordered against any other.
     function test_aProofWithNoObservationTimeIsRefused() public {
         _stage("123", "alice", alice, 0);
         vm.prank(alice);
@@ -313,7 +288,6 @@ contract IdentityRegistryTest is PrivacyScan {
         _submit(X, "");
     }
 
-    /// A zero id node is refused.
     function test_aBindWithNoIdNodeIsRefused() public {
         _stage("123", "alice", alice, 100);
         xVerifier.setNodes(bytes32(0), _hn(X, "alice"));
@@ -323,8 +297,6 @@ contract IdentityRegistryTest is PrivacyScan {
     }
 
     // ─── Platforms ──────────────────────────────────────────────────
-
-    // ─── The freshness signal ───────────────────────────────────────
 
     /// Every entry point that names a platform refuses an unknown one.
     /// `resolveId` takes a node and answers nobody.
@@ -382,6 +354,8 @@ contract IdentityRegistryTest is PrivacyScan {
         assertEq(registry.resolveHandle(X, "ALICE"), alice);
     }
 
+    // ─── The freshness signal ───────────────────────────────────────
+
     function test_resolveHandleAndIdAgreesWhileOneIdentityHasBoth() public {
         _bind(alice, "123", "alice", 100);
 
@@ -423,8 +397,7 @@ contract IdentityRegistryTest is PrivacyScan {
         assertFalse(agrees, "a GitHub handle node agreed with an X id");
     }
 
-    /// The case the two mappings exist for: a consumer has a pair from two
-    /// different moments, and the chain can say so.
+    /// A pair learned before the handle changed hands no longer agrees.
     function test_resolveHandleAndIdReportsAHandleThatChangedHands() public {
         _bind(alice, "123", "shared", 100);
         _bind(bob, "456", "shared", 200);
@@ -460,8 +433,6 @@ contract IdentityRegistryTest is PrivacyScan {
         assertTrue(agrees);
     }
 
-    /// An id the chain has never seen leaves a caller exactly as uninformed as
-    /// a stale one, so it does not agree either.
     function test_resolveHandleAndIdDoesNotAgreeOnAnUnknownId() public {
         _bind(alice, "123", "alice", 100);
 
@@ -610,7 +581,6 @@ contract IdentityRegistryTest is PrivacyScan {
         );
     }
 
-    /// A published handle can be withdrawn without a fresh proof.
     function test_aPublishedHandleCanBeWithdrawn() public {
         _bindDisclosing(alice, "123", "alice", 100);
         assertEq(registry.publishedHandleOf(alice, X), "alice");
@@ -622,7 +592,6 @@ contract IdentityRegistryTest is PrivacyScan {
         assertEq(registry.publishedHandleOf(alice, X), "");
     }
 
-    /// Withdrawing a published handle keeps the binding.
     function test_withdrawingAPublishedHandleKeepsTheBinding() public {
         _bindDisclosing(alice, "123", "alice", 100);
 
@@ -668,7 +637,6 @@ contract IdentityRegistryTest is PrivacyScan {
         assertEq(registry.publishedHandleOf(alice, X), "alicia");
     }
 
-    /// Withdrawing when nothing is published changes nothing and logs nothing.
     function test_unpublishingNothingLogsNothing() public {
         _bind(alice, "123", "alice", 100);
         vm.recordLogs();
@@ -690,7 +658,6 @@ contract IdentityRegistryTest is PrivacyScan {
         assertEq(registry.publishedHandleOf(alice, X), "alicia");
     }
 
-    /// One holder's withdrawal is its own. There is no path to another's.
     function test_withdrawingTouchesOnlyTheCallersRecord() public {
         _bindDisclosing(alice, "123", "alice", 100);
 
@@ -940,8 +907,7 @@ contract IdentityRegistryTest is PrivacyScan {
         assertTrue(_identity(bob, X, "456").handleCurrent);
     }
 
-    /// The holder still holds the handle node, through the other identity. A
-    /// holder check alone would call both identities current.
+    /// The holder still holds the node through its other identity; only that identity is current.
     function test_aSecondIdentityOfTheSameHolderTakingTheHandleIsToldApart() public {
         _bind(alice, "123", "first", 100);
         _bind(alice, "456", "second", 200);
@@ -974,7 +940,7 @@ contract IdentityRegistryTest is PrivacyScan {
         assertEq(_identity(alice, X, "3").handleNode, _hn(X, "three"));
         assertEq(_identity(bob, X, "2").handleNode, _hn(X, "two"));
 
-        // And back: an identity returns to a list it left.
+        // An identity returns to a list it left.
         _bind(alice, "2", "two", 500);
         assertEq(registry.identityCount(alice), 3);
         assertEq(registry.identityCount(bob), 0);
@@ -1054,10 +1020,7 @@ contract IdentityRegistryTest is PrivacyScan {
 
     // ─── Reading is total in the handle ─────────────────────────────
 
-    /// A contract resolving whatever was typed must not have its whole
-    /// transaction reverted by a stray space, with a library error it cannot
-    /// tell apart from `UnknownPlatform`. Malformed text answers the zero
-    /// address, which is the same answer as a handle nobody proved.
+    /// Text no proof bound answers the zero address, whatever its bytes, and never reverts.
     function test_resolvingMalformedTextAnswersNobody() public view {
         assertEq(registry.resolveHandle(X, "ali ce"), address(0), "a stray space");
         assertEq(registry.resolveHandle(X, " alice"), address(0), "a leading space");
@@ -1068,8 +1031,6 @@ contract IdentityRegistryTest is PrivacyScan {
         assertEq(registry.resolveHandle(GITHUB, "-octocat"), address(0), "an arrangement GitHub never sends");
     }
 
-    /// `resolveHandleAndId` matters more: its documented job is to let a
-    /// caller decide what to tell whoever is paying, not to refuse.
     function test_resolveHandleAndIdAnswersRatherThanRevertingOnAMalformedHandle() public view {
         (address holder, bool idAgrees) = registry.resolveHandleAndId(X, "ali ce", _id(X, "123"));
         assertEq(holder, address(0));
@@ -1105,7 +1066,6 @@ contract IdentityRegistryTest is PrivacyScan {
 
     // ─── Proof versions ─────────────────────────────────────────────
 
-    /// Retiring a version leaves its bindings resolving.
     function test_retiringAVersionLeavesItsBindingsResolving() public {
         _bind(alice, "123", "alice", 100);
 
@@ -1209,8 +1169,6 @@ contract IdentityRegistryTest is PrivacyScan {
         assertEq(registry.resolveHandle(X, "alice"), alice);
     }
 
-    /// A retired handle has no holder and keeps its watermark, so a proof
-    /// older than the one that retired it cannot take the node back.
     function test_aRetiredHandleHasNoHolderAndKeepsItsWatermark() public {
         _bind(alice, "123", "alice", 100);
         _bind(alice, "123", "alice2", 200);
@@ -1222,9 +1180,7 @@ contract IdentityRegistryTest is PrivacyScan {
 
     // ─── Ownership ──────────────────────────────────────────────────
 
-    /// The owner has no privileged path to a binding. It obeys the same target
-    /// rule as anybody else, so holding the owner key does not let it spend a
-    /// proof that names a different address.
+    /// The owner cannot spend a proof that names another address.
     function test_theOwnerHasNoPrivilegedPathToABinding() public {
         _bind(alice, "123", "alice", 100);
 
@@ -1236,7 +1192,6 @@ contract IdentityRegistryTest is PrivacyScan {
         assertEq(registry.resolveId(_id(X, "123")), alice, "the binding moved");
     }
 
-    /// Replacing a version's verifier leaves existing bindings alone.
     function test_replacingAVerifierLeavesBindingsAlone() public {
         _bind(alice, "123", "alice", 100);
 

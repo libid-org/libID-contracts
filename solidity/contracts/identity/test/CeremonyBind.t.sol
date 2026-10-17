@@ -57,13 +57,12 @@ contract CeremonyBindTest is Test {
         return abi.encode(target, feeAmount, feeReceiver);
     }
 
-    /// The same, for a ceremony composed by hand: no application to pay.
+    /// Transaction data that names no fee.
     function _free(address target) private pure returns (bytes memory) {
         return _txData(target, 0, address(0));
     }
 
-    /// The stub's payload for one authorization. The Consumer never sees
-    /// inside it; only the stub does.
+    /// The stub's payload for one authorization; the Consumer passes it through opaque.
     function _payload(bytes32 domain, bytes memory txData, bytes32 nonce) private pure returns (bytes memory) {
         return abi.encode(
             StubPlatformVerifier.StubPayload({
@@ -101,19 +100,14 @@ contract CeremonyBindTest is Test {
         assertEq(registry.resolveId(TestNodes.idNode(PLATFORM, "2244994945")), WALLET);
     }
 
-    /// @dev The Consumer hands the payload through as opaque bytes. What the
-    ///      Platform Verifier decoded and digested is what it acted on.
+    /// @dev The spent digest is the one the Platform Verifier built from the payload.
     function test_recordsTheDigestTheVerifierBuilt() public {
         _bind(_payload(WALLET, bytes32(uint256(7))), FEE);
         assertEq(verifier.lastDigest(), _digest(WALLET, bytes32(uint256(7))));
         assertTrue(registry.digestSpent(verifier.lastDigest()));
     }
 
-    /// @dev Which OAuth client produced a binding is answerable only from the
-    ///      call that wrote it -- nothing stores the value, and the contract
-    ///      has no use for it. So a ceremony logs it, in the exact bytes the
-    ///      platform authenticated, keyed by the digest that identifies the
-    ///      ceremony.
+    /// @dev `CeremonyBound` carries the client identifier as the platform authenticated it; nothing stores it.
     function test_logsTheAuthenticatedClientIdentifier() public {
         vm.recordLogs();
         _bind(_payload(WALLET, bytes32(uint256(11))), FEE);
@@ -128,9 +122,7 @@ contract CeremonyBindTest is Test {
         revert("no CeremonyBound in the logs");
     }
 
-    /// @dev Logged, not stored. Nothing on chain reads which ceremony version
-    ///      proved a binding; an operator asking which bindings a version
-    ///      touched reads `IdentityBound`.
+    /// @dev Which bindings a version proved is read from `IdentityBound`.
     function test_logsTheCeremonyVersionAndStoresNothingOfIt() public {
         vm.recordLogs();
         _bind(_payload(WALLET, bytes32(uint256(88))), FEE);
@@ -161,8 +153,7 @@ contract CeremonyBindTest is Test {
 
     // ─── The digest is its own replay nullifier ─────────────────────
 
-    /// @dev REQ-COMMON-03A. The circuit dropped its nullifier because this
-    ///      exists; without it the drop would have opened a replay.
+    /// @dev REQ-COMMON-03A: the spent digest is the replay nullifier.
     function test_aDigestIsSpendableOnce() public {
         bytes memory p = _payload(WALLET, bytes32(uint256(9)));
         _bind(p, FEE);
@@ -174,7 +165,7 @@ contract CeremonyBindTest is Test {
         registry.bind{value: FEE}(PLATFORM, 1, p, "");
     }
 
-    /// @dev A fresh nonce is a fresh digest, so re-proving is always available.
+    /// @dev Re-proving under a fresh nonce is always available.
     function test_aFreshNonceIsAFreshDigest() public {
         verifier.setObservedAt(T0);
         _bind(_payload(WALLET, bytes32(uint256(1))), FEE);
@@ -185,10 +176,6 @@ contract CeremonyBindTest is Test {
 
     // ─── The authorization predicate ────────────────────────────────
 
-    /// @dev The Consumer binds to the AUTHENTICATED caller, not to an address
-    ///      the submitter names. A Consumer doing otherwise would turn
-    ///      consent-phishing into identity theft: anyone could spend a genuine
-    ///      proof at an address of their choosing.
     function test_rejectsAProofSpentAtAnotherAddress() public {
         bytes memory p = _payload(address(0xDEAD), bytes32(uint256(4)));
         vm.prank(WALLET);
@@ -206,9 +193,7 @@ contract CeremonyBindTest is Test {
 
     // ─── The operation domain ───────────────────────────────────────
 
-    /// @dev REQ-COMMON-06A. The domain is inside the payload, so the Consumer
-    ///      learns it from the verifier's report and refuses one it does not
-    ///      own before applying anything.
+    /// @dev REQ-COMMON-06A: a domain the Consumer does not own is refused before anything is applied.
     function test_rejectsAForeignOperationDomain() public {
         bytes32 foreign = keccak256(bytes("someone.else.operation"));
         bytes memory p = _payload(foreign, WALLET, bytes32(uint256(6)));
@@ -226,8 +211,7 @@ contract CeremonyBindTest is Test {
         registry.bind{value: FEE}(PLATFORM, 2, p, "");
     }
 
-    /// @dev REQ-COMMON-05B: more than one verifier version of one platform at
-    ///      a time, so a deployment runs a new one beside the one it replaces.
+    /// @dev REQ-COMMON-05B: a new verifier version runs beside the one it replaces.
     function test_supportsTwoVerifierVersionsAtOnce() public {
         StubPlatformVerifier second = new StubPlatformVerifier(PLATFORM, FEE);
         second.set("999", "bob");
@@ -242,12 +226,7 @@ contract CeremonyBindTest is Test {
         assertEq(registry.resolveHandle(PLATFORM, "bob"), WALLET);
     }
 
-    /// @dev CeremonyProofVerifier's own doc says removing a version "strands no
-    ///      name already bound under it". Routing resolution through the
-    ///      Supported Version Set made that false: retiring the last version
-    ///      stopped every binding on the platform from resolving, for
-    ///      identities that were bound and still current. A binding does not
-    ///      belong to the proof that established it.
+    /// @dev Retiring a platform's last version leaves its bindings resolving.
     function test_aBindingOutlivesTheVersionThatEstablishedIt() public {
         _bind(_payload(WALLET, bytes32(uint256(77))), FEE);
         assertEq(registry.resolveId(TestNodes.idNode(PLATFORM, "2244994945")), WALLET);
@@ -301,7 +280,6 @@ contract CeremonyBindTest is Test {
         assertEq(holder, WALLET);
     }
 
-    /// @dev A zero id node is refused.
     function test_rejectsAnEmptyIdNode() public {
         verifier.setNodes(bytes32(0), keccak256("a handle node"));
         bytes memory p = _payload(WALLET, bytes32(uint256(13)));
@@ -341,8 +319,7 @@ contract CeremonyBindTest is Test {
         registry.bind{value: FEE}(PLATFORM, 1, p, "");
     }
 
-    /// @dev A wei short of the verification path is caught before the payload
-    ///      is verified: that much is knowable without decoding anything.
+    /// @dev Caught before verification: the shortfall is known without decoding the payload.
     function test_rejectsOneWeiLessThanTheQuote() public {
         bytes memory p = _payload(WALLET, bytes32(uint256(23)));
         vm.prank(WALLET);
@@ -350,9 +327,7 @@ contract CeremonyBindTest is Test {
         registry.bind{value: FEE - 1}(PLATFORM, 1, p, "");
     }
 
-    /// @dev A wei more is caught after: everything above the quote is the fee,
-    ///      and this ceremony authorized none. There is no refund path, so
-    ///      overpayment is refused rather than kept or forwarded.
+    /// @dev Caught after verification: value above the quote is the fee, and this ceremony authorized none.
     function test_rejectsOneWeiMoreThanTheBindCosts() public {
         bytes memory p = _payload(WALLET, bytes32(uint256(24)));
         vm.prank(WALLET);
@@ -404,11 +379,7 @@ contract CeremonyBindTest is Test {
 
     // ─── The service fee ────────────────────────────────────────────
 
-    /// @dev The whole point of carrying the fee in the Authorized Transaction
-    ///      Data: this number was approved at consent time, because it is
-    ///      inside the digest the proof opens against. A hosted application
-    ///      cannot raise it afterwards, and it is paid to the address the
-    ///      ceremony named -- not to the caller, who is the target.
+    /// @dev The fee was consented to inside the digest and goes to the receiver the ceremony named.
     function test_paysTheFeeTheCeremonyNamed() public {
         bytes memory p = _payload(DOMAIN, _txData(WALLET, SERVICE_FEE, HOST), bytes32(uint256(60)));
         uint256 hostBefore = HOST.balance;
@@ -426,9 +397,6 @@ contract CeremonyBindTest is Test {
         assertEq(address(registry).balance, 0, "nothing was captured in transit");
     }
 
-    /// @dev Anyone who composes their own ceremony names no fee and pays only
-    ///      the verification path. Nothing on this chain knows who is hosted
-    ///      and who is not; the difference is entirely in what was consented to.
     function test_aFreeBindPaysOnlyTheVerificationPath() public {
         uint256 hostBefore = HOST.balance;
         vm.recordLogs();
@@ -449,8 +417,6 @@ contract CeremonyBindTest is Test {
         registry.bind{value: FEE}(PLATFORM, 1, p, "");
     }
 
-    /// @dev Over is refused as firmly as under. Nobody consented to more, and
-    ///      there is nowhere to send the difference back to.
     function test_rejectsMoreThanTheCeremonyAuthorized() public {
         bytes memory p = _payload(DOMAIN, _txData(WALLET, SERVICE_FEE, HOST), bytes32(uint256(63)));
         vm.prank(WALLET);
@@ -458,9 +424,7 @@ contract CeremonyBindTest is Test {
         registry.bind{value: FEE + SERVICE_FEE + 1}(PLATFORM, 1, p, "");
     }
 
-    /// @dev REQ-COMMON-01F: one encoding per intent. A free bind is
-    ///      `(0, address(0))`, so a receiver left beside a zero amount is a
-    ///      second spelling of it and is refused rather than normalized.
+    /// @dev REQ-COMMON-01F: a free bind is `(0, address(0))`; a receiver beside a zero amount is refused.
     function test_rejectsAReceiverBesideAZeroFee() public {
         bytes memory p = _payload(DOMAIN, _txData(WALLET, 0, HOST), bytes32(uint256(64)));
         vm.prank(WALLET);
@@ -468,8 +432,7 @@ contract CeremonyBindTest is Test {
         registry.bind{value: FEE}(PLATFORM, 1, p, "");
     }
 
-    /// @dev The other half of the same rule. Paying a fee to nobody would burn
-    ///      value that was consented to, which is worse than refusing.
+    /// @dev A fee paid to no receiver would burn consented value.
     function test_rejectsAFeeBesideNoReceiver() public {
         bytes memory p = _payload(DOMAIN, _txData(WALLET, SERVICE_FEE, address(0)), bytes32(uint256(65)));
         vm.prank(WALLET);
@@ -477,9 +440,7 @@ contract CeremonyBindTest is Test {
         registry.bind{value: FEE + SERVICE_FEE}(PLATFORM, 1, p, "");
     }
 
-    /// @dev What makes the fee unforgeable: it is a digest input. Change the
-    ///      amount or the receiver and the digest moves, so the authorized
-    ///      proof no longer opens against it.
+    /// @dev Changing the amount or the receiver moves the digest the proof opens against.
     function test_theFeeIsInsideTheDigest() public view {
         bytes32 n = bytes32(uint256(66));
         bytes32 asAgreed = _digest(_txData(WALLET, SERVICE_FEE, HOST), n);
@@ -488,10 +449,7 @@ contract CeremonyBindTest is Test {
         assertTrue(asAgreed != _digest(_free(WALLET), n), "a free bind is not a distinct digest");
     }
 
-    /// @dev The receiver is an address the ceremony named, so it can be
-    ///      hostile or simply broken. It cannot take the handle without paying
-    ///      for it: the bind is one transaction, and a fee that cannot be
-    ///      delivered undoes the write with it.
+    /// @dev A fee that cannot be delivered reverts the bind and leaves the digest unspent.
     function test_aReceiverThatRefusesTheFeeUndoesTheWholeBind() public {
         RejectingReceiver bad = new RejectingReceiver();
         bytes memory p = _payload(DOMAIN, _txData(WALLET, SERVICE_FEE, address(bad)), bytes32(uint256(67)));
@@ -503,9 +461,7 @@ contract CeremonyBindTest is Test {
         assertFalse(registry.digestSpent(_digest(_txData(WALLET, SERVICE_FEE, address(bad)), bytes32(uint256(67)))));
     }
 
-    /// @dev The fee is the one call out of this contract, and it happens after
-    ///      every write. A receiver that calls back in finds the guard closed;
-    ///      it may still take the value, and the bind it re-entered stands.
+    /// @dev The fee transfer follows every write; a receiver that re-enters finds the guard closed.
     function test_aFeeReceiverCannotReenterTheBind() public {
         ReenteringReceiver host = new ReenteringReceiver(registry, PLATFORM, _payload(WALLET, bytes32(uint256(69))));
         bytes memory p = _payload(DOMAIN, _txData(WALLET, SERVICE_FEE, address(host)), bytes32(uint256(68)));
@@ -517,7 +473,7 @@ contract CeremonyBindTest is Test {
         assertFalse(registry.digestSpent(_digest(WALLET, bytes32(uint256(69)))));
     }
 
-    // Reentrancy (the stronger, negative-paths shape: zero-fee verifier, re-enters via raw call, re-raises)
+    // ─── Reentrancy ─────────────────────────────────────────────────
 
     function test_aReenteringVerifierIsRefused() public {
         ReenteringVerifier evil = new ReenteringVerifier(registry, PLATFORM);
@@ -557,7 +513,7 @@ contract ReenteringVerifier is IPlatformVerifier {
         return 0;
     }
 
-    /// @dev The `VerifiedClaim` it returns is zeroed; the reentry is the whole point.
+    /// @dev Re-enters `bind` once, re-raises its revert, and returns a zeroed claim.
     function verify(bytes calldata) external payable returns (VerifiedClaim memory c) {
         if (armed) {
             armed = false;

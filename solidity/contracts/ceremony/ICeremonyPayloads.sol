@@ -7,8 +7,8 @@ import {TlsNotaryVerifierBase} from "./TlsNotaryVerifierBase.sol";
 /// @title ICeremonyPayloads
 /// @notice The payloads the Platform Verifiers decode, as an ABI clients encode
 ///         against. A payload is `abi.encode(p)`, never a call.
-/// @dev Nothing implements or calls this; it puts each struct's tuple type in
-///      an artifact the TypeScript and Rust encoders are checked against.
+/// @dev Its artifact carries each struct's tuple type, which the TypeScript
+///      and Rust encoders are checked against.
 interface ICeremonyPayloads {
     /// @notice The `x/v1` and `github/v1` payload.
     function tlsNotaryProof(TlsNotaryVerifierBase.TlsNotaryProof calldata payload) external pure;

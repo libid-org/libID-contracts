@@ -1,21 +1,19 @@
 #!/usr/bin/env python3
 """Check every upgradeable contract's storage layout against its snapshot.
 
-A UUPS upgrade keeps the proxy's storage and swaps the code that reads it. A
-field reordered, removed or retyped in a contract's storage struct makes every
-value read out of the wrong bytes, and a value read from the wrong bytes does
-not revert: it answers. The snapshot beside each contract records what a
-deployment's storage holds; this script regenerates the layout from source and
-compares.
+A UUPS upgrade keeps the proxy's storage and swaps the code that reads it, so a
+field reordered, removed or retyped reads the wrong bytes without reverting.
+The snapshot beside each contract records what a deployment's storage holds.
+This script regenerates the layout from source and compares.
 
-Each entry of LAYOUTS below is one source file and its snapshot, the file's
-name with `.storage-layout` in place of `.sol`. What is compared:
+Each entry of LAYOUTS is one source file and its snapshot, the file's name with
+`.storage-layout` in place of `.sol`. What is compared:
 
     root      the ERC-7201 namespace in the file's `@custom:storage-location`
               annotation, and the storage-root constant, which must be
               `cast index-erc7201` of that namespace;
     contract  the ordinary (non-namespaced) state variables of each concrete
-              contract the entry names -- none, for every contract today;
+              contract the entry names;
     field     each field of the namespaced struct: slot and offset relative
               to the root, name, and type, read through the
               `StorageLayoutProbe` contract;
@@ -29,38 +27,36 @@ An entry with no namespace (LibidFactory) records only its `contract` lines.
 Types are compared by their label (`mapping(bytes32 => uint256)`), not by the
 compiler's `t_...` ids, which embed AST ids that move on unrelated edits.
 
-Exit status is 0 only when every layout equals its snapshot and every
-concrete UUPS contract under solidity/contracts is covered by LAYOUTS. A change
-that only appends at the end of a section (each contract's own `contract`
-lines, the `field` lines, each struct's members) is reported as an append to
-record. A change that only renames is reported as a rename to record: every
-line keeps its slot, offset and type, a renamed struct or contract type
-counting as the same type, and no label both layouts keep has moved. Two fields of one type
-swapped in the source would otherwise read as a rename of both. Any other
-change is reported as INCOMPATIBLE. So is growth of a struct stored as an
-array element, or inline in one: it changes the element's size, and every
-element after the first is read from the wrong slots.
+Exit status is 0 only when every layout equals its snapshot and LAYOUTS covers
+every concrete UUPS contract under solidity/contracts. A difference is one of:
 
-Updating it deliberately: append the new field at the END of the struct, or
-rename in place, run
+    append        lines added only at the end of a section: each contract's
+                  own `contract` lines, the `field` lines, each struct's
+                  members;
+    rename        every line keeps its slot, offset and type, a renamed struct
+                  or contract type counting as the same type, and no label
+                  both layouts keep has moved, so two swapped fields of one
+                  type are not a rename;
+    INCOMPATIBLE  anything else, including growth of a struct stored as an
+                  array element or inline in one, which changes the stride.
+
+To change a layout, append the new field at the END of the struct or rename in
+place, run
 
     ./scripts/check-storage-layout.py --update
 
-and commit the snapshot with the change. `--update` refuses to record anything
-but an exact match, a pure append or a pure rename; a layout break is not
-something to record, it is something to undo. A new upgradeable contract gets
-an entry in LAYOUTS, a field in `StorageLayoutProbe` if it has a namespace,
-and a first snapshot from `--update`.
+and commit the snapshot with the change. `--update` records only an exact
+match, a pure append or a pure rename. A new upgradeable contract gets an
+entry in LAYOUTS, a field in `StorageLayoutProbe` if it has a namespace, and a
+first snapshot from `--update`.
 
-The one exception is a contract that ships as a fresh deployment, never as an
-upgrade of a live proxy. Its snapshot may be reset to the current layout,
-whatever changed:
+A contract that ships as a fresh deployment, never as an upgrade of a live
+proxy, may have its snapshot reset to the current layout:
 
     ./scripts/check-storage-layout.py --redeploy PlatformVerifierBase --why "..."
 
-This rewrites that one snapshot and stamps it with the reason; every other
-entry is checked as usual. The stamp stays through later `--update`s, and
-appends are checked against the reset layout.
+This rewrites that one snapshot and stamps it with the reason. The stamp stays
+through later `--update`s, and appends are checked against the reset layout.
 
 Needs `forge` and `cast` on PATH. It runs `forge inspect --no-cache` in
 solidity/, which compiles what it needs and leaves the build cache alone.
@@ -132,8 +128,7 @@ LAYOUTS = (
         "NotaryService.NotaryServiceStorage",
         "NOTARY_SERVICE_STORAGE",
     ),
-    # Shared by every Platform Verifier. Google adds a namespace of its own,
-    # above; X and GitHub have only this one.
+    # Shared by every Platform Verifier. Google also has its own, above.
     Layout(
         "ceremony/PlatformVerifierBase.sol",
         ("XPlatformVerifier", "GitHubPlatformVerifier"),
@@ -243,9 +238,8 @@ def run(*args: str) -> str:
 
 
 def inspect(contract: str) -> StorageLayout:
-    # --no-cache: a cached artifact from `forge build` carries no storage
-    # layout, and inspect refuses it. Without the cache, forge compiles just
-    # this contract's sources for the layout, in about a second.
+    # --no-cache: a `forge build` artifact carries no storage layout, and
+    # inspect refuses it. Without the cache forge compiles just this contract.
     return StorageLayout.from_json(json.loads(run("forge", "inspect", contract, "storageLayout", "--json", "--no-cache")))
 
 

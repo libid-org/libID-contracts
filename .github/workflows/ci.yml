@@ -1,30 +1,23 @@
 name: CI
 
-# Five jobs, one shared expensive step. `forge build` is the input to almost
-# everything — the Solidity tests run over it, the vendored Rust artifacts are
-# generated from it, and the TypeScript codegen reads it — so the jobs that
-# need it run the same .github/actions/forge-build composite with the same
-# cache key, and whichever run warms the cache first makes the build a fast
-# no-op everywhere else.
+# `forge build` feeds the Solidity tests, the vendored Rust artifacts and the
+# TypeScript codegen. Jobs that need it run the .github/actions/forge-build
+# composite with one cache key per profile, so the first run to warm the
+# cache speeds up the rest.
 #
-# Nothing generated is committed: the vendored Honk verifiers and platform
-# table, rust/contracts/artifacts and ts/packages/contracts/src/abis are all
-# gitignored. The forge-build composite vendors the circuits release before
-# it builds, and every job that compiles the crate or the package regenerates
-# its tree first — publishing included.
+# Generated trees are gitignored: the vendored Honk verifiers and platform
+# table, rust/contracts/artifacts and ts/packages/contracts/src/abis. Every
+# job that compiles the crate or the package regenerates them first.
 #
-# Job ids are stable on purpose (solidity, generated-tables, rust, ts, dco):
-# the release/publish jobs at the bottom of this file hang their `needs:` off
-# these names.
+# The release jobs at the bottom name other jobs in `needs:`, so renaming a
+# job id breaks them.
 #
-# Releases: publishing a GitHub Release tagged `v<version>` runs this same
-# workflow with the release event. versions and publish-check run on every
-# event; verify-tag, publish-crates and publish-npm are release-only. One
-# version, one tag, two registries — see the "Releasing" section of the
-# README.
+# Releases: publishing a GitHub Release tagged `v<version>` runs this workflow
+# with the release event. versions and publish-check run on every event;
+# verify-tag, publish-crates and publish-npm are release-only. See the
+# "Releasing" section of the README.
 #
-# Every third-party action is pinned by commit SHA, with the tag in a comment,
-# so a moved tag cannot change what executes.
+# Every third-party action is pinned by commit SHA, with the tag in a comment.
 
 on:
   pull_request:
@@ -34,7 +27,7 @@ on:
     types: [published]
 
 concurrency:
-  # Superseded pushes stop burning minutes immediately.
+  # A newer push cancels the run it supersedes.
   group: ci-${{ github.head_ref || github.ref }}
   cancel-in-progress: true
 
@@ -42,18 +35,16 @@ env:
   # Every cargo invocation, not just clippy, treats warnings as errors.
   RUSTFLAGS: "-D warnings"
   CARGO_TERM_COLOR: always
-  # Incremental state is written, cached and never read in CI — every job
-  # starts from a restored cache and never rebuilds the same crate twice.
+  # CI never reads incremental state, so it is neither written nor cached.
   CARGO_INCREMENTAL: 0
-  # Foundry stable release, current at the time of pinning. Part of the forge
-  # cache key, so bumping it starts a fresh artifact cache.
+  # Foundry stable release. Part of the forge cache key, so a bump starts a
+  # fresh artifact cache.
   FOUNDRY_VERSION: v1.8.5
   # Rust stable, pinned so a toolchain release cannot break CI mid-PR.
   RUST_VERSION: 1.97.1
-  # Nightly is for `cargo +nightly fmt` ONLY: rustfmt options like
-  # `imports_granularity` are nightly-only, and stable rustfmt does not reject
-  # them — it silently IGNORES them and reports success. Dated pin so a
-  # nightly formatting change cannot turn the tree red overnight.
+  # Nightly is for `cargo +nightly fmt` only: options like
+  # `imports_granularity` are nightly-only, and stable rustfmt silently ignores
+  # them. Dated so a nightly formatting change cannot turn CI red overnight.
   NIGHTLY: nightly-2026-08-10
 
 jobs:
@@ -74,12 +65,8 @@ jobs:
         with:
           foundry-version: ${{ env.FOUNDRY_VERSION }}
 
-      # A UUPS upgrade keeps the proxy's storage, so every upgradeable
-      # contract's storage may only grow at the end. The script compares each
-      # layout built from source with the snapshot committed beside the
-      # contract and fails on any difference, naming a pure append or rename
-      # (record it with --update) apart from a reorder, removal or retype
-      # (undo it). See the script's header.
+      # Upgradeable storage may only grow at the end. The script compares each
+      # layout with the snapshot committed beside its contract; see its header.
       - name: Storage layout
         run: |
           python3 scripts/test_check_storage_layout.py
@@ -89,11 +76,8 @@ jobs:
         working-directory: solidity
         run: forge test -vvv
 
-      # The counterpart of `cargo clippy -D warnings` and `pnpm lint`: any
-      # finding, warning or note, fails the job. The build step above ran the
-      # same linter (lint_on_build) and only printed. Which lints run, why the
-      # excluded ones are excluded, and what `-D` covers besides the linter,
-      # is `[lint]` in solidity/foundry.toml.
+      # Any finding, notes included, fails the job. The lint set and its
+      # exclusions are `[lint]` in solidity/foundry.toml.
       - name: Lint
         working-directory: solidity
         run: forge lint -D notes
@@ -103,12 +87,10 @@ jobs:
         run: forge fmt --check
 
   # ---------------------------------------------------------------------------
-  # Gas: what verifying a claim costs. The numbers are committed in
-  # solidity/snapshots/, so a PR that moves one shows it in its diff. This job
-  # measures them again under eden-testnet's rules (the `gas` profile in
+  # Gas: what verifying a claim costs, committed in solidity/snapshots/. This
+  # job remeasures under eden-testnet's rules (the `gas` profile in
   # solidity/foundry.toml), writes the change against the base to the job
-  # summary, and fails when the committed numbers are not what the code
-  # measures.
+  # summary, and fails when the committed numbers are stale.
   # ---------------------------------------------------------------------------
   gas:
     name: Gas
@@ -151,35 +133,27 @@ jobs:
           fi
 
   # ---------------------------------------------------------------------------
-  # Generated files match their sources. profiles.json and the pinned
-  # circuits release's platforms.json and handles.json generate the platform
-  # constants and the handle vector table for every language, and
-  # regen-bind-route.py the `bind` route for Rust and TypeScript; a drift between
-  # a source and a committed output leaves every per-language test green
-  # while the languages disagree with each other. The Honk verifiers are not
-  # checked here: nothing of theirs is committed but the pin, and the
-  # forge-build composite holds every download to it.
+  # Generated files match their sources: profiles.json, the pinned circuits
+  # release's platforms.json and handles.json, and regen-bind-route.py's
+  # `bind` route. A stale output passes every per-language test while the
+  # languages disagree. The forge-build composite checks the Honk verifiers
+  # against their pin.
   # ---------------------------------------------------------------------------
   generated-tables:
     name: Generated tables
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      # No submodules: the scripts format their Solidity output through
-      # `forge fmt --raw -` (stdin), which reads foundry.toml but compiles
-      # nothing, and the vendor script compiles only the two verifiers, which
-      # import nothing, so the libraries are never consulted.
+      # No submodules: `forge fmt --raw -` compiles nothing, and the vendor
+      # script compiles only the two verifiers, which import nothing.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      # Not the forge-build composite: this job needs the `forge` binary for
-      # fmt and the vendor script, not the artifacts, and skipping the build
-      # keeps the check at the seconds it should cost.
+      # Toolchain only: this job needs the `forge` binary, not the artifacts.
       - uses: foundry-rs/foundry-toolchain@908c540300062bd5a7e473851cdb4282204cee09 # v1.9.1
         with:
           version: ${{ env.FOUNDRY_VERSION }}
 
-      # The generators read the platform table the pinned release ships,
-      # vendored beside the verifiers and held to the pin's sha256s.
+      # The generators read the platform table the pinned release ships.
       - name: Vendor the circuits release
         run: ./scripts/vendor-circuit-verifiers.sh
 
@@ -193,9 +167,8 @@ jobs:
         run: python3 scripts/regen-bind-route.py --check
 
   # ---------------------------------------------------------------------------
-  # Rust: vendored artifacts, formatting, clippy, tests. Needs forge twice
-  # over — the vendored artifacts are generated from a fresh `forge build`,
-  # and the integration tests spawn `anvil` (installed with the toolchain).
+  # Rust: vendored artifacts, formatting, clippy, tests. The artifacts come
+  # from `forge build`, and the integration tests spawn `anvil`.
   # ---------------------------------------------------------------------------
   rust:
     name: Rust
@@ -227,9 +200,8 @@ jobs:
         with:
           workspaces: rust
 
-      # Before any cargo step: `include_dir!` embeds this directory at compile
-      # time, so without it every cargo command fails at macro expansion with
-      # a message about a missing path rather than anything to do with Rust.
+      # Before any cargo step: `include_dir!` embeds this directory, and
+      # without it every cargo command fails on a missing path.
       - name: Vendor artifacts
         run: ./scripts/vendor-artifacts.sh
 
@@ -299,23 +271,21 @@ jobs:
         run: pnpm -C ts lint && pnpm -C ts fmt:check
 
   # ---------------------------------------------------------------------------
-  # DCO: every commit carries a Signed-off-by trailer, as CONTRIBUTING.md
-  # promises. Plain git over the event's commit range — no marketplace action,
-  # so there is nothing to pin and nothing to compromise.
+  # DCO: every commit carries a Signed-off-by trailer matching its author
+  # (CONTRIBUTING.md), checked with plain git over the event's commit range.
   # ---------------------------------------------------------------------------
   dco:
     name: DCO
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    # A release event carries no commit range — every commit it points at was
-    # already DCO-checked on its PR — and the range plumbing below would only
-    # fail on the empty variables.
+    # A release event carries no commit range, and its commits were checked
+    # on their PRs.
     if: github.event_name != 'release'
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          # Full history: the PR base and the push's `before` are reachable
-          # only in a complete clone, and the repo is small.
+          # Full history: the PR base and the push's `before` must be
+          # reachable.
           fetch-depth: 0
 
       - name: Every commit is signed off
@@ -331,10 +301,8 @@ jobs:
           if [ "$EVENT_NAME" = "pull_request" ]; then
             range="$BASE_SHA..$HEAD_SHA"
           else
-            # Push to main. `before` is all zeros on a branch creation and may
-            # be unreachable after a force push; in either case there is no
-            # honest range, so fall back to the head commit alone rather than
-            # failing on plumbing.
+            # Push to main. `before` is all zeros on branch creation and may be
+            # unreachable after a force push. Either way, check the head alone.
             zero="0000000000000000000000000000000000000000"
             if [ -n "$PUSH_BEFORE" ] && [ "$PUSH_BEFORE" != "$zero" ] \
               && git cat-file -e "$PUSH_BEFORE^{commit}" 2>/dev/null; then
@@ -372,9 +340,8 @@ jobs:
           echo "All commits in $range are signed off."
 
   # ---------------------------------------------------------------------------
-  # One version, everywhere. The crate and the npm package release together
-  # under a single number, and this check fails the PR the moment the two
-  # manifests disagree — release day is too late to find out.
+  # One version: the crates and the npm package release under one number, and
+  # this fails a PR whose manifests disagree.
   # ---------------------------------------------------------------------------
   versions:
     name: Version fields agree
@@ -387,14 +354,12 @@ jobs:
         run: ./.github/workflows/scripts/verify-tag.sh
 
   # ---------------------------------------------------------------------------
-  # Publishability, checked on every PR: both registries' dry-runs pass over a
-  # freshly generated tree, reproducing the release sequence exactly — forge
-  # build, vendor the artifacts, generate the ABIs, then pack.
+  # Publishability, on every PR: both registries' dry-runs over a freshly
+  # generated tree, in release order: forge build, vendor the artifacts,
+  # generate the ABIs, pack.
   #
-  # `cargo publish --dry-run` is deliberately NOT given --no-verify: it packs
-  # the crate and rebuilds it from its own tarball, which is what proves the
-  # vendored artifacts were actually included. That is the guard that replaces
-  # the drift check the committed copies used to allow.
+  # `cargo publish --dry-run` runs without --no-verify: rebuilding the crate
+  # from its own tarball proves the vendored artifacts are included.
   # ---------------------------------------------------------------------------
   publish-check:
     name: Publish dry-run
@@ -421,13 +386,9 @@ jobs:
       - name: Vendor artifacts
         run: ./scripts/vendor-artifacts.sh
 
-      # Packs the crate and rebuilds it from the packaged tarball, proving the
-      # published form compiles without the rest of the repo.
-      #
-      # --allow-dirty is required, not incidental: cargo refuses to package a
-      # file that is not tracked in git, and artifacts/ is generated by the
-      # step above. `include` in Cargo.toml is what pulls it into the tarball;
-      # the verify build is what proves it arrived.
+      # --allow-dirty: cargo refuses to package untracked files, and
+      # artifacts/ is generated above. `include` in Cargo.toml pulls it into
+      # the tarball.
       - name: cargo publish --dry-run
         working-directory: rust
         run: |
@@ -453,13 +414,11 @@ jobs:
       - name: Build
         run: pnpm -C ts build
 
-      # From the package directory, not `pnpm -C`: pnpm 10 mangles the flags
-      # it forwards to `npm publish` when -C is in play (observed: EUSAGE).
+      # From the package directory: with -C, pnpm 10 mangles the flags it
+      # forwards to `npm publish` (EUSAGE).
       #
-      # "cannot publish over" is a pass: it means the manifest's version is
-      # already live on npm — true on main right after every release until the
-      # next bump — and packaging itself was validated before the registry
-      # rejected the version. Real packaging failures exit through the else.
+      # "cannot publish over" passes: the version is already on npm, as on main
+      # after a release, and packaging succeeded before the registry check.
       - name: pnpm publish --dry-run
         working-directory: ts/packages/contracts
         run: |
@@ -477,8 +436,8 @@ jobs:
   # Release tagged v<version>; nothing publishes from pushes or PRs.
   # ---------------------------------------------------------------------------
 
-  # The tag names the version the manifests already carry — the tag is a
-  # pointer, never a source. Everything that publishes needs this first.
+  # The tag must name the version the manifests already carry. Every publish
+  # job needs this first.
   verify-tag:
     name: Release tag matches versions
     runs-on: ubuntu-latest
@@ -490,17 +449,15 @@ jobs:
       - name: Tag equals crate and npm versions
         run: ./.github/workflows/scripts/verify-tag.sh "${{ github.event.release.tag_name }}"
 
-  # crates.io first: the crate has no dependency on the npm package, and
-  # publishing the harder-to-yank registry first means a failure here leaves
-  # nothing half-released.
+  # crates.io first: it is the harder registry to yank from, so a failure
+  # here leaves nothing on npm.
   publish-crates:
     name: Publish to crates.io
     runs-on: ubuntu-latest
     timeout-minutes: 30
     if: github.event_name == 'release' && github.event.action == 'published'
-    # `generated-tables` is load-bearing here, not decoration: it is what
-    # refuses a release whose committed tables no longer match the file they
-    # come from. Publishing one would ship constants the source no longer says.
+    # `generated-tables` refuses a release whose committed tables differ from
+    # their sources.
     needs: [verify-tag, versions, solidity, rust, publish-check, generated-tables]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -517,9 +474,8 @@ jobs:
         with:
           toolchain: ${{ env.RUST_VERSION }}
 
-      # Idempotent-ish: a re-run after a partially failed release (say npm
-      # setup was missing) must not hard-fail on the half that already landed.
-      # The sparse index is the cheap ground truth; 404 means never published.
+      # A re-run after a partial release skips crates already published. The
+      # sparse index is the source of truth; a 404 means never published.
       - name: Skip crates this version already reached
         id: crates-check
         env:
@@ -547,7 +503,7 @@ jobs:
         working-directory: rust
         run: cargo publish -p libid-profiles --token "${{ secrets.CARGO_REGISTRY_TOKEN }}"
 
-      # libid-contracts only: the other two are pure Rust and embed nothing.
+      # Only libid-contracts embeds the artifacts.
       - name: Vendor artifacts
         run: ./scripts/vendor-artifacts.sh
 
@@ -556,10 +512,7 @@ jobs:
         working-directory: rust
         run: cargo publish --allow-dirty -p libid-contracts --token "${{ secrets.CARGO_REGISTRY_TOKEN }}"
 
-  # npm via OIDC trusted publishing: no long-lived token, the registry trusts
-  # this repo + workflow + environment combination directly, and npm attaches
-  # provenance. The npm-deploy environment is also the place to hang a manual
-  # approval gate if one is ever wanted.
+  # npm, with provenance. The publish step describes how it authenticates.
   publish-npm:
     name: Publish to npm
     runs-on: ubuntu-latest
@@ -571,8 +524,7 @@ jobs:
       id-token: write
       contents: read
     env:
-      # The repo is public, so provenance attestation is on. (If the repo ever
-      # goes private, flip this to false — provenance requires a public repo.)
+      # Provenance requires a public repository.
       NPM_CONFIG_PROVENANCE: "true"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -606,10 +558,9 @@ jobs:
       - name: Build
         run: pnpm -C ts build
 
-      # A prerelease must not become `latest`: 1.2.0-rc.1 publishes under the
-      # dist-tag `rc`, a plain release under `latest`. The first prerelease
-      # identifier is the tag, and it must be a legal dist-tag (npm rejects
-      # anything that parses as a version, e.g. from 1.2.3-1).
+      # A prerelease must not become `latest`: 1.2.0-rc.1 publishes under `rc`,
+      # a plain release under `latest`. The first prerelease identifier is the
+      # dist-tag, and npm rejects one that parses as a version (1.2.3-1).
       - name: Derive dist-tag from version
         id: dist-tag
         env:
@@ -631,18 +582,14 @@ jobs:
           echo "Publishing with dist-tag: $dist_tag"
           echo "dist-tag=$dist_tag" >> "$GITHUB_OUTPUT"
 
-      # From the package directory, not `pnpm -C` — same pnpm 10 flag-mangling
-      # noted in publish-check.
+      # From the package directory, for the pnpm 10 -C bug noted in
+      # publish-check.
       #
-      # Auth is token-first with OIDC fallback. When the org-level NPM_TOKEN
-      # secret is set (a granular token scoped to @libid with create-package
-      # rights), it authenticates the publish — that is what lets a brand-new
-      # package publish before any trusted publisher exists for it. When the
-      # secret is absent, npm falls back to OIDC trusted publishing, which
-      # needs the per-package trusted publisher (org libid-org, this repo,
-      # workflow ci.yml, environment npm-deploy). Provenance attests on both
-      # paths — it signs with the runner's OIDC identity regardless of how
-      # the registry authenticated the publish.
+      # Auth: the org NPM_TOKEN secret when set, a granular @libid token that
+      # can create packages, so a new package publishes before it has a
+      # trusted publisher. Otherwise OIDC trusted publishing, which needs the
+      # package's trusted publisher (libid-org, this repo, ci.yml,
+      # npm-deploy). Provenance signs with the runner's OIDC identity either way.
       - name: pnpm publish
         working-directory: ts/packages/contracts
         env:

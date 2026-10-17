@@ -2,22 +2,21 @@
 """Regenerate the identity platform table, the refusals and the vector tables.
 
 The sources are the pinned libID-circuits release's `platforms.json` (each
-platform's tags, the circuits' buffers and its id shape) and `handles.json`
-(the vectors), vendored into `solidity/contracts/circuits/` by
+platform's tags, buffers and id shape) and `handles.json` (the vectors),
+vendored into `solidity/contracts/circuits/` by
 `scripts/vendor-circuit-verifiers.sh`. Run this script after the pin moves.
-These files are written and never drift apart:
+It writes:
 
     rust/identity/src/platforms.rs                  # Rust platform table + refusals
     rust/identity/src/vectors.rs                    # Rust vectors (tests, `test-helpers`)
     ts/packages/contracts/src/identity/platforms.ts # TypeScript platform table + refusals
     ts/packages/contracts/src/identity/vectors.ts   # TypeScript vectors (tests)
 
-The refusals are handles.json's `errors`, each worded per subject by
-`WORDING` below. CI runs `--check` against the vendored tables. Every handleNode and idNode in the table is
-recomputed with hashlib and must match. The transform (the token check and
-the fold) is hand written in Rust, TypeScript and Noir; Solidity reads the
-tags from `CeremonyProfile` and folds in `HandleNode`, and its tests read
-handles.json directly.
+The refusals are handles.json's `errors`, worded per subject by `WORDING`.
+Every handleNode and idNode is recomputed with hashlib and must match. The
+transform (the token check and the fold) is hand written in Rust, TypeScript
+and Noir. Solidity reads the tags from `CeremonyProfile`, folds in
+`HandleNode`, and its tests read handles.json directly.
 
 Run: ./scripts/regen-identity-handles.py [--check]
 """
@@ -171,11 +170,15 @@ class Table:
 
 @dataclass(frozen=True)
 class Wording:
-    """What one refusal of handles.json `errors` says about a handle and about an id."""
+    """What one refusal of handles.json `errors` says about a handle and about an id.
+
+    `handle_note` replaces the refusal's handles.json `note` in the handle
+    error's doc where the shared note also words ids."""
 
     key: str
     handle: str
     id: str
+    handle_note: str | None = None
 
 
 # The refusal messages, in handles.json `errors` order. Rust's Display and the
@@ -187,6 +190,7 @@ WORDING = (
         "BadCharacter",
         "the handle has a byte outside printable ASCII, or a quote or backslash",
         "the id has a byte this platform does not allow",
+        "A byte outside printable ASCII, a quote or a backslash.",
     ),
 )
 
@@ -203,6 +207,9 @@ class Subject:
 
     def message(self, wording: Wording) -> str:
         return wording.handle if self.is_handle else wording.id
+
+    def note(self, err: ErrorKind, wording: Wording) -> str:
+        return wording.handle_note if self.is_handle and wording.handle_note else err.note
 
 
 SUBJECTS = (
@@ -282,7 +289,7 @@ def rust_platforms(table: Table) -> str:
         "    fmt,",
         "};",
         "",
-        "/// A platform the profiles name: its key, its node tags and its buffers.",
+        "/// A platform: its key, node tags and buffers.",
         "pub struct Platform {",
         "    /// keccak256 of this string is the platform id.",
         "    pub key: &'static str,",
@@ -304,7 +311,7 @@ def rust_platforms(table: Table) -> str:
     for p in platforms:
         name = p.key.upper()
         lines += [
-            f"/// {p.key}, as its profile states it.",
+            f"/// The {p.key} platform.",
             f"pub const PLATFORM_{name}: Platform = Platform {{",
             f"    key: PLATFORM_{name}_KEY,",
             f'    user_id_tag: "{p.user_id_tag}",',
@@ -337,8 +344,8 @@ def rust_platforms(table: Table) -> str:
             "#[derive(Debug, Clone, Copy, PartialEq, Eq)]",
             f"pub enum {subject.rust_type} {{",
         ]
-        for err in table.errors:
-            lines += [f"    /// {err.note}", f"    {err.key},"]
+        for err, wording in zip(table.errors, WORDING):
+            lines += [f"    /// {subject.note(err, wording)}", f"    {err.key},"]
         lines += [
             "}",
             "",
@@ -445,7 +452,7 @@ def ts_platforms(table: Table) -> str:
         "import type { Rules } from './handle.js'",
         "import type { IdRules } from './node.js'",
         "",
-        "/** A platform the profiles name: its key, its node tags and its buffers. */",
+        "/** A platform: its key, node tags and buffers. */",
         "export interface Platform {",
         "  /** keccak256 of this string is the platform id. */",
         "  key: string",
@@ -514,7 +521,7 @@ def ts_platforms(table: Table) -> str:
 
 
 def ts_vectors(table: Table) -> str:
-    """The vector tables, imported by the tests alone."""
+    """The vector tables the TypeScript tests run."""
     lines = [
         header("//").rstrip("\n"),
         "",
@@ -592,8 +599,7 @@ def main() -> int:
                 file=sys.stderr,
             )
             return 1
-    # Explicit encoding: handles.json holds non-ASCII, and the ambient locale
-    # decides otherwise on a machine configured differently.
+    # handles.json holds non-ASCII, so decode it as UTF-8 whatever the locale.
     raw = SOURCE.read_bytes()
     table = Table.from_json(
         json.loads(raw.decode("utf-8")),

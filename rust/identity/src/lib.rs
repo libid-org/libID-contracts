@@ -1,11 +1,9 @@
-//! The off-chain half of the identity keys: handle normalization, the id
-//! rules and, with the `node` feature, the nodes a binding is stored under.
+//! The libid identity keys off chain: handle normalization, the id rules
+//! and, with the `node` feature, the nodes a binding is stored under.
 //!
-//! `platforms` (the platform table and the refusals) and, for tests and the
-//! `test-helpers` feature, `vectors` are generated from the pinned
-//! libID-circuits release's `platforms.json` and `handles.json`, vendored into
-//! `contracts/circuits/`, by `scripts/regen-identity-handles.py`; every
-//! language runs the vectors.
+//! `scripts/regen-identity-handles.py` generates `platforms` and `vectors`
+//! from the pinned libID-circuits release's `platforms.json` and
+//! `handles.json`. The README covers the rules and examples.
 
 #![deny(warnings)]
 #![deny(missing_docs)]
@@ -21,7 +19,7 @@ pub mod platforms;
 #[rustfmt::skip]
 pub mod vectors;
 
-/// The README's examples, run as doctests (the node one needs the feature).
+/// The README's examples, run as doctests; they need the `node` feature.
 #[cfg(all(doctest, feature = "node"))]
 #[doc = include_str!("../README.md")]
 struct ReadmeDoctests;

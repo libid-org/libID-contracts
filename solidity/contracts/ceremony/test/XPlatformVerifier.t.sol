@@ -20,7 +20,7 @@ import {TlsNotaryVerifierBase} from "../TlsNotaryVerifierBase.sol";
 import {XPlatformVerifier} from "../XPlatformVerifier.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 
-/// @notice A profile no launch profile is: its allowance sits below its skew.
+/// @notice A profile whose allowance sits below its skew.
 contract SkewPastAllowance is PlatformVerifierBase {
     uint64 public constant SKEW = 300;
 
@@ -53,15 +53,15 @@ contract SkewPastAllowance is PlatformVerifierBase {
     }
 }
 
-/// @notice An upgrade that pins another circuit, wired to nothing new.
+/// @notice An X verifier that pins the Google circuit's code hash.
 contract XPinningGooglesCircuit is XPlatformVerifier {
     function _circuitCodehash() internal pure override returns (bytes32) {
         return CircuitCodehashes.OIDC_GOOGLE;
     }
 }
 
-/// @notice The `x/v1` path end to end: two attestations, a real notary
-///         signature over each, and every check the profile assigns here.
+/// @notice The `x/v1` path end to end: two notary-signed attestations and
+///         every check the profile assigns to the verifier.
 contract XPlatformVerifierTest is RealTlsNotaryProofTest {
     using AttestationBuilder for AttestationBuilder.Range;
     using AttestationBuilder for AttestationBuilder.Direction;
@@ -69,8 +69,7 @@ contract XPlatformVerifierTest is RealTlsNotaryProofTest {
     XPlatformVerifier verifier;
     NotaryService notary;
     address honk;
-    /// Hoisted: an external call inside a `{value:}` argument would consume the
-    /// `expectRevert` before the call under test ever runs.
+    /// Read once in `setUp`: an external call in a `{value:}` argument would consume `expectRevert`.
     uint256 quote;
 
     uint256 constant FEE = 0.001 ether;
@@ -81,9 +80,7 @@ contract XPlatformVerifierTest is RealTlsNotaryProofTest {
 
     bytes32 constant DOMAIN = keccak256(bytes("libid.claim-identity"));
     bytes32 constant AUTH_NONCE = bytes32(uint256(0x5555555555555555555555555555555555555555555555555555555555555555));
-    /// The digest the fixtures are made for: what the verifier rebuilds from
-    /// the payload below, on this chain. Derived in `setUp`, because it
-    /// depends on the chain id.
+    /// The digest the verifier rebuilds from the payload; set in `setUp` as it depends on the chain id.
     bytes32 digest;
 
     bytes32 constant TOKEN_COMMITMENT = bytes32(uint256(0x1111));
@@ -136,9 +133,7 @@ contract XPlatformVerifierTest is RealTlsNotaryProofTest {
     bytes constant TOKEN_HEADERS =
         "host: api.x.com\r\ncontent-type: application/x-www-form-urlencoded\r\naccept: application/json\r\nconnection: close\r\n";
 
-    /// A token request head: the request line, a header block, and the length
-    /// the platform frames the body by. Assembled from its parts so a test can
-    /// change one header and watch the verifier refuse it.
+    /// A token request head: the request line, `headers`, and the declared body length.
     function _tokenHead(bytes memory headers, uint256 bodyLength) private pure returns (bytes memory) {
         return abi.encodePacked(
             "POST /2/oauth2/token HTTP/1.1\r\n", headers, "content-length: ", vm.toString(bodyLength), "\r\n\r\n"
@@ -154,8 +149,7 @@ contract XPlatformVerifierTest is RealTlsNotaryProofTest {
         return _tokenAttestation(grantType, clientId, verifierValue, true);
     }
 
-    /// @dev `bearerFraming` false commits the bearer with no revealed anchors,
-    ///      which is the shape REQ-PLAT-57 exists to refuse.
+    /// @dev `bearerFraming` false commits the bearer with no revealed anchors (REQ-PLAT-57).
     function _tokenAttestation(
         string memory grantType,
         string memory clientId,
@@ -163,9 +157,7 @@ contract XPlatformVerifierTest is RealTlsNotaryProofTest {
         bool bearerFraming
     ) private pure returns (ICeremony.Attestation memory) {
         AttestationBuilder.Direction memory received;
-        // The whole request in one revealed run: X uses a public client and
-        // hides no body field, so the head boundary is visible and the body is
-        // located by the framing the server itself parsed.
+        // The whole request in one revealed run; the body is located by its HTTP framing.
         bytes memory body = abi.encodePacked(
             "grant_type=",
             grantType,
@@ -182,9 +174,6 @@ contract XPlatformVerifierTest is RealTlsNotaryProofTest {
             commitments: AttestationBuilder.none(),
             length: wholeEnd
         });
-        // A real token response: the bearer committed and framed by the
-        // revealed `"access_token":"` delimiter and its closing quote, with
-        // every other byte hidden behind a commitment of its own.
         received = _tokenResponse(bearerFraming);
 
         bytes memory attested = AttestationBuilder.encode(CeremonyProfile.AUTHORITY_X_API, T0, sent, received);
@@ -192,14 +181,12 @@ contract XPlatformVerifierTest is RealTlsNotaryProofTest {
     }
 
     /// A token response shaped like the real one:
-    ///   [0,15)  revealed `HTTP/1.1 200 OK` -- the server's agreement
+    ///   [0,15)  revealed `HTTP/1.1 200 OK`
     ///   [15,17) the CRLF closing it, committed
     ///   [17,33) revealed `"access_token":"`
     ///   [33,45) the committed bearer
     ///   [45,46) revealed closing quote
     ///   [46,70) the rest of the JSON, behind another commitment
-    ///
-    /// Every byte accounted for: the direction tiles, like the other three.
     function _tokenResponse(bool framed) private pure returns (AttestationBuilder.Direction memory received) {
         bytes memory status = "HTTP/1.1 200 OK";
         bytes memory prefix = '"access_token":"';
@@ -226,9 +213,8 @@ contract XPlatformVerifierTest is RealTlsNotaryProofTest {
             });
         }
 
-        // The status line and nothing else: the bearer commitment has no
-        // revealed anchors around it, which is the shape REQ-PLAT-57 refuses,
-        // because it could equally be a `refresh_token` value.
+        // Only the status line revealed: an unanchored bearer could be a
+        // `refresh_token` value (REQ-PLAT-57).
         return AttestationBuilder.Direction({
             revealed: AttestationBuilder.one(AttestationBuilder.Range({start: 0, value: status})),
             commitments: AttestationBuilder.three(
@@ -305,8 +291,7 @@ contract XPlatformVerifierTest is RealTlsNotaryProofTest {
         return abi.encode(address(0xBEEF), uint256(0), address(0));
     }
 
-    /// The `x/v1` payload the fixtures are made for. Public inputs are not in
-    /// it: the verifier derives them from the two attestations.
+    /// The `x/v1` payload the fixtures are made for; the verifier derives the public inputs.
     function _payload() internal view override returns (TlsNotaryVerifierBase.TlsNotaryProof memory s) {
         string memory verifierValue = string(CeremonyAuthorization.codeVerifier(digest, AUTH_NONCE));
         s.ceremonyVersion = 1;
@@ -333,21 +318,16 @@ contract XPlatformVerifierTest is RealTlsNotaryProofTest {
 
     function test_verifiesAWholeXCeremony() public {
         ICeremony.VerifiedClaim memory f = this.run{value: quote}(_payload());
-        // The nodes the payload claims, passed through: the proof is what
-        // binds them, and the stub here accepts any.
+        // Passed through from the payload; the stubbed proof accepts any nodes.
         assertEq(f.idNode, ID_NODE);
         assertEq(f.handleNode, HANDLE_NODE);
         assertEq(string(f.clientIdentifier), "myClient-1");
-        // What entered the digest comes back, with the session id and the
-        // ceremony version this verifier implements.
         assertEq(f.sessionId, digest);
         assertEq(f.operationDomain, DOMAIN);
         assertEq(f.transactionData, _txData());
         assertEq(f.ceremonyVersion, 1);
-        // On the shared scale, not raw. Profiles disagree about "now" -- this
-        // one's evidence time is an attestation creation time, Google's is a
-        // signed expiry an hour ahead -- so each verifier subtracts its own
-        // allowance and a Consumer can compare the two.
+        // On the shared scale: each verifier subtracts its own allowance so
+        // claims from different profiles compare.
         assertEq(f.metadataObservedAt, T0 - ALLOWANCE);
     }
 
@@ -368,10 +348,8 @@ contract XPlatformVerifierTest is RealTlsNotaryProofTest {
 
     // ─── The digest binding ─────────────────────────────────────────
 
-    /// @dev REQ-COMMON-15A, and the whole binding between evidence and
-    ///      transaction. The verifier rebuilds the digest from the payload, so
-    ///      changing any digest input -- here the nonce -- derives a different
-    ///      verifier, and the revealed one no longer matches.
+    /// @dev REQ-COMMON-15A: the verifier rebuilds the digest from the payload, so
+    ///      another nonce derives another code verifier.
     function test_rejectsAnAttestationRetargetedToAnotherDigest() public {
         TlsNotaryVerifierBase.TlsNotaryProof memory s = _payload();
         s.authorizationNonce = bytes32(uint256(AUTH_NONCE) ^ 1);
@@ -379,8 +357,7 @@ contract XPlatformVerifierTest is RealTlsNotaryProofTest {
         this.run{value: quote}(s);
     }
 
-    /// @dev The same for the transaction data: it is in the digest, so a
-    ///      payload naming another target opens against nothing.
+    /// @dev The transaction data is in the digest, so another target fails.
     function test_rejectsAnAttestationRetargetedToAnotherWallet() public {
         TlsNotaryVerifierBase.TlsNotaryProof memory s = _payload();
         s.transactionData = abi.encode(address(0xDEAD));
@@ -388,10 +365,8 @@ contract XPlatformVerifierTest is RealTlsNotaryProofTest {
         this.run{value: quote}(s);
     }
 
-    /// @dev REQ-COMMON-12: the verifier is derived under the same nonce the
-    ///      digest commits, and the payload carries no second one. Evidence
-    ///      built under any other nonce opens against nothing, even where the
-    ///      payload itself still names the nonce the digest was made for.
+    /// @dev REQ-COMMON-12: a code verifier derived under another nonce fails, even
+    ///      when the payload names the right one.
     function test_rejectsAVerifierDerivedUnderAnotherNonce() public {
         TlsNotaryVerifierBase.TlsNotaryProof memory s = _payload();
         string memory foreign = string(CeremonyAuthorization.codeVerifier(digest, bytes32(uint256(1))));
@@ -400,10 +375,7 @@ contract XPlatformVerifierTest is RealTlsNotaryProofTest {
         this.run{value: quote}(s);
     }
 
-    /// @dev The verifier implements one ceremony version and the digest binds
-    ///      it. A payload claiming another is refused by name, before any fee
-    ///      moves, rather than as a verifier mismatch after both sessions were
-    ///      paid for.
+    /// @dev Another ceremony version is refused by name before any fee moves.
     function test_rejectsAPayloadForAnotherCeremonyVersion() public {
         TlsNotaryVerifierBase.TlsNotaryProof memory s = _payload();
         s.ceremonyVersion = 2;
@@ -413,10 +385,8 @@ contract XPlatformVerifierTest is RealTlsNotaryProofTest {
 
     // ─── grant_type ─────────────────────────────────────────────────
 
-    /// @dev REQ-PLAT-56. A refresh grant still carries a code, a redirect_uri
-    ///      and a digest-derived verifier, so every other check passes while X
-    ///      mints a fresh bearer — letting an app with a refresh token mint
-    ///      identity proofs at arbitrary addresses from one consent.
+    /// @dev REQ-PLAT-56: a refresh grant passes every other check, so the grant
+    ///      type itself is checked.
     function test_rejectsARefreshGrant() public {
         TlsNotaryVerifierBase.TlsNotaryProof memory s = _payload();
         string memory v = string(CeremonyAuthorization.codeVerifier(digest, AUTH_NONCE));
@@ -427,10 +397,7 @@ contract XPlatformVerifierTest is RealTlsNotaryProofTest {
 
     // ─── The token body's form ──────────────────────────────────────
 
-    /// @dev The five fields in another order -- `client_id` last, as the
-    ///      legacy claim worker serializes them -- are not the profile's
-    ///      serialization, whatever X makes of them. The first pair is the
-    ///      right one, so the body fails where the second begins.
+    /// @dev Fields out of order fail where the second pair begins.
     function test_rejectsATokenBodyWithItsFieldsReordered() public {
         bytes memory first = "grant_type=authorization_code&";
         bytes memory body = abi.encodePacked(
@@ -444,8 +411,7 @@ contract XPlatformVerifierTest is RealTlsNotaryProofTest {
         this.run{value: quote}(s);
     }
 
-    /// @dev A sixth pair is refused at the `&` that begins it. X is a public
-    ///      client and its profile lists no `client_secret`.
+    /// @dev X is a public client: a `client_secret` is a sixth pair, refused at its `&`.
     function test_rejectsATokenBodyCarryingAClientSecret() public {
         bytes memory honest = _honestTokenBody();
         TlsNotaryVerifierBase.TlsNotaryProof memory s =
@@ -454,10 +420,8 @@ contract XPlatformVerifierTest is RealTlsNotaryProofTest {
         this.run{value: quote}(s);
     }
 
-    /// @dev REQ-PLAT-63, TEST-PLAT-09C: a duplicate in an ENCODED spelling.
-    ///      `code%5Fverifier` is `code_verifier` to a form parser but no
-    ///      literal match for it. It is a sixth pair here, refused like any
-    ///      other.
+    /// @dev REQ-PLAT-63, TEST-PLAT-09C: `code%5Fverifier` decodes to `code_verifier`
+    ///      and is refused as a sixth pair.
     function test_rejectsATokenBodyWithAnEncodedDuplicateName() public {
         bytes memory honest = _honestTokenBody();
         TlsNotaryVerifierBase.TlsNotaryProof memory s =
@@ -466,8 +430,7 @@ contract XPlatformVerifierTest is RealTlsNotaryProofTest {
         this.run{value: quote}(s);
     }
 
-    /// @dev Four pairs are not five. The fourth is `code_verifier=` where
-    ///      `redirect_uri=` should stand, so the body fails where it begins.
+    /// @dev Four pairs fail where `redirect_uri=` should stand.
     function test_rejectsATokenBodyMissingTheRedirect() public {
         bytes memory first = "grant_type=authorization_code&client_id=myClient-1&code=abc&";
         bytes memory body =
@@ -477,11 +440,8 @@ contract XPlatformVerifierTest is RealTlsNotaryProofTest {
         this.run{value: quote}(s);
     }
 
-    /// @dev A raw `;` inside the redirect. Some form parsers split pairs on
-    ///      it, so to them this body carries a second `code_verifier`, while
-    ///      a reader splitting only on `&` counts one. The serializer never
-    ///      emits a raw `;`, so the byte
-    ///      itself is refused.
+    /// @dev Some form parsers split pairs on `;`, and the serializer never emits
+    ///      it raw, so a raw `;` is refused.
     function test_rejectsATokenBodyWithARawSemicolonInTheRedirect() public {
         bytes memory body = _honestTokenBody(
             "abc", "https%3A%2F%2Fapp.example%2Fcb;code_verifier=EVILEVILEVILEVILEVILEVILEVILEVILEVILEVIL0"
@@ -493,9 +453,7 @@ contract XPlatformVerifierTest is RealTlsNotaryProofTest {
         this.run{value: quote}(s);
     }
 
-    /// @dev `%3a` decodes as `%3A` does and is not what the serializer
-    ///      writes, so it is a second spelling of the same redirect and
-    ///      refused as noncanonical.
+    /// @dev `%3a` is a noncanonical spelling of `%3A`.
     function test_rejectsATokenBodyWithALowercaseEscape() public {
         bytes memory body = _honestTokenBody("abc", "https%3a%2F%2Fapp.example%2Fcb");
         TlsNotaryVerifierBase.TlsNotaryProof memory s = _payloadWithBody(body);
@@ -505,8 +463,7 @@ contract XPlatformVerifierTest is RealTlsNotaryProofTest {
         this.run{value: quote}(s);
     }
 
-    /// @dev Nothing after the last value, not even the delimiter that would
-    ///      begin a sixth pair.
+    /// @dev Nothing may follow the last value.
     function test_rejectsATokenBodyWithATrailingAmpersand() public {
         bytes memory honest = _honestTokenBody();
         TlsNotaryVerifierBase.TlsNotaryProof memory s = _payloadWithBody(abi.encodePacked(honest, "&"));
@@ -534,12 +491,8 @@ contract XPlatformVerifierTest is RealTlsNotaryProofTest {
         this.run{value: quote}(s);
     }
 
-    /// @dev Nothing in an attestation says which session of a ceremony it
-    ///      covers, and nothing needs to. X serves both sessions from one host,
-    ///      so the authority cannot separate them either -- what separates them
-    ///      is the request line, which the notary recorded as a revealed range
-    ///      and did not choose. Swapping the two therefore fails on bytes that
-    ///      came off the wire rather than on a label the prover handed over.
+    /// @dev X serves both sessions from one host, so the notarized request line
+    ///      tells them apart.
     function test_rejectsTheTwoSessionsSwapped() public {
         TlsNotaryVerifierBase.TlsNotaryProof memory s = _payload();
         (s.tokenSession, s.identitySession) = (s.identitySession, s.tokenSession);
@@ -549,14 +502,9 @@ contract XPlatformVerifierTest is RealTlsNotaryProofTest {
 
     // ─── The circuit link ───────────────────────────────────────────
 
-    /// @dev The inputs the proof is checked against are BUILT from the two
-    ///      attestations, so "the circuit proved a link between other
-    ///      attestations" (REQ-PLAT-32C) is not a case to reject -- it is a
-    ///      case that cannot be stated. This asserts what the verifier derived.
+    /// @dev REQ-PLAT-32C: the verifier builds the public inputs from the two attestations.
     function test_provesAgainstTheCommitmentsTheNotarySigned() public {
         TlsNotaryVerifierBase.TlsNotaryProof memory s = _payload();
-        // Exact arguments: the proof as submitted, and inputs the caller never
-        // supplied.
         vm.expectCall(
             address(honk),
             abi.encodeCall(
@@ -567,9 +515,8 @@ contract XPlatformVerifierTest is RealTlsNotaryProofTest {
         this.run{value: quote}(s);
     }
 
-    /// @dev The id and handle are found by their anchors, not by where they
-    ///      sit. A response naming the handle first still puts the id
-    ///      commitment at fields 64-65, which is where the circuit opens it.
+    /// @dev The id and handle are found by their anchors, so a response naming the
+    ///      handle first yields the same public inputs.
     function test_findsTheIdAndHandleByTheirAnchorsNotTheirOrder() public {
         TlsNotaryVerifierBase.TlsNotaryProof memory s = _payload();
         AttestationBuilder.Direction memory received;
@@ -636,11 +583,8 @@ contract XPlatformVerifierTest is RealTlsNotaryProofTest {
 
     // ─── The requests the runtime sends ─────────────────────────────
 
-    /// @dev The token request as the browser composes it (`buildTokenRequest`
-    ///      on libid `feat/ceremony-rebuild-plan`): five headers in its order,
-    ///      `content-length` set by the builder itself and third, every name
-    ///      lowercased by hyper on the way to the wire. The rule was written
-    ///      for this head, and this is what says the rule admits it.
+    /// @dev The token request as the browser composes it: five lowercased headers,
+    ///      `content-length` third.
     function test_verifiesTheTokenRequestTheBrowserSends() public {
         bytes memory body = _honestTokenBody();
         TlsNotaryVerifierBase.TlsNotaryProof memory s = _payloadWithHead(
@@ -653,11 +597,8 @@ contract XPlatformVerifierTest is RealTlsNotaryProofTest {
         this.run{value: quote}(s);
     }
 
-    /// @dev And the identity request as `buildIdentityRequest` composes it:
-    ///      `authorization` first and inside the head, then `accept`, `host`,
-    ///      `connection`. The fixtures elsewhere in this file put the bearer
-    ///      line after a blank line, which the verifier tolerates; this one is
-    ///      the head a real session carries.
+    /// @dev The identity request as the browser composes it: `authorization`, then
+    ///      `accept`, `host`, `connection`.
     function test_verifiesTheIdentityRequestTheBrowserSends() public {
         TlsNotaryVerifierBase.TlsNotaryProof memory s = _payload();
         s.identitySession = _identityAttestationWithHead(
@@ -693,16 +634,8 @@ contract XPlatformVerifierTest is RealTlsNotaryProofTest {
 
     string constant RUST_SESSION = "contracts/ceremony/test/fixtures/x-ceremony-session.json";
 
-    /// @dev Two records the Rust pipeline produced the way a ceremony produces
-    ///      them minus the MPC: the requests composed as the browser composes
-    ///      them and encoded by hyper, the layouts `libid_transcript::ceremony`'s,
-    ///      the commitments tlsn's SHA-256 plaintext hashes, the record
-    ///      `AttestedData::from_observed`, which is the notary's own path,
-    ///      signed by the key this suite trusts. Nothing in the file was
-    ///      written by hand, and it verifies with those signatures unedited:
-    ///      the verifier inside was derived from the digest this suite derives,
-    ///      which the first assertion checks. Generated by
-    ///      `cargo run -p libid-tlsn --example ceremony_fixtures` in libid-rs.
+    /// @dev Verifies the session libid-rs's Rust pipeline produces, signatures unedited.
+    ///      Generated by `cargo run -p libid-tlsn --example ceremony_fixtures` in libid-rs.
     function test_verifiesTheRecordsLibidRsProduces() public {
         string memory json = vm.readFile(RUST_SESSION);
         assertEq(vm.parseJsonBytes32(json, ".authorization_digest"), digest, "derived from this suite's digest");
@@ -773,8 +706,7 @@ contract XPlatformVerifierTest is RealTlsNotaryProofTest {
         return "contracts/ceremony/test/fixtures/github-ceremony-session.json";
     }
 
-    /// @dev A real proof through the circuit's verifier outputs the hashlib
-    ///      nodes for `2244994945` and `alice_1` (folded from `Alice_1`).
+    /// @dev A real proof outputs the hashlib nodes for `2244994945` and `alice_1`.
     function test_verifiesARealProofOfTheRecordsLibidRsProduces() public {
         (TlsNotaryVerifierBase.TlsNotaryProof memory s, address circuit, bytes32[] memory proved) = _realProofPayload();
         assertEq(proved.length, 16);
@@ -851,7 +783,7 @@ contract XPlatformVerifierTest is RealTlsNotaryProofTest {
         this.run{value: quote}(s);
     }
 
-    /// @dev `host` names the identity authority, once, as the token request's does.
+    /// @dev `host` names the identity authority exactly once.
     function test_rejectsAnIdentityRequestWithoutItsHost() public {
         TlsNotaryVerifierBase.TlsNotaryProof memory s = _payload();
         s.identitySession =
@@ -896,10 +828,7 @@ contract XPlatformVerifierTest is RealTlsNotaryProofTest {
         this.run{value: quote}(s);
     }
 
-    /// @dev And a second one under another scheme. The count sees
-    ///      `authorization:` whatever follows it; counting only `bearer` left
-    ///      a Basic line uncounted, and X answering for whichever credential
-    ///      it honoured -- the one the exchange is bound to, or the other.
+    /// @dev A second `authorization` counts whatever its scheme.
     function test_rejectsASecondAuthorizationHeaderOfAnotherScheme() public {
         TlsNotaryVerifierBase.TlsNotaryProof memory s = _payload();
         s.identitySession =
@@ -908,9 +837,7 @@ contract XPlatformVerifierTest is RealTlsNotaryProofTest {
         this.run{value: quote}(s);
     }
 
-    /// @dev `cookie` is the other credential a platform might honour over the
-    ///      bearer, and the bearer is the one thing the cross-bind ties to the
-    ///      exchange. Forbidden on the identity request as on the token one.
+    /// @dev A `cookie` could stand in for the bearer, so it is forbidden on the identity request.
     function test_rejectsACookieOnTheIdentityRequest() public {
         TlsNotaryVerifierBase.TlsNotaryProof memory s = _payload();
         s.identitySession = _identityAttestation("2244994945", "Alice_1", "Cookie: auth_token=stolen\r\n");
@@ -938,8 +865,7 @@ contract XPlatformVerifierTest is RealTlsNotaryProofTest {
         this.run{value: quote}(s);
     }
 
-    /// @dev A bare carriage return on the identity request is refused the
-    ///      same way, before anything is counted.
+    /// @dev A bare carriage return is refused before anything is counted.
     function test_rejectsABareCarriageReturnOnTheIdentityRequest() public {
         TlsNotaryVerifierBase.TlsNotaryProof memory s = _payload();
         s.identitySession = _identityAttestation("2244994945", "Alice_1", "user-agent: a\rcookie: b\r\n");
@@ -958,8 +884,7 @@ contract XPlatformVerifierTest is RealTlsNotaryProofTest {
 
     function test_rejectsAnExpiredProof() public {
         vm.warp(T0 + LIFETIME);
-        // Built first: `vm.sign` inside is an external call, and it would
-        // consume the cheatcode before the call under test.
+        // Built before `expectPartialRevert`: `vm.sign` would consume it.
         TlsNotaryVerifierBase.TlsNotaryProof memory s = _payload();
         vm.expectPartialRevert(PlatformVerifierBase.ProofExpired.selector);
         this.run{value: quote}(s);
@@ -985,9 +910,7 @@ contract XPlatformVerifierTest is RealTlsNotaryProofTest {
         assertEq(allowance, CeremonyProfile.FUTURE_OBSERVATION_ALLOWANCE_SECONDS_X);
     }
 
-    /// @dev Nothing moves the window, the owner included. A browser derives a
-    ///      proof's expiry from the version it ran, so an outstanding proof
-    ///      stays good until the expiry that version fixes.
+    /// @dev No one can move the window, so a proof stays good until the expiry its version fixes.
     function test_theOwnerCannotShortenAnOutstandingProof() public {
         vm.warp(T0 + 100);
         vm.prank(OWNER);
@@ -998,7 +921,7 @@ contract XPlatformVerifierTest is RealTlsNotaryProofTest {
     }
 
     /// @dev An attestation inside `maxFutureAttestationSkew` but past
-    ///      `futureObservationAllowance` is refused; a test profile sets allowance < skew.
+    ///      `futureObservationAllowance` is refused.
     function test_rejectsAnAttestationPastTheObservationAllowanceButInsideTheSkew() public {
         SkewPastAllowance window = new SkewPastAllowance();
         vm.warp(T0 - window.SKEW());
@@ -1041,9 +964,6 @@ contract XPlatformVerifierTest is RealTlsNotaryProofTest {
 
     // ─── The identity fields ────────────────────────────────────────
 
-    /// @dev Signed responses laid out by the prover: the framing names the one
-    ///      commitment behind each anchor, or refuses.
-
     function _refusedFraming(AttestationBuilder.Direction memory received, bytes4 error_) private {
         TlsNotaryVerifierBase.TlsNotaryProof memory s = _payload();
         s.identitySession = _identityReceiving(received);
@@ -1072,16 +992,14 @@ contract XPlatformVerifierTest is RealTlsNotaryProofTest {
         _refusedFraming(received, CeremonyAttestation.NoFramedCommitment.selector);
     }
 
-    /// @dev The same key in two ADJACENT revealed ranges, nothing hidden
-    ///      between them. Still not one run.
+    /// @dev A key split across two adjacent revealed ranges is no anchor.
     function test_refusesAHandleAnchorSplitAcrossTwoRevealedRanges() public {
         AttestationBuilder.Direction memory received = _upToTheHandle();
         received.reveal('"user').reveal('name":"').commit("Alice_1", HANDLE_COMMITMENT).reveal('"').commit("}}", OTHER);
         _refusedFraming(received, CeremonyAttestation.NoFramedCommitment.selector);
     }
 
-    /// @dev X's id is a JSON string, so its value ends at a quote. A
-    ///      commitment followed by anything else is not the whole value.
+    /// @dev X's id is a JSON string, so its value must end at a quote.
     function test_refusesAnIdWithNoClosingQuote() public {
         AttestationBuilder.Direction memory received;
         received.commit('HTTP/1.1 200 OK\r\n\r\n{"data":{', OTHER)
@@ -1095,9 +1013,7 @@ contract XPlatformVerifierTest is RealTlsNotaryProofTest {
         _refusedFraming(received, CeremonyAttestation.NoFramedCommitment.selector);
     }
 
-    /// @dev The closing quote committed with the value: the byte after the
-    ///      commitment is the comma, so the commitment frames nothing, and
-    ///      the circuit is never asked to open a value with a quote in it.
+    /// @dev A closing quote committed with the value leaves the commitment unframed.
     function test_refusesAHandleCommittedWithItsClosingQuote() public {
         AttestationBuilder.Direction memory received = _upToTheHandle();
         received.reveal('"username":"').commit('Alice_1"', HANDLE_COMMITMENT).reveal("}}");
@@ -1128,8 +1044,7 @@ contract XPlatformVerifierTest is RealTlsNotaryProofTest {
         _refusedFraming(received, CeremonyAttestation.NoFramedCommitment.selector);
     }
 
-    /// @dev A second handle anchor in the revealed bytes, framing a second
-    ///      commitment. Two places the anchor could point, so it names none.
+    /// @dev Two revealed handle anchors, each framing a commitment, are ambiguous.
     function test_refusesTwoHandleAnchorsInTheRevealedBytes() public {
         AttestationBuilder.Direction memory received = _upToTheHandle();
         received.reveal('"username":"')
@@ -1143,17 +1058,15 @@ contract XPlatformVerifierTest is RealTlsNotaryProofTest {
         _refusedFraming(received, CeremonyAttestation.AmbiguousFraming.selector);
     }
 
-    /// @dev The same with the second anchor framing nothing -- the value
-    ///      after it revealed. The count is over everything revealed, not
-    ///      only the anchors that frame a commitment.
+    /// @dev The anchor count covers every revealed byte, so a second anchor framing
+    ///      nothing is still ambiguous.
     function test_refusesASecondRevealedHandleAnchorFramingNothing() public {
         AttestationBuilder.Direction memory received = _upToTheHandle();
         received.reveal('"username":"').commit("Alice_1", HANDLE_COMMITMENT).reveal('","username":"mallory"}}');
         _refusedFraming(received, CeremonyAttestation.AmbiguousFraming.selector);
     }
 
-    /// @dev Two id anchors, each in its own range and each framing a
-    ///      commitment: two commitments both framed.
+    /// @dev Two id anchors, each framing a commitment, are ambiguous.
     function test_refusesTwoFramedIdCommitments() public {
         AttestationBuilder.Direction memory received;
         received.commit('HTTP/1.1 200 OK\r\n\r\n{"data":{', OTHER)
@@ -1180,17 +1093,14 @@ contract XPlatformVerifierTest is RealTlsNotaryProofTest {
         _refusedFraming(received, CeremonyAttestation.AmbiguousFraming.selector);
     }
 
-    /// @dev Whitespace inside the key is part of the key: `"user name"` is
-    ///      another member, and the JSON whitespace the comparison ignores is
-    ///      only the whitespace beside a structural byte.
+    /// @dev `"user name"` is another member: only whitespace beside a structural byte is ignored.
     function test_refusesWhitespaceInsideTheKey() public {
         AttestationBuilder.Direction memory received = _upToTheHandle();
         received.reveal('"user name":"').commit("Alice_1", HANDLE_COMMITMENT).reveal('"').commit("}}", OTHER);
         _refusedFraming(received, CeremonyAttestation.NoFramedCommitment.selector);
     }
 
-    /// @dev Whitespace around the colon is JSON's, and X's parser and this
-    ///      one read the member alike.
+    /// @dev Whitespace around the colon is accepted.
     function test_acceptsJsonWhitespaceAroundTheColon() public {
         AttestationBuilder.Direction memory received = _upToTheHandle();
         received.reveal('"username" :\n "').commit("Alice_1", HANDLE_COMMITMENT).reveal('"').commit("}}", OTHER);
@@ -1199,27 +1109,22 @@ contract XPlatformVerifierTest is RealTlsNotaryProofTest {
         assertEq(this.run{value: quote}(s).handleNode, HANDLE_NODE);
     }
 
-    /// @dev No handle anchor at all.
     function test_refusesAResponseWithNoHandleAnchor() public {
         AttestationBuilder.Direction memory received = _upToTheHandle();
         received.commit('"username":"Alice_1"}}', OTHER);
         _refusedFraming(received, CeremonyAttestation.NoFramedCommitment.selector);
     }
 
-    /// @dev The response must still tile: a byte neither revealed nor
-    ///      committed is a byte the notary signed no position for.
+    /// @dev Every response byte must be revealed or committed.
     function test_refusesAnIdentityResponseWithAnUncoveredByte() public {
         AttestationBuilder.Direction memory received = _identityResponse("2244994945", "Alice_1");
         received.length += 1;
         _refusedFraming(received, CeremonyAttestation.CoverageGap.selector);
     }
 
-    /// @dev Not caught: a duplicate member hidden in a commitment (ASM-PROV-06
-    ///      assumes the platform never emits one).
+    /// @dev ASM-PROV-06: a duplicate member hidden in a commitment is accepted.
     function test_acceptsAnIdentityResponseHidingADuplicateMember() public {
         AttestationBuilder.Direction memory received = _upToTheHandle();
-        // `"username":"victim",` sits behind a commitment; the prover frames
-        // the member after it.
         received.commit('"username":"victim",', OTHER)
             .reveal('"username":"')
             .commit("Alice_1", HANDLE_COMMITMENT)
@@ -1230,7 +1135,7 @@ contract XPlatformVerifierTest is RealTlsNotaryProofTest {
         assertEq(this.run{value: quote}(s).handleNode, HANDLE_NODE);
     }
 
-    /// @dev Not caught: which object a framed member belongs to (ASM-PROV-06).
+    /// @dev ASM-PROV-06: the object a framed member belongs to is not checked.
     function test_acceptsAnAnchorInAnotherObject() public {
         AttestationBuilder.Direction memory received;
         received.commit('HTTP/1.1 200 OK\r\n\r\n{"data":{', OTHER)
@@ -1249,10 +1154,7 @@ contract XPlatformVerifierTest is RealTlsNotaryProofTest {
 
     // ─── The token response covers every byte ───────────────────────
 
-    /// @dev The profile says every byte outside the anchors is committed. Until
-    ///      the token response was tiled that was stated and not enforced, so a
-    ///      prover could leave bytes neither revealed nor committed -- bytes the
-    ///      notary signed no position for at all.
+    /// @dev Every token response byte outside the anchors must be committed.
     function test_rejectsATokenResponseWithAnUncoveredByte() public {
         TlsNotaryVerifierBase.TlsNotaryProof memory s = _payload();
         s.tokenSession = _tokenAttestationWithGap();
@@ -1260,12 +1162,9 @@ contract XPlatformVerifierTest is RealTlsNotaryProofTest {
         this.run{value: quote}(s);
     }
 
-    /// @dev A token response with one byte belonging to neither list: the
-    ///      status line's CRLF is left out of both.
+    /// @dev A token response whose status-line CRLF is neither revealed nor committed.
     function _tokenAttestationWithGap() private view returns (ICeremony.Attestation memory) {
-        // The verifier is derived from the digest the payload rebuilds to, so
-        // the request passes the PKCE check and the coverage gap below is what
-        // the verifier trips on.
+        // An honest request, so the coverage gap is what fails.
         bytes memory whole = _honestXRequest();
         AttestationBuilder.Direction memory sent = AttestationBuilder.Direction({
             revealed: AttestationBuilder.one(AttestationBuilder.Range({start: 0, value: whole})),
@@ -1301,11 +1200,8 @@ contract XPlatformVerifierTest is RealTlsNotaryProofTest {
 
     // ─── The token response anchors (REQ-PLAT-57, TEST-PLAT-22) ─────
 
-    /// @dev The bearer is identified by its framing, not by being the only
-    ///      commitment: the response hides every other byte behind a commitment
-    ///      of its own. With no revealed anchors the committed range is
-    ///      indistinguishable from a `refresh_token` value, or any other
-    ///      substring the prover chose to commit.
+    /// @dev The bearer is identified by its revealed anchors; without them it could
+    ///      be a `refresh_token` value.
     function test_rejectsATokenResponseWithNoRevealedAnchors() public {
         string memory v = string(CeremonyAuthorization.codeVerifier(digest, AUTH_NONCE));
         TlsNotaryVerifierBase.TlsNotaryProof memory s = _payload();
@@ -1316,9 +1212,7 @@ contract XPlatformVerifierTest is RealTlsNotaryProofTest {
 
     // ─── The identity request line (REQ-COMMON-21A) ─────────────────
 
-    /// @dev The path separates operations on the same server, so
-    ///      `/2/users/me` must be what was asked. A lookup-by-username endpoint
-    ///      would answer for an account the prover never held.
+    /// @dev The path must be `/2/users/me`; a lookup by username answers for another account.
     function test_rejectsAForeignIdentityPath() public {
         TlsNotaryVerifierBase.TlsNotaryProof memory s = _payload();
         s.identitySession = _identityAttestationOnPath("GET /2/users/by/username/victim ");
@@ -1348,14 +1242,11 @@ contract XPlatformVerifierTest is RealTlsNotaryProofTest {
         return _signedIdentity(sent, _identityResponse("2244994945", "Alice_1"));
     }
 
-    /// @dev The authority is what the notary authenticated, not a revealed
-    ///      `Host` header, so a transcript from an attacker's server cannot
-    ///      substitute for the platform's.
+    /// @dev The authority is the server the notary authenticated, not a revealed `Host` header.
     function test_rejectsAForeignAuthority() public {
         TlsNotaryVerifierBase.TlsNotaryProof memory s = _payload();
         bytes memory attested = s.identitySession.attestedData;
-        // authorityId is the first 32 bytes: it is the whole header identity
-        // now that the stamped tags are gone.
+        // authorityId is the first 32 bytes.
         bytes32 evil = keccak256(bytes("evil.example"));
         for (uint256 i = 0; i < 32; ++i) {
             attested[i] = evil[i];
@@ -1418,8 +1309,7 @@ contract XPlatformVerifierTest is RealTlsNotaryProofTest {
         this.run{value: quote + 1}(s);
     }
 
-    /// @dev REQ-COMMON-16B: an empty identifier is refused by the form
-    ///      itself, before the charset is asked.
+    /// @dev REQ-COMMON-16B: an empty identifier fails the form check.
     function test_rejectsAnEmptyClientIdentifier() public {
         TlsNotaryVerifierBase.TlsNotaryProof memory s = _payload();
         string memory v = string(CeremonyAuthorization.codeVerifier(digest, AUTH_NONCE));
@@ -1428,9 +1318,7 @@ contract XPlatformVerifierTest is RealTlsNotaryProofTest {
         this.run{value: quote}(s);
     }
 
-    /// @dev The head is the profile's right up to its last header, and then
-    ///      never ends: one CRLF where the blank line belongs. Nothing says
-    ///      which bytes are the body, so nothing may read one.
+    /// @dev A head with one CRLF where the blank line belongs has no body to read.
     function test_rejectsATokenRequestWithNoHeadBoundary() public {
         bytes memory body = _honestTokenBody();
         bytes memory whole = abi.encodePacked(
@@ -1453,9 +1341,7 @@ contract XPlatformVerifierTest is RealTlsNotaryProofTest {
         this.run{value: quote}(s);
     }
 
-    /// @dev REQ-COMMON-21A: the method is part of the pinned request line, so
-    ///      a GET with an otherwise honest body is refused before any field
-    ///      is read.
+    /// @dev REQ-COMMON-21A: the method is part of the pinned request line.
     function test_rejectsTheWrongMethodOnTheTokenRequest() public {
         bytes memory body = _honestTokenBody();
         bytes memory whole = abi.encodePacked(
@@ -1484,13 +1370,12 @@ contract XPlatformVerifierTest is RealTlsNotaryProofTest {
         return abi.encodePacked(_tokenHead(TOKEN_HEADERS, body.length), body);
     }
 
-    /// The body of that request, for a test that varies only the head.
+    /// The body of that request.
     function _honestTokenBody() private view returns (bytes memory) {
         return _honestTokenBody("abc", "https%3A%2F%2Fapp.example%2Fcb");
     }
 
-    /// The same with `code` and `redirect_uri` given, for the spellings of
-    /// them the form refuses.
+    /// The token body with `code` and `redirect_uri` given.
     function _honestTokenBody(string memory code, string memory redirectUri) private view returns (bytes memory) {
         return abi.encodePacked(
             "grant_type=authorization_code&client_id=myClient-1&code=",
@@ -1504,16 +1389,12 @@ contract XPlatformVerifierTest is RealTlsNotaryProofTest {
 
     // ─── The token request's headers (REQ-COMMON-21B) ───────────────
 
-    /// A token session honest in every respect but the head it is handed: the
-    /// layout, the digest binding, the response anchors and the coverage all
-    /// check out, so the head is the only thing left to decide it.
+    /// An honest token session under `head`.
     function _tokenSessionWithHead(bytes memory head) private view returns (ICeremony.Attestation memory) {
         return _tokenSessionWith(head, _honestTokenBody());
     }
 
-    /// A token session honest in every respect but the body it is handed,
-    /// under a head declaring that body's length: the form is the only thing
-    /// left to decide it.
+    /// The payload with an honest token session over `body`, its length declared.
     function _payloadWithBody(bytes memory body) private view returns (TlsNotaryVerifierBase.TlsNotaryProof memory s) {
         s = _payload();
         s.tokenSession = _tokenSessionWith(_tokenHead(TOKEN_HEADERS, body.length), body);
@@ -1534,8 +1415,7 @@ contract XPlatformVerifierTest is RealTlsNotaryProofTest {
         return ICeremony.Attestation({attestedData: a, proof: AttestationBuilder.sign(NOTARY_KEY, a)});
     }
 
-    /// That session under a header block of the test's choosing, declaring the
-    /// body it really carries.
+    /// The payload with an honest token session under `headers`.
     function _payloadWithHeaders(bytes memory headers)
         private
         view
@@ -1545,17 +1425,13 @@ contract XPlatformVerifierTest is RealTlsNotaryProofTest {
         s.tokenSession = _tokenSessionWithHead(_tokenHead(headers, _honestTokenBody().length));
     }
 
-    /// That session under a whole head of the test's choosing, for the cases
-    /// where the length header's own position is what is under test.
+    /// The payload with an honest token session under a whole `head`.
     function _payloadWithHead(bytes memory head) private view returns (TlsNotaryVerifierBase.TlsNotaryProof memory s) {
         s = _payload();
         s.tokenSession = _tokenSessionWithHead(head);
     }
 
-    /// @dev The fixtures compose their head from parts; this says the two
-    ///      lines the profile requires are among them. Without it an edit to
-    ///      `profiles.json` that the fixtures did not follow would fail every
-    ///      test in this file at once and name none of them as the reason.
+    /// @dev The suite's composed head carries the headers `profiles.json` requires.
     function test_theFixtureHeadCarriesTheProfilesRequiredHeaders() public pure {
         assertTrue(
             AttestationBuilder.contains(
@@ -1564,11 +1440,8 @@ contract XPlatformVerifierTest is RealTlsNotaryProofTest {
         );
     }
 
-    /// @dev REQ-COMMON-21B: the media type selects the platform's request
-    ///      parser, and `_tokenBody` reads those same bytes under a form
-    ///      encoding. Announcing JSON leaves X parsing one document while this
-    ///      verifier reads another, with every other check still passing --
-    ///      which is what a pinned media type nothing compared was worth.
+    /// @dev REQ-COMMON-21B: the media type selects X's body parser, and the verifier
+    ///      reads the body as a form.
     function test_rejectsAnotherMediaTypeOnTheTokenRequest() public {
         TlsNotaryVerifierBase.TlsNotaryProof memory s = _payloadWithHeaders(
             "host: api.x.com\r\ncontent-type: application/json\r\naccept: application/json\r\nconnection: close\r\n"
@@ -1577,10 +1450,8 @@ contract XPlatformVerifierTest is RealTlsNotaryProofTest {
         this.run{value: quote}(s);
     }
 
-    /// @dev `authorization: Basic` is the header the forbidden list exists
-    ///      for: X authenticates the client from it instead, so the revealed
-    ///      `client_id` this verifier returns stops being the credential the
-    ///      exchange was made under, and no revealed byte says so.
+    /// @dev With `authorization: Basic`, X authenticates the client from it rather
+    ///      than from the revealed `client_id`.
     function test_rejectsAForbiddenHeaderOnTheTokenRequest() public {
         TlsNotaryVerifierBase.TlsNotaryProof memory s = _payloadWithHeaders(
             "host: api.x.com\r\ncontent-type: application/x-www-form-urlencoded\r\naccept: application/json\r\n"
@@ -1614,11 +1485,8 @@ contract XPlatformVerifierTest is RealTlsNotaryProofTest {
         this.run{value: quote}(s);
     }
 
-    /// @dev Every forbidden name, each in a spelling the platform would read
-    ///      as the same header: another case, no space after the colon, a
-    ///      space before it, an underscore where a CGI-style stack folds it
-    ///      into the dash. The name comes back normalized, which is how the
-    ///      list is compared.
+    /// @dev Every forbidden name, in spellings the platform reads alike: case, colon
+    ///      spacing, `_` for `-`. The error names it normalized.
     function test_rejectsEachForbiddenHeaderOnTheTokenRequest() public {
         string[9] memory lines = [
             "Transfer-Encoding: chunked",
@@ -1657,9 +1525,7 @@ contract XPlatformVerifierTest is RealTlsNotaryProofTest {
         }
     }
 
-    /// @dev A required header has to be there. Without the media type nothing
-    ///      says X read the bytes the verifier reads as a form at all; without
-    ///      `host` nothing says which server the prover meant.
+    /// @dev The media type and `host` are required.
     function test_rejectsATokenRequestMissingARequiredHeader() public {
         TlsNotaryVerifierBase.TlsNotaryProof memory s =
             _payloadWithHeaders("host: api.x.com\r\naccept: application/json\r\nconnection: close\r\n");
@@ -1673,8 +1539,7 @@ contract XPlatformVerifierTest is RealTlsNotaryProofTest {
         this.run{value: quote}(s);
     }
 
-    /// @dev And twice is not once: two media types leave X to pick one and
-    ///      this verifier with no way to know which.
+    /// @dev A required header must appear exactly once.
     function test_rejectsARequiredHeaderTwice() public {
         TlsNotaryVerifierBase.TlsNotaryProof memory s = _payloadWithHeaders(
             "host: api.x.com\r\ncontent-type: application/x-www-form-urlencoded\r\n"
@@ -1684,10 +1549,7 @@ contract XPlatformVerifierTest is RealTlsNotaryProofTest {
         this.run{value: quote}(s);
     }
 
-    /// @dev A header the profile sends but nothing verifies may be missing.
-    ///      Without `accept`, X may answer in another representation, and that
-    ///      is a response this verifier cannot read rather than one it can be
-    ///      fooled by.
+    /// @dev A header the profile sends but does not compare, such as `accept`, may be missing.
     function test_acceptsATokenRequestWithoutAnUncomparedHeader() public {
         TlsNotaryVerifierBase.TlsNotaryProof memory s = _payloadWithHeaders(
             "host: api.x.com\r\ncontent-type: application/x-www-form-urlencoded\r\nconnection: close\r\n"
@@ -1695,9 +1557,7 @@ contract XPlatformVerifierTest is RealTlsNotaryProofTest {
         this.run{value: quote}(s);
     }
 
-    /// @dev And headers the profile never mentions may be present: what a
-    ///      prover's HTTP library adds is its own business, as long as it is
-    ///      not on the forbidden list.
+    /// @dev Headers the profile does not name or forbid are accepted.
     function test_acceptsUnlistedHeadersOnTheTokenRequest() public {
         TlsNotaryVerifierBase.TlsNotaryProof memory s = _payloadWithHeaders(
             "host: api.x.com\r\nuser-agent: libid-ceremony\r\ncontent-type: application/x-www-form-urlencoded\r\n"
@@ -1706,10 +1566,8 @@ contract XPlatformVerifierTest is RealTlsNotaryProofTest {
         this.run{value: quote}(s);
     }
 
-    /// @dev A required header in another spelling the platform reads the
-    ///      same: the name in another case, no space after the colon, a space
-    ///      before it, a tab before the value. HTTP reads all of them as one
-    ///      header, and so does this.
+    /// @dev A required header in spellings HTTP reads alike: case, colon spacing,
+    ///      a tab before the value.
     function test_acceptsARequiredHeaderInAnotherSpelling() public {
         TlsNotaryVerifierBase.TlsNotaryProof memory s = _payloadWithHeaders(
             "Host:\tapi.x.com \r\nContent-Type :application/x-www-form-urlencoded\r\naccept: application/json\r\nconnection: close\r\n"
@@ -1717,10 +1575,7 @@ contract XPlatformVerifierTest is RealTlsNotaryProofTest {
         this.run{value: quote}(s);
     }
 
-    /// @dev A carriage return no line feed follows. A compliant parser never
-    ///      ends a line on one, so it is refused rather than left to every
-    ///      platform's handling of it. Tucked inside an ignored header's value,
-    ///      where a parser that did split on it would find a second header.
+    /// @dev A carriage return without a line feed is refused, even inside an ignored header's value.
     function test_rejectsABareCarriageReturnInTheTokenHead() public {
         TlsNotaryVerifierBase.TlsNotaryProof memory s = _payloadWithHeaders(
             "host: api.x.com\r\ncontent-type: application/x-www-form-urlencoded\r\naccept: application/json\rauthorization: Basic x\r\nconnection: close\r\n"
@@ -1729,8 +1584,7 @@ contract XPlatformVerifierTest is RealTlsNotaryProofTest {
         this.run{value: quote}(s);
     }
 
-    /// @dev A line no colon splits is not a header, and a head carrying one is
-    ///      a head some parser somewhere reads differently.
+    /// @dev A header line without a colon is refused.
     function test_rejectsAHeaderLineWithoutAColon() public {
         TlsNotaryVerifierBase.TlsNotaryProof memory s = _payloadWithHeaders(
             "host: api.x.com\r\ncontent-type: application/x-www-form-urlencoded\r\nnot a header\r\nconnection: close\r\n"
@@ -1739,11 +1593,7 @@ contract XPlatformVerifierTest is RealTlsNotaryProofTest {
         this.run{value: quote}(s);
     }
 
-    /// @dev Nothing is pinned by position. The same headers in another order
-    ///      are the same request: field order is insignificant in HTTP except
-    ///      for repeated names, so a reordering changes nothing X does with the
-    ///      request, and pinning it would bind every prover to the order its
-    ///      HTTP library emits.
+    /// @dev Header order is not pinned.
     function test_acceptsTheSameHeadersInAnotherOrder() public {
         TlsNotaryVerifierBase.TlsNotaryProof memory s = _payloadWithHeaders(
             "host: api.x.com\r\naccept: application/json\r\ncontent-type: application/x-www-form-urlencoded\r\nconnection: close\r\n"
@@ -1751,9 +1601,7 @@ contract XPlatformVerifierTest is RealTlsNotaryProofTest {
         this.run{value: quote}(s);
     }
 
-    /// @dev And the length header may sit anywhere among them, because where a
-    ///      client appends it is that client's business. hyper puts it last;
-    ///      nothing promises the next one will.
+    /// @dev The length header may sit anywhere in the head.
     function test_acceptsTheLengthHeaderAnywhereInTheHead() public {
         uint256 length = _honestTokenBody().length;
         TlsNotaryVerifierBase.TlsNotaryProof memory s = _payloadWithHead(
@@ -1766,10 +1614,7 @@ contract XPlatformVerifierTest is RealTlsNotaryProofTest {
         this.run{value: quote}(s);
     }
 
-    /// @dev The declared length is what the PLATFORM framed the body by. A
-    ///      short one leaves X parsing a form that stops early while every
-    ///      field this verifier reads comes from the bytes after it -- a
-    ///      `grant_type` X never saw, over a grant it did.
+    /// @dev X frames the body by the declared length, so it must cover the whole revealed body.
     function test_rejectsATokenRequestUnderdeclaringItsBody() public {
         uint256 length = _honestTokenBody().length;
         TlsNotaryVerifierBase.TlsNotaryProof memory s = _payload();
@@ -1780,9 +1625,7 @@ contract XPlatformVerifierTest is RealTlsNotaryProofTest {
         this.run{value: quote}(s);
     }
 
-    /// @dev The bytes between the pinned head and the blank line are the
-    ///      declared length and nothing else. Were anything else allowed there,
-    ///      it would be a header after the last one the profile names.
+    /// @dev The `content-length` value must be digits only.
     function test_rejectsADeclaredBodyLengthThatIsNotDigits() public {
         TlsNotaryVerifierBase.TlsNotaryProof memory s = _payload();
         s.tokenSession = _tokenSessionWithHead(
@@ -1792,9 +1635,7 @@ contract XPlatformVerifierTest is RealTlsNotaryProofTest {
         this.run{value: quote}(s);
     }
 
-    /// @dev A leading zero is a second spelling of a head this exists to fix
-    ///      one spelling of, and it declares the same length, so nothing below
-    ///      would notice.
+    /// @dev A leading zero is a second spelling of the same length and is refused.
     function test_rejectsANoncanonicalDeclaredBodyLength() public {
         TlsNotaryVerifierBase.TlsNotaryProof memory s = _payload();
         s.tokenSession = _tokenSessionWithHead(
@@ -1820,9 +1661,9 @@ contract XPlatformVerifierTest is RealTlsNotaryProofTest {
         });
     }
 
-    /// TlsNotaryVerifierBase.sol:294-295: request line hidden under a commitment tiling [0,10).
+    /// A request line hidden under a commitment over [0,10).
     function test_rejectsATokenRequestLineNotAtOrigin() public {
-        bytes memory whole = _honestXRequest(); // the whole honest token request of _tokenAttestation
+        bytes memory whole = _honestXRequest();
         bytes memory rest = new bytes(whole.length - 10);
         for (uint256 i = 0; i < rest.length; ++i) {
             rest[i] = whole[10 + i];
@@ -1841,7 +1682,7 @@ contract XPlatformVerifierTest is RealTlsNotaryProofTest {
         this.run{value: quote}(s);
     }
 
-    /// TlsNotaryVerifierBase.sol:293: no revealed range in the sent direction at all.
+    /// No revealed range in the sent direction.
     function test_rejectsATokenRequestWithNoRevealedRange() public {
         AttestationBuilder.Direction memory sent = AttestationBuilder.Direction({
             revealed: new AttestationBuilder.Range[](0), commitments: AttestationBuilder.none(), length: 0

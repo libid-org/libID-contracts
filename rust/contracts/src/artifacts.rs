@@ -1,11 +1,8 @@
-//! Access to the compiled forge artifacts the crate ships.
+//! The compiled forge artifacts the crate ships.
 //!
-//! The default source is [`Artifacts::embedded`]: the pruned artifact JSONs
-//! vendored by `scripts/vendor-artifacts.sh` into `artifacts/` are compiled
-//! into the binary, so deployment has zero filesystem dependencies at runtime.
-//! [`Artifacts::from_dir`] reads the same `<File>.sol/<Name>.json` layout from
-//! disk instead — it accepts a raw forge `out/` directory too, since the crate
-//! only reads fields forge emits.
+//! [`Artifacts::embedded`] serves the JSONs `scripts/vendor-artifacts.sh`
+//! writes to `artifacts/`, compiled into the binary. [`Artifacts::from_dir`]
+//! reads the same layout from disk.
 
 use std::{
     fs,
@@ -33,8 +30,8 @@ use crate::error::{
 /// The vendored artifacts, embedded at compile time.
 static EMBEDDED: Dir<'static> = include_dir!("$CARGO_MANIFEST_DIR/artifacts");
 
-/// Every deployable contract the crate covers, as `(file, contract)` — the
-/// artifact lives at `<file>.sol/<contract>.json`. Keep in sync with
+/// Every deployable contract the crate covers, as `(file, contract)`, read
+/// from `<file>.sol/<contract>.json`. Keep in sync with
 /// `scripts/vendor-artifacts.sh`.
 pub const COVERED: &[(&str, &str)] = &[
     // ceremony
@@ -54,7 +51,7 @@ pub const COVERED: &[(&str, &str)] = &[
     ("IdentityRegistry", "IdentityRegistry"),
     // ens (deployed once per network, not CREATE3-canonical)
     ("HandleResolver", "HandleResolver"),
-    // escrow: value held against a handle nobody holds yet
+    // escrow
     ("HandleEscrow", "HandleEscrow"),
     // factory
     ("LibidFactory", "LibidFactory"),
@@ -72,8 +69,7 @@ pub struct Artifacts {
 }
 
 impl Artifacts {
-    /// The artifacts vendored into the crate. The default, filesystem-free
-    /// path.
+    /// The artifacts embedded in the crate; the default.
     pub const fn embedded() -> Self {
         Self {
             source: Source::Embedded,
@@ -153,8 +149,7 @@ impl Artifacts {
     }
 }
 
-/// A forge artifact, read for the members the crate uses; a raw forge
-/// artifact's other members are skipped.
+/// The members of a forge artifact the crate reads.
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct Artifact {

@@ -5,35 +5,21 @@ import {CeremonyFields} from "./CeremonyFields.sol";
 
 /// @title CeremonyAttestation
 /// @notice Decoder for the attested-data layout the X and GitHub profiles pin.
-/// @dev THE LAYOUT IS THE PROFILE'S. REQ-COMMON-18 has a Platform Profile fix
-///      the attestation format it accepts, and the X and GitHub profiles fix
-///      this one in platform-ceremonies section 4.1. Four components read or
-///      write these bytes -- this library, `libid-ceremony` in libid-rs, the
-///      TypeScript mirror, and the notary that signs them -- and a divergence
-///      is silent: the signature derives a key nobody trusts and every
-///      genuine attestation is rejected with no error saying why.
+/// @dev The profile fixes the layout (REQ-COMMON-18, platform-ceremonies
+///      section 4.1). This library, `libid-ceremony` in libid-rs, the
+///      TypeScript mirror and the notary must agree byte for byte: a
+///      divergence recovers a key nobody trusts and rejects every genuine
+///      attestation with no error saying why.
 ///
-///      The verifying side holds no transcript. It rebuilds these exact bytes
-///      from what it was handed and derives the signing key from them, so a
-///      field read differently here than the notary wrote it derives a key
-///      nobody trusts. Every boundary is derivable from the bytes before it,
-///      which is what lets this be one forward pass.
+///      Every boundary follows from the bytes before it, so `decode` is one
+///      forward pass. It checks shape only; which ranges a profile expects is
+///      the Platform Verifier's rule.
 ///
-///      This library reads and shape-checks. It decides nothing
-///      profile-specific: which ranges a profile expects and what their bytes
-///      must contain belong to the Platform Verifier.
-///
-///      IT DOES NOT CHECK COVERAGE. `decode` accepts a transcript byte covered
-///      by neither a revealed range nor a commitment: which directions a
-///      profile tiles is that profile's rule, and this library answers for the
-///      encoding alone. Each Platform Verifier calls `requireExactCoverage`
-///      for the directions its own profile accounts for.
-///
-///      A gap is where a prover hides bytes, so the Platform Verifier of an
-///      identity session MUST call `requireExactCoverage` and MUST run the
-///      needle scan of REQ-COMMON-39 and the framing check of REQ-COMMON-40
-///      itself. Those three together are what make the committed range the one
-///      region nobody can read and everything else visible.
+///      `decode` accepts transcript bytes covered by neither a revealed range
+///      nor a commitment. The Platform Verifier of an identity session MUST
+///      call `requireExactCoverage` and run the needle scan of REQ-COMMON-39
+///      and the framing check of REQ-COMMON-40, so the committed range is the
+///      only hidden region.
 library CeremonyAttestation {
     /// @dev The authority, `createdAt`, and the two transcript lengths.
     uint256 internal constant HEADER_LEN = 48;
@@ -56,12 +42,9 @@ library CeremonyAttestation {
     }
 
     struct AttestedData {
-        /// @dev The TLS server name the notary authenticated, hashed. The only
-        ///      identity in the record, and the one thing here the notary
-        ///      observed rather than was told. Which platform that host belongs
-        ///      to, and which session of a ceremony this is, are read from the
-        ///      revealed request line by the verifier that pins those
-        ///      constants.
+        /// @dev The hashed TLS server name the notary authenticated, the one
+        ///      field it observed rather than was told. The session is read
+        ///      from the revealed request line.
         bytes32 authorityId;
         uint64 createdAt;
         uint32 sentTranscriptLength;
@@ -79,25 +62,18 @@ library CeremonyAttestation {
     /// @dev Transcript bytes `[from, to)` are covered by neither a revealed
     ///      range nor a commitment.
     error CoverageGap(uint32 from, uint32 to);
-    /// @dev Spans overlap. `decode` rejects this already; naming it here beats
-    ///      reporting a backwards gap to a caller that built a block by hand.
+    /// @dev Spans overlap in a block that did not come from `decode`.
     error SpansOverlap(uint32 at);
-    /// @dev This request commits exactly one credential, so several
-    ///      commitments would leave the framed range and the proved range
-    ///      unrelated.
+    /// @dev The request must commit exactly one credential, so the framed
+    ///      range and the proved range are the same.
     error NotOneCommitment(uint256 count);
-    /// @dev A direction that must hide nothing carries a commitment anyway.
     /// @dev An obsolete line fold in the revealed request bytes.
     error ObsoleteLineFold(uint256 at);
-    /// @dev A line feed not preceded by a carriage return. The needle is
-    ///      CRLF-anchored, so a bare LF starts a header line the count cannot
-    ///      see -- and a platform parser that accepts it would honour that
-    ///      header.
+    /// @dev A line feed not preceded by a carriage return: it starts a header
+    ///      line the CRLF-anchored needle cannot see.
     error BareLineFeed(uint256 at);
-    /// @dev A carriage return not followed by a line feed. A compliant parser
-    ///      never ends a line on one, but a parser that does ends the head
-    ///      somewhere this one does not, so the byte is refused rather than
-    ///      trusted to every platform's handling of it.
+    /// @dev A carriage return not followed by a line feed: some parsers end
+    ///      a line on it, so the head could end elsewhere for the platform.
     error BareCarriageReturn(uint256 at);
     error NotOneAuthorizationHeader(uint256 count);
     error BadBearerFraming();
@@ -112,8 +88,7 @@ library CeremonyAttestation {
     error BytesAfterRequest(uint256 count);
 
     /// @notice Parse and shape-check the attested data.
-    /// @dev Trailing bytes are refused: the layout accounts for every byte, so
-    ///      a suffix is a second message hiding behind the first.
+    /// @dev Trailing bytes are refused: the layout accounts for every byte.
     function decode(bytes calldata data) internal pure returns (AttestedData memory attested) {
         uint256 at = 0;
 
@@ -132,25 +107,13 @@ library CeremonyAttestation {
         _check(attested.received, attested.recvTranscriptLength);
     }
 
-    /// @notice Require the revealed ranges and commitments of one direction to
-    ///         tile `[0, length)` exactly, with no gap and no overlap
-    ///         (REQ-COMMON-35).
-    /// @dev Only for a direction whose profile demands exact coverage. Both
-    ///      lists arrive ascending and internally non-overlapping from
-    ///      `decode`, so this walks them as one merge: every step must begin
-    ///      where the previous ended, and the last must end at the signed
-    ///      transcript length. That leaves the committed range as the only
-    ///      region the verifier cannot read, and makes its offset and length
-    ///      follow from the ranges around it.
-    /// @dev `\r\nauthorization: Bearer ` -- the raw bytes REQ-COMMON-40 wants
-    ///      immediately before the committed range.
+    /// @dev The raw bytes REQ-COMMON-40 requires immediately before the
+    ///      committed range.
     bytes internal constant BEARER_PREFIX = "\r\nauthorization: Bearer ";
-    /// @dev And immediately after it.
+    /// @dev The raw bytes REQ-COMMON-40 requires immediately after it.
     bytes internal constant BEARER_SUFFIX = "\r\n";
     /// @dev The normalized, line-anchored needle REQ-COMMON-39 counts: the
-    ///      credential header under ANY scheme. Counting only `bearer` left a
-    ///      second `authorization: Basic` or `authorization: token` line
-    ///      uncounted, and the platform answering to whichever it honoured.
+    ///      credential header under any scheme.
     bytes internal constant AUTHORIZATION_NEEDLE = "\r\nauthorization:";
 
     /// @dev What ends a framed commitment: exact suffix bytes, or the `,` or `}`
@@ -229,10 +192,8 @@ library CeremonyAttestation {
         uint256 found = type(uint256).max;
         for (uint256 i = 0; i < block_.commitments.length; ++i) {
             RangeCommitment memory c = block_.commitments[i];
-            // The one revealed range ending where the commitment starts is the
-            // anchor, and its bytes with the JSON whitespace removed end with
-            // the prefix. One range, never a join: a prefix assembled across a
-            // seam is one the platform never wrote in one piece.
+            // The prefix must end the one revealed range ending where the
+            // commitment starts, never a join across ranges.
             if (!f.anchored[i] || !_endsWith(f.anchors[i], prefixHash, prefix.length)) continue;
             if (terminator == Terminator.Suffix) {
                 bytes memory after_ = _revealedSlice(block_, c.end, c.end + uint32(suffix.length));
@@ -266,8 +227,7 @@ library CeremonyAttestation {
     }
 
     /// @dev The first revealed range ending exactly at `at`, JSON whitespace
-    ///      removed. The whitespace stays revealed at its offsets -- the range
-    ///      is the wire -- and is only ignored to compare.
+    ///      removed for comparison.
     function _anchor(DirectionBlock memory block_, uint32 at) private pure returns (bool, bytes memory) {
         for (uint256 i = 0; i < block_.revealed.length; ++i) {
             RevealedRange memory range = block_.revealed[i];
@@ -296,9 +256,8 @@ library CeremonyAttestation {
         pure
         returns (RangeCommitment memory commitment, bytes memory revealed)
     {
-        // One committed range, so the range REQ-COMMON-40 frames and the
-        // commitment the circuit opens are the same object. The layout permits
-        // several per direction, and nothing else here would tie them.
+        // One committed range, so the range REQ-COMMON-40 frames is the one
+        // the circuit opens.
         if (block_.commitments.length != 1) revert NotOneCommitment(block_.commitments.length);
         commitment = block_.commitments[0];
 
@@ -308,13 +267,12 @@ library CeremonyAttestation {
         requireCrlfLineEndings(revealed);
         requireOneBodilessRequest(block_, revealed, length);
 
-        // Counted over the join, so a reveal cut through a header cannot hide it;
-        // a false match at a seam fails closed.
+        // Counted over the join, so a reveal cut through a header cannot hide
+        // it. A false match at a seam fails closed.
         uint256 headers = _countNeedle(revealed);
         if (headers != 1) revert NotOneAuthorizationHeader(headers);
 
-        // Framing, on RAW bytes at known offsets. Two fixed comparisons make
-        // the committed range one header line's value by construction.
+        // Raw bytes on both sides make the committed range one header line's value.
         if (commitment.start < BEARER_PREFIX.length) revert BadBearerFraming();
         bytes memory before_ = _revealedSlice(block_, commitment.start - uint32(BEARER_PREFIX.length), commitment.start);
         bytes memory after_ = _revealedSlice(block_, commitment.end, commitment.end + uint32(BEARER_SUFFIX.length));
@@ -367,32 +325,14 @@ library CeremonyAttestation {
     /// @notice Every line ending in the revealed request bytes is a CRLF, and
     ///         no line continues the one before it.
     ///
-    /// @dev A CRLF-anchored header count is only as good as the line
-    ///      structure it anchors to, and HTTP/1.1 parsers in the wild accept
-    ///      two shapes the needle cannot see.
+    /// @dev A CRLF-anchored header count misses two shapes lenient HTTP/1.1
+    ///      parsers accept. A fold `authorization:\r\n Bearer x` normalizes
+    ///      to `authorization:\r\nbearer`, which the needle never counts. A
+    ///      bare LF starts a header line the needle never sees.
     ///
-    ///      Obsolete line folding is illegal in HTTP/1.1 and defeats the
-    ///      needle: `authorization:\r\n Bearer x` normalizes to
-    ///      `authorization:\r\nbearer`, because normalization strips the space
-    ///      but keeps the CRLF the fold introduced. The header is then never
-    ///      counted, and a server honouring the fold authenticates with it.
-    ///
-    ///      Every LF must be part of a CRLF. Otherwise
-    ///      `...\nauthorization: Bearer <victim>\r\n` starts a header line the
-    ///      CRLF-anchored needle never counts, while a lenient platform parser
-    ///      honours it.
-    ///
-    ///      `internal` for the same reason `normalizeHeaderBytes` is: what
-    ///      this refuses decides what a header count can miss, so it is one
-    ///      implementation shared by every count -- the bearer header here and
-    ///      the JWKS root list's `Host` -- rather than one per caller. The
-    ///      `Host` count learned this the hard way: Google's front end honours
-    ///      a bare-LF `Host: storage.googleapis.com` and routes to the storage
-    ///      backend, while a needle count sees only the CRLF one before it.
-    ///
-    ///      Runs BEFORE the count, over the raw bytes: normalization keeps CR
-    ///      and LF, so the offsets it reports are transcript offsets.
-    ///
+    ///      Shared by every header count: the bearer header here and the
+    ///      `Host` count in `GoogleJwtRoots`. Runs before the count, over raw
+    ///      bytes, so the offsets it reports are offsets into `revealed`.
     ///      A fold anywhere is reported before the first bare CR or LF.
     function requireCrlfLineEndings(bytes memory revealed) internal pure {
         uint256 bare = type(uint256).max;
@@ -427,15 +367,10 @@ library CeremonyAttestation {
     /// @notice Lowercase ASCII and drop every space and horizontal tab, keeping
     ///         CR and LF (REQ-COMMON-39).
     ///
-    /// @dev Field names and the scheme token are case-insensitive and the
-    ///      colon admits whitespace, so a literal search over raw bytes is
-    ///      evadable. Removing only bytes absent from the needle can create a
-    ///      spurious match, which over-rejects and is safe, but can never hide
-    ///      a real one.
-    ///
-    ///      `internal` because a header COUNT reads this -- the JWKS root
-    ///      list's `Host` scan -- and what it strips decides what a count can
-    ///      miss. `_countNeedle` strips the same bytes inline, so the two must
+    /// @dev Field names and the scheme are case-insensitive and the colon
+    ///      admits whitespace. Removing only bytes absent from the needle can
+    ///      create a spurious match, which over-rejects, but never hides a real
+    ///      one. `_countNeedle` strips the same bytes inline, so the two must
     ///      change together.
     function normalizeHeaderBytes(bytes memory raw) internal pure returns (bytes memory out) {
         out = new bytes(raw.length);
@@ -483,11 +418,7 @@ library CeremonyAttestation {
     }
 
     /// @notice The revealed bytes of one direction, in offset order.
-    ///
-    /// @dev `internal` so a verifier joins once and passes the result down,
-    ///      rather than each scan rebuilding it. A join is security-relevant --
-    ///      it is what a cross-range COUNT reads, where a seam may only
-    ///      over-count -- so one implementation of it, not two.
+    /// @dev Cross-range header counts read this join; a seam may only over-count.
     function concatRevealed(DirectionBlock memory block_) internal pure returns (bytes memory out) {
         uint256 total;
         for (uint256 i = 0; i < block_.revealed.length; ++i) {
@@ -544,6 +475,13 @@ library CeremonyAttestation {
         }
     }
 
+    /// @notice Require the revealed ranges and commitments of one direction to
+    ///         tile `[0, length)` exactly, with no gap and no overlap
+    ///         (REQ-COMMON-35).
+    /// @dev Walks both ascending lists as one merge: each span begins where
+    ///      the previous ended, and the last ends at `length`. The committed
+    ///      range is then the only unread region, its offsets fixed by its
+    ///      neighbours.
     function requireExactCoverage(DirectionBlock memory block_, uint32 length) internal pure {
         uint256 r = 0;
         uint256 c = 0;
@@ -569,9 +507,7 @@ library CeremonyAttestation {
                 ++c;
             }
 
-            // Unreachable for a decoded record: `_check` has already refused
-            // every overlap. Kept because this function takes a block a caller
-            // may have built without decoding, and fails closed there.
+            // Only a block not built by `decode` can overlap here.
             if (start < at) revert SpansOverlap(start);
             if (start != at) revert CoverageGap(at, start);
             at = end;
@@ -580,7 +516,7 @@ library CeremonyAttestation {
         if (at != length) revert CoverageGap(at, length);
     }
 
-    /// @notice `keccak256(attestedData)` -- the only preimage the notary signs.
+    /// @notice `keccak256(attestedData)`, the preimage the notary signs.
     function digest(bytes calldata data) internal pure returns (bytes32) {
         return keccak256(data);
     }
@@ -592,15 +528,13 @@ library CeremonyAttestation {
         pure
         returns (DirectionBlock memory block_, uint256 next)
     {
-        // Counts are eight bytes: the encoder writes a `Vec` length, and a
-        // length that cannot be represented is not a shorter length.
+        // Counts are eight bytes, the encoder's `Vec` length.
         uint256 count = _uint(data, at, 8);
         at += 8;
         block_.revealed = new RevealedRange[](count);
         for (uint256 i = 0; i < count; ++i) {
             uint32 start = uint32(_uint(data, at, 4));
-            // The range's length is its bytes. There is no separate `end` to
-            // disagree with it, so `end` here is arithmetic rather than a claim.
+            // The encoding carries no `end`: it is `start` plus the value's length.
             uint256 len = _uint(data, at + 4, 8);
             at += 12;
             if (at + len > data.length) revert Truncated();
@@ -659,10 +593,8 @@ library CeremonyAttestation {
             previousEnd = commitment.end;
         }
 
-        // Cross-overlap as one merge rather than a nested scan: both lists are
-        // ascending and internally disjoint by the checks above, so a single
-        // pass sees every adjacent pair. The nested form was quadratic in
-        // attacker-chosen counts.
+        // Both lists are ascending and disjoint, so one merge pass sees every
+        // adjacent pair in linear time.
         uint256 r = 0;
         uint256 c = 0;
         while (r < block_.revealed.length && c < block_.commitments.length) {

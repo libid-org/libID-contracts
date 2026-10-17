@@ -11,7 +11,7 @@ const PROVED = `0x${'e2'.repeat(32)}` as const
 
 describe('bindErrorsAbi', () => {
   it('names a Platform Verifier refusal that comes back out of bind', () => {
-    // The Platform Verifier's revert for a disclosed handle the proof did not bind.
+    // The registry's revert for a disclosed handle the proof did not bind.
     const data = concatHex([selector('HandleNotProved(bytes32,bytes32)'), DISCLOSED, PROVED])
 
     expect(decodeErrorResult({ abi: bindErrorsAbi, data })).toEqual({

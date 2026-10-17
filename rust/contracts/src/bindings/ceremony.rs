@@ -1,10 +1,8 @@
 //! Bindings for the ceremony verification path (`solidity/contracts/ceremony/`),
-//! read from the compiled artifacts: the Notary Service every notarized
-//! session is authenticated through, the Proof Verifier that routes a claim to
-//! the Platform Verifier registered for its version, the three launch Platform
-//! Verifiers it routes to, and the Google JWT root list the `google/v1`
-//! verifier reads. [`platform_verifier`](crate::platform_verifier) builds the
-//! initializer and checks its rules first.
+//! read from the compiled artifacts: the Notary Service, the Proof Verifier,
+//! the three launch Platform Verifiers and the Google JWT root list.
+//! [`platform_verifier`](crate::platform_verifier) builds a Platform Verifier
+//! initializer and checks its rules.
 
 #[allow(
     clippy::too_many_arguments,

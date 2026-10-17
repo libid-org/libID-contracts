@@ -9,27 +9,18 @@ import {IHonkVerifier} from "../../ceremony/PlatformVerifierBase.sol";
 ///         point coordinates are non-canonical, and one whose public-input
 ///         array is the wrong length.
 ///
-/// @dev `HonkVerifierProofTest` flips one bit per word, which keeps every
-///      element in range; the range checks a bit flip never trips are the ones
-///      a proof forged with a value `>= r` (scalar), `>= q` (coordinate) or an
-///      over-wide pairing limb would rely on. A generator that dropped those
-///      checks — as bb's pre-fix ZK template dropped the small-subgroup-IPA
-///      boundary opening — would still pass the bit-flip suite while accepting
-///      malleated encodings. These pin the reduction modulo `r` an honest proof
-///      never needs, so a regression in the vendored bytecode fails here.
-///
-///      Starts from the same real fixtures and deploys from the artifact, for
-///      the reasons `HonkVerifierProofTest` gives.
+/// @dev Covers the range checks that `HonkVerifierProofTest`'s bit flips never
+///      trip: a scalar `>= r`, a coordinate `>= q` and an over-wide pairing limb.
+///      Uses the same real fixtures and artifacts as `HonkVerifierProofTest`.
 abstract contract HonkVerifierEncodingTest is Test {
-    // Group order q (the coordinate field of BN254 G1).
+    // BN254 base field modulus q: G1 point coordinates.
     uint256 internal constant Q = 21888242871839275222246405745257275088696311157297823662689037894645226208583;
-    // Scalar field r (the field the proof's Fr elements live in).
+    // BN254 scalar field modulus r: the proof's Fr elements.
     uint256 internal constant R = 21888242871839275222246405745257275088548364400416034343698204186575808495617;
 
-    // Proof-word offsets fixed by bb's ZK keccak layout, log_n-independent up to
-    // the first Gemini fold. Word 0 is a pairing "lo" limb (bound 2^136); word 8
-    // is the Gemini masking commitment's x (an Fq coordinate); word 28 is the
-    // Libra sum (an Fr). The last word is the KZG quotient's y (an Fq coordinate).
+    // Proof-word offsets in bb's ZK keccak layout, independent of log_n up to the
+    // first Gemini fold. Word 0 is a pairing "lo" limb, bound 2^136; word 8 is the
+    // Gemini masking commitment's x, an Fq coordinate; word 28 is the Libra sum, an Fr.
     uint256 internal constant PAIRING_LO_LIMB_WORD = 0;
     uint256 internal constant COORDINATE_WORD = 8;
     uint256 internal constant SCALAR_WORD = 28;

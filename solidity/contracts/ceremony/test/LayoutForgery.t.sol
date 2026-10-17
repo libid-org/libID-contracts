@@ -29,8 +29,7 @@ contract LayoutForgeryTest is Test {
     uint64 constant T0 = 1_770_000_000;
     bytes32 constant DOMAIN = keccak256(bytes("libid.claim-identity"));
     bytes32 constant AUTH_NONCE = bytes32(uint256(0x5555555555555555555555555555555555555555555555555555555555555555));
-    /// The digest the fixtures are made for, derived in `setUp` from the
-    /// payload below and this chain.
+    /// The digest the fixtures are made for, derived in `setUp`.
     bytes32 digest;
     bytes32 constant TOKEN_COMMITMENT = bytes32(uint256(0x1111));
     bytes32 constant IDENTITY_COMMITMENT = bytes32(uint256(0x2222));
@@ -62,9 +61,7 @@ contract LayoutForgeryTest is Test {
         vm.deal(address(this), 100 ether);
     }
 
-    /// Wholly honest token session. ONE revealed sent range, which is what
-    /// `_tokenBody` requires -- two would revert `WrongTokenRequestLayout`
-    /// before the identity session this file exists to exercise ever runs.
+    /// Honest token session with one revealed sent range, as `_tokenBody` requires.
     function _honestToken() private view returns (ICeremony.Attestation memory) {
         bytes memory v = CeremonyAuthorization.codeVerifier(digest, AUTH_NONCE);
         bytes memory body = abi.encodePacked(
@@ -92,9 +89,7 @@ contract LayoutForgeryTest is Test {
         uint32 bearerEnd = prefixEnd + 12;
         uint32 quoteEnd = bearerEnd + 1;
         uint32 total = quoteEnd + 24;
-        // Tiled, like the shape XPlatformVerifier.t.sol proves: the status line
-        // revealed at the origin, the CRLF closing it committed, then the
-        // framed bearer.
+        // Status line revealed at 0, its CRLF committed, then the framed bearer.
         bytes memory status = "HTTP/1.1 200 OK";
         AttestationBuilder.Direction memory received = AttestationBuilder.Direction({
             revealed: AttestationBuilder.three(
@@ -116,11 +111,8 @@ contract LayoutForgeryTest is Test {
         return ICeremony.Attestation({attestedData: attested, proof: AttestationBuilder.sign(NOTARY_KEY, attested)});
     }
 
-    /// The identity session. The SENT side is wholly honest and exactly
-    /// covered. The RECEIVED side is a genuine, notary-signed transcript of the
-    /// attacker's OWN /2/users/me response -- account id 999, display name set
-    /// to the victim's numeric id -- with three ascending, non-overlapping,
-    /// in-range reveals chosen so the CONCATENATION reads as the victim.
+    /// Received side of account 999 whose display name is the victim's id; three
+    /// reveals whose concatenation reads as the victim's identity.
     function _seamIdentity() private pure returns (AttestationBuilder.Direction memory received) {
         // {"data":{"id":"999","name":"44196397","username":"attacker"}}
         //  0            12            25          37                 61
@@ -187,15 +179,13 @@ contract LayoutForgeryTest is Test {
         this.run{value: quote}(s);
     }
 
-    /// Finding 4(1): revealed range INDEX 0 need not start at transcript
-    /// offset 0. The real request line is hidden; a header value the prover
-    /// composed begins with `POST /2/oauth2/token ` and is the first revealed
-    /// range, and a second planted header value is read as "the body".
+    /// Token session whose first revealed range is a planted request line at
+    /// offset 400, followed by a planted body.
     function _unanchoredToken() private view returns (ICeremony.Attestation memory) {
         bytes memory v = CeremonyAuthorization.codeVerifier(digest, AUTH_NONCE);
         bytes memory fakeLine = "POST /2/oauth2/token HTTP/1.1";
         bytes memory fakeBody = abi.encodePacked("grant_type=authorization_code&client_id=victimapp&code_verifier=", v);
-        uint32 s1 = 400; // deep inside the transcript, nowhere near offset 0
+        uint32 s1 = 400;
         uint32 e1 = s1 + uint32(fakeLine.length);
         uint32 s2 = e1 + 9;
         uint32 e2 = s2 + uint32(fakeBody.length);
@@ -243,11 +233,7 @@ contract LayoutForgeryTest is Test {
         TlsNotaryVerifierBase.TlsNotaryProof memory s = _submission();
         s.tokenSession = _unanchoredToken();
         s.identitySession = _identity(_honestIdentityRecv());
-        // Was: returned clientIdentifier "victimapp", read out of a header value
-        // the prover composed at offset 400. Range INDEX 0 is not range OFFSET
-        // 0, and nothing tiled this direction, so both the request line and the
-        // body were prover-typed text. Coverage fires first: the 400 bytes
-        // before the first revealed range are covered by nothing at all.
+        // The 400 bytes before the first revealed range are uncovered.
         vm.expectPartialRevert(CeremonyAttestation.CoverageGap.selector);
         this.run{value: quote}(s);
     }

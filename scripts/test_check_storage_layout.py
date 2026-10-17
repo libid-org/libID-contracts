@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Synthetic cases for check-storage-layout.py's classification. Needs no forge."""
+"""Synthetic cases for check-storage-layout.py: classification and recording. Needs no forge."""
 from __future__ import annotations
 
 import contextlib

@@ -2,27 +2,19 @@
 // The source of truth is solidity/contracts/ceremony/profiles.json.
 
 /**
- * The single source of truth for the ceremony profiles. Solidity, Rust and
- * TypeScript constants are generated from this file by
- * scripts/regen-ceremony-profiles.py. The Platform Verifiers are hand
- * written and READ these constants; only the values live here.
+ * The ceremony profiles. scripts/regen-ceremony-profiles.py generates
+ * the Solidity, Rust and TypeScript constants from profiles.json, and
+ * the hand-written Platform Verifiers read them.
  *
- * THESE STRINGS ARE OURS, NOT THE SPECIFICATION'S. ceremony-common fixes no
- * literal of its own: platform-ceremonies REQ-PLAT-01 fixes the profile
- * NAMES, and every byte below is the profile author's choice. So this is a
- * cross-implementation agreement, and it is agreed here rather than three
- * times over.
+ * These literals are the one copy the verifiers, the browser that
+ * notarizes the sessions and the notary must reproduce byte for byte.
+ * A mismatch fails silently: a Consumer and a verifier keyed by
+ * different strings never meet, and a request line composed one byte
+ * differently is refused with no reason given.
  *
- * Three components must produce the same bytes: this repository's verifiers,
- * the browser that notarizes all four sessions, and the notary that signs
- * what it observed. A disagreement is silent -- a Consumer dispatching on one
- * string and a verifier registered under another simply never meet, and a
- * request line a prover composes one byte differently is an attestation
- * rejected with no error that says why.
- *
- * Changing a value here changes what a deployed verifier accepts. On a
- * live deployment that is a new ceremonyVersion, not an edit; a fresh
- * deployment under new canonical addresses keeps its versions.
+ * Changing a value changes what a deployed verifier accepts. On a live
+ * deployment that is a new ceremonyVersion; a fresh deployment keeps its
+ * versions.
  */
 
 /** Which shape a platform's immutable identifier takes in its response. */
@@ -39,22 +31,21 @@ export interface Session {
 
 export interface TokenSession {
   readonly session: Session
-  /** The header lines a Platform Verifier requires, each exactly once with
-   * its value: `host` and `content-type`. Every other header is the
-   * runtime's own, save the names `FORBIDDEN_REQUEST_HEADERS` lists.
-   * `content-length` is absent: the HTTP client appends it. */
+  /** The header lines a Platform Verifier requires exactly once: `host`
+   * and `content-type`. Other headers pass unless
+   * `FORBIDDEN_REQUEST_HEADERS` names them. `content-length` is absent:
+   * the HTTP client writes it. */
   readonly requiredHeaders: readonly string[]
-  /** The form fields the body carries, in the order the prover serializes
-   * them. Every verifier holds the whole body to this list: exactly these
-   * names in this order, each once with a nonempty value, nothing after
-   * the last. GitHub's list is REQ-PLAT-61's and X's is REQ-PLAT-63's. */
+  /** The body's form fields in serialization order. Verifiers require
+   * exactly these names in this order, each once with a nonempty value,
+   * and nothing after the last. GitHub's list is REQ-PLAT-61's and X's
+   * is REQ-PLAT-63's. */
   readonly tokenFields: readonly string[]
 }
 
 export interface IdentitySession {
   readonly session: Session
-  /** The header lines a Platform Verifier requires, each exactly once with
-   * its value: `host`. */
+  /** The header lines a Platform Verifier requires exactly once: `host`. */
   readonly requiredHeaders: readonly string[]
   readonly idField: string
   readonly idShape: IdShape
@@ -70,9 +61,9 @@ export interface Profile {
 }
 
 /**
- * Google's evidence is a signed token checked against Google's published
- * keys, so the profile notarizes nothing: no session, no attestation,
- * and no Notary Fee.
+ * Google's evidence is a token signed with Google's published keys, so
+ * the profile notarizes nothing: no session, no attestation and no
+ * Notary Fee.
  */
 export const GOOGLE: Profile = {
   platform: 'google',
@@ -114,9 +105,8 @@ export const X: Profile = {
 
 /**
  * The credential GitHub calls `client_secret` is sent and revealed, so
- * an attestation publishes it and nothing here is confidential. The two
- * sessions are served by DIFFERENT hosts -- which is why one pinned
- * authority per profile would be wrong.
+ * an attestation publishes it. The two sessions are served by different
+ * hosts, so each session pins its own authority.
  */
 export const GITHUB: Profile = {
   platform: 'github',
@@ -145,7 +135,7 @@ export const GITHUB: Profile = {
   },
 }
 
-/** The closed launch list. */
+/** The launch profiles. */
 export const LAUNCH: readonly Profile[] = [GOOGLE, X, GITHUB]
 
 /** The launch profile for a platform name, or undefined. */
@@ -159,20 +149,17 @@ export function attestationCount(profile: Profile): number {
 }
 
 /**
- * Header names no notarized request may carry, compared by every
- * Platform Verifier with the name lowercased, its whitespace removed and
- * `_` read as `-`. Each changes what the platform does with the request
- * in a way no revealed byte shows: `authorization` which client it
- * authenticates, `content-encoding` and `transfer-encoding` which bytes
- * it parses, `cookie` which session it answers for, the three override
- * names which method it runs. The identity request is excepted from
- * `authorization` alone: its one such header, under any scheme, is what
- * REQ-COMMON-39 counts. The verifier further requires each session's
- * requiredHeaders once with their value -- `host` on both requests,
- * `content-type` on the token request -- reads the token request's
- * `content-length`, and ignores every other header: one outside both
- * lists changes only what the platform answers, and a wrong answer is a
- * response the verifier cannot read.
+ * Header names no notarized request may carry, compared lowercased, with
+ * whitespace removed and `_` read as `-`. Each changes what the platform
+ * does in a way no revealed byte shows: `authorization` the client it
+ * authenticates, `content-encoding` and `transfer-encoding` the bytes it
+ * parses, `cookie` the session, the three override names the method. The
+ * identity request is excepted from `authorization` alone: its one such
+ * header, under any scheme, is what REQ-COMMON-39 counts. The verifier
+ * also requires each session's requiredHeaders once with their value,
+ * reads the token request's `content-length`, and ignores every other
+ * header: such a header changes only the response, which the verifier
+ * then cannot read.
  */
 export const FORBIDDEN_REQUEST_HEADERS: readonly string[] = [
   'authorization',
@@ -185,19 +172,16 @@ export const FORBIDDEN_REQUEST_HEADERS: readonly string[] = [
 ]
 
 // The seconds each profile fixes. A Platform Verifier reads them as
-// constants: they belong to the profile like its request lines, an upgrade
-// of the verifier keeps them, and a different value is a new
-// ceremonyVersion (REQ-PARAM-01). A browser that knows the version it ran
-// therefore knows the validity every chain enforces. `IdentityRegistry`
-// supersedes a binding only on a strictly newer `observedAt`, so an
-// allowance too generous lets a proof dated ahead hold a name until the
-// clock catches up.
+// constants, so a different value is a new ceremonyVersion (REQ-PARAM-01)
+// and a client that knows its version knows the validity every chain
+// enforces. `IdentityRegistry` replaces a binding only on a strictly newer
+// `observedAt`, so the future allowance bounds how long a proof dated ahead
+// holds a name.
 
-// The signed `exp` bounds validity, so the profile fixes no lifetime
-// and no attestation skew. The OIDC circuit exposes no `iat`, so the
-// observation is the token's `exp`: Google issues about an hour of
-// life, and the claim reads roughly an hour ahead of the moment it
-// describes.
+// The signed `exp` bounds validity, so the profile fixes no lifetime and
+// no attestation skew. The OIDC circuit exposes no `iat`, so the
+// observation is the token's `exp`, about an hour after Google issued
+// it.
 /**
  * `google/v1`: how far ahead of Block Time the evidence time may run.
  * The verifier subtracts it, so every version of a platform reports
@@ -205,10 +189,9 @@ export const FORBIDDEN_REQUEST_HEADERS: readonly string[] = [
  */
 export const FUTURE_OBSERVATION_ALLOWANCE_SECONDS_GOOGLE = 7200
 
-// The token attestation's creation time is the evidence time. A
-// notary states wall-clock time as it observes it, so the observation
-// is never ahead: five minutes covers clock skew between the notary
-// and the chain.
+// The token attestation's creation time is the evidence time. A notary
+// states the wall-clock time it observes, so five minutes covers clock
+// skew between the notary and the chain.
 /**
  * `x/v1`: maximum age of the token attestation.
  */

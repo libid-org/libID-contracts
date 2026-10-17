@@ -5,18 +5,12 @@ import {Vm} from "forge-std/Vm.sol";
 
 import {ICeremony} from "../ICeremony.sol";
 
-/// @notice Builds platform-ceremonies section 4.1 attested data, for tests only.
-///
-/// @dev The inverse of `CeremonyAttestation.decode`. Rust-versus-Solidity
-///      agreement on these bytes is proven separately, by the pinned fixture in
-///      `CeremonyAttestation.t.sol`; this exists so a test can vary one field of
-///      a session and watch a verifier refuse it.
+/// @notice Builds platform-ceremonies section 4.1 attested data so a test can vary one field of a session.
+/// @dev The inverse of `CeremonyAttestation.decode`. `CeremonyAttestation.t.sol` pins the Rust encoding.
 library AttestationBuilder {
     Vm private constant VM = Vm(address(uint160(uint256(keccak256("hevm cheat code")))));
 
-    /// @dev No `end`: a revealed range's length is its bytes, and the encoder
-    ///      writes that length. A separate `end` would be a field a test could
-    ///      set and watch do nothing.
+    /// @dev A revealed range ends at `start` plus the length of `value`.
     struct Range {
         uint32 start;
         bytes value;
@@ -110,8 +104,7 @@ library AttestationBuilder {
         return d;
     }
 
-    /// @dev `value` committed under `commitment` at the end of `d`. The
-    ///      bytes themselves are not recorded, only how many there are.
+    /// @dev Appends `value` to `d` as a range committed under `commitment`; only its length is recorded.
     function commit(Direction memory d, bytes memory value, bytes32 commitment)
         internal
         pure

@@ -1,6 +1,5 @@
 /// The keys a binding is stored under, `SHA256(tag || value)`, computed
-/// locally so the handle or id never reaches an RPC. Unsalted: anyone can
-/// test a guess.
+/// locally so the handle or id never reaches an RPC.
 
 import { concat, type Hex, sha256, toHex } from 'viem'
 
@@ -11,7 +10,7 @@ import { IdError, type Platform, platform } from './platforms.js'
 export interface IdRules {
   /** Bytes the circuit's buffer holds. */
   maxLength: number
-  /** ASCII digits; otherwise printable ASCII without a quote or backslash. */
+  /** True: ASCII digits. False: printable ASCII without a quote or backslash. */
   decimal: boolean
 }
 
@@ -28,8 +27,8 @@ export function handleNode(platformKey: string, raw: string): Hex {
   return sha256(concat([toHex(keys.handleTag), toHex(normalize(raw, keys.rules))]))
 }
 
-/// The node `depositToHandle` and the registry's `handleNodeOf` key `text`
-/// by: A-Z folded, nothing checked. Text no circuit hashes still has one.
+/// The node `depositToHandle` and the registry's `handleNodeOf` derive from
+/// `text`: A-Z folded, nothing checked, so text no circuit hashes has one too.
 export function foldedHandleNode(platformKey: string, text: string): Hex {
   const bytes = new TextEncoder().encode(text).map((b) => (b >= 0x41 && b <= 0x5a ? b + 0x20 : b))
   return sha256(concat([toHex(keysOf(platformKey).handleTag), toHex(bytes)]))

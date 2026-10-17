@@ -37,8 +37,7 @@ contract HonkVerifiersTest is Test {
         try verifier.verify("", new bytes32[](0)) returns (bool) {
             revert("an empty proof verified");
         } catch (bytes memory reason) {
-            // The first four bytes of revert data ARE the selector; the rest
-            // is decoded below.
+            // The first four bytes of revert data are the selector.
             // forge-lint: disable-next-line(unsafe-typecast)
             assertEq(bytes4(reason), ProofLengthWrongWithLogN.selector, "not a Honk verifier");
             bytes memory args = new bytes(reason.length - 4);
@@ -70,9 +69,7 @@ contract HonkVerifiersTest is Test {
         return vm.parseJsonBytes32Array(vm.readFile(fixture), ".public_inputs");
     }
 
-    /// EIP-170: forge deploys under the default limit, and the sizes are
-    /// asserted rather than merely survived so a release that grows past it
-    /// names the number.
+    /// EIP-170: a verifier that grows past the limit fails here with its size.
     function test_verifiersFitUnderTheCodeSizeLimit() public view {
         assertLe(address(bearerLink).code.length, 24_576, "bearer-link over EIP-170");
         assertLe(address(oidcGoogle).code.length, 24_576, "oidc-google over EIP-170");
@@ -172,8 +169,8 @@ contract HonkVerifiersTest is Test {
         }
     }
 
-    /// `impl` (an X or GitHub verifier) behind a proxy initialized with
-    /// `wrong` reverts naming `expected` and what `wrong` holds.
+    /// An X or GitHub `impl` behind a proxy initialized with `wrong` reverts
+    /// naming `expected` and `wrong`'s codehash.
     function _refuses(address impl, IHonkVerifier wrong, bytes32 expected) private {
         vm.expectRevert(
             abi.encodeWithSelector(PlatformVerifierBase.WrongCircuit.selector, expected, address(wrong).codehash)

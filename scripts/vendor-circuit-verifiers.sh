@@ -11,12 +11,12 @@
 # tags and of the Rust and TypeScript handle tables.
 #
 # The pin is solidity/contracts/circuits/circuits.json: the release version
-# and each tarball's sha256. Downloads are checked against it, the release
-# manifest is held to it, and every circuit of a release must ship one
-# table. The vendored files are gitignored and vendored before every build.
-# Last, it writes the committed CircuitCodehashes.sol, the runtime code
-# hashes the Platform Verifiers pin, and IHonkVerifierErrors.sol, the errors
-# the verifiers raise, named from their `*_SELECTOR` constants.
+# and each tarball's sha256. Downloads and the release manifest must match it,
+# and every circuit must ship the same table. The vendored files are
+# gitignored; run this before every build. It also writes two committed
+# files: CircuitCodehashes.sol, the runtime code hashes the Platform Verifiers
+# pin, and IHonkVerifierErrors.sol, the verifiers' errors named from their
+# `*_SELECTOR` constants.
 #
 # Moving the pin: write the new version and digests (from the release page)
 # into circuits.json, run this script, commit circuits.json,
@@ -71,9 +71,8 @@ while IFS=$'\t' read -r circuit contract digest; do
     CIRCUITS+=("$circuit") CONTRACTS+=("$contract") DIGESTS+=("$digest")
 done < <(jq -r '.circuits | to_entries[] | "\(.key)\t\(.value.contract)\t\(.value.sha256)"' "$PIN")
 
-# The platform table every circuit ships. Staged from the first circuit and
-# held byte-identical across the rest: the generators read one table, so a
-# release whose circuits were built from two must not vendor.
+# The platform table every circuit ships, staged from the first circuit. The
+# rest must match it byte for byte, since the generators read one table.
 TABLES=(platforms.json handles.json)
 stage_tables() {
     local dir="$1" circuit="$2" name
@@ -89,7 +88,7 @@ stage_tables() {
     done
 }
 
-# The interchange-format checks and the formatting, shared by both modes.
+# Check a verifier's shape and stage it formatted. Shared by both modes.
 write_verifier() {
     local src="$1" contract="$2" banner="$3" contracts
     [[ -f "$src" ]] || { echo "no $contract.sol at $src" >&2; exit 1; }
@@ -194,8 +193,8 @@ if [[ -n "$LOCAL" ]]; then
     LOCAL="$(cd "$LOCAL" && pwd)"
     STAGE="$(mktemp -d)"
     trap 'rm -rf "$STAGE"' EXIT
-    # The libid-circuits commit, if the build left one; never the local path.
-    # `unknown` is a build outside a git work tree, like no commit file.
+    # Name the libid-circuits commit if the build recorded one, never the local
+    # path. `unknown` means a build outside a git work tree.
     origin="a local libid-circuits build"
     if [[ -f "$LOCAL/commit" ]]; then
         commit="$(< "$LOCAL/commit")"
@@ -252,7 +251,7 @@ for i in "${!CIRCUITS[@]}"; do
     tarball="libid-circuits-$VERSION-$circuit.tar.gz"
     curl -fsSL -o "$WORK/$tarball" "$RELEASES/$TAG/$tarball"
 
-    # The integrity check: the committed digest, nothing downloaded.
+    # Integrity rests on the committed digest, never on a downloaded one.
     got="$(sha256 "$WORK/$tarball")"
     [[ "$got" == "$want" ]] ||
         { echo "$tarball: sha256 $got, the pin says $want" >&2; exit 1; }
@@ -262,9 +261,8 @@ for i in "${!CIRCUITS[@]}"; do
 
     mkdir -p "$WORK/$circuit"
     tar xzf "$WORK/$tarball" -C "$WORK/$circuit"
-    # Every file the manifest lists is in the tarball at the digest it
-    # names; the tarball is trusted, so this catches a release that was
-    # assembled wrong, not an attacker.
+    # Every file the manifest lists must be in the tarball at its digest. This
+    # catches a misassembled release.
     while IFS=$'\t' read -r name file_want; do
         [[ -f "$WORK/$circuit/$name" ]] ||
             { echo "$tarball: the manifest lists $name, the tarball lacks it" >&2; exit 1; }

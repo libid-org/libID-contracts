@@ -35,7 +35,7 @@ abstract contract RealProofBindBase is PrivacyScan {
 
     function _platform() internal pure virtual returns (bytes32);
 
-    /// The payload over the fixture, disclosing `handle` (empty when private).
+    /// The payload over the fixture.
     function _payload() internal view virtual returns (bytes memory);
 
     function _idNode() internal pure virtual returns (bytes32);
@@ -153,7 +153,7 @@ abstract contract RealProofBindBase is PrivacyScan {
         assertEq(registry.resolveId(_idNode()), address(0));
     }
 
-    /// A handle the rules accept that the proof did not bind, and its node.
+    /// A handle the proof did not bind, and its node.
     function _otherHandle() internal pure virtual returns (string memory, bytes32);
 
     /// @dev The nodes this test names are the ones the proof outputs.

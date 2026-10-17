@@ -31,16 +31,14 @@ abstract contract TlsNotaryVerifierBase is IPlatformVerifier, PlatformVerifierBa
     uint256 internal constant OFF_ID_TAG = 12;
     uint256 internal constant OFF_HANDLE_TAG = 14;
 
-    /// @dev HTTP framing owns this one, not the profile: the client appends
-    ///      it and its value is the body's own count, so the head carries it
-    ///      and no profile lists it.
+    /// @dev Read from every token head and matched to the signed body length;
+    ///      no profile lists it.
     bytes32 private constant LENGTH_HEADER = keccak256("content-length");
     bytes32 private constant AUTHORIZATION = keccak256("authorization");
 
-    /// @dev What frames the committed bearer in the token response. Every other
-    ///      response byte is hidden, so without these the committed range is
-    ///      indistinguishable from a `refresh_token` value (REQ-PLAT-57,
-    ///      REQ-PLAT-58).
+    /// @dev What frames the committed bearer in the token response, telling it
+    ///      apart from other hidden values such as `refresh_token`
+    ///      (REQ-PLAT-57, REQ-PLAT-58).
     bytes internal constant ACCESS_TOKEN_PREFIX = '"access_token":"';
     bytes internal constant ACCESS_TOKEN_SUFFIX = '"';
 
@@ -71,13 +69,11 @@ abstract contract TlsNotaryVerifierBase is IPlatformVerifier, PlatformVerifierBa
     error WrongRequestLine();
     error CodeVerifierMismatch();
     error ClientIdentifierNotSerializerSafe(bytes found);
-    /// @dev The first revealed range does not begin the transcript, so nothing
-    ///      says the bytes read as a request line ARE the request line.
+    /// @dev The first revealed range does not begin the transcript, or none exists.
     error RequestLineNotAtOrigin(uint32 start);
     /// @dev The token request is not one revealed run with no commitment.
     error WrongTokenRequestLayout(uint256 revealedRanges, uint256 commitments);
-    /// @dev The head/body separator is missing or ambiguous, so the body cannot
-    ///      be located by the framing the server itself parsed.
+    /// @dev The token request holds `occurrences` head/body separators, not one.
     error NoHeadBoundary(uint256 occurrences);
     /// @dev The token request's head lacks a required header, repeats one,
     ///      gives one another value, carries a line no colon splits, or
@@ -86,31 +82,24 @@ abstract contract TlsNotaryVerifierBase is IPlatformVerifier, PlatformVerifierBa
     /// @dev The identity request's head lacks a required header, repeats one,
     ///      or gives one another value.
     error WrongIdentityRequestHead();
-    /// @dev A request carries a header the profile forbids: one that changes
-    ///      what the platform does with the request in a way no revealed byte
-    ///      shows. The name, normalized.
+    /// @dev A request carries a header the profile forbids; `name` is normalized.
     error ForbiddenRequestHeader(bytes name);
-    /// @dev The request declared a body of one length and the notary signed
-    ///      another, so the bytes the platform parsed as the form are not the
-    ///      bytes read below.
+    /// @dev The declared `content-length` differs from the signed body length.
     error WrongDeclaredBodyLength(uint256 declared, uint256 signed);
 
     // ─── What a profile supplies ────────────────────────────────────
 
-    // The authorities, request lines, required headers, token fields and
-    // identity members are `CeremonyProfile`'s, read through `_platform()`.
-    // The token body is held WHOLE to its field list (`requireExactForm`), so
-    // acceptance never rests on the platform refusing a form it did not count.
+    // Authorities, request lines, headers, token fields and identity members
+    // come from `CeremonyProfile` through `_platform()`.
 
-    /// @dev Any VALUE constraint the profile places on a token-body field
-    ///      beyond the base's own. Default: nothing. Runs after the form is
-    ///      known exact and before `code_verifier` and `client_id` are read.
-    ///      X compares `grant_type`; GitHub adds none.
+    /// @dev A profile's value checks on token-body fields, empty by default.
+    ///      Runs after the form is known exact and before `code_verifier` and
+    ///      `client_id` are read.
     function _checkTokenBody(CeremonyFields.Form memory form) internal pure virtual {}
 
     // ─── The flow ───────────────────────────────────────────────────
 
-    /// @dev `bearer-link`'s verifier, and no other.
+    /// @dev The `bearer-link` circuit's verifier.
     function _circuitCodehash() internal pure virtual override returns (bytes32) {
         return CircuitCodehashes.BEARER_LINK;
     }
@@ -122,42 +111,33 @@ abstract contract TlsNotaryVerifierBase is IPlatformVerifier, PlatformVerifierBa
 
     /// @inheritdoc IPlatformVerifier
     function quote() public view returns (uint256) {
-        // Two attestations, so two Notary Fees.
+        // One Notary Fee per attestation.
         return 2 * _base().notary.fee();
     }
 
     /// @inheritdoc IPlatformVerifier
     function verify(bytes calldata payload) external payable returns (VerifiedClaim memory claimed) {
         uint256 fee = _base().notary.fee();
-        // Exact value at every hop needs no refund path, so no partial-failure
-        // or reentrancy rule is required and no value can be captured in
-        // transit (REQ-COMMON-06D).
+        // Exact value at every hop, so no refund path (REQ-COMMON-06D).
         if (msg.value != 2 * fee) revert WrongValue(2 * fee, msg.value);
 
-        // Decoded here and nowhere above. `abi.decode` reverts on a payload
-        // too short or malformed for this shape, so no field needs a presence
-        // check; the proof check refuses one made for another statement.
+        // `abi.decode` reverts on a malformed payload.
         TlsNotaryProof memory p = abi.decode(payload, (TlsNotaryProof));
         uint16 version = _requireCeremonyVersion(p.ceremonyVersion);
-        // The digest, rebuilt from what was decoded, this verifier's own
-        // version, and the chain it runs on. Never trusted for its content:
-        // it is a commitment the token session's revealed `code_verifier` has
-        // to match, so any input a caller changes yields a digest no proof
-        // opens against.
+        // The token session's revealed `code_verifier` must match this digest,
+        // so any changed input yields a digest no attestation matches.
         bytes32 digest =
             CeremonyAuthorization.digestFor(p.operationDomain, version, p.authorizationNonce, p.transactionData);
 
         (uint64 observedAt, bytes32 tokenCommitment) = _tokenSession(digest, p, fee, claimed);
         Commitments memory identity = _identitySession(p, fee);
 
-        // Built, not compared: the notary-signed commitments and the claimed nodes.
+        // Inputs built from the notary-signed commitments and the claimed nodes.
         _requireProof(p.proof, _publicInputs(tokenCommitment, identity, p.idNode, p.handleNode));
         claimed.idNode = p.idNode;
         claimed.handleNode = p.handleNode;
 
-        // The same locals that entered the digest, returned. The Consumer acts
-        // on these and records that digest; they are one submission's worth of
-        // facts, and this is the one function that holds all of them.
+        // The same values that entered the digest.
         claimed.sessionId = digest;
         claimed.operationDomain = p.operationDomain;
         claimed.transactionData = p.transactionData;
@@ -175,8 +155,7 @@ abstract contract TlsNotaryVerifierBase is IPlatformVerifier, PlatformVerifierBa
             _authenticate(p.tokenSession, CeremonyProfile.tokenAuthority(_platform()), fee);
         (fields.clientIdentifier, tokenCommitment) = _tokenTranscript(data, authorizationDigest, p.authorizationNonce);
 
-        // The token attestation is the one-time PKCE and digest binding, so it
-        // alone supplies evidence time (section 2.2).
+        // The token attestation alone supplies evidence time (section 2.2).
         observedAt = _requireFresh(data.createdAt);
     }
 
@@ -188,11 +167,8 @@ abstract contract TlsNotaryVerifierBase is IPlatformVerifier, PlatformVerifierBa
         bytes32 authorizationDigest,
         bytes32 authorizationNonce
     ) internal pure returns (bytes memory clientId, bytes32 tokenCommitment) {
-        // REQ-COMMON-18A applies to THIS direction too. Without tiling, a
-        // prover reveals two header values it composed itself and this verifier
-        // reads them as the request line and the body -- every field below then
-        // comes from bytes the prover typed rather than from the request the
-        // platform answered.
+        // REQ-COMMON-18A: tiling ties the request line and body read below to
+        // the request the platform answered.
         CeremonyAttestation.requireExactCoverage(data.sent, data.sentTranscriptLength);
 
         // The one comparison of the method and path (REQ-COMMON-21A): the head
@@ -201,21 +177,14 @@ abstract contract TlsNotaryVerifierBase is IPlatformVerifier, PlatformVerifierBa
 
         bytes memory body = _tokenBody(data.sent);
 
-        // The shape first, then the values a verifier compares: a read below
-        // answers what a field IS, and only an exact body says nothing else
-        // is there. A value nobody reads is held to the alphabet and to
-        // nothing more -- in that alphabet it cannot become another field,
-        // and no contract acts on what it decodes to.
+        // The exact shape first, then the values this verifier compares.
         CeremonyFields.Form memory form =
             CeremonyFields.requireExactForm(body, CeremonyProfile.tokenFields(_platform()));
         _checkTokenBody(form);
 
-        // REQ-COMMON-15A. This is the whole binding between the evidence and
-        // the transaction: retargeting an attestation to another digest would
-        // take a second preimage of the revealed verifier.
+        // REQ-COMMON-15A: the binding between the evidence and the transaction.
         bytes memory revealedVerifier = CeremonyFields.valueOf(form, "code_verifier");
-        // Under the same nonce the digest commits, so a caller has no second
-        // value to move: changing it moves the digest too (REQ-COMMON-12).
+        // Derived under the nonce the digest commits (REQ-COMMON-12).
         bytes memory expected = CeremonyAuthorization.codeVerifier(authorizationDigest, authorizationNonce);
         if (keccak256(revealedVerifier) != keccak256(expected)) revert CodeVerifierMismatch();
 
@@ -224,15 +193,10 @@ abstract contract TlsNotaryVerifierBase is IPlatformVerifier, PlatformVerifierBa
             revert ClientIdentifierNotSerializerSafe(clientId);
         }
 
-        // Tiled, like every other direction. The profile says every byte
-        // outside the anchors is committed; this is what makes that true rather
-        // than stated, and it is what leaves the framing below nothing to work
-        // around -- a byte that is neither revealed nor committed is a byte the
-        // notary never signed a position for.
+        // Tiled, so every byte outside the anchors is committed.
         CeremonyAttestation.requireExactCoverage(data.received, data.recvTranscriptLength);
 
-        // The bearer is identified by its framing, not by being the only
-        // commitment: the response hides every other byte behind one of its own.
+        // The response commits other bytes too, so the framing identifies the bearer.
         CeremonyAttestation.RangeCommitment memory bearer =
             CeremonyAttestation.requireFramedCommitment(data.received, ACCESS_TOKEN_PREFIX, ACCESS_TOKEN_SUFFIX);
         tokenCommitment = bearer.commitment;
@@ -284,8 +248,8 @@ abstract contract TlsNotaryVerifierBase is IPlatformVerifier, PlatformVerifierBa
         pure
         returns (bytes32 id, bytes32 handle)
     {
-        // Each anchor is revealed once and frames one commitment. A second anchor
-        // hidden in a commitment is kept out by ASM-PROV-06 alone: the pinned
+        // Each anchor is revealed once and frames one commitment. A second
+        // anchor inside a commitment is excluded by ASM-PROV-06: the pinned
         // request line returns one member per anchor.
         CeremonyAttestation.requireExactCoverage(data.received, data.recvTranscriptLength);
         (string memory idField, bool idIsInteger, string memory handleField) =
@@ -332,23 +296,12 @@ abstract contract TlsNotaryVerifierBase is IPlatformVerifier, PlatformVerifierBa
     ///      value, none of the forbidden names, one `content-length`, and
     ///      anything else ignored. Returns the declared length.
     ///
-    ///      Required and forbidden rather than a fixed set. A header outside
-    ///      both lists changes only what the platform ANSWERS, and a wrong
-    ///      answer is a response this verifier cannot read, not one it can be
-    ///      fooled by. The forbidden names change what the platform does with
-    ///      the request in ways no revealed byte shows: which client it
-    ///      authenticates, which bytes it parses, which method it runs. Between
-    ///      the two, what a prover's HTTP library adds is its own business.
-    ///
-    ///      Names are compared lowercased, because the platform reads them
-    ///      case-insensitively and a forbidden name in another case is the same
-    ///      header to it. Values are compared exactly, with the optional
-    ///      whitespace HTTP allows around them removed.
-    ///
-    ///      Reading lines is where the leniencies live, so `requireCrlfLineEndings`
-    ///      goes first: the same guard REQ-COMMON-39 puts on the identity
-    ///      request, without which a bare line feed ends the head somewhere the
-    ///      platform's parser does and this one does not.
+    ///      Forbidden names change what the platform does with the request:
+    ///      which client it authenticates, which bytes it parses, which method
+    ///      it runs. Other headers change only the answer. Names compare
+    ///      lowercased; values exactly, optional whitespace trimmed.
+    ///      `requireCrlfLineEndings` runs first, as REQ-COMMON-39 requires
+    ///      for the identity request.
     function _checkTokenHead(bytes memory head) private pure returns (uint256 declared) {
         CeremonyAttestation.requireCrlfLineEndings(head);
 
@@ -361,10 +314,10 @@ abstract contract TlsNotaryVerifierBase is IPlatformVerifier, PlatformVerifierBa
         return state.declared;
     }
 
-    /// @dev `_checkHead`'s state. `found` holds a bit per required line,
-    ///      capping a profile at 255 of them (the generator allows two).
-    ///      `strict` is the token head's reading; `lengths` records its
-    ///      `content-length` line, `declared` that line's value.
+    /// @dev `_checkHead`'s state. `found` holds a bit per required line, so
+    ///      a profile has at most 255; the generator allows two. `strict` is
+    ///      the token head's reading; `lengths` records its `content-length`
+    ///      line, `declared` that line's value.
     struct Head {
         bytes32[] requiredNames;
         bytes32[] requiredValues;
@@ -378,9 +331,7 @@ abstract contract TlsNotaryVerifierBase is IPlatformVerifier, PlatformVerifierBa
     ///      with its value, and no forbidden name. Strict, every line is a
     ///      header and `content-length` is read once; lenient, a line that is
     ///      not a header is skipped and `authorization` is allowed.
-    // `1 << i` is the mask for line i. The lint's heuristic reads a literal on
-    // the left of a shift as swapped operands, which is what building a mask
-    // looks like.
+    // `1 << i` is the mask for line i; the lint misreads it as swapped operands.
     // forge-lint: disable-next-item(incorrect-shift)
     function _checkHead(bytes memory head, Head memory state) private pure {
         uint256 from = _lineEnd(head, 0) + 2;
@@ -436,8 +387,8 @@ abstract contract TlsNotaryVerifierBase is IPlatformVerifier, PlatformVerifierBa
 
     /// @dev Header line `data[from:to]` as the platform reads it: the name
     ///      before the first colon, lowercased, whitespace before the colon
-    ///      dropped (REQ-COMMON-39), `_` read as `-` since a CGI-style stack
-    ///      maps both to one key; the value as offsets, optional whitespace
+    ///      dropped (REQ-COMMON-39), `_` read as `-` as CGI-style stacks do;
+    ///      the value as offsets, optional whitespace
     ///      trimmed. No colon or an empty name returns `isHeader` false: the
     ///      token head refuses it; the identity head leaves it to the platform.
     function _field(bytes memory data, uint256 from, uint256 to)
@@ -496,15 +447,11 @@ abstract contract TlsNotaryVerifierBase is IPlatformVerifier, PlatformVerifierBa
         }
     }
 
-    /// @dev Every revealed line of the identity request carries none of the
-    ///      forbidden names but `authorization`, whose one line
-    ///      `requireBearerHeaderRequest` has counted under any scheme. `cookie`
-    ///      is the case: another credential the platform might honour over the
-    ///      bearer the exchange is bound to, which is the one thing the
-    ///      cross-bind exists to fix. Each of the profile's identity lines
-    ///      appears once with its value. Read over the whole concatenation, as
-    ///      the count is, so a header after a blank line counts too; a line
-    ///      that is not a header is the platform's to refuse.
+    /// @dev Every revealed line of the identity request carries no forbidden
+    ///      name except `authorization`, already counted once by
+    ///      `requireBearerHeaderRequest`. Each required identity line appears
+    ///      once with its value. Reads the whole concatenation, as the count
+    ///      does, and skips lines that are not headers.
     function _checkIdentityHead(bytes memory revealed) private pure {
         Head memory state;
         (state.requiredNames, state.requiredValues) = CeremonyProfile.identityRequiredHeaderHashes(_platform());
@@ -557,20 +504,17 @@ abstract contract TlsNotaryVerifierBase is IPlatformVerifier, PlatformVerifierBa
         }
     }
 
-    /// @dev The token request's body: the bytes after its one `\r\n\r\n`. The
-    ///      request must be one revealed range with no commitment, which the
-    ///      caller's exact coverage makes the whole request: the body is the one
-    ///      the platform framed, not a decoy beside a committed original. Its
-    ///      `content-length` must equal the signed body length, or the platform
-    ///      could parse a shorter form than the one read here.
+    /// @dev The token request's body: the bytes after its one `\r\n\r\n`.
+    ///      The request must be one revealed range with no commitment, which
+    ///      exact coverage makes the whole request. Its `content-length` must
+    ///      equal the signed body length.
     function _tokenBody(CeremonyAttestation.DirectionBlock memory block_) internal pure returns (bytes memory body) {
         if (block_.revealed.length != 1 || block_.commitments.length != 0) {
             revert WrongTokenRequestLayout(block_.revealed.length, block_.commitments.length);
         }
         bytes memory whole = block_.revealed[0].value;
 
-        // Exactly one head boundary. A well-formed request has one; requiring
-        // it removes any question of which run of bytes the body is.
+        // Exactly one head boundary, so the body is unambiguous.
         (uint256 seen, uint256 at) = CeremonyAttestation.headBoundaries(whole);
         if (seen != 1) revert NoHeadBoundary(seen);
 
@@ -584,9 +528,7 @@ abstract contract TlsNotaryVerifierBase is IPlatformVerifier, PlatformVerifierBa
         body = _slice(whole, at, whole.length);
     }
 
-    /// @dev Range 0 begins the transcript and starts with `line`. The
-    ///      lowest-offset revealed range is wherever the prover put it, and an
-    ///      empty list is named rather than left to an out-of-bounds panic.
+    /// @dev Range 0 begins the transcript and starts with `line`.
     function _requireRequestLine(CeremonyAttestation.DirectionBlock memory sent, bytes memory line) private pure {
         if (sent.revealed.length == 0) revert RequestLineNotAtOrigin(type(uint32).max);
         if (sent.revealed[0].start != 0) revert RequestLineNotAtOrigin(sent.revealed[0].start);

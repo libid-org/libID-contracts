@@ -1,24 +1,21 @@
 #!/usr/bin/env python3
 """Regenerate the ceremony profile constants for every language.
 
-`solidity/contracts/ceremony/profiles.json` is the single source of truth. Edit
-it, then run this script. Up to three files are written and never drift apart:
+`solidity/contracts/ceremony/profiles.json` is the source of truth. Edit it,
+then run this script. It writes:
 
     solidity/contracts/ceremony/CeremonyProfile.sol   # Solidity constants
     rust/profiles/src/profiles.rs                     # Rust constants
     ts/packages/contracts/src/ceremony/profiles.ts    # TypeScript constants
 
-An output is skipped with a note until its target directory appears. The
-Platform Verifiers and `IdentityRegistry` are hand written in Solidity and READ
-these constants. Only the values come from here, except the node tags: those
-are the pinned libID-circuits release's `platforms.json`, vendored into
-`solidity/contracts/circuits/` by `scripts/vendor-circuit-verifiers.sh`, and
-`CeremonyProfile` carries each profile's.
-That is the point: four components must produce the same bytes, and a
-disagreement between them is silent -- a Consumer dispatching on one string and
-a verifier registered under another simply never meet.
+An output is skipped with a note until its target directory exists. The
+Platform Verifiers and `IdentityRegistry` read these constants. The node tags
+come from the pinned libID-circuits release's `platforms.json`, vendored into
+`solidity/contracts/circuits/` by `scripts/vendor-circuit-verifiers.sh`.
+Verifiers, provers and the notary must produce the same bytes: a mismatch fails
+silently, since a Consumer and a verifier keyed on different strings never meet.
 
-Run: ./scripts/regen-ceremony-profiles.py
+Run: ./scripts/regen-ceremony-profiles.py [--check]
 """
 from __future__ import annotations
 
@@ -87,17 +84,14 @@ VALIDITY = (PROOF_LIFETIME, MAX_FUTURE_ATTESTATION_SKEW, FUTURE_OBSERVATION_ALLO
 
 VALIDITY_NOTE = [
     "The seconds each profile fixes. A Platform Verifier reads them as",
-    "constants: they belong to the profile like its request lines, an upgrade",
-    "of the verifier keeps them, and a different value is a new",
-    "ceremonyVersion (REQ-PARAM-01). A browser that knows the version it ran",
-    "therefore knows the validity every chain enforces. `IdentityRegistry`",
-    "supersedes a binding only on a strictly newer `observedAt`, so an",
-    "allowance too generous lets a proof dated ahead hold a name until the",
-    "clock catches up.",
+    "constants, so a different value is a new ceremonyVersion (REQ-PARAM-01)",
+    "and a client that knows its version knows the validity every chain",
+    "enforces. `IdentityRegistry` replaces a binding only on a strictly newer",
+    "`observedAt`, so the future allowance bounds how long a proof dated ahead",
+    "holds a name.",
 ]
 
-# The transport's, not a platform's: TLSNotary speaks HTTP/1.1, and the length
-# header is written by the HTTP client rather than chosen by anyone.
+# The HTTP version TLSNotary speaks, shared by every platform.
 HTTP_VERSION = "HTTP/1.1"
 
 
@@ -105,14 +99,9 @@ HTTP_VERSION = "HTTP/1.1"
 class Session:
     """One notarized request of a profile's `sessions`."""
 
-    # The header names a Platform Verifier requires of this session's request,
-    # and the only header data a profile carries. `host` on both, because a
-    # profile whose pinned authority and pinned host name different servers
-    # contradicts itself, and `content-type` on the token request, because it
-    # selects the platform's request parser (REQ-COMMON-21B). Nothing else a
-    # runtime sends changes what the platform parses, so nothing else is
-    # compared, and nothing else is stated: what a runtime adds beyond these is
-    # its own.
+    # The header names a Platform Verifier requires of this session's request.
+    # `host` must name the pinned authority. `content-type` selects the token
+    # request's parser (REQ-COMMON-21B). No other header value is compared.
     REQUIRED_NAMES: ClassVar[tuple[str, ...]] = ()
     KIND: ClassVar[str] = ""
 
@@ -125,8 +114,7 @@ class Session:
     def request_line(self) -> str:
         """The request-line prefix a Platform Verifier compares byte for byte.
 
-        The trailing space is load-bearing: without it `GET /user ` would prefix
-        `GET /users/me`, and one profile's path would answer for another's.
+        The trailing space stops `GET /user` from prefixing `GET /users/me`.
         """
         return f"{self.method} {self.path} "
 
@@ -217,8 +205,8 @@ class Tags:
     @classmethod
     def of(cls, platform: str, platforms: list[CircuitPlatform]) -> Tags:
         """The platform's tags from the vendored platforms.json. The circuits'
-        generator holds the tags to their length and prefix-freedom; here each
-        only has to be a literal."""
+        generator checks their length and prefix-freedom, so here each need
+        only be a safe literal."""
         for entry in platforms:
             if entry.platform == platform:
                 return cls(user_id=safe(entry.user_id_tag, "tag"), handle=safe(entry.handle_tag, "tag"))
@@ -328,9 +316,8 @@ def authority_name(host: str) -> str:
     """The constant suffix for an authority, read outside-in.
 
     `api.x.com` is `X_API` and `api.github.com` is `GITHUB_API`: drop the
-    top-level label, then reverse. Reading the domain the way it nests keeps
-    one platform's authorities adjacent when they are sorted, and it is
-    derived rather than named, so a host and its constant cannot disagree.
+    top-level label, then reverse. This keeps one platform's authorities
+    adjacent when sorted.
     """
     labels = host.split(".")
     if len(labels) < 2:
@@ -351,9 +338,8 @@ def crlf(lines: list[str]) -> str:
 def forbidden_headers(spec: Spec) -> list[str]:
     """The header names no notarized request may carry, checked by name alone.
 
-    Each changes what the platform does with the request in a way no revealed
-    byte shows, so a verifier can only refuse the name. Compared lowercased,
-    which is why the list must be.
+    Each changes how the platform handles the request in a way no revealed
+    byte shows. Verifiers compare names lowercased, so the list must be.
     """
     names = spec.requests.forbidden_headers
     if not isinstance(names, list) or not names:
@@ -389,13 +375,9 @@ SAFE = re.compile(r"^[A-Za-z0-9._~:/?#\[\]@!$&*+,;=%-]+$")
 def safe(value: str, what: str) -> str:
     """A value the three languages can all carry as a literal.
 
-    The handles generator escapes instead, because its vectors deliberately
-    hold bytes a source file cannot: that is what they test. Nothing here is
-    like that. A path, a method, a host and a JSON member name are drawn from
-    URL and identifier characters, so a quote or a backslash is a mistake, and
-    escaping one would emit a constant no verifier could ever match. Refusing
-    says so where the reason is visible -- rather than, as Solidity did before
-    this check, as a parser error about an unexpected token.
+    Paths, methods, hosts and JSON member names use URL and identifier
+    characters, so a quote or a backslash is a mistake. Escaping it would emit
+    a constant no verifier could match.
     """
     if not SAFE.fullmatch(value):
         raise SystemExit(f"ERROR: {what} {value!r} carries a character a literal cannot hold")
@@ -405,27 +387,23 @@ def safe(value: str, what: str) -> str:
 def escaped(value: str) -> str:
     """A generated string as a literal, in all three languages at once.
 
-    Only the line endings need escaping, and all three spell them the same way:
-    `safe` and `HEADER` refuse every byte that would need more, so a value
-    reaching here carries no quote and no backslash of its own.
+    Only line endings need escaping, and all three spell them alike. `safe`
+    and `HEADER` refuse every byte that would need more.
     """
     return value.replace("\r", "\\r").replace("\n", "\\n")
 
 
-# Lowercase field name, one colon and one space, then printable ASCII with the
-# three bytes a literal would have to escape left out. Lowercase because that is
-# what hyper puts on the wire, and these bytes are compared raw.
+# Lowercase field name, `: `, then printable ASCII without `"`, `'` or `\`.
+# Lowercase because hyper sends names lowercased and verifiers compare raw bytes.
 HEADER = re.compile(r"^[a-z][a-z0-9-]*: [\x20-\x21\x23-\x26\x28-\x5b\x5d-\x7e]+$")
 
 
 def required_headers(session: Session) -> list[str]:
     """The lines a verifier holds a session's request head to, validated.
 
-    Exactly the session's `REQUIRED_NAMES`, each as
-    `lowercase-name: value`, the `host` one naming the pinned authority. A
-    verifier compares these lines raw, so a line the wire spells differently
-    is a profile that rejects every honest session, and says so here rather
-    than as a rejection with no reason.
+    Exactly the session's `REQUIRED_NAMES`, each as `lowercase-name: value`,
+    with `host` naming the pinned authority. Verifiers compare these lines raw,
+    so a line spelled differently from the wire rejects every honest session.
     """
     kind = session.KIND
     headers = session.required_headers
@@ -438,29 +416,23 @@ def required_headers(session: Session) -> list[str]:
         names.append(line.split(":", 1)[0])
     if sorted(names) != sorted(session.REQUIRED_NAMES):
         raise SystemExit(f"ERROR: the {kind} required headers must be exactly {session.REQUIRED_NAMES}, got {names}")
-    # The `Host` header is prover-composed text and says nothing about which
-    # server answered -- but a profile whose pinned header names one host while
-    # its pinned authority names another contradicts itself, and only one of the
-    # two can be what the session did.
+    # A `host` line naming another server would contradict the pinned authority.
     host = session.authority
     if f"host: {host}" not in headers:
         raise SystemExit(f"ERROR: the required headers must carry `host: {host}`, the pinned authority")
     return headers
 
 
-# The bytes a form body reads as structure. A field name is matched literally
-# between them, and the Solidity constant joins the names by the first, so a
-# name carrying any of them would be two names to the verifier.
+# The bytes a form body reads as structure. The Solidity constant joins names
+# with `&`, so a name carrying any of them would read as two names.
 FORM_DELIMITERS = "&=%+"
 
 
 def token_fields(session: TokenSession) -> list[str]:
     """The form fields a token request's body carries, in serialization order.
 
-    Every prover composes the body from this list, and every Platform
-    Verifier holds the whole body to it, comparing each name literally at
-    the cursor: a name is refused here if it is empty, repeated, or carries
-    a byte the form reads as a delimiter.
+    Provers compose the body from this list and verifiers hold the whole body
+    to it, so a name must be nonempty, unique and free of form delimiters.
     """
     names = session.token_fields
     if not isinstance(names, list) or not names:
@@ -506,9 +478,8 @@ def validate(spec: Spec) -> None:
                 raise SystemExit(f"ERROR: path {session.path!r} must be absolute")
             if isinstance(session, IdentitySession) and session.id_shape not in ("jsonString", "jsonInteger"):
                 raise SystemExit(f"ERROR: unknown idShape {session.id_shape!r}")
-        # A profile notarizing one session cannot be right: the bearer of the
-        # token session is what the identity session spends, and the circuit
-        # links them.
+        # The identity session spends the token session's bearer, and the
+        # circuit links the two.
         if len(profile.sessions) == 1:
             raise SystemExit(f"ERROR: {platform!r} has one session; expected none or both")
         validate_validity(profile)
@@ -568,7 +539,7 @@ def gen_sol(spec: Spec) -> str:
         "pragma solidity ^0.8.24;",
         "",
         header("//").rstrip("\n"),
-        f"// The node tags are the pinned libID-circuits release's platforms.json, vendored at {PLATFORMS_REL}.",
+        f"// Node tags come from {PLATFORMS_REL}, vendored from the pinned libID-circuits release.",
         "",
         "/// @title CeremonyProfile",
         "/// @notice The tags a Platform Verifier pins, and the validity window",
@@ -603,11 +574,10 @@ def gen_sol(spec: Spec) -> str:
         "",
         "    // --- Authorities --------------------------------------------------------",
         "",
-        "    /// @dev The lowercase ASCII TLS server name, with no trailing dot, that the",
-        "    ///      notary authenticated. It reaches the verifier as `authorityId` and",
-        "    ///      never as a transcript range: the transcript holds the authority",
-        "    ///      only in a prover-composed `Host` header, which says nothing about",
-        "    ///      which server answered (REQ-COMMON-21, REQ-COMMON-21A).",
+        "    /// @dev keccak256 of the lowercase TLS server name, no trailing dot, that",
+        "    ///      the notary authenticated. The verifier reads it from `authorityId`,",
+        "    ///      never from the prover-composed `Host` header (REQ-COMMON-21,",
+        "    ///      REQ-COMMON-21A).",
         "",
     ]
     for suffix, host in authorities(spec):
@@ -620,8 +590,7 @@ def gen_sol(spec: Spec) -> str:
         "    // --- Sessions -------------------------------------------------------------",
         "",
         "    /// @dev The request-line prefix each session sends, trailing space included.",
-        "    ///      The space is load-bearing: without it `GET /user ` would prefix",
-        "    ///      `GET /users/me`, and one profile's path would answer for another's.",
+        "    ///      The space stops `GET /user` from prefixing `GET /users/me`.",
         "",
     ]
     for profile in profiles:
@@ -632,12 +601,9 @@ def gen_sol(spec: Spec) -> str:
 
     lines += [
         "",
-        "    /// @dev The lines a verifier requires of each request's head, each",
-        "    ///      exactly once with its value: `host` naming the pinned authority,",
-        "    ///      and on the token request the media type that selects the",
-        "    ///      platform's request parser (REQ-COMMON-21B), pinned like every",
-        "    ///      other field of that request. What else a runtime sends is its",
-        "    ///      own and not stated here.",
+        "    /// @dev The header lines each request must carry exactly once: `host`",
+        "    ///      naming the pinned authority and, on the token request, the",
+        "    ///      `content-type` that selects the platform's parser (REQ-COMMON-21B).",
         "",
     ]
     for profile in profiles:
@@ -647,10 +613,9 @@ def gen_sol(spec: Spec) -> str:
 
     lines += [
         "",
-        "    /// @dev The form fields each token request's body carries, in the order",
-        "    ///      the prover serializes them, joined by `&`. Every verifier holds",
-        "    ///      the whole body to its list (`requireExactForm`): exactly these",
-        "    ///      names in this order, each once with a nonempty value and nothing",
+        "    /// @dev The token request body's form fields in serialization order,",
+        "    ///      joined by `&`. `requireExactForm` holds the body to exactly these",
+        "    ///      names in this order, each once with a nonempty value, and nothing",
         "    ///      after the last. GitHub's list is REQ-PLAT-61's and X's is",
         "    ///      REQ-PLAT-63's.",
         "",
@@ -716,8 +681,8 @@ def gen_sol(spec: Spec) -> str:
         "    ///      (REQ-PLAT-01).",
         f"    uint16 internal constant LAUNCH_VERSION = {launch_version};",
         "",
-        "    /// @dev Derived from the session list each profile fixes, never stated",
-        "    ///      beside it (REQ-COMMON-41).",
+        "    /// @dev The attestations a submission carries, one per session of the",
+        "    ///      profile (REQ-COMMON-41).",
         "    function attestationCount(bytes32 platformId) internal pure returns (uint8) {",
     ]
     by_count: dict[int, list[str]] = {}
@@ -746,10 +711,9 @@ def header_value(line: str) -> str:
 
 
 def sol_lookups(spec: Spec) -> list[str]:
-    """The profile constants by platform id, so a verifier reads its own
-    through `_platform()` with no override per value. A known platform
-    without a session reverts like an unknown one; without a validity value,
-    it reads zero."""
+    """Lookups of the profile constants by platform id, called with a verifier's
+    `_platform()`. A session lookup reverts for a platform without that
+    session. A validity lookup returns zero where the profile fixes no value."""
     profiles = spec.profiles
     lines = [
         "    // --- By platform ----------------------------------------------------------",
@@ -793,7 +757,7 @@ def sol_lookups(spec: Spec) -> list[str]:
         "uint16",
         [(p.platform, str(p.ceremony_version)) for p in profiles],
         None,
-        "The ceremony version the profile is.",
+        "The profile's ceremony version.",
     )
     for window in VALIDITY:
         stem = window.stem
@@ -930,9 +894,7 @@ def rust_max_width() -> int:
 def rust_array(prefix: str, items: list[str], indent: str, suffix: str) -> list[str]:
     """`prefix&[items]suffix` on one line when it fits, else one item per line.
 
-    rustfmt's rule, so a generated file passes `fmt --check` unformatted. It
-    used to pass by accident: an unbreakable string in the same struct made
-    rustfmt leave the whole expression alone.
+    rustfmt's rule, so a generated file passes `fmt --check` unformatted.
     """
     one = f"{indent}{prefix}&[{', '.join(f'\"{item}\"' for item in items)}]{suffix}"
     if len(one) <= rust_max_width():
@@ -947,9 +909,8 @@ def gen_rust(spec: Spec) -> str:
         "",
         "/// Which shape a platform's immutable identifier takes in its response.",
         "///",
-        "/// The bare-integer form takes its structural terminator with it, which is",
-        "/// what proves the revealed digits are the whole number rather than a prefix",
-        "/// of a longer one (REQ-PLAT-51).",
+        "/// A bare integer is revealed with its terminator, which proves the digits",
+        "/// are the whole number (REQ-PLAT-51).",
         "#[derive(Clone, Copy, Debug, PartialEq, Eq)]",
         "pub enum IdShape {",
         "    /// `\"id\":\"2244994945\"`.",
@@ -962,15 +923,13 @@ def gen_rust(spec: Spec) -> str:
         "#[derive(Clone, Copy, Debug, PartialEq, Eq)]",
         "pub struct Session {",
         "    /// The lowercase TLS server name the notary authenticates, with no",
-        "    /// trailing dot. `authorityId` is its keccak256, which the verifier",
-        "    /// compares against the constant its profile pins (REQ-COMMON-21A). It is",
-        "    /// also the `Host` header the request carries.",
+        "    /// trailing dot, and the request's `Host` header. The verifier compares",
+        "    /// its keccak256, `authorityId`, to the profile's pin (REQ-COMMON-21A).",
         "    pub authority: &'static str,",
         "    pub method: &'static str,",
         "    pub path: &'static str,",
-        "    /// The request-line prefix the verifier compares byte for byte, trailing",
-        "    /// space included. The space is what stops `GET /user ` prefixing",
-        "    /// `GET /users/me`.",
+        "    /// The request-line prefix the verifier compares byte for byte. The",
+        "    /// trailing space stops `GET /user` from prefixing `GET /users/me`.",
         "    pub request_line: &'static str,",
         "}",
         "",
@@ -978,18 +937,15 @@ def gen_rust(spec: Spec) -> str:
         "#[derive(Clone, Copy, Debug, PartialEq, Eq)]",
         "pub struct TokenSession {",
         "    pub session: Session,",
-        "    /// The header lines a Platform Verifier requires, each exactly once with",
-        "    /// its value: `host` and `content-type`, lowercased as the wire spells",
-        "    /// them. Every other header is the runtime's own, save the names",
-        "    /// `FORBIDDEN_REQUEST_HEADERS` lists. `content-length` is absent",
-        "    /// because its value is the body's own count: the HTTP client appends",
-        "    /// it and the verifier reads it rather than compares it.",
+        "    /// The header lines a Platform Verifier requires exactly once: `host`",
+        "    /// and `content-type`, lowercased as on the wire. Other headers pass",
+        "    /// unless `FORBIDDEN_REQUEST_HEADERS` names them. `content-length` is",
+        "    /// absent: the HTTP client writes it and the verifier reads it.",
         "    pub required_headers: &'static [&'static str],",
-        "    /// The form fields the body carries, in the order the prover",
-        "    /// serializes them. Every verifier holds the whole body to this list:",
-        "    /// exactly these names in this order, each once with a nonempty",
-        "    /// value, nothing after the last. GitHub's list is REQ-PLAT-61's",
-        "    /// and X's is REQ-PLAT-63's.",
+        "    /// The body's form fields in serialization order. Verifiers require",
+        "    /// exactly these names in this order, each once with a nonempty value,",
+        "    /// and nothing after the last. GitHub's list is REQ-PLAT-61's and X's",
+        "    /// is REQ-PLAT-63's.",
         "    pub token_fields: &'static [&'static str],",
         "}",
         "",
@@ -997,8 +953,7 @@ def gen_rust(spec: Spec) -> str:
         "#[derive(Clone, Copy, Debug, PartialEq, Eq)]",
         "pub struct IdentitySession {",
         "    pub session: Session,",
-        "    /// The header lines a Platform Verifier requires, each exactly once with",
-        "    /// its value: `host`.",
+        "    /// The header lines a Platform Verifier requires exactly once: `host`.",
         "    pub required_headers: &'static [&'static str],",
         "    pub id_field: &'static str,",
         "    pub id_shape: IdShape,",
@@ -1010,7 +965,8 @@ def gen_rust(spec: Spec) -> str:
         "pub struct Profile {",
         "    /// The platform name. `platformId` is its keccak256.",
         "    pub platform: &'static str,",
-        "    /// A profile is the pair, not the name (REQ-PLAT-01).",
+        "    /// The Platform Ceremony Version. Platform and version together name a",
+        "    /// profile (REQ-PLAT-01).",
         "    pub ceremony_version: u16,",
         "    /// `None` where the profile notarizes nothing.",
         "    pub token: Option<TokenSession>,",
@@ -1018,8 +974,8 @@ def gen_rust(spec: Spec) -> str:
         "}",
         "",
         "impl Profile {",
-        "    /// How many attestations a submission for this profile carries. Derived",
-        "    /// from the sessions rather than stated beside them (REQ-COMMON-41).",
+        "    /// How many attestations a submission for this profile carries, one per",
+        "    /// session (REQ-COMMON-41).",
         "    pub const fn attestation_count(&self) -> u8 {",
         "        self.token.is_some() as u8 + self.identity.is_some() as u8",
         "    }",
@@ -1060,14 +1016,11 @@ def gen_rust(spec: Spec) -> str:
 
     names = ", ".join(f"&{upper(p.platform)}" for p in spec.profiles)
     lines += [
-        "/// The closed launch list. A platform outside it has no profile, and",
-        "/// `CeremonyProfile.attestationCount` reverts on one.",
+        "/// The launch profiles. `CeremonyProfile.attestationCount` reverts on any",
+        "/// other platform.",
         f"pub const LAUNCH: &[&Profile] = &[{names}];",
         "",
-        "/// The launch profile for a platform name, or nothing.",
-        "///",
-        "/// Nothing, rather than a default: a caller that cannot name the platform has",
-        "/// nothing to notarize, and guessing produces evidence no verifier accepts.",
+        "/// The launch profile for a platform name, or `None` if it has none.",
         "pub fn launch(platform: &str) -> Option<&'static Profile> {",
         "    LAUNCH.iter().copied().find(|p| p.platform == platform)",
         "}",
@@ -1143,8 +1096,7 @@ def ts_line_width() -> int:
 def ts_array(prefix: str, items: list[str], indent: str, suffix: str) -> list[str]:
     """`prefix[items]suffix` on one line when it fits, else one item per line.
 
-    That is the formatter's rule, and a generated file has to pass `fmt:check`
-    unformatted.
+    The formatter's rule, so a generated file passes `fmt:check` unformatted.
     """
     one = f"{indent}{prefix}[{', '.join(ts_str(item) for item in items)}]{suffix}"
     if len(one) <= ts_line_width():
@@ -1171,22 +1123,21 @@ def gen_ts(spec: Spec) -> str:
         "",
         "export interface TokenSession {",
         "  readonly session: Session",
-        "  /** The header lines a Platform Verifier requires, each exactly once with",
-        "   * its value: `host` and `content-type`. Every other header is the",
-        "   * runtime's own, save the names `FORBIDDEN_REQUEST_HEADERS` lists.",
-        "   * `content-length` is absent: the HTTP client appends it. */",
+        "  /** The header lines a Platform Verifier requires exactly once: `host`",
+        "   * and `content-type`. Other headers pass unless",
+        "   * `FORBIDDEN_REQUEST_HEADERS` names them. `content-length` is absent:",
+        "   * the HTTP client writes it. */",
         "  readonly requiredHeaders: readonly string[]",
-        "  /** The form fields the body carries, in the order the prover serializes",
-        "   * them. Every verifier holds the whole body to this list: exactly these",
-        "   * names in this order, each once with a nonempty value, nothing after",
-        "   * the last. GitHub's list is REQ-PLAT-61's and X's is REQ-PLAT-63's. */",
+        "  /** The body's form fields in serialization order. Verifiers require",
+        "   * exactly these names in this order, each once with a nonempty value,",
+        "   * and nothing after the last. GitHub's list is REQ-PLAT-61's and X's",
+        "   * is REQ-PLAT-63's. */",
         "  readonly tokenFields: readonly string[]",
         "}",
         "",
         "export interface IdentitySession {",
         "  readonly session: Session",
-        "  /** The header lines a Platform Verifier requires, each exactly once with",
-        "   * its value: `host`. */",
+        "  /** The header lines a Platform Verifier requires exactly once: `host`. */",
         "  readonly requiredHeaders: readonly string[]",
         "  readonly idField: string",
         "  readonly idShape: IdShape",
@@ -1235,7 +1186,7 @@ def gen_ts(spec: Spec) -> str:
 
     names = ", ".join(upper(p.platform) for p in spec.profiles)
     lines += [
-        "/** The closed launch list. */",
+        "/** The launch profiles. */",
         f"export const LAUNCH: readonly Profile[] = [{names}]",
         "",
         "/** The launch profile for a platform name, or undefined. */",

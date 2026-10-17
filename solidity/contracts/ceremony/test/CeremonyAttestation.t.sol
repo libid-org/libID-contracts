@@ -7,16 +7,13 @@ import {AttestationBuilder} from "./AttestationBuilder.sol";
 
 /// @notice Pins the platform-ceremonies section 4.1 decoder against bytes
 ///         produced by the Rust encoder in `libid-rs/crates/libid-ceremony`.
-/// @dev The notary writes these bytes and the chain reads them, in two
-///      languages. If the two ever disagree the notary's signature derives a
-///      key nobody trusts and every genuine attestation is rejected, so the
-///      fixture below is the load-bearing test in this file: it is the Rust
-///      encoder's output, not this decoder's.
+/// @dev `FIXTURE` is the Rust encoder's output; if the two disagree, no notary
+///      signature verifies.
 contract CeremonyAttestationTest is Test {
     using AttestationBuilder for AttestationBuilder.Direction;
 
-    /// @dev Shaped like an X identity session: the request reveals every byte
-    ///      but the bearer, which is committed between the revealed ranges.
+    /// @dev Shaped like an X identity session: every sent byte revealed except
+    ///      the committed bearer.
     bytes constant FIXTURE = hex"4930142f5283d4a8eab0d24c588f00b21213ae2a47e7ed6c1dc6a57044f1655d"
         hex"0000000069800e800000003c0000002800000000000000020000000000000000"
         hex"0000001461616161616161616161616161616161616161610000002800000000"
@@ -63,8 +60,7 @@ contract CeremonyAttestationTest is Test {
         assertEq(a.received.commitments[0].end, 40);
     }
 
-    /// @dev The digest is what the notary signed, so Rust and Solidity must
-    ///      agree on it exactly or no signature ever verifies.
+    /// @dev The digest is what the notary signs.
     function test_digestAgreesWithRust() public pure {
         assertEq(keccak256(FIXTURE), FIXTURE_DIGEST);
     }
@@ -92,8 +88,7 @@ contract CeremonyAttestationTest is Test {
     }
 
     function test_rejectsACountThatOutrunsTheBuffer() public view {
-        // A declared count of 0xffff with nothing behind it must not read past
-        // the end.
+        // A declared count of 0xffff with nothing behind it.
         bytes memory tampered = FIXTURE;
         tampered[CeremonyAttestation.HEADER_LEN] = 0xff;
         tampered[CeremonyAttestation.HEADER_LEN + 1] = 0xff;
@@ -102,8 +97,7 @@ contract CeremonyAttestationTest is Test {
     }
 
     function test_rejectsARangePastTheSignedTranscriptLength() public {
-        // The signed length is what makes bytes past the last revealed range
-        // visible at all (REQ-COMMON-36). Shrink it and the layout must fail.
+        // The signed length bounds every range (REQ-COMMON-36).
         bytes memory tampered = FIXTURE;
         tampered[43] = 0x32; // sentTranscriptLength 60 -> 50
         vm.expectRevert(abi.encodeWithSelector(CeremonyAttestation.PastTranscriptEnd.selector, 60, 50));
@@ -115,31 +109,22 @@ contract CeremonyAttestationTest is Test {
         CeremonyAttestation.requireExactCoverage(a.sent, a.sentTranscriptLength);
     }
 
-    /// @dev The pinned fixture tiles the sent direction exactly: 0..20 revealed,
-    ///      20..40 committed, 40..60 revealed.
+    /// @dev The fixture's sent direction: 0..20 revealed, 20..40 committed, 40..60 revealed.
     function test_coverageAcceptsAnExactTiling() public view {
         this.coverSent(FIXTURE);
     }
 
-    /// @dev Moving the commitment one byte forward leaves sent byte 20 covered
-    ///      by nothing. `decode` accepts that on purpose -- which directions
-    ///      tile is each profile's rule, and the library answers for the
-    ///      encoding alone -- and the Platform Verifier is what must refuse
-    ///      it. A gap is where a prover hides bytes, so this is the check that
-    ///      keeps the committed range the only region nobody can read.
+    /// @dev Moving the commitment one byte forward leaves sent byte 20 uncovered.
+    ///      `decode` accepts it; which directions must tile is each profile's rule.
     function test_coverageRejectsAGap() public {
         bytes memory tampered = FIXTURE;
         tampered[131] = bytes1(uint8(21)); // sent commitment start 20 -> 21
-
-        // decode alone still accepts it, which is why the helper exists.
         this.decode(tampered);
-
         vm.expectRevert(abi.encodeWithSelector(CeremonyAttestation.CoverageGap.selector, 20, 21));
         this.coverSent(tampered);
     }
 
-    /// @dev A trailing gap is the other half: bytes past the last range are
-    ///      invisible without the signed length to close them (REQ-COMMON-36).
+    /// @dev Bytes between the last range and the signed length are a gap (REQ-COMMON-36).
     function test_coverageRejectsATrailingGap() public {
         bytes memory tampered = FIXTURE;
         tampered[43] = 0x50; // sentTranscriptLength 60 -> 80
@@ -201,10 +186,8 @@ contract CeremonyAttestationTest is Test {
         return CeremonyAttestation.requireFramedCommitment(block_, '"access_token":"', '"').commitment;
     }
 
-    /// @dev The anchor range carries the prefix with the platform's spaces,
-    ///      tab and newline inside, ends where the commitment starts, and the
-    ///      closing quote follows. The whitespace stays revealed at its
-    ///      offsets -- the range is the wire -- and is only ignored to compare.
+    /// @dev The anchor range carries the prefix with JSON whitespace inside and
+    ///      ends where the commitment starts; whitespace is ignored only to compare.
     function test_framesABearerBehindJsonWhitespace() public {
         bytes memory prefix = bytes('"access_token" \t: \r\n"');
         uint32 start = uint32(prefix.length);
@@ -222,8 +205,7 @@ contract CeremonyAttestationTest is Test {
         vm.expectRevert(CeremonyAttestation.NoFramedCommitment.selector);
         this.framed(block_);
 
-        // A second prefix, compact, elsewhere among the revealed bytes is
-        // ambiguous even with no second commitment behind it.
+        // A second prefix among the revealed bytes is ambiguous, committed or not.
         block_.commitments[0].start = start;
         block_.revealed[1].value = bytes('" "access_token":"');
         block_.revealed[1].end = block_.revealed[1].start + uint32(block_.revealed[1].value.length);
@@ -231,11 +213,8 @@ contract CeremonyAttestationTest is Test {
         this.framed(block_);
     }
 
-    /// @dev The prefix split across two revealed ranges around a committed
-    ///      byte. Joined and normalized it would read as the prefix; it is
-    ///      refused, because no single range ends at the commitment with it,
-    ///      and a prefix assembled across a seam is one the platform never
-    ///      wrote in one piece.
+    /// @dev A prefix split across two revealed ranges around a committed byte is
+    ///      refused: one range must carry the whole prefix.
     function test_refusesAPrefixSplitAcrossRanges() public {
         bytes memory first = bytes('"access_token" ');
         bytes memory second = bytes(': \t"');
@@ -283,17 +262,15 @@ contract CeremonyAttestationTest is Test {
         return _received(d);
     }
 
-    /// @dev The number ends at a `,` or a `}`, with JSON whitespace allowed
-    ///      before either: what proves the committed digits are all of it.
+    /// @dev The number ends at a `,` or `}`, optionally after JSON whitespace,
+    ///      which proves the committed digits are the whole number.
     function test_framesABareIntegerByItsTerminator() public view {
         assertEq(this.framedInteger(_integer(",\n  ")), bytes32(uint256(7)));
         assertEq(this.framedInteger(_integer("}")), bytes32(uint256(7)));
         assertEq(this.framedInteger(_integer(" \t\r\n,")), bytes32(uint256(7)));
     }
 
-    /// @dev Anything else after the digits frames nothing: another digit (the
-    ///      commitment stops mid-number), a `;`, a `]`, a quote, or only
-    ///      whitespace with the terminator hidden.
+    /// @dev A digit, `;`, `]`, a quote, or whitespace alone after the digits frames nothing.
     function test_refusesAnythingElseAfterTheDigits() public {
         bytes[5] memory afters = [bytes("1,"), bytes(";"), bytes("]"), bytes('",'), bytes("  ")];
         for (uint256 i = 0; i < afters.length; ++i) {
@@ -303,9 +280,8 @@ contract CeremonyAttestationTest is Test {
         }
     }
 
-    /// @dev The terminator must be in the revealed range that starts where
-    ///      the commitment ends. Hidden behind a second commitment, it says
-    ///      nothing.
+    /// @dev The terminator must be revealed in the range that starts where the
+    ///      commitment ends.
     function test_refusesAnIntegerFollowedByACommitment() public {
         AttestationBuilder.Direction memory d;
         d.reveal('"id":').commit("583231", bytes32(uint256(7))).commit(",", bytes32(uint256(2))).reveal("}");
@@ -314,8 +290,7 @@ contract CeremonyAttestationTest is Test {
         this.framedInteger(block_);
     }
 
-    /// @dev A second anchor anywhere in the revealed bytes, in any JSON
-    ///      spelling, framing a commitment or not.
+    /// @dev A second anchor in the revealed bytes, in any JSON spelling, is ambiguous.
     function test_refusesASecondIntegerAnchor() public {
         CeremonyAttestation.DirectionBlock memory block_ = _integer(',"id" : 1}');
         vm.expectRevert(CeremonyAttestation.AmbiguousFraming.selector);

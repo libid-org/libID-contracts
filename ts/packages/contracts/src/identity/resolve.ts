@@ -1,12 +1,7 @@
-/// Reading identities from the chain.
+/// Reads identities from the `IdentityRegistry` through view calls.
 ///
-/// Everything here is a view call. Binding an identity needs a ceremony payload
-/// and a wallet; reading one needs neither, which is the point — any product
-/// can resolve a handle without touching the ceremony that bound it.
-///
-/// The client and the contract address are arguments rather than imports. This
-/// package ships separately from the repository it currently lives in, so it
-/// carries no configuration of its own and reaches for nothing outside itself.
+/// The caller passes the client and the contract address; the package carries
+/// no network configuration.
 
 import { type Address, keccak256, type PublicClient, toHex, zeroAddress, zeroHash } from 'viem'
 
@@ -15,13 +10,12 @@ import { HandleError } from './platforms.js'
 import { PLATFORMS } from './platforms.js'
 import { handleNode } from './node.js'
 
-/// A platform key (`'x'`, `'github'`, ...), refusing at compile time a value
-/// typed as hex: an id passed where a key belongs would be hashed again into a
-/// platform nothing binds.
+/// A platform key (`'x'`, `'github'`, ...). A value typed as hex fails to
+/// compile: an id passed as a key would hash into a platform nothing binds.
 export type PlatformKey<K extends string> = K extends `0x${string}` ? never : K
 
-/// A platform id is `keccak256` of its platform key. The keys are generated
-/// from `profiles.json`, so this and the contract agree by construction.
+/// A platform id is `keccak256` of its platform key, as `CeremonyProfile`
+/// derives it.
 export function platformId<K extends string>(platformKey: PlatformKey<K>): `0x${string}` {
   return keccak256(toHex(platformKey))
 }
@@ -32,12 +26,8 @@ export interface RegistryReader {
   address: Address
 }
 
-/// One view call.
-///
-/// Routed through a narrow cast for one reason:
-/// viem's `PublicClient`, without its chain type parameters, types
-/// `authorizationList` as required even for a read. The alternative is to
-/// spread that noise across every call site here.
+/// One view call. The cast is there because viem's `PublicClient`, without its
+/// chain type parameters, types `authorizationList` as required even for a read.
 function read<T>(
   reader: RegistryReader,
   functionName: string,
@@ -65,23 +55,23 @@ export async function resolveId(
   return holder === zeroAddress ? null : holder
 }
 
-/// Each table platform by its id.
+/// The generated platforms, keyed by platform id.
 const PLATFORM_BY_ID = new Map(PLATFORMS.map((p) => [platformId(p.key), p]))
 
 export interface HandleAndIdResolution {
   /// The handle's holder, or `null`.
   holder: Address | null
-  /// True only when the id node is the account that last proved the handle;
-  /// false means another account proved it since the caller learned the
-  /// pair, even one in the same wallet.
+  /// True only when the id node is the account that last proved the handle.
+  /// False when another account proved it since, even one in the same wallet.
   idAgrees: boolean
 }
 
 /// Resolve a handle and report whether an id node still agrees with it.
-/// Read it before signing, to warn the payer; do not let it block a transfer.
-/// Only the handle's node is sent; text no circuit hashes is sent as the zero
-/// node, so it resolves to `{holder: null, idAgrees: false}` after the
-/// platform check runs.
+/// Read it before signing to warn the payer; do not let it block a transfer.
+/// Only the handle's node is sent. Text no circuit hashes is sent as the zero
+/// node and resolves to `{holder: null, idAgrees: false}`. Reverts such as
+/// `UnknownPlatform` propagate; a platform missing from this package's table
+/// throws.
 export async function resolveHandleAndId(
   reader: RegistryReader,
   id: `0x${string}`,
@@ -133,7 +123,7 @@ export async function publishedHandleOf(
 export interface Identity {
   /// The platform the identity is on, as `platformId` derives it.
   platformId: `0x${string}`
-  /// The node of the id, an unsalted hash anyone can test a guess against.
+  /// The node of the id.
   idNode: `0x${string}`
   /// The node of the handle this identity proved most recently.
   handleNode: `0x${string}`

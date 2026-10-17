@@ -86,10 +86,8 @@ impl PlatformVerifier {
     }
 
     /// Whether the profile notarizes any session, and so whether its
-    /// verifier holds a Notary Service. `CeremonyProfile.attestationCount`
-    /// is two for the TLSNotary profiles and zero for Google; the
-    /// `libid-profiles` table says the same, and a test pins the two
-    /// together.
+    /// verifier holds a Notary Service. Mirrors
+    /// `CeremonyProfile.attestationCount`; a test pins it to `libid-profiles`.
     pub const fn notarizes(self) -> bool {
         match self {
             Self::X | Self::GitHub => true,
@@ -183,8 +181,8 @@ pub struct TlsNotaryRoots {
     pub honk_verifier: Address,
 }
 
-/// What the Google Platform Verifier initializes with. No Notary Service:
-/// the profile notarizes nothing, and the base refuses one.
+/// What the Google Platform Verifier initializes with. The base refuses a
+/// Notary Service for this profile.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct GoogleRoots {
     /// Governance.
@@ -206,10 +204,9 @@ pub enum Initializer {
     Google(GoogleRoots),
 }
 
-/// A built `initialize` call, typed by shape. Feed
-/// [`abi_encode`](Self::abi_encode) to an ERC1967 proxy as its init data —
-/// through [`deploy_platform_verifier`], [`deploy_proxy`](crate::deploy::deploy_proxy),
-/// or as part of the creation code a [factory](crate::factory) deploy takes.
+/// A built `initialize` call. Its [`abi_encode`](Self::abi_encode) is an
+/// ERC1967 proxy's init data, for [`deploy_platform_verifier`],
+/// [`deploy_proxy`](crate::deploy::deploy_proxy) or a [factory](crate::factory) deploy.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum InitializeCall {
     /// `XPlatformVerifier.initialize`.
@@ -249,11 +246,9 @@ impl Initializer {
         }
     }
 
-    /// The rules `initialize` enforces that need no chain: a nonzero owner,
-    /// a nonzero Honk verifier, a Notary Service where the profile notarizes
-    /// (the Google shape cannot carry one at all), and a nonzero root list
-    /// for Google. The code hash is the one rule left to
-    /// [`deploy_platform_verifier`].
+    /// The rules `initialize` enforces that need no chain: a nonzero owner
+    /// and Honk verifier, a Notary Service for a TLSNotary profile, and a
+    /// root list for Google. [`deploy_platform_verifier`] checks the code hash.
     pub fn check(&self) -> Result<()> {
         let contract = self.verifier().contract();
         let refuse = |detail: String| Error::Initializer {
@@ -306,9 +301,7 @@ impl Initializer {
             Self::Google(roots) => {
                 InitializeCall::Google(GooglePlatformVerifier::initializeCall {
                     owner_: roots.owner,
-                    // A profile whose Attestation Count is zero must not
-                    // reach a Notary Service (REQ-COMMON-05D); the base
-                    // refuses one.
+                    // Attestation Count zero: no Notary Service (REQ-COMMON-05D).
                     notary_: Address::ZERO,
                     honkVerifier_: roots.honk_verifier,
                     jwtRoots_: roots.jwt_roots,
@@ -318,11 +311,9 @@ impl Initializer {
     }
 }
 
-/// The code hash of the account at `address`, as `EXTCODEHASH` reports it
-/// for an account with code: `keccak256` of its runtime bytecode. An
-/// account without code is an error rather than `keccak256("")` or zero,
-/// because `setTrustRoots` refuses both and a caller comparing against the
-/// hash of nothing has nothing to pin.
+/// The code hash of the account at `address`: `keccak256` of its runtime
+/// bytecode. An account without code is an error, since `setTrustRoots`
+/// refuses both `keccak256("")` and zero.
 pub async fn codehash_at<P: Provider>(provider: &P, address: Address) -> Result<B256> {
     let code = provider
         .get_code_at(address)
@@ -415,8 +406,7 @@ mod tests {
         assert_eq!(PlatformVerifier::ALL.len(), libid_profiles::LAUNCH.len());
     }
 
-    /// Every circuit has a platform proving under it: a vendored verifier
-    /// no platform pins would be dead weight in every consumer's binary.
+    /// Every vendored circuit has a platform proving under it.
     #[test]
     fn every_circuit_serves_a_platform() {
         for circuit in Circuit::ALL {

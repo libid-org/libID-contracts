@@ -1,6 +1,5 @@
 //! Anvil integration tests: deploy the identity stack from the embedded
-//! artifacts and read views back. Requires the `anvil` binary on PATH
-//! (foundry).
+//! artifacts and read views back. Requires foundry's `anvil` on PATH.
 
 use alloy::{
     primitives::{
@@ -39,11 +38,10 @@ async fn default_signer(provider: &impl Provider) -> Address {
     provider.get_accounts().await.expect("accounts")[0]
 }
 
-/// (a) The identity stack in the order `script/Deploy.s.sol` uses: the
-/// Notary Service first, then the Proof Verifier, the registry given its
-/// platform rules and pointed at the Proof Verifier, and the Google JWT root list
-/// pointed at the Notary Service — every one behind an ERC1967 proxy. Then the views
-/// that prove the wiring took.
+/// The identity stack in the order `script/Deploy.s.sol` uses, each behind
+/// an ERC1967 proxy: the Notary Service, the Proof Verifier, the registry
+/// pointed at the Proof Verifier, and the Google JWT root list pointed at the
+/// Notary Service. Then the views that prove the wiring.
 #[tokio::test]
 async fn deploys_the_identity_stack_behind_proxies() {
     let provider = test_provider();
@@ -116,8 +114,7 @@ async fn deploys_the_identity_stack_behind_proxies() {
     assert!(notary.isTrustedNotary(notary_key).call().await.unwrap());
     assert_eq!(notary.fee().call().await.unwrap(), fee);
 
-    // Nothing is registered against any version yet, and the Proof Verifier
-    // says so rather than answering for a platform it cannot verify.
+    // No version is registered yet.
     let verifier = CeremonyProofVerifier::new(verifier_proxy, &provider);
     assert!(!verifier.verifiesPlatform(platform_id).call().await.unwrap());
     assert_eq!(
@@ -148,8 +145,7 @@ async fn deploys_the_identity_stack_behind_proxies() {
     );
 
     // The root list points at the Notary Service, quotes its fee, and starts
-    // with both generations empty — so it wants a rotation before any Google
-    // name can bind.
+    // with both generations empty, wanting a rotation.
     let roots = GoogleJwtRoots::new(roots_proxy, &provider);
     assert_eq!(roots.notaryService().call().await.unwrap(), notary_proxy);
     assert_eq!(roots.quoteRotation().call().await.unwrap(), fee);
@@ -161,10 +157,9 @@ async fn deploys_the_identity_stack_behind_proxies() {
     assert!(keys.previous.moduli.is_empty());
 }
 
-/// (b) The Notary Service lifecycle: deploy behind a proxy, add a second
-/// trusted key with `setNotary`, change the fee with `setFee`, upgrade the
-/// proxy to a freshly deployed implementation via `upgrade_uups`, and check
-/// the rotated state survives the upgrade.
+/// The Notary Service lifecycle: deploy behind a proxy, add a second trusted
+/// key, change the fee, upgrade with `upgrade_uups`, and check the state
+/// survives the upgrade.
 #[tokio::test]
 async fn rotates_and_upgrades_the_notary_service() {
     let provider = test_provider();
@@ -192,8 +187,8 @@ async fn rotates_and_upgrades_the_notary_service() {
     assert!(!notary.isTrustedNotary(incoming).call().await.unwrap());
     assert_eq!(notary.fee().call().await.unwrap(), U256::ZERO);
 
-    // Rotate: the incoming key is trusted before the outgoing one goes, so
-    // attestations already made under `first` stay presentable meanwhile.
+    // Rotate: trust the incoming key before removing the outgoing one, so
+    // attestations made under `first` stay presentable.
     notary
         .setNotary(incoming, true)
         .send()
@@ -240,13 +235,11 @@ async fn rotates_and_upgrades_the_notary_service() {
     assert_eq!(notary.owner().call().await.unwrap(), deployer);
 }
 
-/// (c) The deterministic factory, from truly nothing: anvil is started
-/// WITHOUT its predeployed CREATE2 deployer, so `FactoryGenesis::ensure`
-/// must install it via the keyless presigned transaction (funding the
-/// one-time signer first), then deploy the factory impl + proxy at their
-/// canonical addresses, owned by the genesis admin from the first block.
-/// Then a Notary Service proxy goes through the factory at its name-derived
-/// CREATE3 address.
+/// The deterministic factory on a chain without the CREATE2 deployer:
+/// `FactoryGenesis::ensure` installs it with the keyless presigned
+/// transaction, then deploys the factory at its canonical address, owned by
+/// the genesis admin from the first block. Then a Notary Service proxy goes
+/// through the factory at its name-derived CREATE3 address.
 #[tokio::test]
 async fn bootstraps_the_deterministic_factory_and_deploys_through_it() {
     use alloy::{
@@ -275,7 +268,7 @@ async fn bootstraps_the_deterministic_factory_and_deploys_through_it() {
     let deployer0 = default_signer(&provider).await;
     let genesis = FactoryGenesis { admin: deployer0 };
 
-    // Truly bare chain: no CREATE2 deployer.
+    // No CREATE2 deployer.
     assert!(provider
         .get_code_at(CREATE2_DEPLOYER)
         .await
@@ -286,12 +279,11 @@ async fn bootstraps_the_deterministic_factory_and_deploys_through_it() {
     assert_eq!(factory, genesis.address(&artifacts).unwrap());
     assert!(!provider.get_code_at(factory).await.unwrap().is_empty());
 
-    // The instant the proxy exists it is owned by its genesis admin —
-    // initialization was atomic with deployment.
+    // Initialized in the deploy: the genesis admin owns it.
     let factory_contract = LibidFactory::new(factory, &provider);
     assert_eq!(factory_contract.owner().call().await.unwrap(), deployer0);
 
-    // Rerun = read-only no-op.
+    // A rerun sends nothing.
     assert_eq!(
         genesis.ensure(&provider, &artifacts).await.unwrap(),
         factory
@@ -303,9 +295,8 @@ async fn bootstraps_the_deterministic_factory_and_deploys_through_it() {
     };
     assert_ne!(other.address(&artifacts).unwrap(), factory);
 
-    // A Notary Service PROXY through the factory: impl via plain CREATE (its
-    // address doesn't matter), proxy creation code = ERC1967Proxy ++ (impl,
-    // initData).
+    // A Notary Service proxy through the factory: the implementation by plain
+    // CREATE, the proxy's creation code `ERC1967Proxy ++ (impl, initData)`.
     let notary_key = Address::repeat_byte(0x11);
     let notary_impl = deploy_contract(
         &provider,
@@ -341,8 +332,8 @@ async fn bootstraps_the_deterministic_factory_and_deploys_through_it() {
     assert_eq!(notary.owner().call().await.unwrap(), deployer0);
 }
 
-/// The ENS resolver: a plain contract with constructor arguments, deployed
-/// through `deploy_with_ctor` from the embedded artifact, then read back.
+/// The ENS resolver, deployed with constructor arguments through
+/// `deploy_with_ctor`, then read back.
 #[tokio::test]
 async fn deploys_the_ens_resolver_with_its_constructor_arguments() {
     use alloy::{
@@ -393,16 +384,12 @@ async fn deploys_the_ens_resolver_with_its_constructor_arguments() {
     assert!(resolver.signers(next).call().await.unwrap());
 }
 
-/// (e) The three Platform Verifiers through `deploy_platform_verifier`, on
-/// the collaborators they pin: the Notary Service (the two TLSNotary ones),
-/// the JWT root list (Google), and the real Honk verifier for each one's
-/// circuit. The code hash the
-/// initializer computes is the one the chain reports for that verifier,
-/// and the one the contract records. Each comes back initialized as the
-/// views say, registers with the Proof Verifier, and the ceilings the crate
-/// restates are the contract's. Then the rules: an initializer the wrapper
-/// refuses is one the contract refuses too, and a Honk verifier with no
-/// code is caught before any transaction.
+/// The three Platform Verifiers through `deploy_platform_verifier`, on the
+/// Notary Service (TLSNotary), the JWT root list (Google) and the real Honk
+/// verifier for each circuit. Each pins the code hash the chain reports,
+/// reads back its initializer and window, and registers with the Proof
+/// Verifier. Then the refusals: what the wrapper refuses the contract
+/// refuses too, and a Honk verifier with no code is caught before sending.
 #[tokio::test]
 async fn deploys_and_initializes_every_platform_verifier() {
     use alloy::{
@@ -471,9 +458,7 @@ async fn deploys_and_initializes_every_platform_verifier() {
     )
     .await
     .unwrap();
-    // The real verifiers, one per circuit. The hash a Platform Verifier
-    // pins is read off the chain, never computed from the vendored bytes:
-    // it is what the chain holds for the artifact.
+    // The real verifiers, one per circuit.
     let bearer_link =
         deploy_honk_verifier(&provider, &artifacts, Circuit::BearerLink, None)
             .await
@@ -517,8 +502,8 @@ async fn deploys_and_initializes_every_platform_verifier() {
         Initializer::Google(google),
     ] {
         let verifier = init.verifier();
-        // The initializer wires its circuit's verifier, whose `EXTCODEHASH`,
-        // `keccak256` of the runtime code, is what the contract pins.
+        // The initializer wires its circuit's verifier; the contract pins
+        // that verifier's `EXTCODEHASH`.
         let honk = honk_at(verifier.circuit());
         assert_eq!(
             init.honk_verifier(),
@@ -534,8 +519,7 @@ async fn deploys_and_initializes_every_platform_verifier() {
             github_proxy = proxy;
         }
 
-        // The quote is what the Proof Verifier forwards whole: one Notary
-        // Fee per attestation the profile requires.
+        // One Notary Fee per attestation the profile requires.
         let quote = match verifier {
             PlatformVerifier::X | PlatformVerifier::GitHub => {
                 let v = PlatformVerifierBase::new(proxy, &provider);
@@ -543,8 +527,8 @@ async fn deploys_and_initializes_every_platform_verifier() {
                 assert_eq!(v.notaryService().call().await.unwrap(), notary_proxy);
                 assert_eq!(v.honkVerifier().call().await.unwrap(), honk);
                 assert_eq!(v.circuitCodehash().call().await.unwrap(), honk_codehash);
-                // The window is compiled into the contract from the same
-                // profile table the generated constants come from.
+                // The contract's window comes from the same profile table as
+                // the generated constants.
                 let window = if verifier == PlatformVerifier::X {
                     (
                         libid_profiles::PROOF_LIFETIME_SECONDS_X,
@@ -638,8 +622,7 @@ async fn deploys_and_initializes_every_platform_verifier() {
     assert!(matches!(err, Error::Initializer { .. }), "{err}");
     assert!(err.to_string().contains("no code at"), "{err}");
 
-    // Each deployed verifier holds its circuit's vendored runtime code, so
-    // the hash the deploy checks against is the one the chain reports.
+    // Each deployed verifier's code hash is its vendored runtime code's.
     for circuit in Circuit::ALL {
         assert_eq!(
             circuit.runtime_codehash(&artifacts).unwrap(),
@@ -678,8 +661,7 @@ async fn deploys_and_initializes_every_platform_verifier() {
             && err.to_string().contains("bearer-link"),
         "{err}"
     );
-    // The rotation path checks against the circuit the deployed proxy pins:
-    // the hash `setTrustRoots` takes is handed out only for that circuit.
+    // A rotation hash is handed out only for the circuit the proxy pins.
     assert_eq!(
         PlatformVerifier::GitHub
             .rotation_codehash_at(&provider, &artifacts, github_proxy, bearer_link)
@@ -732,8 +714,9 @@ async fn deploys_and_initializes_every_platform_verifier() {
         "{err}"
     );
 
-    // Hand-built bad initializers revert at the proxy constructor with the wrapper's error.
-    // Explicit nonces: a send that fails estimation leaves alloy's nonce cache one ahead.
+    // Hand-built bad initializers revert at the proxy constructor with the
+    // wrapper's error. Explicit nonces: a send that fails estimation leaves
+    // alloy's nonce cache one ahead.
     let google_with_notary = GooglePlatformVerifier::initializeCall {
         owner_: deployer,
         notary_: notary_proxy,
@@ -776,10 +759,10 @@ async fn deploys_and_initializes_every_platform_verifier() {
     );
 }
 
-/// (e2) The handle escrow against a real chain: pay an unclaimed handle by its
-/// hash, check the value lands on the registry's node, and refund it. The
-/// payout path needs a stub Platform Verifier, which is kept out of this
-/// crate's artifacts; the Solidity suite covers it.
+/// The handle escrow: pay an unclaimed handle by its node, check the value
+/// lands on the registry's node, and refund it. The payout path needs a stub
+/// Platform Verifier, which this crate does not ship, so the Solidity suite
+/// covers it.
 #[tokio::test]
 async fn escrows_value_against_an_unclaimed_handle() {
     use alloy::{
@@ -974,15 +957,10 @@ async fn escrows_value_against_an_unclaimed_handle() {
     );
 }
 
-/// (f) The two Honk verifiers through `deploy_honk_verifier`: one
-/// transaction each, each under EIP-170, and each answering for its OWN
-/// circuit. A bb verifier has no getter for its verification key; the one
-/// thing it says about itself is the `logN` a wrong-length proof comes back
-/// with. That separates a real verifier from a contract that merely has
-/// code, and the two circuits from each other — the check that would catch
-/// a release whose tarballs were swapped, or a vendor run that wrote one
-/// circuit's verifier under the other's name. Then a second deploy of one
-/// circuit: its code hash is the first's, a function of the artifact alone.
+/// The two Honk verifiers through `deploy_honk_verifier`: one transaction
+/// each, under EIP-170, distinct, and each a real verifier that answers a
+/// wrong-length proof with its `logN`. A second deploy of one circuit has
+/// the first's code hash.
 #[tokio::test]
 async fn deploys_the_honk_verifiers_over_their_own_circuits() {
     use alloy::{
@@ -1020,9 +998,7 @@ async fn deploys_the_honk_verifiers_over_their_own_circuits() {
         );
         let code = provider.get_code_at(address).await.unwrap();
         assert!(!code.is_empty(), "{circuit:?} has no code at {address:#x}");
-        // anvil runs the default limit, so deploying at all is the EIP-170
-        // proof; the number is asserted so a release that grows past it
-        // says so here rather than in a failed deploy.
+        // anvil enforces EIP-170 already; the explicit check names the size.
         assert!(
             code.len() <= 24_576,
             "{circuit:?} is {} bytes, over EIP-170",

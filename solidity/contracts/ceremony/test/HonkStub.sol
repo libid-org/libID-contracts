@@ -19,8 +19,7 @@ library HonkStub {
         answer(honk, true);
     }
 
-    /// @notice What `verify` at `honk` answers from now on, whatever it is
-    ///         asked.
+    /// @notice Make `verify` at `honk` answer `value` for any input.
     function answer(address honk, bool value) internal {
         VM.mockCall(honk, abi.encodeWithSelector(IHonkVerifier.verify.selector), abi.encode(value));
     }

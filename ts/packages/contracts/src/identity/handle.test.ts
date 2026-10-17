@@ -17,25 +17,20 @@ function normalized(
 }
 
 /// The shared handle vector table, run against the TypeScript normalizer.
-///
-/// Solidity and Rust run the same table from the same JSON. That is the whole
-/// guard: three hand-written normalizers, one set of cases, so a language that
-/// disagrees fails here instead of looking up a node the chain never wrote.
+/// Solidity and Rust run the same JSON, so a language that disagrees fails.
 describe('handle normalization', () => {
   it('matches the shared table on every vector', () => {
     for (const [i, v] of HANDLE_VECTORS.entries()) {
       const rules = rulesFor(v.platform)
       expect(rules, `vector ${i}: unknown platform ${v.platform}`).not.toBeNull()
 
-      // The table names WHICH refusal, not merely that one happened: the
-      // reason is what the three languages must agree on.
+      // The table names which refusal; every language must agree on it.
       const expected = v.expected.ok ? { ok: true, handle: v.expected.handle } : v.expected
       expect(normalized(v.input, rules!), `vector ${i}`).toEqual(expected)
     }
   })
 
-  /// The table must keep covering both outcomes. A regeneration that dropped
-  /// every refusal would leave the test green and prove nothing.
+  /// A regeneration that dropped every refusal would leave the vector test green.
   it('keeps covering both outcomes', () => {
     const accepted = HANDLE_VECTORS.filter((v) => v.expected.ok).length
     expect(accepted).toBeGreaterThan(0)

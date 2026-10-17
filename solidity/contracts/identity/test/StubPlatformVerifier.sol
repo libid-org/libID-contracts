@@ -8,8 +8,9 @@ import {HandleNode} from "../../handles/HandleNode.sol";
 import {TestNodes} from "./TestNodes.sol";
 
 /// @notice Stands in for a Platform Verifier: decodes its own payload, rebuilds
-///         the digest, and returns the nodes a circuit would (X's tags for an unknown platform).
-/// @dev Takes the ceremony version from the payload, so one stub serves several.
+///         the digest, and returns the nodes a circuit would.
+/// @dev Uses X's tags for a platform the profiles do not know. Takes the ceremony
+///      version from the payload, so one stub serves several.
 contract StubPlatformVerifier is IPlatformVerifier {
     /// @dev The digest inputs.
     struct StubPayload {
