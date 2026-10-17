@@ -26,6 +26,7 @@ import hashlib
 import json
 import pathlib
 import sys
+from dataclasses import dataclass
 from typing import Any
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -54,17 +55,121 @@ def table_sha256(raw: bytes) -> str:
     return hashlib.sha256(raw).hexdigest()
 
 
-def platforms_of(table: dict[str, Any]) -> list[dict[str, Any]]:
-    """Each platform of platforms.json in the shape the generators read."""
-    return [
-        {
-            "key": p["platform"],
-            "maxLength": p["maxHandle"],
-            "tags": {"userId": p["userIdTag"], "handle": p["handleTag"]},
-            "id": {"maxLength": p["maxId"], "shape": p["idShape"]},
-        }
-        for p in table["platforms"]
-    ]
+@dataclass(frozen=True)
+class Platform:
+    """One platform of platforms.json: its node tags and the circuits' buffers."""
+
+    key: str
+    max_length: int
+    user_id_tag: str
+    handle_tag: str
+    max_id: int
+    id_shape: str
+
+    @classmethod
+    def from_json(cls, raw: dict[str, Any]) -> Platform:
+        return cls(
+            key=raw["platform"],
+            max_length=raw["maxHandle"],
+            user_id_tag=raw["userIdTag"],
+            handle_tag=raw["handleTag"],
+            max_id=raw["maxId"],
+            id_shape=raw["idShape"],
+        )
+
+    @property
+    def decimal(self) -> bool:
+        """Whether its ids are ASCII digits."""
+        return self.id_shape == "decimal"
+
+
+@dataclass(frozen=True)
+class ErrorKind:
+    """One refusal of handles.json `errors`; its index is its kind."""
+
+    key: str
+    note: str
+
+    @classmethod
+    def from_json(cls, raw: dict[str, Any]) -> ErrorKind:
+        return cls(key=raw["key"], note=raw["note"])
+
+
+@dataclass(frozen=True)
+class HandleVector:
+    """One case of handles.json `vectors`: accepted when it has an output."""
+
+    platform: str
+    input: str
+    output: str | None
+    error: str | None
+    handle_node: str | None
+
+    @classmethod
+    def from_json(cls, raw: dict[str, Any]) -> HandleVector:
+        return cls(
+            platform=raw["platform"],
+            input=raw["input"],
+            output=raw.get("output"),
+            error=raw.get("error"),
+            handle_node=raw.get("handleNode"),
+        )
+
+    @property
+    def accepted(self) -> bool:
+        return self.output is not None
+
+
+@dataclass(frozen=True)
+class IdVector:
+    """One case of handles.json `idVectors`: accepted when it names no error."""
+
+    platform: str
+    input: str
+    error: str | None
+    id_node: str | None
+
+    @classmethod
+    def from_json(cls, raw: dict[str, Any]) -> IdVector:
+        return cls(
+            platform=raw["platform"],
+            input=raw["input"],
+            error=raw.get("error"),
+            id_node=raw.get("idNode"),
+        )
+
+    @property
+    def accepted(self) -> bool:
+        return self.error is None
+
+
+@dataclass(frozen=True)
+class Table:
+    """handles.json, with the platforms of platforms.json."""
+
+    platforms: list[Platform]
+    errors: list[ErrorKind]
+    vectors: list[HandleVector]
+    id_vectors: list[IdVector]
+
+    @classmethod
+    def from_json(cls, handles: dict[str, Any], platforms: dict[str, Any]) -> Table:
+        return cls(
+            platforms=[Platform.from_json(p) for p in platforms["platforms"]],
+            errors=[ErrorKind.from_json(e) for e in handles["errors"]],
+            vectors=[HandleVector.from_json(v) for v in handles["vectors"]],
+            id_vectors=[IdVector.from_json(v) for v in handles["idVectors"]],
+        )
+
+    def error_index(self, key: str | None) -> int:
+        for i, err in enumerate(self.errors):
+            if err.key == key:
+                return i
+        raise SystemExit(f"ERROR: unknown error kind {key!r} in a vector")
+
+    def kind(self, accepted: bool, error: str | None) -> int:
+        """The error kind a vector's table row carries: 0 when accepted."""
+        return 0 if accepted else self.error_index(error)
 
 
 def fold_byte(b: int) -> int:
@@ -72,37 +177,33 @@ def fold_byte(b: int) -> int:
     return b + 0x20 if 0x41 <= b <= 0x5A else b
 
 
-def check_nodes(spec: dict[str, Any]) -> None:
+def check_nodes(table: Table) -> None:
     """Refuse a table whose accepted outputs are not the fold of their inputs,
     or whose stored nodes are not SHA256(tag || value); a refused vector
     carries no node."""
-    tags = {p["key"]: p["tags"] for p in spec["platforms"]}
-    for vec in spec["vectors"]:
-        folded = bytes(fold_byte(b) for b in vec["input"].encode())
-        if "output" in vec and vec["output"].encode() != folded:
+    tags = {p.key: p for p in table.platforms}
+    for vec in table.vectors:
+        folded = bytes(fold_byte(b) for b in vec.input.encode())
+        if vec.output is not None and vec.output.encode() != folded:
             raise SystemExit(
-                f"ERROR: {vec['platform']} {vec['input']!r}: output {vec['output']!r} is not its input folded"
+                f"ERROR: {vec.platform} {vec.input!r}: output {vec.output!r} is not its input folded"
             )
-    cases = [(vec, "handle", "handleNode", vec.get("output")) for vec in spec["vectors"]] + [
-        (vec, "userId", "idNode", None if "error" in vec else vec["input"]) for vec in spec["idVectors"]
+    cases = [(vec, tags[vec.platform].handle_tag, "handleNode", vec.output, vec.handle_node) for vec in table.vectors]
+    cases += [
+        (vec, tags[vec.platform].user_id_tag, "idNode", vec.input if vec.accepted else None, vec.id_node)
+        for vec in table.id_vectors
     ]
-    for vec, tag, field, value in cases:
+    for vec, tag, field, value, node in cases:
         if value is None:
-            if field in vec:
-                raise SystemExit(f"ERROR: refused {vec['platform']} {vec['input']!r} carries {field}")
+            if node is not None:
+                raise SystemExit(f"ERROR: refused {vec.platform} {vec.input!r} carries {field}")
             continue
-        want = "0x" + hashlib.sha256((tags[vec["platform"]][tag] + value).encode()).hexdigest()
-        if vec.get(field) != want:
+        want = "0x" + hashlib.sha256((tag + value).encode()).hexdigest()
+        if node != want:
             raise SystemExit(
-                f"ERROR: {vec['platform']} {vec['input']!r}: {field} is not "
+                f"ERROR: {vec.platform} {vec.input!r}: {field} is not "
                 f"SHA256(tag || value); expected {want}"
             )
-
-
-def id_flags(platform: dict[str, Any]) -> tuple[int, bool]:
-    """(max length, decimal) for a platform's ids."""
-    rules = platform["id"]
-    return rules["maxLength"], rules["shape"] == "decimal"
 
 
 def rust_escape(value: str) -> str:
@@ -128,17 +229,9 @@ def rust_escape(value: str) -> str:
     return "".join(out)
 
 
-def error_index(errors: list[dict[str, Any]], key: str) -> int:
-    for i, err in enumerate(errors):
-        if err["key"] == key:
-            return i
-    raise SystemExit(f"ERROR: unknown error kind {key!r} in a vector")
-
-
-def gen_rust(spec: dict[str, Any], digest: str) -> str:
-    platforms = spec["platforms"]
-    errors = spec["errors"]
-    vectors = spec["vectors"]
+def gen_rust(table: Table, digest: str) -> str:
+    platforms = table.platforms
+    vectors = table.vectors
 
     lines = [
         header("//").rstrip("\n"),
@@ -197,25 +290,24 @@ def gen_rust(spec: dict[str, Any], digest: str) -> str:
     for p in platforms:
         lines.append("/// keccak256 of this string is the platform id.")
         lines.append(
-            f'pub const PLATFORM_{p["key"].upper()}_KEY: &str = "{p["key"]}";'
+            f'pub const PLATFORM_{p.key.upper()}_KEY: &str = "{p.key}";'
         )
     lines.append("")
 
     for p in platforms:
-        name = p["key"].upper()
-        max_len, decimal = id_flags(p)
+        name = p.key.upper()
         lines += [
-            f"/// {p['key']}, as its profile states it.",
+            f"/// {p.key}, as its profile states it.",
             f"pub const PLATFORM_{name}: Platform = Platform {{",
             f"    key: PLATFORM_{name}_KEY,",
-            f'    user_id_tag: "{p["tags"]["userId"]}",',
-            f'    handle_tag: "{p["tags"]["handle"]}",',
+            f'    user_id_tag: "{p.user_id_tag}",',
+            f'    handle_tag: "{p.handle_tag}",',
             "    rules: crate::Rules {",
-            f"        max_length: {p['maxLength']},",
+            f"        max_length: {p.max_length},",
             "    },",
             "    id_rules: crate::IdRules {",
-            f"        max_length: {max_len},",
-            f"        decimal: {str(decimal).lower()},",
+            f"        max_length: {p.max_id},",
+            f"        decimal: {str(p.decimal).lower()},",
             "    },",
             "};",
         ]
@@ -223,7 +315,7 @@ def gen_rust(spec: dict[str, Any], digest: str) -> str:
         "",
         "/// Every platform, in table order.",
         f"pub static PLATFORMS: [Platform; {len(platforms)}] = ["
-        + ", ".join(f"PLATFORM_{p['key'].upper()}" for p in platforms)
+        + ", ".join(f"PLATFORM_{p.key.upper()}" for p in platforms)
         + "];",
         "",
         "/// The platform with this key, if the table names it.",
@@ -233,48 +325,42 @@ def gen_rust(spec: dict[str, Any], digest: str) -> str:
         "",
     ]
 
-    for i, err in enumerate(errors):
-        lines.append(f"/// {err['note']}")
-        lines.append(f"pub const ERROR_{err['key'].upper()}: u8 = {i};")
+    for i, err in enumerate(table.errors):
+        lines.append(f"/// {err.note}")
+        lines.append(f"pub const ERROR_{err.key.upper()}: u8 = {i};")
     lines.append("")
 
     lines.append("/// Every case, shared with Solidity and TypeScript.")
     lines.append(f"pub const VECTORS: [Vector; {len(vectors)}] = [")
     for vec in vectors:
-        accepted = "output" in vec
-        out = rust_escape(vec.get("output", ""))
-        kind = 0 if accepted else error_index(errors, vec["error"])
         lines.append("    Vector {")
-        lines.append(f'        platform: "{vec["platform"]}",')
-        lines.append(f'        input: "{rust_escape(vec["input"])}",')
-        lines.append(f'        output: "{out}",')
-        lines.append(f"        accepted: {'true' if accepted else 'false'},")
-        lines.append(f"        error_kind: {kind},")
-        lines.append(f'        handle_node: "{vec.get("handleNode", "")}",')
+        lines.append(f'        platform: "{vec.platform}",')
+        lines.append(f'        input: "{rust_escape(vec.input)}",')
+        lines.append(f'        output: "{rust_escape(vec.output or "")}",')
+        lines.append(f"        accepted: {'true' if vec.accepted else 'false'},")
+        lines.append(f"        error_kind: {table.kind(vec.accepted, vec.error)},")
+        lines.append(f'        handle_node: "{vec.handle_node or ""}",')
         lines.append("    },")
     lines.append("];")
     lines.append("")
-    id_vectors = spec["idVectors"]
+    id_vectors = table.id_vectors
     lines.append("/// Every id case, shared with TypeScript and Noir.")
     lines.append(f"pub const ID_VECTORS: [IdVector; {len(id_vectors)}] = [")
     for vec in id_vectors:
-        accepted = "error" not in vec
-        kind = 0 if accepted else error_index(errors, vec["error"])
         lines.append("    IdVector {")
-        lines.append(f'        platform: "{vec["platform"]}",')
-        lines.append(f'        input: "{rust_escape(vec["input"])}",')
-        lines.append(f"        accepted: {'true' if accepted else 'false'},")
-        lines.append(f"        error_kind: {kind},")
-        lines.append(f'        id_node: "{vec.get("idNode", "")}",')
+        lines.append(f'        platform: "{vec.platform}",')
+        lines.append(f'        input: "{rust_escape(vec.input)}",')
+        lines.append(f"        accepted: {'true' if vec.accepted else 'false'},")
+        lines.append(f"        error_kind: {table.kind(vec.accepted, vec.error)},")
+        lines.append(f'        id_node: "{vec.id_node or ""}",')
         lines.append("    },")
     lines.append("];")
     return "\n".join(lines) + "\n"
 
 
-def gen_ts(spec: dict[str, Any], digest: str) -> str:
-    platforms = spec["platforms"]
-    errors = spec["errors"]
-    vectors = spec["vectors"]
+def gen_ts(table: Table, digest: str) -> str:
+    platforms = table.platforms
+    vectors = table.vectors
 
     lines = [
         header("//").rstrip("\n"),
@@ -324,23 +410,22 @@ def gen_ts(spec: dict[str, Any], digest: str) -> str:
 
     for p in platforms:
         lines.append("/** keccak256 of this string is the platform id. */")
-        lines.append(f"export const PLATFORM_{p['key'].upper()}_KEY = '{p['key']}'")
+        lines.append(f"export const PLATFORM_{p.key.upper()}_KEY = '{p.key}'")
     lines.append("")
 
     for p in platforms:
-        name = p["key"].upper()
-        max_len, decimal = id_flags(p)
+        name = p.key.upper()
         lines += [
             f"export const PLATFORM_{name}: Platform = {{",
             f"  key: PLATFORM_{name}_KEY,",
-            f"  userIdTag: '{p['tags']['userId']}',",
-            f"  handleTag: '{p['tags']['handle']}',",
+            f"  userIdTag: '{p.user_id_tag}',",
+            f"  handleTag: '{p.handle_tag}',",
             "  rules: {",
-            f"    maxLength: {p['maxLength']},",
+            f"    maxLength: {p.max_length},",
             "  },",
             "  idRules: {",
-            f"    maxLength: {max_len},",
-            f"    decimal: {str(decimal).lower()},",
+            f"    maxLength: {p.max_id},",
+            f"    decimal: {str(p.decimal).lower()},",
             "  },",
             "}",
         ]
@@ -348,7 +433,7 @@ def gen_ts(spec: dict[str, Any], digest: str) -> str:
         "",
         "/** Every platform, in table order. */",
         "export const PLATFORMS: readonly Platform[] = ["
-        + ", ".join(f"PLATFORM_{p['key'].upper()}" for p in platforms)
+        + ", ".join(f"PLATFORM_{p.key.upper()}" for p in platforms)
         + "]",
         "",
         "/** The platform with this key, if the table names it. */",
@@ -358,35 +443,30 @@ def gen_ts(spec: dict[str, Any], digest: str) -> str:
         "",
     ]
 
-    for i, err in enumerate(errors):
-        lines.append(f"export const ERROR_{err['key'].upper()} = {i}")
+    for i, err in enumerate(table.errors):
+        lines.append(f"export const ERROR_{err.key.upper()} = {i}")
     lines.append("")
 
     lines.append("export const HANDLE_VECTORS: HandleVector[] = [")
     for vec in vectors:
-        accepted = "output" in vec
-        out = json.dumps(vec.get("output", ""))
-        kind = 0 if accepted else error_index(errors, vec["error"])
         lines.append(
-            f"  {{ platform: {json.dumps(vec['platform'])},"
-            f" input: {json.dumps(vec['input'])},"
-            f" output: {out},"
-            f" accepted: {'true' if accepted else 'false'},"
-            f" errorKind: {kind},"
-            f" handleNode: {json.dumps(vec.get('handleNode', ''))} }},"
+            f"  {{ platform: {json.dumps(vec.platform)},"
+            f" input: {json.dumps(vec.input)},"
+            f" output: {json.dumps(vec.output or '')},"
+            f" accepted: {'true' if vec.accepted else 'false'},"
+            f" errorKind: {table.kind(vec.accepted, vec.error)},"
+            f" handleNode: {json.dumps(vec.handle_node or '')} }},"
         )
     lines.append("]")
     lines.append("")
     lines.append("export const ID_VECTORS: IdVector[] = [")
-    for vec in spec["idVectors"]:
-        accepted = "error" not in vec
-        kind = 0 if accepted else error_index(errors, vec["error"])
+    for vec in table.id_vectors:
         lines.append(
-            f"  {{ platform: {json.dumps(vec['platform'])},"
-            f" input: {json.dumps(vec['input'])},"
-            f" accepted: {'true' if accepted else 'false'},"
-            f" errorKind: {kind},"
-            f" idNode: {json.dumps(vec.get('idNode', ''))} }},"
+            f"  {{ platform: {json.dumps(vec.platform)},"
+            f" input: {json.dumps(vec.input)},"
+            f" accepted: {'true' if vec.accepted else 'false'},"
+            f" errorKind: {table.kind(vec.accepted, vec.error)},"
+            f" idNode: {json.dumps(vec.id_node or '')} }},"
         )
     lines.append("]")
     return "\n".join(lines) + "\n"
@@ -418,14 +498,16 @@ def main() -> int:
     # Explicit encoding: handles.json holds non-ASCII, and the ambient locale
     # decides otherwise on a machine configured differently.
     raw = SOURCE.read_bytes()
-    spec = json.loads(raw.decode("utf-8"))
-    spec["platforms"] = platforms_of(json.loads(PLATFORMS.read_text(encoding="utf-8")))
-    check_nodes(spec)
+    table = Table.from_json(
+        json.loads(raw.decode("utf-8")),
+        json.loads(PLATFORMS.read_text(encoding="utf-8")),
+    )
+    check_nodes(table)
     digest = table_sha256(raw)
 
     outputs = [
-        (RUST_OUT, gen_rust(spec, digest)),
-        (TS_OUT, gen_ts(spec, digest)),
+        (RUST_OUT, gen_rust(table, digest)),
+        (TS_OUT, gen_ts(table, digest)),
     ]
 
     if args.check:
