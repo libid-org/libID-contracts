@@ -2,23 +2,22 @@
 """Regenerate the identity platform table, the refusals and the vector tables.
 
 The sources are the pinned libID-circuits release's `platforms.json` (each
-platform's tags, the circuits' buffers and its id shape) and `handles.json`
-(the vectors), vendored into `solidity/contracts/circuits/` by
+platform's tags, buffers and id shape) and `handles.json` (the vectors),
+vendored into `solidity/contracts/circuits/` by
 `scripts/vendor-circuit-verifiers.sh`. Run this script after the pin moves.
-These files are written and never drift apart:
+It writes:
 
     rust/identity/src/platforms.rs                  # Rust platform table + refusals
     rust/identity/src/vectors.rs                    # Rust vectors (tests, `test-helpers`)
     ts/packages/contracts/src/identity/platforms.ts # TypeScript platform table + refusals
     ts/packages/contracts/src/identity/vectors.ts   # TypeScript vectors (tests)
 
-The refusals are handles.json's `errors`, each worded per subject by
-`WORDING` below. Each vectors file carries the SHA-256 of handles.json, the
-value the circuits' generated table carries. Every handleNode and idNode in the table is
-recomputed with hashlib and must match. The transform (the token check and
-the fold) is hand written in Rust, TypeScript and Noir; Solidity reads the
-tags from `CeremonyProfile` and folds in `HandleNode`, and its tests read
-handles.json directly.
+The refusals are handles.json's `errors`, worded per subject by `WORDING`.
+Each vectors file carries the SHA-256 of handles.json, as the circuits' table
+does. Every handleNode and idNode is recomputed with hashlib and must match.
+The transform (the token check and the fold) is hand written in Rust,
+TypeScript and Noir. Solidity reads the tags from `CeremonyProfile`, folds in
+`HandleNode`, and its tests read handles.json directly.
 
 Run: ./scripts/regen-identity-handles.py [--check]
 """
@@ -52,7 +51,7 @@ def header(comment: str) -> str:
 
 
 def table_sha256(raw: bytes) -> str:
-    """SHA-256 of handles.json: what the circuits' table.nr carries as
+    """SHA-256 of handles.json, as the circuits' table.nr carries it in
     TABLE_SHA256, so every language can tell which vectors it ran. The tags
     and buffers from platforms.json are compared by value (`--check`)."""
     return hashlib.sha256(raw).hexdigest()
@@ -290,7 +289,7 @@ def rust_platforms(table: Table) -> str:
         "    fmt,",
         "};",
         "",
-        "/// A platform the profiles name: its key, its node tags and its buffers.",
+        "/// A platform: its key, node tags and buffers.",
         "pub struct Platform {",
         "    /// keccak256 of this string is the platform id.",
         "    pub key: &'static str,",
@@ -312,7 +311,7 @@ def rust_platforms(table: Table) -> str:
     for p in platforms:
         name = p.key.upper()
         lines += [
-            f"/// {p.key}, as its profile states it.",
+            f"/// The {p.key} platform.",
             f"pub const PLATFORM_{name}: Platform = Platform {{",
             f"    key: PLATFORM_{name}_KEY,",
             f'    user_id_tag: "{p.user_id_tag}",',
@@ -456,7 +455,7 @@ def ts_platforms(table: Table) -> str:
         "import type { Rules } from './handle.js'",
         "import type { IdRules } from './node.js'",
         "",
-        "/** A platform the profiles name: its key, its node tags and its buffers. */",
+        "/** A platform: its key, node tags and buffers. */",
         "export interface Platform {",
         "  /** keccak256 of this string is the platform id. */",
         "  key: string",
@@ -525,7 +524,7 @@ def ts_platforms(table: Table) -> str:
 
 
 def ts_vectors(table: Table, digest: str) -> str:
-    """The vector tables, imported by the tests alone."""
+    """The vector tables the TypeScript tests run."""
     lines = [
         header("//").rstrip("\n"),
         "",
@@ -606,8 +605,7 @@ def main() -> int:
                 file=sys.stderr,
             )
             return 1
-    # Explicit encoding: handles.json holds non-ASCII, and the ambient locale
-    # decides otherwise on a machine configured differently.
+    # handles.json holds non-ASCII, so decode it as UTF-8 whatever the locale.
     raw = SOURCE.read_bytes()
     table = Table.from_json(
         json.loads(raw.decode("utf-8")),

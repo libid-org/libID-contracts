@@ -8,7 +8,7 @@
 import type { Rules } from './handle.js'
 import type { IdRules } from './node.js'
 
-/** A platform the profiles name: its key, its node tags and its buffers. */
+/** A platform: its key, node tags and buffers. */
 export interface Platform {
   /** keccak256 of this string is the platform id. */
   key: string

@@ -5,23 +5,21 @@
 # the artifact JSONs the crate needs from solidity/out into
 # rust/contracts/artifacts/<File>.sol/<Name>.json, pruned to the fields the
 # crate reads: bytecode.object, methodIdentifiers and, for the *HonkVerifier
-# artifacts only, deployedBytecode.object (the runtime code a deployed copy's
-# code hash is checked against). No abi: the binding
-# drift tests (rust/contracts/src/bindings/mod.rs) read it from solidity/out,
-# so the published crate carries none. The circuits pin rides along as
-# circuits.json, so the crate can say which libid-circuits release its
+# artifacts, deployedBytecode.object, the runtime code a deployed copy's code
+# hash is checked against. The ABI stays out: the binding drift tests
+# (rust/contracts/src/bindings/mod.rs) read it from solidity/out. The circuits
+# pin is copied as circuits.json, naming the libid-circuits release the
 # verifiers came from.
 #
-# The result is NOT committed: rust/contracts/artifacts is gitignored and
-# regenerated on demand. Run this before any cargo command in rust/ — the
-# crate embeds the directory with include_dir!, so a missing one is a compile
-# error. CI runs it in every job that touches the crate, publishing included.
+# rust/contracts/artifacts is gitignored. Run this before any cargo command in
+# rust/: the crate embeds the directory with include_dir!, so a missing one is
+# a compile error.
 #
-# solc is pinned (0.8.33) and its builds are deterministic, so two runs of
-# this script over the same contracts produce byte-identical output.
+# solc is pinned in solidity/foundry.toml and builds deterministically, so two
+# runs over the same contracts produce byte-identical output.
 #
 # Usage:
-#   scripts/vendor-artifacts.sh           # regenerate rust/contracts/artifacts
+#   scripts/vendor-artifacts.sh
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -47,10 +45,9 @@ ARTIFACTS=(
     "OidcGoogleHonkVerifier:OidcGoogleHonkVerifier"
     # identity
     "IdentityRegistry:IdentityRegistry"
-    # ens (deployed once per network, not CREATE3-canonical; embedded so a
-    # consumer can deploy it without a checkout of this repository)
+    # ens: deployed once per network, outside the CREATE3 canonical set
     "HandleResolver:HandleResolver"
-    # escrow: value held against a handle nobody holds yet
+    # escrow
     "HandleEscrow:HandleEscrow"
     # factory
     "LibidFactory:LibidFactory"
@@ -64,8 +61,8 @@ fi
 
 command -v jq >/dev/null || { echo "jq is required" >&2; exit 1; }
 
-# The Honk verifiers are vendored, not committed, and a build without them
-# fails in the test that imports them; name the missing step instead.
+# The Honk verifiers are vendored, not committed. Name the missing step before
+# forge build fails on the test that imports them.
 while read -r contract; do
     [[ -f "$REPO_ROOT/solidity/contracts/circuits/$contract.sol" ]] ||
         { echo "no $contract.sol under solidity/contracts/circuits; run scripts/vendor-circuit-verifiers.sh first" >&2; exit 1; }
