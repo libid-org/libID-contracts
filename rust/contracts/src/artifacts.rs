@@ -141,7 +141,11 @@ impl Artifacts {
 
     /// Runtime bytecode where the source file and contract names differ.
     /// Matches deployed code only for contracts without immutables.
-    pub fn deployed_bytecode_named(&self, file: &str, contract: &str) -> Result<Bytes> {
+    pub(crate) fn deployed_bytecode_named(
+        &self,
+        file: &str,
+        contract: &str,
+    ) -> Result<Bytes> {
         self.code(file, contract, CodeKind::Runtime)
     }
 

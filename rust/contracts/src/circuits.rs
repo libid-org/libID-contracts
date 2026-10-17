@@ -86,7 +86,7 @@ impl Circuit {
 
     /// Every circuit beside its [`runtime_codehash`](Self::runtime_codehash),
     /// in [`ALL`](Self::ALL)'s order.
-    pub fn runtime_codehashes(artifacts: &Artifacts) -> Result<Vec<(Self, B256)>> {
+    pub(crate) fn runtime_codehashes(artifacts: &Artifacts) -> Result<Vec<(Self, B256)>> {
         Self::ALL
             .into_iter()
             .map(|c| Ok((c, c.runtime_codehash(artifacts)?)))
@@ -94,7 +94,7 @@ impl Circuit {
     }
 
     /// The circuit `codehashes` pairs with `codehash`, if any.
-    pub fn with_runtime_codehash(
+    pub(crate) fn with_runtime_codehash(
         codehashes: &[(Self, B256)],
         codehash: B256,
     ) -> Option<Self> {

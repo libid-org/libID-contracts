@@ -26,7 +26,8 @@ pub enum HandleError {
 
 impl HandleError {
     /// The index the vector table uses for this kind.
-    pub const fn kind(self) -> u8 {
+    #[cfg(test)]
+    pub(crate) const fn kind(self) -> u8 {
         match self {
             Self::Empty => v::ERROR_EMPTY,
             Self::TooLong => v::ERROR_TOOLONG,
