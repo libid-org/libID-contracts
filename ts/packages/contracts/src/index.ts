@@ -1,4 +1,4 @@
-/// @libid/contracts — viem-ready ABIs, call builders, identity helpers and
+/// @libid/contracts: viem-ready ABIs, call builders, identity helpers and
 /// `bind` payload encoders. Subpaths: `/abis`, `/calls`, `/identity`, `/ceremony`.
 
 export * from './abis/index.js'

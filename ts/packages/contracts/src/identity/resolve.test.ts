@@ -48,9 +48,7 @@ const ALICE_NODE = handleNode(PLATFORM_X_KEY, 'alice')
 const OLD_NODE = handleNode(PLATFORM_X_KEY, 'alice_old')
 
 describe('resolving a handle', () => {
-  /// The contract stores under the hash of the platform key, and the keys are
-  /// generated from profiles.json — so this and the chain agree by construction
-  /// rather than by somebody keeping two lists in step.
+  /// The registry keys a platform by `keccak256` of its platform key.
   it('derives the platform id from the generated platform key', () => {
     expect(X).toMatch(/^0x[0-9a-f]{64}$/)
     expect(platformId(PLATFORM_X_KEY)).toBe(X)
@@ -82,8 +80,7 @@ describe('resolving a handle', () => {
     expect(await resolveHandle(reader(registry()), X, 'nobody')).toBeNull()
   })
 
-  /// The handle is normalized and hashed here, under the rules the registry
-  /// applies, so only its node reaches the RPC.
+  /// The handle is normalized and hashed locally; only its node reaches the RPC.
   it('sends the handle node, never the handle', async () => {
     const readContract = registry(ALICE)
     await resolveHandle(reader(readContract), X, 'Alice')
@@ -116,9 +113,7 @@ describe('resolving a holder back to a handle', () => {
   })
 
   /// `publishedHandleOf` is forward-checked on chain, so a stale handle
-  /// arrives here as empty. ENS asks integrators to run that check themselves
-  /// and warns that skipping it shows a primary name that no longer resolves
-  /// back; this cannot skip it.
+  /// arrives as empty.
   it('gives no published handle once the handle has moved on', async () => {
     const readContract = vi.fn().mockResolvedValue('')
     expect(await publishedHandleOf(reader(readContract), ALICE, X)).toBeNull()
@@ -137,10 +132,8 @@ describe('checking a handle against an id', () => {
     expect(sent(readContract)).toEqual([X, ALICE_NODE, ID_42])
   })
 
-  /// The case the two mappings exist for. The handle still resolves — and the
-  /// transfer must still be allowed to go there, because that is what the
-  /// handle now means — but the caller learns its id is out of date and can
-  /// say so before anybody signs.
+  /// The handle still resolves and a transfer may go there; `idAgrees` lets
+  /// the caller warn that its id is out of date before anybody signs.
   it('still resolves the handle when the id disagrees', async () => {
     const resolution = await resolveHandleAndId(reader(registry(ALICE, false)), X, 'alice', ID_42)
 
@@ -219,10 +212,8 @@ function revertingWith(errorName: string): BaseError {
 }
 
 describe('a handle that cannot be normalized', () => {
-  /// Nobody holds a string that is not a handle on that platform, and the
-  /// contract says so with a zero address rather than a revert — which is what
-  /// a search box needs, since the alternative is a rejected promise on every
-  /// keystroke that has not finished being typed.
+  /// Text that is not a handle reads as null rather than rejecting, so a search
+  /// box can resolve every keystroke.
   it('reads as unbound', async () => {
     const readContract = registry()
 
@@ -231,8 +222,7 @@ describe('a handle that cannot be normalized', () => {
     expect(sent(readContract)).toEqual([X, zeroHash, zeroHash])
   })
 
-  /// An unconfigured platform is a deployment mistake, not an answer about a
-  /// handle. Reporting it as "unbound" would hide it behind a plausible result.
+  /// An unconfigured platform rejects instead of reading as unbound.
   it('lets an unconfigured platform surface', async () => {
     const readContract = vi.fn().mockRejectedValue(revertingWith('UnknownPlatform'))
 

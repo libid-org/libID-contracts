@@ -6,25 +6,21 @@ HandleResolver, LibidFactory, WTIA9), the errors a bind can revert with, a call
 builder for every state-changing function, and the identity helper layer:
 handle normalization, node derivation and resolution.
 
-Both `src/abis/` and `src/calls/` are generated from the forge artifacts
-(`solidity/out`) by `scripts/codegen.mjs`, and neither is committed — CI
-regenerates them before every build, test and publish. Each ABI is exported
-`as const satisfies Abi`, so viem infers argument and return types from it, and
-each call builder reads its arguments off that ABI, so adding a write function
-to a contract produces its wrapper instead of requiring someone to remember to
-write one. The platform table and refusals in `src/identity/platforms.ts`,
-and the vector table the tests run in `src/identity/vectors.ts` (not
-published), are generated from the pinned libID-circuits release's
-`platforms.json` and `handles.json`, vendored into
-`solidity/contracts/circuits/`, by `scripts/regen-identity-handles.py`.
+`src/abis/` and `src/calls/` are generated from the forge artifacts
+(`solidity/out`) by `scripts/codegen.mjs` and are not committed. Each ABI is
+exported `as const satisfies Abi`, so viem infers argument and return types,
+and each call builder takes its arguments from that ABI.
+`scripts/regen-identity-handles.py` generates the platform table
+(`src/identity/platforms.ts`) and the test vectors (`src/identity/vectors.ts`,
+not published) from the pinned libID-circuits release's `platforms.json` and
+`handles.json`, vendored into `solidity/contracts/circuits/`.
 
 ```sh
 pnpm add @libid/contracts viem
 ```
 
 `viem` is an optional peer. The root export, `calls` and `identity` import it;
-`@libid/contracts/ceremony` imports nothing, so a consumer of that subpath alone
-can leave it out.
+a consumer of `@libid/contracts/ceremony` alone can leave it out.
 
 ## Reading a contract with viem
 
@@ -58,10 +54,9 @@ const [current, previous] = await client.readContract({
 
 ## Building a call
 
-One builder per state-changing function, namespaced by contract because
-function names like `initialize` are on almost all of them. A builder returns
-the call as data — no provider, no signer — so you decide how it is submitted:
-directly, batched, or through a smart wallet's `execute`.
+One builder per state-changing function, namespaced by contract since names
+like `initialize` repeat. A builder returns the call as data, to send directly,
+batch, or wrap in a smart wallet's `execute`.
 
 ```ts
 import { calls } from '@libid/contracts/calls'
@@ -99,9 +94,8 @@ import {
 const reader = { client, address: IDENTITY_REGISTRY }
 const x = platformId(PLATFORM_X_KEY)
 
-// The holder that last proved a handle, or null. Pass what was typed: it is
-// folded and hashed here, as the circuits do, and only the node reaches the
-// RPC. Case folds; text nobody proved, such as `@alice`, answers null.
+// The holder that last proved a handle, or null. Pass the text as typed: it is
+// folded and hashed locally. Text nobody proved, such as `@alice`, answers null.
 const holder = await resolveHandle(reader, x, 'Alice')
 
 // Before sending funds: is this id still the account that proved the handle?
@@ -111,21 +105,19 @@ const { idAgrees } = await resolveHandleAndId(reader, x, 'alice', idNode(PLATFOR
 const handle = await publishedHandleOf(reader, holder!, x)
 
 // Every identity the holder proved, on every platform, a page at a time.
-// Order is arbitrary, and a page read across a removal may overlap or skip:
-// read the count and the pages against one block when every identity matters.
+// Order is arbitrary and shifts on removal: read the count and pages at one block.
 const total = await identityCount(reader, holder!)
 const identities = await identitiesOf(reader, holder!, 0n, 50n)
 // [{ platformId: x, idNode: '0x…', handleNode: '0x…', handleCurrent: true }, …]
-// Nodes, never the id or handle: those are on chain only if published.
+// Nodes only; the handle text is on chain only when published.
 ```
 
 ## Binding an identity
 
-A binding is one of the generated builders: the platform, this chain's verifier
-version for it, and the opaque payload the ceremony produced. The payload
-carries the handle to publish, or none to leave it undisclosed: its Platform
-Verifier checks a disclosed handle against the node the proof bound. The value
-is what `quoteBind` returns for the same pair. An EOA sends it directly, a smart
+`bind` takes the platform, this chain's verifier version for it, the payload
+the ceremony produced, and the handle to publish. The registry checks a
+published handle against the node the proof bound. The value is what
+`quoteBind` returns for the same pair. An EOA sends the call directly, a smart
 wallet wraps it in its own execute:
 
 ```ts
@@ -144,10 +136,9 @@ const call = calls.identityRegistry.bind(IDENTITY_REGISTRY, fee, github, 1, payl
 // calls.identityRegistry.bindPrivately(IDENTITY_REGISTRY, fee, github, 1, payload) is the same with no handle.
 ```
 
-The payload is one struct, `abi.encode`d, in the shape its Platform Verifier
-decodes. `encodeTlsNotaryProof` builds the X and GitHub one and
-`encodeGoogleProof` the Google one; both read the struct types from the
-generated `ceremonyPayloadsAbi`:
+The payload is one `abi.encode`d struct in the shape its Platform Verifier
+decodes. `encodeTlsNotaryProof` builds the X and GitHub payload,
+`encodeGoogleProof` the Google one:
 
 ```ts
 import { encodeTlsNotaryProof } from '@libid/contracts'
@@ -161,10 +152,9 @@ const payload = encodeTlsNotaryProof({
 })
 ```
 
-A refused bind reverts with an error from whichever contract on its route
-refused it. `bindErrorsAbi` carries all of them — the registry's, the Proof
-Verifier's, the three Platform Verifiers', the Notary Service's and the Honk
-verifiers' — so one call names any of them:
+A refused bind reverts with the error of whichever contract on its route
+refused it: the registry, the Proof Verifier, a Platform Verifier, the Notary
+Service or a Honk verifier. `bindErrorsAbi` carries all of them:
 
 ```ts
 import { decodeErrorResult } from 'viem'
@@ -174,16 +164,15 @@ const { errorName, args } = decodeErrorResult({ abi: bindErrorsAbi, data: revert
 // 'HandleNotProved', [disclosed, proved]: the handle bind disclosed is not the proved one.
 ```
 
-The Honk verifiers raise their failures (`SumcheckFailed()` and the like)
-from bb's generated assembly, with no entry in their own ABI;
-`honkVerifierErrorsAbi` declares them under bb's names, and `bindErrorsAbi`
-includes it.
+The Honk verifiers raise errors such as `SumcheckFailed()` that their own ABI
+omits. `honkVerifierErrorsAbi` declares them under bb's names, and
+`bindErrorsAbi` includes it.
 
 ## Normalizing a handle locally
 
-A–Z fold to a–z and nothing else changes: no byte is trimmed and no `@` is
-stripped. Text no circuit hashes (a quote, a backslash, a control byte, or
-longer than the circuit's buffer) throws rather than being repaired.
+Only A–Z fold to a–z. Text no circuit hashes throws
+`HandleError`: a byte outside printable ASCII, a quote, a backslash, or
+more bytes than the circuit's buffer.
 
 ```ts
 import { normalize, RULES_X, HandleError } from '@libid/contracts/identity'
@@ -193,16 +182,15 @@ normalize(' @Alice_1 ', RULES_X) // ' @alice_1 ': nothing is trimmed or stripped
 normalize('Ali"ce', RULES_X) // throws HandleError: a quote is refused
 ```
 
-On chain only the fold runs: the circuits bind no node of text they refuse,
-so such text resolves to nobody.
+On chain only the fold runs; text the circuits refuse has no binding, so it
+resolves to nobody.
 
 ## Deriving a handle node
 
-Hash locally, so the handle text never reaches an RPC. A node is
-`SHA256(tag || value)`, the one the platform's circuit outputs: the handle
-normalized under the platform's handle tag, the id exactly as the platform
-sent it under its user-id tag. The hash is unsalted, so anyone can test a
-guess against a node. Both take the platform key, not its id:
+A node is `SHA256(tag || value)`, as the platform's circuit outputs it: the
+normalized handle under the handle tag, the id as the platform sent it under
+the user-id tag. Nodes are unsalted, so anyone can test a guess against one.
+Both functions take the platform key, not its id:
 
 ```ts
 import { checkId, handleNode, idNode, PLATFORM_GOOGLE_KEY } from '@libid/contracts/identity'
