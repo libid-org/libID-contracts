@@ -47,8 +47,8 @@
               "options": {
                 "patterns": [
                   {
-                    "group": ["**", "!./*"],
-                    "message": "The platforms layer imports only its own directory, type-only imports included: it loads without viem, the optional peer."
+                    "group": ["**", "!./*", "!@noble/hashes/*"],
+                    "message": "The platforms layer imports only its own directory and @noble/hashes, type-only imports included: it loads without viem, the optional peer."
                   }
                 ]
               }

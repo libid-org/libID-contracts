@@ -1,23 +1,18 @@
-import { concat, sha256, toHex } from 'viem'
 import { describe, expect, it } from 'vitest'
 
-import { foldedHandleNode, handleNode, idNode } from './node.js'
 import {
+  foldedHandleNode,
   HandleError,
+  handleNode,
   IdError,
+  idNode,
   normalize,
   PLATFORM_GITHUB_KEY,
-  PLATFORM_X,
   PLATFORM_X_KEY,
   platform,
   type RefusalKind,
-} from '../platforms/index.js'
-import {
-  HANDLE_VECTORS,
-  type HandleExpected,
-  ID_VECTORS,
-  type IdExpected,
-} from '../platforms/vectors.js'
+} from './index.js'
+import { HANDLE_VECTORS, type HandleExpected, ID_VECTORS, type IdExpected } from './vectors.js'
 
 /// What `f` answers, or the `refusal` of the `kind` error it threw.
 function attempt<T>(
@@ -35,8 +30,10 @@ function attempt<T>(
 /// Python's hashlib, as the circuits, Solidity and Rust pin them:
 ///   hashlib.sha256(b"libid.x.handlealice_1")
 ///   hashlib.sha256(b"libid.x.user-id2244994945")
+///   hashlib.sha256(b"libid.x.handlebob")
 const ALICE_1_ON_X = '0xe09c4f5bfbbc723bc35701ea9d718a1c5edb29b1ed5bb0cb0fabb3c43d8136af'
 const ID_2244994945_ON_X = '0x68291869976ffad2abf3e933ec9ab2623395ff8b3b9242e655e1da3ef43d4f94'
+const BOB_ON_X = '0xa48e7da67389935eacd89176ab4b723dd9dbad5833fd777344590fd04c62418f'
 
 describe('handleNode and idNode', () => {
   it('reach the nodes the circuits output', () => {
@@ -92,9 +89,7 @@ describe('handleNode and idNode', () => {
   })
 
   it('is SHA-256 of the tag, then the normalized handle', () => {
-    expect(handleNode(PLATFORM_X_KEY, 'Bob')).toBe(
-      sha256(concat([toHex(PLATFORM_X.handleTag), toHex('bob')])),
-    )
+    expect(handleNode(PLATFORM_X_KEY, 'Bob')).toBe(BOB_ON_X)
   })
 })
 

@@ -31,7 +31,7 @@ escrow.refund(handleNode, token, recipient);   // refundTo, while unclaimed
   code reverts `BadToken`.
 - `handleNode` is `SHA256(handle tag || folded handle)`, the node the
   platform's circuit binds. Compute it locally with `handleNode` from
-  `@libid/contracts` or `handle_node` from `libid-identity`;
+  `@libid/contracts/platforms` or `handle_node` from `libid-identity`;
   `IdentityRegistry.handleNodeOf` over RPC sends the handle to the provider.
 - A refund and a claim race: escrowed value is refundable until claimed, and
   refunds work whatever the platform's state.

@@ -170,10 +170,10 @@ omits. `honkVerifierErrorsAbi` declares them under bb's names, and
 
 ## Normalizing a handle locally
 
-`@libid/contracts/platforms` holds the platform table and the checks the
-circuits apply to handles and ids, and loads without viem.
-`@libid/contracts/identity` re-exports it and adds node hashing and the
-registry reads, which need viem.
+`@libid/contracts/platforms` holds the platform table, the checks the
+circuits apply to handles and ids, and node derivation, and loads without viem.
+`@libid/contracts/identity` re-exports it and adds the registry reads, which
+need viem.
 
 Only A–Z fold to a–z. Text no circuit hashes throws
 `HandleError`: empty text, a byte outside printable ASCII, a quote, a
@@ -199,7 +199,7 @@ the user-id tag. Nodes are unsalted, so anyone can test a guess against one.
 Both functions take the platform key, not its id:
 
 ```ts
-import { checkId, handleNode, idNode, PLATFORM_GOOGLE_KEY } from '@libid/contracts/identity'
+import { checkId, handleNode, idNode, PLATFORM_GOOGLE_KEY } from '@libid/contracts/platforms'
 
 // HandleEscrow.deposit, handleBinding, escrowed, claim, refund
 const node = handleNode(PLATFORM_GOOGLE_KEY, 'Alice@Gmail.com')
