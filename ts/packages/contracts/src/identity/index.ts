@@ -5,5 +5,4 @@
 /// the chain only folds A-Z. Calldata for the writes is in `../calls`.
 
 export * from '../platforms/index.js'
-export * from './node.js'
 export * from './resolve.js'

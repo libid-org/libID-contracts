@@ -51,6 +51,9 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
   },
+  "dependencies": {
+    "@noble/hashes": "^1.8.0"
+  },
   "peerDependencies": {
     "viem": "^2.48.11"
   },

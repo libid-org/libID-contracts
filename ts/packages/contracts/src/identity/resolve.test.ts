@@ -8,8 +8,7 @@ import {
 } from 'viem'
 import { describe, expect, it, vi } from 'vitest'
 
-import { PLATFORM_X_KEY } from '../platforms/index.js'
-import { handleNode, idNode } from './node.js'
+import { handleNode, idNode, PLATFORM_X_KEY } from '../platforms/index.js'
 import {
   identitiesOf,
   identityCount,

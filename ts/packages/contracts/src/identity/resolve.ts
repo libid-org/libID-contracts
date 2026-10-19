@@ -6,8 +6,7 @@
 import { type Address, keccak256, type PublicClient, toHex, zeroAddress, zeroHash } from 'viem'
 
 import { identityRegistryAbi } from '../abis/identityRegistry.js'
-import { HandleError, PLATFORMS } from '../platforms/index.js'
-import { handleNode } from './node.js'
+import { HandleError, handleNode, PLATFORMS } from '../platforms/index.js'
 
 /// A platform key (`'x'`, `'github'`, ...). A value typed as hex fails to
 /// compile: an id passed as a key would hash into a platform nothing binds.
