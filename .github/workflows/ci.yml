@@ -220,6 +220,11 @@ jobs:
         working-directory: rust
         run: cargo test --all
 
+      # The default run proves the stub is absent; this one tests it.
+      - name: Tests (libid-contracts, feature testing)
+        working-directory: rust
+        run: cargo test -p libid-contracts --features testing
+
   # ---------------------------------------------------------------------------
   # TypeScript: codegen drift, build, tests, lint, formatting. The codegen
   # reads the forge artifacts, so the contracts build first.

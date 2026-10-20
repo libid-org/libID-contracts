@@ -2,7 +2,8 @@
 //!
 //! [`Artifacts::embedded`] serves the JSONs `scripts/vendor-artifacts.sh`
 //! writes to `artifacts/`, compiled into the binary. [`Artifacts::from_dir`]
-//! reads the same layout from disk.
+//! reads the same layout from disk. With the `testing` feature, the embedded
+//! source also serves the stand-ins in `artifacts-testing/`.
 
 use std::{
     fs,
@@ -29,6 +30,11 @@ use crate::error::{
 
 /// The vendored artifacts, embedded at compile time.
 static EMBEDDED: Dir<'static> = include_dir!("$CARGO_MANIFEST_DIR/artifacts");
+
+/// The vendored test stand-ins, embedded only with the `testing` feature.
+#[cfg(feature = "testing")]
+static EMBEDDED_TESTING: Dir<'static> =
+    include_dir!("$CARGO_MANIFEST_DIR/artifacts-testing");
 
 /// Every deployable contract the crate covers, as `(file, contract)`, read
 /// from `<file>.sol/<contract>.json`. Keep in sync with
@@ -57,6 +63,12 @@ pub const COVERED: &[(&str, &str)] = &[
     ("LibidFactory", "LibidFactory"),
     ("WTIA9", "WTIA9"),
 ];
+
+/// The test stand-ins the `testing` feature embeds, as in [`COVERED`]. Keep
+/// in sync with `TESTING_ARTIFACTS` in `scripts/vendor-artifacts.sh`.
+#[cfg(feature = "testing")]
+pub const TESTING_COVERED: &[(&str, &str)] =
+    &[("StubPlatformVerifier", "StubPlatformVerifier")];
 
 enum Source {
     Embedded,
@@ -88,8 +100,7 @@ impl Artifacts {
     /// `circuits.json` pin the vendor script copies in beside them.
     pub(crate) fn read<T: DeserializeOwned>(&self, rel: &str) -> Result<T> {
         let contents = match &self.source {
-            Source::Embedded => EMBEDDED
-                .get_file(rel)
+            Source::Embedded => embedded_file(rel)
                 .and_then(|f| f.contents_utf8())
                 .map(str::to_owned)
                 .ok_or_else(|| Error::Artifact {
@@ -147,6 +158,14 @@ impl Artifacts {
         })?;
         Ok(Bytes::from(bytes))
     }
+}
+
+/// The embedded file at `rel`.
+fn embedded_file(rel: &str) -> Option<&'static include_dir::File<'static>> {
+    let file = EMBEDDED.get_file(rel);
+    #[cfg(feature = "testing")]
+    let file = file.or_else(|| EMBEDDED_TESTING.get_file(rel));
+    file
 }
 
 /// The members of a forge artifact the crate reads.
@@ -212,7 +231,11 @@ mod tests {
     #[test]
     fn every_covered_contract_has_deployable_bytecode() {
         let artifacts = Artifacts::embedded();
-        for &(file, contract) in COVERED {
+        #[cfg(feature = "testing")]
+        let covered = COVERED.iter().chain(TESTING_COVERED);
+        #[cfg(not(feature = "testing"))]
+        let covered = COVERED.iter();
+        for &(file, contract) in covered {
             let bytecode = artifacts
                 .bytecode_named(file, contract)
                 .unwrap_or_else(|e| panic!("{file}.sol:{contract}: {e}"));
@@ -221,5 +244,14 @@ mod tests {
                 "{file}.sol:{contract} has empty bytecode"
             );
         }
+    }
+
+    /// Without the `testing` feature no stand-in is embedded.
+    #[cfg(not(feature = "testing"))]
+    #[test]
+    fn the_default_build_embeds_no_stand_in() {
+        assert!(Artifacts::embedded()
+            .bytecode("StubPlatformVerifier")
+            .is_err());
     }
 }
