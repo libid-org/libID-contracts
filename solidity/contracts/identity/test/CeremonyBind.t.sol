@@ -35,6 +35,12 @@ contract CeremonyBindTest is Test {
 
     function setUp() public {
         vm.warp(T0 + 100);
+        _deploy();
+        vm.deal(WALLET, 100 ether);
+    }
+
+    /// A fresh registry, Proof Verifier and Platform Verifier on the current chain.
+    function _deploy() private {
         IdentityRegistry impl = new IdentityRegistry();
         registry = IdentityRegistry(
             address(new ERC1967Proxy(address(impl), abi.encodeCall(IdentityRegistry.initialize, (OWNER))))
@@ -49,7 +55,6 @@ contract CeremonyBindTest is Test {
         verifier = new StubPlatformVerifier(PLATFORM, FEE);
         proofVerifier.setVerifier(PLATFORM, 1, IPlatformVerifier(address(verifier)));
         vm.stopPrank();
-        vm.deal(WALLET, 100 ether);
     }
 
     /// The Authorized Transaction Data of `libid.claim-identity`.
@@ -84,11 +89,11 @@ contract CeremonyBindTest is Test {
         registry.bind{value: value}(PLATFORM, 1, payload, "");
     }
 
-    function _digest(bytes memory txData, bytes32 nonce) private view returns (bytes32) {
-        return CeremonyAuthorization.digestFor(DOMAIN, 1, nonce, txData);
+    function _digest(bytes memory txData, bytes32 nonce) private pure returns (bytes32) {
+        return CeremonyAuthorization.digest(DOMAIN, 1, nonce, txData);
     }
 
-    function _digest(address target, bytes32 nonce) private view returns (bytes32) {
+    function _digest(address target, bytes32 nonce) private pure returns (bytes32) {
         return _digest(_free(target), nonce);
     }
 
@@ -172,6 +177,36 @@ contract CeremonyBindTest is Test {
         verifier.setObservedAt(T0 + 1);
         _bind(_payload(WALLET, bytes32(uint256(2))), FEE);
         assertEq(registry.resolveHandle(PLATFORM, "alice"), WALLET);
+    }
+
+    /// @dev The digest commits no chain, and each chain's registry keeps its
+    ///      own spent set. The proof spent here binds its target on a second
+    ///      chain, and only its target.
+    function test_aProofBindsItsTargetOnAnotherChain() public {
+        bytes memory p = _payload(WALLET, bytes32(uint256(12)));
+        bytes32 digest = _digest(WALLET, bytes32(uint256(12)));
+        _bind(p, FEE);
+
+        vm.prank(WALLET);
+        vm.expectRevert(abi.encodeWithSelector(IdentityRegistry.DigestAlreadySpent.selector, digest));
+        registry.bind{value: FEE}(PLATFORM, 1, p, "");
+
+        vm.chainId(block.chainid + 1);
+        _deploy();
+
+        address other = address(0xCAFE);
+        vm.deal(other, FEE);
+        vm.prank(other);
+        vm.expectRevert(abi.encodeWithSelector(IdentityRegistry.NotProofTarget.selector, WALLET, other));
+        registry.bind{value: FEE}(PLATFORM, 1, p, "");
+
+        _bind(p, FEE);
+        assertEq(registry.resolveHandle(PLATFORM, "alice"), WALLET);
+        assertTrue(registry.digestSpent(digest));
+
+        vm.prank(WALLET);
+        vm.expectRevert(abi.encodeWithSelector(IdentityRegistry.DigestAlreadySpent.selector, digest));
+        registry.bind{value: FEE}(PLATFORM, 1, p, "");
     }
 
     // ─── The authorization predicate ────────────────────────────────
@@ -441,7 +476,7 @@ contract CeremonyBindTest is Test {
     }
 
     /// @dev Changing the amount or the receiver moves the digest the proof opens against.
-    function test_theFeeIsInsideTheDigest() public view {
+    function test_theFeeIsInsideTheDigest() public pure {
         bytes32 n = bytes32(uint256(66));
         bytes32 asAgreed = _digest(_txData(WALLET, SERVICE_FEE, HOST), n);
         assertTrue(asAgreed != _digest(_txData(WALLET, SERVICE_FEE * 2, HOST), n), "the amount does not bind");

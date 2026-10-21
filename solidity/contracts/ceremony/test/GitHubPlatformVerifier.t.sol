@@ -52,7 +52,7 @@ contract GitHubPlatformVerifierTest is RealTlsNotaryProofTest {
     bytes32 constant HANDLE_NODE = 0x381fb9d7d3b01214e58b94202ea10f78e169adef68bcc20d40c130deca6dfe74;
 
     function setUp() public {
-        digest = CeremonyAuthorization.digestFor(DOMAIN, 1, AUTH_NONCE, _txData());
+        digest = CeremonyAuthorization.digest(DOMAIN, 1, AUTH_NONCE, _txData());
         vm.warp(T0 + 10);
         NotaryService nImpl = new NotaryService();
         notary = NotaryService(

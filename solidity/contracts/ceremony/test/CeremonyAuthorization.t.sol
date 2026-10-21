@@ -11,26 +11,23 @@ import {CeremonyAuthorization} from "../CeremonyAuthorization.sol";
 ///      with any implementation, including a wrong one.
 contract CeremonyAuthorizationTest is Test {
     bytes32 constant OPERATION_DOMAIN = keccak256(bytes("libid.claim-identity"));
-    bytes32 constant CHAIN_ID = keccak256(bytes("example:1"));
     bytes32 constant NONCE = bytes32(uint256(0x5555555555555555555555555555555555555555555555555555555555555555));
     bytes constant TRANSACTION_DATA = hex"00010203";
 
-    bytes32 constant EXPECTED_DIGEST = 0xb318fb559e16a179b853ed2853576cda16032d93b0839bb81a55135d334c0af5;
+    bytes32 constant EXPECTED_DIGEST = 0x24083f6c849372d1fa0a95615a7b2b6a888edef92e9fa2bebd520b2f536e9350;
 
     function _digest() private pure returns (bytes32) {
-        return CeremonyAuthorization.digest(OPERATION_DOMAIN, 1, CHAIN_ID, NONCE, TRANSACTION_DATA);
+        return CeremonyAuthorization.digest(OPERATION_DOMAIN, 1, NONCE, TRANSACTION_DATA);
     }
 
     function test_derivedConstantsMatchTheSpecification() public pure {
         assertEq(OPERATION_DOMAIN, 0xcb29bed0428519ef88a3d670e8203db76e06f41aca3e684e2c63b516c9b93e1b);
-        assertEq(CHAIN_ID, 0x38064d82f31db40935cc75f2a0d07dcfb448d7c08e7484fc30f5de95484a4066);
     }
 
     function test_preimageMatchesTheSpecificationVector() public pure {
         bytes memory expected = hex"cb29bed0428519ef88a3d670e8203db76e06f41aca3e684e2c63b516c9b93e1b" hex"0001"
-            hex"38064d82f31db40935cc75f2a0d07dcfb448d7c08e7484fc30f5de95484a4066"
             hex"5555555555555555555555555555555555555555555555555555555555555555" hex"00000004" hex"00010203";
-        bytes memory got = CeremonyAuthorization.preimage(OPERATION_DOMAIN, 1, CHAIN_ID, NONCE, TRANSACTION_DATA);
+        bytes memory got = CeremonyAuthorization.preimage(OPERATION_DOMAIN, 1, NONCE, TRANSACTION_DATA);
         assertEq(got, expected);
     }
 
@@ -38,9 +35,9 @@ contract CeremonyAuthorizationTest is Test {
         assertEq(_digest(), EXPECTED_DIGEST);
     }
 
-    function test_fixedPartIsOneHundredAndTwoBytes() public pure {
-        bytes memory got = CeremonyAuthorization.preimage(OPERATION_DOMAIN, 1, CHAIN_ID, NONCE, "");
-        assertEq(got.length, 102);
+    function test_fixedPartIsSeventyBytes() public pure {
+        bytes memory got = CeremonyAuthorization.preimage(OPERATION_DOMAIN, 1, NONCE, "");
+        assertEq(got.length, 70);
     }
 
     /// @dev The section 7 vector, under the same `authorizationNonce` the
@@ -51,10 +48,10 @@ contract CeremonyAuthorizationTest is Test {
     function test_pkceMatchesTheSpecificationVector() public pure {
         assertEq(
             CeremonyAuthorization.verifierHash(EXPECTED_DIGEST, NONCE),
-            0xe6d7810e5e9ccf853beda170795e4f6cc84127f94416fe8b2cd2b3aa70c8e65a
+            0xaf1d944593a36af91bca1c3c0574982dc2518e27db75515ca25a892bb1c15464
         );
         bytes memory verifier = CeremonyAuthorization.codeVerifier(EXPECTED_DIGEST, NONCE);
-        assertEq(string(verifier), "5teBDl6cz4U77aFweV5PbMhBJ_lEFv6LLNKzqnDI5lo");
+        assertEq(string(verifier), "rx2URZOjavkbyhw8BXSYLcJRjifbdVFcolqJK7HBVGQ");
     }
 
     /// @dev The base64url alphabet differs from base64 in exactly two
@@ -70,26 +67,19 @@ contract CeremonyAuthorizationTest is Test {
     function test_everyFieldChangesTheDigest() public pure {
         bytes32 base = _digest();
         assertTrue(
-            CeremonyAuthorization.digest(bytes32(uint256(OPERATION_DOMAIN) ^ 1), 1, CHAIN_ID, NONCE, TRANSACTION_DATA)
-                != base,
+            CeremonyAuthorization.digest(bytes32(uint256(OPERATION_DOMAIN) ^ 1), 1, NONCE, TRANSACTION_DATA) != base,
             "operation domain does not bind"
         );
         assertTrue(
-            CeremonyAuthorization.digest(OPERATION_DOMAIN, 2, CHAIN_ID, NONCE, TRANSACTION_DATA) != base,
+            CeremonyAuthorization.digest(OPERATION_DOMAIN, 2, NONCE, TRANSACTION_DATA) != base,
             "platform ceremony version does not bind"
         );
         assertTrue(
-            CeremonyAuthorization.digest(OPERATION_DOMAIN, 1, bytes32(uint256(CHAIN_ID) ^ 1), NONCE, TRANSACTION_DATA)
-                != base,
-            "chain id does not bind"
-        );
-        assertTrue(
-            CeremonyAuthorization.digest(OPERATION_DOMAIN, 1, CHAIN_ID, bytes32(uint256(NONCE) ^ 1), TRANSACTION_DATA)
-                != base,
+            CeremonyAuthorization.digest(OPERATION_DOMAIN, 1, bytes32(uint256(NONCE) ^ 1), TRANSACTION_DATA) != base,
             "nonce does not bind"
         );
         assertTrue(
-            CeremonyAuthorization.digest(OPERATION_DOMAIN, 1, CHAIN_ID, NONCE, hex"0001020304") != base,
+            CeremonyAuthorization.digest(OPERATION_DOMAIN, 1, NONCE, hex"0001020304") != base,
             "transaction data does not bind"
         );
     }
@@ -97,8 +87,8 @@ contract CeremonyAuthorizationTest is Test {
     /// @dev Without the four-byte length, transaction data whose leading bytes
     ///      could be read as part of a neighbouring field would collide.
     function test_lengthPrefixSeparatesAShiftedBoundary() public pure {
-        bytes32 short_ = CeremonyAuthorization.digest(OPERATION_DOMAIN, 1, CHAIN_ID, NONCE, hex"0001");
-        bytes32 padded = CeremonyAuthorization.digest(OPERATION_DOMAIN, 1, CHAIN_ID, NONCE, hex"00010000");
+        bytes32 short_ = CeremonyAuthorization.digest(OPERATION_DOMAIN, 1, NONCE, hex"0001");
+        bytes32 padded = CeremonyAuthorization.digest(OPERATION_DOMAIN, 1, NONCE, hex"00010000");
         assertTrue(short_ != padded);
     }
 

@@ -6,30 +6,31 @@ import {Base64} from "@openzeppelin/contracts/utils/Base64.sol";
 /// @title CeremonyAuthorization
 /// @notice The Authorization Digest of ceremony-common section 5, and the PKCE
 ///         construction of section 7 that carries it.
-/// @dev The Platform Verifier rebuilds the digest from the payload it decoded,
-///      its own ceremony version, and the chain it runs on, then binds it to
-///      the evidence by one of two methods its profile fixes. Google compares
-///      it against a public proof input; X and GitHub recompute the revealed
-///      `code_verifier` from it. This library is the one place either
-///      derivation lives, so the runtime and the chain cannot disagree.
+/// @dev The Platform Verifier rebuilds the digest from the payload it decoded
+///      and its own ceremony version, then binds it to the evidence by one of
+///      two methods its profile fixes. Google compares it against a public
+///      proof input; X and GitHub recompute the revealed `code_verifier` from
+///      it. This library is the one place either derivation lives, so the
+///      runtime and the chain cannot disagree.
 ///
-///      The chain id is read here, by `digestFor`, and nowhere else. A
-///      verifier cannot pass one in, so it cannot omit the term -- which would
-///      make every proof replayable across chains -- or derive it differently
-///      from the builders, which would reject every genuine proof.
+///      The digest commits no chain, so one ceremony verifies on every chain
+///      that runs this verifier. A Consumer whose effect is bound to one
+///      chain carries the chain id in its own Authorized Transaction Data and
+///      checks it against `block.chainid`.
 library CeremonyAuthorization {
     /// @dev Raised when the Authorized Transaction Data cannot be described by
     ///      the layout's four-byte length field.
     error TransactionDataTooLong(uint256 length);
 
-    /// @notice Build the preimage of section 5, exactly.
+    /// @notice Build the preimage of section 5, exactly:
+    ///         `operationDomain || U16BE(ceremonyVersion) || authorizationNonce
+    ///         || U32BE(len) || transactionData`.
     /// @dev `abi.encodePacked` concatenates without padding, which is what the
     ///      layout wants; every field but `transactionData` is fixed width, so
     ///      the four-byte length is what keeps the last boundary derivable.
     function preimage(
         bytes32 operationDomain,
         uint16 ceremonyVersion,
-        bytes32 chain,
         bytes32 authorizationNonce,
         bytes memory transactionData
     ) internal pure returns (bytes memory) {
@@ -40,41 +41,18 @@ library CeremonyAuthorization {
             revert TransactionDataTooLong(transactionData.length);
         }
         return abi.encodePacked(
-            operationDomain, ceremonyVersion, chain, authorizationNonce, uint32(transactionData.length), transactionData
+            operationDomain, ceremonyVersion, authorizationNonce, uint32(transactionData.length), transactionData
         );
     }
 
-    /// @notice The Authorization Digest, over an explicit chain id.
-    /// @dev For the builders' vectors and for tests. A verifier uses
-    ///      `digestFor`, which supplies the chain id itself.
+    /// @notice The Authorization Digest: `keccak256` of the section 5 preimage.
     function digest(
         bytes32 operationDomain,
         uint16 ceremonyVersion,
-        bytes32 chain,
         bytes32 authorizationNonce,
         bytes memory transactionData
     ) internal pure returns (bytes32) {
-        return keccak256(preimage(operationDomain, ceremonyVersion, chain, authorizationNonce, transactionData));
-    }
-
-    /// @notice This chain's identifier, as the digest construction takes it.
-    /// @dev Read from the chain and never from a payload: there is nothing in
-    ///      a payload for a caller to choose here (REQ-COMMON-06C).
-    function chainId() internal view returns (bytes32) {
-        return keccak256(abi.encode(block.chainid));
-    }
-
-    /// @notice The Authorization Digest for THIS chain.
-    /// @dev The only digest a Platform Verifier builds. It takes no chain id,
-    ///      so a verifier cannot leave the chain out of the preimage or derive
-    ///      it a second way.
-    function digestFor(
-        bytes32 operationDomain,
-        uint16 ceremonyVersion,
-        bytes32 authorizationNonce,
-        bytes memory transactionData
-    ) internal view returns (bytes32) {
-        return digest(operationDomain, ceremonyVersion, chainId(), authorizationNonce, transactionData);
+        return keccak256(preimage(operationDomain, ceremonyVersion, authorizationNonce, transactionData));
     }
 
     /// @notice `SHA256(authorizationDigest || authorizationNonce)`.

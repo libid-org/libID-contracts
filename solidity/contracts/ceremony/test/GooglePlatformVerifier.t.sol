@@ -43,7 +43,7 @@ contract GooglePlatformVerifierTest is Test {
     uint64 constant REAL_EXP = 1_893_456_000;
 
     function setUp() public {
-        digest = CeremonyAuthorization.digestFor(DOMAIN, 1, AUTH_NONCE, _txData());
+        digest = CeremonyAuthorization.digest(DOMAIN, 1, AUTH_NONCE, _txData());
         vm.warp(T0);
         roots = new TrustingJwtRoots();
         honk = HonkStub.deploy(HonkStub.GOOGLE);
@@ -140,7 +140,7 @@ contract GooglePlatformVerifierTest is Test {
         this.run(s);
     }
 
-    /// @dev A real oidc-google proof whose nonce is this chain's digest for `_payload`.
+    /// @dev A real oidc-google proof whose nonce is the digest for `_payload`.
     ///      The fixture's `source` field says how it was made.
     function _realProof() private returns (GooglePlatformVerifier real, GooglePlatformVerifier.GoogleProof memory s) {
         string memory json = vm.readFile("contracts/ceremony/test/fixtures/google-ceremony-proof.json");
@@ -202,8 +202,8 @@ contract GooglePlatformVerifierTest is Test {
         _refusedByTheRealProof(real, s);
     }
 
-    /// @dev REQ-COMMON-02A: the signed `nonce` is the digest, so another nonce,
-    ///      transaction or chain fails the proof.
+    /// @dev REQ-COMMON-02A: the signed `nonce` is the digest, so another nonce
+    ///      or transaction fails the proof.
     function test_refusesARealProofForAnotherDigest() public {
         (GooglePlatformVerifier real, GooglePlatformVerifier.GoogleProof memory s) = _realProof();
         s.authorizationNonce = bytes32(uint256(AUTH_NONCE) ^ 1);
@@ -211,9 +211,15 @@ contract GooglePlatformVerifierTest is Test {
         (, s) = _realProof();
         s.transactionData = abi.encode(address(0xBEEF), uint256(1), address(0));
         _refusedByTheRealProof(real, s);
-        (, s) = _realProof();
+    }
+
+    /// @dev The digest commits no chain, so the real proof verifies on another
+    ///      chain too.
+    function test_verifiesARealProofOnAnotherChain() public {
+        (GooglePlatformVerifier real, GooglePlatformVerifier.GoogleProof memory s) = _realProof();
         vm.chainId(block.chainid + 1);
-        _refusedByTheRealProof(real, s);
+        ICeremony.VerifiedClaim memory f = real.verify(abi.encode(s));
+        assertEq(f.sessionId, digest);
     }
 
     /// @dev REQ-PLAT-19A: the proof binds `sha256(aud)`, so another client

@@ -61,23 +61,22 @@ contract CeremonyProofVerifierTest is Test {
         assertEq(platform.lastPayload(), payload);
     }
 
-    /// @dev The Platform Verifier builds the digest from the payload and this chain.
-    function test_theVerifierBuildsTheDigestFromThisChain() public {
+    /// @dev The Platform Verifier builds the digest from the payload alone.
+    function test_theVerifierBuildsTheDigestFromThePayload() public {
         pv.verify{value: FEE}(PLATFORM_ID, 1, _payload(1));
-        assertEq(platform.lastDigest(), CeremonyAuthorization.digestFor(DOMAIN, 1, NONCE, _txData()));
-        assertEq(platform.lastDigest(), CeremonyAuthorization.digest(DOMAIN, 1, pv.chainId(), NONCE, _txData()));
+        assertEq(platform.lastDigest(), CeremonyAuthorization.digest(DOMAIN, 1, NONCE, _txData()));
     }
 
-    /// @dev The payload carries no chain identifier; the digest takes the chain's
-    ///      (REQ-COMMON-06C).
-    function test_theDigestFollowsTheChainAndNotTheCaller() public {
+    /// @dev The digest commits no chain, so the same payload builds the same
+    ///      digest on another chain.
+    function test_theDigestIsTheSameOnEveryChain() public {
         pv.verify{value: FEE}(PLATFORM_ID, 1, _payload(1));
         bytes32 onThisChain = platform.lastDigest();
 
         vm.chainId(block.chainid + 1);
         pv.verify{value: FEE}(PLATFORM_ID, 1, _payload(1));
 
-        assertTrue(platform.lastDigest() != onThisChain);
+        assertEq(platform.lastDigest(), onThisChain);
     }
 
     /// @dev The verifier version is a routing slot, so a proof survives a verifier

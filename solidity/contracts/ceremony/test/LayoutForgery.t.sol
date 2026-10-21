@@ -35,7 +35,7 @@ contract LayoutForgeryTest is Test {
     bytes32 constant IDENTITY_COMMITMENT = bytes32(uint256(0x2222));
 
     function setUp() public {
-        digest = CeremonyAuthorization.digestFor(DOMAIN, 1, AUTH_NONCE, _txData());
+        digest = CeremonyAuthorization.digest(DOMAIN, 1, AUTH_NONCE, _txData());
         vm.warp(T0 + 10);
         NotaryService nImpl = new NotaryService();
         notary = NotaryService(

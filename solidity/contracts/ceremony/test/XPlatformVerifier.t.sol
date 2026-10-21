@@ -80,7 +80,7 @@ contract XPlatformVerifierTest is RealTlsNotaryProofTest {
 
     bytes32 constant DOMAIN = keccak256(bytes("libid.claim-identity"));
     bytes32 constant AUTH_NONCE = bytes32(uint256(0x5555555555555555555555555555555555555555555555555555555555555555));
-    /// The digest the verifier rebuilds from the payload; set in `setUp` as it depends on the chain id.
+    /// The digest the verifier rebuilds from the payload; set in `setUp`.
     bytes32 digest;
 
     bytes32 constant TOKEN_COMMITMENT = bytes32(uint256(0x1111));
@@ -98,7 +98,7 @@ contract XPlatformVerifierTest is RealTlsNotaryProofTest {
 
     function setUp() public {
         vm.warp(T0 + 10);
-        digest = CeremonyAuthorization.digestFor(DOMAIN, 1, AUTH_NONCE, _txData());
+        digest = CeremonyAuthorization.digest(DOMAIN, 1, AUTH_NONCE, _txData());
 
         NotaryService nImpl = new NotaryService();
         notary = NotaryService(
@@ -1257,11 +1257,13 @@ contract XPlatformVerifierTest is RealTlsNotaryProofTest {
         this.run{value: quote}(s);
     }
 
-    function test_rejectsTheSameSubmissionOnAnotherChain() public {
+    /// @dev The digest commits no chain, so the same submission verifies on
+    ///      another chain and names the same session.
+    function test_verifiesTheSameSubmissionOnAnotherChain() public {
         TlsNotaryVerifierBase.TlsNotaryProof memory s = _payload();
         vm.chainId(block.chainid + 1);
-        vm.expectRevert(TlsNotaryVerifierBase.CodeVerifierMismatch.selector);
-        this.run{value: quote}(s);
+        ICeremony.VerifiedClaim memory f = this.run{value: quote}(s);
+        assertEq(f.sessionId, digest);
     }
 
     function test_refusesTheWrongCeremonyVersionBeforeAnyNotaryCall() public {
