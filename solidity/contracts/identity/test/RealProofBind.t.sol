@@ -24,7 +24,7 @@ import {TestNodes} from "./TestNodes.sol";
 import {TlsNotaryVerifierBase} from "../../ceremony/TlsNotaryVerifierBase.sol";
 
 /// @notice A platform's identity bound through the whole deployed stack with a real proof.
-/// @dev Each fixture's Authorized Transaction Data is the registry's own `(0xBEEF, 0, 0)`.
+/// @dev Each fixture's Authorized Transaction Data is the registry's own `abi.encode(0xBEEF)`.
 abstract contract RealProofBindBase is PrivacyScan {
     IdentityRegistry registry;
     CeremonyProofVerifier proofVerifier;
@@ -189,7 +189,6 @@ abstract contract RealTlsNotaryBind is RealProofBindBase {
 
     function setUp() public {
         string memory session = vm.readFile(_session());
-        vm.chainId(vm.parseJsonUint(session, ".chain_id"));
         vm.warp(vm.parseJsonUint(session, ".created_at") + 60);
 
         notary = NotaryService(
