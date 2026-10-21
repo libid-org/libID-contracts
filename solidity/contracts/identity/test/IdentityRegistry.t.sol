@@ -95,10 +95,10 @@ contract IdentityRegistryTest is PrivacyScan {
             StubPlatformVerifier.StubPayload({
                 ceremonyVersion: ceremonyVersion,
                 // A literal: reading `registry.OPERATION_DOMAIN()` is an external call that spends the prank.
-                operationDomain: keccak256(bytes("libid.claim-identity")),
+                operationDomain: keccak256(bytes("libid.bind-identity")),
                 authorizationNonce: bytes32(++nonce),
                 // Target, no fee amount, no fee receiver.
-                transactionData: abi.encode(stagedTarget, uint256(0), address(0))
+                transactionData: abi.encode(stagedTarget)
             })
         );
     }
@@ -106,7 +106,7 @@ contract IdentityRegistryTest is PrivacyScan {
     /// Submit the staged bind, disclosing `disclosed` (empty for a private bind). Caller supplies the prank.
     function _submit(bytes32 platformId, string memory disclosed) internal {
         bytes memory payload = _payload(V1);
-        registry.bind(platformId, V1, payload, disclosed);
+        registry.bind(platformId, V1, payload, disclosed, 0, address(0));
     }
 
     /// Stage and bind privately as `who`.
@@ -132,7 +132,8 @@ contract IdentityRegistryTest is PrivacyScan {
         assertEq(registry.resolveHandle(X, "alice"), alice, "the handle does not resolve");
     }
 
-    /// `claim` and a `bind` with a publish flag reach no function; the payload stays unspent for `bind`.
+    /// `claim`, a `bind` with a publish flag and a `bind` without fee arguments reach no function;
+    /// the payload stays unspent for `bind`.
     function test_theOldSelectorsAreGone() public {
         _stage("123", "alice", alice, 100);
         bytes memory payload = _payload(V1);
@@ -144,10 +145,13 @@ contract IdentityRegistryTest is PrivacyScan {
         vm.prank(alice);
         (ok,) = address(registry).call(abi.encodeWithSignature("bind(bytes32,uint16,bytes,bool)", X, V1, payload, true));
         assertFalse(ok, "the publish-flag bind still answers");
+        vm.prank(alice);
+        (ok,) = address(registry).call(abi.encodeWithSignature("bind(bytes32,uint16,bytes,string)", X, V1, payload, ""));
+        assertFalse(ok, "the bind without fee arguments still answers");
         assertEq(registry.resolveHandle(X, "alice"), address(0));
 
         vm.prank(alice);
-        registry.bind(X, V1, payload, "");
+        registry.bind(X, V1, payload, "", 0, address(0));
         assertEq(registry.resolveHandle(X, "alice"), alice, "the unspent payload does not bind");
     }
 
@@ -468,7 +472,7 @@ contract IdentityRegistryTest is PrivacyScan {
         _stage("123", "alice", alice, 100);
         bytes memory payload = _payload(V1);
         vm.prank(alice);
-        registry.bindPrivately(X, V1, payload);
+        registry.bindPrivately(X, V1, payload, 0, address(0));
         assertEq(registry.resolveHandle(X, "alice"), alice);
         assertEq(registry.resolveId(_id(X, "123")), alice);
         assertEq(registry.publishedHandleOf(alice, X), "");
@@ -548,15 +552,15 @@ contract IdentityRegistryTest is PrivacyScan {
         bytes memory payload = _payloadAt(reuse);
         vm.expectRevert(abi.encodeWithSelector(IdentityRegistry.HandleNotProved.selector, bobNode, proved));
         vm.prank(alice);
-        registry.bind(X, V1, payload, "bob");
+        registry.bind(X, V1, payload, "bob", 0, address(0));
 
         vm.expectRevert(abi.encodeWithSelector(IdentityRegistry.HandleNotProved.selector, aliciaNode, proved));
         vm.prank(alice);
-        registry.bind(X, V1, payload, "alicia");
+        registry.bind(X, V1, payload, "alicia", 0, address(0));
 
         vm.expectRevert(abi.encodeWithSelector(IdentityRegistry.HandleNotProved.selector, _hn(X, "@alice"), proved));
         vm.prank(alice);
-        registry.bind(X, V1, payload, "@alice");
+        registry.bind(X, V1, payload, "@alice", 0, address(0));
 
         assertEq(registry.resolveId(_id(X, "123")), address(0), "the id was bound");
         assertEq(registry.resolveHandle(X, "alice"), address(0), "the handle was bound");
@@ -565,7 +569,7 @@ contract IdentityRegistryTest is PrivacyScan {
         assertEq(registry.publishedHandleOf(bob, X), "");
 
         vm.prank(alice);
-        registry.bind(X, V1, payload, "");
+        registry.bind(X, V1, payload, "", 0, address(0));
         assertEq(registry.resolveHandle(X, "alice"), alice, "the digest was spent");
     }
 
@@ -574,9 +578,9 @@ contract IdentityRegistryTest is PrivacyScan {
         return abi.encode(
             StubPlatformVerifier.StubPayload({
                 ceremonyVersion: V1,
-                operationDomain: keccak256(bytes("libid.claim-identity")),
+                operationDomain: keccak256(bytes("libid.bind-identity")),
                 authorizationNonce: bytes32(authorizationNonce),
-                transactionData: abi.encode(stagedTarget, uint256(0), address(0))
+                transactionData: abi.encode(stagedTarget)
             })
         );
     }
@@ -1089,7 +1093,7 @@ contract IdentityRegistryTest is PrivacyScan {
 
         bytes memory payload = _payload(2);
         vm.prank(bob);
-        registry.bind(X, 2, payload, "");
+        registry.bind(X, 2, payload, "", 0, address(0));
 
         (address idHolder, uint64 idAt) = registry.idBinding(_id(X, "456"));
         (address handleHolder, uint64 handleAt) = registry.handleBinding(_hn(X, "bob"));

@@ -114,7 +114,7 @@ contract IdentityRegistry is
         bytes32 indexed authorizationDigest, address indexed holder, bytes32 indexed platformId, bytes clientIdentifier
     );
 
-    /// @notice A binding paid the service fee its Authorized Transaction Data names.
+    /// @notice A binding paid the service fee its caller named.
     event BindFeePaid(bytes32 indexed authorizationDigest, address indexed receiver, uint256 amount);
 
     /// @notice A handle stopped resolving because the identity that had it
@@ -135,7 +135,7 @@ contract IdentityRegistry is
     // ─── Errors ─────────────────────────────────────────────────────
 
     /// @notice The one operation this Consumer owns (REQ-COMMON-01A).
-    bytes32 public constant OPERATION_DOMAIN = keccak256(bytes("libid.claim-identity"));
+    bytes32 public constant OPERATION_DOMAIN = keccak256(bytes("libid.bind-identity"));
 
     error ZeroAddress();
     /// @dev The submission names an operation this Consumer does not own
@@ -143,11 +143,11 @@ contract IdentityRegistry is
     error ForeignOperationDomain(bytes32 operationDomain);
     /// @dev A digest is spendable once here (REQ-COMMON-03A).
     error DigestAlreadySpent(bytes32 digest);
-    /// @dev Transaction data is not exactly `(target, feeAmount, feeReceiver)` (REQ-COMMON-01F).
+    /// @dev Transaction data is not exactly `abi.encode(target)` (REQ-COMMON-01F).
     error BadTransactionData(uint256 length);
     /// @dev Less was delivered than the verification path alone costs.
     error WrongBindValue(uint256 required, uint256 provided);
-    /// @dev The value above the verification path is not the authorized fee.
+    /// @dev The value above the verification path is not `feeAmount`.
     error WrongFeeValue(uint256 required, uint256 provided);
     /// @dev A free binding is `(0, address(0))` and nothing else.
     error NoncanonicalFee(uint256 amount, address receiver);
@@ -185,25 +185,38 @@ contract IdentityRegistry is
 
     /// @notice Bind an identity from a ceremony. A nonempty `handle` must fold and
     ///         hash to the proved handle node, and becomes the caller's name there.
-    /// @dev `msg.value` is `quoteBind` plus the fee the transaction data names.
-    function bind(bytes32 platformId, uint16 verifierVersion, bytes calldata payload, string calldata handle)
-        external
-        payable
-        nonReentrant
-    {
-        _bind(platformId, verifierVersion, payload, handle);
+    /// @dev `msg.value` is `quoteBind` plus `feeAmount`, which goes to
+    ///      `feeReceiver`. A bind with no service fee passes `(0, address(0))`.
+    function bind(
+        bytes32 platformId,
+        uint16 verifierVersion,
+        bytes calldata payload,
+        string calldata handle,
+        uint256 feeAmount,
+        address feeReceiver
+    ) external payable nonReentrant {
+        _bind(platformId, verifierVersion, payload, handle, feeAmount, feeReceiver);
     }
 
     /// @notice `bind` disclosing nothing.
-    function bindPrivately(bytes32 platformId, uint16 verifierVersion, bytes calldata payload)
-        external
-        payable
-        nonReentrant
-    {
-        _bind(platformId, verifierVersion, payload, "");
+    function bindPrivately(
+        bytes32 platformId,
+        uint16 verifierVersion,
+        bytes calldata payload,
+        uint256 feeAmount,
+        address feeReceiver
+    ) external payable nonReentrant {
+        _bind(platformId, verifierVersion, payload, "", feeAmount, feeReceiver);
     }
 
-    function _bind(bytes32 platformId, uint16 verifierVersion, bytes calldata payload, string memory handle) private {
+    function _bind(
+        bytes32 platformId,
+        uint16 verifierVersion,
+        bytes calldata payload,
+        string memory handle,
+        uint256 feeAmount,
+        address feeReceiver
+    ) private {
         _requireKnown(platformId);
 
         IProofVerifier pv = _s().proofVerifier;
@@ -221,11 +234,10 @@ contract IdentityRegistry is
         }
         _s().spentDigests[claimed.sessionId] = true;
 
-        if (claimed.transactionData.length != 96) {
+        if (claimed.transactionData.length != 32) {
             revert BadTransactionData(claimed.transactionData.length);
         }
-        (address target, uint256 feeAmount, address feeReceiver) =
-            abi.decode(claimed.transactionData, (address, uint256, address));
+        address target = abi.decode(claimed.transactionData, (address));
         if (target != msg.sender) revert NotProofTarget(target, msg.sender);
 
         if ((feeAmount == 0) != (feeReceiver == address(0))) {
@@ -260,7 +272,7 @@ contract IdentityRegistry is
     }
 
     /// @notice What `bind` costs for this platform and verifier version, before
-    ///         any service fee the submission names.
+    ///         any service fee its caller names.
     function quoteBind(bytes32 platformId, uint16 verifierVersion) external view returns (uint256) {
         return _s().proofVerifier.quote(platformId, verifierVersion);
     }

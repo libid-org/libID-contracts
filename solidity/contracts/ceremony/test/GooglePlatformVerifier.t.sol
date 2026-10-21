@@ -27,7 +27,7 @@ contract GooglePlatformVerifierTest is Test {
     uint64 constant GOOGLE_ALLOWANCE = CeremonyProfile.FUTURE_OBSERVATION_ALLOWANCE_SECONDS_GOOGLE;
     uint64 constant EXP = T0 + 3600;
 
-    bytes32 constant DOMAIN = keccak256(bytes("libid.claim-identity"));
+    bytes32 constant DOMAIN = keccak256(bytes("libid.bind-identity"));
     bytes32 constant AUTH_NONCE = bytes32(uint256(0x5555555555555555555555555555555555555555555555555555555555555555));
     /// The digest the public inputs carry as the signed `nonce`; set in `setUp`.
     bytes32 digest;
@@ -104,7 +104,7 @@ contract GooglePlatformVerifierTest is Test {
     }
 
     function _txData() private pure returns (bytes memory) {
-        return abi.encode(address(0xBEEF), uint256(0), address(0));
+        return abi.encode(address(0xBEEF));
     }
 
     /// The `google/v1` payload; the verifier builds the public inputs from it.
@@ -209,7 +209,7 @@ contract GooglePlatformVerifierTest is Test {
         s.authorizationNonce = bytes32(uint256(AUTH_NONCE) ^ 1);
         _refusedByTheRealProof(real, s);
         (, s) = _realProof();
-        s.transactionData = abi.encode(address(0xBEEF), uint256(1), address(0));
+        s.transactionData = abi.encode(address(0xCAFE));
         _refusedByTheRealProof(real, s);
     }
 

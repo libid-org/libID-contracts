@@ -22,7 +22,7 @@ contract CeremonyProofVerifierTest is Test {
     address constant OWNER = address(0xA11CE);
     bytes32 constant PLATFORM_ID = CeremonyProfile.PLATFORM_X;
     uint256 constant FEE = 0.002 ether;
-    bytes32 constant DOMAIN = keccak256(bytes("libid.claim-identity"));
+    bytes32 constant DOMAIN = keccak256(bytes("libid.bind-identity"));
     bytes32 constant NONCE = bytes32(uint256(0x4444));
 
     function setUp() public {

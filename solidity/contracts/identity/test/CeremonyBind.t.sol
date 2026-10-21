@@ -26,7 +26,7 @@ contract CeremonyBindTest is Test {
     address constant OWNER = address(0xA11CE);
     address constant WALLET = address(0xBEEF);
     bytes32 constant PLATFORM = CeremonyProfile.PLATFORM_X;
-    bytes32 constant DOMAIN = keccak256(bytes("libid.claim-identity"));
+    bytes32 constant DOMAIN = keccak256(bytes("libid.bind-identity"));
     uint256 constant FEE = 0.002 ether;
     /// A hosted application, and what it charges for composing the ceremony.
     address constant HOST = address(0x405);
@@ -57,14 +57,9 @@ contract CeremonyBindTest is Test {
         vm.stopPrank();
     }
 
-    /// The Authorized Transaction Data of `libid.claim-identity`.
-    function _txData(address target, uint256 feeAmount, address feeReceiver) private pure returns (bytes memory) {
-        return abi.encode(target, feeAmount, feeReceiver);
-    }
-
-    /// Transaction data that names no fee.
-    function _free(address target) private pure returns (bytes memory) {
-        return _txData(target, 0, address(0));
+    /// The Authorized Transaction Data of `libid.bind-identity`.
+    function _txData(address target) private pure returns (bytes memory) {
+        return abi.encode(target);
     }
 
     /// The stub's payload for one authorization; the Consumer passes it through opaque.
@@ -77,16 +72,20 @@ contract CeremonyBindTest is Test {
     }
 
     function _payload(bytes32 domain, address target, bytes32 nonce) private pure returns (bytes memory) {
-        return _payload(domain, _free(target), nonce);
+        return _payload(domain, _txData(target), nonce);
     }
 
     function _payload(address target, bytes32 nonce) private pure returns (bytes memory) {
-        return _payload(DOMAIN, _free(target), nonce);
+        return _payload(DOMAIN, _txData(target), nonce);
     }
 
     function _bind(bytes memory payload, uint256 value) private {
+        _bind(payload, value, 0, address(0));
+    }
+
+    function _bind(bytes memory payload, uint256 value, uint256 feeAmount, address feeReceiver) private {
         vm.prank(WALLET);
-        registry.bind{value: value}(PLATFORM, 1, payload, "");
+        registry.bind{value: value}(PLATFORM, 1, payload, "", feeAmount, feeReceiver);
     }
 
     function _digest(bytes memory txData, bytes32 nonce) private pure returns (bytes32) {
@@ -94,7 +93,7 @@ contract CeremonyBindTest is Test {
     }
 
     function _digest(address target, bytes32 nonce) private pure returns (bytes32) {
-        return _digest(_free(target), nonce);
+        return _digest(_txData(target), nonce);
     }
 
     // ─── The happy path ─────────────────────────────────────────────
@@ -153,7 +152,7 @@ contract CeremonyBindTest is Test {
         bytes memory p = _payload(WALLET, bytes32(uint256(3)));
         vm.prank(WALLET);
         vm.expectRevert(abi.encodeWithSelector(IdentityRegistry.WrongBindValue.selector, FEE, FEE - 1));
-        registry.bind{value: FEE - 1}(PLATFORM, 1, p, "");
+        registry.bind{value: FEE - 1}(PLATFORM, 1, p, "", 0, address(0));
     }
 
     // ─── The digest is its own replay nullifier ─────────────────────
@@ -167,7 +166,7 @@ contract CeremonyBindTest is Test {
 
         vm.prank(WALLET);
         vm.expectRevert(abi.encodeWithSelector(IdentityRegistry.DigestAlreadySpent.selector, digest));
-        registry.bind{value: FEE}(PLATFORM, 1, p, "");
+        registry.bind{value: FEE}(PLATFORM, 1, p, "", 0, address(0));
     }
 
     /// @dev Re-proving under a fresh nonce is always available.
@@ -181,15 +180,16 @@ contract CeremonyBindTest is Test {
 
     /// @dev The digest commits no chain, and each chain's registry keeps its
     ///      own spent set. The proof spent here binds its target on a second
-    ///      chain, and only its target.
+    ///      chain under another service fee, and only its target.
     function test_aProofBindsItsTargetOnAnotherChain() public {
         bytes memory p = _payload(WALLET, bytes32(uint256(12)));
         bytes32 digest = _digest(WALLET, bytes32(uint256(12)));
-        _bind(p, FEE);
+        _bind(p, FEE + SERVICE_FEE, SERVICE_FEE, HOST);
+        assertEq(HOST.balance, SERVICE_FEE);
 
         vm.prank(WALLET);
         vm.expectRevert(abi.encodeWithSelector(IdentityRegistry.DigestAlreadySpent.selector, digest));
-        registry.bind{value: FEE}(PLATFORM, 1, p, "");
+        registry.bind{value: FEE}(PLATFORM, 1, p, "", 0, address(0));
 
         vm.chainId(block.chainid + 1);
         _deploy();
@@ -198,15 +198,19 @@ contract CeremonyBindTest is Test {
         vm.deal(other, FEE);
         vm.prank(other);
         vm.expectRevert(abi.encodeWithSelector(IdentityRegistry.NotProofTarget.selector, WALLET, other));
-        registry.bind{value: FEE}(PLATFORM, 1, p, "");
+        registry.bind{value: FEE}(PLATFORM, 1, p, "", 0, address(0));
 
-        _bind(p, FEE);
+        address otherHost = address(0xF00);
+        vm.expectEmit(true, true, false, true);
+        emit IdentityRegistry.BindFeePaid(digest, otherHost, 2 * SERVICE_FEE);
+        _bind(p, FEE + 2 * SERVICE_FEE, 2 * SERVICE_FEE, otherHost);
+        assertEq(otherHost.balance, 2 * SERVICE_FEE);
         assertEq(registry.resolveHandle(PLATFORM, "alice"), WALLET);
         assertTrue(registry.digestSpent(digest));
 
         vm.prank(WALLET);
         vm.expectRevert(abi.encodeWithSelector(IdentityRegistry.DigestAlreadySpent.selector, digest));
-        registry.bind{value: FEE}(PLATFORM, 1, p, "");
+        registry.bind{value: FEE}(PLATFORM, 1, p, "", 0, address(0));
     }
 
     // ─── The authorization predicate ────────────────────────────────
@@ -215,15 +219,23 @@ contract CeremonyBindTest is Test {
         bytes memory p = _payload(address(0xDEAD), bytes32(uint256(4)));
         vm.prank(WALLET);
         vm.expectRevert(abi.encodeWithSelector(IdentityRegistry.NotProofTarget.selector, address(0xDEAD), WALLET));
-        registry.bind{value: FEE}(PLATFORM, 1, p, "");
+        registry.bind{value: FEE}(PLATFORM, 1, p, "", 0, address(0));
     }
 
     /// @dev REQ-COMMON-01F: one exact encoding, and trailing bytes refused.
     function test_rejectsMalformedTransactionData() public {
-        bytes memory p = _payload(DOMAIN, abi.encodePacked(_free(WALLET), hex"00"), bytes32(uint256(5)));
+        bytes memory p = _payload(DOMAIN, abi.encodePacked(_txData(WALLET), hex"00"), bytes32(uint256(5)));
         vm.prank(WALLET);
-        vm.expectRevert(abi.encodeWithSelector(IdentityRegistry.BadTransactionData.selector, 97));
-        registry.bind{value: FEE}(PLATFORM, 1, p, "");
+        vm.expectRevert(abi.encodeWithSelector(IdentityRegistry.BadTransactionData.selector, 33));
+        registry.bind{value: FEE}(PLATFORM, 1, p, "", 0, address(0));
+    }
+
+    /// @dev Transaction data that also names a fee is not `abi.encode(target)`.
+    function test_rejectsTransactionDataThatNamesAFee() public {
+        bytes memory p = _payload(DOMAIN, abi.encode(WALLET, SERVICE_FEE, HOST), bytes32(uint256(25)));
+        vm.prank(WALLET);
+        vm.expectRevert(abi.encodeWithSelector(IdentityRegistry.BadTransactionData.selector, 96));
+        registry.bind{value: FEE + SERVICE_FEE}(PLATFORM, 1, p, "", 0, address(0));
     }
 
     // ─── The operation domain ───────────────────────────────────────
@@ -234,7 +246,7 @@ contract CeremonyBindTest is Test {
         bytes memory p = _payload(foreign, WALLET, bytes32(uint256(6)));
         vm.prank(WALLET);
         vm.expectRevert(abi.encodeWithSelector(IdentityRegistry.ForeignOperationDomain.selector, foreign));
-        registry.bind{value: FEE}(PLATFORM, 1, p, "");
+        registry.bind{value: FEE}(PLATFORM, 1, p, "", 0, address(0));
     }
 
     // ─── The Supported Version Set ──────────────────────────────────
@@ -243,7 +255,7 @@ contract CeremonyBindTest is Test {
         bytes memory p = _payload(WALLET, bytes32(uint256(8)));
         vm.prank(WALLET);
         vm.expectRevert(abi.encodeWithSelector(CeremonyProofVerifier.UnknownVersion.selector, PLATFORM, uint16(2)));
-        registry.bind{value: FEE}(PLATFORM, 2, p, "");
+        registry.bind{value: FEE}(PLATFORM, 2, p, "", 0, address(0));
     }
 
     /// @dev REQ-COMMON-05B: a new verifier version runs beside the one it replaces.
@@ -255,7 +267,7 @@ contract CeremonyBindTest is Test {
 
         _bind(_payload(WALLET, bytes32(uint256(10))), FEE);
         vm.prank(WALLET);
-        registry.bind{value: FEE}(PLATFORM, 2, _payload(WALLET, bytes32(uint256(11))), "");
+        registry.bind{value: FEE}(PLATFORM, 2, _payload(WALLET, bytes32(uint256(11))), "", 0, address(0));
 
         assertEq(registry.resolveHandle(PLATFORM, "alice"), WALLET);
         assertEq(registry.resolveHandle(PLATFORM, "bob"), WALLET);
@@ -320,7 +332,7 @@ contract CeremonyBindTest is Test {
         bytes memory p = _payload(WALLET, bytes32(uint256(13)));
         vm.prank(WALLET);
         vm.expectRevert(IdentityRegistry.NoId.selector);
-        registry.bind{value: FEE}(PLATFORM, 1, p, "");
+        registry.bind{value: FEE}(PLATFORM, 1, p, "", 0, address(0));
     }
 
     function test_rejectsAnEmptyHandleNode() public {
@@ -328,30 +340,30 @@ contract CeremonyBindTest is Test {
         bytes memory p = _payload(WALLET, bytes32(uint256(15)));
         vm.prank(WALLET);
         vm.expectRevert(IdentityRegistry.NoHandle.selector);
-        registry.bind{value: FEE}(PLATFORM, 1, p, "");
+        registry.bind{value: FEE}(PLATFORM, 1, p, "", 0, address(0));
     }
 
     function test_rejectsANoncanonicalAddressEncoding() public {
-        // 96 bytes of the right length, whose first word is not an address.
-        bytes memory bad = abi.encodePacked(bytes12(0xffffffffffffffffffffffff), WALLET, uint256(0), uint256(0));
+        // 32 bytes, the right length, but not an address.
+        bytes memory bad = abi.encodePacked(bytes12(0xffffffffffffffffffffffff), WALLET);
         bytes memory p = _payload(DOMAIN, bad, bytes32(uint256(20)));
         vm.prank(WALLET);
         vm.expectRevert(); // abi.decode's own check
-        registry.bind{value: FEE}(PLATFORM, 1, p, "");
+        registry.bind{value: FEE}(PLATFORM, 1, p, "", 0, address(0));
     }
 
     function test_rejectsShortTransactionData() public {
         bytes memory p = _payload(DOMAIN, abi.encodePacked(WALLET), bytes32(uint256(21)));
         vm.prank(WALLET);
         vm.expectRevert(abi.encodeWithSelector(IdentityRegistry.BadTransactionData.selector, 20));
-        registry.bind{value: FEE}(PLATFORM, 1, p, "");
+        registry.bind{value: FEE}(PLATFORM, 1, p, "", 0, address(0));
     }
 
     function test_rejectsEmptyTransactionData() public {
         bytes memory p = _payload(DOMAIN, hex"", bytes32(uint256(22)));
         vm.prank(WALLET);
         vm.expectRevert(abi.encodeWithSelector(IdentityRegistry.BadTransactionData.selector, 0));
-        registry.bind{value: FEE}(PLATFORM, 1, p, "");
+        registry.bind{value: FEE}(PLATFORM, 1, p, "", 0, address(0));
     }
 
     /// @dev Caught before verification: the shortfall is known without decoding the payload.
@@ -359,15 +371,15 @@ contract CeremonyBindTest is Test {
         bytes memory p = _payload(WALLET, bytes32(uint256(23)));
         vm.prank(WALLET);
         vm.expectRevert(abi.encodeWithSelector(IdentityRegistry.WrongBindValue.selector, FEE, FEE - 1));
-        registry.bind{value: FEE - 1}(PLATFORM, 1, p, "");
+        registry.bind{value: FEE - 1}(PLATFORM, 1, p, "", 0, address(0));
     }
 
-    /// @dev Caught after verification: value above the quote is the fee, and this ceremony authorized none.
+    /// @dev Caught after verification: value above the quote is the fee, and the call named none.
     function test_rejectsOneWeiMoreThanTheBindCosts() public {
         bytes memory p = _payload(WALLET, bytes32(uint256(24)));
         vm.prank(WALLET);
         vm.expectRevert(abi.encodeWithSelector(IdentityRegistry.WrongFeeValue.selector, 0, 1));
-        registry.bind{value: FEE + 1}(PLATFORM, 1, p, "");
+        registry.bind{value: FEE + 1}(PLATFORM, 1, p, "", 0, address(0));
     }
 
     function test_setProofVerifierIsOwnerOnlyAndNonZero() public {
@@ -383,7 +395,7 @@ contract CeremonyBindTest is Test {
         bytes memory p = _payload(WALLET, bytes32(uint256(30)));
         vm.prank(WALLET);
         vm.expectRevert(IdentityRegistry.NoObservationTime.selector);
-        registry.bind{value: FEE}(PLATFORM, 1, p, "");
+        registry.bind{value: FEE}(PLATFORM, 1, p, "", 0, address(0));
         assertFalse(registry.digestSpent(_digest(WALLET, bytes32(uint256(30)))));
     }
 
@@ -391,7 +403,7 @@ contract CeremonyBindTest is Test {
         bytes memory p = _payload(keccak256("other"), hex"00", bytes32(uint256(40)));
         vm.prank(WALLET);
         vm.expectRevert(abi.encodeWithSelector(IdentityRegistry.ForeignOperationDomain.selector, keccak256("other")));
-        registry.bind{value: FEE}(PLATFORM, 1, p, "");
+        registry.bind{value: FEE}(PLATFORM, 1, p, "", 0, address(0));
     }
 
     function test_onePayloadIsSpentOnceAcrossTwoVerifierVersions() public {
@@ -404,7 +416,7 @@ contract CeremonyBindTest is Test {
         vm.expectRevert(
             abi.encodeWithSelector(IdentityRegistry.DigestAlreadySpent.selector, _digest(WALLET, bytes32(uint256(50))))
         );
-        registry.bind{value: FEE}(PLATFORM, 2, p, "");
+        registry.bind{value: FEE}(PLATFORM, 2, p, "", 0, address(0));
     }
 
     function test_namesCannotReinitialize() public {
@@ -414,22 +426,30 @@ contract CeremonyBindTest is Test {
 
     // ─── The service fee ────────────────────────────────────────────
 
-    /// @dev The fee was consented to inside the digest and goes to the receiver the ceremony named.
-    function test_paysTheFeeTheCeremonyNamed() public {
-        bytes memory p = _payload(DOMAIN, _txData(WALLET, SERVICE_FEE, HOST), bytes32(uint256(60)));
+    /// @dev The fee named by the call goes to the receiver it names.
+    function test_paysTheFeeTheCallerNamed() public {
+        bytes memory p = _payload(WALLET, bytes32(uint256(60)));
         uint256 hostBefore = HOST.balance;
         uint256 walletBefore = WALLET.balance;
 
         vm.expectEmit(true, true, false, true, address(registry));
-        emit IdentityRegistry.BindFeePaid(
-            _digest(_txData(WALLET, SERVICE_FEE, HOST), bytes32(uint256(60))), HOST, SERVICE_FEE
-        );
-        _bind(p, FEE + SERVICE_FEE);
+        emit IdentityRegistry.BindFeePaid(_digest(WALLET, bytes32(uint256(60))), HOST, SERVICE_FEE);
+        _bind(p, FEE + SERVICE_FEE, SERVICE_FEE, HOST);
 
         assertEq(HOST.balance - hostBefore, SERVICE_FEE);
         assertEq(walletBefore - WALLET.balance, FEE + SERVICE_FEE);
         assertEq(registry.resolveHandle(PLATFORM, "alice"), WALLET);
         assertEq(address(registry).balance, 0, "nothing was captured in transit");
+    }
+
+    /// @dev `bindPrivately` takes the same fee arguments.
+    function test_bindPrivatelyPaysTheFeeTheCallerNamed() public {
+        vm.prank(WALLET);
+        registry.bindPrivately{value: FEE + SERVICE_FEE}(
+            PLATFORM, 1, _payload(WALLET, bytes32(uint256(70))), SERVICE_FEE, HOST
+        );
+        assertEq(HOST.balance, SERVICE_FEE);
+        assertEq(registry.resolveHandle(PLATFORM, "alice"), WALLET);
     }
 
     function test_aFreeBindPaysOnlyTheVerificationPath() public {
@@ -446,61 +466,64 @@ contract CeremonyBindTest is Test {
     }
 
     function test_rejectsAFeeTheCallerDidNotDeliver() public {
-        bytes memory p = _payload(DOMAIN, _txData(WALLET, SERVICE_FEE, HOST), bytes32(uint256(62)));
+        bytes memory p = _payload(WALLET, bytes32(uint256(62)));
         vm.prank(WALLET);
         vm.expectRevert(abi.encodeWithSelector(IdentityRegistry.WrongFeeValue.selector, SERVICE_FEE, 0));
-        registry.bind{value: FEE}(PLATFORM, 1, p, "");
+        registry.bind{value: FEE}(PLATFORM, 1, p, "", SERVICE_FEE, HOST);
     }
 
-    function test_rejectsMoreThanTheCeremonyAuthorized() public {
-        bytes memory p = _payload(DOMAIN, _txData(WALLET, SERVICE_FEE, HOST), bytes32(uint256(63)));
+    function test_rejectsMoreThanTheCallerNamed() public {
+        bytes memory p = _payload(WALLET, bytes32(uint256(63)));
         vm.prank(WALLET);
         vm.expectRevert(abi.encodeWithSelector(IdentityRegistry.WrongFeeValue.selector, SERVICE_FEE, SERVICE_FEE + 1));
-        registry.bind{value: FEE + SERVICE_FEE + 1}(PLATFORM, 1, p, "");
+        registry.bind{value: FEE + SERVICE_FEE + 1}(PLATFORM, 1, p, "", SERVICE_FEE, HOST);
     }
 
-    /// @dev REQ-COMMON-01F: a free bind is `(0, address(0))`; a receiver beside a zero amount is refused.
+    /// @dev A free bind is `(0, address(0))`; a receiver beside a zero amount is refused.
     function test_rejectsAReceiverBesideAZeroFee() public {
-        bytes memory p = _payload(DOMAIN, _txData(WALLET, 0, HOST), bytes32(uint256(64)));
+        bytes memory p = _payload(WALLET, bytes32(uint256(64)));
         vm.prank(WALLET);
         vm.expectRevert(abi.encodeWithSelector(IdentityRegistry.NoncanonicalFee.selector, 0, HOST));
-        registry.bind{value: FEE}(PLATFORM, 1, p, "");
+        registry.bind{value: FEE}(PLATFORM, 1, p, "", 0, HOST);
     }
 
-    /// @dev A fee paid to no receiver would burn consented value.
+    /// @dev A fee paid to no receiver would burn the value.
     function test_rejectsAFeeBesideNoReceiver() public {
-        bytes memory p = _payload(DOMAIN, _txData(WALLET, SERVICE_FEE, address(0)), bytes32(uint256(65)));
+        bytes memory p = _payload(WALLET, bytes32(uint256(65)));
         vm.prank(WALLET);
         vm.expectRevert(abi.encodeWithSelector(IdentityRegistry.NoncanonicalFee.selector, SERVICE_FEE, address(0)));
-        registry.bind{value: FEE + SERVICE_FEE}(PLATFORM, 1, p, "");
+        registry.bind{value: FEE + SERVICE_FEE}(PLATFORM, 1, p, "", SERVICE_FEE, address(0));
     }
 
-    /// @dev Changing the amount or the receiver moves the digest the proof opens against.
-    function test_theFeeIsInsideTheDigest() public pure {
-        bytes32 n = bytes32(uint256(66));
-        bytes32 asAgreed = _digest(_txData(WALLET, SERVICE_FEE, HOST), n);
-        assertTrue(asAgreed != _digest(_txData(WALLET, SERVICE_FEE * 2, HOST), n), "the amount does not bind");
-        assertTrue(asAgreed != _digest(_txData(WALLET, SERVICE_FEE, address(0xF00)), n), "the receiver does not bind");
-        assertTrue(asAgreed != _digest(_free(WALLET), n), "a free bind is not a distinct digest");
+    /// @dev The fee is outside the digest: a proof spent under one fee is spent under every fee.
+    function test_theFeeIsOutsideTheDigest() public {
+        bytes memory p = _payload(WALLET, bytes32(uint256(66)));
+        bytes32 digest = _digest(WALLET, bytes32(uint256(66)));
+        _bind(p, FEE + SERVICE_FEE, SERVICE_FEE, HOST);
+        assertTrue(registry.digestSpent(digest));
+
+        vm.prank(WALLET);
+        vm.expectRevert(abi.encodeWithSelector(IdentityRegistry.DigestAlreadySpent.selector, digest));
+        registry.bind{value: FEE}(PLATFORM, 1, p, "", 0, address(0));
     }
 
     /// @dev A fee that cannot be delivered reverts the bind and leaves the digest unspent.
     function test_aReceiverThatRefusesTheFeeUndoesTheWholeBind() public {
         RejectingReceiver bad = new RejectingReceiver();
-        bytes memory p = _payload(DOMAIN, _txData(WALLET, SERVICE_FEE, address(bad)), bytes32(uint256(67)));
+        bytes memory p = _payload(WALLET, bytes32(uint256(67)));
         vm.prank(WALLET);
         vm.expectRevert(abi.encodeWithSelector(IdentityRegistry.FeeTransferFailed.selector, address(bad), SERVICE_FEE));
-        registry.bind{value: FEE + SERVICE_FEE}(PLATFORM, 1, p, "");
+        registry.bind{value: FEE + SERVICE_FEE}(PLATFORM, 1, p, "", SERVICE_FEE, address(bad));
 
         assertEq(registry.resolveHandle(PLATFORM, "alice"), address(0));
-        assertFalse(registry.digestSpent(_digest(_txData(WALLET, SERVICE_FEE, address(bad)), bytes32(uint256(67)))));
+        assertFalse(registry.digestSpent(_digest(WALLET, bytes32(uint256(67)))));
     }
 
     /// @dev The fee transfer follows every write; a receiver that re-enters finds the guard closed.
     function test_aFeeReceiverCannotReenterTheBind() public {
         ReenteringReceiver host = new ReenteringReceiver(registry, PLATFORM, _payload(WALLET, bytes32(uint256(69))));
-        bytes memory p = _payload(DOMAIN, _txData(WALLET, SERVICE_FEE, address(host)), bytes32(uint256(68)));
-        _bind(p, FEE + SERVICE_FEE);
+        bytes memory p = _payload(WALLET, bytes32(uint256(68)));
+        _bind(p, FEE + SERVICE_FEE, SERVICE_FEE, address(host));
 
         assertTrue(host.reentryReverted(), "the guard let a fee receiver back in");
         assertEq(address(host).balance, SERVICE_FEE);
@@ -518,7 +541,7 @@ contract CeremonyBindTest is Test {
         evil.setInner(_payload(address(evil), bytes32(uint256(2))));
         vm.prank(WALLET);
         vm.expectRevert(ReentrancyGuard.ReentrancyGuardReentrantCall.selector);
-        registry.bind(PLATFORM, 1, p, "");
+        registry.bind(PLATFORM, 1, p, "", 0, address(0));
         assertFalse(registry.digestSpent(_digest(WALLET, bytes32(uint256(1)))));
         assertFalse(registry.digestSpent(_digest(address(evil), bytes32(uint256(2)))));
     }
@@ -552,8 +575,8 @@ contract ReenteringVerifier is IPlatformVerifier {
     function verify(bytes calldata) external payable returns (VerifiedClaim memory c) {
         if (armed) {
             armed = false;
-            (bool ok, bytes memory ret) =
-                address(REGISTRY).call(abi.encodeCall(IdentityRegistry.bind, (PLATFORM, 1, innerPayload, "")));
+            (bool ok, bytes memory ret) = address(REGISTRY)
+                .call(abi.encodeCall(IdentityRegistry.bind, (PLATFORM, 1, innerPayload, "", 0, address(0))));
             if (!ok) {
                 assembly { revert(add(ret, 32), mload(ret)) }
             }
@@ -583,7 +606,8 @@ contract ReenteringReceiver {
     }
 
     receive() external payable {
-        (bool ok,) = address(REGISTRY).call(abi.encodeCall(IdentityRegistry.bind, (PLATFORM, 1, payload, "")));
+        (bool ok,) =
+            address(REGISTRY).call(abi.encodeCall(IdentityRegistry.bind, (PLATFORM, 1, payload, "", 0, address(0))));
         reentryReverted = !ok;
     }
 }

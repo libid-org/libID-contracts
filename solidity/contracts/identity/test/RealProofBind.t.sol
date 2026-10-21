@@ -77,7 +77,7 @@ abstract contract RealProofBindBase is PrivacyScan {
     function _bind(bytes memory payload, string memory handle) internal {
         uint256 value = registry.quoteBind(_platform(), 1);
         vm.prank(BINDER);
-        registry.bind{value: value}(_platform(), 1, payload, handle);
+        registry.bind{value: value}(_platform(), 1, payload, handle, 0, address(0));
     }
 
     // ─── Bind, privately ────────────────────────────────────────────
@@ -112,10 +112,10 @@ abstract contract RealProofBindBase is PrivacyScan {
     function test_bindsPrivatelyWithoutAHandleArgument() public {
         bytes memory payload = _payload();
         uint256 value = registry.quoteBind(_platform(), 1);
-        bytes memory data = abi.encodeCall(IdentityRegistry.bindPrivately, (_platform(), 1, payload));
+        bytes memory data = abi.encodeCall(IdentityRegistry.bindPrivately, (_platform(), 1, payload, 0, address(0)));
         assertFalse(_containsAny(data), "the calldata carries an id or handle");
         vm.prank(BINDER);
-        registry.bindPrivately{value: value}(_platform(), 1, payload);
+        registry.bindPrivately{value: value}(_platform(), 1, payload, 0, address(0));
         assertEq(registry.resolveId(_idNode()), BINDER);
         assertEq(registry.publishedHandleOf(BINDER, _platform()), "");
     }
@@ -149,7 +149,7 @@ abstract contract RealProofBindBase is PrivacyScan {
         uint256 value = registry.quoteBind(_platform(), 1);
         vm.expectRevert(abi.encodeWithSelector(IdentityRegistry.HandleNotProved.selector, otherNode, _handleNode()));
         vm.prank(BINDER);
-        registry.bind{value: value}(_platform(), 1, payload, other);
+        registry.bind{value: value}(_platform(), 1, payload, other, 0, address(0));
         assertEq(registry.resolveId(_idNode()), address(0));
     }
 
@@ -216,11 +216,9 @@ abstract contract RealTlsNotaryBind is RealProofBindBase {
         return abi.encode(p);
     }
 
-    /// @dev The fixture names the binder and no fee, in the registry's shape.
-    function test_theProducedFixtureCarriesTheRegistryTriple() public view {
-        assertEq(
-            vm.parseJsonBytes(vm.readFile(_session()), ".transaction_data"), abi.encode(BINDER, uint256(0), address(0))
-        );
+    /// @dev The fixture names the binder, in the registry's shape.
+    function test_theProducedFixtureCarriesTheRegistryTarget() public view {
+        assertEq(vm.parseJsonBytes(vm.readFile(_session()), ".transaction_data"), abi.encode(BINDER));
     }
 
     function _publicInputs() internal view override returns (bytes32[] memory) {
@@ -417,13 +415,13 @@ contract RealProofBindGoogleTest is RealProofBindBase {
         return abi.encode(_proof());
     }
 
-    /// The `google/v1` payload the proof was made for, on chain 31337.
+    /// The `google/v1` payload the proof was made for.
     function _proof() internal view returns (GooglePlatformVerifier.GoogleProof memory s) {
         string memory json = vm.readFile(PROOF);
         s.ceremonyVersion = 1;
-        s.operationDomain = keccak256(bytes("libid.claim-identity"));
+        s.operationDomain = keccak256(bytes("libid.bind-identity"));
         s.authorizationNonce = bytes32(uint256(0x5555555555555555555555555555555555555555555555555555555555555555));
-        s.transactionData = abi.encode(BINDER, uint256(0), address(0));
+        s.transactionData = abi.encode(BINDER);
         s.clientIdentifier = bytes(vm.parseJsonString(json, ".client_identifier"));
         bytes32[] memory pi = vm.parseJsonBytes32Array(json, ".public_inputs");
         s.idNode = bytes32((uint256(pi[34]) << 128) | uint256(pi[35]));
@@ -451,7 +449,7 @@ contract RealProofBindGoogleTest is RealProofBindBase {
         bytes memory payload = abi.encode(s);
         vm.prank(BINDER);
         vm.expectRevert(abi.encodeWithSignature("SumcheckFailed()"));
-        registry.bind(_platform(), 1, payload, "");
+        registry.bind(_platform(), 1, payload, "", 0, address(0));
         assertEq(registry.resolveId(_idNode()), address(0));
         (address holder,) = registry.handleBinding(_handleNode());
         assertEq(holder, address(0));

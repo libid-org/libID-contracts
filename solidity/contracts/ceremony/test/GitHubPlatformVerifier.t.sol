@@ -34,7 +34,7 @@ contract GitHubPlatformVerifierTest is RealTlsNotaryProofTest {
     uint64 constant ALLOWANCE = CeremonyProfile.FUTURE_OBSERVATION_ALLOWANCE_SECONDS_GITHUB;
     uint64 constant T0 = 1_770_000_000;
 
-    bytes32 constant DOMAIN = keccak256(bytes("libid.claim-identity"));
+    bytes32 constant DOMAIN = keccak256(bytes("libid.bind-identity"));
     bytes32 constant AUTH_NONCE = bytes32(uint256(0x5555555555555555555555555555555555555555555555555555555555555555));
     /// The digest the fixtures are made for; set in `setUp`.
     bytes32 digest;
@@ -226,7 +226,7 @@ contract GitHubPlatformVerifierTest is RealTlsNotaryProofTest {
     }
 
     function _txData() private pure returns (bytes memory) {
-        return abi.encode(address(0xBEEF), uint256(0), address(0));
+        return abi.encode(address(0xBEEF));
     }
 
     /// The `github/v1` payload the fixtures are made for.
