@@ -1135,7 +1135,7 @@ async fn binds_through_the_stub_platform_verifier() {
             .into(),
     });
     let receipt = registry
-        .bind(x, 1, payload.clone(), "alice_x".into())
+        .bind(x, 1, payload.clone(), "alice_x".into(), true)
         .value(fee)
         .send()
         .await
