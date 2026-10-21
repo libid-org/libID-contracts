@@ -1047,3 +1047,125 @@ async fn deploys_the_honk_verifiers_over_their_own_circuits() {
         codehash_at(&provider, deployed[0].0).await.unwrap()
     );
 }
+
+/// A consumer's test stack from the crate alone: the registry and Proof
+/// Verifier behind proxies, the `testing` stub as X's Platform Verifier, and
+/// a bind through it that records the stub's nodes.
+#[cfg(feature = "testing")]
+#[tokio::test]
+async fn binds_through_the_stub_platform_verifier() {
+    use alloy::{
+        primitives::B256,
+        sol_types::SolValue,
+    };
+    use libid_contracts::{
+        platform_verifier::PlatformVerifier,
+        testing::{
+            deploy_stub_platform_verifier,
+            stub_payload,
+            StubPayload,
+            StubPlatformVerifier,
+        },
+    };
+    use libid_identity::platforms::PLATFORM_X;
+
+    let provider = test_provider();
+    let artifacts = Artifacts::embedded();
+    let deployer = default_signer(&provider).await;
+    let x = PlatformVerifier::X.platform_id();
+    let fee = U256::from(7);
+
+    let verifier_proxy = deploy_behind_proxy(
+        &provider,
+        &artifacts,
+        "CeremonyProofVerifier",
+        &CeremonyProofVerifier::initializeCall { owner_: deployer },
+        None,
+    )
+    .await
+    .unwrap();
+    let registry_proxy = deploy_behind_proxy(
+        &provider,
+        &artifacts,
+        "IdentityRegistry",
+        &IdentityRegistry::initializeCall { owner_: deployer },
+        None,
+    )
+    .await
+    .unwrap();
+    let stub_address = deploy_stub_platform_verifier(&provider, &artifacts, x, fee, None)
+        .await
+        .unwrap();
+
+    let registry = IdentityRegistry::new(registry_proxy, &provider);
+    registry
+        .setProofVerifier(verifier_proxy)
+        .send()
+        .await
+        .unwrap()
+        .get_receipt()
+        .await
+        .unwrap();
+    CeremonyProofVerifier::new(verifier_proxy, &provider)
+        .setVerifier(x, 1, stub_address)
+        .send()
+        .await
+        .unwrap()
+        .get_receipt()
+        .await
+        .unwrap();
+    let stub = StubPlatformVerifier::new(stub_address, &provider);
+    stub.set("1234567890".into(), "Alice_X".into())
+        .send()
+        .await
+        .unwrap()
+        .get_receipt()
+        .await
+        .unwrap();
+    assert_eq!(stub.platformId().call().await.unwrap(), x);
+    assert_eq!(registry.quoteBind(x, 1).call().await.unwrap(), fee);
+
+    // The registry's transaction data: the target, then no bind fee.
+    let payload = stub_payload(&StubPayload {
+        ceremonyVersion: 1,
+        operationDomain: registry.OPERATION_DOMAIN().call().await.unwrap(),
+        authorizationNonce: B256::repeat_byte(0x01),
+        transactionData: (deployer, U256::ZERO, Address::ZERO)
+            .abi_encode_params()
+            .into(),
+    });
+    let receipt = registry
+        .bind(x, 1, payload.clone(), "alice_x".into())
+        .value(fee)
+        .send()
+        .await
+        .unwrap()
+        .get_receipt()
+        .await
+        .unwrap();
+    assert!(receipt.status());
+
+    let id_node = PLATFORM_X.id_node("1234567890").unwrap();
+    let handle_node = PLATFORM_X.handle_node("Alice_X").unwrap();
+    let bound = receipt
+        .decoded_log::<IdentityRegistry::IdentityBound>()
+        .expect("IdentityBound");
+    assert_eq!(bound.holder, deployer);
+    assert_eq!(bound.idNode, id_node);
+    assert_eq!(bound.handleNode, handle_node);
+    assert_eq!(bound.platformId, x);
+    assert_eq!(bound.observedAt, stub.observedAt().call().await.unwrap());
+    assert_eq!(bound.ceremonyVersion, 1);
+
+    // The stub decoded the payload it was sent, and took the fee.
+    assert_eq!(stub.lastPayload().call().await.unwrap(), payload);
+    assert_eq!(stub.lastValue().call().await.unwrap(), fee);
+    assert_eq!(
+        registry
+            .resolveHandle(x, "alice_x".into())
+            .call()
+            .await
+            .unwrap(),
+        deployer
+    );
+}

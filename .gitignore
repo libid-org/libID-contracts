@@ -7,9 +7,10 @@ ts/packages/*/dist/
 
 # Generated from `forge build` and packaged into the crate and the npm
 # package; CI regenerates them before every build, test, dry-run and publish.
-#   scripts/vendor-artifacts.sh     # -> rust/contracts/artifacts, rust/contracts/abi
+#   scripts/vendor-artifacts.sh     # -> rust/contracts/artifacts{,-testing}, rust/contracts/abi
 #   pnpm -C ts codegen              # -> ts/packages/contracts/src/abis
 rust/contracts/artifacts/
+rust/contracts/artifacts-testing/
 rust/contracts/abi/
 ts/packages/contracts/src/abis/
 ts/packages/contracts/src/calls/

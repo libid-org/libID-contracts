@@ -53,9 +53,28 @@ runs:
         git diff --exit-code solidity/contracts/circuits/CircuitCodehashes.sol \
           solidity/contracts/circuits/IHonkVerifierErrors.sol
 
-    # `solidity/lib/**` hashes the submodule trees, so a submodule bump changes
-    # the key. The Foundry version is in the key because artifacts embed
-    # compiler metadata.
+    # The sources' share of the cache key: every .sol outside solidity/lib,
+    # vendored verifiers included, the forge config, and the commit each
+    # submodule is pinned at, so a submodule bump changes the key. The pins
+    # stand in for the submodule trees, which `hashFiles` cannot walk within
+    # its 120-second limit.
+    - name: Forge cache key
+      id: sources
+      if: inputs.cache == 'true'
+      shell: bash
+      run: |
+        digest=$(
+          {
+            find solidity -path solidity/lib -prune -o -type f -name '*.sol' -print0 \
+              | LC_ALL=C sort -z | xargs -0 sha256sum
+            sha256sum solidity/foundry.toml solidity/remappings.txt
+            git submodule foreach --quiet --recursive 'echo "$displaypath $sha1"'
+          } | sha256sum | cut -d' ' -f1
+        )
+        echo "digest=$digest" >> "$GITHUB_OUTPUT"
+
+    # The Foundry version is in the key because artifacts embed compiler
+    # metadata.
     - name: Restore forge artifacts
       if: inputs.cache == 'true'
       uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -63,7 +82,7 @@ runs:
         path: |
           solidity/out
           solidity/cache
-        key: forge-${{ runner.os }}-${{ inputs.foundry-version }}-${{ inputs.profile }}-${{ hashFiles('solidity/**/*.sol', 'solidity/foundry.toml', 'solidity/remappings.txt', 'solidity/lib/**') }}
+        key: forge-${{ runner.os }}-${{ inputs.foundry-version }}-${{ inputs.profile }}-${{ steps.sources.outputs.digest }}
 
     # On an exact cache hit this is a no-op; otherwise a full build.
     - name: Build contracts
