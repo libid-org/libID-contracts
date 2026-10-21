@@ -18,6 +18,8 @@
 //! - [`bind_error`] — a refused `bind`, decoded by name.
 //! - [`circuits`] — the ceremony circuits' vendored UltraHonk verifiers:
 //!   which circuit a platform proves under, and the deploy of its verifier.
+//! - `testing` (feature `testing`) — a stand-in Platform Verifier for a
+//!   consumer's tests: its binding, payload and deploy.
 
 #![deny(dead_code)]
 #![deny(missing_docs)]
@@ -32,6 +34,8 @@ pub mod deploy;
 mod error;
 pub mod factory;
 pub mod platform_verifier;
+#[cfg(feature = "testing")]
+pub mod testing;
 
 pub use artifacts::Artifacts;
 pub use bind_error::BindError;
