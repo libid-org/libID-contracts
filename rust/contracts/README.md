@@ -13,7 +13,7 @@ upgrades the stack with no filesystem access at runtime. The bindings are
 `alloy::sol!` over the compiled ABIs. Every helper is generic over an alloy
 `Provider` you have already wired with a wallet.
 
-`artifacts/` and `abi/` are generated from `solidity/`, not committed. After
+`artifacts/`, `artifacts-testing/` and `abi/` are generated from `solidity/`, not committed. After
 cloning, run `scripts/vendor-circuit-verifiers.sh` then
 `scripts/vendor-artifacts.sh`; until then `cargo build` fails at
 `include_dir!`. CI runs both before every build, test and publish.
@@ -162,6 +162,14 @@ Other entry points:
 - `bindings::ceremony::{TlsNotaryProof, GoogleProof}` — the payload a Platform
   Verifier decodes; its `SolValue::abi_encode` is the `payload` `bind` takes.
 
+## Feature `testing`
+
+Off by default. It embeds `StubPlatformVerifier`, a Platform Verifier that
+checks no proof, and adds `testing::{deploy_stub_platform_verifier,
+stub_payload, StubPayload, StubPlatformVerifier}`, so a consumer's tests can
+bind through `IdentityRegistry` without a ceremony. Enable it in
+`[dev-dependencies]` only.
+
 ## Testing
 
 Unit tests run everywhere; the integration tests in `tests/anvil.rs` spawn
@@ -171,4 +179,5 @@ Unit tests run everywhere; the integration tests in `tests/anvil.rs` spawn
 cargo +nightly-2026-08-10 fmt --all   # CI's pin; rustfmt.toml needs nightly
 cargo clippy --all-targets --all-features -- -D warnings
 cargo test --all
+cargo test -p libid-contracts --features testing
 ```

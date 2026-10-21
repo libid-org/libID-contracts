@@ -11,8 +11,11 @@
 #       naming the libid-circuits release the verifiers came from.
 #   rust/contracts/abi/<Name>.json  the ABI of every contract the crate binds,
 #       which `alloy::sol!` reads at compile time.
+#   rust/contracts/artifacts-testing/<File>.sol/<Name>.json  test stand-ins,
+#       pruned like the deployable contracts. Only the crate's `testing`
+#       feature embeds them.
 #
-# Both directories are gitignored. Run this before any cargo command in rust/:
+# All three directories are gitignored. Run this before any cargo command in rust/:
 # the crate embeds them, so a missing one is a compile error.
 #
 # solc is pinned in solidity/foundry.toml and builds deterministically, so two
@@ -26,6 +29,7 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 OUT="$REPO_ROOT/solidity/out"
 DEST="$REPO_ROOT/rust/contracts/artifacts"
 ABI_DEST="$REPO_ROOT/rust/contracts/abi"
+TESTING_DEST="$REPO_ROOT/rust/contracts/artifacts-testing"
 CIRCUITS_PIN="$REPO_ROOT/solidity/contracts/circuits/circuits.json"
 
 # "<File>:<Contract>" — the artifact lives at out/<File>.sol/<Contract>.json.
@@ -55,6 +59,13 @@ ARTIFACTS=(
     "WTIA9:WTIA9"
 )
 
+# "<File>:<Contract>" for the test stand-ins.
+# Keep in sync with TESTING_COVERED in rust/contracts/src/artifacts.rs.
+TESTING_ARTIFACTS=(
+    # identity: stands in for a Platform Verifier's proof check
+    "StubPlatformVerifier:StubPlatformVerifier"
+)
+
 # "<File>:<Contract>" for every ABI the bindings in rust/contracts/src/bindings
 # read, written to abi/<Contract>.json.
 ABIS=(
@@ -76,6 +87,7 @@ ABIS=(
     "LibidFactory:LibidFactory"
     "ERC1967Proxy:ERC1967Proxy"
     "UUPSUpgradeable:UUPSUpgradeable"
+    "StubPlatformVerifier:StubPlatformVerifier"
 )
 
 if [[ $# -gt 0 ]]; then
@@ -98,26 +110,37 @@ echo "==> forge build"
 STAGE="$(mktemp -d)"
 trap 'rm -rf "$STAGE"' EXIT
 
-for entry in "${ARTIFACTS[@]}"; do
-    file="${entry%%:*}"
-    contract="${entry##*:}"
-    src="$OUT/$file.sol/$contract.json"
-    if [[ ! -f "$src" ]]; then
-        echo "missing artifact: $src (did forge build succeed?)" >&2
-        exit 1
-    fi
-    mkdir -p "$STAGE/$file.sol"
-    jq -S --arg contract "$contract" '{
-        bytecode: { object: .bytecode.object }
-    } + if ($contract | endswith("HonkVerifier"))
-        then { deployedBytecode: { object: .deployedBytecode.object } } else {} end' \
-        "$src" > "$STAGE/$file.sol/$contract.json"
-done
+# Prune each "<File>:<Contract>" in the arguments after the first into the
+# directory named first.
+prune() {
+    local stage="$1" entry file contract src
+    shift
+    for entry in "$@"; do
+        file="${entry%%:*}"
+        contract="${entry##*:}"
+        src="$OUT/$file.sol/$contract.json"
+        if [[ ! -f "$src" ]]; then
+            echo "missing artifact: $src (did forge build succeed?)" >&2
+            exit 1
+        fi
+        mkdir -p "$stage/$file.sol"
+        jq -S --arg contract "$contract" '{
+            bytecode: { object: .bytecode.object }
+        } + if ($contract | endswith("HonkVerifier"))
+            then { deployedBytecode: { object: .deployedBytecode.object } } else {} end' \
+            "$src" > "$stage/$file.sol/$contract.json"
+    done
+}
+
+prune "$STAGE" "${ARTIFACTS[@]}"
 
 cp "$CIRCUITS_PIN" "$STAGE/circuits.json"
 
+TESTING_STAGE="$(mktemp -d)"
 ABI_STAGE="$(mktemp -d)"
-trap 'rm -rf "$STAGE" "$ABI_STAGE"' EXIT
+trap 'rm -rf "$STAGE" "$TESTING_STAGE" "$ABI_STAGE"' EXIT
+prune "$TESTING_STAGE" "${TESTING_ARTIFACTS[@]}"
+
 for entry in "${ABIS[@]}"; do
     file="${entry%%:*}"
     contract="${entry##*:}"
@@ -126,9 +149,11 @@ for entry in "${ABIS[@]}"; do
     jq '.abi' "$src" > "$ABI_STAGE/$contract.json"
 done
 
-rm -rf "$DEST" "$ABI_DEST"
+rm -rf "$DEST" "$TESTING_DEST" "$ABI_DEST"
 mkdir -p "$(dirname "$DEST")"
 cp -R "$STAGE" "$DEST"
+cp -R "$TESTING_STAGE" "$TESTING_DEST"
 cp -R "$ABI_STAGE" "$ABI_DEST"
 echo "==> vendored $(find "$DEST" -name '*.json' | wc -l | tr -d ' ') artifacts into rust/contracts/artifacts"
+echo "==> vendored ${#TESTING_ARTIFACTS[@]} test artifacts into rust/contracts/artifacts-testing"
 echo "==> vendored ${#ABIS[@]} ABIs into rust/contracts/abi"
