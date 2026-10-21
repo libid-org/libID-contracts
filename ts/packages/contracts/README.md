@@ -61,7 +61,7 @@ batch, or wrap in a smart wallet's `execute`.
 ```ts
 import { calls } from '@libid/contracts/calls'
 
-const call = calls.identityRegistry.unpublish(IDENTITY_REGISTRY, platformId)
+const call = calls.identityRegistry.publish(IDENTITY_REGISTRY, platformId, 'alice')
 // { to: `0x…`, data: `0x…` }
 
 await wallet.sendTransaction(call)
@@ -85,7 +85,7 @@ import {
   identityCount,
   idNode,
   platformId,
-  publishedHandleOf,
+  primaryHandleOf,
   resolveHandle,
   resolveHandleAndId,
   PLATFORM_X_KEY,
@@ -101,8 +101,9 @@ const holder = await resolveHandle(reader, x, 'Alice')
 // Before sending funds: is this id still the account that proved the handle?
 const { idAgrees } = await resolveHandleAndId(reader, x, 'alice', idNode(PLATFORM_X_KEY, '42'))
 
-// The handle a holder displays, forward-checked on chain.
-const handle = await publishedHandleOf(reader, holder!, x)
+// The one handle a holder displays, on whichever platform, forward-checked on chain.
+const primary = await primaryHandleOf(reader, holder!)
+// { platformId: x, handle: 'alice' } or null
 
 // Every identity the holder proved, on every platform, a page at a time.
 // Order is arbitrary and shifts on removal: read the count and pages at one block.

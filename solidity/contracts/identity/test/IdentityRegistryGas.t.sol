@@ -171,11 +171,11 @@ contract IdentityRegistryGasTest is Test {
     function test_unpublishingCostsTheSame() public measured {
         _cool();
         vm.prank(few);
-        registry.unpublish(X);
+        registry.unpublish();
         uint64 atFew = _used();
         _cool();
         vm.prank(many);
-        registry.unpublish(X);
+        registry.unpublish();
         assertEq(atFew, _used(), "unpublish");
     }
 
@@ -252,10 +252,10 @@ contract IdentityRegistryGasTest is Test {
         assertEq(atFew, _used(), "resolveHandleAndId");
 
         _cool();
-        registry.publishedHandleOf(few, X);
+        registry.primaryHandleOf(few);
         atFew = _used();
         _cool();
-        registry.publishedHandleOf(many, X);
-        assertEq(atFew, _used(), "publishedHandleOf");
+        registry.primaryHandleOf(many);
+        assertEq(atFew, _used(), "primaryHandleOf");
     }
 }

@@ -313,11 +313,6 @@ contract IdentityRegistryTest is PrivacyScan {
         registry.publish(unwired, "alice");
         vm.expectRevert(abi.encodeWithSelector(IIdentityRegistry.UnknownPlatform.selector, unwired));
         registry.acceptsBindings(unwired);
-        vm.prank(alice);
-        vm.expectRevert(abi.encodeWithSelector(IIdentityRegistry.UnknownPlatform.selector, unwired));
-        registry.unpublish(unwired);
-        vm.expectRevert(abi.encodeWithSelector(IIdentityRegistry.UnknownPlatform.selector, unwired));
-        registry.publishedHandleOf(alice, unwired);
 
         vm.expectRevert(abi.encodeWithSelector(IIdentityRegistry.UnknownPlatform.selector, unwired));
         registry.resolveHandle(unwired, "alice");
@@ -447,7 +442,7 @@ contract IdentityRegistryTest is PrivacyScan {
         vm.recordLogs();
         _bind(alice, "123", "alice", 100);
 
-        assertEq(registry.publishedHandleOf(alice, X), "", "nothing should be published by default");
+        assertEq(_nameOn(alice, X), "", "nothing should be published by default");
         assertEq(_count(vm.getRecordedLogs(), IdentityRegistry.HandlePublished.selector), 0);
     }
 
@@ -460,7 +455,7 @@ contract IdentityRegistryTest is PrivacyScan {
         vm.prank(alice);
         _submit(X, "ALICE");
 
-        assertEq(registry.publishedHandleOf(alice, X), "alice");
+        assertEq(_nameOn(alice, X), "alice");
     }
 
     /// `bindPrivately` binds as `bind` with an empty handle: no name.
@@ -471,7 +466,7 @@ contract IdentityRegistryTest is PrivacyScan {
         registry.bindPrivately(X, V1, payload);
         assertEq(registry.resolveHandle(X, "alice"), alice);
         assertEq(registry.resolveId(_id(X, "123")), alice);
-        assertEq(registry.publishedHandleOf(alice, X), "");
+        assertEq(_nameOn(alice, X), "");
     }
 
     /// A bind discloses only the handle its own proof bound.
@@ -487,7 +482,7 @@ contract IdentityRegistryTest is PrivacyScan {
         // The same wallet may still publish it.
         vm.prank(alice);
         registry.publish(X, "alicia");
-        assertEq(registry.publishedHandleOf(alice, X), "alicia");
+        assertEq(_nameOn(alice, X), "alicia");
     }
 
     /// `publish` discloses a handle the caller holds, in any case, without a new proof.
@@ -500,7 +495,7 @@ contract IdentityRegistryTest is PrivacyScan {
         vm.prank(alice);
         registry.publish(X, "ALICE");
 
-        assertEq(registry.publishedHandleOf(alice, X), "alice");
+        assertEq(_nameOn(alice, X), "alice");
     }
 
     /// Publishing a handle whose node the caller does not hold is refused.
@@ -516,8 +511,8 @@ contract IdentityRegistryTest is PrivacyScan {
         vm.prank(mallory);
         registry.publish(X, "nobody");
 
-        assertEq(registry.publishedHandleOf(bob, X), "");
-        assertEq(registry.publishedHandleOf(mallory, X), "");
+        assertEq(_nameOn(bob, X), "");
+        assertEq(_nameOn(mallory, X), "");
     }
 
     /// Text other than the bound handle folds to a node the caller does not hold.
@@ -561,8 +556,8 @@ contract IdentityRegistryTest is PrivacyScan {
         assertEq(registry.resolveId(_id(X, "123")), address(0), "the id was bound");
         assertEq(registry.resolveHandle(X, "alice"), address(0), "the handle was bound");
         assertEq(registry.identityCount(alice), 0, "the identity was listed");
-        assertEq(registry.publishedHandleOf(alice, X), "");
-        assertEq(registry.publishedHandleOf(bob, X), "");
+        assertEq(_nameOn(alice, X), "");
+        assertEq(_nameOn(bob, X), "");
 
         vm.prank(alice);
         registry.bind(X, V1, payload, "");
@@ -583,20 +578,20 @@ contract IdentityRegistryTest is PrivacyScan {
 
     function test_aPublishedHandleCanBeWithdrawn() public {
         _bindDisclosing(alice, "123", "alice", 100);
-        assertEq(registry.publishedHandleOf(alice, X), "alice");
+        assertEq(_nameOn(alice, X), "alice");
 
         vm.expectEmit(true, true, false, false, address(registry));
-        emit IdentityRegistry.HandleUnpublished(alice, X);
+        emit IdentityRegistry.HandleUnpublished(alice);
         vm.prank(alice);
-        registry.unpublish(X);
-        assertEq(registry.publishedHandleOf(alice, X), "");
+        registry.unpublish();
+        assertEq(_nameOn(alice, X), "");
     }
 
     function test_withdrawingAPublishedHandleKeepsTheBinding() public {
         _bindDisclosing(alice, "123", "alice", 100);
 
         vm.prank(alice);
-        registry.unpublish(X);
+        registry.unpublish();
 
         assertEq(registry.resolveId(_id(X, "123")), alice);
         assertEq(registry.resolveHandle(X, "alice"), alice);
@@ -611,7 +606,7 @@ contract IdentityRegistryTest is PrivacyScan {
         Vm.Log[] memory logs = vm.getRecordedLogs();
         assertEq(_count(logs, IdentityRegistry.HandlePublished.selector), 0, "a private bind published");
         assertEq(_count(logs, IdentityRegistry.HandleUnpublished.selector), 0, "a private bind withdrew");
-        assertEq(registry.publishedHandleOf(alice, X), "alice", "a re-proof dropped the name");
+        assertEq(_nameOn(alice, X), "alice", "a re-proof dropped the name");
     }
 
     /// A rename withdraws the name of the handle it retires, so proving that
@@ -622,11 +617,11 @@ contract IdentityRegistryTest is PrivacyScan {
         vm.recordLogs();
         _bind(alice, "123", "alice2", 200);
         assertEq(_count(vm.getRecordedLogs(), IdentityRegistry.HandleUnpublished.selector), 1, "no withdrawal logged");
-        assertEq(registry.publishedHandleOf(alice, X), "");
+        assertEq(_nameOn(alice, X), "");
 
         _bind(alice, "123", "alice", 300);
         assertEq(registry.resolveHandle(X, "alice"), alice);
-        assertEq(registry.publishedHandleOf(alice, X), "", "a private re-proof showed the old name");
+        assertEq(_nameOn(alice, X), "", "a private re-proof showed the old name");
     }
 
     /// A retirement leaves a name that names another handle alone.
@@ -634,18 +629,18 @@ contract IdentityRegistryTest is PrivacyScan {
         _bindDisclosing(alice, "456", "alicia", 100);
         _bind(alice, "123", "alice", 200);
         _bind(alice, "123", "alice2", 300);
-        assertEq(registry.publishedHandleOf(alice, X), "alicia");
+        assertEq(_nameOn(alice, X), "alicia");
     }
 
     function test_unpublishingNothingLogsNothing() public {
         _bind(alice, "123", "alice", 100);
         vm.recordLogs();
         vm.prank(alice);
-        registry.unpublish(X);
+        registry.unpublish();
         assertEq(vm.getRecordedLogs().length, 0);
     }
 
-    /// A second disclosure replaces the first: one name per wallet per platform.
+    /// A second disclosure replaces the first: one name per wallet.
     function test_aSecondDisclosureReplacesTheFirst() public {
         _bind(alice, "123", "alice", 100);
         _bind(alice, "456", "alicia", 200);
@@ -655,33 +650,97 @@ contract IdentityRegistryTest is PrivacyScan {
         registry.publish(X, "Alicia");
         vm.stopPrank();
 
-        assertEq(registry.publishedHandleOf(alice, X), "alicia");
+        assertEq(_nameOn(alice, X), "alicia");
+    }
+
+    /// A disclosure on another platform replaces the name: a wallet has one name in total.
+    function test_aDisclosureOnAnotherPlatformReplacesTheName() public {
+        _bindDisclosing(alice, "123", "alice", 100);
+
+        _stage("456", "octo", alice, 200);
+        bytes32 octo = _hn(GITHUB, "octo");
+        vm.recordLogs();
+        vm.prank(alice);
+        _submit(GITHUB, "Octo");
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+        assertEq(_count(logs, IdentityRegistry.HandlePublished.selector), 1, "no disclosure logged");
+        assertEq(_count(logs, IdentityRegistry.HandleUnpublished.selector), 0, "a replacement logged a withdrawal");
+        (bytes32 on, string memory name) = registry.primaryHandleOf(alice);
+        assertEq(on, GITHUB);
+        assertEq(name, "octo");
+        (address holder,) = registry.handleBinding(octo);
+        assertEq(holder, alice);
+
+        vm.expectEmit(true, true, true, true, address(registry));
+        emit IdentityRegistry.HandlePublished(alice, X, _hn(X, "alice"), "alice");
+        vm.prank(alice);
+        registry.publish(X, "alice");
+        assertEq(_nameOn(alice, X), "alice", "publishing on X did not take the name back");
+    }
+
+    /// A private bind on another platform leaves the name where it is.
+    function test_aPrivateBindOnAnotherPlatformLeavesTheName() public {
+        _bindDisclosing(alice, "123", "alice", 100);
+        _stage("456", "octo", alice, 200);
+        vm.prank(alice);
+        _submit(GITHUB, "");
+        assertEq(_nameOn(alice, X), "alice");
+    }
+
+    /// Losing a handle withdraws the name only when the name is that handle on
+    /// that platform, even where another platform's handle has the same text.
+    function test_losingAHandleOnAnotherPlatformLeavesTheName() public {
+        _bind(alice, "123", "shared", 100);
+        _stage("456", "shared", alice, 100);
+        vm.prank(alice);
+        _submit(GITHUB, "shared");
+
+        vm.recordLogs();
+        _bind(bob, "789", "shared", 200);
+        _bind(alice, "123", "alice2", 300);
+        assertEq(_count(vm.getRecordedLogs(), IdentityRegistry.HandleUnpublished.selector), 0, "a withdrawal logged");
+        assertEq(_nameOn(alice, GITHUB), "shared");
+    }
+
+    /// A withdrawal clears the name on whichever platform it is.
+    function test_withdrawingClearsANameOnAnyPlatform() public {
+        _stage("456", "octo", alice, 100);
+        vm.prank(alice);
+        _submit(GITHUB, "octo");
+
+        vm.expectEmit(true, false, false, true, address(registry));
+        emit IdentityRegistry.HandleUnpublished(alice);
+        vm.prank(alice);
+        registry.unpublish();
+        (bytes32 on, string memory name) = registry.primaryHandleOf(alice);
+        assertEq(on, bytes32(0));
+        assertEq(name, "");
     }
 
     function test_withdrawingTouchesOnlyTheCallersRecord() public {
         _bindDisclosing(alice, "123", "alice", 100);
 
         vm.prank(mallory);
-        registry.unpublish(X);
+        registry.unpublish();
 
-        assertEq(registry.publishedHandleOf(alice, X), "alice");
+        assertEq(_nameOn(alice, X), "alice");
     }
 
     /// A handle another holder takes withdraws the name, so proving it back
     /// without disclosing does not show it again.
-    function test_publishedHandleOfGoesEmptyOnceTheHandleMovesOn() public {
+    function test_theNameGoesEmptyOnceTheHandleMovesOn() public {
         _bindDisclosing(alice, "123", "shared", 100);
-        assertEq(registry.publishedHandleOf(alice, X), "shared", "it resolves back, so it stands");
+        assertEq(_nameOn(alice, X), "shared", "it resolves back, so it stands");
 
         _stage("456", "shared", bob, 200);
         vm.expectEmit(address(registry));
-        emit IdentityRegistry.HandleUnpublished(alice, X);
+        emit IdentityRegistry.HandleUnpublished(alice);
         vm.prank(bob);
         _submit(X, "");
-        assertEq(registry.publishedHandleOf(alice, X), "", "it no longer resolves back");
+        assertEq(_nameOn(alice, X), "", "it no longer resolves back");
 
         _bind(alice, "123", "shared", 300);
-        assertEq(registry.publishedHandleOf(alice, X), "", "a private re-proof showed the old name");
+        assertEq(_nameOn(alice, X), "", "a private re-proof showed the old name");
     }
 
     /// The handle moved on, then its first identity renamed: the rename retires
@@ -693,7 +752,7 @@ contract IdentityRegistryTest is PrivacyScan {
         _bind(alice, "123", "shared", 400);
 
         assertEq(registry.resolveHandle(X, "shared"), alice);
-        assertEq(registry.publishedHandleOf(alice, X), "", "a private re-proof showed the old name");
+        assertEq(_nameOn(alice, X), "", "a private re-proof showed the old name");
     }
 
     /// An identity proved from a new wallet withdraws the old wallet's name for its handle.
@@ -702,12 +761,20 @@ contract IdentityRegistryTest is PrivacyScan {
 
         _stage("123", "alice", bob, 200);
         vm.expectEmit(address(registry));
-        emit IdentityRegistry.HandleUnpublished(alice, X);
+        emit IdentityRegistry.HandleUnpublished(alice);
         vm.prank(bob);
         _submit(X, "");
 
         _bind(alice, "123", "alice", 300);
-        assertEq(registry.publishedHandleOf(alice, X), "", "the old wallet's name came back");
+        assertEq(_nameOn(alice, X), "", "the old wallet's name came back");
+    }
+
+    /// The holder's name if it is on `platformId`; a name on another platform fails the test.
+    function _nameOn(address holder, bytes32 platformId) internal view returns (string memory handle) {
+        bytes32 on;
+        (on, handle) = registry.primaryHandleOf(holder);
+        if (bytes(handle).length == 0) assertEq(on, bytes32(0), "a platform without a name");
+        else assertEq(on, platformId, "the name is on another platform");
     }
 
     /// How many logs carry this event.
@@ -765,7 +832,7 @@ contract IdentityRegistryTest is PrivacyScan {
 
         assertGt(_assertStorageHidesTheSecrets(vm.stopAndReturnStateDiff()), 0, "the bind wrote nothing to check");
 
-        assertEq(registry.publishedHandleOf(alice, X), "");
+        assertEq(_nameOn(alice, X), "");
         IdentityRegistry.Identity memory a = registry.identitiesOf(alice, 0, 1)[0];
         assertEq(a.idNode, _id(X, SECRET_ID));
         assertEq(a.handleNode, _hn(X, SECRET_FOLDED));

@@ -105,7 +105,7 @@ abstract contract RealProofBindBase is PrivacyScan {
         assertEq(holder, BINDER);
         assertEq(registry.resolveHandle(_platform(), _secrets()[1]), BINDER);
         assertEq(registry.resolveHandle(_platform(), _secrets()[2]), BINDER);
-        assertEq(registry.publishedHandleOf(BINDER, _platform()), "", "a private bind publishes nothing");
+        assertEq(_nameOn(BINDER, _platform()), "", "a private bind publishes nothing");
     }
 
     /// @dev `bindPrivately` carries no id or handle byte in its calldata, and binds.
@@ -117,7 +117,15 @@ abstract contract RealProofBindBase is PrivacyScan {
         vm.prank(BINDER);
         registry.bindPrivately{value: value}(_platform(), 1, payload);
         assertEq(registry.resolveId(_idNode()), BINDER);
-        assertEq(registry.publishedHandleOf(BINDER, _platform()), "");
+        assertEq(_nameOn(BINDER, _platform()), "");
+    }
+
+    /// The holder's name if it is on `platformId`; a name on another platform fails the test.
+    function _nameOn(address holder, bytes32 platformId) internal view returns (string memory handle) {
+        bytes32 on;
+        (on, handle) = registry.primaryHandleOf(holder);
+        if (bytes(handle).length == 0) assertEq(on, bytes32(0), "a platform without a name");
+        else assertEq(on, platformId, "the name is on another platform");
     }
 
     function _reached(Vm.AccountAccess[] memory accesses, address account) internal pure returns (bool) {
@@ -137,7 +145,7 @@ abstract contract RealProofBindBase is PrivacyScan {
         vm.expectEmit(address(registry));
         emit IdentityRegistry.HandlePublished(BINDER, _platform(), _handleNode(), _secrets()[2]);
         _bind(payload, _secrets()[1]);
-        assertEq(registry.publishedHandleOf(BINDER, _platform()), _secrets()[2]);
+        assertEq(_nameOn(BINDER, _platform()), _secrets()[2]);
 
         assertTrue(_containsAny(_loggedRun(vm.getRecordedLogs())), "a disclosure logs the handle");
     }
@@ -289,7 +297,7 @@ contract RealProofBindTest is RealTlsNotaryBind {
         emit IdentityRegistry.HandlePublished(BINDER, X, HANDLE_NODE, "alice_1");
         vm.prank(BINDER);
         registry.publish(X, "ALICE_1");
-        assertEq(registry.publishedHandleOf(BINDER, X), "alice_1");
+        assertEq(_nameOn(BINDER, X), "alice_1");
     }
 
     function test_refusesToPublishAHandleTheHolderDidNotProve() public {
