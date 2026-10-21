@@ -1,16 +1,49 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
+import {CommonBase} from "forge-std/Base.sol";
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 
 import {CeremonyProfile} from "../../ceremony/CeremonyProfile.sol";
 import {HandleNode} from "../../handles/HandleNode.sol";
 import {IIdentityRegistry} from "../../identity/IIdentityRegistry.sol";
+import {HandleEscrow} from "../HandleEscrow.sol";
 
 /// @notice A one-token list for `HandleEscrow.claim`.
 function one(address token) pure returns (address[] memory tokens) {
     tokens = new address[](1);
     tokens[0] = token;
+}
+
+/// @notice Refund-date helpers for escrow tests and handlers.
+abstract contract EscrowHelpers is CommonBase {
+    /// @notice The `refundableAt` a deposit to `escrow` sets now.
+    function graceEnd(HandleEscrow escrow) internal view returns (uint64) {
+        return uint64(vm.getBlockTimestamp() + escrow.REFUND_GRACE());
+    }
+
+    /// @notice Move past every refund date `escrow` has set so far.
+    function afterGrace(HandleEscrow escrow) internal {
+        vm.warp(graceEnd(escrow));
+    }
+
+    /// @notice What `escrow` books under `sender` for a node and token now.
+    function contributed(HandleEscrow escrow, bytes32 handleNode, address token, address sender)
+        internal
+        view
+        returns (uint256 amount)
+    {
+        (amount,) = escrow.contribution(handleNode, token, sender);
+    }
+
+    /// @notice When `refund` opens for `sender`'s contribution to a node and token.
+    function refundableAt(HandleEscrow escrow, bytes32 handleNode, address token, address sender)
+        internal
+        view
+        returns (uint64 at)
+    {
+        (, at) = escrow.contribution(handleNode, token, sender);
+    }
 }
 
 /// @notice A registry whose holders are set directly.
