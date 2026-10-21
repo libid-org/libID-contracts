@@ -189,7 +189,7 @@ contract HandleEscrow is IHandleReveal, Initializable, UUPSUpgradeable, Ownable2
     ) external payable nonReentrant {
         bytes32 handleNode = _s().registry.handleNodeOf(platformId, handle);
         _deposit(handleNode, platformId, token, amount, refundTo);
-        emit HandleRevealed(msg.sender, platformId, handleNode, HandleNode.fold(handle));
+        emit HandleRevealed(platformId, handleNode, HandleNode.fold(handle));
     }
 
     function _deposit(bytes32 handleNode, bytes32 platformId, address token, uint256 amount, address refundTo) private {

@@ -268,7 +268,7 @@ contract IdentityRegistry is
 
         _write(platformId, claimed.idNode, claimed.handleNode, claimed.metadataObservedAt, claimed.ceremonyVersion);
         if (bytes(folded).length != 0) {
-            emit HandleRevealed(msg.sender, platformId, claimed.handleNode, folded);
+            emit HandleRevealed(platformId, claimed.handleNode, folded);
             if (primary) _name(platformId, claimed.handleNode, folded);
         }
 
@@ -362,7 +362,7 @@ contract IdentityRegistry is
     /// @dev The folded handle must hash to a node the caller holds.
     function publish(bytes32 platformId, string calldata handle) external {
         (string memory normalized, bytes32 handleNode) = _heldHandle(platformId, handle);
-        emit HandleRevealed(msg.sender, platformId, handleNode, normalized);
+        emit HandleRevealed(platformId, handleNode, normalized);
         _name(platformId, handleNode, normalized);
     }
 
@@ -370,7 +370,7 @@ contract IdentityRegistry is
     /// @dev The folded handle must hash to a node the caller holds.
     function reveal(bytes32 platformId, string calldata handle) external {
         (string memory normalized, bytes32 handleNode) = _heldHandle(platformId, handle);
-        emit HandleRevealed(msg.sender, platformId, handleNode, normalized);
+        emit HandleRevealed(platformId, handleNode, normalized);
     }
 
     /// @notice Withdraw the caller's name. Logs only a name there was.

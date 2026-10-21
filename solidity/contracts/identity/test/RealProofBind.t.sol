@@ -144,7 +144,7 @@ abstract contract RealProofBindBase is PrivacyScan {
         assertFalse(_containsAny(payload), "the payload carries an id or handle");
         vm.recordLogs();
         vm.expectEmit(address(registry));
-        emit IHandleReveal.HandleRevealed(BINDER, _platform(), _handleNode(), _secrets()[2]);
+        emit IHandleReveal.HandleRevealed(_platform(), _handleNode(), _secrets()[2]);
         vm.expectEmit(address(registry));
         emit IdentityRegistry.HandlePublished(BINDER, _platform(), _handleNode());
         _bind(payload, _secrets()[1]);
@@ -297,7 +297,7 @@ contract RealProofBindTest is RealTlsNotaryBind {
     function test_publishesTheHandleFolded() public {
         _bind(_payload(), "");
         vm.expectEmit(address(registry));
-        emit IHandleReveal.HandleRevealed(BINDER, X, HANDLE_NODE, "alice_1");
+        emit IHandleReveal.HandleRevealed(X, HANDLE_NODE, "alice_1");
         vm.expectEmit(address(registry));
         emit IdentityRegistry.HandlePublished(BINDER, X, HANDLE_NODE);
         vm.prank(BINDER);

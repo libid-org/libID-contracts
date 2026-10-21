@@ -460,7 +460,7 @@ contract IdentityRegistryTest is PrivacyScan {
         _stage("123", "Alice", alice, 100);
         bytes32 node = _hn(X, "alice");
         vm.expectEmit(true, true, true, true, address(registry));
-        emit IHandleReveal.HandleRevealed(alice, X, node, "alice");
+        emit IHandleReveal.HandleRevealed(X, node, "alice");
         vm.expectEmit(true, true, true, true, address(registry));
         emit IdentityRegistry.HandlePublished(alice, X, node);
         vm.prank(alice);
@@ -488,7 +488,7 @@ contract IdentityRegistryTest is PrivacyScan {
         bytes memory payload = _payload(V1);
         vm.recordLogs();
         vm.expectEmit(true, true, true, true, address(registry));
-        emit IHandleReveal.HandleRevealed(alice, X, _hn(X, "alicia"), "alicia");
+        emit IHandleReveal.HandleRevealed(X, _hn(X, "alicia"), "alicia");
         vm.prank(alice);
         registry.bind(X, V1, payload, "ALICIA", false);
 
@@ -529,7 +529,7 @@ contract IdentityRegistryTest is PrivacyScan {
         bytes32 node = _hn(X, "alice");
         vm.startStateDiffRecording();
         vm.expectEmit(true, true, true, true, address(registry));
-        emit IHandleReveal.HandleRevealed(alice, X, node, "alice");
+        emit IHandleReveal.HandleRevealed(X, node, "alice");
         vm.prank(alice);
         registry.reveal(X, "ALICE");
         Vm.AccountAccess[] memory accesses = vm.stopAndReturnStateDiff();
@@ -573,7 +573,7 @@ contract IdentityRegistryTest is PrivacyScan {
 
         bytes32 node = _hn(X, "alice");
         vm.expectEmit(true, true, true, true, address(registry));
-        emit IHandleReveal.HandleRevealed(alice, X, node, "alice");
+        emit IHandleReveal.HandleRevealed(X, node, "alice");
         vm.expectEmit(true, true, true, true, address(registry));
         emit IdentityRegistry.HandlePublished(alice, X, node);
         vm.prank(alice);
