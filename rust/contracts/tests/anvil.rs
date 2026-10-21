@@ -1138,6 +1138,7 @@ async fn binds_through_the_stub_platform_verifier() {
             1,
             payload.clone(),
             "alice_x".into(),
+            true,
             U256::ZERO,
             Address::ZERO,
         )

@@ -13,7 +13,7 @@ import {
   identitiesOf,
   identityCount,
   platformId,
-  publishedHandleOf,
+  primaryHandleOf,
   type RegistryReader,
   resolveHandle,
   resolveHandleAndId,
@@ -101,21 +101,24 @@ describe('resolving a handle', () => {
 })
 
 describe('resolving a holder back to a handle', () => {
-  it('reads the published handle', async () => {
-    const readContract = vi.fn().mockResolvedValue('alice')
-    expect(await publishedHandleOf(reader(readContract), ALICE, X)).toBe('alice')
+  it('reads the primary handle and its platform', async () => {
+    const readContract = vi.fn().mockResolvedValue([X, 'alice'])
+    expect(await primaryHandleOf(reader(readContract), ALICE)).toEqual({
+      platformId: X,
+      handle: 'alice',
+    })
 
     expect(readContract.mock.calls[0][0]).toMatchObject({
-      functionName: 'publishedHandleOf',
-      args: [ALICE, X],
+      functionName: 'primaryHandleOf',
+      args: [ALICE],
     })
   })
 
-  /// `publishedHandleOf` is forward-checked on chain, so a stale handle
+  /// `primaryHandleOf` is forward-checked on chain, so a stale handle
   /// arrives as empty.
-  it('gives no published handle once the handle has moved on', async () => {
-    const readContract = vi.fn().mockResolvedValue('')
-    expect(await publishedHandleOf(reader(readContract), ALICE, X)).toBeNull()
+  it('gives no primary handle once the handle has moved on', async () => {
+    const readContract = vi.fn().mockResolvedValue([zeroHash, ''])
+    expect(await primaryHandleOf(reader(readContract), ALICE)).toBeNull()
   })
 })
 

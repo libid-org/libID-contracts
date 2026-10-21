@@ -10,6 +10,7 @@ import {ICeremony} from "../ceremony/ICeremony.sol";
 import {IProofVerifier} from "../ceremony/IProofVerifier.sol";
 import {CeremonyProfile} from "../ceremony/CeremonyProfile.sol";
 import {HandleNode} from "../handles/HandleNode.sol";
+import {IHandleReveal} from "../handles/IHandleReveal.sol";
 import {IIdentityRegistry} from "./IIdentityRegistry.sol";
 import {IdentityList} from "./IdentityList.sol";
 
@@ -20,6 +21,7 @@ import {IdentityList} from "./IdentityList.sol";
 ///      nullifier (REQ-COMMON-03A); `observedAt` orders proofs of one node.
 contract IdentityRegistry is
     IIdentityRegistry,
+    IHandleReveal,
     Initializable,
     UUPSUpgradeable,
     Ownable2StepUpgradeable,
@@ -43,6 +45,12 @@ contract IdentityRegistry is
         bool handleCurrent;
     }
 
+    /// @notice The one handle a holder shows as its name, and the platform it is on.
+    struct PrimaryHandle {
+        bytes32 platformId;
+        string handle;
+    }
+
     // ─── State ──────────────────────────────────────────────────────
 
     /// @custom:storage-location erc7201:libid.storage.IdentityRegistry
@@ -51,8 +59,8 @@ contract IdentityRegistry is
         mapping(bytes32 => Binding) idBindings;
         /// handleNode -> the holder that last proved that handle.
         mapping(bytes32 => Binding) handleBindings;
-        /// holder -> platformId -> the handle it disclosed as its name there.
-        mapping(address => mapping(bytes32 => string)) published;
+        /// holder -> the handle it disclosed as its name, on whichever platform.
+        mapping(address => PrimaryHandle) primaryHandles;
         /// idNode -> the handle node that identity last proved, and back.
         /// The reverse map lets a rename retire only a handle still paired with this id.
         mapping(bytes32 => bytes32) handleNodeById;
@@ -98,7 +106,7 @@ contract IdentityRegistry is
 
     // ─── Events ─────────────────────────────────────────────────────
 
-    /// @notice An identity was bound. A disclosed handle is in `HandlePublished`.
+    /// @notice An identity was bound. A disclosed handle is in `HandleRevealed`.
     event IdentityBound(
         address indexed holder,
         bytes32 indexed idNode,
@@ -124,13 +132,12 @@ contract IdentityRegistry is
     /// @notice This Consumer was pointed at a Proof Verifier.
     event ProofVerifierConfigured(address verifier);
 
-    /// @notice A holder disclosed its normalized handle as its name on a platform.
-    event HandlePublished(
-        address indexed holder, bytes32 indexed platformId, bytes32 indexed handleNode, string handle
-    );
+    /// @notice A holder made a handle it holds its name, replacing any name it
+    ///         had on any platform. The text is in the `HandleRevealed` before it.
+    event HandlePublished(address indexed holder, bytes32 indexed platformId, bytes32 indexed handleNode);
 
-    /// @notice A holder withdrew its published handle.
-    event HandleUnpublished(address indexed holder, bytes32 indexed platformId);
+    /// @notice A holder's name was withdrawn.
+    event HandleUnpublished(address indexed holder);
 
     // ─── Errors ─────────────────────────────────────────────────────
 
@@ -168,6 +175,8 @@ contract IdentityRegistry is
     /// The handle a bind discloses hashes to `disclosed`, not the node the
     /// proof bound. Disclose the handle the platform shows for this account.
     error HandleNotProved(bytes32 disclosed, bytes32 proved);
+    /// A bind asks to make its handle the caller's name but discloses none.
+    error PrimaryWithoutHandle();
 
     // ─── Setup ──────────────────────────────────────────────────────
 
@@ -184,7 +193,8 @@ contract IdentityRegistry is
     // ─── Binding ────────────────────────────────────────────────────
 
     /// @notice Bind an identity from a ceremony. A nonempty `handle` must fold and
-    ///         hash to the proved handle node, and becomes the caller's name there.
+    ///         hash to the proved handle node; it is logged in `HandleRevealed`,
+    ///         and with `primary` it also becomes the caller's name.
     /// @dev `msg.value` is `quoteBind` plus `feeAmount`, which goes to
     ///      `feeReceiver`. A bind with no service fee passes `(0, address(0))`.
     function bind(
@@ -192,10 +202,11 @@ contract IdentityRegistry is
         uint16 verifierVersion,
         bytes calldata payload,
         string calldata handle,
+        bool primary,
         uint256 feeAmount,
         address feeReceiver
     ) external payable nonReentrant {
-        _bind(platformId, verifierVersion, payload, handle, feeAmount, feeReceiver);
+        _bind(platformId, verifierVersion, payload, handle, primary, feeAmount, feeReceiver);
     }
 
     /// @notice `bind` disclosing nothing.
@@ -206,7 +217,7 @@ contract IdentityRegistry is
         uint256 feeAmount,
         address feeReceiver
     ) external payable nonReentrant {
-        _bind(platformId, verifierVersion, payload, "", feeAmount, feeReceiver);
+        _bind(platformId, verifierVersion, payload, "", false, feeAmount, feeReceiver);
     }
 
     function _bind(
@@ -214,10 +225,12 @@ contract IdentityRegistry is
         uint16 verifierVersion,
         bytes calldata payload,
         string memory handle,
+        bool primary,
         uint256 feeAmount,
         address feeReceiver
     ) private {
         _requireKnown(platformId);
+        if (primary && bytes(handle).length == 0) revert PrimaryWithoutHandle();
 
         IProofVerifier pv = _s().proofVerifier;
         uint256 required = pv.quote(platformId, verifierVersion);
@@ -260,7 +273,10 @@ contract IdentityRegistry is
         }
 
         _write(platformId, claimed.idNode, claimed.handleNode, claimed.metadataObservedAt, claimed.ceremonyVersion);
-        if (bytes(folded).length != 0) _name(platformId, claimed.handleNode, folded);
+        if (bytes(folded).length != 0) {
+            emit HandleRevealed(platformId, claimed.handleNode, folded);
+            if (primary) _name(platformId, claimed.handleNode, folded);
+        }
 
         emit CeremonyBound(claimed.sessionId, msg.sender, platformId, claimed.clientIdentifier);
 
@@ -335,42 +351,59 @@ contract IdentityRegistry is
         _withdrawName(holder, platformId, previous);
     }
 
-    /// @dev Withdraw `holder`'s name on the platform if it names `handleNode`,
+    /// @dev Withdraw `holder`'s name if it is `handleNode` on this platform,
     ///      which `holder` no longer holds, so a later private proof of it shows no name.
     function _withdrawName(address holder, bytes32 platformId, bytes32 handleNode) private {
         if (holder == address(0)) return;
-        string memory name = _s().published[holder][platformId];
-        if (bytes(name).length == 0) return;
-        if (HandleNode.node(CeremonyProfile.handleTag(platformId), name) != handleNode) return;
-        _unpublish(holder, platformId);
+        PrimaryHandle storage name = _s().primaryHandles[holder];
+        if (name.platformId != platformId) return;
+        if (HandleNode.node(CeremonyProfile.handleTag(platformId), name.handle) != handleNode) return;
+        _unpublish(holder);
     }
 
     // ─── Names ──────────────────────────────────────────────────────
 
-    /// @notice Disclose the caller's handle on a platform as its name there.
+    /// @notice Disclose the caller's handle on a platform as its name, replacing
+    ///         any name it had on any platform.
     /// @dev The folded handle must hash to a node the caller holds.
     function publish(bytes32 platformId, string calldata handle) external {
-        (string memory normalized, bytes32 handleNode) = _handleNodeOf(platformId, handle);
-        if (_s().handleBindings[handleNode].holder != msg.sender) revert NotYourHandle(handleNode);
+        (string memory normalized, bytes32 handleNode) = _heldHandle(platformId, handle);
+        emit HandleRevealed(platformId, handleNode, normalized);
         _name(platformId, handleNode, normalized);
     }
 
-    /// @notice Withdraw the caller's name on a platform. Logs only a name there was.
-    function unpublish(bytes32 platformId) external {
-        _requireKnown(platformId);
-        if (bytes(_s().published[msg.sender][platformId]).length == 0) return;
-        _unpublish(msg.sender, platformId);
+    /// @notice Show a handle the caller holds in `HandleRevealed`, changing no state.
+    /// @dev The folded handle must hash to a node the caller holds.
+    function reveal(bytes32 platformId, string calldata handle) external {
+        (string memory normalized, bytes32 handleNode) = _heldHandle(platformId, handle);
+        emit HandleRevealed(platformId, handleNode, normalized);
     }
 
-    function _unpublish(address holder, bytes32 platformId) private {
-        delete _s().published[holder][platformId];
-        emit HandleUnpublished(holder, platformId);
+    /// @notice Withdraw the caller's name. Logs only a name there was.
+    function unpublish() external {
+        if (_s().primaryHandles[msg.sender].platformId == bytes32(0)) return;
+        _unpublish(msg.sender);
+    }
+
+    function _unpublish(address holder) private {
+        delete _s().primaryHandles[holder];
+        emit HandleUnpublished(holder);
+    }
+
+    /// @dev Typed text folded, and its node, which the caller must hold.
+    function _heldHandle(bytes32 platformId, string calldata handle)
+        private
+        view
+        returns (string memory folded, bytes32 handleNode)
+    {
+        (folded, handleNode) = _handleNodeOf(platformId, handle);
+        if (_s().handleBindings[handleNode].holder != msg.sender) revert NotYourHandle(handleNode);
     }
 
     /// @dev Store and log a checked, normalized handle as the caller's name.
     function _name(bytes32 platformId, bytes32 handleNode, string memory handle) private {
-        _s().published[msg.sender][platformId] = handle;
-        emit HandlePublished(msg.sender, platformId, handleNode, handle);
+        _s().primaryHandles[msg.sender] = PrimaryHandle({platformId: platformId, handle: handle});
+        emit HandlePublished(msg.sender, platformId, handleNode);
     }
 
     // ─── Guards ─────────────────────────────────────────────────────
@@ -424,14 +457,14 @@ contract IdentityRegistry is
         return _s().handleBindings[handleNode].holder;
     }
 
-    /// @notice The name a holder disclosed on a platform, while it still holds that handle.
-    function publishedHandleOf(address holder, bytes32 platformId) external view returns (string memory) {
-        _requireKnown(platformId);
-        string memory published = _s().published[holder][platformId];
-        if (bytes(published).length == 0) return "";
-        bytes32 handleNode = HandleNode.node(CeremonyProfile.handleTag(platformId), published);
-        if (_s().handleBindings[handleNode].holder != holder) return "";
-        return published;
+    /// @notice The name a holder disclosed and the platform it is on, while it
+    ///         still holds that handle; zero and empty otherwise.
+    function primaryHandleOf(address holder) external view returns (bytes32 platformId, string memory handle) {
+        PrimaryHandle memory name = _s().primaryHandles[holder];
+        if (name.platformId == bytes32(0)) return (bytes32(0), "");
+        bytes32 handleNode = HandleNode.node(CeremonyProfile.handleTag(name.platformId), name.handle);
+        if (_s().handleBindings[handleNode].holder != holder) return (bytes32(0), "");
+        return (name.platformId, name.handle);
     }
 
     /// @notice How many identities a holder has proved.
