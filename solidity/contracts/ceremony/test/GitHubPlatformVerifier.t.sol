@@ -34,7 +34,7 @@ contract GitHubPlatformVerifierTest is RealTlsNotaryProofTest {
     uint64 constant ALLOWANCE = CeremonyProfile.FUTURE_OBSERVATION_ALLOWANCE_SECONDS_GITHUB;
     uint64 constant T0 = 1_770_000_000;
 
-    bytes32 constant DOMAIN = keccak256(bytes("libid.claim-identity"));
+    bytes32 constant DOMAIN = keccak256(bytes("libid.bind-identity"));
     bytes32 constant AUTH_NONCE = bytes32(uint256(0x5555555555555555555555555555555555555555555555555555555555555555));
     /// The digest the fixtures are made for; set in `setUp`.
     bytes32 digest;
@@ -52,7 +52,7 @@ contract GitHubPlatformVerifierTest is RealTlsNotaryProofTest {
     bytes32 constant HANDLE_NODE = 0x381fb9d7d3b01214e58b94202ea10f78e169adef68bcc20d40c130deca6dfe74;
 
     function setUp() public {
-        digest = CeremonyAuthorization.digestFor(DOMAIN, 1, AUTH_NONCE, _txData());
+        digest = CeremonyAuthorization.digest(DOMAIN, 1, AUTH_NONCE, _txData());
         vm.warp(T0 + 10);
         NotaryService nImpl = new NotaryService();
         notary = NotaryService(
@@ -226,7 +226,7 @@ contract GitHubPlatformVerifierTest is RealTlsNotaryProofTest {
     }
 
     function _txData() private pure returns (bytes memory) {
-        return abi.encode(address(0xBEEF), uint256(0), address(0));
+        return abi.encode(address(0xBEEF));
     }
 
     /// The `github/v1` payload the fixtures are made for.
@@ -995,7 +995,7 @@ contract GitHubPlatformVerifierTest is RealTlsNotaryProofTest {
             vm.parseJsonBytes32(json, ".authorization_digest"),
             vm.parseJsonBytes32(json, ".authorization_nonce")
         );
-        assertEq(string(clientId), "Iv23lioEM9NAR9vO8CmT");
+        assertEq(string(clientId), "Ov23liIOfT7uQ9707Fpz");
         assertTrue(tokenCommitment != bytes32(0));
         assertEq(transcripts.identityRequest(identityData), identityData.sent.commitments[0].commitment);
     }
@@ -1011,7 +1011,7 @@ contract GitHubPlatformVerifierTest is RealTlsNotaryProofTest {
         s.tokenSession = AttestationBuilder.fixtureSession(json, ".token");
         s.identitySession = AttestationBuilder.fixtureSession(json, ".identity");
         ICeremony.VerifiedClaim memory f = this.run{value: quote}(s);
-        assertEq(string(f.clientIdentifier), "Iv23lioEM9NAR9vO8CmT");
+        assertEq(string(f.clientIdentifier), "Ov23liIOfT7uQ9707Fpz");
         assertEq(f.sessionId, digest);
     }
 

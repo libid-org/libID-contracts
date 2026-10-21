@@ -127,7 +127,7 @@ abstract contract TlsNotaryVerifierBase is IPlatformVerifier, PlatformVerifierBa
         // The token session's revealed `code_verifier` must match this digest,
         // so any changed input yields a digest no attestation matches.
         bytes32 digest =
-            CeremonyAuthorization.digestFor(p.operationDomain, version, p.authorizationNonce, p.transactionData);
+            CeremonyAuthorization.digest(p.operationDomain, version, p.authorizationNonce, p.transactionData);
 
         (uint64 observedAt, bytes32 tokenCommitment) = _tokenSession(digest, p, fee, claimed);
         Commitments memory identity = _identitySession(p, fee);

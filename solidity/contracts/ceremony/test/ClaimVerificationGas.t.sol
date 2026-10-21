@@ -110,7 +110,6 @@ contract ClaimVerificationGasTest is Test {
         p.proof = vm.parseJsonBytes(proof, ".proof");
         bytes memory payload = abi.encode(p);
 
-        vm.chainId(vm.parseJsonUint(session, ".chain_id"));
         vm.warp(vm.parseJsonUint(session, ".created_at") + 60);
         uint256 fee = verifier.quote();
         verifier.verify{value: fee}(payload);

@@ -864,13 +864,13 @@ contract HandleEscrowTest is PrivacyScan {
         bytes memory payload = abi.encode(
             StubPlatformVerifier.StubPayload({
                 ceremonyVersion: 1,
-                operationDomain: keccak256(bytes("libid.claim-identity")),
+                operationDomain: keccak256(bytes("libid.bind-identity")),
                 authorizationNonce: bytes32(++nonce),
-                transactionData: abi.encode(who, uint256(0), address(0))
+                transactionData: abi.encode(who)
             })
         );
         vm.prank(who);
-        registry.bind(X, V1, payload, "", false);
+        registry.bind(X, V1, payload, "", false, 0, address(0));
     }
 
     /// Deposit native value for text on X, at the node the registry names.

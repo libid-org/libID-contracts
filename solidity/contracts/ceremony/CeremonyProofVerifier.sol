@@ -5,7 +5,6 @@ import {Initializable} from "@openzeppelin/contracts/proxy/utils/Initializable.s
 import {UUPSUpgradeable} from "@openzeppelin/contracts/proxy/utils/UUPSUpgradeable.sol";
 import {Ownable2StepUpgradeable} from "@openzeppelin/contracts-upgradeable/access/Ownable2StepUpgradeable.sol";
 
-import {CeremonyAuthorization} from "./CeremonyAuthorization.sol";
 import {ICeremony} from "./ICeremony.sol";
 import {IPlatformVerifier} from "./IPlatformVerifier.sol";
 import {IProofVerifier} from "./IProofVerifier.sol";
@@ -76,15 +75,6 @@ contract CeremonyProofVerifier is IProofVerifier, Initializable, UUPSUpgradeable
     function initialize(address owner_) external initializer {
         __Ownable_init(owner_);
         __Ownable2Step_init();
-    }
-
-    /// @notice This chain's identifier, as the digest construction takes it.
-    /// @dev A convenience for callers building a digest off chain against this
-    ///      deployment. The verifiers do not read it from here: they take it
-    ///      from `CeremonyAuthorization.digestFor`, which reads the chain
-    ///      itself.
-    function chainId() public view returns (bytes32) {
-        return CeremonyAuthorization.chainId();
     }
 
     /// @inheritdoc IProofVerifier

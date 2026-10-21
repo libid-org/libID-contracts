@@ -1125,17 +1125,23 @@ async fn binds_through_the_stub_platform_verifier() {
     assert_eq!(stub.platformId().call().await.unwrap(), x);
     assert_eq!(registry.quoteBind(x, 1).call().await.unwrap(), fee);
 
-    // The registry's transaction data: the target, then no bind fee.
+    // The registry's transaction data: the target alone; the bind pays no fee.
     let payload = stub_payload(&StubPayload {
         ceremonyVersion: 1,
         operationDomain: registry.OPERATION_DOMAIN().call().await.unwrap(),
         authorizationNonce: B256::repeat_byte(0x01),
-        transactionData: (deployer, U256::ZERO, Address::ZERO)
-            .abi_encode_params()
-            .into(),
+        transactionData: (deployer,).abi_encode_params().into(),
     });
     let receipt = registry
-        .bind(x, 1, payload.clone(), "alice_x".into(), true)
+        .bind(
+            x,
+            1,
+            payload.clone(),
+            "alice_x".into(),
+            true,
+            U256::ZERO,
+            Address::ZERO,
+        )
         .value(fee)
         .send()
         .await

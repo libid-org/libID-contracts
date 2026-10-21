@@ -144,7 +144,7 @@ contract GooglePlatformVerifier is IPlatformVerifier, PlatformVerifierBase {
 
         // REQ-COMMON-02A: the proof must carry this digest as the signed `nonce`.
         bytes32 digest =
-            CeremonyAuthorization.digestFor(p.operationDomain, version, p.authorizationNonce, p.transactionData);
+            CeremonyAuthorization.digest(p.operationDomain, version, p.authorizationNonce, p.transactionData);
 
         // REQ-PLAT-19A. The proof binds the bytes' hash, and the Consumer
         // receives the readable value.

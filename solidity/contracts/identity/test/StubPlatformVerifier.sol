@@ -66,9 +66,8 @@ contract StubPlatformVerifier is IPlatformVerifier {
         StubPayload memory p = abi.decode(payload, (StubPayload));
         lastPayload = payload;
         lastValue = msg.value;
-        lastDigest = CeremonyAuthorization.digestFor(
-            p.operationDomain, p.ceremonyVersion, p.authorizationNonce, p.transactionData
-        );
+        lastDigest =
+            CeremonyAuthorization.digest(p.operationDomain, p.ceremonyVersion, p.authorizationNonce, p.transactionData);
 
         c.sessionId = lastDigest;
         c.operationDomain = p.operationDomain;

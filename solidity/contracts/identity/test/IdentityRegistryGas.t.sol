@@ -117,14 +117,14 @@ contract IdentityRegistryGasTest is Test {
         bytes memory payload = abi.encode(
             StubPlatformVerifier.StubPayload({
                 ceremonyVersion: V1,
-                operationDomain: keccak256(bytes("libid.claim-identity")),
+                operationDomain: keccak256(bytes("libid.bind-identity")),
                 authorizationNonce: bytes32(++nonce),
-                transactionData: abi.encode(who, uint256(0), address(0))
+                transactionData: abi.encode(who)
             })
         );
         _cool();
         vm.prank(who);
-        registry.bind(X, V1, payload, handle, bytes(handle).length != 0);
+        registry.bind(X, V1, payload, handle, bytes(handle).length != 0, 0, address(0));
     }
 
     // ─── Writes ─────────────────────────────────────────────────────

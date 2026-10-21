@@ -27,7 +27,7 @@ contract LayoutForgeryTest is Test {
     uint256 constant NOTARY_KEY = 0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80;
     uint256 constant FEE = 0.001 ether;
     uint64 constant T0 = 1_770_000_000;
-    bytes32 constant DOMAIN = keccak256(bytes("libid.claim-identity"));
+    bytes32 constant DOMAIN = keccak256(bytes("libid.bind-identity"));
     bytes32 constant AUTH_NONCE = bytes32(uint256(0x5555555555555555555555555555555555555555555555555555555555555555));
     /// The digest the fixtures are made for, derived in `setUp`.
     bytes32 digest;
@@ -35,7 +35,7 @@ contract LayoutForgeryTest is Test {
     bytes32 constant IDENTITY_COMMITMENT = bytes32(uint256(0x2222));
 
     function setUp() public {
-        digest = CeremonyAuthorization.digestFor(DOMAIN, 1, AUTH_NONCE, _txData());
+        digest = CeremonyAuthorization.digest(DOMAIN, 1, AUTH_NONCE, _txData());
         vm.warp(T0 + 10);
         NotaryService nImpl = new NotaryService();
         notary = NotaryService(
