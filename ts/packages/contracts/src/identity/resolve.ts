@@ -106,15 +106,25 @@ export async function resolveHandle(
   return (await resolveHandleAndId(reader, platformId, handle, zeroHash)).holder
 }
 
-/// The handle to show for a holder, or `null`. Forward-checked on chain:
-/// empty once the stored handle resolves somewhere else.
-export async function publishedHandleOf(
+/// The one handle a holder shows as its name, and the platform it is on.
+export interface PrimaryHandle {
+  platformId: `0x${string}`
+  /// Folded, as the holder disclosed it.
+  handle: string
+}
+
+/// The handle to show for a holder, on whichever platform, or `null`.
+/// Forward-checked on chain: none once the stored handle resolves somewhere else.
+export async function primaryHandleOf(
   reader: RegistryReader,
   holder: Address,
-  platformId: `0x${string}`,
-): Promise<string | null> {
-  const handle = await read<string>(reader, 'publishedHandleOf', [holder, platformId])
-  return handle.length === 0 ? null : handle
+): Promise<PrimaryHandle | null> {
+  const [platformId, handle] = await read<readonly [`0x${string}`, string]>(
+    reader,
+    'primaryHandleOf',
+    [holder],
+  )
+  return handle.length === 0 ? null : { platformId, handle }
 }
 
 /// One identity a holder proved, as the holder's list reports it.

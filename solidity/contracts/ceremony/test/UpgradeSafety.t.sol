@@ -357,7 +357,7 @@ contract UpgradeSafetyTest is Test {
             })
         );
         vm.prank(who);
-        registry.bind(X, 1, payload, "alice");
+        registry.bind(X, 1, payload, "alice", true);
     }
 
     function test_upgrade_IdentityRegistry() public {
@@ -374,7 +374,9 @@ contract UpgradeSafetyTest is Test {
 
         assertEq(registry.resolveId(TestNodes.idNode(X, "2244994945")), alice);
         assertEq(registry.resolveHandle(X, "alice"), alice);
-        assertEq(registry.publishedHandleOf(alice, X), "alice");
+        (bytes32 namedOn, string memory name) = registry.primaryHandleOf(alice);
+        assertEq(namedOn, X);
+        assertEq(name, "alice");
         assertEq(registry.identityCount(alice), 1);
         assertEq(registry.identitiesOf(alice, 0, 1)[0].handleNode, TestNodes.handleNode(X, "alice"));
         assertTrue(registry.digestSpent(digest));

@@ -7,6 +7,7 @@ import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.s
 import {CeremonyProfile} from "../../ceremony/CeremonyProfile.sol";
 import {IdentityRegistry} from "../IdentityRegistry.sol";
 import {IIdentityRegistry} from "../IIdentityRegistry.sol";
+import {IHandleReveal} from "../../handles/IHandleReveal.sol";
 import {CeremonyProofVerifier} from "../../ceremony/CeremonyProofVerifier.sol";
 import {IPlatformVerifier} from "../../ceremony/IPlatformVerifier.sol";
 import {IProofVerifier} from "../../ceremony/IProofVerifier.sol";
@@ -106,7 +107,7 @@ contract IdentityRegistryTest is PrivacyScan {
     /// Submit the staged bind, disclosing `disclosed` (empty for a private bind). Caller supplies the prank.
     function _submit(bytes32 platformId, string memory disclosed) internal {
         bytes memory payload = _payload(V1);
-        registry.bind(platformId, V1, payload, disclosed);
+        registry.bind(platformId, V1, payload, disclosed, bytes(disclosed).length != 0);
     }
 
     /// Stage and bind privately as `who`.
@@ -132,7 +133,8 @@ contract IdentityRegistryTest is PrivacyScan {
         assertEq(registry.resolveHandle(X, "alice"), alice, "the handle does not resolve");
     }
 
-    /// `claim` and a `bind` with a publish flag reach no function; the payload stays unspent for `bind`.
+    /// `claim`, a `bind` with a publish flag and the `bind` without the primary
+    /// flag reach no function; the payload stays unspent for `bind`.
     function test_theOldSelectorsAreGone() public {
         _stage("123", "alice", alice, 100);
         bytes memory payload = _payload(V1);
@@ -144,10 +146,14 @@ contract IdentityRegistryTest is PrivacyScan {
         vm.prank(alice);
         (ok,) = address(registry).call(abi.encodeWithSignature("bind(bytes32,uint16,bytes,bool)", X, V1, payload, true));
         assertFalse(ok, "the publish-flag bind still answers");
+        vm.prank(alice);
+        (ok,) = address(registry)
+            .call(abi.encodeWithSignature("bind(bytes32,uint16,bytes,string)", X, V1, payload, "alice"));
+        assertFalse(ok, "the bind without a primary flag still answers");
         assertEq(registry.resolveHandle(X, "alice"), address(0));
 
         vm.prank(alice);
-        registry.bind(X, V1, payload, "");
+        registry.bind(X, V1, payload, "", false);
         assertEq(registry.resolveHandle(X, "alice"), alice, "the unspent payload does not bind");
     }
 
@@ -311,13 +317,11 @@ contract IdentityRegistryTest is PrivacyScan {
         vm.prank(alice);
         vm.expectRevert(abi.encodeWithSelector(IIdentityRegistry.UnknownPlatform.selector, unwired));
         registry.publish(unwired, "alice");
-        vm.expectRevert(abi.encodeWithSelector(IIdentityRegistry.UnknownPlatform.selector, unwired));
-        registry.acceptsBindings(unwired);
         vm.prank(alice);
         vm.expectRevert(abi.encodeWithSelector(IIdentityRegistry.UnknownPlatform.selector, unwired));
-        registry.unpublish(unwired);
+        registry.reveal(unwired, "alice");
         vm.expectRevert(abi.encodeWithSelector(IIdentityRegistry.UnknownPlatform.selector, unwired));
-        registry.publishedHandleOf(alice, unwired);
+        registry.acceptsBindings(unwired);
 
         vm.expectRevert(abi.encodeWithSelector(IIdentityRegistry.UnknownPlatform.selector, unwired));
         registry.resolveHandle(unwired, "alice");
@@ -447,7 +451,7 @@ contract IdentityRegistryTest is PrivacyScan {
         vm.recordLogs();
         _bind(alice, "123", "alice", 100);
 
-        assertEq(registry.publishedHandleOf(alice, X), "", "nothing should be published by default");
+        assertEq(_nameOn(alice, X), "", "nothing should be published by default");
         assertEq(_count(vm.getRecordedLogs(), IdentityRegistry.HandlePublished.selector), 0);
     }
 
@@ -456,11 +460,13 @@ contract IdentityRegistryTest is PrivacyScan {
         _stage("123", "Alice", alice, 100);
         bytes32 node = _hn(X, "alice");
         vm.expectEmit(true, true, true, true, address(registry));
-        emit IdentityRegistry.HandlePublished(alice, X, node, "alice");
+        emit IHandleReveal.HandleRevealed(X, node, "alice");
+        vm.expectEmit(true, true, true, true, address(registry));
+        emit IdentityRegistry.HandlePublished(alice, X, node);
         vm.prank(alice);
         _submit(X, "ALICE");
 
-        assertEq(registry.publishedHandleOf(alice, X), "alice");
+        assertEq(_nameOn(alice, X), "alice");
     }
 
     /// `bindPrivately` binds as `bind` with an empty handle: no name.
@@ -471,7 +477,78 @@ contract IdentityRegistryTest is PrivacyScan {
         registry.bindPrivately(X, V1, payload);
         assertEq(registry.resolveHandle(X, "alice"), alice);
         assertEq(registry.resolveId(_id(X, "123")), alice);
-        assertEq(registry.publishedHandleOf(alice, X), "");
+        assertEq(_nameOn(alice, X), "");
+    }
+
+    /// A bind that discloses without `primary` logs the folded handle and stores no name.
+    function test_aRevealingBindLogsTheHandleAndStoresNoName() public {
+        _bindDisclosing(alice, "123", "alice", 100);
+
+        _stage("456", "Alicia", alice, 200);
+        bytes memory payload = _payload(V1);
+        vm.recordLogs();
+        vm.expectEmit(true, true, true, true, address(registry));
+        emit IHandleReveal.HandleRevealed(X, _hn(X, "alicia"), "alicia");
+        vm.prank(alice);
+        registry.bind(X, V1, payload, "ALICIA", false);
+
+        assertEq(_count(vm.getRecordedLogs(), IdentityRegistry.HandlePublished.selector), 0, "a reveal published");
+        assertEq(registry.resolveHandle(X, "alicia"), alice, "the bind did not happen");
+        assertEq(_nameOn(alice, X), "alice", "a reveal replaced the name");
+    }
+
+    /// A revealing bind is checked against the proved node as a publishing one is.
+    function test_aRevealingBindDisclosesOnlyTheHandleItsProofBound() public {
+        _stage("123", "alice", alice, 100);
+        bytes memory payload = _payload(V1);
+        bytes32 bob_ = _hn(X, "bob");
+        bytes32 proved = _hn(X, "alice");
+        vm.expectRevert(abi.encodeWithSelector(IdentityRegistry.HandleNotProved.selector, bob_, proved));
+        vm.prank(alice);
+        registry.bind(X, V1, payload, "bob", false);
+    }
+
+    /// `primary` needs a handle to make the name; the payload stays unspent.
+    function test_aPrimaryBindWithoutAHandleIsRefused() public {
+        _stage("123", "alice", alice, 100);
+        bytes memory payload = _payload(V1);
+        vm.expectRevert(IdentityRegistry.PrimaryWithoutHandle.selector);
+        vm.prank(alice);
+        registry.bind(X, V1, payload, "", true);
+
+        vm.prank(alice);
+        registry.bind(X, V1, payload, "", false);
+        assertEq(registry.resolveHandle(X, "alice"), alice, "the digest was spent");
+    }
+
+    /// `reveal` logs a held handle, folded, and writes no storage.
+    function test_revealLogsAHeldHandleAndWritesNothing() public {
+        _bindDisclosing(alice, "456", "alicia", 100);
+        _bind(alice, "123", "alice", 200);
+
+        bytes32 node = _hn(X, "alice");
+        vm.startStateDiffRecording();
+        vm.expectEmit(true, true, true, true, address(registry));
+        emit IHandleReveal.HandleRevealed(X, node, "alice");
+        vm.prank(alice);
+        registry.reveal(X, "ALICE");
+        Vm.AccountAccess[] memory accesses = vm.stopAndReturnStateDiff();
+
+        for (uint256 i = 0; i < accesses.length; i++) {
+            for (uint256 j = 0; j < accesses[i].storageAccesses.length; j++) {
+                assertFalse(accesses[i].storageAccesses[j].isWrite, "reveal wrote storage");
+            }
+        }
+        assertEq(_nameOn(alice, X), "alicia", "a reveal replaced the name");
+    }
+
+    /// `reveal` refuses a handle the caller does not hold, as `publish` does.
+    function test_revealingAHandleTheCallerDoesNotHoldIsRefused() public {
+        _bind(alice, "123", "alice", 100);
+        bytes32 node = _hn(X, "alice");
+        vm.expectRevert(abi.encodeWithSelector(IdentityRegistry.NotYourHandle.selector, node));
+        vm.prank(bob);
+        registry.reveal(X, "alice");
     }
 
     /// A bind discloses only the handle its own proof bound.
@@ -487,7 +564,7 @@ contract IdentityRegistryTest is PrivacyScan {
         // The same wallet may still publish it.
         vm.prank(alice);
         registry.publish(X, "alicia");
-        assertEq(registry.publishedHandleOf(alice, X), "alicia");
+        assertEq(_nameOn(alice, X), "alicia");
     }
 
     /// `publish` discloses a handle the caller holds, in any case, without a new proof.
@@ -496,11 +573,13 @@ contract IdentityRegistryTest is PrivacyScan {
 
         bytes32 node = _hn(X, "alice");
         vm.expectEmit(true, true, true, true, address(registry));
-        emit IdentityRegistry.HandlePublished(alice, X, node, "alice");
+        emit IHandleReveal.HandleRevealed(X, node, "alice");
+        vm.expectEmit(true, true, true, true, address(registry));
+        emit IdentityRegistry.HandlePublished(alice, X, node);
         vm.prank(alice);
         registry.publish(X, "ALICE");
 
-        assertEq(registry.publishedHandleOf(alice, X), "alice");
+        assertEq(_nameOn(alice, X), "alice");
     }
 
     /// Publishing a handle whose node the caller does not hold is refused.
@@ -516,8 +595,8 @@ contract IdentityRegistryTest is PrivacyScan {
         vm.prank(mallory);
         registry.publish(X, "nobody");
 
-        assertEq(registry.publishedHandleOf(bob, X), "");
-        assertEq(registry.publishedHandleOf(mallory, X), "");
+        assertEq(_nameOn(bob, X), "");
+        assertEq(_nameOn(mallory, X), "");
     }
 
     /// Text other than the bound handle folds to a node the caller does not hold.
@@ -548,24 +627,24 @@ contract IdentityRegistryTest is PrivacyScan {
         bytes memory payload = _payloadAt(reuse);
         vm.expectRevert(abi.encodeWithSelector(IdentityRegistry.HandleNotProved.selector, bobNode, proved));
         vm.prank(alice);
-        registry.bind(X, V1, payload, "bob");
+        registry.bind(X, V1, payload, "bob", true);
 
         vm.expectRevert(abi.encodeWithSelector(IdentityRegistry.HandleNotProved.selector, aliciaNode, proved));
         vm.prank(alice);
-        registry.bind(X, V1, payload, "alicia");
+        registry.bind(X, V1, payload, "alicia", true);
 
         vm.expectRevert(abi.encodeWithSelector(IdentityRegistry.HandleNotProved.selector, _hn(X, "@alice"), proved));
         vm.prank(alice);
-        registry.bind(X, V1, payload, "@alice");
+        registry.bind(X, V1, payload, "@alice", true);
 
         assertEq(registry.resolveId(_id(X, "123")), address(0), "the id was bound");
         assertEq(registry.resolveHandle(X, "alice"), address(0), "the handle was bound");
         assertEq(registry.identityCount(alice), 0, "the identity was listed");
-        assertEq(registry.publishedHandleOf(alice, X), "");
-        assertEq(registry.publishedHandleOf(bob, X), "");
+        assertEq(_nameOn(alice, X), "");
+        assertEq(_nameOn(bob, X), "");
 
         vm.prank(alice);
-        registry.bind(X, V1, payload, "");
+        registry.bind(X, V1, payload, "", false);
         assertEq(registry.resolveHandle(X, "alice"), alice, "the digest was spent");
     }
 
@@ -583,20 +662,20 @@ contract IdentityRegistryTest is PrivacyScan {
 
     function test_aPublishedHandleCanBeWithdrawn() public {
         _bindDisclosing(alice, "123", "alice", 100);
-        assertEq(registry.publishedHandleOf(alice, X), "alice");
+        assertEq(_nameOn(alice, X), "alice");
 
         vm.expectEmit(true, true, false, false, address(registry));
-        emit IdentityRegistry.HandleUnpublished(alice, X);
+        emit IdentityRegistry.HandleUnpublished(alice);
         vm.prank(alice);
-        registry.unpublish(X);
-        assertEq(registry.publishedHandleOf(alice, X), "");
+        registry.unpublish();
+        assertEq(_nameOn(alice, X), "");
     }
 
     function test_withdrawingAPublishedHandleKeepsTheBinding() public {
         _bindDisclosing(alice, "123", "alice", 100);
 
         vm.prank(alice);
-        registry.unpublish(X);
+        registry.unpublish();
 
         assertEq(registry.resolveId(_id(X, "123")), alice);
         assertEq(registry.resolveHandle(X, "alice"), alice);
@@ -611,7 +690,7 @@ contract IdentityRegistryTest is PrivacyScan {
         Vm.Log[] memory logs = vm.getRecordedLogs();
         assertEq(_count(logs, IdentityRegistry.HandlePublished.selector), 0, "a private bind published");
         assertEq(_count(logs, IdentityRegistry.HandleUnpublished.selector), 0, "a private bind withdrew");
-        assertEq(registry.publishedHandleOf(alice, X), "alice", "a re-proof dropped the name");
+        assertEq(_nameOn(alice, X), "alice", "a re-proof dropped the name");
     }
 
     /// A rename withdraws the name of the handle it retires, so proving that
@@ -622,11 +701,11 @@ contract IdentityRegistryTest is PrivacyScan {
         vm.recordLogs();
         _bind(alice, "123", "alice2", 200);
         assertEq(_count(vm.getRecordedLogs(), IdentityRegistry.HandleUnpublished.selector), 1, "no withdrawal logged");
-        assertEq(registry.publishedHandleOf(alice, X), "");
+        assertEq(_nameOn(alice, X), "");
 
         _bind(alice, "123", "alice", 300);
         assertEq(registry.resolveHandle(X, "alice"), alice);
-        assertEq(registry.publishedHandleOf(alice, X), "", "a private re-proof showed the old name");
+        assertEq(_nameOn(alice, X), "", "a private re-proof showed the old name");
     }
 
     /// A retirement leaves a name that names another handle alone.
@@ -634,18 +713,18 @@ contract IdentityRegistryTest is PrivacyScan {
         _bindDisclosing(alice, "456", "alicia", 100);
         _bind(alice, "123", "alice", 200);
         _bind(alice, "123", "alice2", 300);
-        assertEq(registry.publishedHandleOf(alice, X), "alicia");
+        assertEq(_nameOn(alice, X), "alicia");
     }
 
     function test_unpublishingNothingLogsNothing() public {
         _bind(alice, "123", "alice", 100);
         vm.recordLogs();
         vm.prank(alice);
-        registry.unpublish(X);
+        registry.unpublish();
         assertEq(vm.getRecordedLogs().length, 0);
     }
 
-    /// A second disclosure replaces the first: one name per wallet per platform.
+    /// A second disclosure replaces the first: one name per wallet.
     function test_aSecondDisclosureReplacesTheFirst() public {
         _bind(alice, "123", "alice", 100);
         _bind(alice, "456", "alicia", 200);
@@ -655,33 +734,98 @@ contract IdentityRegistryTest is PrivacyScan {
         registry.publish(X, "Alicia");
         vm.stopPrank();
 
-        assertEq(registry.publishedHandleOf(alice, X), "alicia");
+        assertEq(_nameOn(alice, X), "alicia");
+    }
+
+    /// A disclosure on another platform replaces the name: a wallet has one name in total.
+    function test_aDisclosureOnAnotherPlatformReplacesTheName() public {
+        _bindDisclosing(alice, "123", "alice", 100);
+
+        _stage("456", "octo", alice, 200);
+        bytes32 octo = _hn(GITHUB, "octo");
+        vm.recordLogs();
+        vm.prank(alice);
+        _submit(GITHUB, "Octo");
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+        assertEq(_count(logs, IdentityRegistry.HandlePublished.selector), 1, "no disclosure logged");
+        assertEq(_count(logs, IHandleReveal.HandleRevealed.selector), 1, "no handle text logged");
+        assertEq(_count(logs, IdentityRegistry.HandleUnpublished.selector), 0, "a replacement logged a withdrawal");
+        (bytes32 on, string memory name) = registry.primaryHandleOf(alice);
+        assertEq(on, GITHUB);
+        assertEq(name, "octo");
+        (address holder,) = registry.handleBinding(octo);
+        assertEq(holder, alice);
+
+        vm.expectEmit(true, true, true, true, address(registry));
+        emit IdentityRegistry.HandlePublished(alice, X, _hn(X, "alice"));
+        vm.prank(alice);
+        registry.publish(X, "alice");
+        assertEq(_nameOn(alice, X), "alice", "publishing on X did not take the name back");
+    }
+
+    /// A private bind on another platform leaves the name where it is.
+    function test_aPrivateBindOnAnotherPlatformLeavesTheName() public {
+        _bindDisclosing(alice, "123", "alice", 100);
+        _stage("456", "octo", alice, 200);
+        vm.prank(alice);
+        _submit(GITHUB, "");
+        assertEq(_nameOn(alice, X), "alice");
+    }
+
+    /// Losing a handle withdraws the name only when the name is that handle on
+    /// that platform, even where another platform's handle has the same text.
+    function test_losingAHandleOnAnotherPlatformLeavesTheName() public {
+        _bind(alice, "123", "shared", 100);
+        _stage("456", "shared", alice, 100);
+        vm.prank(alice);
+        _submit(GITHUB, "shared");
+
+        vm.recordLogs();
+        _bind(bob, "789", "shared", 200);
+        _bind(alice, "123", "alice2", 300);
+        assertEq(_count(vm.getRecordedLogs(), IdentityRegistry.HandleUnpublished.selector), 0, "a withdrawal logged");
+        assertEq(_nameOn(alice, GITHUB), "shared");
+    }
+
+    /// A withdrawal clears the name on whichever platform it is.
+    function test_withdrawingClearsANameOnAnyPlatform() public {
+        _stage("456", "octo", alice, 100);
+        vm.prank(alice);
+        _submit(GITHUB, "octo");
+
+        vm.expectEmit(true, false, false, true, address(registry));
+        emit IdentityRegistry.HandleUnpublished(alice);
+        vm.prank(alice);
+        registry.unpublish();
+        (bytes32 on, string memory name) = registry.primaryHandleOf(alice);
+        assertEq(on, bytes32(0));
+        assertEq(name, "");
     }
 
     function test_withdrawingTouchesOnlyTheCallersRecord() public {
         _bindDisclosing(alice, "123", "alice", 100);
 
         vm.prank(mallory);
-        registry.unpublish(X);
+        registry.unpublish();
 
-        assertEq(registry.publishedHandleOf(alice, X), "alice");
+        assertEq(_nameOn(alice, X), "alice");
     }
 
     /// A handle another holder takes withdraws the name, so proving it back
     /// without disclosing does not show it again.
-    function test_publishedHandleOfGoesEmptyOnceTheHandleMovesOn() public {
+    function test_theNameGoesEmptyOnceTheHandleMovesOn() public {
         _bindDisclosing(alice, "123", "shared", 100);
-        assertEq(registry.publishedHandleOf(alice, X), "shared", "it resolves back, so it stands");
+        assertEq(_nameOn(alice, X), "shared", "it resolves back, so it stands");
 
         _stage("456", "shared", bob, 200);
         vm.expectEmit(address(registry));
-        emit IdentityRegistry.HandleUnpublished(alice, X);
+        emit IdentityRegistry.HandleUnpublished(alice);
         vm.prank(bob);
         _submit(X, "");
-        assertEq(registry.publishedHandleOf(alice, X), "", "it no longer resolves back");
+        assertEq(_nameOn(alice, X), "", "it no longer resolves back");
 
         _bind(alice, "123", "shared", 300);
-        assertEq(registry.publishedHandleOf(alice, X), "", "a private re-proof showed the old name");
+        assertEq(_nameOn(alice, X), "", "a private re-proof showed the old name");
     }
 
     /// The handle moved on, then its first identity renamed: the rename retires
@@ -693,7 +837,7 @@ contract IdentityRegistryTest is PrivacyScan {
         _bind(alice, "123", "shared", 400);
 
         assertEq(registry.resolveHandle(X, "shared"), alice);
-        assertEq(registry.publishedHandleOf(alice, X), "", "a private re-proof showed the old name");
+        assertEq(_nameOn(alice, X), "", "a private re-proof showed the old name");
     }
 
     /// An identity proved from a new wallet withdraws the old wallet's name for its handle.
@@ -702,12 +846,20 @@ contract IdentityRegistryTest is PrivacyScan {
 
         _stage("123", "alice", bob, 200);
         vm.expectEmit(address(registry));
-        emit IdentityRegistry.HandleUnpublished(alice, X);
+        emit IdentityRegistry.HandleUnpublished(alice);
         vm.prank(bob);
         _submit(X, "");
 
         _bind(alice, "123", "alice", 300);
-        assertEq(registry.publishedHandleOf(alice, X), "", "the old wallet's name came back");
+        assertEq(_nameOn(alice, X), "", "the old wallet's name came back");
+    }
+
+    /// The holder's name if it is on `platformId`; a name on another platform fails the test.
+    function _nameOn(address holder, bytes32 platformId) internal view returns (string memory handle) {
+        bytes32 on;
+        (on, handle) = registry.primaryHandleOf(holder);
+        if (bytes(handle).length == 0) assertEq(on, bytes32(0), "a platform without a name");
+        else assertEq(on, platformId, "the name is on another platform");
     }
 
     /// How many logs carry this event.
@@ -738,7 +890,7 @@ contract IdentityRegistryTest is PrivacyScan {
         assertEq(registry.resolveHandle(X, SECRET_HANDLE), alice, "the bind did not happen");
     }
 
-    /// The log scan finds a disclosed handle in `HandlePublished`.
+    /// The log scan finds a disclosed handle in `HandleRevealed`.
     function test_theScanFindsADisclosedHandle() public {
         _stage(SECRET_ID, SECRET_HANDLE, alice, 100);
         vm.recordLogs();
@@ -749,7 +901,7 @@ contract IdentityRegistryTest is PrivacyScan {
         bool found;
         for (uint256 i = 0; i < logs.length; i++) {
             if (AttestationBuilder.contains(logs[i].data, bytes(SECRET_FOLDED))) {
-                assertEq(logs[i].topics[0], IdentityRegistry.HandlePublished.selector, "found it outside the event");
+                assertEq(logs[i].topics[0], IHandleReveal.HandleRevealed.selector, "found it outside the event");
                 found = true;
             }
         }
@@ -765,7 +917,7 @@ contract IdentityRegistryTest is PrivacyScan {
 
         assertGt(_assertStorageHidesTheSecrets(vm.stopAndReturnStateDiff()), 0, "the bind wrote nothing to check");
 
-        assertEq(registry.publishedHandleOf(alice, X), "");
+        assertEq(_nameOn(alice, X), "");
         IdentityRegistry.Identity memory a = registry.identitiesOf(alice, 0, 1)[0];
         assertEq(a.idNode, _id(X, SECRET_ID));
         assertEq(a.handleNode, _hn(X, SECRET_FOLDED));
@@ -1089,7 +1241,7 @@ contract IdentityRegistryTest is PrivacyScan {
 
         bytes memory payload = _payload(2);
         vm.prank(bob);
-        registry.bind(X, 2, payload, "");
+        registry.bind(X, 2, payload, "", false);
 
         (address idHolder, uint64 idAt) = registry.idBinding(_id(X, "456"));
         (address handleHolder, uint64 handleAt) = registry.handleBinding(_hn(X, "bob"));

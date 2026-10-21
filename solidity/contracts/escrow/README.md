@@ -17,7 +17,8 @@ escrow.refund(handleNode, token, recipient);   // refundTo, while unclaimed
 - `deposit(platformId, handleNode, …)` keeps the handle out of the calldata
   and the logs. The calldata names the platform.
 - `depositToHandle(platformId, handle, …)` puts the handle in the calldata,
-  and `DepositedToHandle` logs it folded. It credits the same node, so one
+  and `HandleRevealed`, the event every libid contract writes for handle
+  text, logs it folded. It credits the same node, so one
   claim takes both kinds. Text other than the handle as the platform sends it
   (`@alice`, a space) lands on a node nobody can prove; only `refundTo` gets
   it back.
@@ -37,7 +38,7 @@ escrow.refund(handleNode, token, recipient);   // refundTo, while unclaimed
   refunds work whatever the platform's state.
 - `Deposited`, `Claimed` and `Refunded` name their round. A claim closes its
   round, so a `Refunded` belongs to the `Deposited` of its round and a
-  `Claimed` took what that round still held. Only `DepositedToHandle` names a
+  `Claimed` took what that round still held. Only `HandleRevealed` names a
   platform: otherwise join on the node with `IdentityRegistry.IdentityBound`.
 - Pay-through goes to whoever holds the handle when the transaction lands,
   recycled handles included, and a forward cannot be refunded. A holder that

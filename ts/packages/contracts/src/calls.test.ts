@@ -15,23 +15,23 @@ const PROOF = `0x${'b8'.repeat(65)}` as const
 
 describe('generated call builders', () => {
   it('encodes a call the ABI decodes back to the same arguments', () => {
-    const call = calls.identityRegistry.unpublish(REGISTRY, PLATFORM)
+    const call = calls.identityRegistry.publish(REGISTRY, PLATFORM, 'alice')
 
     expect(call.to).toBe(REGISTRY)
     expect(decodeFunctionData({ abi: identityRegistryAbi, data: call.data })).toEqual({
-      functionName: 'unpublish',
-      args: [PLATFORM],
+      functionName: 'publish',
+      args: [PLATFORM, 'alice'],
     })
   })
 
   it('carries a selector and nothing but the declared arguments', () => {
     // Withdrawing what you chose to show must not depend on proving anything
-    // again, so this call is a selector and one word.
-    expect(calls.identityRegistry.unpublish(REGISTRY, PLATFORM).data.length).toBe(2 + 8 + 64)
+    // again, so this call is a selector alone.
+    expect(calls.identityRegistry.unpublish(REGISTRY).data.length).toBe(2 + 8)
   })
 
   it('omits value on a nonpayable function', () => {
-    expect(calls.identityRegistry.unpublish(REGISTRY, PLATFORM).value).toBeUndefined()
+    expect(calls.identityRegistry.unpublish(REGISTRY).value).toBeUndefined()
   })
 
   it('takes value before the arguments on a payable function', () => {
