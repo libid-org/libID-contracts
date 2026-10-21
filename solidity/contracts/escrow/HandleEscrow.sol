@@ -9,6 +9,7 @@ import {Ownable2StepUpgradeable} from "@openzeppelin/contracts-upgradeable/acces
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
 import {HandleNode} from "../handles/HandleNode.sol";
+import {IHandleReveal} from "../handles/IHandleReveal.sol";
 import {IIdentityRegistry} from "../identity/IIdentityRegistry.sol";
 
 // The EIP-7528 address that stands for the chain's native token.
@@ -19,7 +20,7 @@ address constant NATIVE_TOKEN = 0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE;
 ///         deposit's `refundTo` can take its own contribution back until then.
 /// @dev A claim empties the slot and opens a new round, ending the old round's
 ///      refunds. Integration notes are in README.md beside this file.
-contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, ReentrancyGuard {
+contract HandleEscrow is IHandleReveal, Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, ReentrancyGuard {
     using SafeERC20 for IERC20;
 
     /// @notice The native token of the chain, as a token address (EIP-7528).
@@ -61,9 +62,6 @@ contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable
         uint256 round,
         uint256 amount
     );
-
-    /// @notice A `depositToHandle` named its handle: `handle` folded, on `platformId`.
-    event DepositedToHandle(bytes32 indexed handleNode, bytes32 indexed platformId, string handle);
 
     /// @notice A deposit for a held node was paid straight to `holder`.
     ///         `amount` was asked for; `received` is what the holder gained.
@@ -181,7 +179,7 @@ contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable
     /// @notice `deposit` to a handle given as text, which the calldata and the log
     ///         make public. Reverts the registry's `UnknownPlatform` for a platform
     ///         it does not know, even when the handle is held.
-    /// @dev The node is the registry's `handleNodeOf`; the log carries the handle folded.
+    /// @dev The node is the registry's `handleNodeOf`; `HandleRevealed` carries the handle folded.
     function depositToHandle(
         bytes32 platformId,
         string calldata handle,
@@ -191,7 +189,7 @@ contract HandleEscrow is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable
     ) external payable nonReentrant {
         bytes32 handleNode = _s().registry.handleNodeOf(platformId, handle);
         _deposit(handleNode, platformId, token, amount, refundTo);
-        emit DepositedToHandle(handleNode, platformId, HandleNode.fold(handle));
+        emit HandleRevealed(msg.sender, platformId, handleNode, HandleNode.fold(handle));
     }
 
     function _deposit(bytes32 handleNode, bytes32 platformId, address token, uint256 amount, address refundTo) private {

@@ -18,6 +18,7 @@ import {NotaryService} from "../../ceremony/NotaryService.sol";
 import {IHonkVerifier} from "../../ceremony/PlatformVerifierBase.sol";
 import {XPlatformVerifier} from "../../ceremony/XPlatformVerifier.sol";
 import {IdentityRegistry} from "../IdentityRegistry.sol";
+import {IHandleReveal} from "../../handles/IHandleReveal.sol";
 import {PrivacyScan} from "./PrivacyScan.sol";
 import {TestNodes} from "./TestNodes.sol";
 import {TlsNotaryVerifierBase} from "../../ceremony/TlsNotaryVerifierBase.sol";
@@ -77,7 +78,7 @@ abstract contract RealProofBindBase is PrivacyScan {
     function _bind(bytes memory payload, string memory handle) internal {
         uint256 value = registry.quoteBind(_platform(), 1);
         vm.prank(BINDER);
-        registry.bind{value: value}(_platform(), 1, payload, handle);
+        registry.bind{value: value}(_platform(), 1, payload, handle, bytes(handle).length != 0);
     }
 
     // ─── Bind, privately ────────────────────────────────────────────
@@ -143,7 +144,9 @@ abstract contract RealProofBindBase is PrivacyScan {
         assertFalse(_containsAny(payload), "the payload carries an id or handle");
         vm.recordLogs();
         vm.expectEmit(address(registry));
-        emit IdentityRegistry.HandlePublished(BINDER, _platform(), _handleNode(), _secrets()[2]);
+        emit IHandleReveal.HandleRevealed(BINDER, _platform(), _handleNode(), _secrets()[2]);
+        vm.expectEmit(address(registry));
+        emit IdentityRegistry.HandlePublished(BINDER, _platform(), _handleNode());
         _bind(payload, _secrets()[1]);
         assertEq(_nameOn(BINDER, _platform()), _secrets()[2]);
 
@@ -157,7 +160,7 @@ abstract contract RealProofBindBase is PrivacyScan {
         uint256 value = registry.quoteBind(_platform(), 1);
         vm.expectRevert(abi.encodeWithSelector(IdentityRegistry.HandleNotProved.selector, otherNode, _handleNode()));
         vm.prank(BINDER);
-        registry.bind{value: value}(_platform(), 1, payload, other);
+        registry.bind{value: value}(_platform(), 1, payload, other, true);
         assertEq(registry.resolveId(_idNode()), address(0));
     }
 
@@ -294,7 +297,9 @@ contract RealProofBindTest is RealTlsNotaryBind {
     function test_publishesTheHandleFolded() public {
         _bind(_payload(), "");
         vm.expectEmit(address(registry));
-        emit IdentityRegistry.HandlePublished(BINDER, X, HANDLE_NODE, "alice_1");
+        emit IHandleReveal.HandleRevealed(BINDER, X, HANDLE_NODE, "alice_1");
+        vm.expectEmit(address(registry));
+        emit IdentityRegistry.HandlePublished(BINDER, X, HANDLE_NODE);
         vm.prank(BINDER);
         registry.publish(X, "ALICE_1");
         assertEq(_nameOn(BINDER, X), "alice_1");
@@ -459,7 +464,7 @@ contract RealProofBindGoogleTest is RealProofBindBase {
         bytes memory payload = abi.encode(s);
         vm.prank(BINDER);
         vm.expectRevert(abi.encodeWithSignature("SumcheckFailed()"));
-        registry.bind(_platform(), 1, payload, "");
+        registry.bind(_platform(), 1, payload, "", false);
         assertEq(registry.resolveId(_idNode()), address(0));
         (address holder,) = registry.handleBinding(_handleNode());
         assertEq(holder, address(0));

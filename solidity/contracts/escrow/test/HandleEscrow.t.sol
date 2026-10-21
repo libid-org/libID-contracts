@@ -9,6 +9,7 @@ import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/Own
 
 import {CeremonyProfile} from "../../ceremony/CeremonyProfile.sol";
 import {HandleTable} from "../../handles/test/HandleTable.sol";
+import {IHandleReveal} from "../../handles/IHandleReveal.sol";
 import {IdentityRegistry} from "../../identity/IdentityRegistry.sol";
 import {IIdentityRegistry} from "../../identity/IIdentityRegistry.sol";
 import {StubPlatformVerifier} from "../../identity/test/StubPlatformVerifier.sol";
@@ -272,7 +273,7 @@ contract HandleEscrowTest is PrivacyScan {
         vm.expectEmit(address(escrow));
         emit HandleEscrow.Deposited(aliceNode, NATIVE, sender, sender, 0, 1 ether);
         vm.expectEmit(address(escrow));
-        emit HandleEscrow.DepositedToHandle(aliceNode, X, "alice");
+        emit IHandleReveal.HandleRevealed(sender, X, aliceNode, "alice");
         vm.prank(sender);
         escrow.depositToHandle{value: 1 ether}(X, "Alice", NATIVE, 1 ether, sender);
 
@@ -317,7 +318,7 @@ contract HandleEscrowTest is PrivacyScan {
         vm.expectEmit(address(escrow));
         emit HandleEscrow.Forwarded(aliceNode, NATIVE, sender, alice, 1 ether, 1 ether);
         vm.expectEmit(address(escrow));
-        emit HandleEscrow.DepositedToHandle(aliceNode, X, "alice");
+        emit IHandleReveal.HandleRevealed(sender, X, aliceNode, "alice");
         vm.prank(sender);
         escrow.depositToHandle{value: 1 ether}(X, "Alice", NATIVE, 1 ether, sender);
         assertEq(alice.balance, 1 ether);
@@ -869,7 +870,7 @@ contract HandleEscrowTest is PrivacyScan {
             })
         );
         vm.prank(who);
-        registry.bind(X, V1, payload, "");
+        registry.bind(X, V1, payload, "", false);
     }
 
     /// Deposit native value for text on X, at the node the registry names.

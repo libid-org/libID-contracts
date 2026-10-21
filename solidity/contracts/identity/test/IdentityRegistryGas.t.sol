@@ -124,7 +124,7 @@ contract IdentityRegistryGasTest is Test {
         );
         _cool();
         vm.prank(who);
-        registry.bind(X, V1, payload, handle);
+        registry.bind(X, V1, payload, handle, bytes(handle).length != 0);
     }
 
     // ─── Writes ─────────────────────────────────────────────────────

@@ -357,7 +357,7 @@ contract UpgradeSafetyTest is Test {
             })
         );
         vm.prank(who);
-        registry.bind(X, 1, payload, "alice");
+        registry.bind(X, 1, payload, "alice", true);
     }
 
     function test_upgrade_IdentityRegistry() public {

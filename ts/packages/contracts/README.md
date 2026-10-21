@@ -116,8 +116,9 @@ const identities = await identitiesOf(reader, holder!, 0n, 50n)
 ## Binding an identity
 
 `bind` takes the platform, this chain's verifier version for it, the payload
-the ceremony produced, and the handle to publish. The registry checks a
-published handle against the node the proof bound. The value is what
+the ceremony produced, the handle to disclose, and whether that handle becomes
+the wallet's primary handle. The registry checks a disclosed handle against
+the node the proof bound and logs it in `HandleRevealed`. The value is what
 `quoteBind` returns for the same pair. An EOA sends the call directly, a smart
 wallet wraps it in its own execute:
 
@@ -131,10 +132,12 @@ const fee = await client.readContract({
   functionName: 'quoteBind',
   args: [github, 1],
 })
-const call = calls.identityRegistry.bind(IDENTITY_REGISTRY, fee, github, 1, payload, '')
+const call = calls.identityRegistry.bind(IDENTITY_REGISTRY, fee, github, 1, payload, 'octocat', true)
 // call = { to, value, data } — sign and send from the address the payload names.
-// The last argument is the handle to publish, or '' to keep the bind private;
+// The handle is '' to keep the bind private; `true` makes it the wallet's one
+// primary handle on any platform, `false` only reveals it.
 // calls.identityRegistry.bindPrivately(IDENTITY_REGISTRY, fee, github, 1, payload) is the same with no handle.
+// calls.identityRegistry.reveal(IDENTITY_REGISTRY, github, 'octocat') reveals a held handle later.
 ```
 
 The payload is one `abi.encode`d struct in the shape its Platform Verifier
