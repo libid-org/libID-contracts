@@ -7,19 +7,20 @@ import {StdCheats} from "forge-std/StdCheats.sol";
 import {StdUtils} from "forge-std/StdUtils.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 
 import {HandleEscrow, NATIVE_TOKEN} from "../HandleEscrow.sol";
 import {CeremonyProfile} from "../../ceremony/CeremonyProfile.sol";
 import {IIdentityRegistry} from "../../identity/IIdentityRegistry.sol";
 import {TestNodes} from "../../identity/test/TestNodes.sol";
-import {FeeToken, NoReturnToken, SettableRegistry, TestERC20, one} from "./EscrowMocks.sol";
+import {EscrowHelpers, FeeToken, NoReturnToken, SettableRegistry, TestERC20, one} from "./EscrowMocks.sol";
 
 // The native token as the escrow names it.
 address constant NATIVE = NATIVE_TOKEN;
 
-/// @notice Drives random deposits, refunds, joins, retirements and claims, and models each
-///         `refundTo`'s refundable contribution.
-contract EscrowHandler is CommonBase, StdCheats, StdUtils {
+/// @notice Drives random deposits, refunds, waits, joins, retirements and claims, and models
+///         each sender's contribution.
+contract EscrowHandler is CommonBase, StdCheats, StdUtils, EscrowHelpers {
     bytes32 internal constant PLATFORM = CeremonyProfile.PLATFORM_X;
     uint256 internal constant TOKENS = 4;
 
@@ -30,8 +31,13 @@ contract EscrowHandler is CommonBase, StdCheats, StdUtils {
     bytes32[2] public nodes;
     address[2] public holders;
 
-    /// node -> token -> refundTo -> refundable, as modelled.
-    mapping(bytes32 => mapping(address => mapping(address => uint256))) public modelled;
+    /// Escrowed deposits, paid refunds and claims that took something, per run.
+    uint256 public depositsMade;
+    uint256 public refundsPaid;
+    uint256 public claimsPaid;
+
+    /// node -> token -> sender -> contribution, as modelled.
+    mapping(bytes32 => mapping(address => mapping(address => HandleEscrow.Contribution))) public modelled;
 
     constructor(HandleEscrow escrow_, SettableRegistry registry_) {
         (ESCROW, REGISTRY) = (escrow_, registry_);
@@ -41,11 +47,8 @@ contract EscrowHandler is CommonBase, StdCheats, StdUtils {
         holders = [makeAddr("holder 1"), makeAddr("holder 2")];
     }
 
-    function deposit(uint256 fromSeed, uint256 refundToSeed, uint256 tokenSeed, uint256 nodeSeed, uint256 amount)
-        external
-    {
+    function deposit(uint256 fromSeed, uint256 tokenSeed, uint256 nodeSeed, uint256 amount) external {
         address from = depositors[fromSeed % 3];
-        address refundTo = depositors[refundToSeed % 3];
         address token = tokens[tokenSeed % TOKENS];
         bytes32 node = nodes[nodeSeed % 2];
         amount = bound(amount, 1, 1e24);
@@ -60,24 +63,60 @@ contract EscrowHandler is CommonBase, StdCheats, StdUtils {
             NoReturnToken(token).approve(address(ESCROW), amount);
         }
         vm.prank(from);
-        ESCROW.deposit{value: token == NATIVE ? amount : 0}(PLATFORM, node, token, amount, refundTo);
-        if (REGISTRY.holderOf(node) == address(0)) modelled[node][token][refundTo] += delivered;
+        ESCROW.deposit{value: token == NATIVE ? amount : 0}(PLATFORM, node, token, amount);
+        if (REGISTRY.holderOf(node) != address(0)) return;
+        ++depositsMade;
+        HandleEscrow.Contribution storage model = modelled[node][token][from];
+        model.amount = SafeCast.toUint192(model.amount + delivered);
+        model.refundableAt = graceEnd(ESCROW);
     }
 
-    function refund(uint256 refundToSeed, uint256 tokenSeed, uint256 nodeSeed) external {
-        address refundTo = depositors[refundToSeed % 3];
+    function refund(uint256 fromSeed, uint256 tokenSeed, uint256 nodeSeed) public {
+        address from = depositors[fromSeed % 3];
         address token = tokens[tokenSeed % TOKENS];
         bytes32 node = nodes[nodeSeed % 2];
-        uint256 expected = modelled[node][token][refundTo];
-        uint256 before = _balanceOf(token, refundTo);
+        HandleEscrow.Contribution memory model = modelled[node][token][from];
+        uint256 before = _balanceOf(token, from);
 
-        if (expected == 0) {
-            vm.expectRevert(abi.encodeWithSelector(HandleEscrow.NothingToRefund.selector, node, token, refundTo));
+        bool paid;
+        if (model.amount == 0) {
+            vm.expectRevert(abi.encodeWithSelector(HandleEscrow.NothingToRefund.selector, node, token, from));
+        } else if (vm.getBlockTimestamp() < model.refundableAt) {
+            vm.expectRevert(
+                abi.encodeWithSelector(HandleEscrow.RefundLocked.selector, node, token, from, model.refundableAt)
+            );
+        } else {
+            paid = true;
         }
-        vm.prank(refundTo);
-        ESCROW.refund(node, token, refundTo);
-        require(_balanceOf(token, refundTo) - before == expected, "the refund paid other than the contribution");
-        modelled[node][token][refundTo] = 0;
+        vm.prank(from);
+        ESCROW.refund(node, token, from);
+        uint256 expected = paid ? model.amount : 0;
+        require(_balanceOf(token, from) - before == expected, "the refund paid other than the contribution");
+        if (paid) {
+            delete modelled[node][token][from];
+            ++refundsPaid;
+        }
+    }
+
+    /// Refund the open contribution with the earliest date, the first from `seed` on among
+    /// equals, waiting for its date if it has not come; nothing when none is open.
+    function refundDue(uint256 seed) public {
+        uint256 slots = 3 * TOKENS * 2;
+        uint256 earliest = type(uint256).max;
+        uint256 pick;
+        for (uint256 i = 0; i < slots; i++) {
+            uint256 at = (seed % slots + i) % slots;
+            HandleEscrow.Contribution memory model =
+                modelled[nodes[at / (3 * TOKENS)]][tokens[at / 3 % TOKENS]][depositors[at % 3]];
+            if (model.amount != 0 && model.refundableAt < earliest) (earliest, pick) = (model.refundableAt, at);
+        }
+        if (earliest == type(uint256).max) return;
+        if (vm.getBlockTimestamp() < earliest) vm.warp(earliest);
+        refund(pick % 3, pick / 3 % TOKENS, pick / (3 * TOKENS));
+    }
+
+    function wait(uint256 seconds_) external {
+        vm.warp(vm.getBlockTimestamp() + bound(seconds_, 0, 60 days));
     }
 
     function join(uint256 nodeSeed, uint256 holderSeed) external {
@@ -99,8 +138,9 @@ contract EscrowHandler is CommonBase, StdCheats, StdUtils {
         vm.prank(holder);
         ESCROW.claim(node, one(token), holder);
         require(_balanceOf(token, holder) - before == held, "the claim paid other than what was held");
+        ++claimsPaid;
         for (uint256 i = 0; i < 3; i++) {
-            modelled[node][token][depositors[i]] = 0;
+            delete modelled[node][token][depositors[i]];
         }
     }
 
@@ -128,6 +168,16 @@ contract HandleEscrowAccountingTest is Test {
         targetContract(address(handler));
     }
 
+    /// A run ends with a refund of whatever is still open, and the books still add up. A run
+    /// that escrowed anything paid it out by refund or by claim.
+    function afterInvariant() public {
+        handler.refundDue(0);
+        invariant_theBooksAddUp();
+        if (handler.depositsMade() > 0) {
+            assertGt(handler.refundsPaid() + handler.claimsPaid(), 0, "an escrowed deposit was never paid out");
+        }
+    }
+
     /// A handler call that reverts, its own checks included, fails the run.
     /// forge-config: default.invariant.fail-on-revert = true
     function invariant_theBooksAddUp() public view {
@@ -138,9 +188,11 @@ contract HandleEscrowAccountingTest is Test {
                 bytes32 node = handler.nodes(n);
                 uint256 sum;
                 for (uint256 d = 0; d < 3; d++) {
-                    address refundTo = handler.depositors(d);
-                    uint256 model = handler.modelled(node, token, refundTo);
-                    assertEq(escrow.refundable(node, token, refundTo), model, "refundable departs from the model");
+                    address sender = handler.depositors(d);
+                    (uint192 model, uint64 modelAt) = handler.modelled(node, token, sender);
+                    (uint256 amount, uint64 refundableAt) = escrow.contribution(node, token, sender);
+                    assertEq(amount, model, "the amount departs from the model");
+                    assertEq(refundableAt, modelAt, "the refund date departs from the model");
                     sum += model;
                 }
                 assertEq(escrow.escrowed(node, token), sum, "held is not the sum of the open contributions");

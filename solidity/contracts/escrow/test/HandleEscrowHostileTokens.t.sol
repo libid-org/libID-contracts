@@ -13,6 +13,7 @@ import {IIdentityRegistry} from "../../identity/IIdentityRegistry.sol";
 import {TestNodes} from "../../identity/test/TestNodes.sol";
 import {
     BlocklistToken,
+    EscrowHelpers,
     FalseToken,
     HookToken,
     ITransferHooks,
@@ -64,7 +65,7 @@ contract HookedParty is ITransferHooks {
 }
 
 /// @notice Tokens that call back in, answer `false` or nothing, charge fees, blocklist or rebase.
-contract HandleEscrowHostileTokensTest is Test {
+contract HandleEscrowHostileTokensTest is Test, EscrowHelpers {
     bytes32 internal constant PLATFORM = CeremonyProfile.PLATFORM_X;
     bytes32 internal immutable NODE = TestNodes.handleNode(PLATFORM, "alice");
     bytes32 internal immutable NODE2 = TestNodes.handleNode(PLATFORM, "bob");
@@ -92,14 +93,14 @@ contract HandleEscrowHostileTokensTest is Test {
         HookToken token = new HookToken();
         HookedParty party = new HookedParty(escrow, token, NODE);
         token.mint(address(party), 20 ether);
-        bytes memory depositCall =
-            abi.encodeCall(HandleEscrow.deposit, (PLATFORM, NODE, address(token), 10 ether, address(party)));
+        bytes memory depositCall = abi.encodeCall(HandleEscrow.deposit, (PLATFORM, NODE, address(token), 10 ether));
         bytes memory claimCall = abi.encodeCall(HandleEscrow.claim, (NODE, one(address(token)), address(party)));
         bytes memory refundCall = abi.encodeCall(HandleEscrow.refund, (NODE, address(token), address(party)));
         bytes memory guard = abi.encodeWithSelector(ReentrancyGuard.ReentrancyGuardReentrantCall.selector);
 
         party.act(depositCall, depositCall);
         assertEq(party.refusal(), guard);
+        afterGrace(escrow);
         party.act(refundCall, refundCall);
         assertEq(party.refusal(), guard);
         assertEq(token.balanceOf(address(party)), 20 ether, "refunded other than once");
@@ -117,11 +118,12 @@ contract HandleEscrowHostileTokensTest is Test {
         FalseToken token = new FalseToken();
         _escrow(address(token), depositor, NODE, 10 ether);
         token.setFailing(true);
+        afterGrace(escrow);
         bytes memory failed = abi.encodeWithSelector(SafeERC20.SafeERC20FailedOperation.selector, address(token));
 
         vm.startPrank(depositor);
         vm.expectRevert(failed);
-        escrow.deposit(PLATFORM, NODE, address(token), 1, depositor);
+        escrow.deposit(PLATFORM, NODE, address(token), 1);
         vm.expectRevert(failed);
         escrow.refund(NODE, address(token), depositor);
         vm.stopPrank();
@@ -129,7 +131,7 @@ contract HandleEscrowHostileTokensTest is Test {
         vm.prank(holder);
         vm.expectRevert(failed);
         escrow.claim(NODE, one(address(token)), holder);
-        assertEq(escrow.refundable(NODE, address(token), depositor), 10 ether);
+        assertEq(contributed(escrow, NODE, address(token), depositor), 10 ether);
 
         token.setFailing(false);
         vm.prank(holder);
@@ -143,15 +145,16 @@ contract HandleEscrowHostileTokensTest is Test {
         token.mint(depositor, 25 ether);
         vm.startPrank(depositor);
         token.approve(address(escrow), type(uint256).max);
-        escrow.deposit(PLATFORM, NODE, address(token), 10 ether, depositor);
+        escrow.deposit(PLATFORM, NODE, address(token), 10 ether);
+        afterGrace(escrow);
         escrow.refund(NODE, address(token), depositor);
-        escrow.deposit(PLATFORM, NODE, address(token), 10 ether, depositor);
+        escrow.deposit(PLATFORM, NODE, address(token), 10 ether);
         vm.stopPrank();
         registry.setHolder(NODE, holder);
         vm.prank(holder);
         escrow.claim(NODE, one(address(token)), holder);
         vm.prank(depositor);
-        escrow.deposit(PLATFORM, NODE, address(token), 5 ether, depositor);
+        escrow.deposit(PLATFORM, NODE, address(token), 5 ether);
         assertEq(token.balanceOf(holder), 15 ether);
         assertEq(token.balanceOf(depositor), 10 ether);
         assertEq(token.balanceOf(address(escrow)), 0);
@@ -162,6 +165,7 @@ contract HandleEscrowHostileTokensTest is Test {
         PayoutFeeToken token = new PayoutFeeToken();
         _escrow(address(token), depositor, NODE, 100 ether);
         _escrow(address(token), other, NODE2, 100 ether);
+        afterGrace(escrow);
 
         vm.expectEmit(address(escrow));
         emit HandleEscrow.Refunded(NODE, address(token), depositor, depositor, 0, 100 ether, 99 ether);
@@ -182,6 +186,7 @@ contract HandleEscrowHostileTokensTest is Test {
         _escrow(address(token), depositor, NODE, 10 ether);
         token.setBlocked(holder, true);
         token.setBlocked(depositor, true);
+        afterGrace(escrow);
 
         vm.prank(depositor);
         vm.expectRevert(abi.encodeWithSelector(BlocklistToken.Blocked.selector, depositor));
@@ -195,7 +200,7 @@ contract HandleEscrowHostileTokensTest is Test {
         vm.startPrank(other);
         token.approve(address(escrow), 1 ether);
         vm.expectRevert(abi.encodeWithSelector(BlocklistToken.Blocked.selector, holder));
-        escrow.deposit(PLATFORM, NODE, address(token), 1 ether, other);
+        escrow.deposit(PLATFORM, NODE, address(token), 1 ether);
         vm.stopPrank();
 
         vm.prank(holder);
@@ -208,6 +213,7 @@ contract HandleEscrowHostileTokensTest is Test {
         BlocklistToken token = new BlocklistToken();
         _escrow(address(token), depositor, NODE, 10 ether);
         token.setBlocked(address(escrow), true);
+        afterGrace(escrow);
         bytes memory blocked = abi.encodeWithSelector(BlocklistToken.Blocked.selector, address(escrow));
 
         vm.prank(depositor);
@@ -230,6 +236,7 @@ contract HandleEscrowHostileTokensTest is Test {
         SenderFeeToken token = new SenderFeeToken();
         _escrow(address(token), depositor, NODE, 10 ether);
         _escrow(address(token), other, NODE2, 10 ether);
+        afterGrace(escrow);
         bytes memory over =
             abi.encodeWithSelector(HandleEscrow.OverDebited.selector, address(token), 10 ether, 10.1 ether);
 
@@ -242,7 +249,7 @@ contract HandleEscrowHostileTokensTest is Test {
         escrow.claim(NODE, one(address(token)), holder);
         assertEq(token.balanceOf(address(escrow)), 20 ether);
         assertEq(escrow.escrowed(NODE, address(token)), 10 ether);
-        assertEq(escrow.refundable(NODE, address(token), depositor), 10 ether);
+        assertEq(contributed(escrow, NODE, address(token), depositor), 10 ether);
     }
 
     /// A negative rebase shrinks the shared pool; the last withdrawal fails.
@@ -251,6 +258,7 @@ contract HandleEscrowHostileTokensTest is Test {
         _escrow(address(token), depositor, NODE, 10 ether);
         _escrow(address(token), other, NODE2, 10 ether);
         token.slash(address(escrow), 5 ether);
+        afterGrace(escrow);
 
         vm.prank(depositor);
         escrow.refund(NODE, address(token), depositor);
@@ -266,7 +274,7 @@ contract HandleEscrowHostileTokensTest is Test {
         TestERC20(token).mint(from, amount);
         vm.startPrank(from);
         TestERC20(token).approve(address(escrow), type(uint256).max);
-        escrow.deposit(PLATFORM, node, token, amount, from);
+        escrow.deposit(PLATFORM, node, token, amount);
         vm.stopPrank();
     }
 }

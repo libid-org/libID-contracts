@@ -760,9 +760,9 @@ async fn deploys_and_initializes_every_platform_verifier() {
 }
 
 /// The handle escrow: pay an unclaimed handle by its node, check the value
-/// lands on the registry's node, and refund it. The payout path needs a stub
-/// Platform Verifier, which this crate does not ship, so the Solidity suite
-/// covers it.
+/// lands on the registry's node, and refund it once its date has come. The
+/// payout path needs a stub Platform Verifier, which this crate does not
+/// ship, so the Solidity suite covers it.
 #[tokio::test]
 async fn escrows_value_against_an_unclaimed_handle() {
     use alloy::{
@@ -891,7 +891,7 @@ async fn escrows_value_against_an_unclaimed_handle() {
     // Escrowed for nobody; an unheld node refuses a claim with the bound error.
     let amount = U256::from(1_000_000_000_000_000_000u64);
     let receipt = escrow
-        .deposit(platform_id, node, native, amount, deployer)
+        .deposit(platform_id, node, native, amount)
         .value(amount)
         .send()
         .await
@@ -902,16 +902,34 @@ async fn escrows_value_against_an_unclaimed_handle() {
     let deposited = receipt
         .decoded_log::<HandleEscrow::Deposited>()
         .expect("no Deposited event");
+    let grace = escrow.REFUND_GRACE().call().await.unwrap();
+    let landed = provider
+        .get_block_by_number(receipt.block_number.unwrap().into())
+        .await
+        .unwrap()
+        .unwrap()
+        .header
+        .timestamp;
+    let refundable_at = landed + grace.to::<u64>();
     assert_eq!(
         (
             deposited.handleNode,
             deposited.token,
-            deposited.refundTo,
-            deposited.depositor,
+            deposited.sender,
             deposited.round,
-            deposited.amount
+            deposited.amount,
+            deposited.refundableAt
         ),
-        (node, native, deployer, deployer, U256::ZERO, amount)
+        (node, native, deployer, U256::ZERO, amount, refundable_at)
+    );
+    let contribution = escrow
+        .contribution(node, native, deployer)
+        .call()
+        .await
+        .unwrap();
+    assert_eq!(
+        (contribution.amount, contribution.refundableAt),
+        (amount, refundable_at)
     );
     assert_eq!(escrow.escrowed(node, native).call().await.unwrap(), amount);
     let err = escrow
@@ -927,7 +945,22 @@ async fn escrows_value_against_an_unclaimed_handle() {
         "{err}"
     );
 
-    // The depositor refunds to a recipient it names, and the event decodes.
+    // The refund waits for its date, then pays a recipient the sender names.
+    let err = escrow
+        .refund(node, native, stranger)
+        .call()
+        .await
+        .err()
+        .expect("a refund opened before its date")
+        .to_string();
+    assert!(
+        err.contains(&hex::encode(HandleEscrow::RefundLocked::SELECTOR)),
+        "{err}"
+    );
+    let _: serde_json::Value = provider
+        .raw_request("evm_increaseTime".into(), (grace,))
+        .await
+        .unwrap();
     let before = provider.get_balance(stranger).await.unwrap();
     let receipt = escrow
         .refund(node, native, stranger)
@@ -943,7 +976,7 @@ async fn escrows_value_against_an_unclaimed_handle() {
     assert_eq!(
         (
             refunded.handleNode,
-            refunded.refundTo,
+            refunded.sender,
             refunded.recipient,
             refunded.round,
             refunded.released,
