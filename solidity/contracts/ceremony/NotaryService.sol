@@ -27,11 +27,12 @@ import {INotaryService} from "./INotaryService.sol";
 ///      one is removed when nothing outstanding can still be presented under
 ///      it.
 ///
-///      Fees accrue here and the owner withdraws them, rather than forwarding
-///      on each verification. A submission verifying two attestations would
-///      otherwise make two external calls inside the verification path, where a
-///      hostile or gas-hungry recipient could make an honest submission fail.
-///      Nothing is forwarded, so there is nothing to reenter.
+///      Fees accrue here and anyone sweeps them to the fee recipient the owner
+///      sets, rather than forwarding on each verification. A submission
+///      verifying two attestations would otherwise make two external calls
+///      inside the verification path, where a hostile or gas-hungry recipient
+///      could make an honest submission fail. Nothing is forwarded, so there is
+///      nothing to reenter.
 contract NotaryService is INotaryService, Initializable, UUPSUpgradeable, Ownable2StepUpgradeable {
     // ─── State ──────────────────────────────────────────────────────
 
@@ -43,6 +44,8 @@ contract NotaryService is INotaryService, Initializable, UUPSUpgradeable, Ownabl
         /// The keys currently trusted. Append-only in spirit: a key is added
         /// before it signs and removed after nothing can still present under it.
         mapping(address => bool) trusted;
+        /// Where `sweep` sends accrued fees. Zero until the owner sets it.
+        address feeRecipient;
     }
 
     // keccak256(abi.encode(uint256(keccak256("libid.storage.NotaryService")) - 1)) & ~bytes32(uint256(0xff))
@@ -59,6 +62,7 @@ contract NotaryService is INotaryService, Initializable, UUPSUpgradeable, Ownabl
 
     event FeeChanged(uint256 previousFee, uint256 newFee);
     event NotaryTrustChanged(address indexed key, bool trusted);
+    event FeeRecipientSet(address indexed recipient);
     event FeesWithdrawn(address indexed to, uint256 amount);
 
     // ─── Errors ─────────────────────────────────────────────────────
@@ -73,6 +77,7 @@ contract NotaryService is INotaryService, Initializable, UUPSUpgradeable, Ownabl
     error UntrustedNotary(address recovered);
     error MalformedSignature();
     error ZeroAddress();
+    error FeeRecipientUnset();
     error NothingToWithdraw();
     error WithdrawalFailed(address to, uint256 amount);
 
@@ -81,7 +86,8 @@ contract NotaryService is INotaryService, Initializable, UUPSUpgradeable, Ownabl
         _disableInitializers();
     }
 
-    /// @param owner_  Owns the fee, the trusted set and the upgrade.
+    /// @param owner_  Owns the fee, the fee recipient, the trusted set and the
+    ///                upgrade.
     /// @param notary_ The first trusted key.
     /// @param fee_    The launch fee. Zero is allowed: a deployment may meter
     ///                at no charge, and REQ-COMMON-34E still requires an exact
@@ -140,6 +146,24 @@ contract NotaryService is INotaryService, Initializable, UUPSUpgradeable, Ownabl
         return _s().trusted[key];
     }
 
+    /// @notice Where `sweep` sends accrued fees; zero while unset.
+    function feeRecipient() external view returns (address) {
+        return _s().feeRecipient;
+    }
+
+    // ─── Fees ───────────────────────────────────────────────────────
+
+    /// @notice Send every accrued fee to the fee recipient. Anyone may call it.
+    function sweep() external {
+        address to = _s().feeRecipient;
+        if (to == address(0)) revert FeeRecipientUnset();
+        uint256 amount = address(this).balance;
+        if (amount == 0) revert NothingToWithdraw();
+        emit FeesWithdrawn(to, amount);
+        (bool ok,) = to.call{value: amount}("");
+        if (!ok) revert WithdrawalFailed(to, amount);
+    }
+
     // ─── Governance ─────────────────────────────────────────────────
 
     /// @notice Set what one verification costs.
@@ -157,13 +181,11 @@ contract NotaryService is INotaryService, Initializable, UUPSUpgradeable, Ownabl
         _setTrust(key, trusted_);
     }
 
-    /// @notice Withdraw accrued fees.
-    function withdraw(address to, uint256 amount) external onlyOwner {
-        if (to == address(0)) revert ZeroAddress();
-        if (amount == 0 || amount > address(this).balance) revert NothingToWithdraw();
-        emit FeesWithdrawn(to, amount);
-        (bool ok,) = to.call{value: amount}("");
-        if (!ok) revert WithdrawalFailed(to, amount);
+    /// @notice Set where `sweep` sends accrued fees.
+    function setFeeRecipient(address recipient) external onlyOwner {
+        if (recipient == address(0)) revert ZeroAddress();
+        _s().feeRecipient = recipient;
+        emit FeeRecipientSet(recipient);
     }
 
     function _setTrust(address key, bool trusted_) private {
@@ -176,7 +198,7 @@ contract NotaryService is INotaryService, Initializable, UUPSUpgradeable, Ownabl
     function _authorizeUpgrade(address) internal override onlyOwner {}
 
     /// @dev Renouncing would leave no way to rotate a key, set the fee, or
-    ///      withdraw what has accrued.
+    ///      move the fee recipient.
     function renounceOwnership() public pure override {
         revert("renounce disabled");
     }
