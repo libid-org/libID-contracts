@@ -123,6 +123,7 @@ contract UpgradeSafetyTest is Test {
         assertTrue(ns.isTrustedNotary(NOTARY));
         assertEq(address(ns).balance, 3 ether);
         assertEq(ns.owner(), OWNER);
+        assertEq(ns.feeRecipient(), address(0));
     }
 
     // ─── X / GitHub ─────────────────────────────────────────────────

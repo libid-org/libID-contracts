@@ -119,21 +119,6 @@ contract NotaryServiceTest is Test {
         }
     }
 
-    function test_feesAccrueAndOnlyTheOwnerWithdraws() public {
-        service.verify{value: FEE}(ATTESTED, signature);
-        service.verify{value: FEE}(ATTESTED, signature);
-        assertEq(address(service).balance, 2 * FEE);
-
-        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, address(this)));
-        service.withdraw(address(this), FEE);
-
-        address sink = address(0xBEEF);
-        vm.prank(OWNER);
-        service.withdraw(sink, 2 * FEE);
-        assertEq(sink.balance, 2 * FEE);
-        assertEq(address(service).balance, 0);
-    }
-
     /// @dev A rejected verification must leave no fee behind (REQ-COMMON-42).
     ///      Reverting gives that by construction.
     function test_aRejectedVerificationDeliversNoFee() public {
@@ -141,6 +126,86 @@ contract NotaryServiceTest is Test {
         vm.expectRevert(NotaryService.MalformedSignature.selector);
         service.verify{value: FEE}(ATTESTED, hex"1234");
         assertEq(address(service).balance, before, "a rejection kept the fee");
+    }
+
+    // ─── The fee recipient ──────────────────────────────────────────
+
+    address constant RECIPIENT = address(0xBEEF);
+
+    function _setRecipient(address recipient) internal {
+        vm.prank(OWNER);
+        service.setFeeRecipient(recipient);
+    }
+
+    function test_theFeeRecipientStartsUnset() public view {
+        assertEq(service.feeRecipient(), address(0));
+    }
+
+    function test_onlyTheOwnerSetsTheFeeRecipient() public {
+        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, address(this)));
+        service.setFeeRecipient(RECIPIENT);
+
+        vm.expectEmit(address(service));
+        emit NotaryService.FeeRecipientSet(RECIPIENT);
+        _setRecipient(RECIPIENT);
+        assertEq(service.feeRecipient(), RECIPIENT);
+    }
+
+    function test_theFeeRecipientCannotBeZero() public {
+        vm.prank(OWNER);
+        vm.expectRevert(NotaryService.ZeroAddress.selector);
+        service.setFeeRecipient(address(0));
+    }
+
+    function test_anyoneSweepsEveryFeeToTheRecipient() public {
+        service.verify{value: FEE}(ATTESTED, signature);
+        service.verify{value: FEE}(ATTESTED, signature);
+        _setRecipient(RECIPIENT);
+
+        address stranger = address(0xD00D);
+        vm.expectEmit(address(service));
+        emit NotaryService.FeesWithdrawn(RECIPIENT, 2 * FEE);
+        vm.prank(stranger);
+        service.sweep();
+
+        assertEq(RECIPIENT.balance, 2 * FEE);
+        assertEq(stranger.balance, 0);
+        assertEq(address(service).balance, 0);
+    }
+
+    function test_sweepNeedsARecipient() public {
+        service.verify{value: FEE}(ATTESTED, signature);
+        vm.expectRevert(NotaryService.FeeRecipientUnset.selector);
+        service.sweep();
+    }
+
+    function test_sweepNeedsAccruedFees() public {
+        _setRecipient(RECIPIENT);
+        vm.expectRevert(NotaryService.NothingToWithdraw.selector);
+        service.sweep();
+    }
+
+    function test_aRecipientThatRefusesFeesFailsTheSweep() public {
+        service.verify{value: FEE}(ATTESTED, signature);
+        address refuser = address(new Refuser());
+        _setRecipient(refuser);
+
+        vm.expectRevert(abi.encodeWithSelector(NotaryService.WithdrawalFailed.selector, refuser, FEE));
+        service.sweep();
+        assertEq(address(service).balance, FEE);
+    }
+
+    /// @dev A recipient sweeping again from its receive hook finds nothing
+    ///      left, so the fees arrive once.
+    function test_aReenteringRecipientIsPaidOnce() public {
+        service.verify{value: FEE}(ATTESTED, signature);
+        Reenterer reenterer = new Reenterer(service);
+        _setRecipient(address(reenterer));
+
+        service.sweep();
+        assertEq(address(reenterer).balance, FEE);
+        assertTrue(reenterer.reentryReverted());
+        assertEq(address(service).balance, 0);
     }
 
     // ─── Governance ─────────────────────────────────────────────────
@@ -168,6 +233,8 @@ contract NotaryServiceTest is Test {
         service.setFee(1);
         vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, address(this)));
         service.setNotary(address(0xD00D), true);
+        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, address(this)));
+        service.setFeeRecipient(address(0xD00D));
     }
 
     function test_theFeeCanChangeAndTakesEffectAtOnce() public {
@@ -221,5 +288,25 @@ contract NotaryServiceTest is Test {
         vm.prank(OWNER);
         vm.expectRevert("renounce disabled");
         service.renounceOwnership();
+    }
+}
+
+/// A fee recipient that accepts no value.
+contract Refuser {}
+
+/// A fee recipient that sweeps again while it is being paid.
+contract Reenterer {
+    NotaryService immutable service;
+    bool public reentryReverted;
+
+    constructor(NotaryService service_) {
+        service = service_;
+    }
+
+    receive() external payable {
+        try service.sweep() {}
+        catch {
+            reentryReverted = true;
+        }
     }
 }
