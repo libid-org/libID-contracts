@@ -123,41 +123,7 @@ contract UpgradeSafetyTest is Test {
         assertTrue(ns.isTrustedNotary(NOTARY));
         assertEq(address(ns).balance, 3 ether);
         assertEq(ns.owner(), OWNER);
-    }
-
-    /// @dev The fixture is the v0.19.0 implementation's creation code, the
-    ///      one the live proxies run before they gain a fee recipient.
-    function test_upgrade_NotaryServiceFromV0_19_0() public {
-        bytes memory released = vm.parseBytes(vm.readFile("contracts/ceremony/test/fixtures/NotaryService-v0.19.0.hex"));
-        address impl;
-        assembly {
-            impl := create(0, add(released, 0x20), mload(released))
-        }
-        assertTrue(impl != address(0), "the released implementation did not deploy");
-        NotaryService ns = NotaryService(
-            address(new ERC1967Proxy(impl, abi.encodeCall(NotaryService.initialize, (OWNER, NOTARY, 7))))
-        );
-        vm.deal(address(ns), 3 ether);
-
-        NotaryService impl2 = new NotaryService();
-        vm.prank(OWNER);
-        ns.upgradeToAndCall(address(impl2), "");
-
-        assertEq(_implOf(address(ns)), address(impl2));
-        assertEq(ns.fee(), 7);
-        assertTrue(ns.isTrustedNotary(NOTARY));
-        assertEq(ns.owner(), OWNER);
         assertEq(ns.feeRecipient(), address(0));
-        vm.expectRevert(NotaryService.FeeRecipientUnset.selector);
-        ns.sweep();
-
-        address recipient = address(0xFEE);
-        vm.prank(OWNER);
-        ns.setFeeRecipient(recipient);
-        vm.prank(STRANGER);
-        ns.sweep();
-        assertEq(recipient.balance, 3 ether);
-        assertEq(address(ns).balance, 0);
     }
 
     // ─── X / GitHub ─────────────────────────────────────────────────

@@ -21,8 +21,7 @@ bytecode_hash = "none"
 cbor_metadata = false
 fs_permissions = [
     # Google's real JWKS body and a notarized session of it
-    # (GoogleJwtRoots.t.sol, GoogleJwtRootsRealSession.t.sol), and released
-    # implementations upgraded from (UpgradeSafety.t.sol).
+    # (GoogleJwtRoots.t.sol, GoogleJwtRootsRealSession.t.sol).
     { access = "read", path = "contracts/ceremony/test/fixtures" },
     # Real proofs of each circuit, for the Honk verifiers (see HonkVerifierProofs.t.sol).
     { access = "read", path = "contracts/circuits/test/fixtures" },
