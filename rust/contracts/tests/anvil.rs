@@ -768,6 +768,7 @@ async fn escrows_value_against_an_unclaimed_handle() {
     use alloy::{
         hex,
         primitives::b256,
+        providers::ext::AnvilApi,
         sol_types::SolError,
     };
     use libid_contracts::{
@@ -957,8 +958,8 @@ async fn escrows_value_against_an_unclaimed_handle() {
         err.contains(&hex::encode(HandleEscrow::RefundLocked::SELECTOR)),
         "{err}"
     );
-    let _: serde_json::Value = provider
-        .raw_request("evm_increaseTime".into(), (grace,))
+    provider
+        .anvil_increase_time(grace.to::<u64>())
         .await
         .unwrap();
     let before = provider.get_balance(stranger).await.unwrap();

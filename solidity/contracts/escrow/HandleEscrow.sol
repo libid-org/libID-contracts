@@ -238,7 +238,7 @@ contract HandleEscrow is IHandleReveal, Initializable, UUPSUpgradeable, Ownable2
         uint256 total = current[msg.sender].amount + credited;
         if (total > type(uint192).max) revert ContributionTooLarge(handleNode, token, msg.sender);
         // forge-lint: disable-next-line(unsafe-typecast)
-        current[msg.sender] = Contribution(uint192(total), refundableAt);
+        current[msg.sender] = Contribution({amount: uint192(total), refundableAt: refundableAt});
         $.held[handleNode][token] += credited;
         emit Deposited(handleNode, token, msg.sender, round, credited, refundableAt);
     }
