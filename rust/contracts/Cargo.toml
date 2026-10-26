@@ -32,7 +32,11 @@ thiserror = "2"
 tokio = { version = "1", features = ["time"] }
 
 [dev-dependencies]
-alloy = { version = "2", features = ["node-bindings", "signer-local"] }
+alloy = { version = "2", features = [
+    "node-bindings",
+    "provider-anvil-api",
+    "signer-local",
+] }
 # Path-only, so `cargo publish` drops it. Pins `PlatformVerifier::notarizes`
 # and the profile windows to the generated table.
 libid-profiles = { path = "../profiles" }
