@@ -1141,11 +1141,24 @@ contract GoogleJwtRootsTest is Test {
         _refuses(_withBody(body), abi.encodeWithSelector(GoogleJwtRoots.EscapedValue.selector, "kid"));
     }
 
+    /// A member array of plain strings is stepped over unread; an object, or an
+    /// array holding an object or array, is refused.
     function test_refusesANestedObject() public {
-        bytes memory body = _body(abi.encodePacked('{"kid":"kid-1","x5c":["MIIC"],"n":"', _modulus("one"), '"}'));
+        bytes memory body = _body(abi.encodePacked('{"kid":"kid-1","inner":{},"n":"', _modulus("one"), '"}'));
         _refuses(_withBody(body), GoogleJwtRoots.UnexpectedNesting.selector);
-        body = _body(abi.encodePacked('{"kid":"kid-1","inner":{},"n":"', _modulus("one"), '"}'));
+        body = _body(abi.encodePacked('{"kid":"kid-1","x5c":["a",{}],"n":"', _modulus("one"), '"}'));
         _refuses(_withBody(body), GoogleJwtRoots.UnexpectedNesting.selector);
+        body = _body(abi.encodePacked('{"kid":"kid-1","x5c":[["a"]],"n":"', _modulus("one"), '"}'));
+        _refuses(_withBody(body), GoogleJwtRoots.UnexpectedNesting.selector);
+    }
+
+    function test_acceptsAFlatStringArrayInAKey() public {
+        _rotate(
+            _reading(
+                _body(abi.encodePacked('{"kid":"kid-1","x5c":["MIIC", "x"],"n":"', _modulus("one"), '","e":"AQAB"}'))
+            )
+        );
+        assertEq(_current().moduli, _one(_hash("one")));
     }
 
     /// One reading carries at most MAX_KEYS keys, and the refusal names how

@@ -120,8 +120,10 @@ contract GoogleJwtRoots is Initializable, UUPSUpgradeable, Ownable2StepUpgradeab
 
     // ─── Constants ──────────────────────────────────────────────────
 
-    /// @notice The TLS server name the notary must have authenticated.
-    bytes32 public constant AUTHORITY = keccak256("www.googleapis.com");
+    /// @notice The TLS server name the notary must have authenticated:
+    ///         keccak256 of the issuer's JWKS host.
+    /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
+    bytes32 public immutable AUTHORITY;
     uint256 public constant FRESHNESS_WINDOW = 1 hours;
     uint256 public constant CLOCK_SKEW_GRACE = 5 minutes;
     /// How long a generation is trusted after the reading that wrote it, by
@@ -138,17 +140,22 @@ contract GoogleJwtRoots is Initializable, UUPSUpgradeable, Ownable2StepUpgradeab
     uint256 public constant RENEWAL_MARGIN = 7 days;
 
     /// @dev The request line the keeper's prover puts on the wire, in
-    ///      origin-form like every other verifier pins it. The path is what
-    ///      separates the key set from everything else googleapis.com serves,
-    ///      and the whole line -- through the CRLF -- is what keeps a query
-    ///      out: `?callback=` turns the same path into JSONP, a 200 whose
-    ///      body begins with bytes the requester chose.
-    bytes private constant REQUEST_LINE = "GET /oauth2/v3/certs HTTP/1.1\r\n";
+    ///      origin-form like every other verifier pins it, as its keccak256
+    ///      and length (immutables cannot hold bytes). The path is what
+    ///      separates the key set from everything else the host serves, and
+    ///      the whole line -- through the CRLF -- is what keeps a query out:
+    ///      `?callback=` turns Google's path into JSONP, a 200 whose body
+    ///      begins with bytes the requester chose.
+    /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
+    bytes32 private immutable REQUEST_LINE_HASH;
+    /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
+    uint256 private immutable REQUEST_LINE_LENGTH;
     /// @dev googleapis.com serves many virtual hosts under one certificate, so
     ///      the TLS authority alone does not pin which backend answered. The
-    ///      `Host` header does, and the notary signed it.
+    ///      `Host` header does, and the notary signed it. Its value's keccak256.
     bytes private constant HOST_NEEDLE = "\r\nhost:";
-    bytes private constant EXPECTED_HOST = "www.googleapis.com";
+    /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
+    bytes32 private immutable HOST_HASH;
     bytes private constant STATUS_LINE = "HTTP/1.1 200 ";
     bytes private constant HEAD_BOUNDARY = "\r\n\r\n";
     bytes private constant TRANSFER_ENCODING_NEEDLE = "\r\ntransfer-encoding:";
@@ -214,7 +221,8 @@ contract GoogleJwtRoots is Initializable, UUPSUpgradeable, Ownable2StepUpgradeab
     ///      the status line) are it. Raised for either direction; a direction
     ///      revealing nothing reports `type(uint32).max`.
     error RequestLineNotAtOrigin(uint32 start);
-    /// @dev Not `GET /oauth2/v3/certs HTTP/1.1\r\n`.
+    /// @dev Not the configured request line, or, at construction, a line
+    ///      that does not end in CRLF.
     error WrongRequestLine();
     error NotOneHostHeader(uint256 count);
     error WrongHost();
@@ -251,7 +259,8 @@ contract GoogleJwtRoots is Initializable, UUPSUpgradeable, Ownable2StepUpgradeab
     ///      a base64url modulus needs one, and unescaping is a parser this
     ///      contract does not carry.
     error EscapedValue(string name);
-    /// @dev `{` or `[` inside a JWK object.
+    /// @dev `{` inside a JWK object, or a member array holding anything
+    ///      but plain strings.
     error UnexpectedNesting();
     /// @dev Bytes other than SP/HTAB/CR/LF after the closing `}`.
     error TrailingBytes();
@@ -259,8 +268,18 @@ contract GoogleJwtRoots is Initializable, UUPSUpgradeable, Ownable2StepUpgradeab
     error InvalidB64Char();
     error InvalidB64Length();
 
+    /// @param authority   keccak256 of the JWKS host's TLS server name.
+    /// @param requestLine The whole request line, CRLF included.
+    /// @param host        The `Host` value, lowercase.
     /// @custom:oz-upgrades-unsafe-allow constructor
-    constructor() {
+    constructor(bytes32 authority, bytes memory requestLine, bytes memory host) {
+        uint256 n = requestLine.length;
+        if (n < 2 || requestLine[n - 2] != "\r" || requestLine[n - 1] != "\n") revert WrongRequestLine();
+        if (host.length == 0) revert WrongHost();
+        AUTHORITY = authority;
+        REQUEST_LINE_HASH = keccak256(requestLine);
+        REQUEST_LINE_LENGTH = n;
+        HOST_HASH = keccak256(host);
         _disableInitializers();
     }
 
@@ -413,9 +432,11 @@ contract GoogleJwtRoots is Initializable, UUPSUpgradeable, Ownable2StepUpgradeab
     ///      bare LF separates from the one before it, and routes to that
     ///      backend -- so a count that anchors on CRLF must first insist the
     ///      request has no other kind of line ending.
-    function _requireJwksRequest(CeremonyAttestation.DirectionBlock memory block_, uint32 length) private pure {
+    function _requireJwksRequest(CeremonyAttestation.DirectionBlock memory block_, uint32 length) private view {
         bytes memory sent = _wholeDirection(block_, length);
-        if (!_startsWith(sent, REQUEST_LINE)) revert WrongRequestLine();
+        if (sent.length < REQUEST_LINE_LENGTH || keccak256(_slice(sent, 0, REQUEST_LINE_LENGTH)) != REQUEST_LINE_HASH) {
+            revert WrongRequestLine();
+        }
         CeremonyAttestation.requireCrlfLineEndings(sent);
 
         // Only the head names a host. A `Host` after the blank line is body
@@ -438,10 +459,7 @@ contract GoogleJwtRoots is Initializable, UUPSUpgradeable, Ownable2StepUpgradeab
 
         uint256 from = at + HOST_NEEDLE.length;
         uint256 to = _indexOf(normalized, "\r\n", from);
-        if (to == type(uint256).max || to - from != EXPECTED_HOST.length) revert WrongHost();
-        for (uint256 i = 0; i < EXPECTED_HOST.length; ++i) {
-            if (normalized[from + i] != EXPECTED_HOST[i]) revert WrongHost();
-        }
+        if (to == type(uint256).max || keccak256(_slice(normalized, from, to)) != HOST_HASH) revert WrongHost();
     }
 
     /// @dev The response body, located by the framing the server itself
@@ -563,10 +581,12 @@ contract GoogleJwtRoots is Initializable, UUPSUpgradeable, Ownable2StepUpgradeab
     ///
     ///      `keys` is located by counting: the token appears once in the
     ///      whole body, or the document is not the one this reads. Objects are
-    ///      flat -- a `{` or `[` inside one is refused -- so each ends at its
-    ///      first `}` and the walk is one forward pass bounded by the body.
-    ///      Past MAX_KEYS the walk only counts, so the refusal names how many
-    ///      keys the reading carries rather than the first one too many.
+    ///      flat -- a `{` inside one is refused, and an array may hold only
+    ///      plain strings -- so each ends at its first `}` and the walk is one
+    ///      forward pass bounded by the body. A key whose `kty` is present and
+    ///      not `RSA` is skipped unread. Past MAX_KEYS the walk only counts, so
+    ///      the refusal names how many keys the reading carries rather than
+    ///      the first one too many.
     function _readKeys(bytes memory body) private pure returns (string[] memory kids, bytes32[] memory moduli) {
         (uint256 count, uint256 at) = _find(body, KEYS_TOKEN);
         if (count == 0) revert MissingMember("keys");
@@ -581,6 +601,7 @@ contract GoogleJwtRoots is Initializable, UUPSUpgradeable, Ownable2StepUpgradeab
         kids = new string[](MAX_KEYS);
         moduli = new bytes32[](MAX_KEYS);
         uint256 keys;
+        uint256 elements;
         while (true) {
             at = _ws(body, at);
             if (at >= body.length) revert UnterminatedMember("keys");
@@ -588,7 +609,7 @@ contract GoogleJwtRoots is Initializable, UUPSUpgradeable, Ownable2StepUpgradeab
                 ++at;
                 break;
             }
-            if (keys != 0) {
+            if (elements++ != 0) {
                 if (body[at] != ",") revert UnterminatedMember("keys");
                 at = _ws(body, at + 1);
                 if (at >= body.length) revert UnterminatedMember("keys");
@@ -596,9 +617,12 @@ contract GoogleJwtRoots is Initializable, UUPSUpgradeable, Ownable2StepUpgradeab
             if (body[at] != "{") revert UnterminatedMember("keys");
 
             uint256 close = _objectEnd(body, at);
-            if (keys < MAX_KEYS) (kids[keys], moduli[keys]) = _readKey(_slice(body, at, close + 1));
-            ++keys;
+            bytes memory jwk = _slice(body, at, close + 1);
             at = close + 1;
+            (uint256 kty,) = _find(jwk, '"kty"');
+            if (kty != 0 && keccak256(_member(jwk, "kty")) != keccak256("RSA")) continue;
+            if (keys < MAX_KEYS) (kids[keys], moduli[keys]) = _readKey(jwk);
+            ++keys;
         }
 
         if (keys == 0) revert EmptyKeySet();
@@ -622,12 +646,22 @@ contract GoogleJwtRoots is Initializable, UUPSUpgradeable, Ownable2StepUpgradeab
         }
     }
 
-    /// @dev The index of the `}` closing the object opened at `open`.
+    /// @dev The index of the `}` closing the object opened at `open`. An
+    ///      array is stepped over, never read, and may hold only plain
+    ///      strings: no `{`, `[`, backslash or other value inside.
     function _objectEnd(bytes memory body, uint256 open) private pure returns (uint256 at) {
         for (at = open + 1; at < body.length; ++at) {
             bytes1 c = body[at];
             if (c == "}") return at;
-            if (c == "{" || c == "[") revert UnexpectedNesting();
+            if (c == "{") revert UnexpectedNesting();
+            if (c == "[") {
+                bool quoted;
+                for (++at; at < body.length && (quoted || body[at] != "]"); ++at) {
+                    c = body[at];
+                    if (c == '"') quoted = !quoted;
+                    else if (c == "\\" || (!quoted && c != "," && _ws(body, at) == at)) revert UnexpectedNesting();
+                }
+            }
         }
         revert UnterminatedMember("keys");
     }

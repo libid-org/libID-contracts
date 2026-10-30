@@ -24,6 +24,8 @@ use libid_contracts::{
     deploy::{
         deploy_behind_proxy,
         deploy_contract,
+        deploy_proxy,
+        deploy_with_ctor,
         upgrade_uups,
     },
     Artifacts,
@@ -36,6 +38,47 @@ fn test_provider() -> impl Provider + Clone {
 
 async fn default_signer(provider: &impl Provider) -> Address {
     provider.get_accounts().await.expect("accounts")[0]
+}
+
+/// `GoogleJwtRoots` deployed for Google's JWKS endpoint, behind a proxy.
+async fn deploy_google_roots(
+    provider: &impl Provider,
+    artifacts: &Artifacts,
+    owner: Address,
+    notary: Address,
+) -> Address {
+    use alloy::{
+        primitives::Bytes,
+        sol_types::{
+            SolCall,
+            SolValue,
+        },
+    };
+    let ctor = (
+        keccak256(b"www.googleapis.com"),
+        Bytes::from_static(b"GET /oauth2/v3/certs HTTP/1.1\r\n"),
+        Bytes::from_static(b"www.googleapis.com"),
+    )
+        .abi_encode_params();
+    let bytecode = artifacts.bytecode("GoogleJwtRoots").unwrap();
+    let implementation =
+        deploy_with_ctor(provider, &bytecode, &ctor, "GoogleJwtRoots (impl)", None)
+            .await
+            .unwrap();
+    let init = GoogleJwtRoots::initializeCall {
+        owner_: owner,
+        notary_: notary,
+    };
+    deploy_proxy(
+        provider,
+        &artifacts.bytecode("ERC1967Proxy").unwrap(),
+        implementation,
+        init.abi_encode().into(),
+        "GoogleJwtRoots (proxy)",
+        None,
+    )
+    .await
+    .unwrap()
 }
 
 /// The identity stack in the order `script/Deploy.s.sol` uses, each behind
@@ -84,18 +127,8 @@ async fn deploys_the_identity_stack_behind_proxies() {
     .await
     .unwrap();
 
-    let roots_proxy = deploy_behind_proxy(
-        &provider,
-        &artifacts,
-        "GoogleJwtRoots",
-        &GoogleJwtRoots::initializeCall {
-            owner_: deployer,
-            notary_: notary_proxy,
-        },
-        None,
-    )
-    .await
-    .unwrap();
+    let roots_proxy =
+        deploy_google_roots(&provider, &artifacts, deployer, notary_proxy).await;
 
     // Wire the registry to the Proof Verifier it dispatches through.
     let registry = IdentityRegistry::new(registry_proxy, &provider);
@@ -340,10 +373,7 @@ async fn deploys_the_ens_resolver_with_its_constructor_arguments() {
         primitives::FixedBytes,
         sol_types::SolValue,
     };
-    use libid_contracts::{
-        bindings::ens::HandleResolver,
-        deploy::deploy_with_ctor,
-    };
+    use libid_contracts::bindings::ens::HandleResolver;
 
     let provider = test_provider();
     let artifacts = Artifacts::embedded();
@@ -446,18 +476,8 @@ async fn deploys_and_initializes_every_platform_verifier() {
     )
     .await
     .unwrap();
-    let roots_proxy = deploy_behind_proxy(
-        &provider,
-        &artifacts,
-        "GoogleJwtRoots",
-        &GoogleJwtRoots::initializeCall {
-            owner_: deployer,
-            notary_: notary_proxy,
-        },
-        None,
-    )
-    .await
-    .unwrap();
+    let roots_proxy =
+        deploy_google_roots(&provider, &artifacts, deployer, notary_proxy).await;
     // The real verifiers, one per circuit.
     let bearer_link =
         deploy_honk_verifier(&provider, &artifacts, Circuit::BearerLink, None)
