@@ -58,6 +58,9 @@ export const HANDLE_VECTORS: readonly HandleVector[] = [
   { platform: "google", input: "", expected: { ok: false, refusal: "Empty" } },
   { platform: "google", input: "a\"b@example.com", expected: { ok: false, refusal: "BadCharacter" } },
   { platform: "google", input: "a\\b@example.com", expected: { ok: false, refusal: "BadCharacter" } },
+  { platform: "telegram", input: "Brynn_QX", expected: { ok: true, handle: "brynn_qx", handleNode: "0xf6416e7788cea1d8d9d7ada243b2f998a33296b61db647298ce61722c04c925b" } },
+  { platform: "telegram", input: "Abcdefghij_bcdefghij_bcdefghij12", expected: { ok: true, handle: "abcdefghij_bcdefghij_bcdefghij12", handleNode: "0x91bff6c0f0be28b117c4f2be2a2d56eeaf552dc8a40263b0de71a590514b5904" } },
+  { platform: "telegram", input: "Abcdefghij_bcdefghij_bcdefghij123", expected: { ok: false, refusal: "TooLong" } },
 ]
 
 export const ID_VECTORS: readonly IdVector[] = [
@@ -83,4 +86,7 @@ export const ID_VECTORS: readonly IdVector[] = [
   { platform: "google", input: "a\"b", expected: { ok: false, refusal: "BadCharacter" } },
   { platform: "google", input: "a\\b", expected: { ok: false, refusal: "BadCharacter" } },
   { platform: "google", input: "a\tb", expected: { ok: false, refusal: "BadCharacter" } },
+  { platform: "telegram", input: "7051836294", expected: { ok: true, idNode: "0x9ff44e615ff14505c3a406e9931e2442ad4f56f3fb5b12e91c143fa6384a3a4c" } },
+  { platform: "telegram", input: "12345678901234567890", expected: { ok: true, idNode: "0x3e9826f14cbe508759feac1b5cff121bfa0d9a805167f0ff9e5395d8bef3deb1" } },
+  { platform: "telegram", input: "123456789012345678901", expected: { ok: false, refusal: "TooLong" } },
 ]
