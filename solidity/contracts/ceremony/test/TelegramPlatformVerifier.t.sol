@@ -117,10 +117,10 @@ contract TelegramPlatformVerifierTest is Test {
         new ERC1967Proxy(impl, _initData(address(0), honk, address(roots), ""));
     }
 
-    // ─── Time: iat - 5 min <= now <= iat + 1 h ──────────────────────
+    // ─── Time: iat - 5 min <= now < iat + 1 h ───────────────────────
 
     function test_theTimeWindowEdges() public {
-        int64[4] memory offset = [int64(3600), 3601, -300, -301];
+        int64[4] memory offset = [int64(3599), 3600, -300, -301];
         bool[4] memory ok = [true, false, true, false];
         for (uint256 i = 0; i < 4; ++i) {
             // IAT and every offset are far inside int64 and the sum is positive.
@@ -131,12 +131,12 @@ contract TelegramPlatformVerifierTest is Test {
         }
     }
 
-    /// An iat ahead of Block Time is observed at Block Time, never later.
-    function test_observedAtIsCappedAtBlockTime() public {
+    /// `iat` less the five-minute allowance, whenever it is submitted.
+    function test_observedAtIsIatOnTheSharedScale() public {
         vm.warp(IAT - 300);
         assertEq(this.run(verifier, _payload()).metadataObservedAt, IAT - 300);
         vm.warp(IAT + 60);
-        assertEq(this.run(verifier, _payload()).metadataObservedAt, IAT);
+        assertEq(this.run(verifier, _payload()).metadataObservedAt, IAT - 300);
     }
 
     // ─── The signing key ────────────────────────────────────────────
@@ -179,7 +179,7 @@ contract TelegramPlatformVerifierTest is Test {
         ICeremony.VerifiedClaim memory c = real.verify(abi.encode(s));
         assertEq(c.idNode, ID_NODE);
         assertEq(c.handleNode, HANDLE_NODE);
-        assertEq(c.metadataObservedAt, REAL_IAT);
+        assertEq(c.metadataObservedAt, REAL_IAT - 300);
         assertEq(c.sessionId, digest);
         assertEq(string(c.clientIdentifier), string(BOT_ID));
         assertEq(c.operationDomain, DOMAIN);

@@ -238,9 +238,10 @@ export const MAX_FUTURE_ATTESTATION_SKEW_SECONDS_GITHUB = 300
  */
 export const FUTURE_OBSERVATION_ALLOWANCE_SECONDS_GITHUB = 300
 
-// The circuit exposes the signed `iat`, which is the observation as is.
-// A token is accepted from five minutes before its `iat`, for clock skew,
-// until an hour after it, both ends inclusive.
+// The circuit exposes the signed `iat`. A token is accepted while
+// Block Time is in [iat - 5 min, iat + 1 h): five minutes for clock
+// skew. The observation is `iat` less five minutes, so an `iat` inside
+// the skew cannot outrank a later binding.
 /**
  * `telegram/v1`: maximum age of the token attestation, or of a signed
  * `iat`.
@@ -256,4 +257,4 @@ export const MAX_FUTURE_ATTESTATION_SKEW_SECONDS_TELEGRAM = 300
  * run. The verifier subtracts it, so every version of a platform
  * reports time on one scale.
  */
-export const FUTURE_OBSERVATION_ALLOWANCE_SECONDS_TELEGRAM = 0
+export const FUTURE_OBSERVATION_ALLOWANCE_SECONDS_TELEGRAM = 300

@@ -16,7 +16,7 @@ import {IHonkVerifier} from "./PlatformVerifierBase.sol";
 ///
 /// @dev Google's input layout with `iat` in `exp`'s place. The audience is
 ///      the configured bot id, never a caller's. `iat` is the validity
-///      anchor, and `metadataObservedAt` is `iat` capped at Block Time.
+///      anchor, and `metadataObservedAt` is `iat` on the shared scale.
 contract TelegramPlatformVerifier is OidcPlatformVerifierBase {
     /// @notice The `telegram/v1` payload, as `abi.encode` of this struct.
     /// @dev Every field is authentic only once the proof verifies.
@@ -100,18 +100,12 @@ contract TelegramPlatformVerifier is OidcPlatformVerifierBase {
             CeremonyAuthorization.digest(p.operationDomain, version, p.authorizationNonce, p.transactionData);
         _requireTrustedModulus(p.modulus);
 
-        // iat - skew <= Block Time <= iat + lifetime, both ends inclusive.
-        uint64 blockTime = uint64(block.timestamp);
-        uint64 skew = _maxFutureAttestationSkew();
-        if (p.iat > blockTime + skew) revert AttestationAhead(p.iat, blockTime, skew);
-        uint64 validUntil = p.iat + _proofLifetime();
-        if (blockTime > validUntil) revert ProofExpired(validUntil, blockTime);
-
+        uint64 observedAt = _requireFresh(p.iat);
         bytes memory bot = _t().botId;
         _requireProof(p.proof, _oidcInputs(digest, sha256(bot), p.idNode, p.handleNode, p.iat, p.modulus));
         claimed.idNode = p.idNode;
         claimed.handleNode = p.handleNode;
-        claimed.metadataObservedAt = p.iat < blockTime ? p.iat : blockTime;
+        claimed.metadataObservedAt = observedAt;
         claimed.clientIdentifier = bot;
         claimed.sessionId = digest;
         claimed.operationDomain = p.operationDomain;
