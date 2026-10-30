@@ -49,10 +49,12 @@ pub const COVERED: &[(&str, &str)] = &[
     ("XPlatformVerifier", "XPlatformVerifier"),
     ("GitHubPlatformVerifier", "GitHubPlatformVerifier"),
     ("GooglePlatformVerifier", "GooglePlatformVerifier"),
+    ("TelegramPlatformVerifier", "TelegramPlatformVerifier"),
     // circuits: the UltraHonk verifiers the Platform Verifiers pin, vendored
     // from the libid-circuits release
     ("BearerLinkHonkVerifier", "BearerLinkHonkVerifier"),
     ("OidcGoogleHonkVerifier", "OidcGoogleHonkVerifier"),
+    ("OidcTelegramHonkVerifier", "OidcTelegramHonkVerifier"),
     // identity
     ("IdentityRegistry", "IdentityRegistry"),
     // ens (deployed once per network, not CREATE3-canonical)

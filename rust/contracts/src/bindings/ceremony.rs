@@ -150,6 +150,23 @@ pub use google_platform_verifier::GooglePlatformVerifier;
     non_camel_case_types,
     unused_attributes
 )]
+mod telegram_platform_verifier {
+    alloy::sol!(
+        #[sol(rpc, all_derives)]
+        TelegramPlatformVerifier,
+        "abi/TelegramPlatformVerifier.json"
+    );
+}
+
+/// `ceremony/TelegramPlatformVerifier.sol`: the `telegram/v1` profile.
+pub use telegram_platform_verifier::TelegramPlatformVerifier;
+
+#[allow(
+    clippy::too_many_arguments,
+    missing_docs,
+    non_camel_case_types,
+    unused_attributes
+)]
 mod payloads {
     alloy::sol!(
         #[sol(all_derives)]

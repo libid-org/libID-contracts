@@ -432,6 +432,7 @@ async fn deploys_and_initializes_every_platform_verifier() {
             GooglePlatformVerifier,
             IPlatformVerifier,
             PlatformVerifierBase,
+            TelegramPlatformVerifier,
             XPlatformVerifier,
         },
         circuits::{
@@ -444,6 +445,7 @@ async fn deploys_and_initializes_every_platform_verifier() {
             GoogleRoots,
             Initializer,
             PlatformVerifier,
+            TelegramRoots,
             TlsNotaryRoots,
         },
         Error,
@@ -487,9 +489,14 @@ async fn deploys_and_initializes_every_platform_verifier() {
         deploy_honk_verifier(&provider, &artifacts, Circuit::OidcGoogle, None)
             .await
             .unwrap();
+    let oidc_telegram =
+        deploy_honk_verifier(&provider, &artifacts, Circuit::OidcTelegram, None)
+            .await
+            .unwrap();
     let honk_at = |circuit: Circuit| match circuit {
         Circuit::BearerLink => bearer_link,
         Circuit::OidcGoogle => oidc_google,
+        Circuit::OidcTelegram => oidc_telegram,
     };
     let mut codehashes = Vec::new();
     for circuit in Circuit::ALL {
@@ -520,6 +527,13 @@ async fn deploys_and_initializes_every_platform_verifier() {
         Initializer::X(tls(bearer_link)),
         Initializer::GitHub(tls(bearer_link)),
         Initializer::Google(google),
+        // The root list is only a pointer here; Google's stands in.
+        Initializer::Telegram(TelegramRoots {
+            owner: deployer,
+            honk_verifier: oidc_telegram,
+            jwt_roots: roots_proxy,
+            bot_id: b"7000000001".into(),
+        }),
     ] {
         let verifier = init.verifier();
         // The initializer wires its circuit's verifier; the contract pins
@@ -597,6 +611,27 @@ async fn deploys_and_initializes_every_platform_verifier() {
                 let quote = v.quote().call().await.unwrap();
                 assert_eq!(quote, U256::ZERO);
                 quote
+            }
+            PlatformVerifier::Telegram => {
+                let v = TelegramPlatformVerifier::new(proxy, &provider);
+                assert_eq!(v.notaryService().call().await.unwrap(), Address::ZERO);
+                assert_eq!(v.circuitCodehash().call().await.unwrap(), honk_codehash);
+                assert_eq!(v.jwtRoots().call().await.unwrap(), roots_proxy);
+                assert_eq!(&v.botId().call().await.unwrap()[..], b"7000000001");
+                let params = v.protocolParameters().call().await.unwrap();
+                assert_eq!(
+                    (
+                        params.proofLifetime,
+                        params.maxFutureAttestationSkew,
+                        params.futureObservationAllowance
+                    ),
+                    (
+                        libid_profiles::PROOF_LIFETIME_SECONDS_TELEGRAM,
+                        libid_profiles::MAX_FUTURE_ATTESTATION_SKEW_SECONDS_TELEGRAM,
+                        libid_profiles::FUTURE_OBSERVATION_ALLOWANCE_SECONDS_TELEGRAM,
+                    )
+                );
+                v.quote().call().await.unwrap()
             }
         };
 

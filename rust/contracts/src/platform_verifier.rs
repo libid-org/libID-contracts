@@ -11,6 +11,7 @@ use alloy::{
     primitives::{
         keccak256,
         Address,
+        Bytes,
         B256,
     },
     providers::Provider,
@@ -24,6 +25,7 @@ use crate::{
         GooglePlatformVerifier,
         IPlatformVerifier,
         PlatformVerifierBase,
+        TelegramPlatformVerifier,
         XPlatformVerifier,
     },
     circuits::Circuit,
@@ -34,7 +36,7 @@ use crate::{
     },
 };
 
-/// One of the three launch Platform Verifiers.
+/// One of the four launch Platform Verifiers.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum PlatformVerifier {
     /// `x/v1`: `XPlatformVerifier`, a TLSNotary profile.
@@ -44,11 +46,14 @@ pub enum PlatformVerifier {
     /// `google/v1`: `GooglePlatformVerifier`, a signed-token profile that
     /// notarizes nothing.
     Google,
+    /// `telegram/v1`: `TelegramPlatformVerifier`, a signed-token profile
+    /// that notarizes nothing.
+    Telegram,
 }
 
 impl PlatformVerifier {
     /// Every launch verifier.
-    pub const ALL: [Self; 3] = [Self::X, Self::GitHub, Self::Google];
+    pub const ALL: [Self; 4] = [Self::X, Self::GitHub, Self::Google, Self::Telegram];
 
     /// The contract, which is also its `.sol` file and its entry in
     /// [`COVERED`](crate::artifacts::COVERED).
@@ -57,6 +62,7 @@ impl PlatformVerifier {
             Self::X => "XPlatformVerifier",
             Self::GitHub => "GitHubPlatformVerifier",
             Self::Google => "GooglePlatformVerifier",
+            Self::Telegram => "TelegramPlatformVerifier",
         }
     }
 
@@ -67,6 +73,7 @@ impl PlatformVerifier {
             Self::X => "x",
             Self::GitHub => "github",
             Self::Google => "google",
+            Self::Telegram => "telegram",
         }
     }
 
@@ -82,6 +89,7 @@ impl PlatformVerifier {
         match self {
             Self::X | Self::GitHub => Circuit::BearerLink,
             Self::Google => Circuit::OidcGoogle,
+            Self::Telegram => Circuit::OidcTelegram,
         }
     }
 
@@ -91,7 +99,7 @@ impl PlatformVerifier {
     pub const fn notarizes(self) -> bool {
         match self {
             Self::X | Self::GitHub => true,
-            Self::Google => false,
+            Self::Google | Self::Telegram => false,
         }
     }
 }
@@ -193,8 +201,22 @@ pub struct GoogleRoots {
     pub jwt_roots: Address,
 }
 
+/// What the Telegram Platform Verifier initializes with. The base refuses a
+/// Notary Service for this profile.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TelegramRoots {
+    /// Governance.
+    pub owner: Address,
+    /// The bb-generated UltraHonk verifier for the Telegram OIDC circuit.
+    pub honk_verifier: Address,
+    /// The Telegram `GoogleJwtRoots` deployment the trusted moduli are read through.
+    pub jwt_roots: Address,
+    /// The bot id a token's `aud` must be.
+    pub bot_id: Bytes,
+}
+
 /// What one Platform Verifier is initialized with.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Initializer {
     /// `XPlatformVerifier`.
     X(TlsNotaryRoots),
@@ -202,6 +224,8 @@ pub enum Initializer {
     GitHub(TlsNotaryRoots),
     /// `GooglePlatformVerifier`.
     Google(GoogleRoots),
+    /// `TelegramPlatformVerifier`.
+    Telegram(TelegramRoots),
 }
 
 /// A built `initialize` call. Its [`abi_encode`](Self::abi_encode) is an
@@ -215,6 +239,8 @@ pub enum InitializeCall {
     GitHub(GitHubPlatformVerifier::initializeCall),
     /// `GooglePlatformVerifier.initialize`.
     Google(GooglePlatformVerifier::initializeCall),
+    /// `TelegramPlatformVerifier.initialize`.
+    Telegram(TelegramPlatformVerifier::initializeCall),
 }
 
 impl InitializeCall {
@@ -224,6 +250,7 @@ impl InitializeCall {
             Self::X(call) => call.abi_encode(),
             Self::GitHub(call) => call.abi_encode(),
             Self::Google(call) => call.abi_encode(),
+            Self::Telegram(call) => call.abi_encode(),
         }
     }
 }
@@ -235,6 +262,7 @@ impl Initializer {
             Self::X(_) => PlatformVerifier::X,
             Self::GitHub(_) => PlatformVerifier::GitHub,
             Self::Google(_) => PlatformVerifier::Google,
+            Self::Telegram(_) => PlatformVerifier::Telegram,
         }
     }
 
@@ -243,12 +271,13 @@ impl Initializer {
         match self {
             Self::X(roots) | Self::GitHub(roots) => roots.honk_verifier,
             Self::Google(roots) => roots.honk_verifier,
+            Self::Telegram(roots) => roots.honk_verifier,
         }
     }
 
     /// The rules `initialize` enforces that need no chain: a nonzero owner
-    /// and Honk verifier, a Notary Service for a TLSNotary profile, and a
-    /// root list for Google. [`deploy_platform_verifier`] checks the code hash.
+    /// and Honk verifier, a Notary Service for a TLSNotary profile, a root
+    /// list for Google and Telegram, and Telegram's bot id. [`deploy_platform_verifier`] checks the code hash.
     pub fn check(&self) -> Result<()> {
         let contract = self.verifier().contract();
         let refuse = |detail: String| Error::Initializer {
@@ -279,6 +308,15 @@ impl Initializer {
                 nonzero("honk verifier", roots.honk_verifier)?;
                 nonzero("jwt roots", roots.jwt_roots)
             }
+            Self::Telegram(roots) => {
+                nonzero("owner", roots.owner)?;
+                nonzero("honk verifier", roots.honk_verifier)?;
+                nonzero("jwt roots", roots.jwt_roots)?;
+                if roots.bot_id.is_empty() {
+                    return Err(refuse("bot id is empty".into()));
+                }
+                Ok(())
+            }
         }
     }
 
@@ -305,6 +343,15 @@ impl Initializer {
                     notary_: Address::ZERO,
                     honkVerifier_: roots.honk_verifier,
                     jwtRoots_: roots.jwt_roots,
+                })
+            }
+            Self::Telegram(roots) => {
+                InitializeCall::Telegram(TelegramPlatformVerifier::initializeCall {
+                    owner_: roots.owner,
+                    notary_: Address::ZERO,
+                    honkVerifier_: roots.honk_verifier,
+                    jwtRoots_: roots.jwt_roots,
+                    botId_: roots.bot_id.clone(),
                 })
             }
         })
@@ -360,6 +407,9 @@ pub async fn deploy_platform_verifier<P: Provider>(
             deploy_behind_proxy(provider, artifacts, contract, &call, sender).await
         }
         InitializeCall::Google(call) => {
+            deploy_behind_proxy(provider, artifacts, contract, &call, sender).await
+        }
+        InitializeCall::Telegram(call) => {
             deploy_behind_proxy(provider, artifacts, contract, &call, sender).await
         }
     }
