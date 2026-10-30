@@ -3,9 +3,9 @@
 Typed [alloy](https://github.com/alloy-rs/alloy) bindings, embedded forge
 artifacts, and deploy/upgrade helpers for the libid identity stack: the
 ceremony verification path (`NotaryService`, `CeremonyProofVerifier`, the
-three launch Platform Verifiers it routes to, the two UltraHonk verifiers
-they pin, and `GoogleJwtRoots`, the signing keys the `google/v1` verifier
-trusts), the identity registry (`IdentityRegistry`), and the deterministic
+four launch Platform Verifiers it routes to, the three UltraHonk verifiers
+they pin, and `GoogleJwtRoots`, deployed once per OIDC issuer for the signing
+keys the `google/v1` and `telegram/v1` verifiers trust), the identity registry (`IdentityRegistry`), and the deterministic
 deployment factory (`LibidFactory`).
 
 The compiled artifacts are embedded in the crate, so a consumer deploys or
@@ -21,10 +21,14 @@ cloning, run `scripts/vendor-circuit-verifiers.sh` then
 ## Example: deploy the Notary Service and the Google JWT root list
 
 ```rust,no_run
-use alloy::{primitives::{Address, U256}, providers::ProviderBuilder};
+use alloy::{
+    primitives::{keccak256, Address, Bytes, U256},
+    providers::ProviderBuilder,
+    sol_types::{SolCall, SolValue},
+};
 use libid_contracts::{
     bindings::ceremony::{GoogleJwtRoots, NotaryService},
-    deploy::deploy_behind_proxy,
+    deploy::{deploy_behind_proxy, deploy_proxy, deploy_with_ctor},
     Artifacts,
 };
 
@@ -53,15 +57,32 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     .await?;
 
     // The Google JWT root list pays that fee on every rotation. It starts
-    // empty until a keeper submits a notarized reading of Google's JWKS.
-    let roots = deploy_behind_proxy(
+    // empty until a keeper submits a notarized reading of Google's JWKS. Its
+    // implementation takes the JWKS endpoint as constructor arguments:
+    // `JwtRootsDeployments.sol` holds each issuer's.
+    let endpoint = (
+        keccak256("www.googleapis.com"),
+        Bytes::from_static(b"GET /oauth2/v3/certs HTTP/1.1\r\n"),
+        Bytes::from_static(b"www.googleapis.com"),
+    );
+    let implementation = deploy_with_ctor(
         &provider,
-        &artifacts,
-        "GoogleJwtRoots",
-        &GoogleJwtRoots::initializeCall {
-            owner_: owner,
-            notary_: notary,
-        },
+        &artifacts.bytecode("GoogleJwtRoots")?,
+        &endpoint.abi_encode_params(),
+        "GoogleJwtRoots (impl)",
+        None,
+    )
+    .await?;
+    let init = GoogleJwtRoots::initializeCall {
+        owner_: owner,
+        notary_: notary,
+    };
+    let roots = deploy_proxy(
+        &provider,
+        &artifacts.bytecode("ERC1967Proxy")?,
+        implementation,
+        init.abi_encode().into(),
+        "GoogleJwtRoots (proxy)",
         None,
     )
     .await?;
