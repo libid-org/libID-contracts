@@ -178,11 +178,12 @@ mod payloads {
 /// `ceremony/ICeremonyPayloads.sol`: the payloads `IdentityRegistry.bind`
 /// carries to a Platform Verifier. A payload is the struct's
 /// [`SolValue::abi_encode`](alloy::sol_types::SolValue::abi_encode), never a
-/// call to either function.
+/// call to any of its functions.
 pub use payloads::{
     GooglePlatformVerifier::GoogleProof,
     ICeremony::Attestation,
     ICeremonyPayloads,
+    TelegramPlatformVerifier::TelegramProof,
     TlsNotaryVerifierBase::TlsNotaryProof,
 };
 
@@ -299,6 +300,25 @@ mod tests {
         };
         assert_eq!(
             GoogleProof::abi_decode(&payload.abi_encode()).unwrap(),
+            payload
+        );
+    }
+
+    #[test]
+    fn a_telegram_payload_round_trips() {
+        let payload = TelegramProof {
+            ceremonyVersion: 1,
+            operationDomain: B256::repeat_byte(0x11),
+            authorizationNonce: B256::repeat_byte(0x22),
+            transactionData: vec![1, 2].into(),
+            idNode: B256::repeat_byte(0x33),
+            handleNode: B256::repeat_byte(0x44),
+            iat: 1_800_000_000,
+            modulus: [B256::repeat_byte(0x55); 18],
+            proof: vec![0xde, 0xad].into(),
+        };
+        assert_eq!(
+            TelegramProof::abi_decode(&payload.abi_encode()).unwrap(),
             payload
         );
     }

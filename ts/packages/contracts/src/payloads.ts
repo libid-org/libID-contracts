@@ -26,12 +26,16 @@ function inputs<N extends PayloadName>(name: N): Inputs<N> {
 
 const TLS_NOTARY_PROOF = inputs('tlsNotaryProof')
 const GOOGLE_PROOF = inputs('googleProof')
+const TELEGRAM_PROOF = inputs('telegramProof')
 
 /// `TlsNotaryVerifierBase.TlsNotaryProof`: the `x/v1` and `github/v1` payload.
 export type TlsNotaryProof = AbiParameterToPrimitiveType<(typeof TLS_NOTARY_PROOF)[0]>
 
 /// `GooglePlatformVerifier.GoogleProof`: the `google/v1` payload.
 export type GoogleProof = AbiParameterToPrimitiveType<(typeof GOOGLE_PROOF)[0]>
+
+/// `TelegramPlatformVerifier.TelegramProof`: the `telegram/v1` payload.
+export type TelegramProof = AbiParameterToPrimitiveType<(typeof TELEGRAM_PROOF)[0]>
 
 /// The `x/v1` or `github/v1` payload, as the verifier decodes it.
 export function encodeTlsNotaryProof(payload: TlsNotaryProof): Hex {
@@ -51,6 +55,16 @@ export function encodeGoogleProof(payload: GoogleProof): Hex {
 /// A Google payload back into its fields. Throws on bytes that are not one.
 export function decodeGoogleProof(data: Hex): GoogleProof {
   return decodeAbiParameters(GOOGLE_PROOF, data)[0]
+}
+
+/// The `telegram/v1` payload, as the verifier decodes it.
+export function encodeTelegramProof(payload: TelegramProof): Hex {
+  return encodeAbiParameters(TELEGRAM_PROOF, [payload])
+}
+
+/// A Telegram payload back into its fields. Throws on bytes that are not one.
+export function decodeTelegramProof(data: Hex): TelegramProof {
+  return decodeAbiParameters(TELEGRAM_PROOF, data)[0]
 }
 
 /// The `google/v1` payload fields the verifier builds its public inputs from.

@@ -159,7 +159,7 @@ Other entry points:
   `NotYourHandle`, `SumcheckFailed`, …), from every contract on the route
   and bb's Honk verifiers. A revert does not say which contract raised it,
   so `contracts()` lists every one that declares the error.
-- `bindings::ceremony::{TlsNotaryProof, GoogleProof}` — the payload a Platform
+- `bindings::ceremony::{TlsNotaryProof, GoogleProof, TelegramProof}` — the payload a Platform
   Verifier decodes; its `SolValue::abi_encode` is the `payload` `bind` takes.
 
 ## Feature `testing`

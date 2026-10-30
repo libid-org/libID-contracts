@@ -2,6 +2,7 @@
 pragma solidity ^0.8.24;
 
 import {GooglePlatformVerifier} from "./GooglePlatformVerifier.sol";
+import {TelegramPlatformVerifier} from "./TelegramPlatformVerifier.sol";
 import {TlsNotaryVerifierBase} from "./TlsNotaryVerifierBase.sol";
 
 /// @title ICeremonyPayloads
@@ -15,4 +16,7 @@ interface ICeremonyPayloads {
 
     /// @notice The `google/v1` payload.
     function googleProof(GooglePlatformVerifier.GoogleProof calldata payload) external pure;
+
+    /// @notice The `telegram/v1` payload.
+    function telegramProof(TelegramPlatformVerifier.TelegramProof calldata payload) external pure;
 }

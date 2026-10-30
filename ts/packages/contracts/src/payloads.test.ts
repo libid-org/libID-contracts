@@ -7,9 +7,12 @@ import {
   GooglePublicInputMismatch,
   googleProofFields,
   decodeTlsNotaryProof,
+  decodeTelegramProof,
   encodeGoogleProof,
+  encodeTelegramProof,
   encodeTlsNotaryProof,
   type GoogleProof,
+  type TelegramProof,
   type TlsNotaryProof,
 } from './payloads.js'
 
@@ -114,6 +117,26 @@ describe('encodeGoogleProof', () => {
       proof: '0xdeadbeef',
     }
     expect(decodeGoogleProof(encodeGoogleProof(payload))).toEqual(payload)
+  })
+})
+
+describe('encodeTelegramProof', () => {
+  it('round-trips through the struct ABI', () => {
+    const payload: TelegramProof = {
+      ceremonyVersion: 1,
+      operationDomain: `0x${'11'.repeat(32)}`,
+      authorizationNonce: `0x${'22'.repeat(32)}`,
+      transactionData: '0x0102',
+      idNode: `0x${'33'.repeat(32)}`,
+      handleNode: `0x${'44'.repeat(32)}`,
+      iat: 1_800_000_000n,
+      modulus: Array.from(
+        { length: 18 },
+        (): Hex => `0x${'55'.repeat(32)}`,
+      ) as unknown as TelegramProof['modulus'],
+      proof: '0xdeadbeef',
+    }
+    expect(decodeTelegramProof(encodeTelegramProof(payload))).toEqual(payload)
   })
 })
 
