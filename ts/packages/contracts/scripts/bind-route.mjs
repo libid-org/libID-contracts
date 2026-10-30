@@ -11,6 +11,7 @@ export const bindRoute = [
   ['XPlatformVerifier.sol', 'XPlatformVerifier'],
   ['GitHubPlatformVerifier.sol', 'GitHubPlatformVerifier'],
   ['GooglePlatformVerifier.sol', 'GooglePlatformVerifier'],
+  ['TelegramPlatformVerifier.sol', 'TelegramPlatformVerifier'],
   ['NotaryService.sol', 'NotaryService'],
   ['IHonkVerifierErrors.sol', 'IHonkVerifierErrors'],
 ]

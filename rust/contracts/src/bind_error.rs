@@ -195,7 +195,8 @@ mod tests {
                 "IdentityRegistry",
                 "XPlatformVerifier",
                 "GitHubPlatformVerifier",
-                "GooglePlatformVerifier"
+                "GooglePlatformVerifier",
+                "TelegramPlatformVerifier"
             ]
         );
         let data = revert("NotYourHandle(bytes32)", BOUND.abi_encode());

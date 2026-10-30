@@ -17,6 +17,7 @@ use crate::bindings::{
         GitHubPlatformVerifier::GitHubPlatformVerifierErrors,
         GooglePlatformVerifier::GooglePlatformVerifierErrors,
         NotaryService::NotaryServiceErrors,
+        TelegramPlatformVerifier::TelegramPlatformVerifierErrors,
         XPlatformVerifier::XPlatformVerifierErrors,
     },
     circuits::IHonkVerifierErrors::IHonkVerifierErrorsErrors,
@@ -38,6 +39,8 @@ pub enum BindError {
     GitHubVerifier(GitHubPlatformVerifierErrors),
     /// `GooglePlatformVerifier`.
     GoogleVerifier(GooglePlatformVerifierErrors),
+    /// `TelegramPlatformVerifier`.
+    TelegramVerifier(TelegramPlatformVerifierErrors),
     /// `NotaryService`.
     NotaryService(NotaryServiceErrors),
     /// `HonkVerifier`.
@@ -54,7 +57,7 @@ pub(crate) type Declares = fn([u8; 4]) -> bool;
 pub(crate) type Decode = fn(&[u8]) -> Option<BindError>;
 
 /// The route's error sets, in the order `BindError::decode` tries them.
-pub(crate) const ROUTE: [(&str, Declares, Decode); 7] = [
+pub(crate) const ROUTE: [(&str, Declares, Decode); 8] = [
     (
         "IdentityRegistry",
         IdentityRegistryErrors::valid_selector,
@@ -81,6 +84,11 @@ pub(crate) const ROUTE: [(&str, Declares, Decode); 7] = [
         |d| GooglePlatformVerifierErrors::abi_decode(d).ok().map(BindError::GoogleVerifier),
     ),
     (
+        "TelegramPlatformVerifier",
+        TelegramPlatformVerifierErrors::valid_selector,
+        |d| TelegramPlatformVerifierErrors::abi_decode(d).ok().map(BindError::TelegramVerifier),
+    ),
+    (
         "NotaryService",
         NotaryServiceErrors::valid_selector,
         |d| NotaryServiceErrors::abi_decode(d).ok().map(BindError::NotaryService),
@@ -101,6 +109,7 @@ impl BindError {
             Self::XVerifier(e) => XPlatformVerifierErrors::signature_by_selector(e.selector()),
             Self::GitHubVerifier(e) => GitHubPlatformVerifierErrors::signature_by_selector(e.selector()),
             Self::GoogleVerifier(e) => GooglePlatformVerifierErrors::signature_by_selector(e.selector()),
+            Self::TelegramVerifier(e) => TelegramPlatformVerifierErrors::signature_by_selector(e.selector()),
             Self::NotaryService(e) => NotaryServiceErrors::signature_by_selector(e.selector()),
             Self::HonkVerifier(e) => IHonkVerifierErrorsErrors::signature_by_selector(e.selector()),
             Self::Panic(_) => Some(Panic::SIGNATURE),
@@ -116,6 +125,7 @@ impl BindError {
             Self::XVerifier(e) => e.selector(),
             Self::GitHubVerifier(e) => e.selector(),
             Self::GoogleVerifier(e) => e.selector(),
+            Self::TelegramVerifier(e) => e.selector(),
             Self::NotaryService(e) => e.selector(),
             Self::HonkVerifier(e) => e.selector(),
             Self::Panic(_) => Panic::SELECTOR,

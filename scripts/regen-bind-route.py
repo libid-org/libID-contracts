@@ -51,6 +51,7 @@ ROUTE = (
     Hop("XPlatformVerifier", "XVerifier", "XPlatformVerifier", "ceremony"),
     Hop("GitHubPlatformVerifier", "GitHubVerifier", "GitHubPlatformVerifier", "ceremony"),
     Hop("GooglePlatformVerifier", "GoogleVerifier", "GooglePlatformVerifier", "ceremony"),
+    Hop("TelegramPlatformVerifier", "TelegramVerifier", "TelegramPlatformVerifier", "ceremony"),
     Hop("NotaryService", "NotaryService", "NotaryService", "ceremony"),
     Hop("IHonkVerifierErrors", "HonkVerifier", "HonkVerifier", "circuits"),
 )
