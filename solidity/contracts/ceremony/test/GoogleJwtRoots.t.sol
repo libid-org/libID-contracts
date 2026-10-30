@@ -1156,6 +1156,25 @@ contract GoogleJwtRootsTest is Test {
         assertEq(_current().moduli, _one(_hash("one")));
     }
 
+    /// A `]` inside an array's string does not close it, an array may close the
+    /// key, and a key without `kty` is read. A backslash in an array is refused.
+    function test_arrayStringsAndAnUntypedKey() public {
+        _rotate(_reading(_body(abi.encodePacked('{"kid":"k","n":"', _modulus("one"), '","e":"AQAB","x5c":["]{["]}'))));
+        assertEq(_current().moduli, _one(_hash("one")));
+        bytes memory body = _body(abi.encodePacked('{"kid":"k","x5c":["a\\b"],"n":"', _modulus("one"), '","e":"AQAB"}'));
+        _refuses(_withBody(body), GoogleJwtRoots.UnexpectedNesting.selector);
+    }
+
+    /// The endpoint is checked at construction, and a request shorter than its line is refused by name.
+    function test_theEndpointIsCheckedWhole() public {
+        bytes[4] memory bad = [bytes("\n"), "GET / HTTP/1.1\n", "GET / HTTP/1.1\r\r", "GET / HTTP/1.1\r\n"];
+        for (uint256 i = 0; i < 4; ++i) {
+            vm.expectRevert(i == 3 ? GoogleJwtRoots.WrongHost.selector : GoogleJwtRoots.WrongRequestLine.selector);
+            new GoogleJwtRoots(AUTHORITY, bad[i], i == 3 ? bytes("") : bytes("h"));
+        }
+        _refuses(_withRequest("GET /oauth2/v3/certs\r\n\r\n"), GoogleJwtRoots.WrongRequestLine.selector);
+    }
+
     /// One reading carries at most MAX_KEYS keys, and the refusal names how
     /// many it carried. The cap itself is accepted.
     function test_refusesNineKeys() public {

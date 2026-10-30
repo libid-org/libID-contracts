@@ -484,6 +484,39 @@ mod tests {
         Initializer::X(tls()).check().unwrap();
         Initializer::GitHub(tls()).check().unwrap();
         Initializer::Google(google()).check().unwrap();
+        Initializer::Telegram(telegram()).check().unwrap();
+    }
+
+    fn telegram() -> TelegramRoots {
+        TelegramRoots {
+            owner: Address::repeat_byte(0x01),
+            honk_verifier: Address::repeat_byte(0x03),
+            jwt_roots: Address::repeat_byte(0x04),
+            bot_id: Bytes::from_static(b"7000000001"),
+        }
+    }
+
+    /// Telegram's root list, Honk verifier and bot id are each required.
+    #[test]
+    fn a_telegram_initializer_needs_each_of_its_fields() {
+        let mut cases = [telegram(), telegram(), telegram()];
+        cases[0].jwt_roots = Address::ZERO;
+        cases[1].honk_verifier = Address::ZERO;
+        cases[2].bot_id = Bytes::new();
+        for (roots, what) in
+            cases
+                .into_iter()
+                .zip(["jwt roots", "honk verifier", "bot id"])
+        {
+            let err = Initializer::Telegram(roots).check().unwrap_err();
+            assert!(err.to_string().contains(what), "{what}: {err}");
+        }
+        let call = Initializer::Telegram(telegram())
+            .call()
+            .unwrap()
+            .abi_encode();
+        let d = TelegramPlatformVerifier::initializeCall::abi_decode(&call).unwrap();
+        assert_eq!((d.notary_, d.botId_), (Address::ZERO, telegram().bot_id));
     }
 
     #[test]

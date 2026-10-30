@@ -182,6 +182,19 @@ contract TelegramPlatformVerifierTest is Test {
         assertEq(c.metadataObservedAt, REAL_IAT);
         assertEq(c.sessionId, digest);
         assertEq(string(c.clientIdentifier), string(BOT_ID));
+        assertEq(c.operationDomain, DOMAIN);
+        assertEq(c.transactionData, _txData());
+        assertEq(c.ceremonyVersion, 1);
+    }
+
+    /// No value is accepted, and pointing at another root list is announced.
+    function test_refusesValueAndAnnouncesItsRoots() public {
+        vm.expectRevert(abi.encodeWithSelector(PlatformVerifierBase.WrongValue.selector, 0, 1));
+        verifier.verify{value: 1}(abi.encode(_payload()));
+        vm.expectEmit(address(verifier));
+        emit OidcPlatformVerifierBase.JwtRootsChanged(address(0xB0B));
+        vm.prank(OWNER);
+        verifier.setJwtRoots(TrustingJwtRoots(address(0xB0B)));
     }
 
     /// Every value the verifier builds an input from is bound: digest parts,
