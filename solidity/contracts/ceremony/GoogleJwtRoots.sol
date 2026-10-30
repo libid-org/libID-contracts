@@ -811,21 +811,16 @@ contract GoogleJwtRoots is Initializable, UUPSUpgradeable, Ownable2StepUpgradeab
     }
 
     /// @dev The first occurrence of `needle` at or after `from`, or
-    ///      `type(uint256).max`. A masked word compare screens each offset.
+    ///      `type(uint256).max`. Each offset is one masked word compare, so
+    ///      `needle` is at most 31 bytes; every needle here is a constant
+    ///      or a short member token.
     function _indexOf(bytes memory haystack, bytes memory needle, uint256 from) private pure returns (uint256) {
         uint256 n = needle.length;
-        bytes32 mask = n >= 32 ? bytes32(type(uint256).max) : ~bytes32(type(uint256).max >> (8 * n));
+        assert(n < 32);
+        bytes32 mask = ~bytes32(type(uint256).max >> (8 * n));
         bytes32 head = _word(needle, 0) & mask;
         for (uint256 i = from; i + n <= haystack.length; ++i) {
-            if ((_word(haystack, i) & mask) != head) continue;
-            bool hit = true;
-            for (uint256 j = 32; j < n; ++j) {
-                if (haystack[i + j] != needle[j]) {
-                    hit = false;
-                    break;
-                }
-            }
-            if (hit) return i;
+            if ((_word(haystack, i) & mask) == head) return i;
         }
         return type(uint256).max;
     }
