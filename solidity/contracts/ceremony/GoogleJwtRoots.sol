@@ -646,24 +646,27 @@ contract GoogleJwtRoots is Initializable, UUPSUpgradeable, Ownable2StepUpgradeab
         }
     }
 
-    /// @dev The index of the `}` closing the object opened at `open`. An
-    ///      array is stepped over, never read, and may hold only plain
-    ///      strings: no `{`, `[`, backslash or other value inside.
+    /// @dev The index of the `}` closing the object opened at `open`.
     function _objectEnd(bytes memory body, uint256 open) private pure returns (uint256 at) {
         for (at = open + 1; at < body.length; ++at) {
             bytes1 c = body[at];
             if (c == "}") return at;
             if (c == "{") revert UnexpectedNesting();
-            if (c == "[") {
-                bool quoted;
-                for (++at; at < body.length && (quoted || body[at] != "]"); ++at) {
-                    c = body[at];
-                    if (c == '"') quoted = !quoted;
-                    else if (c == "\\" || (!quoted && c != "," && _ws(body, at) == at)) revert UnexpectedNesting();
-                }
-            }
+            if (c == "[") at = _arrayEnd(body, at);
         }
         revert UnterminatedMember("keys");
+    }
+
+    /// @dev The index of the `]` closing the array opened at `open`, or the
+    ///      body's length. The array is stepped over, never read, and may hold
+    ///      only plain strings: no `{`, `[`, backslash or other value.
+    function _arrayEnd(bytes memory body, uint256 open) private pure returns (uint256 at) {
+        bool quoted;
+        for (at = open + 1; at < body.length && (quoted || body[at] != "]"); ++at) {
+            bytes1 c = body[at];
+            if (c == '"') quoted = !quoted;
+            else if (c == "\\" || (!quoted && c != "," && _ws(body, at) == at)) revert UnexpectedNesting();
+        }
     }
 
     /// @dev One JWK: its kid, and the limb hash of its modulus.
