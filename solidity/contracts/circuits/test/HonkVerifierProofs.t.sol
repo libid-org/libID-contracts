@@ -122,8 +122,7 @@ contract OidcTelegramHonkVerifierProofTest is HonkVerifierProofTest {
         return "contracts/circuits/test/fixtures/oidc-telegram-proof.json";
     }
 
-    /// Unmeasured: Google's bound plus headroom until the verifier is vendored.
     function _verifyGasBound() internal pure override returns (uint64) {
-        return 800_000;
+        return 785_000;
     }
 }
