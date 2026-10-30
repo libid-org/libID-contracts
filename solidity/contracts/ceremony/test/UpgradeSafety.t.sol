@@ -12,6 +12,7 @@ import {NotaryService} from "../NotaryService.sol";
 import {XPlatformVerifier} from "../XPlatformVerifier.sol";
 import {GitHubPlatformVerifier} from "../GitHubPlatformVerifier.sol";
 import {GooglePlatformVerifier} from "../GooglePlatformVerifier.sol";
+import {TelegramPlatformVerifier} from "../TelegramPlatformVerifier.sol";
 import {INotaryService} from "../INotaryService.sol";
 import {IHonkVerifier} from "../PlatformVerifierBase.sol";
 import {IPlatformVerifier} from "../IPlatformVerifier.sol";
@@ -55,6 +56,10 @@ contract UpgradeSafetyTest is Test {
         assertEq(
             _slot("libid.storage.GooglePlatformVerifier"),
             0x92a7c997eeb454ceeeb8ef2d99ba7d4b830287ff966f129f9049c466a8342400
+        );
+        assertEq(
+            _slot("libid.storage.TelegramPlatformVerifier"),
+            0xdbc39b430f003c3f11a780c4bae9c4d3f473abf939613bb2f756a39264692900
         );
         assertEq(_slot("libid.storage.IdentityRegistry"), REGISTRY_ROOT);
         assertEq(_slot("libid.storage.GoogleJwtRoots"), ROOTS_ROOT);
@@ -213,6 +218,43 @@ contract UpgradeSafetyTest is Test {
         assertEq(v.notaryService(), address(0));
         (,, uint64 c) = v.protocolParameters();
         assertEq(c, 7200);
+        assertEq(v.owner(), OWNER);
+    }
+
+    // ─── Telegram ───────────────────────────────────────────────────
+
+    function test_upgrade_TelegramPlatformVerifier() public {
+        IHonkVerifier honk = IHonkVerifier(HonkStub.deploy(HonkStub.TELEGRAM));
+        TrustingJwtRoots roots = new TrustingJwtRoots(JwtRootsDeployments.TELEGRAM_AUTHORITY);
+        bytes memory bot = "7000000001";
+        TelegramPlatformVerifier impl = new TelegramPlatformVerifier();
+        vm.expectRevert(Initializable.InvalidInitialization.selector);
+        impl.initialize(OWNER, INotaryService(address(0)), honk, roots, bot);
+        TelegramPlatformVerifier v = TelegramPlatformVerifier(
+            address(
+                new ERC1967Proxy(
+                    address(impl),
+                    abi.encodeCall(
+                        TelegramPlatformVerifier.initialize, (OWNER, INotaryService(address(0)), honk, roots, bot)
+                    )
+                )
+            )
+        );
+        vm.expectRevert(Initializable.InvalidInitialization.selector);
+        v.initialize(OWNER, INotaryService(address(0)), honk, roots, bot);
+
+        TelegramPlatformVerifier impl2 = new TelegramPlatformVerifier();
+        _expectNotOwner();
+        v.upgradeToAndCall(address(impl2), "");
+        vm.prank(OWNER);
+        v.upgradeToAndCall(address(impl2), "");
+        assertEq(_implOf(address(v)), address(impl2));
+        assertEq(v.jwtRoots(), address(roots));
+        assertEq(v.botId(), bot);
+        assertEq(v.honkVerifier(), address(honk));
+        assertEq(v.notaryService(), address(0));
+        (,, uint64 c) = v.protocolParameters();
+        assertEq(c, 300);
         assertEq(v.owner(), OWNER);
     }
 
