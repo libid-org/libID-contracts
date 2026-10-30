@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-import {GoogleJwtRoots} from "../GoogleJwtRoots.sol";
+import {GoogleJwtRoots} from "./GoogleJwtRoots.sol";
 
 /// @notice The two deployments of the JWT roots contract, written from each
 ///         issuer's published JWKS location.

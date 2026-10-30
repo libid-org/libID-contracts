@@ -619,8 +619,8 @@ contract GoogleJwtRoots is Initializable, UUPSUpgradeable, Ownable2StepUpgradeab
             uint256 close = _objectEnd(body, at);
             bytes memory jwk = _slice(body, at, close + 1);
             at = close + 1;
-            (uint256 kty,) = _find(jwk, '"kty"');
-            if (kty != 0 && keccak256(_member(jwk, "kty")) != keccak256("RSA")) continue;
+            (bool typed, bytes memory kty) = _optionalMember(jwk, "kty");
+            if (typed && keccak256(kty) != keccak256("RSA")) continue;
             if (keys < MAX_KEYS) (kids[keys], moduli[keys]) = _readKey(jwk);
             ++keys;
         }
@@ -689,10 +689,21 @@ contract GoogleJwtRoots is Initializable, UUPSUpgradeable, Ownable2StepUpgradeab
     ///      exactly once, then `:` and an opening quote with whitespace either
     ///      side (Google writes a space after the colon), and the value runs
     ///      to the next quote. A backslash is refused rather than unescaped.
-    function _member(bytes memory jwk, string memory name) private pure returns (bytes memory) {
+    function _member(bytes memory jwk, string memory name) private pure returns (bytes memory value) {
+        bool found;
+        (found, value) = _optionalMember(jwk, name);
+        if (!found) revert MissingMember(name);
+    }
+
+    /// @dev `_member`, or not found when the token is absent.
+    function _optionalMember(bytes memory jwk, string memory name)
+        private
+        pure
+        returns (bool found, bytes memory value)
+    {
         bytes memory token = abi.encodePacked('"', name, '"');
         (uint256 count, uint256 at) = _find(jwk, token);
-        if (count == 0) revert MissingMember(name);
+        if (count == 0) return (false, value);
         if (count > 1) revert AmbiguousMember(name);
 
         at = _ws(jwk, at + token.length);
@@ -704,7 +715,7 @@ contract GoogleJwtRoots is Initializable, UUPSUpgradeable, Ownable2StepUpgradeab
         uint256 start = at;
         for (; at < jwk.length; ++at) {
             bytes1 c = jwk[at];
-            if (c == '"') return _slice(jwk, start, at);
+            if (c == '"') return (true, _slice(jwk, start, at));
             if (c == "\\") revert EscapedValue(name);
         }
         revert UnterminatedMember(name);

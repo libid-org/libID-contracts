@@ -10,7 +10,7 @@ import {CeremonyAttestation} from "../CeremonyAttestation.sol";
 import {INotaryService} from "../INotaryService.sol";
 import {NotaryService} from "../NotaryService.sol";
 import {GoogleJwtRoots} from "../GoogleJwtRoots.sol";
-import {JwtRootsDeployments} from "./JwtRootsDeployments.sol";
+import {JwtRootsDeployments} from "../JwtRootsDeployments.sol";
 
 /// Exposes `_splitLimbs` so a test computes a key's hash from its bytes, not from the list's state.
 contract LimbHasher is GoogleJwtRoots {

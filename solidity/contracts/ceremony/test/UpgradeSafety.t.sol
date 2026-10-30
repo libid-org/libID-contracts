@@ -18,7 +18,7 @@ import {IPlatformVerifier} from "../IPlatformVerifier.sol";
 import {IProofVerifier} from "../IProofVerifier.sol";
 import {IdentityRegistry} from "../../identity/IdentityRegistry.sol";
 import {GoogleJwtRoots} from "../GoogleJwtRoots.sol";
-import {JwtRootsDeployments} from "./JwtRootsDeployments.sol";
+import {JwtRootsDeployments} from "../JwtRootsDeployments.sol";
 import {CeremonyProfile} from "../../ceremony/CeremonyProfile.sol";
 import {TestNodes} from "../../identity/test/TestNodes.sol";
 import {StubPlatformVerifier} from "../../identity/test/StubPlatformVerifier.sol";

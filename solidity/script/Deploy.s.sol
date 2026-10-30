@@ -9,7 +9,7 @@ import {INotaryService} from "../contracts/ceremony/INotaryService.sol";
 import {CeremonyProofVerifier} from "../contracts/ceremony/CeremonyProofVerifier.sol";
 import {IProofVerifier} from "../contracts/ceremony/IProofVerifier.sol";
 import {GoogleJwtRoots} from "../contracts/ceremony/GoogleJwtRoots.sol";
-import {JwtRootsDeployments} from "../contracts/ceremony/test/JwtRootsDeployments.sol";
+import {JwtRootsDeployments} from "../contracts/ceremony/JwtRootsDeployments.sol";
 
 /// @notice Deploy the identity stack to any EVM chain: five UUPS proxies for the
 /// Notary Service, Proof Verifier, identity registry and the Google and

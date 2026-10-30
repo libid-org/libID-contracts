@@ -11,7 +11,7 @@ import {CeremonyAttestation} from "../CeremonyAttestation.sol";
 import {INotaryService} from "../INotaryService.sol";
 import {NotaryService} from "../NotaryService.sol";
 import {GoogleJwtRoots} from "../GoogleJwtRoots.sol";
-import {JwtRootsDeployments} from "./JwtRootsDeployments.sol";
+import {JwtRootsDeployments} from "../JwtRootsDeployments.sol";
 
 /// A reading of Google's JWKS that actually crossed the wire.
 ///

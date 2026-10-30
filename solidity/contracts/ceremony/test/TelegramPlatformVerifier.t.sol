@@ -172,6 +172,8 @@ contract TelegramPlatformVerifierTest is Test {
         int64[4] memory offset = [int64(3600), 3601, -300, -301];
         bool[4] memory ok = [true, false, true, false];
         for (uint256 i = 0; i < 4; ++i) {
+            // IAT and every offset are far inside int64 and the sum is positive.
+            // forge-lint: disable-next-line(unsafe-typecast)
             vm.warp(uint64(int64(IAT) + offset[i]));
             assertEq(_accepts(verifier, _payload()), ok[i], vm.toString(offset[i]));
         }
