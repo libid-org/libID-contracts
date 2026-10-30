@@ -300,7 +300,7 @@ contract GooglePlatformVerifierTest is Test {
     function test_rejectsAMissingClientIdentifier() public {
         GooglePlatformVerifier.GoogleProof memory s = _payload();
         s.clientIdentifier = "";
-        vm.expectRevert(GooglePlatformVerifier.MissingClientIdentifier.selector);
+        vm.expectRevert(OidcPlatformVerifierBase.MissingClientIdentifier.selector);
         this.run(s);
     }
 

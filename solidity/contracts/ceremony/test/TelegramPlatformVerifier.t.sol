@@ -113,7 +113,7 @@ contract TelegramPlatformVerifierTest is Test {
         new ERC1967Proxy(impl, _initData(address(0), google, address(roots), BOT_ID));
         vm.expectPartialRevert(PlatformVerifierBase.WrongNotaryForProfile.selector);
         new ERC1967Proxy(impl, _initData(address(0xDEAD), honk, address(roots), BOT_ID));
-        vm.expectRevert(TelegramPlatformVerifier.MissingClientIdentifier.selector);
+        vm.expectRevert(OidcPlatformVerifierBase.MissingClientIdentifier.selector);
         new ERC1967Proxy(impl, _initData(address(0), honk, address(roots), ""));
     }
 

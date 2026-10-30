@@ -57,7 +57,6 @@ contract GooglePlatformVerifier is OidcPlatformVerifierBase {
         }
     }
 
-    error MissingClientIdentifier();
     /// @dev `Block Time >= proofValidUntil`, where the ceiling is the signed
     ///      `exp` itself (REQ-PLAT-22).
     error TokenExpired(uint64 exp, uint64 blockTime);
