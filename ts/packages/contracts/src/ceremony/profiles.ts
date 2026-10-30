@@ -135,8 +135,20 @@ export const GITHUB: Profile = {
   },
 }
 
+/**
+ * Like Google, the evidence is a token signed with the platform's published
+ * keys, so the profile notarizes nothing. The audience is the bot id the
+ * verifier is configured with.
+ */
+export const TELEGRAM: Profile = {
+  platform: 'telegram',
+  ceremonyVersion: 1,
+  token: null,
+  identity: null,
+}
+
 /** The launch profiles. */
-export const LAUNCH: readonly Profile[] = [GOOGLE, X, GITHUB]
+export const LAUNCH: readonly Profile[] = [GOOGLE, X, GITHUB, TELEGRAM]
 
 /** The launch profile for a platform name, or undefined. */
 export function launch(platform: string): Profile | undefined {
@@ -193,12 +205,12 @@ export const FUTURE_OBSERVATION_ALLOWANCE_SECONDS_GOOGLE = 7200
 // states the wall-clock time it observes, so five minutes covers clock
 // skew between the notary and the chain.
 /**
- * `x/v1`: maximum age of the token attestation.
+ * `x/v1`: maximum age of the token attestation, or of a signed `iat`.
  */
 export const PROOF_LIFETIME_SECONDS_X = 3600
 /**
- * `x/v1`: how far ahead of Block Time the token attestation may be
- * dated.
+ * `x/v1`: how far ahead of Block Time the token attestation, or a
+ * signed `iat`, may be dated.
  */
 export const MAX_FUTURE_ATTESTATION_SKEW_SECONDS_X = 300
 /**
@@ -210,12 +222,13 @@ export const FUTURE_OBSERVATION_ALLOWANCE_SECONDS_X = 300
 
 // Same as X: notary wall-clock, five minutes for skew.
 /**
- * `github/v1`: maximum age of the token attestation.
+ * `github/v1`: maximum age of the token attestation, or of a signed
+ * `iat`.
  */
 export const PROOF_LIFETIME_SECONDS_GITHUB = 3600
 /**
- * `github/v1`: how far ahead of Block Time the token attestation may
- * be dated.
+ * `github/v1`: how far ahead of Block Time the token attestation, or a
+ * signed `iat`, may be dated.
  */
 export const MAX_FUTURE_ATTESTATION_SKEW_SECONDS_GITHUB = 300
 /**
@@ -224,3 +237,23 @@ export const MAX_FUTURE_ATTESTATION_SKEW_SECONDS_GITHUB = 300
  * time on one scale.
  */
 export const FUTURE_OBSERVATION_ALLOWANCE_SECONDS_GITHUB = 300
+
+// The circuit exposes the signed `iat`, which is the observation as is.
+// A token is accepted from five minutes before its `iat`, for clock skew,
+// until an hour after it, both ends inclusive.
+/**
+ * `telegram/v1`: maximum age of the token attestation, or of a signed
+ * `iat`.
+ */
+export const PROOF_LIFETIME_SECONDS_TELEGRAM = 3600
+/**
+ * `telegram/v1`: how far ahead of Block Time the token attestation, or
+ * a signed `iat`, may be dated.
+ */
+export const MAX_FUTURE_ATTESTATION_SKEW_SECONDS_TELEGRAM = 300
+/**
+ * `telegram/v1`: how far ahead of Block Time the evidence time may
+ * run. The verifier subtracts it, so every version of a platform
+ * reports time on one scale.
+ */
+export const FUTURE_OBSERVATION_ALLOWANCE_SECONDS_TELEGRAM = 0

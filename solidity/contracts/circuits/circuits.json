@@ -8,6 +8,11 @@
     "oidc-google": {
       "contract": "OidcGoogleHonkVerifier",
       "sha256": "7d48f20170daa0be1fc68216f31a4fe828f23dc293c8de9fd6fe8412898d134a"
+    },
+    "oidc-telegram": {
+      "contract": "OidcTelegramHonkVerifier",
+      "sha256": null,
+      "unreleased": "libid-circuits 91f6c87 (branch feat/oidc-telegram), a local build; vk_hash 0x22433634ba45663381e63af155459b30823a084fa0a05443cd7bb829e5065607. No release pins it yet."
     }
   }
 }

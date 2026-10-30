@@ -55,8 +55,8 @@ Note = Union[str, list[str], None]
 @dataclass(frozen=True)
 class Window:
     """One validity window a profile may fix: its key in the profile's
-    `validity`, the constant's stem, whether only a profile that notarizes has
-    one, and what it bounds."""
+    `validity`, the constant's stem, whether a profile that notarizes nothing
+    may omit it, and what it bounds."""
 
     key: str
     stem: str
@@ -64,12 +64,14 @@ class Window:
     bounds: str
 
 
-PROOF_LIFETIME = Window("proofLifetimeSeconds", "PROOF_LIFETIME_SECONDS", True, "maximum age of the token attestation.")
+PROOF_LIFETIME = Window(
+    "proofLifetimeSeconds", "PROOF_LIFETIME_SECONDS", True, "maximum age of the token attestation, or of a signed `iat`."
+)
 MAX_FUTURE_ATTESTATION_SKEW = Window(
     "maxFutureAttestationSkewSeconds",
     "MAX_FUTURE_ATTESTATION_SKEW_SECONDS",
     True,
-    "how far ahead of Block Time the token attestation may be dated.",
+    "how far ahead of Block Time the token attestation, or a signed `iat`, may be dated.",
 )
 FUTURE_OBSERVATION_ALLOWANCE = Window(
     "futureObservationAllowanceSeconds",
@@ -492,15 +494,13 @@ def validate_validity(profile: Profile) -> None:
     notarizes = bool(profile.sessions)
     for window in VALIDITY:
         value = validity.seconds(window)
-        if window.notarized_only and not notarizes:
-            if value is not None:
-                raise SystemExit(f"ERROR: {platform!r} notarizes nothing, so it has no {window.key}")
+        if window.notarized_only and not notarizes and value is None:
             continue
         # Under 2**32, so `blockTime + value` cannot overflow the uint64 a
         # verifier checks it in.
         if isinstance(value, bool) or not isinstance(value, int) or not 0 <= value < 2**32:
             raise SystemExit(f"ERROR: {platform!r} {window.key} must be an integer in [0, 2**32)")
-    if notarizes and validity.proof_lifetime_seconds == 0:
+    if validity.proof_lifetime_seconds == 0:
         raise SystemExit(f"ERROR: {platform!r} proofLifetimeSeconds must be positive")
 
 

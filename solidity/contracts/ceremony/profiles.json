@@ -200,6 +200,26 @@
           ]
         }
       }
+    },
+    {
+      "platform": "telegram",
+      "ceremonyVersion": 1,
+      "note": [
+        "Like Google, the evidence is a token signed with the platform's published",
+        "keys, so the profile notarizes nothing. The audience is the bot id the",
+        "verifier is configured with."
+      ],
+      "validity": {
+        "proofLifetimeSeconds": 3600,
+        "maxFutureAttestationSkewSeconds": 300,
+        "futureObservationAllowanceSeconds": 0,
+        "note": [
+          "The circuit exposes the signed `iat`, which is the observation as is.",
+          "A token is accepted from five minutes before its `iat`, for clock skew,",
+          "until an hour after it, both ends inclusive."
+        ]
+      },
+      "sessions": {}
     }
   ]
 }

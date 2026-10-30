@@ -128,7 +128,13 @@ LAYOUTS = (
         "NotaryService.NotaryServiceStorage",
         "NOTARY_SERVICE_STORAGE",
     ),
-    # Shared by every Platform Verifier. Google also has its own, above.
+    Layout(
+        "ceremony/TelegramPlatformVerifier.sol",
+        ("TelegramPlatformVerifier",),
+        "TelegramPlatformVerifier.TelegramStorage",
+        "TELEGRAM_STORAGE",
+    ),
+    # Shared by every Platform Verifier. Google and Telegram also have their own.
     Layout(
         "ceremony/PlatformVerifierBase.sol",
         ("XPlatformVerifier", "GitHubPlatformVerifier"),

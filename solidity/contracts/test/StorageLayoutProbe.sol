@@ -6,6 +6,7 @@ import {GoogleJwtRoots} from "../ceremony/GoogleJwtRoots.sol";
 import {GooglePlatformVerifier} from "../ceremony/GooglePlatformVerifier.sol";
 import {NotaryService} from "../ceremony/NotaryService.sol";
 import {PlatformVerifierBase} from "../ceremony/PlatformVerifierBase.sol";
+import {TelegramPlatformVerifier} from "../ceremony/TelegramPlatformVerifier.sol";
 import {HandleEscrow} from "../escrow/HandleEscrow.sol";
 import {IdentityRegistry} from "../identity/IdentityRegistry.sol";
 
@@ -24,6 +25,7 @@ contract StorageLayoutProbe {
     GooglePlatformVerifier.GoogleStorage internal googlePlatformVerifier;
     NotaryService.NotaryServiceStorage internal notaryService;
     PlatformVerifierBase.PlatformVerifierStorage internal platformVerifier;
+    TelegramPlatformVerifier.TelegramStorage internal telegramPlatformVerifier;
     HandleEscrow.HandleEscrowStorage internal handleEscrow;
     IdentityRegistry.IdentityRegistryStorage internal identityRegistry;
 }
