@@ -18,6 +18,7 @@ import {IPlatformVerifier} from "../IPlatformVerifier.sol";
 import {IProofVerifier} from "../IProofVerifier.sol";
 import {IdentityRegistry} from "../../identity/IdentityRegistry.sol";
 import {GoogleJwtRoots} from "../GoogleJwtRoots.sol";
+import {JwtRootsDeployments} from "./JwtRootsDeployments.sol";
 import {CeremonyProfile} from "../../ceremony/CeremonyProfile.sol";
 import {TestNodes} from "../../identity/test/TestNodes.sol";
 import {StubPlatformVerifier} from "../../identity/test/StubPlatformVerifier.sol";
@@ -219,7 +220,7 @@ contract UpgradeSafetyTest is Test {
 
     function test_upgrade_GoogleJwtRoots() public {
         INotaryService ns = INotaryService(address(_notaryService()));
-        GoogleJwtRoots impl = new GoogleJwtRoots();
+        GoogleJwtRoots impl = JwtRootsDeployments.google();
         vm.expectRevert(Initializable.InvalidInitialization.selector);
         impl.initialize(OWNER, ns);
         GoogleJwtRoots r = GoogleJwtRoots(
@@ -264,7 +265,7 @@ contract UpgradeSafetyTest is Test {
         assertEq(uint256(vm.load(address(r), bytes32(base + 4))), 1, "word 4: previous.moduli.length");
         assertEq(vm.load(address(r), keccak256(abi.encode(base + 4))), older, "previous.moduli[0]");
 
-        GoogleJwtRoots impl2 = new GoogleJwtRoots();
+        GoogleJwtRoots impl2 = JwtRootsDeployments.google();
         _expectNotOwner();
         r.upgradeToAndCall(address(impl2), "");
         vm.prank(OWNER);

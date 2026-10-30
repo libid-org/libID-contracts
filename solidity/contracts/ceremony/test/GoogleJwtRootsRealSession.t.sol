@@ -11,6 +11,7 @@ import {CeremonyAttestation} from "../CeremonyAttestation.sol";
 import {INotaryService} from "../INotaryService.sol";
 import {NotaryService} from "../NotaryService.sol";
 import {GoogleJwtRoots} from "../GoogleJwtRoots.sol";
+import {JwtRootsDeployments} from "./JwtRootsDeployments.sol";
 
 /// A reading of Google's JWKS that actually crossed the wire.
 ///
@@ -82,7 +83,7 @@ contract GoogleJwtRootsRealSessionTest is Test {
     }
 
     function _deployRoots() private returns (GoogleJwtRoots) {
-        GoogleJwtRoots impl = new GoogleJwtRoots();
+        GoogleJwtRoots impl = JwtRootsDeployments.google();
         return GoogleJwtRoots(
             address(
                 new ERC1967Proxy(

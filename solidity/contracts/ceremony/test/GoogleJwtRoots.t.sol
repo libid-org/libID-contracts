@@ -10,9 +10,18 @@ import {CeremonyAttestation} from "../CeremonyAttestation.sol";
 import {INotaryService} from "../INotaryService.sol";
 import {NotaryService} from "../NotaryService.sol";
 import {GoogleJwtRoots} from "../GoogleJwtRoots.sol";
+import {JwtRootsDeployments} from "./JwtRootsDeployments.sol";
 
 /// Exposes `_splitLimbs` so a test computes a key's hash from its bytes, not from the list's state.
 contract LimbHasher is GoogleJwtRoots {
+    constructor()
+        GoogleJwtRoots(
+            JwtRootsDeployments.GOOGLE_AUTHORITY,
+            JwtRootsDeployments.GOOGLE_REQUEST_LINE,
+            JwtRootsDeployments.GOOGLE_HOST
+        )
+    {}
+
     function hashOf(bytes memory modulus) external pure returns (bytes32) {
         return keccak256(abi.encodePacked(_splitLimbs(modulus)));
     }
@@ -29,6 +38,8 @@ contract LimbHasher is GoogleJwtRoots {
 /// real NotaryService that charges a fee. Google's real body is a fixture.
 contract GoogleJwtRootsTest is Test {
     GoogleJwtRoots roots;
+    /// The same contract deployed for Telegram's JWKS.
+    GoogleJwtRoots tgRoots;
     NotaryService notary;
     LimbHasher hasher;
 
@@ -69,6 +80,14 @@ contract GoogleJwtRootsTest is Test {
             )
         );
         roots = _deployRoots(INotaryService(address(notary)));
+        tgRoots = GoogleJwtRoots(
+            address(
+                new ERC1967Proxy(
+                    address(JwtRootsDeployments.telegram()),
+                    abi.encodeCall(GoogleJwtRoots.initialize, (OWNER, INotaryService(address(notary))))
+                )
+            )
+        );
         hasher = new LimbHasher();
 
         vm.deal(address(this), 100 ether);
@@ -76,7 +95,7 @@ contract GoogleJwtRootsTest is Test {
     }
 
     function _deployRoots(INotaryService service) private returns (GoogleJwtRoots) {
-        GoogleJwtRoots impl = new GoogleJwtRoots();
+        GoogleJwtRoots impl = JwtRootsDeployments.google();
         return GoogleJwtRoots(
             address(new ERC1967Proxy(address(impl), abi.encodeCall(GoogleJwtRoots.initialize, (OWNER, service))))
         );
@@ -654,7 +673,7 @@ contract GoogleJwtRootsTest is Test {
         vm.expectRevert(GoogleJwtRoots.ZeroAddress.selector);
         roots.setNotaryService(INotaryService(address(0)));
 
-        GoogleJwtRoots impl = new GoogleJwtRoots();
+        GoogleJwtRoots impl = JwtRootsDeployments.google();
         vm.expectRevert(GoogleJwtRoots.ZeroAddress.selector);
         new ERC1967Proxy(address(impl), abi.encodeCall(GoogleJwtRoots.initialize, (OWNER, INotaryService(address(0)))));
     }
@@ -1203,6 +1222,139 @@ contract GoogleJwtRootsTest is Test {
             _withResponse(abi.encodePacked(STATUS_OK, CONTENT_TYPE, "transfer-encoding: gzip\r\n", "\r\n", body)),
             GoogleJwtRoots.BadChunkFraming.selector
         );
+    }
+
+    // ─── The Telegram deployment ────────────────────────────────────
+
+    /// Telegram's real body, fetched 2026-10-30 with `Accept-Encoding: identity`:
+    /// RSA `oidc-1`, then EC P-256, Ed25519 and EC secp256k1 keys.
+    string constant TELEGRAM_JWKS = "contracts/ceremony/test/fixtures/telegram-jwks.json";
+    string constant TELEGRAM_RSA_N =
+        "5RneLtsKvVcxdv6gu6gxEQu30Cru5NiMQnY6SNr9ZyZFZ4ya-pfHNuaZXJ6QPG0JSFwoxeOkEO2-eZN_REVPm448PvjjsR1eQdZ5QpEkNxnItFcmxkHH91v5cgf52_EI9BGO-MT6f1vaBSg3uWHFlDxI7J2AYxNvd1_Nf3TkgrrR7gyJFTmEIai5RefGnA0KGNYDlRIGUzrz2F05n6gTaHFT_iHL5UHatTZA4GCiUSjIOuwqu5pE5uZge20TFv3cxXMQaFw_xv1pgQt_Rq8eoCN7TS0RQ0zjWKiad-W286BcFectXsUm03p5Nq_kY4mf_7rqwX_B8yy_bBreyKn7RQ";
+    bytes constant TG_REQUEST = "GET /.well-known/jwks.json HTTP/1.1\r\n" "host: oauth.telegram.org\r\n"
+        "connection: close\r\n" "accept-encoding: identity\r\n" "\r\n";
+    bytes32 constant TG_AUTHORITY = keccak256("oauth.telegram.org");
+
+    /// Telegram's three non-RSA keys, compact.
+    bytes constant TG_NON_RSA = '{"kty":"EC","crv":"P-256","kid":"oidc-es256-1","use":"sig","alg":"ES256",'
+        '"x":"ahVYrohhX6YA7w0P2gUNSwMFbaabCgBZFkeq9bWdmwU","y":"Ea8nKJ34VQMA7zv8aYDfzcBhXEjnWQ9C06jVke_eUV0"},'
+        '{"kty":"OKP","crv":"Ed25519","kid":"oidc-eddsa-1","use":"sig","alg":"EdDSA",'
+        '"x":"i6BEafXMEe4osXgUTffpKAm6Cn6F2bhqPZoclunTAV4"},'
+        '{"kty":"EC","crv":"secp256k1","kid":"oidc-es256k-1","use":"sig","alg":"ES256K",'
+        '"x":"vsk5i5YJu8H_VPL7DWTgVGXBPrqgkyNmYvfgOrVut38","y":"Mrg56tBhVeorHPXK1LbTX2jP7rEqOHIatM96HFzVMIU"}';
+
+    function _tgReading(bytes memory response) private view returns (bytes memory) {
+        return AttestationBuilder.encode(TG_AUTHORITY, _now(), _whole(TG_REQUEST), _whole(response));
+    }
+
+    function _rotateAt(GoogleJwtRoots target, bytes memory attested) private {
+        target.rotate{value: FEE}(attested, AttestationBuilder.sign(NOTARY_KEY, attested));
+    }
+
+    /// Telegram's real four-key body is accepted and trusts its RSA key alone.
+    function test_telegramsRealBodyTrustsOnlyItsRsaKey() public {
+        uint64 at = _now();
+        _rotateAt(tgRoots, _tgReading(_contentLength(bytes(vm.readFile(TELEGRAM_JWKS)))));
+        (GoogleJwtRoots.Generation memory current,) = tgRoots.currentKeys();
+        bytes32 rsa = hasher.hashOfB64url(TELEGRAM_RSA_N);
+        assertEq(current.moduli, _one(rsa), "exactly the RSA modulus");
+        assertEq(tgRoots.trustedHashExpiresAt(rsa), at + tgRoots.READING_LIFETIME());
+        assertEq(roots.trustedHashExpiresAt(rsa), 0, "the Google deployment is untouched");
+    }
+
+    /// Non-RSA keys before the RSA one are skipped too, and the kid reported is the RSA key's.
+    function test_nonRsaKeysAreSkippedWherever() public {
+        bytes memory body = _body(abi.encodePacked(TG_NON_RSA, ",", _jwk("oidc-1", _modulus("tg"))));
+        vm.recordLogs();
+        _rotateAt(tgRoots, _tgReading(_contentLength(body)));
+        (GoogleJwtRoots.Generation memory current,) = tgRoots.currentKeys();
+        assertEq(current.moduli, _one(_hash("tg")));
+        // The Google deployment skips them the same way: one parser.
+        _rotate(_reading(body));
+        assertEq(_current().moduli, _one(_hash("tg")));
+    }
+
+    /// A reading with no RSA key installs nothing; the same keys plus one RSA key are accepted.
+    function test_aReadingWithOnlyNonRsaKeysIsRefused() public {
+        bytes memory attested = _tgReading(_contentLength(_body(TG_NON_RSA)));
+        bytes memory sig = AttestationBuilder.sign(NOTARY_KEY, attested);
+        vm.expectRevert();
+        tgRoots.rotate{value: FEE}(attested, sig);
+        _rotateAt(
+            tgRoots, _tgReading(_contentLength(_body(abi.encodePacked(TG_NON_RSA, ",", _jwk("k", _modulus("tg"))))))
+        );
+    }
+
+    /// Telegram gzips unless asked not to; a gzipped reading is refused, not parsed.
+    function test_aGzippedTelegramReadingIsRefused() public {
+        bytes memory gz = hex"1f8b08000000000002034b4c4a0600c241243503000000";
+        bytes memory response = abi.encodePacked(
+            STATUS_OK,
+            "Content-Type: application/json\r\nContent-Encoding: gzip\r\n",
+            "Content-Length: ",
+            vm.toString(gz.length),
+            "\r\n\r\n",
+            gz
+        );
+        bytes memory attested = _tgReading(response);
+        bytes memory sig = AttestationBuilder.sign(NOTARY_KEY, attested);
+        vm.expectRevert(GoogleJwtRoots.EncodedBody.selector);
+        tgRoots.rotate{value: FEE}(attested, sig);
+    }
+
+    /// Each deployment refuses the other's authority, request line and Host.
+    function test_eachDeploymentRefusesTheOthersEndpoint() public {
+        bytes memory body = _contentLength(_oneKey("kid-1", "one"));
+        bytes memory gLine = JwtRootsDeployments.GOOGLE_REQUEST_LINE;
+        bytes memory tLine = JwtRootsDeployments.TELEGRAM_REQUEST_LINE;
+        bytes memory gHost = "host: www.googleapis.com\r\n\r\n";
+        bytes memory tHost = "host: oauth.telegram.org\r\n\r\n";
+        GoogleJwtRoots[2] memory target = [roots, tgRoots];
+        bytes32[2] memory own = [AUTHORITY, TG_AUTHORITY];
+        bytes[2] memory line = [gLine, tLine];
+        bytes[2] memory host = [gHost, tHost];
+        for (uint256 i = 0; i < 2; ++i) {
+            uint256 o = 1 - i;
+            _refusesAt(
+                target[i],
+                own[o],
+                abi.encodePacked(line[o], host[o]),
+                body,
+                abi.encodeWithSelector(GoogleJwtRoots.WrongAuthority.selector, own[i], own[o])
+            );
+            _refusesAt(
+                target[i],
+                own[i],
+                abi.encodePacked(line[o], host[i]),
+                body,
+                abi.encodeWithSelector(GoogleJwtRoots.WrongRequestLine.selector)
+            );
+            _refusesAt(
+                target[i],
+                own[i],
+                abi.encodePacked(line[i], host[o]),
+                body,
+                abi.encodeWithSelector(GoogleJwtRoots.WrongHost.selector)
+            );
+            // Its own endpoint is accepted.
+            _rotateAt(
+                target[i],
+                AttestationBuilder.encode(own[i], _now(), _whole(abi.encodePacked(line[i], host[i])), _whole(body))
+            );
+        }
+    }
+
+    function _refusesAt(
+        GoogleJwtRoots target,
+        bytes32 authority,
+        bytes memory request,
+        bytes memory response,
+        bytes memory err
+    ) private {
+        bytes memory attested = AttestationBuilder.encode(authority, _now(), _whole(request), _whole(response));
+        bytes memory sig = AttestationBuilder.sign(NOTARY_KEY, attested);
+        vm.expectRevert(err);
+        target.rotate{value: FEE}(attested, sig);
     }
 
     // ─── Helpers ────────────────────────────────────────────────────
