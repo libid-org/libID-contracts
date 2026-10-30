@@ -8,13 +8,15 @@ import {Ownable2StepUpgradeable} from "@openzeppelin/contracts-upgradeable/acces
 import {CeremonyAttestation} from "./CeremonyAttestation.sol";
 import {INotaryService} from "./INotaryService.sol";
 
-/// @title GoogleJwtRoots - the signing keys the `google/v1` profile trusts,
-///        and until when.
+/// @title GoogleJwtRoots - the signing keys an OIDC issuer publishes, and
+///        until when.
 ///
-/// @notice Google rotates the keys it signs id_tokens with. This contract is
-///         where the Google Platform Verifier learns the current ones, from a
-///         notarized reading of Google's published JWKS: a JWT verifies only
-///         while the modulus that signed it is listed here and unexpired.
+/// @notice One deployment per issuer JWKS endpoint, fixed at construction:
+///         Google's for `google/v1`, Telegram's for `telegram/v1`. An OIDC
+///         Platform Verifier learns the issuer's current keys here, from a
+///         notarized reading of its JWKS: a JWT verifies only while the
+///         modulus that signed it is listed and unexpired. The notes below
+///         speak of Google; Telegram's list works the same way.
 ///
 /// @dev The list is two generations of Google's key set, and nothing else.
 ///      Google's JWKS is an unordered set of a few keys with no "next"

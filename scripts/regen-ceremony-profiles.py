@@ -56,22 +56,37 @@ Note = Union[str, list[str], None]
 class Window:
     """One validity window a profile may fix: its key in the profile's
     `validity`, the constant's stem, whether a profile that notarizes nothing
-    may omit it, and what it bounds."""
+    may omit it, and what it bounds: in any profile, and in one whose evidence
+    is a signed token, when that differs."""
 
     key: str
     stem: str
     notarized_only: bool
     bounds: str
+    notarized_bounds: str | None = None
+    signed_bounds: str | None = None
+
+    def bounds_for(self, profile: Profile) -> str:
+        """What the window bounds in `profile`."""
+        specific = self.notarized_bounds if profile.sessions else self.signed_bounds
+        return specific or self.bounds
 
 
 PROOF_LIFETIME = Window(
-    "proofLifetimeSeconds", "PROOF_LIFETIME_SECONDS", True, "maximum age of the token attestation, or of a signed `iat`."
+    "proofLifetimeSeconds",
+    "PROOF_LIFETIME_SECONDS",
+    True,
+    "maximum age of the token attestation, or of a signed `iat`.",
+    "maximum age of the token attestation.",
+    "maximum age of the signed `iat`.",
 )
 MAX_FUTURE_ATTESTATION_SKEW = Window(
     "maxFutureAttestationSkewSeconds",
     "MAX_FUTURE_ATTESTATION_SKEW_SECONDS",
     True,
     "how far ahead of Block Time the token attestation, or a signed `iat`, may be dated.",
+    "how far ahead of Block Time the token attestation may be dated.",
+    "how far ahead of Block Time the signed `iat` may be dated.",
 )
 FUTURE_OBSERVATION_ALLOWANCE = Window(
     "futureObservationAllowanceSeconds",
@@ -507,7 +522,7 @@ def validate_validity(profile: Profile) -> None:
 def validity_constants(profile: Profile) -> list[tuple[str, int, str]]:
     """The seconds a profile fixes, as (constant name, value, what it bounds)."""
     return [
-        (f"{window.stem}_{upper(profile.platform)}", value, window.bounds)
+        (f"{window.stem}_{upper(profile.platform)}", value, window.bounds_for(profile))
         for window in VALIDITY
         if (value := profile.validity.seconds(window)) is not None
     ]

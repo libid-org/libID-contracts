@@ -235,10 +235,10 @@ pub const FUTURE_OBSERVATION_ALLOWANCE_SECONDS_GOOGLE: u64 = 7200;
 // The token attestation's creation time is the evidence time. A notary
 // states the wall-clock time it observes, so five minutes covers clock
 // skew between the notary and the chain.
-/// `x/v1`: maximum age of the token attestation, or of a signed `iat`.
+/// `x/v1`: maximum age of the token attestation.
 pub const PROOF_LIFETIME_SECONDS_X: u64 = 3600;
-/// `x/v1`: how far ahead of Block Time the token attestation, or a
-/// signed `iat`, may be dated.
+/// `x/v1`: how far ahead of Block Time the token attestation may be
+/// dated.
 pub const MAX_FUTURE_ATTESTATION_SKEW_SECONDS_X: u64 = 300;
 /// `x/v1`: how far ahead of Block Time the evidence time may run. The
 /// verifier subtracts it, so every version of a platform reports time
@@ -246,11 +246,10 @@ pub const MAX_FUTURE_ATTESTATION_SKEW_SECONDS_X: u64 = 300;
 pub const FUTURE_OBSERVATION_ALLOWANCE_SECONDS_X: u64 = 300;
 
 // Same as X: notary wall-clock, five minutes for skew.
-/// `github/v1`: maximum age of the token attestation, or of a signed
-/// `iat`.
+/// `github/v1`: maximum age of the token attestation.
 pub const PROOF_LIFETIME_SECONDS_GITHUB: u64 = 3600;
-/// `github/v1`: how far ahead of Block Time the token attestation, or a
-/// signed `iat`, may be dated.
+/// `github/v1`: how far ahead of Block Time the token attestation may
+/// be dated.
 pub const MAX_FUTURE_ATTESTATION_SKEW_SECONDS_GITHUB: u64 = 300;
 /// `github/v1`: how far ahead of Block Time the evidence time may run.
 /// The verifier subtracts it, so every version of a platform reports
@@ -261,11 +260,10 @@ pub const FUTURE_OBSERVATION_ALLOWANCE_SECONDS_GITHUB: u64 = 300;
 // Block Time is in [iat - 5 min, iat + 1 h): five minutes for clock
 // skew. The observation is `iat` less five minutes, so an `iat` inside
 // the skew cannot outrank a later binding.
-/// `telegram/v1`: maximum age of the token attestation, or of a signed
-/// `iat`.
+/// `telegram/v1`: maximum age of the signed `iat`.
 pub const PROOF_LIFETIME_SECONDS_TELEGRAM: u64 = 3600;
-/// `telegram/v1`: how far ahead of Block Time the token attestation, or
-/// a signed `iat`, may be dated.
+/// `telegram/v1`: how far ahead of Block Time the signed `iat` may be
+/// dated.
 pub const MAX_FUTURE_ATTESTATION_SKEW_SECONDS_TELEGRAM: u64 = 300;
 /// `telegram/v1`: how far ahead of Block Time the evidence time may
 /// run. The verifier subtracts it, so every version of a platform

@@ -205,12 +205,12 @@ export const FUTURE_OBSERVATION_ALLOWANCE_SECONDS_GOOGLE = 7200
 // states the wall-clock time it observes, so five minutes covers clock
 // skew between the notary and the chain.
 /**
- * `x/v1`: maximum age of the token attestation, or of a signed `iat`.
+ * `x/v1`: maximum age of the token attestation.
  */
 export const PROOF_LIFETIME_SECONDS_X = 3600
 /**
- * `x/v1`: how far ahead of Block Time the token attestation, or a
- * signed `iat`, may be dated.
+ * `x/v1`: how far ahead of Block Time the token attestation may be
+ * dated.
  */
 export const MAX_FUTURE_ATTESTATION_SKEW_SECONDS_X = 300
 /**
@@ -222,13 +222,12 @@ export const FUTURE_OBSERVATION_ALLOWANCE_SECONDS_X = 300
 
 // Same as X: notary wall-clock, five minutes for skew.
 /**
- * `github/v1`: maximum age of the token attestation, or of a signed
- * `iat`.
+ * `github/v1`: maximum age of the token attestation.
  */
 export const PROOF_LIFETIME_SECONDS_GITHUB = 3600
 /**
- * `github/v1`: how far ahead of Block Time the token attestation, or a
- * signed `iat`, may be dated.
+ * `github/v1`: how far ahead of Block Time the token attestation may
+ * be dated.
  */
 export const MAX_FUTURE_ATTESTATION_SKEW_SECONDS_GITHUB = 300
 /**
@@ -243,13 +242,12 @@ export const FUTURE_OBSERVATION_ALLOWANCE_SECONDS_GITHUB = 300
 // skew. The observation is `iat` less five minutes, so an `iat` inside
 // the skew cannot outrank a later binding.
 /**
- * `telegram/v1`: maximum age of the token attestation, or of a signed
- * `iat`.
+ * `telegram/v1`: maximum age of the signed `iat`.
  */
 export const PROOF_LIFETIME_SECONDS_TELEGRAM = 3600
 /**
- * `telegram/v1`: how far ahead of Block Time the token attestation, or
- * a signed `iat`, may be dated.
+ * `telegram/v1`: how far ahead of Block Time the signed `iat` may be
+ * dated.
  */
 export const MAX_FUTURE_ATTESTATION_SKEW_SECONDS_TELEGRAM = 300
 /**
