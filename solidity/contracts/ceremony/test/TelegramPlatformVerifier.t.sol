@@ -12,6 +12,7 @@ import {IPlatformVerifier} from "../IPlatformVerifier.sol";
 import {PlatformVerifierBase} from "../PlatformVerifierBase.sol";
 import {OidcPlatformVerifierBase, TelegramPlatformVerifier} from "../TelegramPlatformVerifier.sol";
 import {TrustingJwtRoots} from "./TrustingJwtRoots.sol";
+import {JwtRootsDeployments} from "../JwtRootsDeployments.sol";
 
 /// @notice The `telegram/v1` profile: one oidc-telegram proof, timed by `iat`.
 contract TelegramPlatformVerifierTest is Test {
@@ -36,7 +37,7 @@ contract TelegramPlatformVerifierTest is Test {
     function setUp() public {
         digest = CeremonyAuthorization.digest(DOMAIN, 1, AUTH_NONCE, _txData());
         vm.warp(IAT);
-        roots = new TrustingJwtRoots();
+        roots = new TrustingJwtRoots(JwtRootsDeployments.TELEGRAM_AUTHORITY);
         honk = HonkStub.deploy(HonkStub.TELEGRAM);
         verifier = _deploy(honk, address(roots), BOT_ID);
         roots.trust(keccak256(abi.encodePacked(_modulus())), IAT + 30 days);
@@ -142,7 +143,7 @@ contract TelegramPlatformVerifierTest is Test {
     // ─── The signing key ────────────────────────────────────────────
 
     function test_rejectsAnUntrustedOrLapsedModulus() public {
-        TrustingJwtRoots other = new TrustingJwtRoots();
+        TrustingJwtRoots other = new TrustingJwtRoots(JwtRootsDeployments.TELEGRAM_AUTHORITY);
         TelegramPlatformVerifier v = _deploy(honk, address(other), BOT_ID);
         vm.expectPartialRevert(OidcPlatformVerifierBase.UntrustedModulus.selector);
         this.run(v, _payload());
@@ -187,14 +188,25 @@ contract TelegramPlatformVerifierTest is Test {
         assertEq(c.ceremonyVersion, 1);
     }
 
-    /// No value is accepted, and pointing at another root list is announced.
+    /// No value is accepted, Google's root list is refused, and pointing at
+    /// another Telegram one is announced.
     function test_refusesValueAndAnnouncesItsRoots() public {
         vm.expectRevert(abi.encodeWithSelector(PlatformVerifierBase.WrongValue.selector, 0, 1));
         verifier.verify{value: 1}(abi.encode(_payload()));
-        vm.expectEmit(address(verifier));
-        emit OidcPlatformVerifierBase.JwtRootsChanged(address(0xB0B));
+        bytes32 google = JwtRootsDeployments.GOOGLE_AUTHORITY;
+        TrustingJwtRoots googles = new TrustingJwtRoots(google);
         vm.prank(OWNER);
-        verifier.setJwtRoots(TrustingJwtRoots(address(0xB0B)));
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                PlatformVerifierBase.WrongAuthority.selector, JwtRootsDeployments.TELEGRAM_AUTHORITY, google
+            )
+        );
+        verifier.setJwtRoots(googles);
+        TrustingJwtRoots other = new TrustingJwtRoots(JwtRootsDeployments.TELEGRAM_AUTHORITY);
+        vm.expectEmit(address(verifier));
+        emit OidcPlatformVerifierBase.JwtRootsChanged(address(other));
+        vm.prank(OWNER);
+        verifier.setJwtRoots(other);
     }
 
     /// Every value the verifier builds an input from is bound: digest parts,

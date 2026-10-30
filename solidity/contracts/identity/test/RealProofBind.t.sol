@@ -7,6 +7,7 @@ import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.s
 import {AttestationBuilder} from "../../ceremony/test/AttestationBuilder.sol";
 import {HonkStub} from "../../ceremony/test/HonkStub.sol";
 import {TrustingJwtRoots} from "../../ceremony/test/TrustingJwtRoots.sol";
+import {JwtRootsDeployments} from "../../ceremony/JwtRootsDeployments.sol";
 import {CeremonyProfile} from "../../ceremony/CeremonyProfile.sol";
 import {CeremonyProofVerifier} from "../../ceremony/CeremonyProofVerifier.sol";
 import {GitHubPlatformVerifier} from "../../ceremony/GitHubPlatformVerifier.sol";
@@ -372,7 +373,7 @@ contract RealProofBindGoogleTest is RealProofBindBase {
     address platformVerifier;
 
     function setUp() public {
-        roots = new TrustingJwtRoots();
+        roots = new TrustingJwtRoots(JwtRootsDeployments.GOOGLE_AUTHORITY);
         address circuit = vm.deployCode(HonkStub.GOOGLE);
         platformVerifier = address(
             new ERC1967Proxy(

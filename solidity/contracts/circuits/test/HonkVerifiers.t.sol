@@ -6,6 +6,8 @@ import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.s
 
 import {GitHubPlatformVerifier} from "../../ceremony/GitHubPlatformVerifier.sol";
 import {GooglePlatformVerifier, IGoogleJwtRoots} from "../../ceremony/GooglePlatformVerifier.sol";
+import {JwtRootsDeployments} from "../../ceremony/JwtRootsDeployments.sol";
+import {TrustingJwtRoots} from "../../ceremony/test/TrustingJwtRoots.sol";
 import {INotaryService} from "../../ceremony/INotaryService.sol";
 import {IHonkVerifier} from "../../ceremony/PlatformVerifierBase.sol";
 import {XPlatformVerifier} from "../../ceremony/XPlatformVerifier.sol";
@@ -130,7 +132,12 @@ contract HonkVerifiersTest is Test {
                     address(gImpl),
                     abi.encodeCall(
                         GooglePlatformVerifier.initialize,
-                        (OWNER, INotaryService(address(0)), oidcGoogle, IGoogleJwtRoots(address(0x2007)))
+                        (
+                            OWNER,
+                            INotaryService(address(0)),
+                            oidcGoogle,
+                            new TrustingJwtRoots(JwtRootsDeployments.GOOGLE_AUTHORITY)
+                        )
                     )
                 )
             )

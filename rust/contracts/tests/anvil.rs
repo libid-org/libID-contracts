@@ -40,10 +40,56 @@ async fn default_signer(provider: &impl Provider) -> Address {
     provider.get_accounts().await.expect("accounts")[0]
 }
 
-/// `GoogleJwtRoots` deployed for Google's JWKS endpoint, behind a proxy.
-async fn deploy_google_roots(
+/// A JWKS endpoint as `JwtRootsDeployments.sol` writes it: the host, whose
+/// keccak256 is the authority, and the request line.
+struct Jwks {
+    prefix: &'static str,
+    host: &'static str,
+    request_line: &'static str,
+}
+
+const GOOGLE_JWKS: Jwks = Jwks {
+    prefix: "GOOGLE",
+    host: "www.googleapis.com",
+    request_line: "GET /oauth2/v3/certs HTTP/1.1\r\n",
+};
+
+const TELEGRAM_JWKS: Jwks = Jwks {
+    prefix: "TELEGRAM",
+    host: "oauth.telegram.org",
+    request_line: "GET /.well-known/jwks.json HTTP/1.1\r\n",
+};
+
+/// The endpoints above are the ones `JwtRootsDeployments.sol` deploys.
+#[test]
+fn the_jwks_endpoints_match_the_solidity_deployments() {
+    let path = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../solidity/contracts/ceremony/JwtRootsDeployments.sol"
+    );
+    let source = std::fs::read_to_string(path).expect(path);
+    for jwks in [GOOGLE_JWKS, TELEGRAM_JWKS] {
+        let Jwks {
+            prefix,
+            host,
+            request_line,
+        } = jwks;
+        let escaped = request_line.replace("\r\n", "\\r\\n");
+        for line in [
+            format!("{prefix}_AUTHORITY = keccak256(\"{host}\");"),
+            format!("{prefix}_REQUEST_LINE = \"{escaped}\";"),
+            format!("{prefix}_HOST = \"{host}\";"),
+        ] {
+            assert!(source.contains(&line), "{path} lacks `{line}`");
+        }
+    }
+}
+
+/// `GoogleJwtRoots` deployed for `jwks`, behind a proxy.
+async fn deploy_jwt_roots(
     provider: &impl Provider,
     artifacts: &Artifacts,
+    jwks: Jwks,
     owner: Address,
     notary: Address,
 ) -> Address {
@@ -55,9 +101,9 @@ async fn deploy_google_roots(
         },
     };
     let ctor = (
-        keccak256(b"www.googleapis.com"),
-        Bytes::from_static(b"GET /oauth2/v3/certs HTTP/1.1\r\n"),
-        Bytes::from_static(b"www.googleapis.com"),
+        keccak256(jwks.host),
+        Bytes::from_static(jwks.request_line.as_bytes()),
+        Bytes::from_static(jwks.host.as_bytes()),
     )
         .abi_encode_params();
     let bytecode = artifacts.bytecode("GoogleJwtRoots").unwrap();
@@ -128,7 +174,8 @@ async fn deploys_the_identity_stack_behind_proxies() {
     .unwrap();
 
     let roots_proxy =
-        deploy_google_roots(&provider, &artifacts, deployer, notary_proxy).await;
+        deploy_jwt_roots(&provider, &artifacts, GOOGLE_JWKS, deployer, notary_proxy)
+            .await;
 
     // Wire the registry to the Proof Verifier it dispatches through.
     let registry = IdentityRegistry::new(registry_proxy, &provider);
@@ -479,7 +526,11 @@ async fn deploys_and_initializes_every_platform_verifier() {
     .await
     .unwrap();
     let roots_proxy =
-        deploy_google_roots(&provider, &artifacts, deployer, notary_proxy).await;
+        deploy_jwt_roots(&provider, &artifacts, GOOGLE_JWKS, deployer, notary_proxy)
+            .await;
+    let telegram_roots_proxy =
+        deploy_jwt_roots(&provider, &artifacts, TELEGRAM_JWKS, deployer, notary_proxy)
+            .await;
     // The real verifiers, one per circuit.
     let bearer_link =
         deploy_honk_verifier(&provider, &artifacts, Circuit::BearerLink, None)
@@ -527,11 +578,10 @@ async fn deploys_and_initializes_every_platform_verifier() {
         Initializer::X(tls(bearer_link)),
         Initializer::GitHub(tls(bearer_link)),
         Initializer::Google(google),
-        // The root list is only a pointer here; Google's stands in.
         Initializer::Telegram(TelegramRoots {
             owner: deployer,
             honk_verifier: oidc_telegram,
-            jwt_roots: roots_proxy,
+            jwt_roots: telegram_roots_proxy,
             bot_id: b"7000000001".into(),
         }),
     ] {
@@ -616,7 +666,7 @@ async fn deploys_and_initializes_every_platform_verifier() {
                 let v = TelegramPlatformVerifier::new(proxy, &provider);
                 assert_eq!(v.notaryService().call().await.unwrap(), Address::ZERO);
                 assert_eq!(v.circuitCodehash().call().await.unwrap(), honk_codehash);
-                assert_eq!(v.jwtRoots().call().await.unwrap(), roots_proxy);
+                assert_eq!(v.jwtRoots().call().await.unwrap(), telegram_roots_proxy);
                 assert_eq!(&v.botId().call().await.unwrap()[..], b"7000000001");
                 let params = v.protocolParameters().call().await.unwrap();
                 assert_eq!(

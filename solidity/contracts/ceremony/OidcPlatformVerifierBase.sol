@@ -6,6 +6,8 @@ import {PlatformVerifierBase} from "./PlatformVerifierBase.sol";
 
 /// @dev The signing keys a deployment trusts, held by a `GoogleJwtRoots` deployment.
 interface IGoogleJwtRoots {
+    /// keccak256 of the JWKS host the list reads.
+    function AUTHORITY() external view returns (bytes32);
     function trustedHashExpiresAt(bytes32 modulusHash) external view returns (uint256);
 }
 
@@ -57,6 +59,8 @@ abstract contract OidcPlatformVerifierBase is IPlatformVerifier, PlatformVerifie
     /// @dev The profile's own storage for its roots list.
     function _jwtRoots() internal view virtual returns (IGoogleJwtRoots);
     function _storeJwtRoots(IGoogleJwtRoots roots) internal virtual;
+    /// @dev The `AUTHORITY` of the issuer's JWKS host the roots list must read.
+    function _jwtRootsAuthority() internal pure virtual returns (bytes32);
 
     function jwtRoots() external view returns (address) {
         return address(_jwtRoots());
@@ -70,6 +74,9 @@ abstract contract OidcPlatformVerifierBase is IPlatformVerifier, PlatformVerifie
 
     function _setJwtRoots(IGoogleJwtRoots roots) internal {
         if (address(roots) == address(0)) revert ZeroAddress();
+        bytes32 expected = _jwtRootsAuthority();
+        bytes32 found = roots.AUTHORITY();
+        if (found != expected) revert WrongAuthority(expected, found);
         _storeJwtRoots(roots);
         emit JwtRootsChanged(address(roots));
     }

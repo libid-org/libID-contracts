@@ -187,7 +187,7 @@ contract UpgradeSafetyTest is Test {
 
     function test_upgrade_GooglePlatformVerifier() public {
         IHonkVerifier honk = IHonkVerifier(HonkStub.deploy(HonkStub.GOOGLE));
-        TrustingJwtRoots roots = new TrustingJwtRoots();
+        TrustingJwtRoots roots = new TrustingJwtRoots(JwtRootsDeployments.GOOGLE_AUTHORITY);
         GooglePlatformVerifier impl = new GooglePlatformVerifier();
         vm.expectRevert(Initializable.InvalidInitialization.selector);
         impl.initialize(OWNER, INotaryService(address(0)), honk, roots);

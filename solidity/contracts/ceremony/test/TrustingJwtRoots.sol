@@ -5,7 +5,12 @@ import {IGoogleJwtRoots} from "../GooglePlatformVerifier.sol";
 
 /// @notice A JWT root list that trusts each modulus hash until the expiry the test sets.
 contract TrustingJwtRoots is IGoogleJwtRoots {
+    bytes32 public immutable AUTHORITY;
     mapping(bytes32 => uint256) public expiry;
+
+    constructor(bytes32 authority) {
+        AUTHORITY = authority;
+    }
 
     function trust(bytes32 modulusHash, uint256 until) external {
         expiry[modulusHash] = until;

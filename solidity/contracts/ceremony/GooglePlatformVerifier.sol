@@ -6,6 +6,7 @@ import {CeremonyAuthorization} from "./CeremonyAuthorization.sol";
 import {CeremonyProfile} from "./CeremonyProfile.sol";
 import {INotaryService} from "./INotaryService.sol";
 import {IPlatformVerifier} from "./IPlatformVerifier.sol";
+import {JwtRootsDeployments} from "./JwtRootsDeployments.sol";
 import {IGoogleJwtRoots, OidcPlatformVerifierBase} from "./OidcPlatformVerifierBase.sol";
 import {IHonkVerifier} from "./PlatformVerifierBase.sol";
 
@@ -82,6 +83,10 @@ contract GooglePlatformVerifier is OidcPlatformVerifierBase {
 
     function _storeJwtRoots(IGoogleJwtRoots roots) internal override {
         _g().jwtRoots = roots;
+    }
+
+    function _jwtRootsAuthority() internal pure override returns (bytes32) {
+        return JwtRootsDeployments.GOOGLE_AUTHORITY;
     }
 
     /// @dev The `oidc-google` circuit's verifier.

@@ -12,6 +12,7 @@ import {ICeremony} from "../ICeremony.sol";
 import {INotaryService} from "../INotaryService.sol";
 import {IHonkVerifier, PlatformVerifierBase} from "../PlatformVerifierBase.sol";
 import {TrustingJwtRoots} from "./TrustingJwtRoots.sol";
+import {JwtRootsDeployments} from "../JwtRootsDeployments.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {TlsNotaryVerifierBase} from "../TlsNotaryVerifierBase.sol";
 
@@ -45,7 +46,7 @@ contract GooglePlatformVerifierTest is Test {
     function setUp() public {
         digest = CeremonyAuthorization.digest(DOMAIN, 1, AUTH_NONCE, _txData());
         vm.warp(T0);
-        roots = new TrustingJwtRoots();
+        roots = new TrustingJwtRoots(JwtRootsDeployments.GOOGLE_AUTHORITY);
         honk = HonkStub.deploy(HonkStub.GOOGLE);
         GooglePlatformVerifier impl = new GooglePlatformVerifier();
         verifier = GooglePlatformVerifier(
@@ -308,7 +309,7 @@ contract GooglePlatformVerifierTest is Test {
 
     /// @dev REQ-PLAT-23: the verifier, not the circuit, decides which modulus is trusted.
     function test_rejectsAnUntrustedModulus() public {
-        TrustingJwtRoots empty = new TrustingJwtRoots();
+        TrustingJwtRoots empty = new TrustingJwtRoots(JwtRootsDeployments.GOOGLE_AUTHORITY);
         vm.prank(OWNER);
         verifier.setJwtRoots(IGoogleJwtRoots(address(empty)));
         GooglePlatformVerifier.GoogleProof memory s = _payload();
@@ -318,7 +319,7 @@ contract GooglePlatformVerifierTest is Test {
 
     /// @dev Google rotates its keys, so a lapsed one fails closed.
     function test_rejectsAModulusWhoseTrustHasLapsed() public {
-        TrustingJwtRoots lapsed = new TrustingJwtRoots();
+        TrustingJwtRoots lapsed = new TrustingJwtRoots(JwtRootsDeployments.GOOGLE_AUTHORITY);
         lapsed.trust(_modulusHash(), T0);
         vm.prank(OWNER);
         verifier.setJwtRoots(IGoogleJwtRoots(address(lapsed)));
@@ -356,6 +357,15 @@ contract GooglePlatformVerifierTest is Test {
         vm.prank(OWNER);
         vm.expectRevert(PlatformVerifierBase.ZeroAddress.selector);
         verifier.setJwtRoots(IGoogleJwtRoots(address(0)));
+        bytes32 telegram = JwtRootsDeployments.TELEGRAM_AUTHORITY;
+        TrustingJwtRoots telegrams = new TrustingJwtRoots(telegram);
+        vm.prank(OWNER);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                PlatformVerifierBase.WrongAuthority.selector, JwtRootsDeployments.GOOGLE_AUTHORITY, telegram
+            )
+        );
+        verifier.setJwtRoots(telegrams);
     }
 
     /// @dev A TLSNotary-shaped payload at the Google verifier is refused.
