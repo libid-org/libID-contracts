@@ -131,6 +131,14 @@ contract TelegramPlatformVerifierTest is Test {
         }
     }
 
+    /// An iat ahead of Block Time is observed at Block Time, never later.
+    function test_observedAtIsCappedAtBlockTime() public {
+        vm.warp(IAT - 300);
+        assertEq(this.run(verifier, _payload()).metadataObservedAt, IAT - 300);
+        vm.warp(IAT + 60);
+        assertEq(this.run(verifier, _payload()).metadataObservedAt, IAT);
+    }
+
     // ─── The signing key ────────────────────────────────────────────
 
     function test_rejectsAnUntrustedOrLapsedModulus() public {

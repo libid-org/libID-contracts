@@ -15,8 +15,8 @@ import {IHonkVerifier} from "./PlatformVerifierBase.sol";
 ///         session and no fee.
 ///
 /// @dev Google's input layout with `iat` in `exp`'s place. The audience is
-///      the configured bot id, never a caller's, and `iat` is both the
-///      validity anchor and `metadataObservedAt`.
+///      the configured bot id, never a caller's. `iat` is the validity
+///      anchor, and `metadataObservedAt` is `iat` capped at Block Time.
 contract TelegramPlatformVerifier is OidcPlatformVerifierBase {
     /// @notice The `telegram/v1` payload, as `abi.encode` of this struct.
     /// @dev Every field is authentic only once the proof verifies.
@@ -111,7 +111,7 @@ contract TelegramPlatformVerifier is OidcPlatformVerifierBase {
         _requireProof(p.proof, _oidcInputs(digest, sha256(bot), p.idNode, p.handleNode, p.iat, p.modulus));
         claimed.idNode = p.idNode;
         claimed.handleNode = p.handleNode;
-        claimed.metadataObservedAt = p.iat;
+        claimed.metadataObservedAt = p.iat < blockTime ? p.iat : blockTime;
         claimed.clientIdentifier = bot;
         claimed.sessionId = digest;
         claimed.operationDomain = p.operationDomain;
