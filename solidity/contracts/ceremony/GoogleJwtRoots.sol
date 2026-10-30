@@ -225,6 +225,8 @@ contract GoogleJwtRoots is Initializable, UUPSUpgradeable, Ownable2StepUpgradeab
     ///      that does not end in CRLF.
     error WrongRequestLine();
     error NotOneHostHeader(uint256 count);
+    /// @dev Not the configured `Host` value, or, at construction, one that is
+    ///      empty or holds A-Z, SP or HTAB, which header normalization removes.
     error WrongHost();
     /// @dev Not `HTTP/1.1 200 `.
     error WrongStatusLine();
@@ -276,6 +278,10 @@ contract GoogleJwtRoots is Initializable, UUPSUpgradeable, Ownable2StepUpgradeab
         uint256 n = requestLine.length;
         if (n < 2 || requestLine[n - 2] != "\r" || requestLine[n - 1] != "\n") revert WrongRequestLine();
         if (host.length == 0) revert WrongHost();
+        for (uint256 i = 0; i < host.length; ++i) {
+            bytes1 c = host[i];
+            if ((c >= "A" && c <= "Z") || c == " " || c == "\t") revert WrongHost();
+        }
         AUTHORITY = authority;
         REQUEST_LINE_HASH = keccak256(requestLine);
         REQUEST_LINE_LENGTH = n;

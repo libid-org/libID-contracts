@@ -1166,11 +1166,17 @@ contract GoogleJwtRootsTest is Test {
     }
 
     /// The endpoint is checked at construction, and a request shorter than its line is refused by name.
+    /// A Host is compared normalized, so one holding A-Z, SP or HTAB could never match.
     function test_theEndpointIsCheckedWhole() public {
         bytes[4] memory bad = [bytes("\n"), "GET / HTTP/1.1\n", "GET / HTTP/1.1\r\r", "GET / HTTP/1.1\r\n"];
         for (uint256 i = 0; i < 4; ++i) {
             vm.expectRevert(i == 3 ? GoogleJwtRoots.WrongHost.selector : GoogleJwtRoots.WrongRequestLine.selector);
             new GoogleJwtRoots(AUTHORITY, bad[i], i == 3 ? bytes("") : bytes("h"));
+        }
+        bytes[5] memory hosts = [bytes("Az"), "aZ", "a b", "a\tb", "a@[`{z"];
+        for (uint256 i = 0; i < 5; ++i) {
+            if (i < 4) vm.expectRevert(GoogleJwtRoots.WrongHost.selector);
+            new GoogleJwtRoots(AUTHORITY, "GET / HTTP/1.1\r\n", hosts[i]);
         }
         _refuses(_withRequest("GET /oauth2/v3/certs\r\n\r\n"), GoogleJwtRoots.WrongRequestLine.selector);
     }
