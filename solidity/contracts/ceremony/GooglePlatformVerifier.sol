@@ -57,12 +57,7 @@ contract GooglePlatformVerifier is OidcPlatformVerifierBase {
         }
     }
 
-    event JwtRootsChanged(address roots);
-
     error MissingClientIdentifier();
-    /// @dev The signing key is not in the active trusted set, or its trust has
-    ///      lapsed (REQ-PLAT-23).
-    error UntrustedModulus(bytes32 modulusHash);
     /// @dev `Block Time >= proofValidUntil`, where the ceiling is the signed
     ///      `exp` itself (REQ-PLAT-22).
     error TokenExpired(uint64 exp, uint64 blockTime);
@@ -82,20 +77,12 @@ contract GooglePlatformVerifier is OidcPlatformVerifierBase {
         _setJwtRoots(jwtRoots_);
     }
 
-    function jwtRoots() external view returns (address) {
-        return address(_g().jwtRoots);
+    function _jwtRoots() internal view override returns (IGoogleJwtRoots) {
+        return _g().jwtRoots;
     }
 
-    /// @dev Google rotates signing keys weekly, and every ceremony fails closed
-    ///      while an active modulus is untrusted (REQ-PLAT-24).
-    function setJwtRoots(IGoogleJwtRoots roots) external onlyOwner {
-        _setJwtRoots(roots);
-    }
-
-    function _setJwtRoots(IGoogleJwtRoots roots) private {
-        if (address(roots) == address(0)) revert ZeroAddress();
+    function _storeJwtRoots(IGoogleJwtRoots roots) internal override {
         _g().jwtRoots = roots;
-        emit JwtRootsChanged(address(roots));
     }
 
     /// @dev The `oidc-google` circuit's verifier.
@@ -105,17 +92,6 @@ contract GooglePlatformVerifier is OidcPlatformVerifierBase {
 
     function _platform() internal pure override returns (bytes32) {
         return CeremonyProfile.PLATFORM_GOOGLE;
-    }
-
-    /// @inheritdoc IPlatformVerifier
-    function platformId() external pure returns (bytes32) {
-        return CeremonyProfile.PLATFORM_GOOGLE;
-    }
-
-    /// @inheritdoc IPlatformVerifier
-    /// @dev Zero: the Attestation Count is zero (REQ-COMMON-06E).
-    function quote() public pure returns (uint256) {
-        return 0;
     }
 
     /// @inheritdoc IPlatformVerifier
@@ -134,8 +110,9 @@ contract GooglePlatformVerifier is OidcPlatformVerifierBase {
         // receives the readable value.
         if (p.clientIdentifier.length == 0) revert MissingClientIdentifier();
 
-        (bytes32 modulusHash, bool trusted) = _modulusTrust(_g().jwtRoots, p.modulus);
-        if (!trusted) revert UntrustedModulus(modulusHash);
+        // REQ-PLAT-23. The circuit uses the modulus that verified the JWS but
+        // decides no trust; that decision is here alone.
+        _requireTrustedModulus(p.modulus);
 
         // REQ-PLAT-22. The signed `exp` is the validity ceiling, and itself
         // capped, so a distant expiry cannot hold a name for longer.

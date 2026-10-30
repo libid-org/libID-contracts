@@ -7,7 +7,7 @@ import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.s
 
 import {CeremonyAuthorization} from "../CeremonyAuthorization.sol";
 import {CeremonyProfile} from "../CeremonyProfile.sol";
-import {GooglePlatformVerifier, IGoogleJwtRoots} from "../GooglePlatformVerifier.sol";
+import {GooglePlatformVerifier, IGoogleJwtRoots, OidcPlatformVerifierBase} from "../GooglePlatformVerifier.sol";
 import {ICeremony} from "../ICeremony.sol";
 import {INotaryService} from "../INotaryService.sol";
 import {IHonkVerifier, PlatformVerifierBase} from "../PlatformVerifierBase.sol";
@@ -312,7 +312,7 @@ contract GooglePlatformVerifierTest is Test {
         vm.prank(OWNER);
         verifier.setJwtRoots(IGoogleJwtRoots(address(empty)));
         GooglePlatformVerifier.GoogleProof memory s = _payload();
-        vm.expectPartialRevert(GooglePlatformVerifier.UntrustedModulus.selector);
+        vm.expectPartialRevert(OidcPlatformVerifierBase.UntrustedModulus.selector);
         this.run(s);
     }
 
@@ -323,7 +323,7 @@ contract GooglePlatformVerifierTest is Test {
         vm.prank(OWNER);
         verifier.setJwtRoots(IGoogleJwtRoots(address(lapsed)));
         GooglePlatformVerifier.GoogleProof memory s = _payload();
-        vm.expectPartialRevert(GooglePlatformVerifier.UntrustedModulus.selector);
+        vm.expectPartialRevert(OidcPlatformVerifierBase.UntrustedModulus.selector);
         this.run(s);
     }
 

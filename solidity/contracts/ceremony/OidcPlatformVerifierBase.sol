@@ -47,16 +47,45 @@ abstract contract OidcPlatformVerifierBase is IPlatformVerifier, PlatformVerifie
         }
     }
 
-    /// @dev Whether `roots` trusts the modulus now. The circuit uses the
-    ///      modulus that verified the JWS but decides no trust; that decision
-    ///      is here alone (REQ-PLAT-23).
-    function _modulusTrust(IGoogleJwtRoots roots, bytes32[18] memory modulus)
-        internal
-        view
-        returns (bytes32 modulusHash, bool trusted)
-    {
-        modulusHash = keccak256(abi.encodePacked(modulus));
-        uint256 expiresAt = roots.trustedHashExpiresAt(modulusHash);
-        trusted = expiresAt != 0 && block.timestamp < expiresAt;
+    event JwtRootsChanged(address roots);
+
+    /// @dev The signing key is not trusted now (REQ-PLAT-23).
+    error UntrustedModulus(bytes32 modulusHash);
+
+    /// @dev The profile's own storage for its roots list.
+    function _jwtRoots() internal view virtual returns (IGoogleJwtRoots);
+    function _storeJwtRoots(IGoogleJwtRoots roots) internal virtual;
+
+    function jwtRoots() external view returns (address) {
+        return address(_jwtRoots());
+    }
+
+    /// @dev Keys rotate, and every ceremony fails closed while an active
+    ///      modulus is untrusted (REQ-PLAT-24).
+    function setJwtRoots(IGoogleJwtRoots roots) external onlyOwner {
+        _setJwtRoots(roots);
+    }
+
+    function _setJwtRoots(IGoogleJwtRoots roots) internal {
+        if (address(roots) == address(0)) revert ZeroAddress();
+        _storeJwtRoots(roots);
+        emit JwtRootsChanged(address(roots));
+    }
+
+    /// @inheritdoc IPlatformVerifier
+    function platformId() external pure returns (bytes32) {
+        return _platform();
+    }
+
+    /// @inheritdoc IPlatformVerifier
+    /// @dev Zero: the Attestation Count is zero (REQ-COMMON-06E).
+    function quote() public pure returns (uint256) {
+        return 0;
+    }
+
+    function _requireTrustedModulus(bytes32[18] memory modulus) internal view {
+        bytes32 modulusHash = keccak256(abi.encodePacked(modulus));
+        uint256 expiresAt = _jwtRoots().trustedHashExpiresAt(modulusHash);
+        if (expiresAt == 0 || block.timestamp >= expiresAt) revert UntrustedModulus(modulusHash);
     }
 }

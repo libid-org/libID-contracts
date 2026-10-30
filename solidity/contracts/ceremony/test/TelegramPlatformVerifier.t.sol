@@ -10,7 +10,7 @@ import {CeremonyProofVerifier} from "../CeremonyProofVerifier.sol";
 import {ICeremony} from "../ICeremony.sol";
 import {IPlatformVerifier} from "../IPlatformVerifier.sol";
 import {IHonkVerifier, PlatformVerifierBase} from "../PlatformVerifierBase.sol";
-import {TelegramPlatformVerifier} from "../TelegramPlatformVerifier.sol";
+import {OidcPlatformVerifierBase, TelegramPlatformVerifier} from "../TelegramPlatformVerifier.sol";
 import {TrustingJwtRoots} from "./TrustingJwtRoots.sol";
 
 /// @notice The `telegram/v1` profile: one oidc-telegram proof, timed by `iat`.
@@ -184,11 +184,11 @@ contract TelegramPlatformVerifierTest is Test {
     function test_rejectsAnUntrustedOrLapsedModulus() public {
         TrustingJwtRoots other = new TrustingJwtRoots();
         TelegramPlatformVerifier v = _deploy(honk, address(other), BOT_ID);
-        vm.expectPartialRevert(TelegramPlatformVerifier.UntrustedModulus.selector);
+        vm.expectPartialRevert(OidcPlatformVerifierBase.UntrustedModulus.selector);
         this.run(v, _payload());
         bytes32 h = keccak256(abi.encodePacked(_modulus()));
         other.trust(h, IAT);
-        vm.expectPartialRevert(TelegramPlatformVerifier.UntrustedModulus.selector);
+        vm.expectPartialRevert(OidcPlatformVerifierBase.UntrustedModulus.selector);
         this.run(v, _payload());
         other.trust(h, IAT + 1);
         this.run(v, _payload());

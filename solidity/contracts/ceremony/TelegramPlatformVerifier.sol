@@ -48,11 +48,7 @@ contract TelegramPlatformVerifier is OidcPlatformVerifierBase {
         }
     }
 
-    event JwtRootsChanged(address roots);
-
     error MissingClientIdentifier();
-    /// @dev The signing key is not trusted now (REQ-PLAT-23).
-    error UntrustedModulus(bytes32 modulusHash);
 
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
@@ -73,22 +69,16 @@ contract TelegramPlatformVerifier is OidcPlatformVerifierBase {
         _t().botId = botId_;
     }
 
-    function jwtRoots() external view returns (address) {
-        return address(_t().jwtRoots);
-    }
-
     function botId() external view returns (bytes memory) {
         return _t().botId;
     }
 
-    function setJwtRoots(IGoogleJwtRoots roots) external onlyOwner {
-        _setJwtRoots(roots);
+    function _jwtRoots() internal view override returns (IGoogleJwtRoots) {
+        return _t().jwtRoots;
     }
 
-    function _setJwtRoots(IGoogleJwtRoots roots) private {
-        if (address(roots) == address(0)) revert ZeroAddress();
+    function _storeJwtRoots(IGoogleJwtRoots roots) internal override {
         _t().jwtRoots = roots;
-        emit JwtRootsChanged(address(roots));
     }
 
     /// @dev The `oidc-telegram` circuit's verifier.
@@ -101,17 +91,6 @@ contract TelegramPlatformVerifier is OidcPlatformVerifierBase {
     }
 
     /// @inheritdoc IPlatformVerifier
-    function platformId() external pure returns (bytes32) {
-        return CeremonyProfile.PLATFORM_TELEGRAM;
-    }
-
-    /// @inheritdoc IPlatformVerifier
-    /// @dev Zero: the Attestation Count is zero (REQ-COMMON-06E).
-    function quote() public pure returns (uint256) {
-        return 0;
-    }
-
-    /// @inheritdoc IPlatformVerifier
     function verify(bytes calldata payload) external payable returns (VerifiedClaim memory claimed) {
         if (msg.value != 0) revert WrongValue(0, msg.value);
 
@@ -119,9 +98,7 @@ contract TelegramPlatformVerifier is OidcPlatformVerifierBase {
         uint16 version = _requireCeremonyVersion(p.ceremonyVersion);
         bytes32 digest =
             CeremonyAuthorization.digest(p.operationDomain, version, p.authorizationNonce, p.transactionData);
-        TelegramStorage storage $ = _t();
-        (bytes32 modulusHash, bool trusted) = _modulusTrust($.jwtRoots, p.modulus);
-        if (!trusted) revert UntrustedModulus(modulusHash);
+        _requireTrustedModulus(p.modulus);
 
         // iat - skew <= Block Time <= iat + lifetime, both ends inclusive.
         uint64 blockTime = uint64(block.timestamp);
@@ -130,7 +107,7 @@ contract TelegramPlatformVerifier is OidcPlatformVerifierBase {
         uint64 validUntil = p.iat + _proofLifetime();
         if (blockTime > validUntil) revert ProofExpired(validUntil, blockTime);
 
-        bytes memory bot = $.botId;
+        bytes memory bot = _t().botId;
         _requireProof(p.proof, _oidcInputs(digest, sha256(bot), p.idNode, p.handleNode, p.iat, p.modulus));
         claimed.idNode = p.idNode;
         claimed.handleNode = p.handleNode;
