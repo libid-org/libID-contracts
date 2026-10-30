@@ -817,7 +817,7 @@ contract GoogleJwtRoots is Initializable, UUPSUpgradeable, Ownable2StepUpgradeab
         bytes32 mask = n >= 32 ? bytes32(type(uint256).max) : ~bytes32(type(uint256).max >> (8 * n));
         bytes32 head = _word(needle, 0) & mask;
         for (uint256 i = from; i + n <= haystack.length; ++i) {
-            if (_word(haystack, i) & mask != head) continue;
+            if ((_word(haystack, i) & mask) != head) continue;
             bool hit = true;
             for (uint256 j = 32; j < n; ++j) {
                 if (haystack[i + j] != needle[j]) {
