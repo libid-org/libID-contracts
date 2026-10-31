@@ -6,6 +6,8 @@ import {
   decodeGoogleProof,
   GooglePublicInputMismatch,
   googleProofFields,
+  OidcPublicInputMismatch,
+  oidcProofFields,
   decodeTlsNotaryProof,
   decodeTelegramProof,
   encodeGoogleProof,
@@ -18,6 +20,10 @@ import {
 
 // The Solidity suite's fixtures; `x-ceremony-payload.json` pins solc's encoding.
 const fixtures = new URL('../../../../solidity/contracts/ceremony/test/fixtures/', import.meta.url)
+const circuitFixtures = new URL(
+  '../../../../solidity/contracts/circuits/test/fixtures/',
+  import.meta.url,
+)
 
 /** One session's notarized bytes and the notary's signature over them. */
 interface AttestationFixture {
@@ -54,8 +60,8 @@ interface GoogleProofFixture {
   client_identifier: string
 }
 
-function read<T>(name: string): T {
-  return JSON.parse(readFileSync(new URL(name, fixtures), 'utf8')) as T
+function read<T>(name: string, dir: URL = fixtures): T {
+  return JSON.parse(readFileSync(new URL(name, dir), 'utf8')) as T
 }
 
 function xPayload(): { payload: TlsNotaryProof; pinned: { keccak256: Hex; length: number } } {
@@ -177,5 +183,31 @@ describe('googleProofFields', () => {
     expect(field(() => googleProofFields(inputs.slice(1), { digest, clientIdentifier }))).toBe(
       'count',
     )
+  })
+})
+
+describe('oidcProofFields', () => {
+  const fixture = read<GoogleProofFixture>('oidc-telegram-proof.json', circuitFixtures)
+  const inputs = fixture.public_inputs
+  const audience = toHex(fixture.client_identifier)
+  const digest = toHex(Uint8Array.from(inputs.slice(0, 32), (b) => Number(BigInt(b))))
+
+  it('reads the nodes, iat and modulus the oidc-telegram circuit output', () => {
+    const fields = oidcProofFields(inputs, { digest, audience }, 'iat')
+    // hashlib.sha256(b"libid.telegram.user-id7051836294")
+    expect(fields.idNode).toBe('0x9ff44e615ff14505c3a406e9931e2442ad4f56f3fb5b12e91c143fa6384a3a4c')
+    // hashlib.sha256(b"libid.telegram.handlebrynn_qx")
+    expect(fields.handleNode).toBe(
+      '0xf6416e7788cea1d8d9d7ada243b2f998a33296b61db647298ce61722c04c925b',
+    )
+    expect(fields.iat).toBe(1_893_452_400n)
+    expect('exp' in fields).toBe(false)
+    expect(fields.modulus).toEqual(inputs.slice(39))
+  })
+
+  it('refuses another bot as the audience, under the Google name too', () => {
+    const call = () => oidcProofFields(inputs, { digest, audience: toHex('7000000002') }, 'iat')
+    expect(call).toThrow(OidcPublicInputMismatch)
+    expect(call).toThrow(GooglePublicInputMismatch)
   })
 })
