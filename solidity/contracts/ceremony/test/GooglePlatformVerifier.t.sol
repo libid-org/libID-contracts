@@ -367,6 +367,20 @@ contract GooglePlatformVerifierTest is Test {
         verifier.setJwtRoots(telegrams);
     }
 
+    /// An address with no code, or code without `AUTHORITY()`, is refused by name.
+    function test_aRootsListWithoutAnAuthorityIsRefused() public {
+        address[2] memory lists = [address(0xC0DE), address(verifier)];
+        for (uint256 i = 0; i < 2; ++i) {
+            vm.prank(OWNER);
+            vm.expectRevert(
+                abi.encodeWithSelector(
+                    PlatformVerifierBase.WrongAuthority.selector, CeremonyProfile.AUTHORITY_GOOGLEAPIS_WWW, bytes32(0)
+                )
+            );
+            verifier.setJwtRoots(IGoogleJwtRoots(lists[i]));
+        }
+    }
+
     /// @dev A TLSNotary-shaped payload at the Google verifier is refused.
     function test_aTlsPayloadIsRefused() public {
         TlsNotaryVerifierBase.TlsNotaryProof memory x;

@@ -72,10 +72,13 @@ abstract contract OidcPlatformVerifierBase is IPlatformVerifier, PlatformVerifie
         _setJwtRoots(roots);
     }
 
+    /// @dev A list that does not answer `AUTHORITY()` with one word, an
+    ///      address with no code among them, reports authority zero.
     function _setJwtRoots(IGoogleJwtRoots roots) internal {
         if (address(roots) == address(0)) revert ZeroAddress();
         bytes32 expected = _jwtRootsAuthority();
-        bytes32 found = roots.AUTHORITY();
+        (bool ok, bytes memory ret) = address(roots).staticcall(abi.encodeCall(IGoogleJwtRoots.AUTHORITY, ()));
+        bytes32 found = ok && ret.length == 32 ? abi.decode(ret, (bytes32)) : bytes32(0);
         if (found != expected) revert WrongAuthority(expected, found);
         _storeJwtRoots(roots);
         emit JwtRootsChanged(address(roots));
