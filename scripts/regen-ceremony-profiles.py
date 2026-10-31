@@ -181,6 +181,23 @@ class IdentitySession(Session):
 
 
 @dataclass(frozen=True)
+class Jwks:
+    """Where an OIDC profile's issuer publishes its signing keys."""
+
+    authority: str
+    path: str
+
+    @property
+    def request_line(self) -> str:
+        """The whole request line a JWT roots list compares, CRLF included."""
+        return f"GET {self.path} {HTTP_VERSION}\r\n"
+
+    @classmethod
+    def from_json(cls, raw: dict[str, Any]) -> Jwks:
+        return cls(authority=raw["authority"], path=raw["path"])
+
+
+@dataclass(frozen=True)
 class Validity:
     """A profile's `validity`: the seconds it fixes, each absent or a value."""
 
@@ -240,6 +257,7 @@ class Profile:
     ceremony_version: int
     token: TokenSession | None
     identity: IdentitySession | None
+    jwks: Jwks | None
     validity: Validity
     note: Note
     tags: Tags
@@ -253,6 +271,7 @@ class Profile:
             ceremony_version=raw["ceremonyVersion"],
             token=TokenSession.from_json(sessions["token"]) if "token" in sessions else None,
             identity=IdentitySession.from_json(sessions["identity"]) if "identity" in sessions else None,
+            jwks=Jwks.from_json(raw["jwks"]) if "jwks" in raw else None,
             validity=Validity.from_json(platform, raw.get("validity")),
             note=raw.get("note"),
             tags=Tags.of(platform, platforms),
@@ -376,8 +395,10 @@ def authorities(spec: Spec) -> list[tuple[str, str]]:
     """Every distinct authority as (constant suffix, host), in first-seen order."""
     out: list[tuple[str, str]] = []
     for profile in spec.profiles:
-        for session in profile.sessions:
-            entry = (authority_name(session.authority), session.authority)
+        hosts = [session.authority for session in profile.sessions]
+        hosts += [profile.jwks.authority] if profile.jwks else []
+        for host in hosts:
+            entry = (authority_name(host), host)
             if entry not in out:
                 out.append(entry)
     clashes = {name for name, _ in out}
@@ -478,28 +499,35 @@ def validate(spec: Spec) -> None:
             raise SystemExit(f"ERROR: platform {platform!r} must be lowercase ASCII")
         safe(platform, "platform")
         for session in profile.sessions:
-            host = safe(session.authority, "authority")
+            validate_endpoint(session.authority, session.path)
             safe(session.method, "method")
-            safe(session.path, "path")
             required_headers(session)
             if isinstance(session, TokenSession):
                 token_fields(session)
             if isinstance(session, IdentitySession):
                 safe(session.id_field, "idField")
                 safe(session.handle_field, "handleField")
-            if host != host.lower() or host.endswith("."):
-                raise SystemExit(
-                    f"ERROR: authority {host!r} must be lowercase with no trailing dot"
-                )
-            if not session.path.startswith("/"):
-                raise SystemExit(f"ERROR: path {session.path!r} must be absolute")
             if isinstance(session, IdentitySession) and session.id_shape not in ("jsonString", "jsonInteger"):
                 raise SystemExit(f"ERROR: unknown idShape {session.id_shape!r}")
         # The identity session spends the token session's bearer, and the
         # circuit links the two.
         if len(profile.sessions) == 1:
             raise SystemExit(f"ERROR: {platform!r} has one session; expected none or both")
+        if profile.jwks:
+            if profile.sessions:
+                raise SystemExit(f"ERROR: {platform!r} notarizes sessions and cannot also read a JWKS")
+            validate_endpoint(profile.jwks.authority, profile.jwks.path)
         validate_validity(profile)
+
+
+def validate_endpoint(host: str, path: str) -> None:
+    """Refuse an authority or path a verifier could not pin as written."""
+    safe(host, "authority")
+    safe(path, "path")
+    if host != host.lower() or host.endswith("."):
+        raise SystemExit(f"ERROR: authority {host!r} must be lowercase with no trailing dot")
+    if not path.startswith("/"):
+        raise SystemExit(f"ERROR: path {path!r} must be absolute")
 
 
 def validate_validity(profile: Profile) -> None:
@@ -599,6 +627,21 @@ def gen_sol(spec: Spec) -> str:
         lines.append(
             f'    bytes32 internal constant AUTHORITY_{suffix} = keccak256(bytes("{host}"));'
         )
+
+    lines += [
+        "",
+        "    // --- JWKS endpoints -------------------------------------------------------",
+        "",
+        "    /// @dev The `Host` and whole request line, CRLF included, a JWT roots list",
+        "    ///      pins for an OIDC profile's signing keys.",
+        "",
+    ]
+    for profile in profiles:
+        if profile.jwks is None:
+            continue
+        name = upper(profile.platform)
+        lines.append(f'    bytes internal constant {name}_JWKS_HOST = "{profile.jwks.authority}";')
+        lines.append(f'    bytes internal constant {name}_JWKS_REQUEST_LINE = "{escaped(profile.jwks.request_line)}";')
 
     lines += [
         "",

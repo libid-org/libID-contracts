@@ -49,9 +49,21 @@ library CeremonyProfile {
     ///      never from the prover-composed `Host` header (REQ-COMMON-21,
     ///      REQ-COMMON-21A).
 
+    bytes32 internal constant AUTHORITY_GOOGLEAPIS_WWW = keccak256(bytes("www.googleapis.com"));
     bytes32 internal constant AUTHORITY_X_API = keccak256(bytes("api.x.com"));
     bytes32 internal constant AUTHORITY_GITHUB = keccak256(bytes("github.com"));
     bytes32 internal constant AUTHORITY_GITHUB_API = keccak256(bytes("api.github.com"));
+    bytes32 internal constant AUTHORITY_TELEGRAM_OAUTH = keccak256(bytes("oauth.telegram.org"));
+
+    // --- JWKS endpoints -------------------------------------------------------
+
+    /// @dev The `Host` and whole request line, CRLF included, a JWT roots list
+    ///      pins for an OIDC profile's signing keys.
+
+    bytes internal constant GOOGLE_JWKS_HOST = "www.googleapis.com";
+    bytes internal constant GOOGLE_JWKS_REQUEST_LINE = "GET /oauth2/v3/certs HTTP/1.1\r\n";
+    bytes internal constant TELEGRAM_JWKS_HOST = "oauth.telegram.org";
+    bytes internal constant TELEGRAM_JWKS_REQUEST_LINE = "GET /.well-known/jwks.json HTTP/1.1\r\n";
 
     // --- Sessions -------------------------------------------------------------
 
