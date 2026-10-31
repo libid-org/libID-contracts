@@ -17,6 +17,8 @@ import {IHonkVerifier} from "./PlatformVerifierBase.sol";
 /// @dev Google's input layout with `iat` in `exp`'s place. The audience is
 ///      the configured bot id, never a caller's. `iat` is the validity
 ///      anchor, and `metadataObservedAt` is `iat` on the shared scale.
+///      A token outside its window reverts the shared `AttestationAhead` or
+///      `ProofExpired`, whose `createdAt` and `validUntil` count from `iat`.
 contract TelegramPlatformVerifier is OidcPlatformVerifierBase {
     /// @notice The `telegram/v1` payload, as `abi.encode` of this struct.
     /// @dev Every field is authentic only once the proof verifies.

@@ -175,6 +175,9 @@ const { errorName, args } = decodeErrorResult({ abi: bindErrorsAbi, data: revert
 // 'HandleNotProved', [disclosed, proved]: the handle bind disclosed is not the proved one.
 ```
 
+For `telegram/v1`, `AttestationAhead` and `ProofExpired` date the signed
+token's `iat`, not an attestation.
+
 The Honk verifiers raise errors such as `SumcheckFailed()` that their own ABI
 omits. `honkVerifierErrorsAbi` declares them under bb's names, and
 `bindErrorsAbi` includes it.

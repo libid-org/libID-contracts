@@ -53,7 +53,9 @@ abstract contract PlatformVerifierBase is ICeremony, Initializable, UUPSUpgradea
     ///      implement. Checked before any fee moves.
     error WrongCeremonyVersion(uint16 expected, uint16 found);
     error WrongAuthority(bytes32 expected, bytes32 found);
+    /// @dev `createdAt` is the token attestation's, or `telegram/v1`'s signed `iat`.
     error AttestationAhead(uint64 createdAt, uint64 blockTime, uint64 allowance);
+    /// @dev `validUntil` counts from the same time as `AttestationAhead`'s `createdAt`.
     error ProofExpired(uint64 validUntil, uint64 blockTime);
     error ObservedInTheFuture(uint64 observedAt, uint64 limit);
     error BadProof();

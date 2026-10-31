@@ -159,7 +159,9 @@ Other entry points:
 - `BindError::decode` — a refused `bind` by name (`HandleNotProved`,
   `NotYourHandle`, `SumcheckFailed`, …), from every contract on the route
   and bb's Honk verifiers. A revert does not say which contract raised it,
-  so `contracts()` lists every one that declares the error.
+  so `contracts()` lists every one that declares the error. For
+  `telegram/v1`, `AttestationAhead` and `ProofExpired` date the signed
+  token's `iat`, not an attestation.
 - `bindings::ceremony::{TlsNotaryProof, GoogleProof, TelegramProof}` — the payload a Platform
   Verifier decodes; its `SolValue::abi_encode` is the `payload` `bind` takes.
 
