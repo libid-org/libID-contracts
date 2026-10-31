@@ -110,10 +110,11 @@ LAYOUTS = (
         "CeremonyProofVerifier.ProofVerifierStorage",
         "PROOF_VERIFIER_STORAGE",
     ),
+    # The two JWT roots lists keep JwtRootsBase's struct, each at its own root.
     Layout(
         "ceremony/GoogleJwtRoots.sol",
         ("GoogleJwtRoots",),
-        "GoogleJwtRoots.GoogleJwtRootsStorage",
+        "JwtRootsBase.JwtRootsStorage",
         "GOOGLE_JWT_ROOTS_STORAGE",
     ),
     Layout(
@@ -127,6 +128,12 @@ LAYOUTS = (
         ("NotaryService",),
         "NotaryService.NotaryServiceStorage",
         "NOTARY_SERVICE_STORAGE",
+    ),
+    Layout(
+        "ceremony/TelegramJwtRoots.sol",
+        ("TelegramJwtRoots",),
+        "JwtRootsBase.JwtRootsStorage",
+        "TELEGRAM_JWT_ROOTS_STORAGE",
     ),
     Layout(
         "ceremony/TelegramPlatformVerifier.sol",

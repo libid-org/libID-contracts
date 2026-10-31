@@ -11,11 +11,11 @@ import {CeremonyAttestation} from "../CeremonyAttestation.sol";
 import {INotaryService} from "../INotaryService.sol";
 import {NotaryService} from "../NotaryService.sol";
 import {GoogleJwtRoots} from "../GoogleJwtRoots.sol";
-import {JwtRootsDeployments} from "../JwtRootsDeployments.sol";
+import {JwtRootsBase} from "../JwtRootsBase.sol";
 
 /// A reading of Google's JWKS that actually crossed the wire.
 ///
-/// `GoogleJwtRoots.t.sol` builds its sessions: the request is a constant, the
+/// `JwtRootsBase.t.sol` builds its sessions: the request is a constant, the
 /// response is framed by the test, and the notary is `vm.sign`. Every byte
 /// there is one a test author chose. This file starts from the other end: the
 /// fixture is a genuine MPC-TLS session with www.googleapis.com, captured on
@@ -83,11 +83,11 @@ contract GoogleJwtRootsRealSessionTest is Test {
     }
 
     function _deployRoots() private returns (GoogleJwtRoots) {
-        GoogleJwtRoots impl = JwtRootsDeployments.google();
+        GoogleJwtRoots impl = new GoogleJwtRoots();
         return GoogleJwtRoots(
             address(
                 new ERC1967Proxy(
-                    address(impl), abi.encodeCall(GoogleJwtRoots.initialize, (OWNER, INotaryService(address(notary))))
+                    address(impl), abi.encodeCall(JwtRootsBase.initialize, (OWNER, INotaryService(address(notary))))
                 )
             )
         );
@@ -226,7 +226,7 @@ contract GoogleJwtRootsRealSessionTest is Test {
             }
         }
 
-        (GoogleJwtRoots.Generation memory current, GoogleJwtRoots.Generation memory previous) = roots.currentKeys();
+        (JwtRootsBase.Generation memory current, JwtRootsBase.Generation memory previous) = roots.currentKeys();
         assertEq(current.observedAt, createdAt);
         assertEq(current.moduli, moduli, "four moduli, in the fixture's order");
         assertEq(previous.moduli.length, 0, "nothing precedes the first reading");
@@ -260,8 +260,8 @@ contract GoogleJwtRootsRealSessionTest is Test {
         GoogleJwtRoots again = _deployRoots();
         again.rotate{value: FEE}(reread, _signWith(TEST_KEY, reread));
 
-        (GoogleJwtRoots.Generation memory viaChunked,) = roots.currentKeys();
-        (GoogleJwtRoots.Generation memory viaLength,) = again.currentKeys();
+        (JwtRootsBase.Generation memory viaChunked,) = roots.currentKeys();
+        (JwtRootsBase.Generation memory viaLength,) = again.currentKeys();
         assertEq(viaLength.moduli.length, _kids().length);
         assertEq(viaLength.moduli, viaChunked.moduli, "framing changed the key");
     }
@@ -308,12 +308,12 @@ contract GoogleJwtRootsRealSessionTest is Test {
         uint256 window = roots.FRESHNESS_WINDOW();
 
         vm.warp(createdAt + window + 1);
-        vm.expectRevert(GoogleJwtRoots.StaleProof.selector);
+        vm.expectRevert(JwtRootsBase.StaleProof.selector);
         roots.rotate{value: FEE}(record, signature);
 
         vm.warp(createdAt + window);
         roots.rotate{value: FEE}(record, signature);
-        (GoogleJwtRoots.Generation memory current,) = roots.currentKeys();
+        (JwtRootsBase.Generation memory current,) = roots.currentKeys();
         assertEq(current.moduli.length, 4);
     }
 

@@ -6,7 +6,7 @@ import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.s
 
 import {GitHubPlatformVerifier} from "../../ceremony/GitHubPlatformVerifier.sol";
 import {GooglePlatformVerifier, IGoogleJwtRoots} from "../../ceremony/GooglePlatformVerifier.sol";
-import {JwtRootsDeployments} from "../../ceremony/JwtRootsDeployments.sol";
+import {CeremonyProfile} from "../../ceremony/CeremonyProfile.sol";
 import {TrustingJwtRoots} from "../../ceremony/test/TrustingJwtRoots.sol";
 import {INotaryService} from "../../ceremony/INotaryService.sol";
 import {IHonkVerifier} from "../../ceremony/PlatformVerifierBase.sol";
@@ -136,7 +136,7 @@ contract HonkVerifiersTest is Test {
                             OWNER,
                             INotaryService(address(0)),
                             oidcGoogle,
-                            new TrustingJwtRoots(JwtRootsDeployments.GOOGLE_AUTHORITY)
+                            new TrustingJwtRoots(CeremonyProfile.AUTHORITY_GOOGLEAPIS_WWW)
                         )
                     )
                 )

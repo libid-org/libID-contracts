@@ -9,7 +9,8 @@ import {INotaryService} from "../contracts/ceremony/INotaryService.sol";
 import {CeremonyProofVerifier} from "../contracts/ceremony/CeremonyProofVerifier.sol";
 import {IProofVerifier} from "../contracts/ceremony/IProofVerifier.sol";
 import {GoogleJwtRoots} from "../contracts/ceremony/GoogleJwtRoots.sol";
-import {JwtRootsDeployments} from "../contracts/ceremony/JwtRootsDeployments.sol";
+import {JwtRootsBase} from "../contracts/ceremony/JwtRootsBase.sol";
+import {TelegramJwtRoots} from "../contracts/ceremony/TelegramJwtRoots.sol";
 
 /// @notice Deploy the identity stack to any EVM chain: five UUPS proxies for the
 /// Notary Service, Proof Verifier, identity registry and the Google and
@@ -64,13 +65,11 @@ contract Deploy is Script {
         // A platform is enabled by `CeremonyProofVerifier.setVerifier`, which needs circuit artifacts.
 
         // 4. The JWT root lists the Google and Telegram Platform Verifiers
-        //    read their trusted moduli from: one contract, deployed per
-        //    issuer. Each verifies notarized JWKS readings through the Notary
-        //    Service and starts empty.
-        bytes memory rootsInit =
-            abi.encodeCall(GoogleJwtRoots.initialize, (deployer, INotaryService(notaryServiceAddr)));
-        address jwtRootsAddr = address(new ERC1967Proxy(address(JwtRootsDeployments.google()), rootsInit));
-        address telegramJwtRootsAddr = address(new ERC1967Proxy(address(JwtRootsDeployments.telegram()), rootsInit));
+        //    read their trusted moduli from. Each verifies notarized JWKS
+        //    readings through the Notary Service and starts empty.
+        bytes memory rootsInit = abi.encodeCall(JwtRootsBase.initialize, (deployer, INotaryService(notaryServiceAddr)));
+        address jwtRootsAddr = address(new ERC1967Proxy(address(new GoogleJwtRoots()), rootsInit));
+        address telegramJwtRootsAddr = address(new ERC1967Proxy(address(new TelegramJwtRoots()), rootsInit));
 
         vm.stopBroadcast();
 

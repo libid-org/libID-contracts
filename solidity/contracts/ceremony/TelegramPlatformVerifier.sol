@@ -6,7 +6,6 @@ import {CeremonyAuthorization} from "./CeremonyAuthorization.sol";
 import {CeremonyProfile} from "./CeremonyProfile.sol";
 import {INotaryService} from "./INotaryService.sol";
 import {IPlatformVerifier} from "./IPlatformVerifier.sol";
-import {JwtRootsDeployments} from "./JwtRootsDeployments.sol";
 import {IGoogleJwtRoots, OidcPlatformVerifierBase} from "./OidcPlatformVerifierBase.sol";
 import {IHonkVerifier} from "./PlatformVerifierBase.sol";
 
@@ -81,7 +80,7 @@ contract TelegramPlatformVerifier is OidcPlatformVerifierBase {
     }
 
     function _jwtRootsAuthority() internal pure override returns (bytes32) {
-        return JwtRootsDeployments.TELEGRAM_AUTHORITY;
+        return CeremonyProfile.AUTHORITY_TELEGRAM_OAUTH;
     }
 
     /// @dev The `oidc-telegram` circuit's verifier.

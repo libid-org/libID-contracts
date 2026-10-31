@@ -209,7 +209,7 @@ pub struct TelegramRoots {
     pub owner: Address,
     /// The bb-generated UltraHonk verifier for the Telegram OIDC circuit.
     pub honk_verifier: Address,
-    /// The Telegram `GoogleJwtRoots` deployment the trusted moduli are read through.
+    /// The `TelegramJwtRoots` proxy the trusted moduli are read through.
     pub jwt_roots: Address,
     /// The bot id a token's `aud` must be.
     pub bot_id: Bytes,

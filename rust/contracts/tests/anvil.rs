@@ -24,8 +24,6 @@ use libid_contracts::{
     deploy::{
         deploy_behind_proxy,
         deploy_contract,
-        deploy_proxy,
-        deploy_with_ctor,
         upgrade_uups,
     },
     Artifacts,
@@ -40,91 +38,21 @@ async fn default_signer(provider: &impl Provider) -> Address {
     provider.get_accounts().await.expect("accounts")[0]
 }
 
-/// A JWKS endpoint as `JwtRootsDeployments.sol` writes it: the host, whose
-/// keccak256 is the authority, and the request line.
-struct Jwks {
-    prefix: &'static str,
-    host: &'static str,
-    request_line: &'static str,
-}
-
-const GOOGLE_JWKS: Jwks = Jwks {
-    prefix: "GOOGLE",
-    host: "www.googleapis.com",
-    request_line: "GET /oauth2/v3/certs HTTP/1.1\r\n",
-};
-
-const TELEGRAM_JWKS: Jwks = Jwks {
-    prefix: "TELEGRAM",
-    host: "oauth.telegram.org",
-    request_line: "GET /.well-known/jwks.json HTTP/1.1\r\n",
-};
-
-/// The endpoints above are the ones `JwtRootsDeployments.sol` deploys.
-#[test]
-fn the_jwks_endpoints_match_the_solidity_deployments() {
-    let path = concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../../solidity/contracts/ceremony/JwtRootsDeployments.sol"
-    );
-    let source = std::fs::read_to_string(path).expect(path);
-    for jwks in [GOOGLE_JWKS, TELEGRAM_JWKS] {
-        let Jwks {
-            prefix,
-            host,
-            request_line,
-        } = jwks;
-        let escaped = request_line.replace("\r\n", "\\r\\n");
-        for line in [
-            format!("{prefix}_AUTHORITY = keccak256(\"{host}\");"),
-            format!("{prefix}_REQUEST_LINE = \"{escaped}\";"),
-            format!("{prefix}_HOST = \"{host}\";"),
-        ] {
-            assert!(source.contains(&line), "{path} lacks `{line}`");
-        }
-    }
-}
-
-/// `GoogleJwtRoots` deployed for `jwks`, behind a proxy.
+/// `contract`, one of the JWT roots lists, deployed behind a proxy.
 async fn deploy_jwt_roots(
     provider: &impl Provider,
     artifacts: &Artifacts,
-    jwks: Jwks,
+    contract: &str,
     owner: Address,
     notary: Address,
 ) -> Address {
-    use alloy::{
-        primitives::Bytes,
-        sol_types::{
-            SolCall,
-            SolValue,
-        },
-    };
-    let ctor = (
-        keccak256(jwks.host),
-        Bytes::from_static(jwks.request_line.as_bytes()),
-        Bytes::from_static(jwks.host.as_bytes()),
-    )
-        .abi_encode_params();
-    let bytecode = artifacts.bytecode("GoogleJwtRoots").unwrap();
-    let implementation =
-        deploy_with_ctor(provider, &bytecode, &ctor, "GoogleJwtRoots (impl)", None)
-            .await
-            .unwrap();
     let init = GoogleJwtRoots::initializeCall {
         owner_: owner,
         notary_: notary,
     };
-    deploy_proxy(
-        provider,
-        &artifacts.bytecode("ERC1967Proxy").unwrap(),
-        implementation,
-        init.abi_encode().into(),
-        "GoogleJwtRoots (proxy)",
-        None,
-    )
-    .await
-    .unwrap()
+    deploy_behind_proxy(provider, artifacts, contract, &init, None)
+        .await
+        .unwrap()
 }
 
 /// The identity stack in the order `script/Deploy.s.sol` uses, each behind
@@ -173,9 +101,14 @@ async fn deploys_the_identity_stack_behind_proxies() {
     .await
     .unwrap();
 
-    let roots_proxy =
-        deploy_jwt_roots(&provider, &artifacts, GOOGLE_JWKS, deployer, notary_proxy)
-            .await;
+    let roots_proxy = deploy_jwt_roots(
+        &provider,
+        &artifacts,
+        "GoogleJwtRoots",
+        deployer,
+        notary_proxy,
+    )
+    .await;
 
     // Wire the registry to the Proof Verifier it dispatches through.
     let registry = IdentityRegistry::new(registry_proxy, &provider);
@@ -235,6 +168,68 @@ async fn deploys_the_identity_stack_behind_proxies() {
     assert!(keys.current.moduli.is_empty());
     assert_eq!(keys.previous.observedAt, 0);
     assert!(keys.previous.moduli.is_empty());
+}
+
+/// Each JWT roots list deploys behind a proxy with no constructor
+/// arguments, and the Google one upgrades with `upgrade_uups`, keeping its
+/// state and the endpoint its code names.
+#[tokio::test]
+async fn deploys_and_upgrades_the_jwt_roots_lists() {
+    let provider = test_provider();
+    let artifacts = Artifacts::embedded();
+    let deployer = default_signer(&provider).await;
+    let notary_proxy = deploy_behind_proxy(
+        &provider,
+        &artifacts,
+        "NotaryService",
+        &NotaryService::initializeCall {
+            owner_: deployer,
+            notary_: Address::repeat_byte(0x11),
+            fee_: U256::from(7),
+        },
+        None,
+    )
+    .await
+    .unwrap();
+
+    let google_proxy = deploy_jwt_roots(
+        &provider,
+        &artifacts,
+        "GoogleJwtRoots",
+        deployer,
+        notary_proxy,
+    )
+    .await;
+    let telegram_proxy = deploy_jwt_roots(
+        &provider,
+        &artifacts,
+        "TelegramJwtRoots",
+        deployer,
+        notary_proxy,
+    )
+    .await;
+    let google = GoogleJwtRoots::new(google_proxy, &provider);
+    let telegram = GoogleJwtRoots::new(telegram_proxy, &provider);
+    let authority = google.AUTHORITY().call().await.unwrap();
+    assert_ne!(telegram.AUTHORITY().call().await.unwrap(), authority);
+    assert_eq!(telegram.notaryService().call().await.unwrap(), notary_proxy);
+    assert_eq!(telegram.owner().call().await.unwrap(), deployer);
+
+    let new_impl = upgrade_uups(
+        &provider,
+        &artifacts,
+        google_proxy,
+        "GoogleJwtRoots",
+        Default::default(),
+        None,
+    )
+    .await
+    .unwrap();
+    assert_ne!(new_impl, google_proxy);
+    assert_eq!(google.AUTHORITY().call().await.unwrap(), authority);
+    assert_eq!(google.notaryService().call().await.unwrap(), notary_proxy);
+    assert_eq!(google.quoteRotation().call().await.unwrap(), U256::from(7));
+    assert_eq!(google.owner().call().await.unwrap(), deployer);
 }
 
 /// The Notary Service lifecycle: deploy behind a proxy, add a second trusted
@@ -420,7 +415,10 @@ async fn deploys_the_ens_resolver_with_its_constructor_arguments() {
         primitives::FixedBytes,
         sol_types::SolValue,
     };
-    use libid_contracts::bindings::ens::HandleResolver;
+    use libid_contracts::{
+        bindings::ens::HandleResolver,
+        deploy::deploy_with_ctor,
+    };
 
     let provider = test_provider();
     let artifacts = Artifacts::embedded();
@@ -525,12 +523,22 @@ async fn deploys_and_initializes_every_platform_verifier() {
     )
     .await
     .unwrap();
-    let roots_proxy =
-        deploy_jwt_roots(&provider, &artifacts, GOOGLE_JWKS, deployer, notary_proxy)
-            .await;
-    let telegram_roots_proxy =
-        deploy_jwt_roots(&provider, &artifacts, TELEGRAM_JWKS, deployer, notary_proxy)
-            .await;
+    let roots_proxy = deploy_jwt_roots(
+        &provider,
+        &artifacts,
+        "GoogleJwtRoots",
+        deployer,
+        notary_proxy,
+    )
+    .await;
+    let telegram_roots_proxy = deploy_jwt_roots(
+        &provider,
+        &artifacts,
+        "TelegramJwtRoots",
+        deployer,
+        notary_proxy,
+    )
+    .await;
     // The real verifiers, one per circuit.
     let bearer_link =
         deploy_honk_verifier(&provider, &artifacts, Circuit::BearerLink, None)

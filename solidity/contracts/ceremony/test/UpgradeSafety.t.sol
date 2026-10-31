@@ -19,7 +19,8 @@ import {IPlatformVerifier} from "../IPlatformVerifier.sol";
 import {IProofVerifier} from "../IProofVerifier.sol";
 import {IdentityRegistry} from "../../identity/IdentityRegistry.sol";
 import {GoogleJwtRoots} from "../GoogleJwtRoots.sol";
-import {JwtRootsDeployments} from "../JwtRootsDeployments.sol";
+import {JwtRootsBase} from "../JwtRootsBase.sol";
+import {TelegramJwtRoots} from "../TelegramJwtRoots.sol";
 import {CeremonyProfile} from "../../ceremony/CeremonyProfile.sol";
 import {TestNodes} from "../../identity/test/TestNodes.sol";
 import {StubPlatformVerifier} from "../../identity/test/StubPlatformVerifier.sol";
@@ -36,6 +37,7 @@ contract UpgradeSafetyTest is Test {
     bytes32 constant REENTRANCY_SLOT = 0x9b779b17422d0df92223018b32b4d1fa46e071723d6817e2486d003becc55f00;
     bytes32 constant REGISTRY_ROOT = 0x3e5d6a26bfa3232a8c483e2003eb4b3008d01c0d1cf6c69b6ad133fd72694000;
     bytes32 constant ROOTS_ROOT = 0x7f78ff13201a03086d4b08e3085224c34a9fc247d0f67d11acd0db52976eb300;
+    bytes32 constant TELEGRAM_ROOTS_ROOT = 0xee6f2b3e40651b1e1efa8f1db9f1ee7aef357f8d6b6ea64c3dddc41d11aa7800;
     bytes32 constant X = CeremonyProfile.PLATFORM_X;
 
     function _slot(string memory ns) internal pure returns (bytes32) {
@@ -63,6 +65,7 @@ contract UpgradeSafetyTest is Test {
         );
         assertEq(_slot("libid.storage.IdentityRegistry"), REGISTRY_ROOT);
         assertEq(_slot("libid.storage.GoogleJwtRoots"), ROOTS_ROOT);
+        assertEq(_slot("libid.storage.TelegramJwtRoots"), TELEGRAM_ROOTS_ROOT);
     }
 
     function _implOf(address proxy) internal view returns (address) {
@@ -192,7 +195,7 @@ contract UpgradeSafetyTest is Test {
 
     function test_upgrade_GooglePlatformVerifier() public {
         IHonkVerifier honk = IHonkVerifier(HonkStub.deploy(HonkStub.GOOGLE));
-        TrustingJwtRoots roots = new TrustingJwtRoots(JwtRootsDeployments.GOOGLE_AUTHORITY);
+        TrustingJwtRoots roots = new TrustingJwtRoots(CeremonyProfile.AUTHORITY_GOOGLEAPIS_WWW);
         GooglePlatformVerifier impl = new GooglePlatformVerifier();
         vm.expectRevert(Initializable.InvalidInitialization.selector);
         impl.initialize(OWNER, INotaryService(address(0)), honk, roots);
@@ -225,7 +228,7 @@ contract UpgradeSafetyTest is Test {
 
     function test_upgrade_TelegramPlatformVerifier() public {
         IHonkVerifier honk = IHonkVerifier(HonkStub.deploy(HonkStub.TELEGRAM));
-        TrustingJwtRoots roots = new TrustingJwtRoots(JwtRootsDeployments.TELEGRAM_AUTHORITY);
+        TrustingJwtRoots roots = new TrustingJwtRoots(CeremonyProfile.AUTHORITY_TELEGRAM_OAUTH);
         bytes memory bot = "7000000001";
         TelegramPlatformVerifier impl = new TelegramPlatformVerifier();
         vm.expectRevert(Initializable.InvalidInitialization.selector);
@@ -258,15 +261,37 @@ contract UpgradeSafetyTest is Test {
         assertEq(v.owner(), OWNER);
     }
 
-    // ─── GoogleJwtRoots ──────────────────────────────────────────
+    // ─── JWT roots ──────────────────────────────────────────────
 
     function test_upgrade_GoogleJwtRoots() public {
+        _upgradeJwtRoots(
+            new GoogleJwtRoots(),
+            new GoogleJwtRoots(),
+            ROOTS_ROOT,
+            CeremonyProfile.GOOGLE_JWKS_REQUEST_LINE,
+            CeremonyProfile.GOOGLE_JWKS_HOST
+        );
+    }
+
+    function test_upgrade_TelegramJwtRoots() public {
+        _upgradeJwtRoots(
+            new TelegramJwtRoots(),
+            new TelegramJwtRoots(),
+            TELEGRAM_ROOTS_ROOT,
+            CeremonyProfile.TELEGRAM_JWKS_REQUEST_LINE,
+            CeremonyProfile.TELEGRAM_JWKS_HOST
+        );
+    }
+
+    /// Both generations survive an upgrade, at the words `root` names.
+    function _upgradeJwtRoots(JwtRootsBase impl, JwtRootsBase impl2, bytes32 root, bytes memory line, bytes memory host)
+        internal
+    {
         INotaryService ns = INotaryService(address(_notaryService()));
-        GoogleJwtRoots impl = JwtRootsDeployments.google();
         vm.expectRevert(Initializable.InvalidInitialization.selector);
         impl.initialize(OWNER, ns);
-        GoogleJwtRoots r = GoogleJwtRoots(
-            address(new ERC1967Proxy(address(impl), abi.encodeCall(GoogleJwtRoots.initialize, (OWNER, ns))))
+        JwtRootsBase r = JwtRootsBase(
+            address(new ERC1967Proxy(address(impl), abi.encodeCall(JwtRootsBase.initialize, (OWNER, ns))))
         );
         vm.expectRevert(Initializable.InvalidInitialization.selector);
         r.initialize(OWNER, ns);
@@ -278,14 +303,14 @@ contract UpgradeSafetyTest is Test {
         vm.deal(address(this), 1 ether);
         vm.warp(1_770_000_000);
         uint64 first = uint64(vm.getBlockTimestamp());
-        bytes memory attested = _jwksReading(first, JWKS_MODULUS);
+        bytes memory attested = _jwksReading(first, JWKS_MODULUS, line, host);
         r.rotate{value: 7}(attested, _signed(notaryKey, attested));
         vm.warp(first + 60);
         uint64 second = uint64(vm.getBlockTimestamp());
-        attested = _jwksReading(second, _otherModulus());
+        attested = _jwksReading(second, _otherModulus(), line, host);
         r.rotate{value: 7}(attested, _signed(notaryKey, attested));
 
-        (GoogleJwtRoots.Generation memory current, GoogleJwtRoots.Generation memory previous) = r.currentKeys();
+        (JwtRootsBase.Generation memory current, JwtRootsBase.Generation memory previous) = r.currentKeys();
         assertEq(current.observedAt, second, "the second rotation landed");
         assertEq(previous.observedAt, first, "the first rotation was kept");
         assertEq(current.moduli.length, 1);
@@ -298,7 +323,7 @@ contract UpgradeSafetyTest is Test {
         // The namespace layout: `notary` at word 0, `current` at words 1-2, `previous` at 3-4.
         // A Generation is its stamp then its moduli length word; the moduli sit at keccak256 of that slot.
         // A field added to Generation moves `previous` and fails here.
-        uint256 base = uint256(ROOTS_ROOT);
+        uint256 base = uint256(root);
         assertEq(uint256(vm.load(address(r), bytes32(base))), uint256(uint160(address(ns))), "word 0: notary");
         assertEq(uint256(vm.load(address(r), bytes32(base + 1))), second, "word 1: current.observedAt");
         assertEq(uint256(vm.load(address(r), bytes32(base + 2))), 1, "word 2: current.moduli.length");
@@ -307,7 +332,6 @@ contract UpgradeSafetyTest is Test {
         assertEq(uint256(vm.load(address(r), bytes32(base + 4))), 1, "word 4: previous.moduli.length");
         assertEq(vm.load(address(r), keccak256(abi.encode(base + 4))), older, "previous.moduli[0]");
 
-        GoogleJwtRoots impl2 = JwtRootsDeployments.google();
         _expectNotOwner();
         r.upgradeToAndCall(address(impl2), "");
         vm.prank(OWNER);
@@ -335,13 +359,17 @@ contract UpgradeSafetyTest is Test {
         return abi.encodePacked(sigR, sigS, v);
     }
 
-    /// One notarized reading of Google's JWKS carrying one key, request and response revealed whole.
-    function _jwksReading(uint64 createdAt, string memory modulus) internal pure returns (bytes memory) {
-        bytes memory sent = "GET /oauth2/v3/certs HTTP/1.1\r\nhost: www.googleapis.com\r\nconnection: close\r\n\r\n";
+    /// One notarized reading of a JWKS carrying one key, request and response revealed whole.
+    function _jwksReading(uint64 createdAt, string memory modulus, bytes memory line, bytes memory host)
+        internal
+        pure
+        returns (bytes memory)
+    {
+        bytes memory sent = abi.encodePacked(line, "host: ", host, "\r\nconnection: close\r\n\r\n");
         bytes memory body = abi.encodePacked('{"keys":[{"kid":"k","n":"', modulus, '","e":"AQAB"}]}');
         bytes memory received =
             abi.encodePacked("HTTP/1.1 200 OK\r\ncontent-length: ", vm.toString(body.length), "\r\n\r\n", body);
-        return AttestationBuilder.encode(keccak256("www.googleapis.com"), createdAt, _whole(sent), _whole(received));
+        return AttestationBuilder.encode(keccak256(host), createdAt, _whole(sent), _whole(received));
     }
 
     /// A second 2048-bit modulus: `JWKS_MODULUS` with its first character changed.

@@ -4,7 +4,7 @@ pragma solidity ^0.8.24;
 import {IPlatformVerifier} from "./IPlatformVerifier.sol";
 import {PlatformVerifierBase} from "./PlatformVerifierBase.sol";
 
-/// @dev The signing keys a deployment trusts, held by a `GoogleJwtRoots` deployment.
+/// @dev The signing keys a deployment trusts, held by a JWT roots list.
 interface IGoogleJwtRoots {
     /// keccak256 of the JWKS host the list reads.
     function AUTHORITY() external view returns (bytes32);

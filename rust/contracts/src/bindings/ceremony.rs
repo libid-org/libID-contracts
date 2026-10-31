@@ -55,7 +55,11 @@ mod google_jwt_roots {
 
 /// `ceremony/GoogleJwtRoots.sol`: the Google signing keys the `google/v1`
 /// verifier trusts, two generations of a notarized JWKS reading.
+/// `TelegramJwtRoots` has the same ABI, so this binding reads it too.
 pub use google_jwt_roots::GoogleJwtRoots;
+/// `ceremony/JwtRootsBase.sol`'s types: `Generation`, as `currentKeys`
+/// returns it.
+pub use google_jwt_roots::JwtRootsBase;
 
 #[allow(
     clippy::too_many_arguments,

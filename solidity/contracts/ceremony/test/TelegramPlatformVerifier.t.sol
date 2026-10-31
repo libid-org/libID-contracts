@@ -12,7 +12,7 @@ import {IPlatformVerifier} from "../IPlatformVerifier.sol";
 import {PlatformVerifierBase} from "../PlatformVerifierBase.sol";
 import {OidcPlatformVerifierBase, TelegramPlatformVerifier} from "../TelegramPlatformVerifier.sol";
 import {TrustingJwtRoots} from "./TrustingJwtRoots.sol";
-import {JwtRootsDeployments} from "../JwtRootsDeployments.sol";
+import {CeremonyProfile} from "../CeremonyProfile.sol";
 
 /// @notice The `telegram/v1` profile: one oidc-telegram proof, timed by `iat`.
 contract TelegramPlatformVerifierTest is Test {
@@ -37,7 +37,7 @@ contract TelegramPlatformVerifierTest is Test {
     function setUp() public {
         digest = CeremonyAuthorization.digest(DOMAIN, 1, AUTH_NONCE, _txData());
         vm.warp(IAT);
-        roots = new TrustingJwtRoots(JwtRootsDeployments.TELEGRAM_AUTHORITY);
+        roots = new TrustingJwtRoots(CeremonyProfile.AUTHORITY_TELEGRAM_OAUTH);
         honk = HonkStub.deploy(HonkStub.TELEGRAM);
         verifier = _deploy(honk, address(roots), BOT_ID);
         roots.trust(keccak256(abi.encodePacked(_modulus())), IAT + 30 days);
@@ -143,7 +143,7 @@ contract TelegramPlatformVerifierTest is Test {
     // ─── The signing key ────────────────────────────────────────────
 
     function test_rejectsAnUntrustedOrLapsedModulus() public {
-        TrustingJwtRoots other = new TrustingJwtRoots(JwtRootsDeployments.TELEGRAM_AUTHORITY);
+        TrustingJwtRoots other = new TrustingJwtRoots(CeremonyProfile.AUTHORITY_TELEGRAM_OAUTH);
         TelegramPlatformVerifier v = _deploy(honk, address(other), BOT_ID);
         vm.expectPartialRevert(OidcPlatformVerifierBase.UntrustedModulus.selector);
         this.run(v, _payload());
@@ -193,16 +193,16 @@ contract TelegramPlatformVerifierTest is Test {
     function test_refusesValueAndAnnouncesItsRoots() public {
         vm.expectRevert(abi.encodeWithSelector(PlatformVerifierBase.WrongValue.selector, 0, 1));
         verifier.verify{value: 1}(abi.encode(_payload()));
-        bytes32 google = JwtRootsDeployments.GOOGLE_AUTHORITY;
+        bytes32 google = CeremonyProfile.AUTHORITY_GOOGLEAPIS_WWW;
         TrustingJwtRoots googles = new TrustingJwtRoots(google);
         vm.prank(OWNER);
         vm.expectRevert(
             abi.encodeWithSelector(
-                PlatformVerifierBase.WrongAuthority.selector, JwtRootsDeployments.TELEGRAM_AUTHORITY, google
+                PlatformVerifierBase.WrongAuthority.selector, CeremonyProfile.AUTHORITY_TELEGRAM_OAUTH, google
             )
         );
         verifier.setJwtRoots(googles);
-        TrustingJwtRoots other = new TrustingJwtRoots(JwtRootsDeployments.TELEGRAM_AUTHORITY);
+        TrustingJwtRoots other = new TrustingJwtRoots(CeremonyProfile.AUTHORITY_TELEGRAM_OAUTH);
         vm.expectEmit(address(verifier));
         emit OidcPlatformVerifierBase.JwtRootsChanged(address(other));
         vm.prank(OWNER);

@@ -40,6 +40,7 @@ ARTIFACTS=(
     "CeremonyProofVerifier:CeremonyProofVerifier"
     "ERC1967Proxy:ERC1967Proxy"
     "GoogleJwtRoots:GoogleJwtRoots"
+    "TelegramJwtRoots:TelegramJwtRoots"
     # ceremony: the launch Platform Verifiers (one per profile)
     "XPlatformVerifier:XPlatformVerifier"
     "GitHubPlatformVerifier:GitHubPlatformVerifier"

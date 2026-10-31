@@ -10,19 +10,33 @@ import {CeremonyAttestation} from "../CeremonyAttestation.sol";
 import {INotaryService} from "../INotaryService.sol";
 import {NotaryService} from "../NotaryService.sol";
 import {GoogleJwtRoots} from "../GoogleJwtRoots.sol";
-import {JwtRootsDeployments} from "../JwtRootsDeployments.sol";
+import {JwtRootsBase} from "../JwtRootsBase.sol";
+import {CeremonyProfile} from "../CeremonyProfile.sol";
+import {TelegramJwtRoots} from "../TelegramJwtRoots.sol";
 
 /// Exposes `_splitLimbs` so a test computes a key's hash from its bytes, not from the list's state.
 contract LimbHasher is GoogleJwtRoots {
-    /// The endpoint is never read: the hasher only splits limbs.
-    constructor() GoogleJwtRoots(bytes32(0), "\r\n", "-") {}
-
     function hashOf(bytes memory modulus) external pure returns (bytes32) {
         return keccak256(abi.encodePacked(_splitLimbs(modulus)));
     }
 
     function hashOfB64url(string memory modulus) external pure returns (bytes32) {
         return keccak256(abi.encodePacked(_splitLimbs(_b64urlDecode(bytes(modulus)))));
+    }
+}
+
+/// A roots list whose endpoint is its deployer's, so a test can hand the constructor a bad one.
+contract EndpointRoots is JwtRootsBase {
+    function _storageRoot() internal pure override returns (bytes32) {
+        return 0;
+    }
+
+    function _jwksHost() internal view override returns (bytes memory) {
+        return GoogleJwtRootsTest(msg.sender).endpointHost();
+    }
+
+    function _jwksRequestLine() internal view override returns (bytes memory) {
+        return GoogleJwtRootsTest(msg.sender).endpointLine();
     }
 }
 
@@ -33,8 +47,8 @@ contract LimbHasher is GoogleJwtRoots {
 /// real NotaryService that charges a fee. Google's real body is a fixture.
 contract GoogleJwtRootsTest is Test {
     GoogleJwtRoots roots;
-    /// The same contract deployed for Telegram's JWKS.
-    GoogleJwtRoots tgRoots;
+    /// The same code, for Telegram's JWKS.
+    TelegramJwtRoots tgRoots;
     NotaryService notary;
     LimbHasher hasher;
 
@@ -63,6 +77,10 @@ contract GoogleJwtRootsTest is Test {
     bytes constant STATUS_OK = "HTTP/1.1 200 OK\r\n";
     bytes constant CONTENT_TYPE = "content-type: application/json; charset=UTF-8\r\n";
 
+    /// What an `EndpointRoots` deployed by this test reads.
+    bytes public endpointHost;
+    bytes public endpointLine;
+
     function setUp() public {
         vm.warp(T0 + 10);
 
@@ -75,11 +93,11 @@ contract GoogleJwtRootsTest is Test {
             )
         );
         roots = _deployRoots(INotaryService(address(notary)));
-        tgRoots = GoogleJwtRoots(
+        tgRoots = TelegramJwtRoots(
             address(
                 new ERC1967Proxy(
-                    address(JwtRootsDeployments.telegram()),
-                    abi.encodeCall(GoogleJwtRoots.initialize, (OWNER, INotaryService(address(notary))))
+                    address(new TelegramJwtRoots()),
+                    abi.encodeCall(JwtRootsBase.initialize, (OWNER, INotaryService(address(notary))))
                 )
             )
         );
@@ -90,9 +108,9 @@ contract GoogleJwtRootsTest is Test {
     }
 
     function _deployRoots(INotaryService service) private returns (GoogleJwtRoots) {
-        GoogleJwtRoots impl = JwtRootsDeployments.google();
+        GoogleJwtRoots impl = new GoogleJwtRoots();
         return GoogleJwtRoots(
-            address(new ERC1967Proxy(address(impl), abi.encodeCall(GoogleJwtRoots.initialize, (OWNER, service))))
+            address(new ERC1967Proxy(address(impl), abi.encodeCall(JwtRootsBase.initialize, (OWNER, service))))
         );
     }
 
@@ -267,11 +285,11 @@ contract GoogleJwtRootsTest is Test {
 
     // ─── Reading the list back ──────────────────────────────────────
 
-    function _current() private view returns (GoogleJwtRoots.Generation memory current) {
+    function _current() private view returns (JwtRootsBase.Generation memory current) {
         (current,) = roots.currentKeys();
     }
 
-    function _previous() private view returns (GoogleJwtRoots.Generation memory previous) {
+    function _previous() private view returns (JwtRootsBase.Generation memory previous) {
         (, previous) = roots.currentKeys();
     }
 
@@ -293,7 +311,7 @@ contract GoogleJwtRootsTest is Test {
     }
 
     function _assertGeneration(
-        GoogleJwtRoots.Generation memory g,
+        JwtRootsBase.Generation memory g,
         uint64 observedAt,
         bytes32[] memory moduli,
         string memory label
@@ -302,7 +320,7 @@ contract GoogleJwtRootsTest is Test {
         assertEq(g.moduli, moduli, string.concat(label, ": moduli"));
     }
 
-    function _assertEmpty(GoogleJwtRoots.Generation memory g, string memory label) private pure {
+    function _assertEmpty(JwtRootsBase.Generation memory g, string memory label) private pure {
         _assertGeneration(g, 0, new bytes32[](0), label);
     }
 
@@ -398,7 +416,7 @@ contract GoogleJwtRootsTest is Test {
         _rotate(attested);
 
         vm.warp(block.timestamp + 30 minutes); // still inside the window
-        _refuses(attested, abi.encodeWithSelector(GoogleJwtRoots.NotNewer.selector, at, at));
+        _refuses(attested, abi.encodeWithSelector(JwtRootsBase.NotNewer.selector, at, at));
 
         assertEq(address(notary).balance, FEE, "the refused replay paid a fee");
         _assertGeneration(_current(), at, _one(_hash("one")), "current");
@@ -414,7 +432,7 @@ contract GoogleJwtRootsTest is Test {
         _rotate(_readingAt(_oneKey("kid-1", "one"), at));
 
         _refuses(
-            _readingAt(_oneKey("kid-1", "two"), at), abi.encodeWithSelector(GoogleJwtRoots.NotNewer.selector, at, at)
+            _readingAt(_oneKey("kid-1", "two"), at), abi.encodeWithSelector(JwtRootsBase.NotNewer.selector, at, at)
         );
 
         _assertGeneration(_current(), at, _one(_hash("one")), "current");
@@ -430,7 +448,7 @@ contract GoogleJwtRootsTest is Test {
         uint64 at = _now();
         bytes32 live = _install("kid-1", "live");
 
-        _refuses(older, abi.encodeWithSelector(GoogleJwtRoots.NotNewer.selector, dated, at));
+        _refuses(older, abi.encodeWithSelector(JwtRootsBase.NotNewer.selector, dated, at));
 
         _assertGeneration(_current(), at, _one(live), "older reading rolled the set back");
         _assertEmpty(_previous(), "older reading shifted the list");
@@ -451,7 +469,7 @@ contract GoogleJwtRootsTest is Test {
 
         uint256 funds = keeper.balance;
         vm.prank(keeper);
-        vm.expectRevert(abi.encodeWithSelector(GoogleJwtRoots.NotNewer.selector, at, at));
+        vm.expectRevert(abi.encodeWithSelector(JwtRootsBase.NotNewer.selector, at, at));
         roots.rotate{value: FEE}(attested, sig);
         assertEq(keeper.balance, funds, "the refused reading kept the keeper's fee");
         assertEq(address(notary).balance, FEE, "one fee reached the service: the stranger's");
@@ -475,7 +493,7 @@ contract GoogleJwtRootsTest is Test {
         vm.warp(first + 20 minutes);
         uint64 second = first + 10 minutes;
         vm.expectEmit(false, false, false, true);
-        emit GoogleJwtRoots.ReadingRefreshed(second);
+        emit JwtRootsBase.ReadingRefreshed(second);
         _rotate(_readingAt(_twoKeys("kid-2", "two", "kid-1", "one"), second)); // the same set, reversed
 
         _assertGeneration(_current(), second, set, "refreshed in place, original order kept");
@@ -495,7 +513,7 @@ contract GoogleJwtRootsTest is Test {
         uint64 second = first + 10 minutes;
         bytes32[] memory incoming = _two(_hash("b"), _hash("c"));
         vm.expectEmit(false, false, false, true);
-        emit GoogleJwtRoots.KeysRotated(second, _names("kid-b", "kid-c"), incoming);
+        emit JwtRootsBase.KeysRotated(second, _names("kid-b", "kid-c"), incoming);
         _rotate(_readingAt(_twoKeys("kid-b", "b", "kid-c", "c"), second));
 
         _assertGeneration(_current(), second, incoming, "current");
@@ -563,7 +581,7 @@ contract GoogleJwtRootsTest is Test {
 
         _refuses(
             _readingAt(_oneKey("kid-1", "one"), first - 10 minutes),
-            abi.encodeWithSelector(GoogleJwtRoots.NotNewer.selector, first - 10 minutes, first)
+            abi.encodeWithSelector(JwtRootsBase.NotNewer.selector, first - 10 minutes, first)
         );
         assertEq(roots.freshestObservedAt(), first, "an older reading moved the mark");
 
@@ -639,7 +657,7 @@ contract GoogleJwtRootsTest is Test {
 
         vm.prank(OWNER);
         vm.expectEmit(false, false, false, true);
-        emit GoogleJwtRoots.NotaryServiceChanged(address(other));
+        emit JwtRootsBase.NotaryServiceChanged(address(other));
         roots.setNotaryService(INotaryService(address(other)));
 
         assertEq(roots.notaryService(), address(other));
@@ -665,12 +683,12 @@ contract GoogleJwtRootsTest is Test {
 
     function test_aZeroNotaryServiceIsRefused() public {
         vm.prank(OWNER);
-        vm.expectRevert(GoogleJwtRoots.ZeroAddress.selector);
+        vm.expectRevert(JwtRootsBase.ZeroAddress.selector);
         roots.setNotaryService(INotaryService(address(0)));
 
-        GoogleJwtRoots impl = JwtRootsDeployments.google();
-        vm.expectRevert(GoogleJwtRoots.ZeroAddress.selector);
-        new ERC1967Proxy(address(impl), abi.encodeCall(GoogleJwtRoots.initialize, (OWNER, INotaryService(address(0)))));
+        GoogleJwtRoots impl = new GoogleJwtRoots();
+        vm.expectRevert(JwtRootsBase.ZeroAddress.selector);
+        new ERC1967Proxy(address(impl), abi.encodeCall(JwtRootsBase.initialize, (OWNER, INotaryService(address(0)))));
     }
 
     /// Renouncing would freeze the list while Google's keys expire, halting Google claims.
@@ -687,13 +705,13 @@ contract GoogleJwtRootsTest is Test {
         bytes memory attested = _reading(_oneKey("kid-1", "one"));
         bytes memory sig = AttestationBuilder.sign(NOTARY_KEY, attested);
 
-        vm.expectRevert(abi.encodeWithSelector(GoogleJwtRoots.WrongValue.selector, FEE, FEE - 1));
+        vm.expectRevert(abi.encodeWithSelector(JwtRootsBase.WrongValue.selector, FEE, FEE - 1));
         roots.rotate{value: FEE - 1}(attested, sig);
 
-        vm.expectRevert(abi.encodeWithSelector(GoogleJwtRoots.WrongValue.selector, FEE, FEE + 1));
+        vm.expectRevert(abi.encodeWithSelector(JwtRootsBase.WrongValue.selector, FEE, FEE + 1));
         roots.rotate{value: FEE + 1}(attested, sig);
 
-        vm.expectRevert(abi.encodeWithSelector(GoogleJwtRoots.WrongValue.selector, FEE, 0));
+        vm.expectRevert(abi.encodeWithSelector(JwtRootsBase.WrongValue.selector, FEE, 0));
         roots.rotate(attested, sig);
     }
 
@@ -737,12 +755,12 @@ contract GoogleJwtRootsTest is Test {
         bytes32 other = keccak256("storage.googleapis.com");
         bytes memory attested =
             AttestationBuilder.encode(other, _now(), _whole(REQUEST), _whole(_contentLength(_oneKey("kid-1", "one"))));
-        _refuses(attested, abi.encodeWithSelector(GoogleJwtRoots.WrongAuthority.selector, AUTHORITY, other));
+        _refuses(attested, abi.encodeWithSelector(JwtRootsBase.WrongAuthority.selector, AUTHORITY, other));
     }
 
     function test_refusesAReadingFromTheFuture() public {
         uint64 ahead = _now() + uint64(roots.CLOCK_SKEW_GRACE()) + 1;
-        _refuses(_readingAt(_oneKey("kid-1", "one"), ahead), GoogleJwtRoots.FutureProof.selector);
+        _refuses(_readingAt(_oneKey("kid-1", "one"), ahead), JwtRootsBase.FutureProof.selector);
         // One exactly at the grace is accepted.
         _rotate(_readingAt(_oneKey("kid-1", "one"), ahead - 1));
     }
@@ -752,7 +770,7 @@ contract GoogleJwtRootsTest is Test {
         uint64 provenAt = _now();
         bytes memory attested = _readingAt(_oneKey("kid-1", "one"), provenAt);
         vm.warp(provenAt + roots.FRESHNESS_WINDOW() + 1);
-        _refuses(attested, GoogleJwtRoots.StaleProof.selector);
+        _refuses(attested, JwtRootsBase.StaleProof.selector);
     }
 
     /// Both directions must tile the signed length.
@@ -792,7 +810,7 @@ contract GoogleJwtRootsTest is Test {
         });
         bytes memory attested =
             AttestationBuilder.encode(AUTHORITY, _now(), sent, _whole(_contentLength(_oneKey("kid-1", "one"))));
-        _refuses(attested, GoogleJwtRoots.HiddenBytes.selector);
+        _refuses(attested, JwtRootsBase.HiddenBytes.selector);
     }
 
     function test_refusesAHiddenByteInTheResponse() public {
@@ -806,19 +824,19 @@ contract GoogleJwtRootsTest is Test {
             length: len + 4
         });
         bytes memory attested = AttestationBuilder.encode(AUTHORITY, _now(), _whole(REQUEST), received);
-        _refuses(attested, GoogleJwtRoots.HiddenBytes.selector);
+        _refuses(attested, JwtRootsBase.HiddenBytes.selector);
     }
 
     /// An empty direction passes coverage against a zero length and is refused by name.
     function test_refusesAnEmptyRequest() public {
         bytes memory attested =
             AttestationBuilder.encode(AUTHORITY, _now(), _empty(), _whole(_contentLength(_oneKey("kid-1", "one"))));
-        _refuses(attested, abi.encodeWithSelector(GoogleJwtRoots.RequestLineNotAtOrigin.selector, type(uint32).max));
+        _refuses(attested, abi.encodeWithSelector(JwtRootsBase.RequestLineNotAtOrigin.selector, type(uint32).max));
     }
 
     function test_refusesAnEmptyResponse() public {
         bytes memory attested = AttestationBuilder.encode(AUTHORITY, _now(), _whole(REQUEST), _empty());
-        _refuses(attested, abi.encodeWithSelector(GoogleJwtRoots.RequestLineNotAtOrigin.selector, type(uint32).max));
+        _refuses(attested, abi.encodeWithSelector(JwtRootsBase.RequestLineNotAtOrigin.selector, type(uint32).max));
     }
 
     // ─── What it refuses: the request ───────────────────────────────
@@ -830,13 +848,13 @@ contract GoogleJwtRootsTest is Test {
     function test_refusesAPostRequestLine() public {
         bytes memory request =
             abi.encodePacked("POST /oauth2/v3/certs HTTP/1.1\r\n", _slice(REQUEST, 31, REQUEST.length));
-        _refuses(_withRequest(request), GoogleJwtRoots.WrongRequestLine.selector);
+        _refuses(_withRequest(request), JwtRootsBase.WrongRequestLine.selector);
     }
 
     function test_refusesAnotherPath() public {
         bytes memory request =
             abi.encodePacked("GET /oauth2/v3/certs2 HTTP/1.1\r\n", _slice(REQUEST, 31, REQUEST.length));
-        _refuses(_withRequest(request), GoogleJwtRoots.WrongRequestLine.selector);
+        _refuses(_withRequest(request), JwtRootsBase.WrongRequestLine.selector);
     }
 
     /// A query is another document: `?callback=<name>` returns a JSONP body that
@@ -844,7 +862,7 @@ contract GoogleJwtRootsTest is Test {
     function test_refusesAQueryInTheRequestTarget() public {
         bytes memory request =
             abi.encodePacked("GET /oauth2/v3/certs?callback=foo HTTP/1.1\r\n", _slice(REQUEST, 31, REQUEST.length));
-        _refuses(_withRequest(request), GoogleJwtRoots.WrongRequestLine.selector);
+        _refuses(_withRequest(request), JwtRootsBase.WrongRequestLine.selector);
     }
 
     /// Only the origin-form request target is accepted.
@@ -852,7 +870,7 @@ contract GoogleJwtRootsTest is Test {
         bytes memory request = abi.encodePacked(
             "GET https://www.googleapis.com/oauth2/v3/certs HTTP/1.1\r\n", _slice(REQUEST, 31, REQUEST.length)
         );
-        _refuses(_withRequest(request), GoogleJwtRoots.WrongRequestLine.selector);
+        _refuses(_withRequest(request), JwtRootsBase.WrongRequestLine.selector);
     }
 
     /// googleapis.com serves many hosts under one certificate, so exactly one `Host` is accepted.
@@ -863,7 +881,7 @@ contract GoogleJwtRootsTest is Test {
             "host: storage.googleapis.com\r\n",
             "connection: close\r\n\r\n"
         );
-        _refuses(_withRequest(request), abi.encodeWithSelector(GoogleJwtRoots.NotOneHostHeader.selector, 2));
+        _refuses(_withRequest(request), abi.encodeWithSelector(JwtRootsBase.NotOneHostHeader.selector, 2));
     }
 
     /// Field names are case-insensitive and the colon admits whitespace, so
@@ -875,7 +893,7 @@ contract GoogleJwtRootsTest is Test {
             "HOST\t : storage.googleapis.com\r\n",
             "connection: close\r\n\r\n"
         );
-        _refuses(_withRequest(request), abi.encodeWithSelector(GoogleJwtRoots.NotOneHostHeader.selector, 2));
+        _refuses(_withRequest(request), abi.encodeWithSelector(JwtRootsBase.NotOneHostHeader.selector, 2));
     }
 
     /// Google's front end honours a `Host` after a bare LF, which a CRLF-anchored
@@ -913,17 +931,17 @@ contract GoogleJwtRootsTest is Test {
         bytes memory request = abi.encodePacked(
             "GET /oauth2/v3/certs HTTP/1.1\r\n", "connection: close\r\n\r\n", "host: www.googleapis.com\r\n"
         );
-        _refuses(_withRequest(request), abi.encodeWithSelector(GoogleJwtRoots.NotOneHostHeader.selector, 0));
+        _refuses(_withRequest(request), abi.encodeWithSelector(JwtRootsBase.NotOneHostHeader.selector, 0));
     }
 
     function test_refusesARequestWhoseHeadNeverEnds() public {
         bytes memory request = "GET /oauth2/v3/certs HTTP/1.1\r\nhost: www.googleapis.com\r\n";
-        _refuses(_withRequest(request), GoogleJwtRoots.NoHeadBoundary.selector);
+        _refuses(_withRequest(request), JwtRootsBase.NoHeadBoundary.selector);
     }
 
     function test_refusesARequestWithoutAHostHeader() public {
         bytes memory request = "GET /oauth2/v3/certs HTTP/1.1\r\nconnection: close\r\n\r\n";
-        _refuses(_withRequest(request), abi.encodeWithSelector(GoogleJwtRoots.NotOneHostHeader.selector, 0));
+        _refuses(_withRequest(request), abi.encodeWithSelector(JwtRootsBase.NotOneHostHeader.selector, 0));
     }
 
     /// The TLS authority names the certificate and `Host` picks the backend; both
@@ -931,7 +949,7 @@ contract GoogleJwtRootsTest is Test {
     function test_refusesAnotherGoogleHost() public {
         bytes memory request =
             "GET /oauth2/v3/certs HTTP/1.1\r\nhost: storage.googleapis.com\r\nconnection: close\r\n\r\n";
-        _refuses(_withRequest(request), GoogleJwtRoots.WrongHost.selector);
+        _refuses(_withRequest(request), JwtRootsBase.WrongHost.selector);
     }
 
     /// A host that is a prefix of the right one, or the right one followed by
@@ -939,9 +957,9 @@ contract GoogleJwtRootsTest is Test {
     function test_refusesAHostThatMerelyContainsTheRightOne() public {
         bytes memory request =
             "GET /oauth2/v3/certs HTTP/1.1\r\nhost: www.googleapis.com.evil\r\nconnection: close\r\n\r\n";
-        _refuses(_withRequest(request), GoogleJwtRoots.WrongHost.selector);
+        _refuses(_withRequest(request), JwtRootsBase.WrongHost.selector);
         request = "GET /oauth2/v3/certs HTTP/1.1\r\nhost: www.googleapis.co\r\nconnection: close\r\n\r\n";
-        _refuses(_withRequest(request), GoogleJwtRoots.WrongHost.selector);
+        _refuses(_withRequest(request), JwtRootsBase.WrongHost.selector);
     }
 
     // ─── What it refuses: the response ──────────────────────────────
@@ -954,12 +972,12 @@ contract GoogleJwtRootsTest is Test {
     function test_refusesARedirect() public {
         bytes memory response =
             abi.encodePacked("HTTP/1.1 302 Found\r\nlocation: /elsewhere\r\ncontent-length: 0\r\n\r\n");
-        _refuses(_withResponse(response), GoogleJwtRoots.WrongStatusLine.selector);
+        _refuses(_withResponse(response), JwtRootsBase.WrongStatusLine.selector);
     }
 
     function test_refusesAResponseWithoutAHeadBoundary() public {
         bytes memory response = abi.encodePacked(STATUS_OK, CONTENT_TYPE, "content-length: 2\r\n", "{}");
-        _refuses(_withResponse(response), GoogleJwtRoots.NoHeadBoundary.selector);
+        _refuses(_withResponse(response), JwtRootsBase.NoHeadBoundary.selector);
     }
 
     /// The prover negotiates no compression, so a `Content-Encoding` is refused by
@@ -975,7 +993,7 @@ contract GoogleJwtRootsTest is Test {
             "\r\n\r\n",
             body
         );
-        _refuses(_withResponse(response), GoogleJwtRoots.EncodedBody.selector);
+        _refuses(_withResponse(response), JwtRootsBase.EncodedBody.selector);
     }
 
     /// Every deviation from strict chunked framing fails with `BadChunkFraming`.
@@ -987,38 +1005,38 @@ contract GoogleJwtRootsTest is Test {
         // A size that is not hex.
         _refuses(
             _withResponse(abi.encodePacked(head, "zz\r\n", body, "\r\n0\r\n\r\n")),
-            GoogleJwtRoots.BadChunkFraming.selector
+            JwtRootsBase.BadChunkFraming.selector
         );
         // A chunk extension.
         _refuses(
             _withResponse(abi.encodePacked(head, _hex(body.length), ";ext=1\r\n", body, "\r\n0\r\n\r\n")),
-            GoogleJwtRoots.BadChunkFraming.selector
+            JwtRootsBase.BadChunkFraming.selector
         );
         // No terminating zero chunk.
-        _refuses(_withResponse(abi.encodePacked(head, sizeLine, body, "\r\n")), GoogleJwtRoots.BadChunkFraming.selector);
+        _refuses(_withResponse(abi.encodePacked(head, sizeLine, body, "\r\n")), JwtRootsBase.BadChunkFraming.selector);
         // Trailers after the zero chunk.
         _refuses(
             _withResponse(abi.encodePacked(head, sizeLine, body, "\r\n0\r\nx-trailer: 1\r\n\r\n")),
-            GoogleJwtRoots.BadChunkFraming.selector
+            JwtRootsBase.BadChunkFraming.selector
         );
         // Nine hex digits.
         _refuses(
             _withResponse(abi.encodePacked(head, "000000001\r\n", body, "\r\n0\r\n\r\n")),
-            GoogleJwtRoots.BadChunkFraming.selector
+            JwtRootsBase.BadChunkFraming.selector
         );
         // Chunk data not followed by CRLF.
         _refuses(
-            _withResponse(abi.encodePacked(head, sizeLine, body, "0\r\n\r\n")), GoogleJwtRoots.BadChunkFraming.selector
+            _withResponse(abi.encodePacked(head, sizeLine, body, "0\r\n\r\n")), JwtRootsBase.BadChunkFraming.selector
         );
         // A size past the end of the body.
         _refuses(
             _withResponse(abi.encodePacked(head, "ffff\r\n", body, "\r\n0\r\n\r\n")),
-            GoogleJwtRoots.BadChunkFraming.selector
+            JwtRootsBase.BadChunkFraming.selector
         );
         // Bytes after the final CRLF.
         _refuses(
             _withResponse(abi.encodePacked(head, sizeLine, body, "\r\n0\r\n\r\n\r\n")),
-            GoogleJwtRoots.BadChunkFraming.selector
+            JwtRootsBase.BadChunkFraming.selector
         );
         // And the strict form of the same body is accepted.
         _rotate(_withResponse(abi.encodePacked(head, sizeLine, body, "\r\n0\r\n\r\n")));
@@ -1031,14 +1049,13 @@ contract GoogleJwtRootsTest is Test {
         );
         _refuses(
             _withResponse(response),
-            abi.encodeWithSelector(GoogleJwtRoots.ContentLengthMismatch.selector, body.length + 1, body.length)
+            abi.encodeWithSelector(JwtRootsBase.ContentLengthMismatch.selector, body.length + 1, body.length)
         );
 
         // A value that is not a decimal declares no length any body matches.
         response = abi.encodePacked(STATUS_OK, CONTENT_TYPE, "content-length: 4x\r\n\r\n", body);
         _refuses(
-            _withResponse(response),
-            abi.encodeWithSelector(GoogleJwtRoots.ContentLengthMismatch.selector, 4, body.length)
+            _withResponse(response), abi.encodeWithSelector(JwtRootsBase.ContentLengthMismatch.selector, 4, body.length)
         );
     }
 
@@ -1059,12 +1076,12 @@ contract GoogleJwtRootsTest is Test {
     function test_refusesABodyWithoutKeys() public {
         _refuses(
             _withBody(abi.encodePacked('{"kyes":[', _jwk("kid-1", _modulus("one")), "]}")),
-            abi.encodeWithSelector(GoogleJwtRoots.MissingMember.selector, "keys")
+            abi.encodeWithSelector(JwtRootsBase.MissingMember.selector, "keys")
         );
         // Present, but not an array.
         _refuses(
             _withBody(abi.encodePacked('{"keys":', _jwk("kid-1", _modulus("one")), "}")),
-            abi.encodeWithSelector(GoogleJwtRoots.MissingMember.selector, "keys")
+            abi.encodeWithSelector(JwtRootsBase.MissingMember.selector, "keys")
         );
     }
 
@@ -1073,59 +1090,59 @@ contract GoogleJwtRootsTest is Test {
         bytes memory body = abi.encodePacked(
             '{"keys":[', _jwk("kid-1", _modulus("one")), '],"keys":[', _jwk("kid-2", _modulus("two")), "]}"
         );
-        _refuses(_withBody(body), abi.encodeWithSelector(GoogleJwtRoots.AmbiguousMember.selector, "keys"));
+        _refuses(_withBody(body), abi.encodeWithSelector(JwtRootsBase.AmbiguousMember.selector, "keys"));
     }
 
     function test_refusesAKeyWithoutAModulus() public {
         bytes memory body = _body('{"kty":"RSA","kid":"kid-1","e":"AQAB"}');
-        _refuses(_withBody(body), abi.encodeWithSelector(GoogleJwtRoots.MissingMember.selector, "n"));
+        _refuses(_withBody(body), abi.encodeWithSelector(JwtRootsBase.MissingMember.selector, "n"));
     }
 
     function test_refusesAKeyWithoutAKid() public {
         bytes memory body = _body(abi.encodePacked('{"kty":"RSA","n":"', _modulus("one"), '","e":"AQAB"}'));
-        _refuses(_withBody(body), abi.encodeWithSelector(GoogleJwtRoots.MissingMember.selector, "kid"));
+        _refuses(_withBody(body), abi.encodeWithSelector(JwtRootsBase.MissingMember.selector, "kid"));
     }
 
     /// The circuit verifies RS256 under 65537 only and the verifier trusts a modulus
     /// alone, so any other exponent is refused.
     function test_refusesAnotherExponent() public {
         bytes memory body = _body(abi.encodePacked('{"kid":"kid-1","n":"', _modulus("one"), '","e":"AQAC"}'));
-        _refuses(_withBody(body), abi.encodeWithSelector(GoogleJwtRoots.WrongExponent.selector, bytes("AQAC")));
+        _refuses(_withBody(body), abi.encodeWithSelector(JwtRootsBase.WrongExponent.selector, bytes("AQAC")));
         // 65537 padded is not the pinned token either.
         body = _body(abi.encodePacked('{"kid":"kid-1","n":"', _modulus("one"), '","e":"AQAB="}'));
-        _refuses(_withBody(body), abi.encodeWithSelector(GoogleJwtRoots.WrongExponent.selector, bytes("AQAB=")));
+        _refuses(_withBody(body), abi.encodeWithSelector(JwtRootsBase.WrongExponent.selector, bytes("AQAB=")));
     }
 
     function test_refusesAKeyWithoutAnExponent() public {
         bytes memory body = _body(abi.encodePacked('{"kty":"RSA","kid":"kid-1","n":"', _modulus("one"), '"}'));
-        _refuses(_withBody(body), abi.encodeWithSelector(GoogleJwtRoots.MissingMember.selector, "e"));
+        _refuses(_withBody(body), abi.encodeWithSelector(JwtRootsBase.MissingMember.selector, "e"));
     }
 
     /// A duplicate `kid` is ambiguous: parsers pick different ones.
     function test_refusesADuplicateKidMember() public {
         bytes memory body = _body(abi.encodePacked('{"kid":"kid-1","kid":"kid-2","n":"', _modulus("one"), '"}'));
-        _refuses(_withBody(body), abi.encodeWithSelector(GoogleJwtRoots.AmbiguousMember.selector, "kid"));
+        _refuses(_withBody(body), abi.encodeWithSelector(JwtRootsBase.AmbiguousMember.selector, "kid"));
     }
 
     function test_refusesAnUnterminatedKid() public {
         bytes memory body = _body(abi.encodePacked('{"n":"', _modulus("one"), '","kid":"kid-1}'));
-        _refuses(_withBody(body), abi.encodeWithSelector(GoogleJwtRoots.UnterminatedMember.selector, "kid"));
+        _refuses(_withBody(body), abi.encodeWithSelector(JwtRootsBase.UnterminatedMember.selector, "kid"));
     }
 
     function test_refusesAnUnterminatedKeysArray() public {
         _refuses(
             _withBody(abi.encodePacked('{"keys":[', _jwk("kid-1", _modulus("one")))),
-            abi.encodeWithSelector(GoogleJwtRoots.UnterminatedMember.selector, "keys")
+            abi.encodeWithSelector(JwtRootsBase.UnterminatedMember.selector, "keys")
         );
         // An element that is not an object.
         _refuses(
             _withBody(abi.encodePacked('{"keys":[', _jwk("kid-1", _modulus("one")), ',"x"]}')),
-            abi.encodeWithSelector(GoogleJwtRoots.UnterminatedMember.selector, "keys")
+            abi.encodeWithSelector(JwtRootsBase.UnterminatedMember.selector, "keys")
         );
         // An object with no closing brace.
         _refuses(
             _withBody(abi.encodePacked('{"keys":[{"kid":"kid-1","n":"', _modulus("one"), '"')),
-            abi.encodeWithSelector(GoogleJwtRoots.UnterminatedMember.selector, "keys")
+            abi.encodeWithSelector(JwtRootsBase.UnterminatedMember.selector, "keys")
         );
     }
 
@@ -1133,18 +1150,18 @@ contract GoogleJwtRootsTest is Test {
     /// parser does not unescape.
     function test_refusesAnEscapedValue() public {
         bytes memory body = _body(abi.encodePacked('{"kid":"kid\\"1","n":"', _modulus("one"), '"}'));
-        _refuses(_withBody(body), abi.encodeWithSelector(GoogleJwtRoots.EscapedValue.selector, "kid"));
+        _refuses(_withBody(body), abi.encodeWithSelector(JwtRootsBase.EscapedValue.selector, "kid"));
     }
 
     /// A member array of plain strings is stepped over unread; an object, or an
     /// array holding an object or array, is refused.
     function test_refusesANestedObject() public {
         bytes memory body = _body(abi.encodePacked('{"kid":"kid-1","inner":{},"n":"', _modulus("one"), '"}'));
-        _refuses(_withBody(body), GoogleJwtRoots.UnexpectedNesting.selector);
+        _refuses(_withBody(body), JwtRootsBase.UnexpectedNesting.selector);
         body = _body(abi.encodePacked('{"kid":"kid-1","x5c":["a",{}],"n":"', _modulus("one"), '"}'));
-        _refuses(_withBody(body), GoogleJwtRoots.UnexpectedNesting.selector);
+        _refuses(_withBody(body), JwtRootsBase.UnexpectedNesting.selector);
         body = _body(abi.encodePacked('{"kid":"kid-1","x5c":[["a"]],"n":"', _modulus("one"), '"}'));
-        _refuses(_withBody(body), GoogleJwtRoots.UnexpectedNesting.selector);
+        _refuses(_withBody(body), JwtRootsBase.UnexpectedNesting.selector);
     }
 
     function test_acceptsAFlatStringArrayInAKey() public {
@@ -1162,7 +1179,7 @@ contract GoogleJwtRootsTest is Test {
         _rotate(_reading(_body(abi.encodePacked('{"kid":"k","n":"', _modulus("one"), '","e":"AQAB","x5c":["]{["]}'))));
         assertEq(_current().moduli, _one(_hash("one")));
         bytes memory body = _body(abi.encodePacked('{"kid":"k","x5c":["a\\b"],"n":"', _modulus("one"), '","e":"AQAB"}'));
-        _refuses(_withBody(body), GoogleJwtRoots.UnexpectedNesting.selector);
+        _refuses(_withBody(body), JwtRootsBase.UnexpectedNesting.selector);
     }
 
     /// The endpoint is checked at construction, and a request shorter than its line is refused by name.
@@ -1170,15 +1187,18 @@ contract GoogleJwtRootsTest is Test {
     function test_theEndpointIsCheckedWhole() public {
         bytes[4] memory bad = [bytes("\n"), "GET / HTTP/1.1\n", "GET / HTTP/1.1\r\r", "GET / HTTP/1.1\r\n"];
         for (uint256 i = 0; i < 4; ++i) {
-            vm.expectRevert(i == 3 ? GoogleJwtRoots.WrongHost.selector : GoogleJwtRoots.WrongRequestLine.selector);
-            new GoogleJwtRoots(AUTHORITY, bad[i], i == 3 ? bytes("") : bytes("h"));
+            (endpointLine, endpointHost) = (bad[i], i == 3 ? bytes("") : bytes("h"));
+            vm.expectRevert(i == 3 ? JwtRootsBase.WrongHost.selector : JwtRootsBase.WrongRequestLine.selector);
+            new EndpointRoots();
         }
         bytes[5] memory hosts = [bytes("Az"), "aZ", "a b", "a\tb", "a@[`{z"];
+        endpointLine = "GET / HTTP/1.1\r\n";
         for (uint256 i = 0; i < 5; ++i) {
-            if (i < 4) vm.expectRevert(GoogleJwtRoots.WrongHost.selector);
-            new GoogleJwtRoots(AUTHORITY, "GET / HTTP/1.1\r\n", hosts[i]);
+            endpointHost = hosts[i];
+            if (i < 4) vm.expectRevert(JwtRootsBase.WrongHost.selector);
+            new EndpointRoots();
         }
-        _refuses(_withRequest("GET /oauth2/v3/certs\r\n\r\n"), GoogleJwtRoots.WrongRequestLine.selector);
+        _refuses(_withRequest("GET /oauth2/v3/certs\r\n\r\n"), JwtRootsBase.WrongRequestLine.selector);
     }
 
     /// One reading carries at most MAX_KEYS keys, and the refusal names how
@@ -1186,7 +1206,7 @@ contract GoogleJwtRootsTest is Test {
     function test_refusesNineKeys() public {
         uint256 max = roots.MAX_KEYS();
         assertEq(max, 8);
-        _refuses(_withBody(_manyKeys(max + 1)), abi.encodeWithSelector(GoogleJwtRoots.TooManyKeys.selector, max + 1));
+        _refuses(_withBody(_manyKeys(max + 1)), abi.encodeWithSelector(JwtRootsBase.TooManyKeys.selector, max + 1));
         _rotate(_withBody(_manyKeys(max)));
         assertEq(_current().moduli.length, max, "the cap itself is a valid reading");
     }
@@ -1194,15 +1214,15 @@ contract GoogleJwtRootsTest is Test {
     /// The same modulus twice is not a set.
     function test_refusesADuplicateModulus() public {
         bytes memory body = _twoKeys("kid-1", "one", "kid-2", "one");
-        _refuses(_withBody(body), abi.encodeWithSelector(GoogleJwtRoots.DuplicateKey.selector, _hash("one")));
+        _refuses(_withBody(body), abi.encodeWithSelector(JwtRootsBase.DuplicateKey.selector, _hash("one")));
     }
 
     function test_refusesTrailingBytes() public {
         bytes memory body = _oneKey("kid-1", "one");
-        _refuses(_withBody(abi.encodePacked(body, "x")), GoogleJwtRoots.TrailingBytes.selector);
-        _refuses(_withBody(abi.encodePacked(body, "{}")), GoogleJwtRoots.TrailingBytes.selector);
+        _refuses(_withBody(abi.encodePacked(body, "x")), JwtRootsBase.TrailingBytes.selector);
+        _refuses(_withBody(abi.encodePacked(body, "{}")), JwtRootsBase.TrailingBytes.selector);
         // No closing brace at all.
-        _refuses(_withBody(_slice(body, 0, body.length - 1)), GoogleJwtRoots.TrailingBytes.selector);
+        _refuses(_withBody(_slice(body, 0, body.length - 1)), JwtRootsBase.TrailingBytes.selector);
         // Trailing whitespace, as Google sends, is accepted.
         _rotate(_withBody(abi.encodePacked(body, "\n")));
     }
@@ -1210,23 +1230,23 @@ contract GoogleJwtRootsTest is Test {
     /// The circuit takes a 2048-bit modulus and nothing else.
     function test_refusesAShortModulus() public {
         bytes memory body = _body(_jwk("kid-1", string(_b64url(_bytes("short", 255)))));
-        _refuses(_withBody(body), GoogleJwtRoots.InvalidModulusLength.selector);
+        _refuses(_withBody(body), JwtRootsBase.InvalidModulusLength.selector);
     }
 
     function test_refusesANonBase64urlCharacter() public {
         bytes memory body = _body(_jwk("kid-1", "AAA+"));
-        _refuses(_withBody(body), GoogleJwtRoots.InvalidB64Char.selector);
+        _refuses(_withBody(body), JwtRootsBase.InvalidB64Char.selector);
     }
 
     function test_refusesAnImpossibleBase64Length() public {
         bytes memory body = _body(_jwk("kid-1", "AAAAA"));
-        _refuses(_withBody(body), GoogleJwtRoots.InvalidB64Length.selector);
+        _refuses(_withBody(body), JwtRootsBase.InvalidB64Length.selector);
     }
 
     /// A reading with no keys is refused; it would shift the live set into `previous`.
     function test_refusesAnEmptyKeySet() public {
-        _refuses(_withBody('{"keys":[]}'), GoogleJwtRoots.EmptyKeySet.selector);
-        _refuses(_withBody('{"keys": [ ]}'), GoogleJwtRoots.EmptyKeySet.selector);
+        _refuses(_withBody('{"keys":[]}'), JwtRootsBase.EmptyKeySet.selector);
+        _refuses(_withBody('{"keys": [ ]}'), JwtRootsBase.EmptyKeySet.selector);
     }
 
     /// A framing header that appears twice, or both framings at once, is refused.
@@ -1235,7 +1255,7 @@ contract GoogleJwtRootsTest is Test {
         bytes memory length = abi.encodePacked("content-length: ", vm.toString(body.length), "\r\n");
         _refuses(
             _withResponse(abi.encodePacked(STATUS_OK, CONTENT_TYPE, length, length, "\r\n", body)),
-            abi.encodeWithSelector(GoogleJwtRoots.DuplicateFramingHeader.selector, "content-length", 2)
+            abi.encodeWithSelector(JwtRootsBase.DuplicateFramingHeader.selector, "content-length", 2)
         );
         bytes memory chunked = "transfer-encoding: chunked\r\n";
         _refuses(
@@ -1244,16 +1264,16 @@ contract GoogleJwtRootsTest is Test {
                     STATUS_OK, CONTENT_TYPE, chunked, "Transfer-Encoding: identity\r\n", "\r\n", _chunks(body, 64)
                 )
             ),
-            abi.encodeWithSelector(GoogleJwtRoots.DuplicateFramingHeader.selector, "transfer-encoding", 2)
+            abi.encodeWithSelector(JwtRootsBase.DuplicateFramingHeader.selector, "transfer-encoding", 2)
         );
         _refuses(
             _withResponse(abi.encodePacked(STATUS_OK, CONTENT_TYPE, chunked, length, "\r\n", _chunks(body, 64))),
-            GoogleJwtRoots.ConflictingFraming.selector
+            JwtRootsBase.ConflictingFraming.selector
         );
         // A coding other than chunked frames a body this contract cannot locate.
         _refuses(
             _withResponse(abi.encodePacked(STATUS_OK, CONTENT_TYPE, "transfer-encoding: gzip\r\n", "\r\n", body)),
-            GoogleJwtRoots.BadChunkFraming.selector
+            JwtRootsBase.BadChunkFraming.selector
         );
     }
 
@@ -1280,11 +1300,11 @@ contract GoogleJwtRootsTest is Test {
         return AttestationBuilder.encode(authority, _now(), _whole(abi.encodePacked(line, host)), _whole(response));
     }
 
-    function _rotateAt(GoogleJwtRoots target, bytes memory attested) private {
+    function _rotateAt(JwtRootsBase target, bytes memory attested) private {
         target.rotate{value: FEE}(attested, AttestationBuilder.sign(NOTARY_KEY, attested));
     }
 
-    function _refusesAt(GoogleJwtRoots target, bytes memory attested, bytes memory err) private {
+    function _refusesAt(JwtRootsBase target, bytes memory attested, bytes memory err) private {
         bytes memory sig = AttestationBuilder.sign(NOTARY_KEY, attested);
         vm.expectRevert(err);
         target.rotate{value: FEE}(attested, sig);
@@ -1294,7 +1314,7 @@ contract GoogleJwtRootsTest is Test {
     function test_telegramsRealBodyTrustsOnlyItsRsaKey() public {
         string memory json = vm.readFile(TELEGRAM_JWKS);
         _rotateAt(tgRoots, _tgReading(_contentLength(bytes(json))));
-        (GoogleJwtRoots.Generation memory current,) = tgRoots.currentKeys();
+        (JwtRootsBase.Generation memory current,) = tgRoots.currentKeys();
         bytes32 rsa = hasher.hashOfB64url(vm.parseJsonString(json, ".keys[0].n"));
         assertEq(current.moduli, _one(rsa));
         assertEq(tgRoots.trustedHashExpiresAt(rsa), _now() + tgRoots.READING_LIFETIME());
@@ -1307,11 +1327,11 @@ contract GoogleJwtRootsTest is Test {
         _refusesAt(
             tgRoots,
             _tgReading(_contentLength(_body(TG_NON_RSA))),
-            abi.encodeWithSelector(GoogleJwtRoots.EmptyKeySet.selector)
+            abi.encodeWithSelector(JwtRootsBase.EmptyKeySet.selector)
         );
         bytes memory body = _body(abi.encodePacked(TG_NON_RSA, ",", _jwk("oidc-1", _modulus("tg"))));
         _rotateAt(tgRoots, _tgReading(_contentLength(body)));
-        (GoogleJwtRoots.Generation memory current,) = tgRoots.currentKeys();
+        (JwtRootsBase.Generation memory current,) = tgRoots.currentKeys();
         assertEq(current.moduli, _one(_hash("tg")));
         _rotate(_reading(body));
         assertEq(_current().moduli, _one(_hash("tg")));
@@ -1323,24 +1343,24 @@ contract GoogleJwtRootsTest is Test {
         bytes memory response = abi.encodePacked(
             STATUS_OK, "Content-Encoding: gzip\r\nContent-Length: ", vm.toString(gz.length), "\r\n\r\n", gz
         );
-        _refusesAt(tgRoots, _tgReading(response), abi.encodeWithSelector(GoogleJwtRoots.EncodedBody.selector));
+        _refusesAt(tgRoots, _tgReading(response), abi.encodeWithSelector(JwtRootsBase.EncodedBody.selector));
     }
 
     /// Each deployment refuses the other's authority, request line and Host,
     /// and accepts its own.
     function test_eachDeploymentRefusesTheOthersEndpoint() public {
         bytes memory body = _contentLength(_oneKey("kid-1", "one"));
-        GoogleJwtRoots[2] memory target = [roots, tgRoots];
+        JwtRootsBase[2] memory target = [JwtRootsBase(roots), tgRoots];
         bytes32[2] memory own = [AUTHORITY, TG_AUTHORITY];
-        bytes[2] memory line = [JwtRootsDeployments.GOOGLE_REQUEST_LINE, JwtRootsDeployments.TELEGRAM_REQUEST_LINE];
+        bytes[2] memory line = [CeremonyProfile.GOOGLE_JWKS_REQUEST_LINE, CeremonyProfile.TELEGRAM_JWKS_REQUEST_LINE];
         bytes[2] memory host = [bytes("host: www.googleapis.com\r\n\r\n"), "host: oauth.telegram.org\r\n\r\n"];
         for (uint256 i = 0; i < 2; ++i) {
             uint256 o = 1 - i;
-            bytes memory err = abi.encodeWithSelector(GoogleJwtRoots.WrongAuthority.selector, own[i], own[o]);
+            bytes memory err = abi.encodeWithSelector(JwtRootsBase.WrongAuthority.selector, own[i], own[o]);
             _refusesAt(target[i], _attestAt(own[o], line[o], host[o], body), err);
-            err = abi.encodeWithSelector(GoogleJwtRoots.WrongRequestLine.selector);
+            err = abi.encodeWithSelector(JwtRootsBase.WrongRequestLine.selector);
             _refusesAt(target[i], _attestAt(own[i], line[o], host[i], body), err);
-            err = abi.encodeWithSelector(GoogleJwtRoots.WrongHost.selector);
+            err = abi.encodeWithSelector(JwtRootsBase.WrongHost.selector);
             _refusesAt(target[i], _attestAt(own[i], line[i], host[o], body), err);
             _rotateAt(target[i], _attestAt(own[i], line[i], host[i], body));
         }

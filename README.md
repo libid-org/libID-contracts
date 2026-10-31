@@ -13,7 +13,7 @@ the bindings and the off-chain identity helpers.
 solidity/            # Foundry project root
   contracts/
     ceremony/        # NotaryService, CeremonyProofVerifier, Platform Verifiers,
-                     # GoogleJwtRoots, CeremonyProfile
+                     # JWT roots lists, CeremonyProfile
     circuits/        # the UltraHonk verifiers the Platform Verifiers pin:
                      # circuits.json pins a libid-circuits release; the
                      # Solidity and the platform table (platforms.json,
