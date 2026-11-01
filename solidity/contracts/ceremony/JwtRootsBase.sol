@@ -6,6 +6,7 @@ import {UUPSUpgradeable} from "@openzeppelin/contracts/proxy/utils/UUPSUpgradeab
 import {Ownable2StepUpgradeable} from "@openzeppelin/contracts-upgradeable/access/Ownable2StepUpgradeable.sol";
 
 import {CeremonyAttestation} from "./CeremonyAttestation.sol";
+import {CeremonyFields} from "./CeremonyFields.sol";
 import {INotaryService} from "./INotaryService.sol";
 
 /// @title JwtRootsBase - the signing keys an OIDC issuer publishes, and
@@ -433,7 +434,7 @@ abstract contract JwtRootsBase is Initializable, UUPSUpgradeable, Ownable2StepUp
         // count stops where the server stops reading headers. The head keeps
         // the CRLF that closes its last line, so a line-anchored needle
         // matches that line too.
-        uint256 boundary = _indexOf(sent, HEAD_BOUNDARY, 0);
+        uint256 boundary = CeremonyFields.indexOf(sent, HEAD_BOUNDARY, 0);
         if (boundary == type(uint256).max) revert NoHeadBoundary();
         bytes memory head = _slice(sent, 0, boundary + 2);
 
@@ -447,7 +448,7 @@ abstract contract JwtRootsBase is Initializable, UUPSUpgradeable, Ownable2StepUp
         if (count != 1) revert NotOneHostHeader(count);
 
         uint256 from = at + HOST_NEEDLE.length;
-        uint256 to = _indexOf(normalized, "\r\n", from);
+        uint256 to = CeremonyFields.indexOf(normalized, "\r\n", from);
         if (to == type(uint256).max || keccak256(_slice(normalized, from, to)) != AUTHORITY()) revert WrongHost();
     }
 
@@ -466,7 +467,7 @@ abstract contract JwtRootsBase is Initializable, UUPSUpgradeable, Ownable2StepUp
         bytes memory received = _wholeDirection(block_, length);
         if (!_startsWith(received, STATUS_LINE)) revert WrongStatusLine();
 
-        uint256 boundary = _indexOf(received, HEAD_BOUNDARY, 0);
+        uint256 boundary = CeremonyFields.indexOf(received, HEAD_BOUNDARY, 0);
         if (boundary == type(uint256).max) revert NoHeadBoundary();
         // The head keeps the CRLF that closes its last line, so a line-anchored
         // needle matches that line too.
@@ -793,31 +794,9 @@ abstract contract JwtRootsBase is Initializable, UUPSUpgradeable, Ownable2StepUp
     ///      occurrence begins. Overlapping occurrences count, which can only
     ///      over-count -- the direction that fails closed.
     function _find(bytes memory haystack, bytes memory needle) private pure returns (uint256 count, uint256 first) {
-        first = _indexOf(haystack, needle, 0);
-        for (uint256 at = first; at != type(uint256).max; at = _indexOf(haystack, needle, at + 1)) {
+        first = CeremonyFields.indexOf(haystack, needle, 0);
+        for (uint256 at = first; at != type(uint256).max; at = CeremonyFields.indexOf(haystack, needle, at + 1)) {
             ++count;
-        }
-    }
-
-    /// @dev The first occurrence of `needle` at or after `from`, or
-    ///      `type(uint256).max`. Each offset is one masked word compare, so
-    ///      `needle` is at most 31 bytes; every needle here is a constant
-    ///      or a short member token.
-    function _indexOf(bytes memory haystack, bytes memory needle, uint256 from) private pure returns (uint256) {
-        uint256 n = needle.length;
-        assert(n < 32);
-        bytes32 mask = ~bytes32(type(uint256).max >> (8 * n));
-        bytes32 head = _word(needle, 0) & mask;
-        for (uint256 i = from; i + n <= haystack.length; ++i) {
-            if ((_word(haystack, i) & mask) == head) return i;
-        }
-        return type(uint256).max;
-    }
-
-    /// @dev The 32 bytes of `data` from `at`; past its end they are whatever memory holds.
-    function _word(bytes memory data, uint256 at) private pure returns (bytes32 w) {
-        assembly ("memory-safe") {
-            w := mload(add(add(data, 32), at))
         }
     }
 
