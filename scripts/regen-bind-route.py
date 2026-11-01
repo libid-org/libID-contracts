@@ -30,12 +30,15 @@ class Hop:
 
     contract: str
     """The artifact: `solidity/out/<contract>.sol/<contract>.json`."""
-    variant: str
-    """The `BindError` variant its errors decode into."""
+    variant: str | None
+    """The `BindError` variant its errors decode into, or None when an earlier
+    hop declares every one of them, so none would reach it."""
     label: str
     """What `BindError::contracts` names it."""
     module: str
     """The `crate::bindings` module that binds it."""
+    doc: str = ""
+    """The variant's doc, when not the label alone."""
 
     @property
     def errors(self) -> str:
@@ -50,11 +53,21 @@ ROUTE = (
     Hop("CeremonyProofVerifier", "ProofVerifier", "CeremonyProofVerifier", "ceremony"),
     Hop("XPlatformVerifier", "XVerifier", "XPlatformVerifier", "ceremony"),
     Hop("GitHubPlatformVerifier", "GitHubVerifier", "GitHubPlatformVerifier", "ceremony"),
-    Hop("GooglePlatformVerifier", "GoogleVerifier", "GooglePlatformVerifier", "ceremony"),
-    Hop("TelegramPlatformVerifier", "TelegramVerifier", "TelegramPlatformVerifier", "ceremony"),
+    # Google's errors are the OIDC base's plus `TokenExpired`, so they decode
+    # every OIDC verifier's revert; Telegram's set is a subset.
+    Hop(
+        "GooglePlatformVerifier",
+        "OidcVerifier",
+        "GooglePlatformVerifier",
+        "ceremony",
+        "`GooglePlatformVerifier` or `TelegramPlatformVerifier`: Google's error set holds Telegram's.",
+    ),
+    Hop("TelegramPlatformVerifier", None, "TelegramPlatformVerifier", "ceremony"),
     Hop("NotaryService", "NotaryService", "NotaryService", "ceremony"),
     Hop("IHonkVerifierErrors", "HonkVerifier", "HonkVerifier", "circuits"),
 )
+
+DECODED = tuple(hop for hop in ROUTE if hop.variant)
 
 
 def rust() -> str:
@@ -92,8 +105,8 @@ def rust() -> str:
         "/// [`BindError::contracts`] lists every contract that could have.",
         "pub enum BindError {",
     ]
-    for hop in ROUTE:
-        lines += [f"    /// `{hop.label}`.", f"    {hop.variant}({hop.errors}),"]
+    for hop in DECODED:
+        lines += [f"    /// {hop.doc or f'`{hop.label}`.'}", f"    {hop.variant}({hop.errors}),"]
     lines += [
         "    /// A Solidity `Panic(uint256)`, with its code: a failed `assert`, an",
         "    /// overflow, an index out of bounds, in any contract on the route.",
@@ -103,7 +116,8 @@ def rust() -> str:
         "/// Whether an error set declares a selector.",
         "pub(crate) type Declares = fn([u8; 4]) -> bool;",
         "",
-        "/// Revert data as one error set's error, if that set declares it.",
+        "/// Revert data as one error set's error, if that set declares it; `None` for a",
+        "/// set whose every error an earlier set on the route declares.",
         "pub(crate) type Decode = fn(&[u8]) -> Option<BindError>;",
         "",
         "/// The route's error sets, in the order `BindError::decode` tries them.",
@@ -114,7 +128,11 @@ def rust() -> str:
             "    (",
             f'        "{hop.label}",',
             f"        {hop.errors}::valid_selector,",
-            f"        |d| {hop.errors}::abi_decode(d).ok().map(BindError::{hop.variant}),",
+            (
+                f"        |d| {hop.errors}::abi_decode(d).ok().map(BindError::{hop.variant}),"
+                if hop.variant
+                else "        |_| None,"
+            ),
             "    ),",
         ]
     lines += [
@@ -125,7 +143,7 @@ def rust() -> str:
         "    pub fn signature(&self) -> &'static str {",
         "        match self {",
     ]
-    for hop in ROUTE:
+    for hop in DECODED:
         lines.append(f"            Self::{hop.variant}(e) => {hop.errors}::signature_by_selector(e.selector()),")
     lines += [
         "            Self::Panic(_) => Some(Panic::SIGNATURE),",
@@ -137,7 +155,7 @@ def rust() -> str:
         "    pub(crate) fn selector(&self) -> [u8; 4] {",
         "        match self {",
     ]
-    for hop in ROUTE:
+    for hop in DECODED:
         lines.append(f"            Self::{hop.variant}(e) => e.selector(),")
     lines += [
         "            Self::Panic(_) => Panic::SELECTOR,",
