@@ -286,8 +286,8 @@ contract HandleEscrowTest is PrivacyScan, EscrowHelpers {
         assertEq(alice.balance, 1 ether);
     }
 
-    /// Public and private deposits to one node share one balance.
-    function test_publicAndPrivateDepositsToOneNodeSum() public {
+    /// Deposits by node and by text to one node share one balance.
+    function test_depositsByNodeAndByTextToOneNodeSum() public {
         vm.startPrank(sender);
         escrow.depositToHandle{value: 1 ether}(X, "ALICE", NATIVE, 1 ether);
         escrow.deposit{value: 2 ether}(X, aliceNode, NATIVE, 2 ether);
@@ -329,23 +329,23 @@ contract HandleEscrowTest is PrivacyScan, EscrowHelpers {
         assertEq(escrow.escrowed(aliceNode, NATIVE), 0);
     }
 
-    /// A private deposit's calldata and logs carry no handle text; a public one's carry it.
-    function test_aPrivateDepositPutsNoHandleOnChain() public {
-        bytes memory privateCall = abi.encodeCall(HandleEscrow.deposit, (X, aliceNode, NATIVE, 1 ether));
-        assertFalse(_containsAny(privateCall), "the handle in the calldata");
+    /// A deposit by node carries no handle text in its calldata or logs; one by text carries it.
+    function test_aDepositByNodePutsNoHandleOnChain() public {
+        bytes memory byNodeCall = abi.encodeCall(HandleEscrow.deposit, (X, aliceNode, NATIVE, 1 ether));
+        assertFalse(_containsAny(byNodeCall), "the handle in the calldata");
         vm.recordLogs();
-        _send(privateCall);
+        _send(byNodeCall);
         _assertLogsHideTheSecrets(vm.getRecordedLogs());
 
-        bytes memory publicCall = abi.encodeCall(HandleEscrow.depositToHandle, (X, "Alice", NATIVE, 1 ether));
-        assertTrue(_containsAny(publicCall), "the scan misses the handle in calldata");
+        bytes memory byTextCall = abi.encodeCall(HandleEscrow.depositToHandle, (X, "Alice", NATIVE, 1 ether));
+        assertTrue(_containsAny(byTextCall), "the scan misses the handle in calldata");
         vm.recordLogs();
-        _send(publicCall);
+        _send(byTextCall);
         assertTrue(_containsAny(_loggedRun(vm.getRecordedLogs())), "the scan misses the handle in the logs");
         assertEq(escrow.escrowed(aliceNode, NATIVE), 2 ether);
     }
 
-    /// Public and private deposits alike refuse to escrow on a known platform no verifier serves.
+    /// Deposits by node and by text alike refuse to escrow on a known platform no verifier serves.
     function test_aDepositRefusesToEscrowOnAPlatformThatAcceptsNoBindings() public {
         bytes32 node = TestNodes.handleNode(GOOGLE, "alice@gmail.com");
         vm.startPrank(sender);

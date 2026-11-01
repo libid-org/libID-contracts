@@ -81,9 +81,9 @@ abstract contract RealProofBindBase is PrivacyScan {
         registry.bind{value: value}(_platform(), 1, payload, handle, bytes(handle).length != 0, 0, address(0));
     }
 
-    // ─── Bind, privately ────────────────────────────────────────────
+    // ─── Bind, unlisted ─────────────────────────────────────────────
 
-    /// @dev A private bind leaves no byte of the id or the handle in logs, storage or calldata.
+    /// @dev An unlisted bind leaves no byte of the id or the handle in logs, storage or calldata.
     function test_bindsPrivatelyAndDisclosesNothing() public {
         bytes memory payload = _payload();
         assertFalse(_containsAny(payload), "the payload carries an id or handle");
@@ -106,7 +106,7 @@ abstract contract RealProofBindBase is PrivacyScan {
         assertEq(holder, BINDER);
         assertEq(registry.resolveHandle(_platform(), _secrets()[1]), BINDER);
         assertEq(registry.resolveHandle(_platform(), _secrets()[2]), BINDER);
-        assertEq(_nameOn(BINDER, _platform()), "", "a private bind publishes nothing");
+        assertEq(_nameOn(BINDER, _platform()), "", "an unlisted bind publishes nothing");
     }
 
     /// @dev `bindPrivately` carries no id or handle byte in its calldata, and binds.
@@ -454,7 +454,7 @@ contract RealProofBindGoogleTest is RealProofBindBase {
         return 34;
     }
 
-    /// @dev A private payload naming another handle node fails the Honk verifier.
+    /// @dev A `bindPrivately` payload naming another handle node fails the Honk verifier.
     function test_anotherHandleNodeFailsTheProof() public {
         GooglePlatformVerifier.GoogleProof memory s = _proof();
         s.handleNode ^= bytes32(uint256(1));

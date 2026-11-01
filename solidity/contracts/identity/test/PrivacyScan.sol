@@ -5,7 +5,7 @@ import {Test, Vm} from "forge-std/Test.sol";
 
 import {AttestationBuilder} from "../../ceremony/test/AttestationBuilder.sol";
 
-/// @notice The scan a private bind is held to: no byte run of the id or the
+/// @notice The scan an unlisted bind is held to: no byte run of the id or the
 ///         handle, raw or folded, in its logs or the storage words it wrote
 ///         on any contract, each read as one run.
 abstract contract PrivacyScan is Test {
