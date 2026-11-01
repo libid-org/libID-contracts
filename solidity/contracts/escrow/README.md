@@ -40,13 +40,14 @@ escrow.refund(handleNode, token, recipient);   // the sender, from refundableAt,
 - A claim takes everything held and ends every sender's contribution to that
   handle and token. A later deposit starts afresh.
 
-## Private or public
+## By node or by text
 
 - `deposit(platformId, handleNode, …)` keeps the handle out of the calldata
   and the logs. The calldata names the platform.
 - `depositToHandle(platformId, handle, …)` puts the handle in the calldata,
   and `HandleRevealed`, the event every libid contract writes for handle
-  text, logs it folded. It credits the same node, so one
+  text, logs it folded, whether or not the handle is held: paying a holder
+  by text names its handle on chain. It credits the same node, so one
   claim takes both kinds. Text other than the handle as the platform sends it
   (`@alice`, a space) lands on a node nobody can prove; only its sender gets
   it back, from its `refundableAt` like any deposit. The same holds for a
