@@ -84,7 +84,7 @@ abstract contract RealProofBindBase is PrivacyScan {
     // ─── Bind, unlisted ─────────────────────────────────────────────
 
     /// @dev An unlisted bind leaves no byte of the id or the handle in logs, storage or calldata.
-    function test_bindsPrivatelyAndDisclosesNothing() public {
+    function test_bindsUnlistedAndDisclosesNothing() public {
         bytes memory payload = _payload();
         assertFalse(_containsAny(payload), "the payload carries an id or handle");
 
@@ -454,7 +454,7 @@ contract RealProofBindGoogleTest is RealProofBindBase {
         return 34;
     }
 
-    /// @dev A `bindPrivately` payload naming another handle node fails the Honk verifier.
+    /// @dev An unlisted bind's payload naming another handle node fails the Honk verifier.
     function test_anotherHandleNodeFailsTheProof() public {
         GooglePlatformVerifier.GoogleProof memory s = _proof();
         s.handleNode ^= bytes32(uint256(1));
