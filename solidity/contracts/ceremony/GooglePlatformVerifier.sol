@@ -6,7 +6,7 @@ import {CeremonyAuthorization} from "./CeremonyAuthorization.sol";
 import {CeremonyProfile} from "./CeremonyProfile.sol";
 import {INotaryService} from "./INotaryService.sol";
 import {IPlatformVerifier} from "./IPlatformVerifier.sol";
-import {IGoogleJwtRoots, OidcPlatformVerifierBase} from "./OidcPlatformVerifierBase.sol";
+import {IJwtRoots, OidcPlatformVerifierBase} from "./OidcPlatformVerifierBase.sol";
 import {IHonkVerifier} from "./PlatformVerifierBase.sol";
 
 /// @title GooglePlatformVerifier — the `google/v1` profile.
@@ -45,7 +45,7 @@ contract GooglePlatformVerifier is OidcPlatformVerifierBase {
 
     /// @custom:storage-location erc7201:libid.storage.GooglePlatformVerifier
     struct GoogleStorage {
-        IGoogleJwtRoots jwtRoots;
+        IJwtRoots jwtRoots;
     }
 
     // keccak256(abi.encode(uint256(keccak256("libid.storage.GooglePlatformVerifier")) - 1)) & ~bytes32(uint256(0xff))
@@ -68,7 +68,7 @@ contract GooglePlatformVerifier is OidcPlatformVerifierBase {
 
     /// @dev `notary_` must be zero: a profile whose Attestation Count is zero
     ///      holds no Notary Service (REQ-COMMON-05D).
-    function initialize(address owner_, INotaryService notary_, IHonkVerifier honkVerifier_, IGoogleJwtRoots jwtRoots_)
+    function initialize(address owner_, INotaryService notary_, IHonkVerifier honkVerifier_, IJwtRoots jwtRoots_)
         external
         initializer
     {
@@ -76,11 +76,11 @@ contract GooglePlatformVerifier is OidcPlatformVerifierBase {
         _setJwtRoots(jwtRoots_);
     }
 
-    function _jwtRoots() internal view override returns (IGoogleJwtRoots) {
+    function _jwtRoots() internal view override returns (IJwtRoots) {
         return _g().jwtRoots;
     }
 
-    function _storeJwtRoots(IGoogleJwtRoots roots) internal override {
+    function _storeJwtRoots(IJwtRoots roots) internal override {
         _g().jwtRoots = roots;
     }
 

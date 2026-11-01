@@ -1,6 +1,6 @@
 //! Bindings for the ceremony verification path (`solidity/contracts/ceremony/`),
 //! read from the compiled artifacts: the Notary Service, the Proof Verifier,
-//! the three launch Platform Verifiers and the Google JWT root list.
+//! the Platform Verifiers and the JWT roots lists.
 //! [`platform_verifier`](crate::platform_verifier) builds a Platform Verifier
 //! initializer and checks its rules.
 
@@ -55,8 +55,10 @@ mod google_jwt_roots {
 
 /// `ceremony/GoogleJwtRoots.sol`: the Google signing keys the `google/v1`
 /// verifier trusts, two generations of a notarized JWKS reading.
-/// `TelegramJwtRoots` has the same ABI, so this binding reads it too.
 pub use google_jwt_roots::GoogleJwtRoots;
+/// Any `ceremony/JwtRootsBase.sol` list, `TelegramJwtRoots` among them: every
+/// issuer's list has `GoogleJwtRoots`' ABI.
+pub use google_jwt_roots::GoogleJwtRoots as JwtRoots;
 /// `ceremony/JwtRootsBase.sol`'s types: `Generation`, as `currentKeys`
 /// returns it.
 pub use google_jwt_roots::JwtRootsBase;

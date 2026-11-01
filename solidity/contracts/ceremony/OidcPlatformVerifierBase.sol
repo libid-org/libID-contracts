@@ -5,7 +5,7 @@ import {IPlatformVerifier} from "./IPlatformVerifier.sol";
 import {PlatformVerifierBase} from "./PlatformVerifierBase.sol";
 
 /// @dev The signing keys a deployment trusts, held by a JWT roots list.
-interface IGoogleJwtRoots {
+interface IJwtRoots {
     /// keccak256 of the JWKS host the list reads.
     function AUTHORITY() external view returns (bytes32);
     function trustedHashExpiresAt(bytes32 modulusHash) external view returns (uint256);
@@ -57,8 +57,8 @@ abstract contract OidcPlatformVerifierBase is IPlatformVerifier, PlatformVerifie
     error MissingClientIdentifier();
 
     /// @dev The profile's own storage for its roots list.
-    function _jwtRoots() internal view virtual returns (IGoogleJwtRoots);
-    function _storeJwtRoots(IGoogleJwtRoots roots) internal virtual;
+    function _jwtRoots() internal view virtual returns (IJwtRoots);
+    function _storeJwtRoots(IJwtRoots roots) internal virtual;
     /// @dev The `AUTHORITY` of the issuer's JWKS host the roots list must read.
     function _jwtRootsAuthority() internal pure virtual returns (bytes32);
 
@@ -68,16 +68,16 @@ abstract contract OidcPlatformVerifierBase is IPlatformVerifier, PlatformVerifie
 
     /// @dev Keys rotate, and every ceremony fails closed while an active
     ///      modulus is untrusted (REQ-PLAT-24).
-    function setJwtRoots(IGoogleJwtRoots roots) external onlyOwner {
+    function setJwtRoots(IJwtRoots roots) external onlyOwner {
         _setJwtRoots(roots);
     }
 
     /// @dev A list that does not answer `AUTHORITY()` with one word, an
     ///      address with no code among them, reports authority zero.
-    function _setJwtRoots(IGoogleJwtRoots roots) internal {
+    function _setJwtRoots(IJwtRoots roots) internal {
         if (address(roots) == address(0)) revert ZeroAddress();
         bytes32 expected = _jwtRootsAuthority();
-        (bool ok, bytes memory ret) = address(roots).staticcall(abi.encodeCall(IGoogleJwtRoots.AUTHORITY, ()));
+        (bool ok, bytes memory ret) = address(roots).staticcall(abi.encodeCall(IJwtRoots.AUTHORITY, ()));
         bytes32 found = ok && ret.length == 32 ? abi.decode(ret, (bytes32)) : bytes32(0);
         if (found != expected) revert WrongAuthority(expected, found);
         _storeJwtRoots(roots);

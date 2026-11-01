@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-import {IGoogleJwtRoots} from "../GooglePlatformVerifier.sol";
+import {IJwtRoots} from "../GooglePlatformVerifier.sol";
 
 /// @notice A JWT root list that trusts each modulus hash until the expiry the test sets.
-contract TrustingJwtRoots is IGoogleJwtRoots {
+contract TrustingJwtRoots is IJwtRoots {
     bytes32 public immutable AUTHORITY;
     mapping(bytes32 => uint256) public expiry;
 

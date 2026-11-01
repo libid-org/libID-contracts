@@ -6,7 +6,7 @@ import {CeremonyAuthorization} from "./CeremonyAuthorization.sol";
 import {CeremonyProfile} from "./CeremonyProfile.sol";
 import {INotaryService} from "./INotaryService.sol";
 import {IPlatformVerifier} from "./IPlatformVerifier.sol";
-import {IGoogleJwtRoots, OidcPlatformVerifierBase} from "./OidcPlatformVerifierBase.sol";
+import {IJwtRoots, OidcPlatformVerifierBase} from "./OidcPlatformVerifierBase.sol";
 import {IHonkVerifier} from "./PlatformVerifierBase.sol";
 
 /// @title TelegramPlatformVerifier — the `telegram/v1` profile.
@@ -36,7 +36,7 @@ contract TelegramPlatformVerifier is OidcPlatformVerifierBase {
 
     /// @custom:storage-location erc7201:libid.storage.TelegramPlatformVerifier
     struct TelegramStorage {
-        IGoogleJwtRoots jwtRoots;
+        IJwtRoots jwtRoots;
         /// The bot id the token's `aud` must be.
         bytes botId;
     }
@@ -60,7 +60,7 @@ contract TelegramPlatformVerifier is OidcPlatformVerifierBase {
         address owner_,
         INotaryService notary_,
         IHonkVerifier honkVerifier_,
-        IGoogleJwtRoots jwtRoots_,
+        IJwtRoots jwtRoots_,
         bytes calldata botId_
     ) external initializer {
         __PlatformVerifierBase_init(owner_, notary_, honkVerifier_);
@@ -73,11 +73,11 @@ contract TelegramPlatformVerifier is OidcPlatformVerifierBase {
         return _t().botId;
     }
 
-    function _jwtRoots() internal view override returns (IGoogleJwtRoots) {
+    function _jwtRoots() internal view override returns (IJwtRoots) {
         return _t().jwtRoots;
     }
 
-    function _storeJwtRoots(IGoogleJwtRoots roots) internal override {
+    function _storeJwtRoots(IJwtRoots roots) internal override {
         _t().jwtRoots = roots;
     }
 

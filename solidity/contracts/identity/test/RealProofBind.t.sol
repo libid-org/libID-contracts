@@ -10,7 +10,7 @@ import {TrustingJwtRoots} from "../../ceremony/test/TrustingJwtRoots.sol";
 import {CeremonyProfile} from "../../ceremony/CeremonyProfile.sol";
 import {CeremonyProofVerifier} from "../../ceremony/CeremonyProofVerifier.sol";
 import {GitHubPlatformVerifier} from "../../ceremony/GitHubPlatformVerifier.sol";
-import {GooglePlatformVerifier, IGoogleJwtRoots} from "../../ceremony/GooglePlatformVerifier.sol";
+import {GooglePlatformVerifier, IJwtRoots} from "../../ceremony/GooglePlatformVerifier.sol";
 import {INotaryService} from "../../ceremony/INotaryService.sol";
 import {IPlatformVerifier} from "../../ceremony/IPlatformVerifier.sol";
 import {IProofVerifier} from "../../ceremony/IProofVerifier.sol";
@@ -379,7 +379,7 @@ contract RealProofBindGoogleTest is RealProofBindBase {
                 address(new GooglePlatformVerifier()),
                 abi.encodeCall(
                     GooglePlatformVerifier.initialize,
-                    (OWNER, INotaryService(address(0)), IHonkVerifier(circuit), IGoogleJwtRoots(address(roots)))
+                    (OWNER, INotaryService(address(0)), IHonkVerifier(circuit), IJwtRoots(address(roots)))
                 )
             )
         );

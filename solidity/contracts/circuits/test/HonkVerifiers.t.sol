@@ -5,7 +5,7 @@ import {Test} from "forge-std/Test.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
 import {GitHubPlatformVerifier} from "../../ceremony/GitHubPlatformVerifier.sol";
-import {GooglePlatformVerifier, IGoogleJwtRoots} from "../../ceremony/GooglePlatformVerifier.sol";
+import {GooglePlatformVerifier, IJwtRoots} from "../../ceremony/GooglePlatformVerifier.sol";
 import {CeremonyProfile} from "../../ceremony/CeremonyProfile.sol";
 import {TrustingJwtRoots} from "../../ceremony/test/TrustingJwtRoots.sol";
 import {INotaryService} from "../../ceremony/INotaryService.sol";
@@ -170,7 +170,7 @@ contract HonkVerifiersTest is Test {
                 address(google),
                 abi.encodeCall(
                     GooglePlatformVerifier.initialize,
-                    (OWNER, INotaryService(address(0)), wrong, IGoogleJwtRoots(address(0x0808)))
+                    (OWNER, INotaryService(address(0)), wrong, IJwtRoots(address(0x0808)))
                 )
             );
         }

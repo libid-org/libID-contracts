@@ -7,7 +7,7 @@ import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.s
 
 import {CeremonyAuthorization} from "../CeremonyAuthorization.sol";
 import {CeremonyProfile} from "../CeremonyProfile.sol";
-import {GooglePlatformVerifier, IGoogleJwtRoots, OidcPlatformVerifierBase} from "../GooglePlatformVerifier.sol";
+import {GooglePlatformVerifier, IJwtRoots, OidcPlatformVerifierBase} from "../GooglePlatformVerifier.sol";
 import {ICeremony} from "../ICeremony.sol";
 import {INotaryService} from "../INotaryService.sol";
 import {IHonkVerifier, PlatformVerifierBase} from "../PlatformVerifierBase.sol";
@@ -54,12 +54,7 @@ contract GooglePlatformVerifierTest is Test {
                     address(impl),
                     abi.encodeCall(
                         GooglePlatformVerifier.initialize,
-                        (
-                            OWNER,
-                            INotaryService(address(0)),
-                            IHonkVerifier(address(honk)),
-                            IGoogleJwtRoots(address(roots))
-                        )
+                        (OWNER, INotaryService(address(0)), IHonkVerifier(address(honk)), IJwtRoots(address(roots)))
                     )
                 )
             )
@@ -151,12 +146,7 @@ contract GooglePlatformVerifierTest is Test {
                     address(new GooglePlatformVerifier()),
                     abi.encodeCall(
                         GooglePlatformVerifier.initialize,
-                        (
-                            OWNER,
-                            INotaryService(address(0)),
-                            IHonkVerifier(honkVerifier),
-                            IGoogleJwtRoots(address(roots))
-                        )
+                        (OWNER, INotaryService(address(0)), IHonkVerifier(honkVerifier), IJwtRoots(address(roots)))
                     )
                 )
             )
@@ -265,7 +255,7 @@ contract GooglePlatformVerifierTest is Test {
             address(impl),
             abi.encodeCall(
                 GooglePlatformVerifier.initialize,
-                (OWNER, INotaryService(address(0xDEAD)), IHonkVerifier(address(honk)), IGoogleJwtRoots(address(roots)))
+                (OWNER, INotaryService(address(0xDEAD)), IHonkVerifier(address(honk)), IJwtRoots(address(roots)))
             )
         );
     }
@@ -310,7 +300,7 @@ contract GooglePlatformVerifierTest is Test {
     function test_rejectsAnUntrustedModulus() public {
         TrustingJwtRoots empty = new TrustingJwtRoots(CeremonyProfile.AUTHORITY_GOOGLEAPIS_WWW);
         vm.prank(OWNER);
-        verifier.setJwtRoots(IGoogleJwtRoots(address(empty)));
+        verifier.setJwtRoots(IJwtRoots(address(empty)));
         GooglePlatformVerifier.GoogleProof memory s = _payload();
         vm.expectPartialRevert(OidcPlatformVerifierBase.UntrustedModulus.selector);
         this.run(s);
@@ -321,7 +311,7 @@ contract GooglePlatformVerifierTest is Test {
         TrustingJwtRoots lapsed = new TrustingJwtRoots(CeremonyProfile.AUTHORITY_GOOGLEAPIS_WWW);
         lapsed.trust(_modulusHash(), T0);
         vm.prank(OWNER);
-        verifier.setJwtRoots(IGoogleJwtRoots(address(lapsed)));
+        verifier.setJwtRoots(IJwtRoots(address(lapsed)));
         GooglePlatformVerifier.GoogleProof memory s = _payload();
         vm.expectPartialRevert(OidcPlatformVerifierBase.UntrustedModulus.selector);
         this.run(s);
@@ -352,10 +342,10 @@ contract GooglePlatformVerifierTest is Test {
 
     function test_onlyTheOwnerPointsAtJwtRoots() public {
         vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, address(this)));
-        verifier.setJwtRoots(IGoogleJwtRoots(address(roots)));
+        verifier.setJwtRoots(IJwtRoots(address(roots)));
         vm.prank(OWNER);
         vm.expectRevert(PlatformVerifierBase.ZeroAddress.selector);
-        verifier.setJwtRoots(IGoogleJwtRoots(address(0)));
+        verifier.setJwtRoots(IJwtRoots(address(0)));
         bytes32 telegram = CeremonyProfile.AUTHORITY_TELEGRAM_OAUTH;
         TrustingJwtRoots telegrams = new TrustingJwtRoots(telegram);
         vm.prank(OWNER);
@@ -377,7 +367,7 @@ contract GooglePlatformVerifierTest is Test {
                     PlatformVerifierBase.WrongAuthority.selector, CeremonyProfile.AUTHORITY_GOOGLEAPIS_WWW, bytes32(0)
                 )
             );
-            verifier.setJwtRoots(IGoogleJwtRoots(lists[i]));
+            verifier.setJwtRoots(IJwtRoots(lists[i]));
         }
     }
 

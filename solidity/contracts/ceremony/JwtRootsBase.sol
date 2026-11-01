@@ -17,25 +17,24 @@ import {INotaryService} from "./INotaryService.sol";
 ///         `telegram/v1`, each with its own storage namespace. An OIDC
 ///         Platform Verifier learns the issuer's current keys here, from a
 ///         notarized reading of its JWKS: a JWT verifies only while the
-///         modulus that signed it is listed and unexpired. The notes below
-///         speak of Google; Telegram's list works the same way.
+///         modulus that signed it is listed and unexpired.
 ///
-/// @dev The list is two generations of Google's key set, and nothing else.
-///      Google's JWKS is an unordered set of a few keys with no "next"
+/// @dev The list is two generations of the issuer's key set, and nothing
+///      else. A JWKS is an unordered set of a few keys with no "next"
 ///      marker, so a reading is stored as the set it is: `current` is the
 ///      latest reading applied, `previous` the reading before it. A newer
 ///      reading of the same set only restarts `current`'s lifetime; a newer
 ///      reading of a different set replaces -- `current` becomes `previous`,
 ///      the reading becomes `current`, and what `previous` held is gone.
 ///      There is no history and no maintenance: nothing to prune, nothing to
-///      untrust, no owner lever over which of Google's keys are trusted.
+///      untrust, no owner lever over which of the issuer's keys are trusted.
 ///
 ///      A generation is trusted until READING_LIFETIME after its reading's
 ///      own `createdAt` -- the notary's clock, not the block the rotation
 ///      landed in -- so trust lapses by time alone, with no transaction from
 ///      anyone, and a later reading of the same set extends it. `previous`
-///      is kept because Google's rotation and the keeper's reading are not
-///      simultaneous: a token minted under the key Google just rotated out
+///      is kept because the issuer's rotation and the keeper's reading are
+///      not simultaneous: a token minted under a key just rotated out
 ///      is still being presented for the rest of its hour, and a keeper's
 ///      reading can land in between. One generation back covers that;
 ///      further back is history.
@@ -73,7 +72,7 @@ import {INotaryService} from "./INotaryService.sol";
 ///
 ///      **The reading names no contract.** The attested record is the TLS
 ///      session alone -- authority, notary clock, transcript -- so the same
-///      notarized reading of Google's JWKS is valid anywhere the notary key is
+///      notarized reading of an issuer's JWKS is valid anywhere the notary key is
 ///      trusted. That cross-deployment replay is a feature, and the record
 ///      must not grow a chain id or a verifying-contract binding. Which key is
 ///      trusted lives in the shared Notary Service; the transcript checks stay
@@ -88,13 +87,13 @@ import {INotaryService} from "./INotaryService.sol";
 ///      does the expiry, and nobody owns rotation.** Verifiers check the stamp
 ///      at use-site, and an expired generation stops being trusted with no
 ///      transaction from anyone. The owner's one lever is the Notary Service
-///      pointer: which notary a reading must carry, never which Google key
+///      pointer: which notary a reading must carry, never which issuer key
 ///      is trusted.
 abstract contract JwtRootsBase is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable {
     // ─── State ──────────────────────────────────────────────────────
 
-    /// One reading of Google's key set: when the notary read it, and the
-    /// limb hash of every modulus it listed, in the order Google listed them.
+    /// One reading of the issuer's key set: when the notary read it, and the
+    /// limb hash of every RSA modulus it listed, in the issuer's order.
     struct Generation {
         uint64 observedAt;
         bytes32[] moduli;
@@ -105,10 +104,10 @@ abstract contract JwtRootsBase is Initializable, UUPSUpgradeable, Ownable2StepUp
         /// Authenticates a reading and charges for it.
         INotaryService notary;
         /// The latest reading applied. Google's set already lists the key it
-        /// will sign with next, so this is Google's current AND next keys.
+        /// will sign with next, so for Google this is its current AND next keys.
         Generation current;
         /// The reading before it, kept for the tokens still in flight under a
-        /// key Google has since dropped.
+        /// key the issuer has since dropped.
         Generation previous;
     }
 
@@ -136,7 +135,7 @@ abstract contract JwtRootsBase is Initializable, UUPSUpgradeable, Ownable2StepUp
     uint256 public constant READING_LIFETIME = 30 days;
     /// The most keys one reading may carry. Google served four on 2026-09-03,
     /// and a notarized reading cannot invent any, so this is headroom: it
-    /// bounds the set comparison below, not what Google publishes.
+    /// bounds the set comparison below, not what an issuer publishes.
     uint256 public constant MAX_KEYS = 8;
     /// How much trusted runway `needsRotation()` insists on. A reading stamps
     /// its set for READING_LIFETIME, so a keeper acting on this signal
@@ -155,7 +154,7 @@ abstract contract JwtRootsBase is Initializable, UUPSUpgradeable, Ownable2StepUp
     bytes private constant CONTENT_LENGTH_NEEDLE = "\r\ncontent-length:";
     bytes private constant CONTENT_ENCODING_NEEDLE = "\r\ncontent-encoding:";
     bytes private constant KEYS_TOKEN = '"keys"';
-    /// @dev 65537, the one public exponent the `google/v1` circuit verifies
+    /// @dev 65537, the one public exponent the OIDC circuits verify
     ///      RS256 under.
     bytes private constant EXPECTED_EXPONENT = "AQAB";
 
@@ -167,7 +166,7 @@ abstract contract JwtRootsBase is Initializable, UUPSUpgradeable, Ownable2StepUp
     event NotaryServiceChanged(address notary);
     /// A different set than `current` landed: `current` became `previous`,
     /// this reading became `current`. `kids` and `moduli` are the reading's
-    /// keys in the order Google listed them, `observedAt` the notary's clock
+    /// keys in the order the issuer listed them, `observedAt` the notary's clock
     /// -- enough for a keeper to follow the list from logs alone.
     event KeysRotated(uint64 observedAt, string[] kids, bytes32[] moduli);
     /// A newer reading of the set already current: nothing shifted, and the
@@ -177,14 +176,14 @@ abstract contract JwtRootsBase is Initializable, UUPSUpgradeable, Ownable2StepUp
     // ─── Errors ─────────────────────────────────────────────────────
 
     error ZeroAddress();
-    /// @dev A reading whose key set is empty says nothing about what Google
+    /// @dev A reading whose key set is empty says nothing about what the issuer
     ///      publishes; applying it would shift the live set into `previous`
     ///      on the strength of a document that names no key. Refused rather
     ///      than charged.
     error EmptyKeySet();
     /// @dev More keys in one reading than MAX_KEYS.
     error TooManyKeys(uint256 count);
-    /// @dev The same modulus twice in one reading. Google lists each key
+    /// @dev The same modulus twice in one reading. An issuer lists each key
     ///      once; a document that repeats one is not the document this
     ///      reads, and a set with a repeat would compare as a set it is not.
     error DuplicateKey(bytes32 modulusHash);
@@ -307,7 +306,7 @@ abstract contract JwtRootsBase is Initializable, UUPSUpgradeable, Ownable2StepUp
 
     // ─── Rotation ───────────────────────────────────────────────────
 
-    /// @notice Apply a notarized reading of Google's JWKS. Anyone may call it.
+    /// @notice Apply a notarized reading of the issuer's JWKS. Anyone may call it.
     ///         The reading is the whole authorization: a keeper needs gas and
     ///         the Notary Fee, and nothing else -- no role, no allowlist, no
     ///         owner anywhere in the path.
@@ -348,10 +347,10 @@ abstract contract JwtRootsBase is Initializable, UUPSUpgradeable, Ownable2StepUp
     // ─── What a verifier, and a keeper, read ────────────────────────
 
     /// @notice modulusHash -> when it stops being trusted, or zero. What
-    ///         `GooglePlatformVerifier` reads: the JWT circuit does not expose
+    ///         an OIDC Platform Verifier reads: the JWT circuit does not expose
     ///         `kid`, so trust has to be checkable from the modulus alone.
     /// @dev A key in both generations reports the current one's stamp: the
-    ///      later reading is the later word that Google still lists it.
+    ///      later reading is the later word that the issuer still lists it.
     function trustedHashExpiresAt(bytes32 modulusHash) external view returns (uint256) {
         JwtRootsStorage storage $ = _s();
         if (_lists($.current.moduli, modulusHash)) return uint256($.current.observedAt) + READING_LIFETIME;
@@ -411,8 +410,8 @@ abstract contract JwtRootsBase is Initializable, UUPSUpgradeable, Ownable2StepUp
         return CeremonyAttestation.concatRevealed(block_);
     }
 
-    /// @dev The request must be the keeper's, to Google's JWKS endpoint, on
-    ///      Google's own host.
+    /// @dev The request must be the keeper's, to the issuer's JWKS endpoint,
+    ///      on the issuer's own host.
     ///
     ///      The `Host` count is the whole of the virtual-host pin, so it gets
     ///      every guard the bearer-header count gets, in the same order. The
@@ -458,7 +457,7 @@ abstract contract JwtRootsBase is Initializable, UUPSUpgradeable, Ownable2StepUp
     ///
     ///      The FIRST head boundary, not the only one. A chunked body ends in
     ///      `0\r\n\r\n`, so uniqueness -- which the token request demands --
-    ///      would refuse every real Google response.
+    ///      would refuse every real chunked response.
     function _jwksBody(CeremonyAttestation.DirectionBlock memory block_, uint32 length)
         private
         pure
@@ -564,9 +563,9 @@ abstract contract JwtRootsBase is Initializable, UUPSUpgradeable, Ownable2StepUp
 
     // ─── The key set ────────────────────────────────────────────────
 
-    /// @dev Read every JWK out of the body, writing nothing. The body is
-    ///      Google's pretty-printed JSON; this reads exactly the shape Google
-    ///      publishes and refuses anything it does not recognise, so it is a
+    /// @dev Read every JWK out of the body, writing nothing. The body is the
+    ///      issuer's JWKS JSON; this reads exactly the shape Google and
+    ///      Telegram publish and refuses anything it does not recognise, so it is a
     ///      checker for one document rather than a JSON parser.
     ///
     ///      `keys` is located by counting: the token appears once in the
@@ -672,12 +671,11 @@ abstract contract JwtRootsBase is Initializable, UUPSUpgradeable, Ownable2StepUp
 
     /// @dev One JWK: its kid, and the limb hash of its modulus.
     ///
-    ///      The exponent is read and pinned, not stored. The `google/v1`
-    ///      circuit verifies RS256 with the public exponent fixed at 65537,
-    ///      and the verifier trusts a key by its modulus alone -- so a key
-    ///      Google published under another exponent would be trusted for a
-    ///      signature the circuit does not check. Google has only ever
-    ///      published `AQAB` here; anything else is refused by name.
+    ///      The exponent is read and pinned, not stored. The OIDC circuits
+    ///      verify RS256 with the public exponent fixed at 65537, and the
+    ///      verifier trusts a key by its modulus alone -- so a key published
+    ///      under another exponent would be trusted for a signature the
+    ///      circuit does not check. Anything but `AQAB` is refused by name.
     function _readKey(bytes memory jwk) private pure returns (string memory kid, bytes32 modulusHash) {
         kid = string(_member(jwk, "kid"));
         bytes memory nB64url = _member(jwk, "n");
@@ -725,7 +723,7 @@ abstract contract JwtRootsBase is Initializable, UUPSUpgradeable, Ownable2StepUp
         revert UnterminatedMember(name);
     }
 
-    /// @dev The hash the Google circuit exposes: keccak over the eighteen
+    /// @dev The hash the OIDC circuits expose: keccak over the eighteen
     ///      120-bit limbs as 32-byte words. The keeper's `decision::modulus_hash`
     ///      computes the same value, and a test pins one vector across both.
     function _modulusHash(bytes memory rawN) private pure returns (bytes32) {
@@ -756,7 +754,7 @@ abstract contract JwtRootsBase is Initializable, UUPSUpgradeable, Ownable2StepUp
     ///      the protocol (REQ-COMMON-25A). The freshness checks in `rotate`
     ///      run first, so a stale or future record is named as such.
     ///
-    ///      A newer reading of the same set is Google saying the set still
+    ///      A newer reading of the same set is the issuer saying the set still
     ///      stands: its lifetime restarts from this reading, nothing shifts,
     ///      `previous` stays as it was. A newer reading of a different set is
     ///      a rotation: what was current is kept one generation for the tokens
@@ -900,7 +898,7 @@ abstract contract JwtRootsBase is Initializable, UUPSUpgradeable, Ownable2StepUp
     }
 
     /// @dev Eighteen little-endian 120-bit limbs of a 2048-bit big-endian
-    ///      modulus, the way the Google circuit takes its public inputs. Kept
+    ///      modulus, the way the OIDC circuits take their public inputs. Kept
     ///      verbatim: the keeper and the circuit compute the same split.
     function _splitLimbs(bytes memory be) internal pure returns (bytes32[18] memory limbs) {
         uint256[8] memory words;
@@ -939,7 +937,7 @@ abstract contract JwtRootsBase is Initializable, UUPSUpgradeable, Ownable2StepUp
     /// @dev Required by UUPS -- only the owner can upgrade.
     function _authorizeUpgrade(address) internal override onlyOwner {}
 
-    /// @dev Renouncing would freeze the Notary Service pointer, and Google's
+    /// @dev Renouncing would freeze the Notary Service pointer, and the issuer's
     ///      keys would expire with no way to replace them.
     function renounceOwnership() public pure override {
         revert("renounce disabled");

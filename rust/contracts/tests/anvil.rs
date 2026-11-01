@@ -17,6 +17,7 @@ use libid_contracts::{
         ceremony::{
             CeremonyProofVerifier,
             GoogleJwtRoots,
+            JwtRoots,
             NotaryService,
         },
         identity::IdentityRegistry,
@@ -209,7 +210,7 @@ async fn deploys_and_upgrades_the_jwt_roots_lists() {
     )
     .await;
     let google = GoogleJwtRoots::new(google_proxy, &provider);
-    let telegram = GoogleJwtRoots::new(telegram_proxy, &provider);
+    let telegram = JwtRoots::new(telegram_proxy, &provider);
     let authority = google.AUTHORITY().call().await.unwrap();
     assert_ne!(telegram.AUTHORITY().call().await.unwrap(), authority);
     assert_eq!(telegram.notaryService().call().await.unwrap(), notary_proxy);
