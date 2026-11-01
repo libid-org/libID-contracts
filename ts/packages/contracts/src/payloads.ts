@@ -94,8 +94,10 @@ export class OidcPublicInputMismatch extends Error {
   }
 }
 
-/// `googleProofFields`' error before `oidcProofFields` shared it.
-/// @deprecated Use `OidcPublicInputMismatch`.
+/// Another name for `OidcPublicInputMismatch`: `instanceof` matches, and
+/// the thrown error's `.name` is `'OidcPublicInputMismatch'`.
+/// @deprecated Use `OidcPublicInputMismatch`; code that compares `.name`
+/// to `'GooglePublicInputMismatch'` no longer matches.
 export const GooglePublicInputMismatch = OidcPublicInputMismatch
 /// @deprecated Use `OidcPublicInputMismatch`.
 export type GooglePublicInputMismatch = OidcPublicInputMismatch
