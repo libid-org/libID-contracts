@@ -25,6 +25,8 @@ impl IdRules {
     pub const GITHUB: Self = v::PLATFORM_GITHUB.id_rules;
     /// Google: the OIDC `sub`.
     pub const GOOGLE: Self = v::PLATFORM_GOOGLE.id_rules;
+    /// Telegram: decimal user ids.
+    pub const TELEGRAM: Self = v::PLATFORM_TELEGRAM.id_rules;
 }
 
 /// Accept an id exactly as given, or say why no circuit would hash it.
