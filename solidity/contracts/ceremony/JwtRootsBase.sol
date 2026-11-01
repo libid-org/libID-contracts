@@ -127,10 +127,6 @@ abstract contract JwtRootsBase is Initializable, UUPSUpgradeable, Ownable2StepUp
 
     // ─── Constants ──────────────────────────────────────────────────
 
-    /// @notice The TLS server name the notary must have authenticated:
-    ///         keccak256 of `_jwksHost()`.
-    /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
-    bytes32 public immutable AUTHORITY;
     uint256 public constant FRESHNESS_WINDOW = 1 hours;
     uint256 public constant CLOCK_SKEW_GRACE = 5 minutes;
     /// How long a generation is trusted after the reading that wrote it, by
@@ -146,17 +142,6 @@ abstract contract JwtRootsBase is Initializable, UUPSUpgradeable, Ownable2StepUp
     /// rotates roughly weekly rather than racing the expiry.
     uint256 public constant RENEWAL_MARGIN = 7 days;
 
-    /// @dev The request line the keeper's prover puts on the wire, in
-    ///      origin-form like every other verifier pins it, as its keccak256
-    ///      and length (immutables cannot hold bytes). The path is what
-    ///      separates the key set from everything else the host serves, and
-    ///      the whole line -- through the CRLF -- is what keeps a query out:
-    ///      `?callback=` turns Google's path into JSONP, a 200 whose body
-    ///      begins with bytes the requester chose.
-    /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
-    bytes32 private immutable REQUEST_LINE_HASH;
-    /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
-    uint256 private immutable REQUEST_LINE_LENGTH;
     /// @dev googleapis.com serves many virtual hosts under one certificate, so
     ///      the TLS authority alone does not pin which backend answered. The
     ///      `Host` header does, and the notary signed it. Its value's keccak256
@@ -227,12 +212,10 @@ abstract contract JwtRootsBase is Initializable, UUPSUpgradeable, Ownable2StepUp
     ///      the status line) are it. Raised for either direction; a direction
     ///      revealing nothing reports `type(uint32).max`.
     error RequestLineNotAtOrigin(uint32 start);
-    /// @dev Not `_jwksRequestLine()`, or, at construction, a line that does
-    ///      not end in CRLF.
+    /// @dev Not `_jwksRequestLine()`.
     error WrongRequestLine();
     error NotOneHostHeader(uint256 count);
-    /// @dev Not `_jwksHost()`, or, at construction, one that is
-    ///      empty or holds A-Z, SP or HTAB, which header normalization removes.
+    /// @dev Not `_jwksHost()`.
     error WrongHost();
     /// @dev Not `HTTP/1.1 200 `.
     error WrongStatusLine();
@@ -278,19 +261,14 @@ abstract contract JwtRootsBase is Initializable, UUPSUpgradeable, Ownable2StepUp
 
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
-        bytes memory requestLine = _jwksRequestLine();
-        bytes memory host = _jwksHost();
-        uint256 n = requestLine.length;
-        if (n < 2 || requestLine[n - 2] != "\r" || requestLine[n - 1] != "\n") revert WrongRequestLine();
-        if (host.length == 0) revert WrongHost();
-        for (uint256 i = 0; i < host.length; ++i) {
-            bytes1 c = host[i];
-            if ((c >= "A" && c <= "Z") || c == " " || c == "\t") revert WrongHost();
-        }
-        AUTHORITY = keccak256(host);
-        REQUEST_LINE_HASH = keccak256(requestLine);
-        REQUEST_LINE_LENGTH = n;
         _disableInitializers();
+    }
+
+    /// @notice The TLS server name the notary must have authenticated:
+    ///         keccak256 of `_jwksHost()`.
+    // forge-lint: disable-next-line(mixed-case-function)
+    function AUTHORITY() public view returns (bytes32) {
+        return keccak256(_jwksHost());
     }
 
     /// @param notary_ The shared Notary Service. Notary key rotation happens
@@ -350,7 +328,8 @@ abstract contract JwtRootsBase is Initializable, UUPSUpgradeable, Ownable2StepUp
 
         // The one thing in the record the notary observed rather than was
         // told: the TLS server name it authenticated in the handshake.
-        if (data.authorityId != AUTHORITY) revert WrongAuthority(AUTHORITY, data.authorityId);
+        bytes32 authority = AUTHORITY();
+        if (data.authorityId != authority) revert WrongAuthority(authority, data.authorityId);
 
         uint64 createdAt = data.createdAt;
         if (createdAt > block.timestamp + CLOCK_SKEW_GRACE) revert FutureProof();
@@ -444,9 +423,9 @@ abstract contract JwtRootsBase is Initializable, UUPSUpgradeable, Ownable2StepUp
     ///      request has no other kind of line ending.
     function _requireJwksRequest(CeremonyAttestation.DirectionBlock memory block_, uint32 length) private view {
         bytes memory sent = _wholeDirection(block_, length);
-        if (sent.length < REQUEST_LINE_LENGTH || keccak256(_slice(sent, 0, REQUEST_LINE_LENGTH)) != REQUEST_LINE_HASH) {
-            revert WrongRequestLine();
-        }
+        // The whole line, through the CRLF, so no query rides along: `?callback=`
+        // turns Google's path into JSONP, a 200 whose body the requester chose.
+        if (!_startsWith(sent, _jwksRequestLine())) revert WrongRequestLine();
         CeremonyAttestation.requireCrlfLineEndings(sent);
 
         // Only the head names a host. A `Host` after the blank line is body
@@ -469,7 +448,7 @@ abstract contract JwtRootsBase is Initializable, UUPSUpgradeable, Ownable2StepUp
 
         uint256 from = at + HOST_NEEDLE.length;
         uint256 to = _indexOf(normalized, "\r\n", from);
-        if (to == type(uint256).max || keccak256(_slice(normalized, from, to)) != AUTHORITY) revert WrongHost();
+        if (to == type(uint256).max || keccak256(_slice(normalized, from, to)) != AUTHORITY()) revert WrongHost();
     }
 
     /// @dev The response body, located by the framing the server itself

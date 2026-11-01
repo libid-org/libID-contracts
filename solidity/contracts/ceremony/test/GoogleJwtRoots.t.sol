@@ -25,21 +25,6 @@ contract LimbHasher is GoogleJwtRoots {
     }
 }
 
-/// A roots list whose endpoint is its deployer's, so a test can hand the constructor a bad one.
-contract EndpointRoots is JwtRootsBase {
-    function _storageRoot() internal pure override returns (bytes32) {
-        return 0;
-    }
-
-    function _jwksHost() internal view override returns (bytes memory) {
-        return GoogleJwtRootsTest(msg.sender).endpointHost();
-    }
-
-    function _jwksRequestLine() internal view override returns (bytes memory) {
-        return GoogleJwtRootsTest(msg.sender).endpointLine();
-    }
-}
-
 /// The `google/v1` profile's trust list, fed by a notarized reading of
 /// Google's JWKS endpoint.
 ///
@@ -76,10 +61,6 @@ contract GoogleJwtRootsTest is Test {
         "accept: application/json\r\n" "user-agent: libid-keeper/0.1.0\r\n" "\r\n";
     bytes constant STATUS_OK = "HTTP/1.1 200 OK\r\n";
     bytes constant CONTENT_TYPE = "content-type: application/json; charset=UTF-8\r\n";
-
-    /// What an `EndpointRoots` deployed by this test reads.
-    bytes public endpointHost;
-    bytes public endpointLine;
 
     function setUp() public {
         vm.warp(T0 + 10);
@@ -1182,22 +1163,14 @@ contract GoogleJwtRootsTest is Test {
         _refuses(_withBody(body), JwtRootsBase.UnexpectedNesting.selector);
     }
 
-    /// The endpoint is checked at construction, and a request shorter than its line is refused by name.
-    /// A Host is compared normalized, so one holding A-Z, SP or HTAB could never match.
-    function test_theEndpointIsCheckedWhole() public {
-        bytes[4] memory bad = [bytes("\n"), "GET / HTTP/1.1\n", "GET / HTTP/1.1\r\r", "GET / HTTP/1.1\r\n"];
-        for (uint256 i = 0; i < 4; ++i) {
-            (endpointLine, endpointHost) = (bad[i], i == 3 ? bytes("") : bytes("h"));
-            vm.expectRevert(i == 3 ? JwtRootsBase.WrongHost.selector : JwtRootsBase.WrongRequestLine.selector);
-            new EndpointRoots();
-        }
-        bytes[5] memory hosts = [bytes("Az"), "aZ", "a b", "a\tb", "a@[`{z"];
-        endpointLine = "GET / HTTP/1.1\r\n";
-        for (uint256 i = 0; i < 5; ++i) {
-            endpointHost = hosts[i];
-            if (i < 4) vm.expectRevert(JwtRootsBase.WrongHost.selector);
-            new EndpointRoots();
-        }
+    /// Each list names the host its constant pins.
+    function test_eachListNamesItsHost() public view {
+        assertEq(roots.AUTHORITY(), AUTHORITY);
+        assertEq(tgRoots.AUTHORITY(), keccak256("oauth.telegram.org"));
+    }
+
+    /// A request shorter than its line is refused by name.
+    function test_aShortRequestIsTheWrongLine() public {
         _refuses(_withRequest("GET /oauth2/v3/certs\r\n\r\n"), JwtRootsBase.WrongRequestLine.selector);
     }
 
