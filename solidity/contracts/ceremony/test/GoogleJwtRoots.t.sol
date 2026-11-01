@@ -1105,9 +1105,10 @@ contract GoogleJwtRootsTest is Test {
         _refuses(_withBody(body), abi.encodeWithSelector(JwtRootsBase.AmbiguousMember.selector, "kid"));
     }
 
+    /// The `}` is inside the unterminated string, so the key never closes.
     function test_refusesAnUnterminatedKid() public {
         bytes memory body = _body(abi.encodePacked('{"n":"', _modulus("one"), '","kid":"kid-1}'));
-        _refuses(_withBody(body), abi.encodeWithSelector(JwtRootsBase.UnterminatedMember.selector, "kid"));
+        _refuses(_withBody(body), abi.encodeWithSelector(JwtRootsBase.UnterminatedMember.selector, "keys"));
     }
 
     function test_refusesAnUnterminatedKeysArray() public {
@@ -1182,6 +1183,26 @@ contract GoogleJwtRootsTest is Test {
         _refuses(_withBody(_manyKeys(max + 1)), abi.encodeWithSelector(JwtRootsBase.TooManyKeys.selector, max + 1));
         _rotate(_withBody(_manyKeys(max)));
         assertEq(_current().moduli.length, max, "the cap itself is a valid reading");
+    }
+
+    /// Brackets and braces inside a JWK's strings are string bytes, and an
+    /// escaped quote does not end one.
+    function test_bracketsInsideStringsDoNotNest() public {
+        bytes memory body = _body(
+            abi.encodePacked('{"kty":"RSA","use":"a\\"[","kid":"a[","n":"', _modulus("one"), '","e":"AQAB","x":"}{"}')
+        );
+        _rotate(_withBody(body));
+        assertEq(_current().moduli, _one(_hash("one")));
+    }
+
+    /// Skipped keys count toward MAX_KEYS too.
+    function test_refusesTooManyNonRsaKeys() public {
+        uint256 max = roots.MAX_KEYS();
+        bytes memory list = '{"kty":"EC","kid":"0"}';
+        for (uint256 i = 1; i <= max; ++i) {
+            list = abi.encodePacked(list, ',{"kty":"EC","kid":"', vm.toString(i), '"}');
+        }
+        _refuses(_withBody(_body(list)), abi.encodeWithSelector(JwtRootsBase.TooManyKeys.selector, max + 1));
     }
 
     /// The same modulus twice is not a set.

@@ -574,9 +574,9 @@ abstract contract JwtRootsBase is Initializable, UUPSUpgradeable, Ownable2StepUp
     ///      flat -- a `{` inside one is refused, and an array may hold only
     ///      plain strings -- so each ends at its first `}` and the walk is one
     ///      forward pass bounded by the body. A key whose `kty` is present and
-    ///      not `RSA` is skipped unread. Past MAX_KEYS the walk only counts, so
-    ///      the refusal names how many keys the reading carries rather than
-    ///      the first one too many.
+    ///      not `RSA` is skipped unread, but counts toward MAX_KEYS. Past
+    ///      MAX_KEYS the walk only counts, so the refusal names how many keys
+    ///      the reading carries rather than the first one too many.
     function _readKeys(bytes memory body) private pure returns (string[] memory kids, bytes32[] memory moduli) {
         (uint256 count, uint256 at) = _find(body, KEYS_TOKEN);
         if (count == 0) revert MissingMember("keys");
@@ -615,8 +615,8 @@ abstract contract JwtRootsBase is Initializable, UUPSUpgradeable, Ownable2StepUp
             ++keys;
         }
 
+        if (elements > MAX_KEYS) revert TooManyKeys(elements);
         if (keys == 0) revert EmptyKeySet();
-        if (keys > MAX_KEYS) revert TooManyKeys(keys);
 
         at = _ws(body, at);
         if (at >= body.length || body[at] != "}") revert TrailingBytes();
@@ -636,13 +636,24 @@ abstract contract JwtRootsBase is Initializable, UUPSUpgradeable, Ownable2StepUp
         }
     }
 
-    /// @dev The index of the `}` closing the object opened at `open`.
+    /// @dev The index of the `}` closing the object opened at `open`. Bytes
+    ///      inside a string, an escaped one included, are not structure.
     function _objectEnd(bytes memory body, uint256 open) private pure returns (uint256 at) {
+        bool quoted;
         for (at = open + 1; at < body.length; ++at) {
             bytes1 c = body[at];
-            if (c == "}") return at;
-            if (c == "{") revert UnexpectedNesting();
-            if (c == "[") at = _arrayEnd(body, at);
+            if (quoted) {
+                if (c == "\\") ++at;
+                else if (c == '"') quoted = false;
+            } else if (c == '"') {
+                quoted = true;
+            } else if (c == "}") {
+                return at;
+            } else if (c == "{") {
+                revert UnexpectedNesting();
+            } else if (c == "[") {
+                at = _arrayEnd(body, at);
+            }
         }
         revert UnterminatedMember("keys");
     }
