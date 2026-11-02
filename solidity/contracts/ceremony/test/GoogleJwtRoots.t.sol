@@ -11,7 +11,6 @@ import {INotaryService} from "../INotaryService.sol";
 import {NotaryService} from "../NotaryService.sol";
 import {GoogleJwtRoots} from "../GoogleJwtRoots.sol";
 import {JwtRootsBase} from "../JwtRootsBase.sol";
-import {CeremonyProfile} from "../CeremonyProfile.sol";
 import {TelegramJwtRoots} from "../TelegramJwtRoots.sol";
 
 /// Exposes `_splitLimbs` so a test computes a key's hash from its bytes, not from the list's state.
@@ -25,12 +24,11 @@ contract LimbHasher is GoogleJwtRoots {
     }
 }
 
-/// The `google/v1` profile's trust list, fed by a notarized reading of
-/// Google's JWKS endpoint.
+/// The JWT roots lists, Google's and Telegram's, fed by notarized readings.
 ///
 /// Readings are section 4.1 sessions signed by the anvil key and checked by a
-/// real NotaryService that charges a fee. Google's real body is a fixture.
-contract GoogleJwtRootsTest is Test {
+/// real NotaryService that charges a fee.
+abstract contract JwtRootsTestBase is Test {
     GoogleJwtRoots roots;
     /// The same code, for Telegram's JWKS.
     TelegramJwtRoots tgRoots;
@@ -88,7 +86,7 @@ contract GoogleJwtRootsTest is Test {
         vm.deal(keeper, 1 ether);
     }
 
-    function _deployRoots(INotaryService service) private returns (GoogleJwtRoots) {
+    function _deployRoots(INotaryService service) internal returns (GoogleJwtRoots) {
         GoogleJwtRoots impl = new GoogleJwtRoots();
         return GoogleJwtRoots(
             address(new ERC1967Proxy(address(impl), abi.encodeCall(JwtRootsBase.initialize, (OWNER, service))))
@@ -99,7 +97,7 @@ contract GoogleJwtRootsTest is Test {
 
     /// The JWKS layout: one revealed range covering the whole direction,
     /// nothing committed.
-    function _whole(bytes memory transcript) private pure returns (AttestationBuilder.Direction memory) {
+    function _whole(bytes memory transcript) internal pure returns (AttestationBuilder.Direction memory) {
         return AttestationBuilder.Direction({
             revealed: AttestationBuilder.one(AttestationBuilder.Range({start: 0, value: transcript})),
             commitments: AttestationBuilder.none(),
@@ -107,43 +105,43 @@ contract GoogleJwtRootsTest is Test {
         });
     }
 
-    function _empty() private pure returns (AttestationBuilder.Direction memory) {
+    function _empty() internal pure returns (AttestationBuilder.Direction memory) {
         return AttestationBuilder.Direction({
             revealed: new AttestationBuilder.Range[](0), commitments: AttestationBuilder.none(), length: 0
         });
     }
 
-    function _attest(bytes memory sent, bytes memory received, uint64 createdAt) private pure returns (bytes memory) {
+    function _attest(bytes memory sent, bytes memory received, uint64 createdAt) internal pure returns (bytes memory) {
         return AttestationBuilder.encode(AUTHORITY, createdAt, _whole(sent), _whole(received));
     }
 
     /// A reading of `body`, framed by `Content-Length`, observed now.
-    function _reading(bytes memory body) private view returns (bytes memory) {
+    function _reading(bytes memory body) internal view returns (bytes memory) {
         return _readingAt(body, _now());
     }
 
-    function _readingAt(bytes memory body, uint64 createdAt) private pure returns (bytes memory) {
+    function _readingAt(bytes memory body, uint64 createdAt) internal pure returns (bytes memory) {
         return _attest(REQUEST, _contentLength(body), createdAt);
     }
 
-    function _rotate(bytes memory attested) private {
+    function _rotate(bytes memory attested) internal {
         roots.rotate{value: FEE}(attested, AttestationBuilder.sign(NOTARY_KEY, attested));
     }
 
     /// Signs before `expectRevert`: `vm.sign` is an external call and would consume it.
-    function _refuses(bytes memory attested, bytes memory err) private {
+    function _refuses(bytes memory attested, bytes memory err) internal {
         bytes memory sig = AttestationBuilder.sign(NOTARY_KEY, attested);
         vm.expectRevert(err);
         roots.rotate{value: FEE}(attested, sig);
     }
 
-    function _refuses(bytes memory attested, bytes4 selector) private {
+    function _refuses(bytes memory attested, bytes4 selector) internal {
         _refuses(attested, abi.encodeWithSelector(selector));
     }
 
     // ─── Framing the response ───────────────────────────────────────
 
-    function _contentLength(bytes memory body) private pure returns (bytes memory) {
+    function _contentLength(bytes memory body) internal pure returns (bytes memory) {
         return
             abi.encodePacked(
                 STATUS_OK, CONTENT_TYPE, "content-length: ", vm.toString(body.length), "\r\n", "\r\n", body
@@ -151,11 +149,11 @@ contract GoogleJwtRootsTest is Test {
     }
 
     /// Chunked transfer coding, `size` bytes per chunk, as Google serves it.
-    function _chunked(bytes memory body, uint256 size) private pure returns (bytes memory) {
+    function _chunked(bytes memory body, uint256 size) internal pure returns (bytes memory) {
         return abi.encodePacked(STATUS_OK, CONTENT_TYPE, "transfer-encoding: chunked\r\n", "\r\n", _chunks(body, size));
     }
 
-    function _chunks(bytes memory body, uint256 size) private pure returns (bytes memory out) {
+    function _chunks(bytes memory body, uint256 size) internal pure returns (bytes memory out) {
         for (uint256 at = 0; at < body.length; at += size) {
             uint256 take = body.length - at < size ? body.length - at : size;
             bytes memory chunk = new bytes(take);
@@ -167,7 +165,7 @@ contract GoogleJwtRootsTest is Test {
         out = abi.encodePacked(out, "0\r\n\r\n");
     }
 
-    function _hex(uint256 v) private pure returns (bytes memory out) {
+    function _hex(uint256 v) internal pure returns (bytes memory out) {
         if (v == 0) return "0";
         bytes memory digits = "0123456789abcdef";
         while (v != 0) {
@@ -179,20 +177,20 @@ contract GoogleJwtRootsTest is Test {
     // ─── Building a key set ─────────────────────────────────────────
 
     /// One JWK the way Google writes them, compact.
-    function _jwk(string memory kid, string memory n) private pure returns (bytes memory) {
+    function _jwk(string memory kid, string memory n) internal pure returns (bytes memory) {
         return abi.encodePacked('{"kty":"RSA","use":"sig","kid":"', kid, '","n":"', n, '","e":"AQAB","alg":"RS256"}');
     }
 
-    function _body(bytes memory jwks) private pure returns (bytes memory) {
+    function _body(bytes memory jwks) internal pure returns (bytes memory) {
         return abi.encodePacked('{"keys":[', jwks, "]}");
     }
 
-    function _oneKey(string memory kid, string memory seed) private pure returns (bytes memory) {
+    function _oneKey(string memory kid, string memory seed) internal pure returns (bytes memory) {
         return _body(_jwk(kid, _modulus(seed)));
     }
 
     function _twoKeys(string memory kidA, string memory seedA, string memory kidB, string memory seedB)
-        private
+        internal
         pure
         returns (bytes memory)
     {
@@ -200,16 +198,16 @@ contract GoogleJwtRootsTest is Test {
     }
 
     /// A 2048-bit modulus derived from `seed`: 256 bytes as 342 characters of unpadded base64url.
-    function _modulus(string memory seed) private pure returns (string memory) {
+    function _modulus(string memory seed) internal pure returns (string memory) {
         return string(_b64url(_bytes(seed, 256)));
     }
 
     /// The limb hash the list writes for the key `seed` derives, computed from its bytes.
-    function _hash(string memory seed) private view returns (bytes32) {
+    function _hash(string memory seed) internal view returns (bytes32) {
         return hasher.hashOf(_bytes(seed, 256));
     }
 
-    function _bytes(string memory seed, uint256 count) private pure returns (bytes memory out) {
+    function _bytes(string memory seed, uint256 count) internal pure returns (bytes memory out) {
         out = new bytes(count);
         for (uint256 i = 0; i < count; ++i) {
             if (i % 32 == 0) {
@@ -221,7 +219,7 @@ contract GoogleJwtRootsTest is Test {
         }
     }
 
-    function _b64url(bytes memory data) private pure returns (bytes memory out) {
+    function _b64url(bytes memory data) internal pure returns (bytes memory out) {
         bytes memory alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
         uint256 full = data.length / 3;
         uint256 tail = data.length % 3;
@@ -249,7 +247,7 @@ contract GoogleJwtRootsTest is Test {
 
     /// `count` keys, `kid-0` .. `kid-<count-1>`, each with its own modulus
     /// (seeded by its kid).
-    function _manyKeys(uint256 count) private pure returns (bytes memory list) {
+    function _manyKeys(uint256 count) internal pure returns (bytes memory list) {
         for (uint256 i = 0; i < count; ++i) {
             string memory kid = string.concat("kid-", vm.toString(i));
             list = abi.encodePacked(list, i == 0 ? "" : ",", _jwk(kid, _modulus(kid)));
@@ -259,33 +257,33 @@ contract GoogleJwtRootsTest is Test {
 
     /// Install one key `kid` derived from `seed`, observed now, and return the
     /// hash it wrote.
-    function _install(string memory kid, string memory seed) private returns (bytes32) {
+    function _install(string memory kid, string memory seed) internal returns (bytes32) {
         _rotate(_reading(_oneKey(kid, seed)));
         return _hash(seed);
     }
 
     // ─── Reading the list back ──────────────────────────────────────
 
-    function _current() private view returns (JwtRootsBase.Generation memory current) {
+    function _current() internal view returns (JwtRootsBase.Generation memory current) {
         (current,) = roots.currentKeys();
     }
 
-    function _previous() private view returns (JwtRootsBase.Generation memory previous) {
+    function _previous() internal view returns (JwtRootsBase.Generation memory previous) {
         (, previous) = roots.currentKeys();
     }
 
-    function _one(bytes32 a) private pure returns (bytes32[] memory out) {
+    function _one(bytes32 a) internal pure returns (bytes32[] memory out) {
         out = new bytes32[](1);
         out[0] = a;
     }
 
-    function _two(bytes32 a, bytes32 b) private pure returns (bytes32[] memory out) {
+    function _two(bytes32 a, bytes32 b) internal pure returns (bytes32[] memory out) {
         out = new bytes32[](2);
         out[0] = a;
         out[1] = b;
     }
 
-    function _names(string memory a, string memory b) private pure returns (string[] memory out) {
+    function _names(string memory a, string memory b) internal pure returns (string[] memory out) {
         out = new string[](2);
         out[0] = a;
         out[1] = b;
@@ -296,17 +294,17 @@ contract GoogleJwtRootsTest is Test {
         uint64 observedAt,
         bytes32[] memory moduli,
         string memory label
-    ) private pure {
+    ) internal pure {
         assertEq(g.observedAt, observedAt, string.concat(label, ": observedAt"));
         assertEq(g.moduli, moduli, string.concat(label, ": moduli"));
     }
 
-    function _assertEmpty(JwtRootsBase.Generation memory g, string memory label) private pure {
+    function _assertEmpty(JwtRootsBase.Generation memory g, string memory label) internal pure {
         _assertGeneration(g, 0, new bytes32[](0), label);
     }
 
     /// The one `KeysRotated` among the recorded logs, decoded.
-    function _lastRotation() private view returns (uint64 observedAt, string[] memory kids, bytes32[] memory moduli) {
+    function _lastRotation() internal view returns (uint64 observedAt, string[] memory kids, bytes32[] memory moduli) {
         Vm.Log[] memory logs = vm.getRecordedLogs();
         bytes32 topic = keccak256("KeysRotated(uint64,string[],bytes32[])");
         uint256 seen;
@@ -318,6 +316,15 @@ contract GoogleJwtRootsTest is Test {
         assertEq(seen, 1, "one KeysRotated per rotation");
     }
 
+    /// Reads the cheatcode: under via-IR, `block.timestamp` may be re-read after a `vm.warp`.
+    function _now() internal view returns (uint64) {
+        return uint64(vm.getBlockTimestamp());
+    }
+}
+
+/// The `google/v1` profile's trust list, fed by a notarized reading of
+/// Google's JWKS endpoint. Google's real body is a fixture.
+contract GoogleJwtRootsTest is JwtRootsTestBase {
     // ─── What it accepts ────────────────────────────────────────────
 
     function test_aContentLengthFramedReadingInstallsTheKeys() public {
@@ -1164,10 +1171,9 @@ contract GoogleJwtRootsTest is Test {
         _refuses(_withBody(body), JwtRootsBase.UnexpectedNesting.selector);
     }
 
-    /// Each list names the host its constant pins.
-    function test_eachListNamesItsHost() public view {
+    /// The list names Google's JWKS host.
+    function test_namesItsHost() public view {
         assertEq(roots.AUTHORITY(), AUTHORITY);
-        assertEq(tgRoots.AUTHORITY(), keccak256("oauth.telegram.org"));
     }
 
     /// A request shorter than its line is refused by name.
@@ -1271,101 +1277,7 @@ contract GoogleJwtRootsTest is Test {
         );
     }
 
-    // ─── The Telegram deployment ────────────────────────────────────
-
-    /// Telegram's real body, fetched 2026-10-30 with `Accept-Encoding: identity`:
-    /// RSA `oidc-1`, then EC P-256, Ed25519 and EC secp256k1 keys.
-    string constant TELEGRAM_JWKS = "contracts/ceremony/test/fixtures/telegram-jwks.json";
-    bytes constant TG_REQUEST = "GET /.well-known/jwks.json HTTP/1.1\r\n" "host: oauth.telegram.org\r\n"
-        "connection: close\r\n" "accept-encoding: identity\r\n" "\r\n";
-    bytes32 constant TG_AUTHORITY = keccak256("oauth.telegram.org");
-    bytes constant TG_NON_RSA = '{"kty":"EC","crv":"P-256","kid":"es","x":"AQ","y":"Ag"},'
-        '{"kty":"OKP","crv":"Ed25519","kid":"ed","x":"Aw"}';
-
-    function _tgReading(bytes memory response) private view returns (bytes memory) {
-        return _attestAt(TG_AUTHORITY, TG_REQUEST, "", response);
-    }
-
-    function _attestAt(bytes32 authority, bytes memory line, bytes memory host, bytes memory response)
-        private
-        view
-        returns (bytes memory)
-    {
-        return AttestationBuilder.encode(authority, _now(), _whole(abi.encodePacked(line, host)), _whole(response));
-    }
-
-    function _rotateAt(JwtRootsBase target, bytes memory attested) private {
-        target.rotate{value: FEE}(attested, AttestationBuilder.sign(NOTARY_KEY, attested));
-    }
-
-    function _refusesAt(JwtRootsBase target, bytes memory attested, bytes memory err) private {
-        bytes memory sig = AttestationBuilder.sign(NOTARY_KEY, attested);
-        vm.expectRevert(err);
-        target.rotate{value: FEE}(attested, sig);
-    }
-
-    /// Telegram's real four-key body trusts its RSA key alone.
-    function test_telegramsRealBodyTrustsOnlyItsRsaKey() public {
-        string memory json = vm.readFile(TELEGRAM_JWKS);
-        _rotateAt(tgRoots, _tgReading(_contentLength(bytes(json))));
-        (JwtRootsBase.Generation memory current,) = tgRoots.currentKeys();
-        bytes32 rsa = hasher.hashOfB64url(vm.parseJsonString(json, ".keys[0].n"));
-        assertEq(current.moduli, _one(rsa));
-        assertEq(tgRoots.trustedHashExpiresAt(rsa), _now() + tgRoots.READING_LIFETIME());
-        assertEq(roots.trustedHashExpiresAt(rsa), 0, "the Google deployment is untouched");
-    }
-
-    /// Non-RSA keys are skipped wherever they stand, by either deployment; a
-    /// reading of non-RSA keys alone is refused.
-    function test_nonRsaKeysAreSkippedAndNeverEnough() public {
-        _refusesAt(
-            tgRoots,
-            _tgReading(_contentLength(_body(TG_NON_RSA))),
-            abi.encodeWithSelector(JwtRootsBase.EmptyKeySet.selector)
-        );
-        bytes memory body = _body(abi.encodePacked(TG_NON_RSA, ",", _jwk("oidc-1", _modulus("tg"))));
-        _rotateAt(tgRoots, _tgReading(_contentLength(body)));
-        (JwtRootsBase.Generation memory current,) = tgRoots.currentKeys();
-        assertEq(current.moduli, _one(_hash("tg")));
-        _rotate(_reading(body));
-        assertEq(_current().moduli, _one(_hash("tg")));
-    }
-
-    /// Telegram gzips unless asked not to; a gzipped reading is refused, not parsed.
-    function test_aGzippedTelegramReadingIsRefused() public {
-        bytes memory gz = hex"1f8b08000000000002034b4c4a0600c241243503000000";
-        bytes memory response = abi.encodePacked(
-            STATUS_OK, "Content-Encoding: gzip\r\nContent-Length: ", vm.toString(gz.length), "\r\n\r\n", gz
-        );
-        _refusesAt(tgRoots, _tgReading(response), abi.encodeWithSelector(JwtRootsBase.EncodedBody.selector));
-    }
-
-    /// Each deployment refuses the other's authority, request line and Host,
-    /// and accepts its own.
-    function test_eachDeploymentRefusesTheOthersEndpoint() public {
-        bytes memory body = _contentLength(_oneKey("kid-1", "one"));
-        JwtRootsBase[2] memory target = [JwtRootsBase(roots), tgRoots];
-        bytes32[2] memory own = [AUTHORITY, TG_AUTHORITY];
-        bytes[2] memory line = [CeremonyProfile.GOOGLE_JWKS_REQUEST_LINE, CeremonyProfile.TELEGRAM_JWKS_REQUEST_LINE];
-        bytes[2] memory host = [bytes("host: www.googleapis.com\r\n\r\n"), "host: oauth.telegram.org\r\n\r\n"];
-        for (uint256 i = 0; i < 2; ++i) {
-            uint256 o = 1 - i;
-            bytes memory err = abi.encodeWithSelector(JwtRootsBase.WrongAuthority.selector, own[i], own[o]);
-            _refusesAt(target[i], _attestAt(own[o], line[o], host[o], body), err);
-            err = abi.encodeWithSelector(JwtRootsBase.WrongRequestLine.selector);
-            _refusesAt(target[i], _attestAt(own[i], line[o], host[i], body), err);
-            err = abi.encodeWithSelector(JwtRootsBase.WrongHost.selector);
-            _refusesAt(target[i], _attestAt(own[i], line[i], host[o], body), err);
-            _rotateAt(target[i], _attestAt(own[i], line[i], host[i], body));
-        }
-    }
-
     // ─── Helpers ────────────────────────────────────────────────────
-
-    /// Reads the cheatcode: under via-IR, `block.timestamp` may be re-read after a `vm.warp`.
-    function _now() private view returns (uint64) {
-        return uint64(vm.getBlockTimestamp());
-    }
 
     function _slice(bytes memory data, uint256 from, uint256 to) private pure returns (bytes memory out) {
         out = new bytes(to - from);

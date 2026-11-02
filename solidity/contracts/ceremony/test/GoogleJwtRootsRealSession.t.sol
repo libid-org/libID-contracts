@@ -15,7 +15,7 @@ import {JwtRootsBase} from "../JwtRootsBase.sol";
 
 /// A reading of Google's JWKS that actually crossed the wire.
 ///
-/// `JwtRootsBase.t.sol` builds its sessions: the request is a constant, the
+/// `GoogleJwtRoots.t.sol` builds its sessions: the request is a constant, the
 /// response is framed by the test, and the notary is `vm.sign`. Every byte
 /// there is one a test author chose. This file starts from the other end: the
 /// fixture is a genuine MPC-TLS session with www.googleapis.com, captured on
