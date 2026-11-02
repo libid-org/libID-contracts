@@ -82,10 +82,6 @@ contract GooglePlatformVerifier is OidcPlatformVerifierBase {
         _g().jwtRoots = roots;
     }
 
-    function _jwtRootsAuthority() internal pure override returns (bytes32) {
-        return CeremonyProfile.AUTHORITY_GOOGLEAPIS_WWW;
-    }
-
     /// @dev The `oidc-google` circuit's verifier.
     function _circuitCodehash() internal pure override returns (bytes32) {
         return CircuitCodehashes.OIDC_GOOGLE;

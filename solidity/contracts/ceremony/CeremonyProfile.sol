@@ -240,6 +240,20 @@ library CeremonyProfile {
         revert UnknownPlatform(platformId);
     }
 
+    /// @dev The JWKS host a JWT roots list reads.
+    function jwksHost(bytes32 platformId) internal pure returns (bytes memory) {
+        if (platformId == PLATFORM_GOOGLE) return GOOGLE_JWKS_HOST;
+        if (platformId == PLATFORM_TELEGRAM) return TELEGRAM_JWKS_HOST;
+        revert UnknownPlatform(platformId);
+    }
+
+    /// @dev The JWKS request line, CRLF included.
+    function jwksRequestLine(bytes32 platformId) internal pure returns (bytes memory) {
+        if (platformId == PLATFORM_GOOGLE) return GOOGLE_JWKS_REQUEST_LINE;
+        if (platformId == PLATFORM_TELEGRAM) return TELEGRAM_JWKS_REQUEST_LINE;
+        revert UnknownPlatform(platformId);
+    }
+
     /// @dev The token session's authority.
     function tokenAuthority(bytes32 platformId) internal pure returns (bytes32) {
         if (platformId == PLATFORM_X) return AUTHORITY_X_API;

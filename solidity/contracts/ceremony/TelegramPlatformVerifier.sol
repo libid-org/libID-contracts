@@ -69,10 +69,6 @@ contract TelegramPlatformVerifier is OidcPlatformVerifierBase {
         _t().jwtRoots = roots;
     }
 
-    function _jwtRootsAuthority() internal pure override returns (bytes32) {
-        return CeremonyProfile.AUTHORITY_TELEGRAM_OAUTH;
-    }
-
     /// @dev The `oidc-telegram` circuit's verifier.
     function _circuitCodehash() internal pure override returns (bytes32) {
         return CircuitCodehashes.OIDC_TELEGRAM;

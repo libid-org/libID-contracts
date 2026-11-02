@@ -828,6 +828,21 @@ def sol_lookups(spec: Spec) -> list[str]:
             "0",
             f"In seconds: {window.bounds}",
         )
+    with_jwks = [p.platform for p in profiles if p.jwks is not None]
+    lookup(
+        "jwksHost",
+        "bytes memory",
+        [(p, f"{upper(p)}_JWKS_HOST") for p in with_jwks],
+        None,
+        "The JWKS host a JWT roots list reads.",
+    )
+    lookup(
+        "jwksRequestLine",
+        "bytes memory",
+        [(p, f"{upper(p)}_JWKS_REQUEST_LINE") for p in with_jwks],
+        None,
+        "The JWKS request line, CRLF included.",
+    )
     for session_name in SESSIONS:
         with_session = [(p.platform, s) for p in profiles if (s := p.session(session_name)) is not None]
         lookup(

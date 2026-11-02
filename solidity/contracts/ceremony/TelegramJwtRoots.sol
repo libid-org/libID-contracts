@@ -16,11 +16,7 @@ contract TelegramJwtRoots is JwtRootsBase {
         return TELEGRAM_JWT_ROOTS_STORAGE;
     }
 
-    function _jwksHost() internal pure override returns (bytes memory) {
-        return CeremonyProfile.TELEGRAM_JWKS_HOST;
-    }
-
-    function _jwksRequestLine() internal pure override returns (bytes memory) {
-        return CeremonyProfile.TELEGRAM_JWKS_REQUEST_LINE;
+    function _platform() internal pure override returns (bytes32) {
+        return CeremonyProfile.PLATFORM_TELEGRAM;
     }
 }

@@ -2,6 +2,7 @@
 pragma solidity ^0.8.24;
 
 import {CeremonyAuthorization} from "./CeremonyAuthorization.sol";
+import {CeremonyProfile} from "./CeremonyProfile.sol";
 import {IPlatformVerifier} from "./IPlatformVerifier.sol";
 import {PlatformVerifierBase} from "./PlatformVerifierBase.sol";
 
@@ -76,8 +77,6 @@ abstract contract OidcPlatformVerifierBase is IPlatformVerifier, PlatformVerifie
     /// @dev The profile's own storage for its roots list.
     function _jwtRoots() internal view virtual returns (IJwtRoots);
     function _storeJwtRoots(IJwtRoots roots) internal virtual;
-    /// @dev The `AUTHORITY` of the issuer's JWKS host the roots list must read.
-    function _jwtRootsAuthority() internal pure virtual returns (bytes32);
 
     function jwtRoots() external view returns (address) {
         return address(_jwtRoots());
@@ -93,7 +92,8 @@ abstract contract OidcPlatformVerifierBase is IPlatformVerifier, PlatformVerifie
     ///      address with no code among them, reports authority zero.
     function _setJwtRoots(IJwtRoots roots) internal {
         if (address(roots) == address(0)) revert ZeroAddress();
-        bytes32 expected = _jwtRootsAuthority();
+        // The `AUTHORITY` of the JWKS host the profile's roots list reads.
+        bytes32 expected = keccak256(CeremonyProfile.jwksHost(_platform()));
         (bool ok, bytes memory ret) = address(roots).staticcall(abi.encodeCall(IJwtRoots.AUTHORITY, ()));
         bytes32 found = ok && ret.length == 32 ? abi.decode(ret, (bytes32)) : bytes32(0);
         if (found != expected) revert WrongAuthority(expected, found);

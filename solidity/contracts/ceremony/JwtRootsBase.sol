@@ -7,6 +7,7 @@ import {Ownable2StepUpgradeable} from "@openzeppelin/contracts-upgradeable/acces
 
 import {CeremonyAttestation} from "./CeremonyAttestation.sol";
 import {CeremonyFields} from "./CeremonyFields.sol";
+import {CeremonyProfile} from "./CeremonyProfile.sol";
 import {INotaryService} from "./INotaryService.sol";
 
 /// @title JwtRootsBase - the signing keys an OIDC issuer publishes, and
@@ -120,10 +121,18 @@ abstract contract JwtRootsBase is Initializable, UUPSUpgradeable, Ownable2StepUp
 
     /// @dev The ERC-7201 root of the issuer's own namespace.
     function _storageRoot() internal pure virtual returns (bytes32);
+    /// @dev The platform whose JWKS endpoint `CeremonyProfile` names.
+    function _platform() internal view virtual returns (bytes32);
+
     /// @dev The JWKS host: the TLS server name, and the `Host` value.
-    function _jwksHost() internal view virtual returns (bytes memory);
+    function _jwksHost() private view returns (bytes memory) {
+        return CeremonyProfile.jwksHost(_platform());
+    }
+
     /// @dev The whole request line, CRLF included.
-    function _jwksRequestLine() internal view virtual returns (bytes memory);
+    function _jwksRequestLine() private view returns (bytes memory) {
+        return CeremonyProfile.jwksRequestLine(_platform());
+    }
 
     // ─── Constants ──────────────────────────────────────────────────
 
