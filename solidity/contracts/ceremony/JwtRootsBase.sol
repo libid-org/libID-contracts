@@ -283,6 +283,8 @@ abstract contract JwtRootsBase is Initializable, UUPSUpgradeable, Ownable2StepUp
     /// @param notary_ The shared Notary Service. Notary key rotation happens
     ///        THERE; this contract holds only the pointer.
     function initialize(address owner_, INotaryService notary_) external initializer {
+        // Reverts `UnknownPlatform` for a platform with no JWKS endpoint.
+        _jwksHost();
         __Ownable_init(owner_);
         __Ownable2Step_init();
         _setNotaryService(notary_);

@@ -5,6 +5,7 @@ import {Test, Vm} from "forge-std/Test.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
 import {AttestationBuilder} from "./AttestationBuilder.sol";
+import {CeremonyProfile} from "../CeremonyProfile.sol";
 import {INotaryService} from "../INotaryService.sol";
 import {NotaryService} from "../NotaryService.sol";
 import {GoogleJwtRoots} from "../GoogleJwtRoots.sol";
@@ -306,3 +307,24 @@ abstract contract JwtRootsTestBase is Test {
     }
 }
 
+/// A list for a platform with no JWKS endpoint.
+contract UnknownJwtRoots is JwtRootsBase {
+    function _storageRoot() internal pure override returns (bytes32) {
+        return bytes32(uint256(1));
+    }
+
+    function _platform() internal pure override returns (bytes32) {
+        return keccak256("unknown");
+    }
+}
+
+contract JwtRootsBaseTest is Test {
+    /// A list whose platform has no JWKS endpoint cannot be initialized.
+    function test_anUnknownPlatformIsRefusedAtInitialize() public {
+        JwtRootsBase impl = new UnknownJwtRoots();
+        vm.expectRevert(abi.encodeWithSelector(CeremonyProfile.UnknownPlatform.selector, keccak256("unknown")));
+        new ERC1967Proxy(
+            address(impl), abi.encodeCall(JwtRootsBase.initialize, (address(0xA11CE), INotaryService(address(1))))
+        );
+    }
+}
