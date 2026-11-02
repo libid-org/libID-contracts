@@ -3,8 +3,9 @@ pragma solidity ^0.8.24;
 
 import {CeremonyAuthorization} from "./CeremonyAuthorization.sol";
 import {CeremonyProfile} from "./CeremonyProfile.sol";
+import {INotaryService} from "./INotaryService.sol";
 import {IPlatformVerifier} from "./IPlatformVerifier.sol";
-import {PlatformVerifierBase} from "./PlatformVerifierBase.sol";
+import {IHonkVerifier, PlatformVerifierBase} from "./PlatformVerifierBase.sol";
 
 /// @dev The signing keys a deployment trusts, held by a JWT roots list.
 interface IJwtRoots {
@@ -74,9 +75,34 @@ abstract contract OidcPlatformVerifierBase is IPlatformVerifier, PlatformVerifie
     /// @dev An empty `clientIdentifier`, the token's `aud`.
     error MissingClientIdentifier();
 
-    /// @dev The profile's own storage for its roots list.
-    function _jwtRoots() internal view virtual returns (IJwtRoots);
-    function _storeJwtRoots(IJwtRoots roots) internal virtual;
+    /// @dev Kept at the root `_oidcStorageRoot()` names.
+    struct OidcStorage {
+        IJwtRoots jwtRoots;
+    }
+
+    /// @dev The ERC-7201 root of the profile's own namespace.
+    function _oidcStorageRoot() internal pure virtual returns (bytes32);
+
+    function _o() private pure returns (OidcStorage storage $) {
+        bytes32 root = _oidcStorageRoot();
+        assembly {
+            $.slot := root
+        }
+    }
+
+    function _jwtRoots() private view returns (IJwtRoots) {
+        return _o().jwtRoots;
+    }
+
+    function __OidcPlatformVerifierBase_init(
+        address owner_,
+        INotaryService notary_,
+        IHonkVerifier honkVerifier_,
+        IJwtRoots jwtRoots_
+    ) internal onlyInitializing {
+        __PlatformVerifierBase_init(owner_, notary_, honkVerifier_);
+        _setJwtRoots(jwtRoots_);
+    }
 
     function jwtRoots() external view returns (address) {
         return address(_jwtRoots());
@@ -97,7 +123,7 @@ abstract contract OidcPlatformVerifierBase is IPlatformVerifier, PlatformVerifie
         (bool ok, bytes memory ret) = address(roots).staticcall(abi.encodeCall(IJwtRoots.AUTHORITY, ()));
         bytes32 found = ok && ret.length == 32 ? abi.decode(ret, (bytes32)) : bytes32(0);
         if (found != expected) revert WrongAuthority(expected, found);
-        _storeJwtRoots(roots);
+        _o().jwtRoots = roots;
         emit JwtRootsChanged(address(roots));
     }
 

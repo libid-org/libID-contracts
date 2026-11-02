@@ -41,19 +41,9 @@ contract GooglePlatformVerifier is OidcPlatformVerifierBase {
         bytes proof;
     }
 
-    /// @custom:storage-location erc7201:libid.storage.GooglePlatformVerifier
-    struct GoogleStorage {
-        IJwtRoots jwtRoots;
-    }
-
+    // @custom:storage-location erc7201:libid.storage.GooglePlatformVerifier
     // keccak256(abi.encode(uint256(keccak256("libid.storage.GooglePlatformVerifier")) - 1)) & ~bytes32(uint256(0xff))
     bytes32 private constant GOOGLE_STORAGE = 0x92a7c997eeb454ceeeb8ef2d99ba7d4b830287ff966f129f9049c466a8342400;
-
-    function _g() private pure returns (GoogleStorage storage $) {
-        assembly {
-            $.slot := GOOGLE_STORAGE
-        }
-    }
 
     /// @dev `Block Time >= proofValidUntil`, where the ceiling is the signed
     ///      `exp` itself (REQ-PLAT-22).
@@ -70,16 +60,11 @@ contract GooglePlatformVerifier is OidcPlatformVerifierBase {
         external
         initializer
     {
-        __PlatformVerifierBase_init(owner_, notary_, honkVerifier_);
-        _setJwtRoots(jwtRoots_);
+        __OidcPlatformVerifierBase_init(owner_, notary_, honkVerifier_, jwtRoots_);
     }
 
-    function _jwtRoots() internal view override returns (IJwtRoots) {
-        return _g().jwtRoots;
-    }
-
-    function _storeJwtRoots(IJwtRoots roots) internal override {
-        _g().jwtRoots = roots;
+    function _oidcStorageRoot() internal pure override returns (bytes32) {
+        return GOOGLE_STORAGE;
     }
 
     /// @dev The `oidc-google` circuit's verifier.

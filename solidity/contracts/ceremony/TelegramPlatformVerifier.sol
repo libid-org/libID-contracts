@@ -44,19 +44,9 @@ contract TelegramPlatformVerifier is OidcPlatformVerifierBase {
         bytes proof;
     }
 
-    /// @custom:storage-location erc7201:libid.storage.TelegramPlatformVerifier
-    struct TelegramStorage {
-        IJwtRoots jwtRoots;
-    }
-
+    // @custom:storage-location erc7201:libid.storage.TelegramPlatformVerifier
     // keccak256(abi.encode(uint256(keccak256("libid.storage.TelegramPlatformVerifier")) - 1)) & ~bytes32(uint256(0xff))
     bytes32 private constant TELEGRAM_STORAGE = 0xdbc39b430f003c3f11a780c4bae9c4d3f473abf939613bb2f756a39264692900;
-
-    function _t() private pure returns (TelegramStorage storage $) {
-        assembly {
-            $.slot := TELEGRAM_STORAGE
-        }
-    }
 
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
@@ -68,16 +58,11 @@ contract TelegramPlatformVerifier is OidcPlatformVerifierBase {
         external
         initializer
     {
-        __PlatformVerifierBase_init(owner_, notary_, honkVerifier_);
-        _setJwtRoots(jwtRoots_);
+        __OidcPlatformVerifierBase_init(owner_, notary_, honkVerifier_, jwtRoots_);
     }
 
-    function _jwtRoots() internal view override returns (IJwtRoots) {
-        return _t().jwtRoots;
-    }
-
-    function _storeJwtRoots(IJwtRoots roots) internal override {
-        _t().jwtRoots = roots;
+    function _oidcStorageRoot() internal pure override returns (bytes32) {
+        return TELEGRAM_STORAGE;
     }
 
     /// @dev The `oidc-telegram` circuit's verifier.

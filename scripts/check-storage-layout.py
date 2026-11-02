@@ -110,7 +110,8 @@ LAYOUTS = (
         "CeremonyProofVerifier.ProofVerifierStorage",
         "PROOF_VERIFIER_STORAGE",
     ),
-    # The two JWT roots lists keep JwtRootsBase's struct, each at its own root.
+    # The two JWT roots lists keep JwtRootsBase's struct, and the two OIDC
+    # verifiers OidcPlatformVerifierBase's, each at its own root.
     Layout(
         "ceremony/GoogleJwtRoots.sol",
         ("GoogleJwtRoots",),
@@ -120,7 +121,7 @@ LAYOUTS = (
     Layout(
         "ceremony/GooglePlatformVerifier.sol",
         ("GooglePlatformVerifier",),
-        "GooglePlatformVerifier.GoogleStorage",
+        "OidcPlatformVerifierBase.OidcStorage",
         "GOOGLE_STORAGE",
     ),
     Layout(
@@ -138,7 +139,7 @@ LAYOUTS = (
     Layout(
         "ceremony/TelegramPlatformVerifier.sol",
         ("TelegramPlatformVerifier",),
-        "TelegramPlatformVerifier.TelegramStorage",
+        "OidcPlatformVerifierBase.OidcStorage",
         "TELEGRAM_STORAGE",
     ),
     # Shared by every Platform Verifier. Google and Telegram also have their own.
