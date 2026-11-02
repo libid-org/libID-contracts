@@ -39,25 +39,22 @@ async fn default_signer(provider: &impl Provider) -> Address {
     provider.get_accounts().await.expect("accounts")[0]
 }
 
-/// Deploys from the embedded artifacts as `deployer`.
-struct Driver<'a, P> {
-    provider: &'a P,
-    artifacts: &'a Artifacts,
-    deployer: Address,
-}
-
-impl<P: Provider> Driver<'_, P> {
-    /// `contract`, one of the JWT roots lists, behind a proxy the deployer
-    /// owns, reading through `notary`.
-    async fn deploy_jwt_roots(&self, contract: &str, notary: Address) -> Address {
-        let init = JwtRoots::initializeCall {
-            owner_: self.deployer,
-            notary_: notary,
-        };
-        deploy_behind_proxy(self.provider, self.artifacts, contract, &init, None)
-            .await
-            .unwrap()
-    }
+/// `contract`, one of the JWT roots lists, behind a proxy `owner` owns,
+/// reading through `notary`.
+async fn deploy_jwt_roots(
+    provider: &impl Provider,
+    artifacts: &Artifacts,
+    contract: &str,
+    owner: Address,
+    notary: Address,
+) -> Address {
+    let init = JwtRoots::initializeCall {
+        owner_: owner,
+        notary_: notary,
+    };
+    deploy_behind_proxy(provider, artifacts, contract, &init, None)
+        .await
+        .unwrap()
 }
 
 /// The identity stack in the order `script/Deploy.s.sol` uses, each behind
@@ -69,11 +66,6 @@ async fn deploys_the_identity_stack_behind_proxies() {
     let provider = test_provider();
     let artifacts = Artifacts::embedded();
     let deployer = default_signer(&provider).await;
-    let driver = Driver {
-        provider: &provider,
-        artifacts: &artifacts,
-        deployer,
-    };
     let notary_key = Address::repeat_byte(0x11);
     let fee = U256::from(1_000);
 
@@ -111,9 +103,14 @@ async fn deploys_the_identity_stack_behind_proxies() {
     .await
     .unwrap();
 
-    let roots_proxy = driver
-        .deploy_jwt_roots("GoogleJwtRoots", notary_proxy)
-        .await;
+    let roots_proxy = deploy_jwt_roots(
+        &provider,
+        &artifacts,
+        "GoogleJwtRoots",
+        deployer,
+        notary_proxy,
+    )
+    .await;
 
     // Wire the registry to the Proof Verifier it dispatches through.
     let registry = IdentityRegistry::new(registry_proxy, &provider);
@@ -183,11 +180,6 @@ async fn deploys_and_upgrades_the_jwt_roots_lists() {
     let provider = test_provider();
     let artifacts = Artifacts::embedded();
     let deployer = default_signer(&provider).await;
-    let driver = Driver {
-        provider: &provider,
-        artifacts: &artifacts,
-        deployer,
-    };
     let notary_proxy = deploy_behind_proxy(
         &provider,
         &artifacts,
@@ -202,12 +194,22 @@ async fn deploys_and_upgrades_the_jwt_roots_lists() {
     .await
     .unwrap();
 
-    let google_proxy = driver
-        .deploy_jwt_roots("GoogleJwtRoots", notary_proxy)
-        .await;
-    let telegram_proxy = driver
-        .deploy_jwt_roots("TelegramJwtRoots", notary_proxy)
-        .await;
+    let google_proxy = deploy_jwt_roots(
+        &provider,
+        &artifacts,
+        "GoogleJwtRoots",
+        deployer,
+        notary_proxy,
+    )
+    .await;
+    let telegram_proxy = deploy_jwt_roots(
+        &provider,
+        &artifacts,
+        "TelegramJwtRoots",
+        deployer,
+        notary_proxy,
+    )
+    .await;
     let google = GoogleJwtRoots::new(google_proxy, &provider);
     let telegram = JwtRoots::new(telegram_proxy, &provider);
     let authority = google.AUTHORITY().call().await.unwrap();
@@ -498,11 +500,6 @@ async fn deploys_and_initializes_every_platform_verifier() {
     let provider = test_provider();
     let artifacts = Artifacts::embedded();
     let deployer = default_signer(&provider).await;
-    let driver = Driver {
-        provider: &provider,
-        artifacts: &artifacts,
-        deployer,
-    };
     let fee = U256::from(1_000);
 
     let notary_proxy = deploy_behind_proxy(
@@ -527,12 +524,22 @@ async fn deploys_and_initializes_every_platform_verifier() {
     )
     .await
     .unwrap();
-    let roots_proxy = driver
-        .deploy_jwt_roots("GoogleJwtRoots", notary_proxy)
-        .await;
-    let telegram_roots_proxy = driver
-        .deploy_jwt_roots("TelegramJwtRoots", notary_proxy)
-        .await;
+    let roots_proxy = deploy_jwt_roots(
+        &provider,
+        &artifacts,
+        "GoogleJwtRoots",
+        deployer,
+        notary_proxy,
+    )
+    .await;
+    let telegram_roots_proxy = deploy_jwt_roots(
+        &provider,
+        &artifacts,
+        "TelegramJwtRoots",
+        deployer,
+        notary_proxy,
+    )
+    .await;
     // The real verifiers, one per circuit.
     let bearer_link =
         deploy_honk_verifier(&provider, &artifacts, Circuit::BearerLink, None)
