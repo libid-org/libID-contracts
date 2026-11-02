@@ -45,27 +45,6 @@ pub use proof_verifier::CeremonyProofVerifier;
     non_camel_case_types,
     unused_attributes
 )]
-mod google_jwt_roots {
-    alloy::sol!(
-        #[sol(rpc, all_derives)]
-        GoogleJwtRoots,
-        "abi/GoogleJwtRoots.json"
-    );
-}
-
-/// `ceremony/GoogleJwtRoots.sol`: the Google signing keys the `google/v1`
-/// verifier trusts, two generations of a notarized JWKS reading.
-pub use google_jwt_roots::GoogleJwtRoots;
-/// `ceremony/JwtRootsBase.sol`'s types: `Generation`, as `currentKeys`
-/// returns it.
-pub use google_jwt_roots::JwtRootsBase;
-
-#[allow(
-    clippy::too_many_arguments,
-    missing_docs,
-    non_camel_case_types,
-    unused_attributes
-)]
 mod jwt_roots {
     alloy::sol!(
         #[sol(rpc, all_derives)]
@@ -77,6 +56,12 @@ mod jwt_roots {
 /// Any `ceremony/JwtRootsBase.sol` list, `TelegramJwtRoots` among them,
 /// bound from the base's ABI.
 pub use jwt_roots::JwtRoots;
+/// `ceremony/GoogleJwtRoots.sol`: the Google signing keys the `google/v1`
+/// verifier trusts, two generations of a notarized JWKS reading.
+pub use jwt_roots::JwtRoots as GoogleJwtRoots;
+/// `ceremony/JwtRootsBase.sol`'s types: `Generation`, as `currentKeys`
+/// returns it.
+pub use jwt_roots::JwtRootsBase;
 
 #[allow(
     clippy::too_many_arguments,
