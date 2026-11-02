@@ -487,10 +487,9 @@ async fn deploys_and_initializes_every_platform_verifier() {
         platform_verifier::{
             codehash_at,
             deploy_platform_verifier,
-            GoogleRoots,
             Initializer,
+            OidcRoots,
             PlatformVerifier,
-            TelegramRoots,
             TlsNotaryRoots,
         },
         Error,
@@ -569,7 +568,7 @@ async fn deploys_and_initializes_every_platform_verifier() {
         notary_service: notary_proxy,
         honk_verifier,
     };
-    let google = GoogleRoots {
+    let google = OidcRoots {
         owner: deployer,
         honk_verifier: oidc_google,
         jwt_roots: roots_proxy,
@@ -581,7 +580,7 @@ async fn deploys_and_initializes_every_platform_verifier() {
         Initializer::X(tls(bearer_link)),
         Initializer::GitHub(tls(bearer_link)),
         Initializer::Google(google),
-        Initializer::Telegram(TelegramRoots {
+        Initializer::Telegram(OidcRoots {
             owner: deployer,
             honk_verifier: oidc_telegram,
             jwt_roots: telegram_roots_proxy,

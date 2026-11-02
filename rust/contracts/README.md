@@ -114,7 +114,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         deploy_honk_verifier(&provider, &artifacts, PlatformVerifier::X.circuit(), None).await?;
 
     // `x/v1` notarizes two sessions, so it needs a Notary Service.
-    // `Initializer::Google` takes `GoogleRoots`: the JWT root list instead.
+    // `Initializer::Google` takes `OidcRoots`: the JWT root list instead.
     let verifier = deploy_platform_verifier(
         &provider,
         &artifacts,

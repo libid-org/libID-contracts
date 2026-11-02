@@ -188,27 +188,16 @@ pub struct TlsNotaryRoots {
     pub honk_verifier: Address,
 }
 
-/// What the Google Platform Verifier initializes with. The base refuses a
-/// Notary Service for this profile.
+/// What an OIDC Platform Verifier (`google/v1`, `telegram/v1`) initializes
+/// with. The base refuses a Notary Service for these profiles.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct GoogleRoots {
+pub struct OidcRoots {
     /// Governance.
     pub owner: Address,
-    /// The bb-generated UltraHonk verifier for the Google OIDC circuit.
+    /// The bb-generated UltraHonk verifier for this platform's OIDC circuit.
     pub honk_verifier: Address,
-    /// The `GoogleJwtRoots` proxy the trusted moduli are read through.
-    pub jwt_roots: Address,
-}
-
-/// What the Telegram Platform Verifier initializes with. The base refuses a
-/// Notary Service for this profile.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct TelegramRoots {
-    /// Governance.
-    pub owner: Address,
-    /// The bb-generated UltraHonk verifier for the Telegram OIDC circuit.
-    pub honk_verifier: Address,
-    /// The `TelegramJwtRoots` proxy the trusted moduli are read through.
+    /// The platform's JWT roots proxy (`GoogleJwtRoots`, `TelegramJwtRoots`)
+    /// the trusted moduli are read through.
     pub jwt_roots: Address,
 }
 
@@ -220,9 +209,9 @@ pub enum Initializer {
     /// `GitHubPlatformVerifier`.
     GitHub(TlsNotaryRoots),
     /// `GooglePlatformVerifier`.
-    Google(GoogleRoots),
+    Google(OidcRoots),
     /// `TelegramPlatformVerifier`.
-    Telegram(TelegramRoots),
+    Telegram(OidcRoots),
 }
 
 /// A built `initialize` call. Its [`abi_encode`](Self::abi_encode) is an
@@ -267,8 +256,7 @@ impl Initializer {
     pub const fn honk_verifier(&self) -> Address {
         match self {
             Self::X(roots) | Self::GitHub(roots) => roots.honk_verifier,
-            Self::Google(roots) => roots.honk_verifier,
-            Self::Telegram(roots) => roots.honk_verifier,
+            Self::Google(roots) | Self::Telegram(roots) => roots.honk_verifier,
         }
     }
 
@@ -300,12 +288,7 @@ impl Initializer {
                 }
                 Ok(())
             }
-            Self::Google(roots) => {
-                nonzero("owner", roots.owner)?;
-                nonzero("honk verifier", roots.honk_verifier)?;
-                nonzero("jwt roots", roots.jwt_roots)
-            }
-            Self::Telegram(roots) => {
+            Self::Google(roots) | Self::Telegram(roots) => {
                 nonzero("owner", roots.owner)?;
                 nonzero("honk verifier", roots.honk_verifier)?;
                 nonzero("jwt roots", roots.jwt_roots)
@@ -420,8 +403,8 @@ mod tests {
         }
     }
 
-    fn google() -> GoogleRoots {
-        GoogleRoots {
+    fn google() -> OidcRoots {
+        OidcRoots {
             owner: Address::repeat_byte(0x01),
             honk_verifier: Address::repeat_byte(0x03),
             jwt_roots: Address::repeat_byte(0x04),
@@ -479,8 +462,8 @@ mod tests {
         Initializer::Telegram(telegram()).check().unwrap();
     }
 
-    fn telegram() -> TelegramRoots {
-        TelegramRoots {
+    fn telegram() -> OidcRoots {
+        OidcRoots {
             owner: Address::repeat_byte(0x01),
             honk_verifier: Address::repeat_byte(0x03),
             jwt_roots: Address::repeat_byte(0x04),
@@ -535,42 +518,42 @@ mod tests {
                 "honk verifier",
             ),
             (
-                Initializer::Google(GoogleRoots {
+                Initializer::Google(OidcRoots {
                     owner: Address::ZERO,
                     ..google()
                 }),
                 "owner",
             ),
             (
-                Initializer::Google(GoogleRoots {
+                Initializer::Google(OidcRoots {
                     honk_verifier: Address::ZERO,
                     ..google()
                 }),
                 "honk verifier",
             ),
             (
-                Initializer::Google(GoogleRoots {
+                Initializer::Google(OidcRoots {
                     jwt_roots: Address::ZERO,
                     ..google()
                 }),
                 "jwt roots",
             ),
             (
-                Initializer::Telegram(TelegramRoots {
+                Initializer::Telegram(OidcRoots {
                     owner: Address::ZERO,
                     ..telegram()
                 }),
                 "owner",
             ),
             (
-                Initializer::Telegram(TelegramRoots {
+                Initializer::Telegram(OidcRoots {
                     honk_verifier: Address::ZERO,
                     ..telegram()
                 }),
                 "honk verifier",
             ),
             (
-                Initializer::Telegram(TelegramRoots {
+                Initializer::Telegram(OidcRoots {
                     jwt_roots: Address::ZERO,
                     ..telegram()
                 }),
