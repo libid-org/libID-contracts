@@ -75,6 +75,7 @@ ABIS=(
     "NotaryService:NotaryService"
     "CeremonyProofVerifier:CeremonyProofVerifier"
     "GoogleJwtRoots:GoogleJwtRoots"
+    "JwtRootsBase:JwtRootsBase"
     "IPlatformVerifier:IPlatformVerifier"
     "PlatformVerifierBase:PlatformVerifierBase"
     "XPlatformVerifier:XPlatformVerifier"
