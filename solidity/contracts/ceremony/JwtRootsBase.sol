@@ -424,8 +424,8 @@ abstract contract JwtRootsBase is Initializable, UUPSUpgradeable, Ownable2StepUp
     ///
     ///      The `Host` count is the whole of the virtual-host pin, so it gets
     ///      every guard the bearer-header count gets, in the same order. The
-    ///      notary vouches that these bytes crossed a TLS session to
-    ///      www.googleapis.com and nothing about their HTTP shape; the prover
+    ///      notary vouches that these bytes crossed a TLS session to the
+    ///      issuer's JWKS host and nothing about their HTTP shape; the prover
     ///      chose them. Google's front end honours a `Host` line that only a
     ///      bare LF separates from the one before it, and routes to that
     ///      backend -- so a count that anchors on CRLF must first insist the

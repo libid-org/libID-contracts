@@ -2,8 +2,9 @@
 # Vendor the ceremony circuits' UltraHonk verifiers from the pinned
 # libid-circuits release into solidity/contracts/circuits/<Contract>.sol:
 #
-#   bearer-link  ->  BearerLinkHonkVerifier.sol  (the x and github profiles)
-#   oidc-google  ->  OidcGoogleHonkVerifier.sol  (the google profile)
+#   bearer-link    ->  BearerLinkHonkVerifier.sol    (the x and github profiles)
+#   oidc-google    ->  OidcGoogleHonkVerifier.sol    (the google profile)
+#   oidc-telegram  ->  OidcTelegramHonkVerifier.sol  (the telegram profile)
 #
 # and, beside them, the platform table the circuits were built from:
 # platforms.json (each platform's node tags, buffers and id shape) and

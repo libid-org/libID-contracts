@@ -84,9 +84,10 @@ contract Deploy is Script {
         console.log("      CeremonyProofVerifier.setVerifier once the ceremony");
         console.log("      circuit artifacts are released. Until then no");
         console.log("      platform can bind.");
-        // Until the first JWKS reading lands, every Google binding reverts `UntrustedModulus`.
-        console.log("NOTE: point the keeper at GOOGLE_JWT_ROOTS_ADDRESS and");
-        console.log("      TELEGRAM_JWT_ROOTS_ADDRESS before Google and Telegram");
-        console.log("      bindings work. The trust lists start empty.");
+        // Until a list's first JWKS reading lands, every binding it serves reverts `UntrustedModulus`.
+        console.log("NOTE: point the keeper at GOOGLE_JWT_ROOTS_ADDRESS before");
+        console.log("      Google bindings work. The trust lists start empty, and");
+        console.log("      no keeper reads Telegram's JWKS yet, so every Telegram");
+        console.log("      binding reverts until TELEGRAM_JWT_ROOTS_ADDRESS holds a key.");
     }
 }
