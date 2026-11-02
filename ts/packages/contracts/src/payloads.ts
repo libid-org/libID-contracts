@@ -105,7 +105,7 @@ export type GooglePublicInputMismatch = OidcPublicInputMismatch
 /// The payload fields from the prover's 57 OIDC public inputs
 /// (REQ-PLAT-16B), after checking the digest the token's `nonce` carried and
 /// the audience against what the verifier builds them from. The audience is
-/// Google's `clientIdentifier` or Telegram's bot id; `time` names the signed
+/// the payload's `clientIdentifier`; `time` names the signed
 /// time the circuit exposes.
 export function oidcProofFields<T extends OidcTimeField>(
   publicInputs: readonly Hex[],

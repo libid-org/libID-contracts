@@ -1,5 +1,5 @@
 # TelegramPlatformVerifier storage layout. Checked in CI by scripts/check-storage-layout.py.
 # Fields may only be APPENDED. Record an append with --update; see the script.
+# Reset for a redeploy, not an upgrade: the bot id moved from storage into the payload before any deployment
 root erc7201:libid.storage.TelegramPlatformVerifier 0xdbc39b430f003c3f11a780c4bae9c4d3f473abf939613bb2f756a39264692900
 field slot=0 offset=0 jwtRoots: contract IJwtRoots
-field slot=1 offset=0 botId: bytes

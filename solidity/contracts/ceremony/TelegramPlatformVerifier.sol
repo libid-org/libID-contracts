@@ -15,7 +15,7 @@ import {IHonkVerifier} from "./PlatformVerifierBase.sol";
 ///         session and no fee.
 ///
 /// @dev Google's input layout with `iat` in `exp`'s place. The audience is
-///      the configured bot id, never a caller's. `iat` is the validity
+///      the payload's `clientIdentifier`, the bot id. `iat` is the validity
 ///      anchor, and `metadataObservedAt` is `iat` on the shared scale.
 ///      A token outside its window reverts the shared `AttestationAhead` or
 ///      `ProofExpired`, whose `createdAt` and `validUntil` count from `iat`.
@@ -27,6 +27,7 @@ contract TelegramPlatformVerifier is OidcPlatformVerifierBase {
         bytes32 operationDomain;
         bytes32 authorizationNonce;
         bytes transactionData;
+        bytes clientIdentifier;
         bytes32 idNode;
         bytes32 handleNode;
         uint64 iat;
@@ -37,8 +38,6 @@ contract TelegramPlatformVerifier is OidcPlatformVerifierBase {
     /// @custom:storage-location erc7201:libid.storage.TelegramPlatformVerifier
     struct TelegramStorage {
         IJwtRoots jwtRoots;
-        /// The bot id the token's `aud` must be.
-        bytes botId;
     }
 
     // keccak256(abi.encode(uint256(keccak256("libid.storage.TelegramPlatformVerifier")) - 1)) & ~bytes32(uint256(0xff))
@@ -56,21 +55,12 @@ contract TelegramPlatformVerifier is OidcPlatformVerifierBase {
     }
 
     /// @dev `notary_` must be zero (REQ-COMMON-05D).
-    function initialize(
-        address owner_,
-        INotaryService notary_,
-        IHonkVerifier honkVerifier_,
-        IJwtRoots jwtRoots_,
-        bytes calldata botId_
-    ) external initializer {
+    function initialize(address owner_, INotaryService notary_, IHonkVerifier honkVerifier_, IJwtRoots jwtRoots_)
+        external
+        initializer
+    {
         __PlatformVerifierBase_init(owner_, notary_, honkVerifier_);
         _setJwtRoots(jwtRoots_);
-        if (botId_.length == 0) revert MissingClientIdentifier();
-        _t().botId = botId_;
-    }
-
-    function botId() external view returns (bytes memory) {
-        return _t().botId;
     }
 
     function _jwtRoots() internal view override returns (IJwtRoots) {
@@ -102,15 +92,17 @@ contract TelegramPlatformVerifier is OidcPlatformVerifierBase {
         uint16 version = _requireCeremonyVersion(p.ceremonyVersion);
         bytes32 digest =
             CeremonyAuthorization.digest(p.operationDomain, version, p.authorizationNonce, p.transactionData);
+        if (p.clientIdentifier.length == 0) revert MissingClientIdentifier();
         _requireTrustedModulus(p.modulus);
 
         uint64 observedAt = _requireFresh(p.iat);
-        bytes memory bot = _t().botId;
-        _requireProof(p.proof, _oidcInputs(digest, sha256(bot), p.idNode, p.handleNode, p.iat, p.modulus));
+        _requireProof(
+            p.proof, _oidcInputs(digest, sha256(p.clientIdentifier), p.idNode, p.handleNode, p.iat, p.modulus)
+        );
         claimed.idNode = p.idNode;
         claimed.handleNode = p.handleNode;
         claimed.metadataObservedAt = observedAt;
-        claimed.clientIdentifier = bot;
+        claimed.clientIdentifier = p.clientIdentifier;
         claimed.sessionId = digest;
         claimed.operationDomain = p.operationDomain;
         claimed.transactionData = p.transactionData;

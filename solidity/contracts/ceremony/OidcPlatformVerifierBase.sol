@@ -53,7 +53,7 @@ abstract contract OidcPlatformVerifierBase is IPlatformVerifier, PlatformVerifie
 
     /// @dev The signing key is not trusted now (REQ-PLAT-23).
     error UntrustedModulus(bytes32 modulusHash);
-    /// @dev An empty audience: Google's `clientIdentifier`, Telegram's bot id.
+    /// @dev An empty `clientIdentifier`, the token's `aud`.
     error MissingClientIdentifier();
 
     /// @dev The profile's own storage for its roots list.

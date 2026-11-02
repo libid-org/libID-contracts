@@ -11,7 +11,6 @@ use alloy::{
     primitives::{
         keccak256,
         Address,
-        Bytes,
         B256,
     },
     providers::Provider,
@@ -203,7 +202,7 @@ pub struct GoogleRoots {
 
 /// What the Telegram Platform Verifier initializes with. The base refuses a
 /// Notary Service for this profile.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct TelegramRoots {
     /// Governance.
     pub owner: Address,
@@ -211,8 +210,6 @@ pub struct TelegramRoots {
     pub honk_verifier: Address,
     /// The `TelegramJwtRoots` proxy the trusted moduli are read through.
     pub jwt_roots: Address,
-    /// The bot id a token's `aud` must be.
-    pub bot_id: Bytes,
 }
 
 /// What one Platform Verifier is initialized with.
@@ -277,7 +274,7 @@ impl Initializer {
 
     /// The rules `initialize` enforces that need no chain: a nonzero owner
     /// and Honk verifier, a Notary Service for a TLSNotary profile, a root
-    /// list for Google and Telegram, and Telegram's bot id. [`deploy_platform_verifier`] checks the code hash.
+    /// list for Google and Telegram. [`deploy_platform_verifier`] checks the code hash.
     pub fn check(&self) -> Result<()> {
         let contract = self.verifier().contract();
         let refuse = |detail: String| Error::Initializer {
@@ -311,11 +308,7 @@ impl Initializer {
             Self::Telegram(roots) => {
                 nonzero("owner", roots.owner)?;
                 nonzero("honk verifier", roots.honk_verifier)?;
-                nonzero("jwt roots", roots.jwt_roots)?;
-                if roots.bot_id.is_empty() {
-                    return Err(refuse("bot id is empty".into()));
-                }
-                Ok(())
+                nonzero("jwt roots", roots.jwt_roots)
             }
         }
     }
@@ -351,7 +344,6 @@ impl Initializer {
                     notary_: Address::ZERO,
                     honkVerifier_: roots.honk_verifier,
                     jwtRoots_: roots.jwt_roots,
-                    botId_: roots.bot_id.clone(),
                 })
             }
         })
@@ -492,31 +484,7 @@ mod tests {
             owner: Address::repeat_byte(0x01),
             honk_verifier: Address::repeat_byte(0x03),
             jwt_roots: Address::repeat_byte(0x04),
-            bot_id: Bytes::from_static(b"7000000001"),
         }
-    }
-
-    /// Telegram's root list, Honk verifier and bot id are each required.
-    #[test]
-    fn a_telegram_initializer_needs_each_of_its_fields() {
-        let mut cases = [telegram(), telegram(), telegram()];
-        cases[0].jwt_roots = Address::ZERO;
-        cases[1].honk_verifier = Address::ZERO;
-        cases[2].bot_id = Bytes::new();
-        for (roots, what) in
-            cases
-                .into_iter()
-                .zip(["jwt roots", "honk verifier", "bot id"])
-        {
-            let err = Initializer::Telegram(roots).check().unwrap_err();
-            assert!(err.to_string().contains(what), "{what}: {err}");
-        }
-        let call = Initializer::Telegram(telegram())
-            .call()
-            .unwrap()
-            .abi_encode();
-        let d = TelegramPlatformVerifier::initializeCall::abi_decode(&call).unwrap();
-        assert_eq!((d.notary_, d.botId_), (Address::ZERO, telegram().bot_id));
     }
 
     #[test]
@@ -534,7 +502,7 @@ mod tests {
 
     #[test]
     fn zero_addresses_are_refused() {
-        let cases: [(Initializer, &str); 5] = [
+        let cases: [(Initializer, &str); 8] = [
             (
                 Initializer::X(TlsNotaryRoots {
                     owner: Address::ZERO,
@@ -567,6 +535,27 @@ mod tests {
                 Initializer::Google(GoogleRoots {
                     jwt_roots: Address::ZERO,
                     ..google()
+                }),
+                "jwt roots",
+            ),
+            (
+                Initializer::Telegram(TelegramRoots {
+                    owner: Address::ZERO,
+                    ..telegram()
+                }),
+                "owner",
+            ),
+            (
+                Initializer::Telegram(TelegramRoots {
+                    honk_verifier: Address::ZERO,
+                    ..telegram()
+                }),
+                "honk verifier",
+            ),
+            (
+                Initializer::Telegram(TelegramRoots {
+                    jwt_roots: Address::ZERO,
+                    ..telegram()
                 }),
                 "jwt roots",
             ),

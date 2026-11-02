@@ -133,6 +133,7 @@ describe('encodeTelegramProof', () => {
       operationDomain: `0x${'11'.repeat(32)}`,
       authorizationNonce: `0x${'22'.repeat(32)}`,
       transactionData: '0x0102',
+      clientIdentifier: '0x37303030303030303031',
       idNode: `0x${'33'.repeat(32)}`,
       handleNode: `0x${'44'.repeat(32)}`,
       iat: 1_800_000_000n,

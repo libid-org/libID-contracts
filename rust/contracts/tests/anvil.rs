@@ -591,7 +591,6 @@ async fn deploys_and_initializes_every_platform_verifier() {
             owner: deployer,
             honk_verifier: oidc_telegram,
             jwt_roots: telegram_roots_proxy,
-            bot_id: b"7000000001".into(),
         }),
     ] {
         let verifier = init.verifier();
@@ -676,7 +675,6 @@ async fn deploys_and_initializes_every_platform_verifier() {
                 assert_eq!(v.notaryService().call().await.unwrap(), Address::ZERO);
                 assert_eq!(v.circuitCodehash().call().await.unwrap(), honk_codehash);
                 assert_eq!(v.jwtRoots().call().await.unwrap(), telegram_roots_proxy);
-                assert_eq!(&v.botId().call().await.unwrap()[..], b"7000000001");
                 let params = v.protocolParameters().call().await.unwrap();
                 assert_eq!(
                     (

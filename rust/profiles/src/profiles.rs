@@ -178,7 +178,7 @@ pub const GITHUB: Profile = Profile {
 
 /// Like Google, the evidence is a token signed with the platform's published
 /// keys, so the profile notarizes nothing. The audience is the bot id the
-/// verifier is configured with.
+/// payload names, and any bot is admitted (REQ-COMMON-17C).
 pub const TELEGRAM: Profile = Profile {
     platform: "telegram",
     ceremony_version: 1,

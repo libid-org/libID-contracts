@@ -39,23 +39,17 @@ contract TelegramPlatformVerifierTest is Test {
         vm.warp(IAT);
         roots = new TrustingJwtRoots(CeremonyProfile.AUTHORITY_TELEGRAM_OAUTH);
         honk = HonkStub.deploy(HonkStub.TELEGRAM);
-        verifier = _deploy(honk, address(roots), BOT_ID);
+        verifier = _deploy(honk, address(roots));
         roots.trust(keccak256(abi.encodePacked(_modulus())), IAT + 30 days);
     }
 
-    function _initData(address notary, address honk_, address roots_, bytes memory botId)
-        private
-        pure
-        returns (bytes memory)
-    {
-        return abi.encodeWithSelector(TelegramPlatformVerifier.initialize.selector, OWNER, notary, honk_, roots_, botId);
+    function _initData(address notary, address honk_, address roots_) private pure returns (bytes memory) {
+        return abi.encodeWithSelector(TelegramPlatformVerifier.initialize.selector, OWNER, notary, honk_, roots_);
     }
 
-    function _deploy(address honk_, address roots_, bytes memory botId) private returns (TelegramPlatformVerifier) {
+    function _deploy(address honk_, address roots_) private returns (TelegramPlatformVerifier) {
         return TelegramPlatformVerifier(
-            address(
-                new ERC1967Proxy(address(new TelegramPlatformVerifier()), _initData(address(0), honk_, roots_, botId))
-            )
+            address(new ERC1967Proxy(address(new TelegramPlatformVerifier()), _initData(address(0), honk_, roots_)))
         );
     }
 
@@ -74,6 +68,7 @@ contract TelegramPlatformVerifierTest is Test {
         s.operationDomain = DOMAIN;
         s.authorizationNonce = AUTH_NONCE;
         s.transactionData = _txData();
+        s.clientIdentifier = BOT_ID;
         s.idNode = ID_NODE;
         s.handleNode = HANDLE_NODE;
         s.iat = IAT;
@@ -105,17 +100,15 @@ contract TelegramPlatformVerifierTest is Test {
         assertEq(pv.verify(keccak256("telegram"), 1, abi.encode(_payload())).idNode, ID_NODE);
     }
 
-    /// The Google circuit's verifier is not the Telegram circuit's; a notary
-    /// and an empty bot id are refused.
+    /// The Google circuit's verifier is not the Telegram circuit's, and a
+    /// notary is refused.
     function test_refusesAnotherCircuitAndANotary() public {
         address google = HonkStub.deploy(HonkStub.GOOGLE);
         address impl = address(new TelegramPlatformVerifier());
         vm.expectPartialRevert(PlatformVerifierBase.WrongCircuit.selector);
-        new ERC1967Proxy(impl, _initData(address(0), google, address(roots), BOT_ID));
+        new ERC1967Proxy(impl, _initData(address(0), google, address(roots)));
         vm.expectPartialRevert(PlatformVerifierBase.WrongNotaryForProfile.selector);
-        new ERC1967Proxy(impl, _initData(address(0xDEAD), honk, address(roots), BOT_ID));
-        vm.expectRevert(OidcPlatformVerifierBase.MissingClientIdentifier.selector);
-        new ERC1967Proxy(impl, _initData(address(0), honk, address(roots), ""));
+        new ERC1967Proxy(impl, _initData(address(0xDEAD), honk, address(roots)));
     }
 
     // ─── Time: iat - 5 min <= now < iat + 1 h ───────────────────────
@@ -144,7 +137,7 @@ contract TelegramPlatformVerifierTest is Test {
 
     function test_rejectsAnUntrustedOrLapsedModulus() public {
         TrustingJwtRoots other = new TrustingJwtRoots(CeremonyProfile.AUTHORITY_TELEGRAM_OAUTH);
-        TelegramPlatformVerifier v = _deploy(honk, address(other), BOT_ID);
+        TelegramPlatformVerifier v = _deploy(honk, address(other));
         vm.expectPartialRevert(OidcPlatformVerifierBase.UntrustedModulus.selector);
         this.run(v, _payload());
         bytes32 h = keccak256(abi.encodePacked(_modulus()));
@@ -157,12 +150,12 @@ contract TelegramPlatformVerifierTest is Test {
 
     // ─── The real proof ─────────────────────────────────────────────
 
-    function _realProof(bytes memory botId)
+    function _realProof()
         private
         returns (TelegramPlatformVerifier real, TelegramPlatformVerifier.TelegramProof memory s)
     {
         string memory json = vm.readFile(FIXTURE);
-        real = _deploy(vm.deployCode(HonkStub.TELEGRAM), address(roots), botId);
+        real = _deploy(vm.deployCode(HonkStub.TELEGRAM), address(roots));
         bytes32[] memory pi = vm.parseJsonBytes32Array(json, ".public_inputs");
         s = _payload();
         s.iat = uint64(uint256(pi[38]));
@@ -176,7 +169,7 @@ contract TelegramPlatformVerifierTest is Test {
     }
 
     function test_verifiesARealProof() public {
-        (TelegramPlatformVerifier real, TelegramPlatformVerifier.TelegramProof memory s) = _realProof(BOT_ID);
+        (TelegramPlatformVerifier real, TelegramPlatformVerifier.TelegramProof memory s) = _realProof();
         ICeremony.VerifiedClaim memory c = real.verify(abi.encode(s));
         assertEq(c.idNode, ID_NODE);
         assertEq(c.handleNode, HANDLE_NODE);
@@ -210,18 +203,19 @@ contract TelegramPlatformVerifierTest is Test {
     }
 
     /// Every value the verifier builds an input from is bound: digest parts,
-    /// nodes, iat, the configured bot id.
+    /// nodes, iat, the bot id.
     function test_refusesTheRealProofUnderAnyOtherValue() public {
         TelegramPlatformVerifier real;
         TelegramPlatformVerifier.TelegramProof memory s;
         for (uint256 i = 0; i < 7; ++i) {
-            (real, s) = _realProof(i == 6 ? bytes("7000000002") : BOT_ID);
+            (real, s) = _realProof();
             if (i == 0) s.authorizationNonce ^= bytes32(uint256(1));
             if (i == 1) s.transactionData = abi.encode(address(0xCAFE));
             if (i == 2) s.operationDomain = keccak256("libid.other");
             if (i == 3) s.idNode ^= bytes32(uint256(1));
             if (i == 4) s.handleNode ^= bytes32(uint256(1));
             if (i == 5) s.iat = REAL_IAT - 1;
+            if (i == 6) s.clientIdentifier = "7000000002";
             (bool ok,) = address(real).call{gas: 5_000_000}(abi.encodeCall(real.verify, (abi.encode(s))));
             assertFalse(ok, vm.toString(i));
         }

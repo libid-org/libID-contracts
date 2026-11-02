@@ -317,6 +317,7 @@ mod tests {
             operationDomain: B256::repeat_byte(0x11),
             authorizationNonce: B256::repeat_byte(0x22),
             transactionData: vec![1, 2].into(),
+            clientIdentifier: b"7000000001".to_vec().into(),
             idNode: B256::repeat_byte(0x33),
             handleNode: B256::repeat_byte(0x44),
             iat: 1_800_000_000,
