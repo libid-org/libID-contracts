@@ -487,6 +487,23 @@ mod tests {
         }
     }
 
+    /// The Telegram call carries each field, and no Notary Service.
+    #[test]
+    fn a_telegram_initializer_encodes_its_fields() {
+        let roots = telegram();
+        let call = Initializer::Telegram(roots).call().unwrap().abi_encode();
+        let d = TelegramPlatformVerifier::initializeCall::abi_decode(&call).unwrap();
+        assert_eq!(
+            (d.owner_, d.notary_, d.honkVerifier_, d.jwtRoots_),
+            (
+                roots.owner,
+                Address::ZERO,
+                roots.honk_verifier,
+                roots.jwt_roots
+            )
+        );
+    }
+
     #[test]
     fn a_tls_notary_profile_must_pin_a_notary_service() {
         let err = Initializer::GitHub(TlsNotaryRoots {
