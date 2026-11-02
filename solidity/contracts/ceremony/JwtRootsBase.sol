@@ -122,15 +122,15 @@ abstract contract JwtRootsBase is Initializable, UUPSUpgradeable, Ownable2StepUp
     /// @dev The ERC-7201 root of the issuer's own namespace.
     function _storageRoot() internal pure virtual returns (bytes32);
     /// @dev The platform whose JWKS endpoint `CeremonyProfile` names.
-    function _platform() internal view virtual returns (bytes32);
+    function _platform() internal pure virtual returns (bytes32);
 
     /// @dev The JWKS host: the TLS server name, and the `Host` value.
-    function _jwksHost() private view returns (bytes memory) {
+    function _jwksHost() private pure returns (bytes memory) {
         return CeremonyProfile.jwksHost(_platform());
     }
 
     /// @dev The whole request line, CRLF included.
-    function _jwksRequestLine() private view returns (bytes memory) {
+    function _jwksRequestLine() private pure returns (bytes memory) {
         return CeremonyProfile.jwksRequestLine(_platform());
     }
 
@@ -276,7 +276,7 @@ abstract contract JwtRootsBase is Initializable, UUPSUpgradeable, Ownable2StepUp
     /// @notice The TLS server name the notary must have authenticated:
     ///         keccak256 of `_jwksHost()`.
     // forge-lint: disable-next-line(mixed-case-function)
-    function AUTHORITY() public view returns (bytes32) {
+    function AUTHORITY() public pure returns (bytes32) {
         return keccak256(_jwksHost());
     }
 
@@ -432,7 +432,7 @@ abstract contract JwtRootsBase is Initializable, UUPSUpgradeable, Ownable2StepUp
     ///      bare LF separates from the one before it, and routes to that
     ///      backend -- so a count that anchors on CRLF must first insist the
     ///      request has no other kind of line ending.
-    function _requireJwksRequest(CeremonyAttestation.DirectionBlock memory block_, uint32 length) private view {
+    function _requireJwksRequest(CeremonyAttestation.DirectionBlock memory block_, uint32 length) private pure {
         bytes memory sent = _wholeDirection(block_, length);
         // The whole line, through the CRLF, so no query rides along: `?callback=`
         // turns Google's path into JSONP, a 200 whose body the requester chose.
@@ -582,7 +582,7 @@ abstract contract JwtRootsBase is Initializable, UUPSUpgradeable, Ownable2StepUp
     ///      `keys` is located by counting: the token appears once in the
     ///      whole body, or the document is not the one this reads. Objects are
     ///      flat -- a `{` inside one is refused, and an array may hold only
-    ///      plain strings -- so each ends at its first `}` and the walk is one
+    ///      plain strings -- so each ends at its first `}` outside a string and the walk is one
     ///      forward pass bounded by the body. A key whose `kty` is present and
     ///      not `RSA` is skipped unread, but counts toward MAX_KEYS. Past
     ///      MAX_KEYS the walk only counts, so the refusal names how many keys
