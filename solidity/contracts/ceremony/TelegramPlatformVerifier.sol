@@ -20,6 +20,17 @@ import {IHonkVerifier} from "./PlatformVerifierBase.sol";
 contract TelegramPlatformVerifier is OidcPlatformVerifierBase {
     /// @notice The `telegram/v1` payload, as `abi.encode` of this struct.
     /// @dev Every field is authentic only once the proof verifies.
+    /// @param ceremonyVersion    Checked against the verifier's own first.
+    /// @param operationDomain    Into the digest; returned.
+    /// @param authorizationNonce Into the digest.
+    /// @param transactionData    Into the digest; returned opaque.
+    /// @param clientIdentifier   The exact `aud` bytes, the bot id as a decimal string; their
+    ///                           SHA-256 is a public input (REQ-PLAT-19A).
+    /// @param idNode             The circuit's id node.
+    /// @param handleNode         The circuit's handle node.
+    /// @param iat                The signed `iat`; the proof's window counts from it.
+    /// @param modulus            The signing key's 18 limbs, as the circuit takes them.
+    /// @param proof              The Honk proof.
     struct TelegramProof {
         uint16 ceremonyVersion;
         bytes32 operationDomain;
