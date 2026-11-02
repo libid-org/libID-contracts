@@ -19,8 +19,20 @@ interface IJwtRoots {
 ///         and a signing key trusted only while a JWT roots list lists it.
 ///         A profile differs only in its time rule, `_requireTime`.
 abstract contract OidcPlatformVerifierBase is IPlatformVerifier, PlatformVerifierBase {
-    /// @dev The layout `GoogleProof` and `TelegramProof` share, `time` being
-    ///      Google's `exp` or Telegram's `iat`.
+    /// @notice The `google/v1` and `telegram/v1` payload, as `abi.encode` of this struct.
+    /// @dev Every field is authentic only once the proof verifies.
+    /// @param ceremonyVersion    Checked against the verifier's own first.
+    /// @param operationDomain    Into the digest; returned.
+    /// @param authorizationNonce Into the digest.
+    /// @param transactionData    Into the digest; returned opaque.
+    /// @param clientIdentifier   The exact `aud` bytes (Telegram's: the bot id as a decimal
+    ///                           string); their SHA-256 is a public input (REQ-PLAT-19A).
+    /// @param idNode             The circuit's id node.
+    /// @param handleNode         The circuit's handle node.
+    /// @param time               The signed time the profile's rule reads: Google's `exp`,
+    ///                           Telegram's `iat`.
+    /// @param modulus            The signing key's 18 limbs, as the circuit takes them.
+    /// @param proof              The Honk proof.
     struct OidcProof {
         uint16 ceremonyVersion;
         bytes32 operationDomain;

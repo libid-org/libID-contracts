@@ -63,7 +63,7 @@ contract TelegramPlatformVerifierTest is Test {
         }
     }
 
-    function _payload() private pure returns (TelegramPlatformVerifier.TelegramProof memory s) {
+    function _payload() private pure returns (OidcPlatformVerifierBase.OidcProof memory s) {
         s.ceremonyVersion = 1;
         s.operationDomain = DOMAIN;
         s.authorizationNonce = AUTH_NONCE;
@@ -71,12 +71,12 @@ contract TelegramPlatformVerifierTest is Test {
         s.clientIdentifier = BOT_ID;
         s.idNode = ID_NODE;
         s.handleNode = HANDLE_NODE;
-        s.iat = IAT;
+        s.time = IAT;
         s.modulus = _modulus();
         s.proof = hex"00";
     }
 
-    function run(TelegramPlatformVerifier v, TelegramPlatformVerifier.TelegramProof memory s)
+    function run(TelegramPlatformVerifier v, OidcPlatformVerifierBase.OidcProof memory s)
         external
         returns (ICeremony.VerifiedClaim memory)
     {
@@ -132,14 +132,14 @@ contract TelegramPlatformVerifierTest is Test {
     }
 
     function test_rejectsAPayloadForAnotherCeremonyVersion() public {
-        TelegramPlatformVerifier.TelegramProof memory s = _payload();
+        OidcPlatformVerifierBase.OidcProof memory s = _payload();
         s.ceremonyVersion = 2;
         vm.expectRevert(abi.encodeWithSelector(PlatformVerifierBase.WrongCeremonyVersion.selector, 1, 2));
         this.run(verifier, s);
     }
 
     function test_rejectsAMissingClientIdentifier() public {
-        TelegramPlatformVerifier.TelegramProof memory s = _payload();
+        OidcPlatformVerifierBase.OidcProof memory s = _payload();
         s.clientIdentifier = "";
         vm.expectRevert(OidcPlatformVerifierBase.MissingClientIdentifier.selector);
         this.run(verifier, s);
@@ -218,27 +218,24 @@ contract TelegramPlatformVerifierTest is Test {
 
     // ─── The real proof ─────────────────────────────────────────────
 
-    function _realProof()
-        private
-        returns (TelegramPlatformVerifier real, TelegramPlatformVerifier.TelegramProof memory s)
-    {
+    function _realProof() private returns (TelegramPlatformVerifier real, OidcPlatformVerifierBase.OidcProof memory s) {
         string memory json = vm.readFile(FIXTURE);
         real = _deploy(vm.deployCode(HonkStub.TELEGRAM), address(roots));
         bytes32[] memory pi = vm.parseJsonBytes32Array(json, ".public_inputs");
         s = _payload();
         s.clientIdentifier = bytes(vm.parseJsonString(json, ".client_identifier"));
-        s.iat = uint64(uint256(pi[38]));
+        s.time = uint64(uint256(pi[38]));
         for (uint256 i = 0; i < 18; ++i) {
             s.modulus[i] = pi[39 + i];
         }
         s.proof = vm.parseJsonBytes(json, ".proof");
-        assertEq(s.iat, REAL_IAT);
+        assertEq(s.time, REAL_IAT);
         roots.trust(keccak256(abi.encodePacked(s.modulus)), REAL_IAT + 30 days);
         vm.warp(REAL_IAT + 60);
     }
 
     /// The real proof fails once any value the verifier builds an input from changes.
-    function _refusedByTheRealProof(TelegramPlatformVerifier real, TelegramPlatformVerifier.TelegramProof memory s)
+    function _refusedByTheRealProof(TelegramPlatformVerifier real, OidcPlatformVerifierBase.OidcProof memory s)
         private
     {
         (bool ok,) = address(real).call{gas: 5_000_000}(abi.encodeCall(real.verify, (abi.encode(s))));
@@ -246,7 +243,7 @@ contract TelegramPlatformVerifierTest is Test {
     }
 
     function test_verifiesARealProof() public {
-        (TelegramPlatformVerifier real, TelegramPlatformVerifier.TelegramProof memory s) = _realProof();
+        (TelegramPlatformVerifier real, OidcPlatformVerifierBase.OidcProof memory s) = _realProof();
         ICeremony.VerifiedClaim memory c = real.verify(abi.encode(s));
         assertEq(c.idNode, ID_NODE);
         assertEq(c.handleNode, HANDLE_NODE);
@@ -260,7 +257,7 @@ contract TelegramPlatformVerifierTest is Test {
 
     /// The signed `nonce` is the digest of the domain, nonce and transaction.
     function test_refusesARealProofForAnotherDigest() public {
-        (TelegramPlatformVerifier real, TelegramPlatformVerifier.TelegramProof memory s) = _realProof();
+        (TelegramPlatformVerifier real, OidcPlatformVerifierBase.OidcProof memory s) = _realProof();
         s.authorizationNonce ^= bytes32(uint256(1));
         _refusedByTheRealProof(real, s);
         (, s) = _realProof();
@@ -272,7 +269,7 @@ contract TelegramPlatformVerifierTest is Test {
     }
 
     function test_refusesARealProofUnderAnotherNode() public {
-        (TelegramPlatformVerifier real, TelegramPlatformVerifier.TelegramProof memory s) = _realProof();
+        (TelegramPlatformVerifier real, OidcPlatformVerifierBase.OidcProof memory s) = _realProof();
         s.idNode ^= bytes32(uint256(1));
         _refusedByTheRealProof(real, s);
         (, s) = _realProof();
@@ -282,15 +279,15 @@ contract TelegramPlatformVerifierTest is Test {
 
     /// The proof binds `sha256(aud)`, so another bot is refused.
     function test_refusesARealProofForAnotherBot() public {
-        (TelegramPlatformVerifier real, TelegramPlatformVerifier.TelegramProof memory s) = _realProof();
+        (TelegramPlatformVerifier real, OidcPlatformVerifierBase.OidcProof memory s) = _realProof();
         s.clientIdentifier = "7000000002";
         _refusedByTheRealProof(real, s);
     }
 
     /// An earlier `iat` is still inside the window, so only the proof refuses it.
     function test_refusesARealProofForAnotherIat() public {
-        (TelegramPlatformVerifier real, TelegramPlatformVerifier.TelegramProof memory s) = _realProof();
-        s.iat = REAL_IAT - 1;
+        (TelegramPlatformVerifier real, OidcPlatformVerifierBase.OidcProof memory s) = _realProof();
+        s.time = REAL_IAT - 1;
         _refusedByTheRealProof(real, s);
     }
 }

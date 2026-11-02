@@ -16,31 +16,6 @@ import {IHonkVerifier} from "./PlatformVerifierBase.sol";
 ///      audience, and the nodes, `exp` and modulus come from the payload.
 ///      `exp` gives both `metadataObservedAt` and `proofValidUntil`.
 contract GooglePlatformVerifier is OidcPlatformVerifierBase {
-    /// @notice The `google/v1` payload, as `abi.encode` of this struct.
-    /// @dev Every field is authentic only once the proof verifies.
-    /// @param ceremonyVersion    Checked against the verifier's own first.
-    /// @param operationDomain    Into the digest; returned.
-    /// @param authorizationNonce Into the digest.
-    /// @param transactionData    Into the digest; returned opaque.
-    /// @param clientIdentifier   The `aud` bytes; their SHA-256 is a public input (REQ-PLAT-19A).
-    /// @param idNode             The circuit's id node.
-    /// @param handleNode         The circuit's handle node.
-    /// @param exp                The signed `exp`.
-    /// @param modulus            The signing key's 18 limbs, as the circuit takes them.
-    /// @param proof              The Honk proof.
-    struct GoogleProof {
-        uint16 ceremonyVersion;
-        bytes32 operationDomain;
-        bytes32 authorizationNonce;
-        bytes transactionData;
-        bytes clientIdentifier;
-        bytes32 idNode;
-        bytes32 handleNode;
-        uint64 exp;
-        bytes32[18] modulus;
-        bytes proof;
-    }
-
     // @custom:storage-location erc7201:libid.storage.GooglePlatformVerifier
     // keccak256(abi.encode(uint256(keccak256("libid.storage.GooglePlatformVerifier")) - 1)) & ~bytes32(uint256(0xff))
     bytes32 private constant GOOGLE_STORAGE = 0x92a7c997eeb454ceeeb8ef2d99ba7d4b830287ff966f129f9049c466a8342400;

@@ -186,10 +186,9 @@ mod payloads {
 /// [`SolValue::abi_encode`](alloy::sol_types::SolValue::abi_encode), never a
 /// call to any of its functions.
 pub use payloads::{
-    GooglePlatformVerifier::GoogleProof,
     ICeremony::Attestation,
     ICeremonyPayloads,
-    TelegramPlatformVerifier::TelegramProof,
+    OidcPlatformVerifierBase::OidcProof,
     TlsNotaryVerifierBase::TlsNotaryProof,
 };
 
@@ -291,8 +290,8 @@ mod tests {
     }
 
     #[test]
-    fn a_google_payload_round_trips() {
-        let payload = GoogleProof {
+    fn an_oidc_payload_round_trips() {
+        let payload = OidcProof {
             ceremonyVersion: 1,
             operationDomain: B256::repeat_byte(0x11),
             authorizationNonce: B256::repeat_byte(0x22),
@@ -300,32 +299,12 @@ mod tests {
             clientIdentifier: b"aud".to_vec().into(),
             idNode: B256::repeat_byte(0x33),
             handleNode: B256::repeat_byte(0x44),
-            exp: 1_800_000_000,
+            time: 1_800_000_000,
             modulus: [B256::repeat_byte(0x55); 18],
             proof: vec![0xde, 0xad].into(),
         };
         assert_eq!(
-            GoogleProof::abi_decode(&payload.abi_encode()).unwrap(),
-            payload
-        );
-    }
-
-    #[test]
-    fn a_telegram_payload_round_trips() {
-        let payload = TelegramProof {
-            ceremonyVersion: 1,
-            operationDomain: B256::repeat_byte(0x11),
-            authorizationNonce: B256::repeat_byte(0x22),
-            transactionData: vec![1, 2].into(),
-            clientIdentifier: b"7000000001".to_vec().into(),
-            idNode: B256::repeat_byte(0x33),
-            handleNode: B256::repeat_byte(0x44),
-            iat: 1_800_000_000,
-            modulus: [B256::repeat_byte(0x55); 18],
-            proof: vec![0xde, 0xad].into(),
-        };
-        assert_eq!(
-            TelegramProof::abi_decode(&payload.abi_encode()).unwrap(),
+            OidcProof::abi_decode(&payload.abi_encode()).unwrap(),
             payload
         );
     }

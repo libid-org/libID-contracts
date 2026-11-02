@@ -162,7 +162,7 @@ Other entry points:
   so `contracts()` lists every one that declares the error. For
   `telegram/v1`, `AttestationAhead` and `ProofExpired` date the signed
   token's `iat`, not an attestation.
-- `bindings::ceremony::{TlsNotaryProof, GoogleProof, TelegramProof}` — the payload a Platform
+- `bindings::ceremony::{TlsNotaryProof, OidcProof}` — the payload a Platform
   Verifier decodes; its `SolValue::abi_encode` is the `payload` `bind` takes.
 
 ## Feature `testing`

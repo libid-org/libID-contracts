@@ -10,7 +10,7 @@ import {TrustingJwtRoots} from "../../ceremony/test/TrustingJwtRoots.sol";
 import {CeremonyProfile} from "../../ceremony/CeremonyProfile.sol";
 import {CeremonyProofVerifier} from "../../ceremony/CeremonyProofVerifier.sol";
 import {GitHubPlatformVerifier} from "../../ceremony/GitHubPlatformVerifier.sol";
-import {GooglePlatformVerifier, IJwtRoots} from "../../ceremony/GooglePlatformVerifier.sol";
+import {GooglePlatformVerifier, IJwtRoots, OidcPlatformVerifierBase} from "../../ceremony/GooglePlatformVerifier.sol";
 import {INotaryService} from "../../ceremony/INotaryService.sol";
 import {IPlatformVerifier} from "../../ceremony/IPlatformVerifier.sol";
 import {IProofVerifier} from "../../ceremony/IProofVerifier.sol";
@@ -428,7 +428,7 @@ contract RealProofBindGoogleTest is RealProofBindBase {
     }
 
     /// The `google/v1` payload the proof was made for.
-    function _proof() internal view returns (GooglePlatformVerifier.GoogleProof memory s) {
+    function _proof() internal view returns (OidcPlatformVerifierBase.OidcProof memory s) {
         string memory json = vm.readFile(PROOF);
         s.ceremonyVersion = 1;
         s.operationDomain = keccak256(bytes("libid.bind-identity"));
@@ -438,7 +438,7 @@ contract RealProofBindGoogleTest is RealProofBindBase {
         bytes32[] memory pi = vm.parseJsonBytes32Array(json, ".public_inputs");
         s.idNode = bytes32((uint256(pi[34]) << 128) | uint256(pi[35]));
         s.handleNode = bytes32((uint256(pi[36]) << 128) | uint256(pi[37]));
-        s.exp = uint64(uint256(pi[38]));
+        s.time = uint64(uint256(pi[38]));
         for (uint256 i = 0; i < 18; ++i) {
             s.modulus[i] = pi[39 + i];
         }
@@ -456,7 +456,7 @@ contract RealProofBindGoogleTest is RealProofBindBase {
 
     /// @dev A private payload naming another handle node fails the Honk verifier.
     function test_anotherHandleNodeFailsTheProof() public {
-        GooglePlatformVerifier.GoogleProof memory s = _proof();
+        OidcPlatformVerifierBase.OidcProof memory s = _proof();
         s.handleNode ^= bytes32(uint256(1));
         bytes memory payload = abi.encode(s);
         vm.prank(BINDER);

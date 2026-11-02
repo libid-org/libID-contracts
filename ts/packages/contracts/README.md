@@ -149,7 +149,7 @@ const call = calls.identityRegistry.bind(
 
 The payload is one `abi.encode`d struct in the shape its Platform Verifier
 decodes. `encodeTlsNotaryProof` builds the X and GitHub payload,
-`encodeGoogleProof` the Google one:
+`encodeOidcProof` the Google and Telegram one:
 
 ```ts
 import { encodeTlsNotaryProof } from '@libid/contracts'
