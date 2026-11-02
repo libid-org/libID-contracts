@@ -75,7 +75,7 @@ exclude_lints = [
     "block-timestamp",
     # Test stubs live in the file of the test that reads them. Two production
     # files declare, beside their contract, the interface it asks of a
-    # collaborator (IGoogleJwtRoots, IHonkVerifier).
+    # collaborator (IJwtRoots, IHonkVerifier).
     "multi-contract-file",
     # The uses are tests reading files, which fs_permissions above confines to
     # read-only paths; `ffi` is off.
