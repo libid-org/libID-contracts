@@ -202,7 +202,7 @@ pub struct OidcRoots {
 }
 
 /// What one Platform Verifier is initialized with.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Initializer {
     /// `XPlatformVerifier`.
     X(TlsNotaryRoots),
