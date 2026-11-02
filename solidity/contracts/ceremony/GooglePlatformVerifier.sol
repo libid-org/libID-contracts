@@ -2,10 +2,8 @@
 pragma solidity ^0.8.24;
 
 import {CircuitCodehashes} from "../circuits/CircuitCodehashes.sol";
-import {CeremonyAuthorization} from "./CeremonyAuthorization.sol";
 import {CeremonyProfile} from "./CeremonyProfile.sol";
 import {INotaryService} from "./INotaryService.sol";
-import {IPlatformVerifier} from "./IPlatformVerifier.sol";
 import {IJwtRoots, OidcPlatformVerifierBase} from "./OidcPlatformVerifierBase.sol";
 import {IHonkVerifier} from "./PlatformVerifierBase.sol";
 
@@ -97,42 +95,11 @@ contract GooglePlatformVerifier is OidcPlatformVerifierBase {
         return CeremonyProfile.PLATFORM_GOOGLE;
     }
 
-    /// @inheritdoc IPlatformVerifier
-    function verify(bytes calldata payload) external payable returns (VerifiedClaim memory claimed) {
-        // No value is accepted: nothing downstream takes it.
-        if (msg.value != 0) revert WrongValue(0, msg.value);
-
-        GoogleProof memory p = abi.decode(payload, (GoogleProof));
-        uint16 version = _requireCeremonyVersion(p.ceremonyVersion);
-
-        // REQ-COMMON-02A: the proof must carry this digest as the signed `nonce`.
-        bytes32 digest =
-            CeremonyAuthorization.digest(p.operationDomain, version, p.authorizationNonce, p.transactionData);
-
-        // REQ-PLAT-19A. The proof binds the bytes' hash, and the Consumer
-        // receives the readable value.
-        if (p.clientIdentifier.length == 0) revert MissingClientIdentifier();
-
-        // REQ-PLAT-23. The circuit uses the modulus that verified the JWS but
-        // decides no trust; that decision is here alone.
-        _requireTrustedModulus(p.modulus);
-
-        // REQ-PLAT-22. The signed `exp` is the validity ceiling, and itself
-        // capped, so a distant expiry cannot hold a name for longer.
-        if (block.timestamp >= p.exp) revert TokenExpired(p.exp, uint64(block.timestamp));
-        _requireNotAhead(p.exp);
-
-        // The inputs are built here, so each value above is the one proved.
-        _requireProof(
-            p.proof, _oidcInputs(digest, sha256(p.clientIdentifier), p.idNode, p.handleNode, p.exp, p.modulus)
-        );
-        claimed.idNode = p.idNode;
-        claimed.handleNode = p.handleNode;
-        claimed.metadataObservedAt = _onSharedScale(p.exp, _futureObservationAllowance());
-        claimed.clientIdentifier = p.clientIdentifier;
-        claimed.sessionId = digest;
-        claimed.operationDomain = p.operationDomain;
-        claimed.transactionData = p.transactionData;
-        claimed.ceremonyVersion = version;
+    /// @dev REQ-PLAT-22. The signed `exp` is the validity ceiling, and itself
+    ///      capped, so a distant expiry cannot hold a name for longer.
+    function _requireTime(uint64 exp) internal view override returns (uint64) {
+        if (block.timestamp >= exp) revert TokenExpired(exp, uint64(block.timestamp));
+        _requireNotAhead(exp);
+        return _onSharedScale(exp, _futureObservationAllowance());
     }
 }

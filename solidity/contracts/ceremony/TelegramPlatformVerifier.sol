@@ -2,10 +2,8 @@
 pragma solidity ^0.8.24;
 
 import {CircuitCodehashes} from "../circuits/CircuitCodehashes.sol";
-import {CeremonyAuthorization} from "./CeremonyAuthorization.sol";
 import {CeremonyProfile} from "./CeremonyProfile.sol";
 import {INotaryService} from "./INotaryService.sol";
-import {IPlatformVerifier} from "./IPlatformVerifier.sol";
 import {IJwtRoots, OidcPlatformVerifierBase} from "./OidcPlatformVerifierBase.sol";
 import {IHonkVerifier} from "./PlatformVerifierBase.sol";
 
@@ -84,28 +82,8 @@ contract TelegramPlatformVerifier is OidcPlatformVerifierBase {
         return CeremonyProfile.PLATFORM_TELEGRAM;
     }
 
-    /// @inheritdoc IPlatformVerifier
-    function verify(bytes calldata payload) external payable returns (VerifiedClaim memory claimed) {
-        if (msg.value != 0) revert WrongValue(0, msg.value);
-
-        TelegramProof memory p = abi.decode(payload, (TelegramProof));
-        uint16 version = _requireCeremonyVersion(p.ceremonyVersion);
-        bytes32 digest =
-            CeremonyAuthorization.digest(p.operationDomain, version, p.authorizationNonce, p.transactionData);
-        if (p.clientIdentifier.length == 0) revert MissingClientIdentifier();
-        _requireTrustedModulus(p.modulus);
-
-        uint64 observedAt = _requireFresh(p.iat);
-        _requireProof(
-            p.proof, _oidcInputs(digest, sha256(p.clientIdentifier), p.idNode, p.handleNode, p.iat, p.modulus)
-        );
-        claimed.idNode = p.idNode;
-        claimed.handleNode = p.handleNode;
-        claimed.metadataObservedAt = observedAt;
-        claimed.clientIdentifier = p.clientIdentifier;
-        claimed.sessionId = digest;
-        claimed.operationDomain = p.operationDomain;
-        claimed.transactionData = p.transactionData;
-        claimed.ceremonyVersion = version;
+    /// @dev `iat` opens the profile's window.
+    function _requireTime(uint64 iat) internal view override returns (uint64) {
+        return _requireFresh(iat);
     }
 }

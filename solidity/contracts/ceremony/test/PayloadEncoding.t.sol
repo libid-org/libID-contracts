@@ -5,7 +5,15 @@ import {Test} from "forge-std/Test.sol";
 
 import {AttestationBuilder} from "./AttestationBuilder.sol";
 import {ICeremonyPayloads} from "../ICeremonyPayloads.sol";
+import {OidcPlatformVerifierBase} from "../OidcPlatformVerifierBase.sol";
 import {TlsNotaryVerifierBase} from "../TlsNotaryVerifierBase.sol";
+
+/// @dev `ICeremonyPayloads`' OIDC functions over the layout the OIDC base
+///      decodes. Equal selectors mean equal tuple types.
+interface IOidcPayloads {
+    function googleProof(OidcPlatformVerifierBase.OidcProof calldata payload) external pure;
+    function telegramProof(OidcPlatformVerifierBase.OidcProof calldata payload) external pure;
+}
 
 /// @notice The X fixture's payload encodes to the hash in
 ///         `x-ceremony-payload.json`, which the Rust and TS encoders also reach.
@@ -51,5 +59,12 @@ contract PayloadEncodingTest is Test {
             abi.encodeCall(ICeremonyPayloads.tlsNotaryProof, (p)),
             abi.encodePacked(ICeremonyPayloads.tlsNotaryProof.selector, abi.encode(p))
         );
+    }
+
+    /// `GoogleProof` and `TelegramProof` encode as the `OidcProof` the OIDC
+    /// base decodes.
+    function test_theOidcPayloadsAreTheLayoutTheBaseDecodes() public pure {
+        assertEq(ICeremonyPayloads.googleProof.selector, IOidcPayloads.googleProof.selector);
+        assertEq(ICeremonyPayloads.telegramProof.selector, IOidcPayloads.telegramProof.selector);
     }
 }

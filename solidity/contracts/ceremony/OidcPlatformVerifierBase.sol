@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
+import {CeremonyAuthorization} from "./CeremonyAuthorization.sol";
 import {IPlatformVerifier} from "./IPlatformVerifier.sol";
 import {PlatformVerifierBase} from "./PlatformVerifierBase.sol";
 
@@ -12,9 +13,25 @@ interface IJwtRoots {
 }
 
 /// @title OidcPlatformVerifierBase
-/// @notice What the OIDC circuits share: one 57-input layout, and a signing
-///         key trusted only while a JWT roots list lists it.
+/// @notice What the OIDC circuits share: one payload, one 57-input layout,
+///         and a signing key trusted only while a JWT roots list lists it.
+///         A profile differs only in its time rule, `_requireTime`.
 abstract contract OidcPlatformVerifierBase is IPlatformVerifier, PlatformVerifierBase {
+    /// @dev The layout `GoogleProof` and `TelegramProof` share, `time` being
+    ///      Google's `exp` or Telegram's `iat`.
+    struct OidcProof {
+        uint16 ceremonyVersion;
+        bytes32 operationDomain;
+        bytes32 authorizationNonce;
+        bytes transactionData;
+        bytes clientIdentifier;
+        bytes32 idNode;
+        bytes32 handleNode;
+        uint64 time;
+        bytes32[18] modulus;
+        bytes proof;
+    }
+
     /// @dev The public inputs REQ-PLAT-16B fixes, in the order it lists them.
     ///      The digest is 32 field elements of one byte each; the rest are
     ///      packed Fields.
@@ -99,5 +116,45 @@ abstract contract OidcPlatformVerifierBase is IPlatformVerifier, PlatformVerifie
         bytes32 modulusHash = keccak256(abi.encodePacked(modulus));
         uint256 expiresAt = _jwtRoots().trustedHashExpiresAt(modulusHash);
         if (expiresAt == 0 || block.timestamp >= expiresAt) revert UntrustedModulus(modulusHash);
+    }
+
+    /// @dev Reverts unless Block Time is inside the window the signed time
+    ///      opens; returns `metadataObservedAt`.
+    function _requireTime(uint64 time) internal view virtual returns (uint64 metadataObservedAt);
+
+    /// @inheritdoc IPlatformVerifier
+    function verify(bytes calldata payload) external payable returns (VerifiedClaim memory claimed) {
+        // No value is accepted: nothing downstream takes it.
+        if (msg.value != 0) revert WrongValue(0, msg.value);
+
+        OidcProof memory p = abi.decode(payload, (OidcProof));
+        uint16 version = _requireCeremonyVersion(p.ceremonyVersion);
+
+        // REQ-COMMON-02A: the proof must carry this digest as the signed `nonce`.
+        bytes32 digest =
+            CeremonyAuthorization.digest(p.operationDomain, version, p.authorizationNonce, p.transactionData);
+
+        // REQ-PLAT-19A. The proof binds the bytes' hash, and the Consumer
+        // receives the readable value.
+        if (p.clientIdentifier.length == 0) revert MissingClientIdentifier();
+
+        // REQ-PLAT-23. The circuit uses the modulus that verified the JWS but
+        // decides no trust; that decision is here alone.
+        _requireTrustedModulus(p.modulus);
+
+        uint64 observedAt = _requireTime(p.time);
+
+        // The inputs are built here, so each value above is the one proved.
+        _requireProof(
+            p.proof, _oidcInputs(digest, sha256(p.clientIdentifier), p.idNode, p.handleNode, p.time, p.modulus)
+        );
+        claimed.idNode = p.idNode;
+        claimed.handleNode = p.handleNode;
+        claimed.metadataObservedAt = observedAt;
+        claimed.clientIdentifier = p.clientIdentifier;
+        claimed.sessionId = digest;
+        claimed.operationDomain = p.operationDomain;
+        claimed.transactionData = p.transactionData;
+        claimed.ceremonyVersion = version;
     }
 }
