@@ -346,6 +346,9 @@ contract GooglePlatformVerifierTest is Test {
         vm.prank(OWNER);
         vm.expectRevert(PlatformVerifierBase.ZeroAddress.selector);
         verifier.setJwtRoots(IJwtRoots(address(0)));
+    }
+
+    function test_refusesTelegramsRootsList() public {
         bytes32 telegram = CeremonyProfile.AUTHORITY_TELEGRAM_OAUTH;
         TrustingJwtRoots telegrams = new TrustingJwtRoots(telegram);
         vm.prank(OWNER);
