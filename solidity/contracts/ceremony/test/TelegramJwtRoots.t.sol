@@ -98,6 +98,21 @@ contract TelegramJwtRootsTest is JwtRootsTestBase {
         }
     }
 
+    /// The owner clears Telegram's list as it clears Google's, and the next
+    /// reading under a trusted notary key refills it.
+    function test_theOwnerClearsTheListAndAReadingRefillsIt() public {
+        bytes32 cleared = _install("oidc-1", "cleared");
+        _replaceTheNotaryKey();
+
+        _clearKeys();
+        _assertEmpty(_current(), "current");
+        assertEq(roots.trustedHashExpiresAt(cleared), 0, "the cleared key is trusted");
+
+        _rotateUnder(NEXT_NOTARY_KEY, _reading(_oneKey("oidc-2", "restored")));
+        assertEq(_current().moduli, _one(_hash("restored")));
+        assertEq(roots.trustedHashExpiresAt(_hash("restored")), _now() + roots.READING_LIFETIME());
+    }
+
     /// The list names Telegram's JWKS host.
     function test_namesItsHost() public view {
         assertEq(roots.AUTHORITY(), TG_AUTHORITY);

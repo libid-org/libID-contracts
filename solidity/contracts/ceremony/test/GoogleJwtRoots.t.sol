@@ -405,6 +405,92 @@ contract GoogleJwtRootsTest is JwtRootsTestBase {
         roots.renounceOwnership();
     }
 
+    // ─── Clearing the keys ──────────────────────────────────────────
+
+    /// Keys read under a notary key the Notary Service has since removed stay
+    /// trusted until the owner clears the list; then neither generation is.
+    function test_clearingTheKeysUntrustsBothGenerations() public {
+        bytes32 older = _install("kid-1", "older");
+        vm.warp(_now() + 1 hours);
+        bytes32 newer = _install("kid-2", "newer");
+        _replaceTheNotaryKey();
+        assertGt(roots.trustedHashExpiresAt(older), _now(), "previous is trusted before the clear");
+        assertGt(roots.trustedHashExpiresAt(newer), _now(), "current is trusted before the clear");
+
+        vm.prank(OWNER);
+        vm.expectEmit(false, false, false, true);
+        emit JwtRootsBase.KeysCleared();
+        roots.clearKeys();
+
+        _assertEmpty(_current(), "current");
+        _assertEmpty(_previous(), "previous");
+        assertEq(roots.trustedHashExpiresAt(older), 0, "previous still trusted");
+        assertEq(roots.trustedHashExpiresAt(newer), 0, "current still trusted");
+        assertEq(roots.freshestObservedAt(), 0, "the stamp survived");
+        assertTrue(roots.needsRotation(), "a cleared list asks for a reading");
+    }
+
+    /// The next reading the Notary Service accepts refills the list, even one
+    /// dated the second the cleared reading was.
+    function test_aReadingAfterTheClearRestoresTheList() public {
+        uint64 at = _now();
+        bytes32 cleared = _install("kid-1", "cleared");
+        _replaceTheNotaryKey();
+        _clearKeys();
+
+        _rotateUnder(NEXT_NOTARY_KEY, _readingAt(_oneKey("kid-2", "restored"), at));
+
+        _assertGeneration(_current(), at, _one(_hash("restored")), "current");
+        _assertEmpty(_previous(), "previous");
+        assertEq(roots.trustedHashExpiresAt(_hash("restored")), at + roots.READING_LIFETIME(), "restored key");
+        assertEq(roots.trustedHashExpiresAt(cleared), 0, "the cleared key came back");
+    }
+
+    /// Clearing does not stand in for removing the notary key: a reading under
+    /// the removed key is still refused, and the list stays empty.
+    function test_aRemovedNotaryKeyStaysRefusedAfterTheClear() public {
+        _install("kid-1", "cleared");
+        _replaceTheNotaryKey();
+        _clearKeys();
+
+        vm.warp(_now() + 1);
+        bytes memory attested = _reading(_oneKey("kid-1", "cleared"));
+        bytes memory sig = AttestationBuilder.sign(NOTARY_KEY, attested);
+        vm.expectRevert(abi.encodeWithSelector(NotaryService.UntrustedNotary.selector, vm.addr(NOTARY_KEY)));
+        roots.rotate{value: FEE}(attested, sig);
+
+        _assertEmpty(_current(), "current");
+        _assertEmpty(_previous(), "previous");
+    }
+
+    /// The clear drops the stamp with the keys, so an older reading still
+    /// inside the freshness window lands afterwards. It installs the set it was
+    /// read with, dated by its own clock.
+    function test_anOlderReadingLandsAfterTheClearWithItsOwnSet() public {
+        uint64 dated = _now();
+        bytes memory older = _readingAt(_oneKey("kid-1", "older"), dated);
+        vm.warp(_now() + 30 minutes);
+        bytes32 newer = _install("kid-2", "newer");
+        _clearKeys();
+
+        _rotate(older);
+
+        _assertGeneration(_current(), dated, _one(_hash("older")), "current");
+        _assertEmpty(_previous(), "previous");
+        assertEq(roots.trustedHashExpiresAt(_hash("older")), dated + roots.READING_LIFETIME(), "older key");
+        assertEq(roots.trustedHashExpiresAt(newer), 0, "the cleared key came back");
+    }
+
+    function test_onlyTheOwnerClearsTheKeys() public {
+        bytes32 installed = _install("kid-1", "one");
+
+        vm.prank(keeper);
+        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, keeper));
+        roots.clearKeys();
+
+        _assertGeneration(_current(), _now(), _one(installed), "current");
+    }
+
     // ─── What it refuses: the fee and the notary ────────────────────
 
     /// Only the exact fee is accepted; an overpayment fails too, so nothing needs refunding.

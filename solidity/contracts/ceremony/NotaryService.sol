@@ -177,6 +177,8 @@ contract NotaryService is INotaryService, Initializable, UUPSUpgradeable, Ownabl
     }
 
     /// @notice Add or remove a trusted notary key.
+    /// @dev After a key compromise, remove the key here first, then call
+    ///      `clearKeys` on every JWT roots list that pins this service.
     function setNotary(address key, bool trusted_) external onlyOwner {
         _setTrust(key, trusted_);
     }

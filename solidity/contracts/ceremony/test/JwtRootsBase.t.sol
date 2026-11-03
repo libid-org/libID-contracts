@@ -36,6 +36,8 @@ abstract contract JwtRootsTestBase is Test {
     address keeper = makeAddr("keeper");
     /// The anvil key.
     uint256 constant NOTARY_KEY = 0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80;
+    /// The second anvil key, trusted in NOTARY_KEY's place by `_replaceTheNotaryKey`.
+    uint256 constant NEXT_NOTARY_KEY = 0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d;
     uint256 constant FEE = 0.001 ether;
     uint64 constant T0 = 1_770_000_000;
 
@@ -110,7 +112,24 @@ abstract contract JwtRootsTestBase is Test {
     }
 
     function _rotate(bytes memory attested) internal {
-        roots.rotate{value: FEE}(attested, AttestationBuilder.sign(NOTARY_KEY, attested));
+        _rotateUnder(NOTARY_KEY, attested);
+    }
+
+    function _rotateUnder(uint256 key, bytes memory attested) internal {
+        roots.rotate{value: FEE}(attested, AttestationBuilder.sign(key, attested));
+    }
+
+    /// The Notary Service's owner removes NOTARY_KEY and trusts NEXT_NOTARY_KEY.
+    function _replaceTheNotaryKey() internal {
+        vm.startPrank(OWNER);
+        notary.setNotary(vm.addr(NOTARY_KEY), false);
+        notary.setNotary(vm.addr(NEXT_NOTARY_KEY), true);
+        vm.stopPrank();
+    }
+
+    function _clearKeys() internal {
+        vm.prank(OWNER);
+        roots.clearKeys();
     }
 
     /// Signs before `expectRevert`: `vm.sign` is an external call and would consume it.

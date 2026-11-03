@@ -27,8 +27,9 @@ import {INotaryService} from "./INotaryService.sol";
 ///      reading of the same set only restarts `current`'s lifetime; a newer
 ///      reading of a different set replaces -- `current` becomes `previous`,
 ///      the reading becomes `current`, and what `previous` held is gone.
-///      There is no history and no maintenance: nothing to prune, nothing to
-///      untrust, no owner lever over which of the issuer's keys are trusted.
+///      There is no history and no maintenance: nothing to prune. The owner
+///      can empty both generations at once (`clearKeys`), never choose which
+///      of the issuer's keys are trusted.
 ///
 ///      A generation is trusted until READING_LIFETIME after its reading's
 ///      own `createdAt` -- the notary's clock, not the block the rotation
@@ -87,9 +88,10 @@ import {INotaryService} from "./INotaryService.sol";
 ///      **The trust model, in one line: the notary attests the reading, time
 ///      does the expiry, and nobody owns rotation.** Verifiers check the stamp
 ///      at use-site, and an expired generation stops being trusted with no
-///      transaction from anyone. The owner's one lever is the Notary Service
-///      pointer: which notary a reading must carry, never which issuer key
-///      is trusted.
+///      transaction from anyone. The owner holds two levers: the Notary
+///      Service pointer, which notary a reading must carry, and `clearKeys`,
+///      which leaves nothing trusted until the next reading lands. Neither
+///      chooses which issuer key is trusted.
 abstract contract JwtRootsBase is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable {
     // ─── State ──────────────────────────────────────────────────────
 
@@ -181,6 +183,9 @@ abstract contract JwtRootsBase is Initializable, UUPSUpgradeable, Ownable2StepUp
     /// A newer reading of the set already current: nothing shifted, and the
     /// set's lifetime restarted from this reading's clock.
     event ReadingRefreshed(uint64 observedAt);
+    /// The owner emptied both generations: no modulus is trusted until the
+    /// next reading lands.
+    event KeysCleared();
 
     // ─── Errors ─────────────────────────────────────────────────────
 
@@ -298,7 +303,7 @@ abstract contract JwtRootsBase is Initializable, UUPSUpgradeable, Ownable2StepUp
 
     /// @notice Point the list at another Notary Service.
     /// @dev The service is the trust root for every reading, so this is the
-    ///      owner's one lever over what a rotation can install -- the same
+    ///      owner's lever over what a rotation can install -- the same
     ///      lever every Platform Verifier's owner holds over its trust roots.
     function setNotaryService(INotaryService notary_) external onlyOwner {
         _setNotaryService(notary_);
@@ -313,6 +318,20 @@ abstract contract JwtRootsBase is Initializable, UUPSUpgradeable, Ownable2StepUp
     /// @notice What one rotation costs: the Notary Fee, forwarded whole.
     function quoteRotation() external view returns (uint256) {
         return _s().notary.fee();
+    }
+
+    // ─── Clearing ───────────────────────────────────────────────────
+
+    /// @notice Empty both generations. No modulus is trusted until the next
+    ///         reading the Notary Service accepts lands.
+    /// @dev The stamp goes with the keys, so any accepted reading inside the
+    ///      freshness window may refill the list, and `needsRotation` turns
+    ///      true for the keeper.
+    function clearKeys() external onlyOwner {
+        JwtRootsStorage storage $ = _s();
+        delete $.current;
+        delete $.previous;
+        emit KeysCleared();
     }
 
     // ─── Rotation ───────────────────────────────────────────────────
@@ -371,7 +390,7 @@ abstract contract JwtRootsBase is Initializable, UUPSUpgradeable, Ownable2StepUp
 
     /// @notice Both generations, as stored. One call tells a keeper the whole
     ///         state of the list; an empty `current` is a list nothing has
-    ///         been read into yet.
+    ///         been read into since deployment or the last `clearKeys`.
     function currentKeys() external view returns (Generation memory current, Generation memory previous) {
         JwtRootsStorage storage $ = _s();
         return ($.current, $.previous);
@@ -386,11 +405,11 @@ abstract contract JwtRootsBase is Initializable, UUPSUpgradeable, Ownable2StepUp
 
     /// @notice True when the current generation is not guaranteed trusted
     ///         RENEWAL_MARGIN from now -- the single bit a keeper polls to
-    ///         decide whether to fetch a fresh reading. True from deployment
-    ///         until the first rotation lands.
+    ///         decide whether to fetch a fresh reading. True from deployment,
+    ///         or from `clearKeys`, until the next rotation lands.
     function needsRotation() external view returns (bool) {
         uint64 observedAt = _s().current.observedAt;
-        // Nothing has been read yet: true by definition, not by arithmetic on
+        // Nothing read yet, or cleared: true by definition, not by arithmetic on
         // a zero stamp that happens to come out right on a live chain.
         if (observedAt == 0) return true;
         return block.timestamp + RENEWAL_MARGIN >= uint256(observedAt) + READING_LIFETIME;
