@@ -12,8 +12,8 @@ import {AttestationBuilder} from "./AttestationBuilder.sol";
 contract CeremonyAttestationTest is Test {
     using AttestationBuilder for AttestationBuilder.Direction;
 
-    /// @dev Shaped like an X identity session: every sent byte revealed except
-    ///      the committed bearer.
+    /// @dev The sent direction is laid out as an identity request: every byte
+    ///      revealed except the committed bearer.
     bytes constant FIXTURE = hex"4930142f5283d4a8eab0d24c588f00b21213ae2a47e7ed6c1dc6a57044f1655d"
         hex"0000000069800e800000003c0000002800000000000000020000000000000000"
         hex"0000001461616161616161616161616161616161616161610000002800000000"
