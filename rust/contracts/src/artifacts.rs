@@ -45,14 +45,17 @@ pub const COVERED: &[(&str, &str)] = &[
     ("CeremonyProofVerifier", "CeremonyProofVerifier"),
     ("ERC1967Proxy", "ERC1967Proxy"),
     ("GoogleJwtRoots", "GoogleJwtRoots"),
+    ("TelegramJwtRoots", "TelegramJwtRoots"),
     // ceremony: the launch Platform Verifiers (one per profile)
     ("XPlatformVerifier", "XPlatformVerifier"),
     ("GitHubPlatformVerifier", "GitHubPlatformVerifier"),
     ("GooglePlatformVerifier", "GooglePlatformVerifier"),
+    ("TelegramPlatformVerifier", "TelegramPlatformVerifier"),
     // circuits: the UltraHonk verifiers the Platform Verifiers pin, vendored
     // from the libid-circuits release
     ("BearerLinkHonkVerifier", "BearerLinkHonkVerifier"),
     ("OidcGoogleHonkVerifier", "OidcGoogleHonkVerifier"),
+    ("OidcTelegramHonkVerifier", "OidcTelegramHonkVerifier"),
     // identity
     ("IdentityRegistry", "IdentityRegistry"),
     // ens (deployed once per network, not CREATE3-canonical)

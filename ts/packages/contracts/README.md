@@ -149,7 +149,7 @@ const call = calls.identityRegistry.bind(
 
 The payload is one `abi.encode`d struct in the shape its Platform Verifier
 decodes. `encodeTlsNotaryProof` builds the X and GitHub payload,
-`encodeGoogleProof` the Google one:
+`encodeOidcProof` the Google and Telegram one:
 
 ```ts
 import { encodeTlsNotaryProof } from '@libid/contracts'
@@ -174,6 +174,9 @@ import { bindErrorsAbi } from '@libid/contracts/abis'
 const { errorName, args } = decodeErrorResult({ abi: bindErrorsAbi, data: revertData })
 // 'HandleNotProved', [disclosed, proved]: the handle bind disclosed is not the proved one.
 ```
+
+For `telegram/v1`, `AttestationAhead` and `ProofExpired` date the signed
+token's `iat`, not an attestation.
 
 The Honk verifiers raise errors such as `SumcheckFailed()` that their own ABI
 omits. `honkVerifierErrorsAbi` declares them under bb's names, and

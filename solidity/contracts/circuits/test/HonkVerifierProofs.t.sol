@@ -112,3 +112,17 @@ contract OidcGoogleHonkVerifierProofTest is HonkVerifierProofTest {
         return 785_000;
     }
 }
+
+contract OidcTelegramHonkVerifierProofTest is HonkVerifierProofTest {
+    function _artifact() internal pure override returns (string memory) {
+        return "OidcTelegramHonkVerifier.sol:OidcTelegramHonkVerifier";
+    }
+
+    function _fixture() internal pure override returns (string memory) {
+        return "contracts/circuits/test/fixtures/oidc-telegram-proof.json";
+    }
+
+    function _verifyGasBound() internal pure override returns (uint64) {
+        return 785_000;
+    }
+}

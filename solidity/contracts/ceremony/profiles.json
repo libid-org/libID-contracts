@@ -42,6 +42,10 @@
     {
       "platform": "google",
       "ceremonyVersion": 1,
+      "jwks": {
+        "authority": "www.googleapis.com",
+        "path": "/oauth2/v3/certs"
+      },
       "note": [
         "Google's evidence is a token signed with Google's published keys, so",
         "the profile notarizes nothing: no session, no attestation and no",
@@ -200,6 +204,31 @@
           ]
         }
       }
+    },
+    {
+      "platform": "telegram",
+      "ceremonyVersion": 1,
+      "jwks": {
+        "authority": "oauth.telegram.org",
+        "path": "/.well-known/jwks.json"
+      },
+      "note": [
+        "Like Google, the evidence is a token signed with the platform's published",
+        "keys, so the profile notarizes nothing. The audience is the bot id the",
+        "payload names, and any bot is admitted (REQ-COMMON-17C)."
+      ],
+      "validity": {
+        "proofLifetimeSeconds": 3600,
+        "maxFutureAttestationSkewSeconds": 300,
+        "futureObservationAllowanceSeconds": 300,
+        "note": [
+          "The circuit exposes the signed `iat`. A token is accepted while",
+          "Block Time is in [iat - 5 min, iat + 1 h): five minutes for clock",
+          "skew. The observation is `iat` less five minutes, so an `iat` inside",
+          "the skew cannot outrank a later binding."
+        ]
+      },
+      "sessions": {}
     }
   ]
 }

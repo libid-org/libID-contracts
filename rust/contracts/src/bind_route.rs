@@ -17,6 +17,7 @@ use crate::bindings::{
         GitHubPlatformVerifier::GitHubPlatformVerifierErrors,
         GooglePlatformVerifier::GooglePlatformVerifierErrors,
         NotaryService::NotaryServiceErrors,
+        TelegramPlatformVerifier::TelegramPlatformVerifierErrors,
         XPlatformVerifier::XPlatformVerifierErrors,
     },
     circuits::IHonkVerifierErrors::IHonkVerifierErrorsErrors,
@@ -36,8 +37,8 @@ pub enum BindError {
     XVerifier(XPlatformVerifierErrors),
     /// `GitHubPlatformVerifier`.
     GitHubVerifier(GitHubPlatformVerifierErrors),
-    /// `GooglePlatformVerifier`.
-    GoogleVerifier(GooglePlatformVerifierErrors),
+    /// `GooglePlatformVerifier` or `TelegramPlatformVerifier`: Google's error set holds Telegram's.
+    OidcVerifier(GooglePlatformVerifierErrors),
     /// `NotaryService`.
     NotaryService(NotaryServiceErrors),
     /// `HonkVerifier`.
@@ -50,11 +51,12 @@ pub enum BindError {
 /// Whether an error set declares a selector.
 pub(crate) type Declares = fn([u8; 4]) -> bool;
 
-/// Revert data as one error set's error, if that set declares it.
+/// Revert data as one error set's error, if that set declares it; `None` for a
+/// set whose every error an earlier set on the route declares.
 pub(crate) type Decode = fn(&[u8]) -> Option<BindError>;
 
 /// The route's error sets, in the order `BindError::decode` tries them.
-pub(crate) const ROUTE: [(&str, Declares, Decode); 7] = [
+pub(crate) const ROUTE: [(&str, Declares, Decode); 8] = [
     (
         "IdentityRegistry",
         IdentityRegistryErrors::valid_selector,
@@ -78,7 +80,12 @@ pub(crate) const ROUTE: [(&str, Declares, Decode); 7] = [
     (
         "GooglePlatformVerifier",
         GooglePlatformVerifierErrors::valid_selector,
-        |d| GooglePlatformVerifierErrors::abi_decode(d).ok().map(BindError::GoogleVerifier),
+        |d| GooglePlatformVerifierErrors::abi_decode(d).ok().map(BindError::OidcVerifier),
+    ),
+    (
+        "TelegramPlatformVerifier",
+        TelegramPlatformVerifierErrors::valid_selector,
+        |_| None,
     ),
     (
         "NotaryService",
@@ -100,7 +107,7 @@ impl BindError {
             Self::ProofVerifier(e) => CeremonyProofVerifierErrors::signature_by_selector(e.selector()),
             Self::XVerifier(e) => XPlatformVerifierErrors::signature_by_selector(e.selector()),
             Self::GitHubVerifier(e) => GitHubPlatformVerifierErrors::signature_by_selector(e.selector()),
-            Self::GoogleVerifier(e) => GooglePlatformVerifierErrors::signature_by_selector(e.selector()),
+            Self::OidcVerifier(e) => GooglePlatformVerifierErrors::signature_by_selector(e.selector()),
             Self::NotaryService(e) => NotaryServiceErrors::signature_by_selector(e.selector()),
             Self::HonkVerifier(e) => IHonkVerifierErrorsErrors::signature_by_selector(e.selector()),
             Self::Panic(_) => Some(Panic::SIGNATURE),
@@ -115,7 +122,7 @@ impl BindError {
             Self::ProofVerifier(e) => e.selector(),
             Self::XVerifier(e) => e.selector(),
             Self::GitHubVerifier(e) => e.selector(),
-            Self::GoogleVerifier(e) => e.selector(),
+            Self::OidcVerifier(e) => e.selector(),
             Self::NotaryService(e) => e.selector(),
             Self::HonkVerifier(e) => e.selector(),
             Self::Panic(_) => Panic::SELECTOR,

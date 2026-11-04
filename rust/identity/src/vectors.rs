@@ -39,7 +39,7 @@ pub struct IdVector {
 }
 
 /// Every handle case, shared with Solidity, TypeScript and Noir.
-pub const VECTORS: [Vector; 29] = [
+pub const VECTORS: [Vector; 32] = [
     Vector {
         platform: "x",
         input: "Alice_1",
@@ -185,10 +185,25 @@ pub const VECTORS: [Vector; 29] = [
         input: "a\\b@example.com",
         expected: Err(HandleError::BadCharacter),
     },
+    Vector {
+        platform: "telegram",
+        input: "Brynn_QX",
+        expected: Ok(Folded { handle: "brynn_qx", node: "0xf6416e7788cea1d8d9d7ada243b2f998a33296b61db647298ce61722c04c925b" }),
+    },
+    Vector {
+        platform: "telegram",
+        input: "Abcdefghij_bcdefghij_bcdefghij12",
+        expected: Ok(Folded { handle: "abcdefghij_bcdefghij_bcdefghij12", node: "0x91bff6c0f0be28b117c4f2be2a2d56eeaf552dc8a40263b0de71a590514b5904" }),
+    },
+    Vector {
+        platform: "telegram",
+        input: "Abcdefghij_bcdefghij_bcdefghij123",
+        expected: Err(HandleError::TooLong),
+    },
 ];
 
 /// Every id case, shared with TypeScript and Noir.
-pub const ID_VECTORS: [IdVector; 22] = [
+pub const ID_VECTORS: [IdVector; 25] = [
     IdVector {
         platform: "x",
         input: "2244994945",
@@ -298,5 +313,20 @@ pub const ID_VECTORS: [IdVector; 22] = [
         platform: "google",
         input: "a\tb",
         expected: Err(IdError::BadCharacter),
+    },
+    IdVector {
+        platform: "telegram",
+        input: "7051836294",
+        expected: Ok("0x9ff44e615ff14505c3a406e9931e2442ad4f56f3fb5b12e91c143fa6384a3a4c"),
+    },
+    IdVector {
+        platform: "telegram",
+        input: "12345678901234567890",
+        expected: Ok("0x3e9826f14cbe508759feac1b5cff121bfa0d9a805167f0ff9e5395d8bef3deb1"),
+    },
+    IdVector {
+        platform: "telegram",
+        input: "123456789012345678901",
+        expected: Err(IdError::TooLong),
     },
 ];

@@ -44,11 +44,13 @@ pub enum Circuit {
     BearerLink,
     /// The Google OIDC circuit, for `google/v1`.
     OidcGoogle,
+    /// The Telegram OIDC circuit, for `telegram/v1`.
+    OidcTelegram,
 }
 
 impl Circuit {
     /// Every circuit the launch platforms verify under.
-    pub const ALL: [Self; 2] = [Self::BearerLink, Self::OidcGoogle];
+    pub const ALL: [Self; 3] = [Self::BearerLink, Self::OidcGoogle, Self::OidcTelegram];
 
     /// The circuit's directory in the `libid-circuits` release, which is
     /// also its tarball's name and its key in `circuits.json`.
@@ -56,6 +58,7 @@ impl Circuit {
         match self {
             Self::BearerLink => "bearer-link",
             Self::OidcGoogle => "oidc-google",
+            Self::OidcTelegram => "oidc-telegram",
         }
     }
 
@@ -66,6 +69,7 @@ impl Circuit {
         match self {
             Self::BearerLink => "BearerLinkHonkVerifier",
             Self::OidcGoogle => "OidcGoogleHonkVerifier",
+            Self::OidcTelegram => "OidcTelegramHonkVerifier",
         }
     }
 }

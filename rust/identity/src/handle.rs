@@ -26,6 +26,9 @@ impl Rules {
 
     /// Google: an email address.
     pub const GOOGLE: Self = v::PLATFORM_GOOGLE.rules;
+
+    /// Telegram: the username.
+    pub const TELEGRAM: Self = v::PLATFORM_TELEGRAM.rules;
 }
 
 /// The rules for a platform key (`"x"`, `"github"`, ...) from the generated

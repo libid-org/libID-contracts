@@ -1,6 +1,6 @@
 //! Bindings for the ceremony verification path (`solidity/contracts/ceremony/`),
 //! read from the compiled artifacts: the Notary Service, the Proof Verifier,
-//! the three launch Platform Verifiers and the Google JWT root list.
+//! the Platform Verifiers and the JWT roots lists.
 //! [`platform_verifier`](crate::platform_verifier) builds a Platform Verifier
 //! initializer and checks its rules.
 
@@ -45,17 +45,23 @@ pub use proof_verifier::CeremonyProofVerifier;
     non_camel_case_types,
     unused_attributes
 )]
-mod google_jwt_roots {
+mod jwt_roots {
     alloy::sol!(
         #[sol(rpc, all_derives)]
-        GoogleJwtRoots,
-        "abi/GoogleJwtRoots.json"
+        JwtRoots,
+        "abi/JwtRootsBase.json"
     );
 }
 
+/// Any `ceremony/JwtRootsBase.sol` list, `TelegramJwtRoots` among them,
+/// bound from the base's ABI.
+pub use jwt_roots::JwtRoots;
 /// `ceremony/GoogleJwtRoots.sol`: the Google signing keys the `google/v1`
 /// verifier trusts, two generations of a notarized JWKS reading.
-pub use google_jwt_roots::GoogleJwtRoots;
+pub use jwt_roots::JwtRoots as GoogleJwtRoots;
+/// `ceremony/JwtRootsBase.sol`'s types: `Generation`, as `currentKeys`
+/// returns it.
+pub use jwt_roots::JwtRootsBase;
 
 #[allow(
     clippy::too_many_arguments,
@@ -150,6 +156,23 @@ pub use google_platform_verifier::GooglePlatformVerifier;
     non_camel_case_types,
     unused_attributes
 )]
+mod telegram_platform_verifier {
+    alloy::sol!(
+        #[sol(rpc, all_derives)]
+        TelegramPlatformVerifier,
+        "abi/TelegramPlatformVerifier.json"
+    );
+}
+
+/// `ceremony/TelegramPlatformVerifier.sol`: the `telegram/v1` profile.
+pub use telegram_platform_verifier::TelegramPlatformVerifier;
+
+#[allow(
+    clippy::too_many_arguments,
+    missing_docs,
+    non_camel_case_types,
+    unused_attributes
+)]
 mod payloads {
     alloy::sol!(
         #[sol(all_derives)]
@@ -161,11 +184,11 @@ mod payloads {
 /// `ceremony/ICeremonyPayloads.sol`: the payloads `IdentityRegistry.bind`
 /// carries to a Platform Verifier. A payload is the struct's
 /// [`SolValue::abi_encode`](alloy::sol_types::SolValue::abi_encode), never a
-/// call to either function.
+/// call to any of its functions.
 pub use payloads::{
-    GooglePlatformVerifier::GoogleProof,
     ICeremony::Attestation,
     ICeremonyPayloads,
+    OidcPlatformVerifierBase::OidcProof,
     TlsNotaryVerifierBase::TlsNotaryProof,
 };
 
@@ -267,8 +290,8 @@ mod tests {
     }
 
     #[test]
-    fn a_google_payload_round_trips() {
-        let payload = GoogleProof {
+    fn an_oidc_payload_round_trips() {
+        let payload = OidcProof {
             ceremonyVersion: 1,
             operationDomain: B256::repeat_byte(0x11),
             authorizationNonce: B256::repeat_byte(0x22),
@@ -276,12 +299,12 @@ mod tests {
             clientIdentifier: b"aud".to_vec().into(),
             idNode: B256::repeat_byte(0x33),
             handleNode: B256::repeat_byte(0x44),
-            exp: 1_800_000_000,
+            time: 1_800_000_000,
             modulus: [B256::repeat_byte(0x55); 18],
             proof: vec![0xde, 0xad].into(),
         };
         assert_eq!(
-            GoogleProof::abi_decode(&payload.abi_encode()).unwrap(),
+            OidcProof::abi_decode(&payload.abi_encode()).unwrap(),
             payload
         );
     }

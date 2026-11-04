@@ -73,11 +73,18 @@ mod tests {
             B256,
             U256,
         },
-        sol_types::SolValue,
+        sol_types::{
+            SolInterface,
+            SolValue,
+        },
     };
 
     use super::*;
     use crate::bindings::{
+        ceremony::{
+            GooglePlatformVerifier::GooglePlatformVerifierErrors,
+            TelegramPlatformVerifier::TelegramPlatformVerifierErrors,
+        },
         circuits::IHonkVerifierErrors::IHonkVerifierErrorsErrors,
         identity::IdentityRegistry::{
             self,
@@ -195,7 +202,8 @@ mod tests {
                 "IdentityRegistry",
                 "XPlatformVerifier",
                 "GitHubPlatformVerifier",
-                "GooglePlatformVerifier"
+                "GooglePlatformVerifier",
+                "TelegramPlatformVerifier"
             ]
         );
         let data = revert("NotYourHandle(bytes32)", BOUND.abi_encode());
@@ -203,6 +211,33 @@ mod tests {
             BindError::decode(&data).expect("decodes").contracts(),
             ["IdentityRegistry"]
         );
+    }
+
+    /// A Telegram verifier's revert decodes as the OIDC set and names both
+    /// OIDC verifiers.
+    #[test]
+    fn a_telegram_revert_decodes_as_the_oidc_set() {
+        let data = revert("UntrustedModulus(bytes32)", BOUND.abi_encode());
+        let error = BindError::decode(&data).expect("decodes");
+        assert!(matches!(error, BindError::OidcVerifier(_)));
+        assert_eq!(
+            error.contracts(),
+            ["GooglePlatformVerifier", "TelegramPlatformVerifier"]
+        );
+    }
+
+    /// The Telegram hop decodes nothing, which holds only while Google's set
+    /// declares every Telegram error.
+    #[test]
+    fn google_declares_every_telegram_error() {
+        for selector in TelegramPlatformVerifierErrors::SELECTORS {
+            assert!(
+                GooglePlatformVerifierErrors::valid_selector(*selector),
+                "{}",
+                TelegramPlatformVerifierErrors::signature_by_selector(*selector)
+                    .unwrap_or("?")
+            );
+        }
     }
 
     /// A selector no contract on the route declares decodes to nothing.

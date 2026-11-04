@@ -40,14 +40,17 @@ ARTIFACTS=(
     "CeremonyProofVerifier:CeremonyProofVerifier"
     "ERC1967Proxy:ERC1967Proxy"
     "GoogleJwtRoots:GoogleJwtRoots"
+    "TelegramJwtRoots:TelegramJwtRoots"
     # ceremony: the launch Platform Verifiers (one per profile)
     "XPlatformVerifier:XPlatformVerifier"
     "GitHubPlatformVerifier:GitHubPlatformVerifier"
     "GooglePlatformVerifier:GooglePlatformVerifier"
+    "TelegramPlatformVerifier:TelegramPlatformVerifier"
     # circuits: the UltraHonk verifiers the Platform Verifiers pin, vendored
     # from the libid-circuits release by scripts/vendor-circuit-verifiers.sh
     "BearerLinkHonkVerifier:BearerLinkHonkVerifier"
     "OidcGoogleHonkVerifier:OidcGoogleHonkVerifier"
+    "OidcTelegramHonkVerifier:OidcTelegramHonkVerifier"
     # identity
     "IdentityRegistry:IdentityRegistry"
     # ens: deployed once per network, outside the CREATE3 canonical set
@@ -71,12 +74,13 @@ TESTING_ARTIFACTS=(
 ABIS=(
     "NotaryService:NotaryService"
     "CeremonyProofVerifier:CeremonyProofVerifier"
-    "GoogleJwtRoots:GoogleJwtRoots"
+    "JwtRootsBase:JwtRootsBase"
     "IPlatformVerifier:IPlatformVerifier"
     "PlatformVerifierBase:PlatformVerifierBase"
     "XPlatformVerifier:XPlatformVerifier"
     "GitHubPlatformVerifier:GitHubPlatformVerifier"
     "GooglePlatformVerifier:GooglePlatformVerifier"
+    "TelegramPlatformVerifier:TelegramPlatformVerifier"
     "ICeremonyPayloads:ICeremonyPayloads"
     # bb's verifiers share the IVerifier interface the vendor script requires.
     "BearerLinkHonkVerifier:IVerifier"

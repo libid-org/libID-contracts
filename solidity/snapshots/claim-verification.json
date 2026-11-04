@@ -3,5 +3,6 @@
   "BearerLinkHonkVerifier.verify(x)": "728418",
   "GitHubPlatformVerifier.verify": "1177478",
   "OidcGoogleHonkVerifier.verify": "755087",
+  "OidcTelegramHonkVerifier.verify": "755087",
   "XPlatformVerifier.verify": "1115144"
 }

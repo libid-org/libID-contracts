@@ -12,6 +12,7 @@ library HonkStub {
 
     string internal constant BEARER_LINK = "BearerLinkHonkVerifier.sol:BearerLinkHonkVerifier";
     string internal constant GOOGLE = "OidcGoogleHonkVerifier.sol:OidcGoogleHonkVerifier";
+    string internal constant TELEGRAM = "OidcTelegramHonkVerifier.sol:OidcTelegramHonkVerifier";
 
     /// @notice Deploy `artifact` and have its `verify` answer `true`.
     function deploy(string memory artifact) internal returns (address honk) {

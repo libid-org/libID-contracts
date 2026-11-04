@@ -30,6 +30,8 @@ pub const PLATFORM_GOOGLE_KEY: &str = "google";
 pub const PLATFORM_X_KEY: &str = "x";
 /// keccak256 of this string is the platform id.
 pub const PLATFORM_GITHUB_KEY: &str = "github";
+/// keccak256 of this string is the platform id.
+pub const PLATFORM_TELEGRAM_KEY: &str = "telegram";
 
 /// The google platform.
 pub const PLATFORM_GOOGLE: Platform = Platform {
@@ -70,9 +72,22 @@ pub const PLATFORM_GITHUB: Platform = Platform {
         decimal: true,
     },
 };
+/// The telegram platform.
+pub const PLATFORM_TELEGRAM: Platform = Platform {
+    key: PLATFORM_TELEGRAM_KEY,
+    user_id_tag: "libid.telegram.user-id",
+    handle_tag: "libid.telegram.handle",
+    rules: crate::Rules {
+        max_length: 32,
+    },
+    id_rules: crate::IdRules {
+        max_length: 20,
+        decimal: true,
+    },
+};
 
 /// Every platform, in table order.
-pub static PLATFORMS: [Platform; 3] = [PLATFORM_GOOGLE, PLATFORM_X, PLATFORM_GITHUB];
+pub static PLATFORMS: [Platform; 4] = [PLATFORM_GOOGLE, PLATFORM_X, PLATFORM_GITHUB, PLATFORM_TELEGRAM];
 
 /// The platform with this key, if the table names it.
 pub fn platform(key: &str) -> Option<&'static Platform> {

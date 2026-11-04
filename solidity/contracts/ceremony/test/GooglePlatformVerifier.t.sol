@@ -7,7 +7,7 @@ import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.s
 
 import {CeremonyAuthorization} from "../CeremonyAuthorization.sol";
 import {CeremonyProfile} from "../CeremonyProfile.sol";
-import {GooglePlatformVerifier, IGoogleJwtRoots} from "../GooglePlatformVerifier.sol";
+import {GooglePlatformVerifier, IJwtRoots, OidcPlatformVerifierBase} from "../GooglePlatformVerifier.sol";
 import {ICeremony} from "../ICeremony.sol";
 import {INotaryService} from "../INotaryService.sol";
 import {IHonkVerifier, PlatformVerifierBase} from "../PlatformVerifierBase.sol";
@@ -45,7 +45,7 @@ contract GooglePlatformVerifierTest is Test {
     function setUp() public {
         digest = CeremonyAuthorization.digest(DOMAIN, 1, AUTH_NONCE, _txData());
         vm.warp(T0);
-        roots = new TrustingJwtRoots();
+        roots = new TrustingJwtRoots(CeremonyProfile.AUTHORITY_GOOGLEAPIS_WWW);
         honk = HonkStub.deploy(HonkStub.GOOGLE);
         GooglePlatformVerifier impl = new GooglePlatformVerifier();
         verifier = GooglePlatformVerifier(
@@ -54,12 +54,7 @@ contract GooglePlatformVerifierTest is Test {
                     address(impl),
                     abi.encodeCall(
                         GooglePlatformVerifier.initialize,
-                        (
-                            OWNER,
-                            INotaryService(address(0)),
-                            IHonkVerifier(address(honk)),
-                            IGoogleJwtRoots(address(roots))
-                        )
+                        (OWNER, INotaryService(address(0)), IHonkVerifier(address(honk)), IJwtRoots(address(roots)))
                     )
                 )
             )
@@ -108,7 +103,7 @@ contract GooglePlatformVerifierTest is Test {
     }
 
     /// The `google/v1` payload; the verifier builds the public inputs from it.
-    function _payload() private pure returns (GooglePlatformVerifier.GoogleProof memory s) {
+    function _payload() private pure returns (OidcPlatformVerifierBase.OidcProof memory s) {
         s.ceremonyVersion = 1;
         s.operationDomain = DOMAIN;
         s.authorizationNonce = AUTH_NONCE;
@@ -116,12 +111,12 @@ contract GooglePlatformVerifierTest is Test {
         s.clientIdentifier = CLIENT_ID;
         s.idNode = USER_ID;
         s.handleNode = HANDLE_NODE;
-        s.exp = EXP;
+        s.time = EXP;
         s.modulus = _modulus();
         s.proof = hex"00";
     }
 
-    function run(GooglePlatformVerifier.GoogleProof memory s)
+    function run(OidcPlatformVerifierBase.OidcProof memory s)
         external
         payable
         returns (ICeremony.VerifiedClaim memory)
@@ -134,15 +129,15 @@ contract GooglePlatformVerifierTest is Test {
     /// @dev A far-future `exp` would set a watermark that refuses the holder's re-proof until then.
     function test_rejectsAnExpiryFurtherAheadThanTheAllowance() public {
         uint64 farOut = uint64(block.timestamp) + GOOGLE_ALLOWANCE + 1;
-        GooglePlatformVerifier.GoogleProof memory s = _payload();
-        s.exp = farOut;
+        OidcPlatformVerifierBase.OidcProof memory s = _payload();
+        s.time = farOut;
         vm.expectPartialRevert(PlatformVerifierBase.ObservedInTheFuture.selector);
         this.run(s);
     }
 
     /// @dev A real oidc-google proof whose nonce is the digest for `_payload`.
     ///      The fixture's `source` field says how it was made.
-    function _realProof() private returns (GooglePlatformVerifier real, GooglePlatformVerifier.GoogleProof memory s) {
+    function _realProof() private returns (GooglePlatformVerifier real, OidcPlatformVerifierBase.OidcProof memory s) {
         string memory json = vm.readFile("contracts/ceremony/test/fixtures/google-ceremony-proof.json");
         address honkVerifier = vm.deployCode(HonkStub.GOOGLE);
         real = GooglePlatformVerifier(
@@ -151,12 +146,7 @@ contract GooglePlatformVerifierTest is Test {
                     address(new GooglePlatformVerifier()),
                     abi.encodeCall(
                         GooglePlatformVerifier.initialize,
-                        (
-                            OWNER,
-                            INotaryService(address(0)),
-                            IHonkVerifier(honkVerifier),
-                            IGoogleJwtRoots(address(roots))
-                        )
+                        (OWNER, INotaryService(address(0)), IHonkVerifier(honkVerifier), IJwtRoots(address(roots)))
                     )
                 )
             )
@@ -166,24 +156,24 @@ contract GooglePlatformVerifierTest is Test {
         s.clientIdentifier = bytes(vm.parseJsonString(json, ".client_identifier"));
         s.idNode = bytes32((uint256(pi[34]) << 128) | uint256(pi[35]));
         s.handleNode = bytes32((uint256(pi[36]) << 128) | uint256(pi[37]));
-        s.exp = uint64(uint256(pi[38]));
+        s.time = uint64(uint256(pi[38]));
         for (uint256 i = 0; i < 18; ++i) {
             s.modulus[i] = pi[39 + i];
         }
         s.proof = vm.parseJsonBytes(json, ".proof");
-        assertEq(s.exp, REAL_EXP);
+        assertEq(s.time, REAL_EXP);
         roots.trust(keccak256(abi.encodePacked(s.modulus)), REAL_EXP + 86400);
         vm.warp(REAL_EXP - 3600);
     }
 
     /// The real proof fails once any value the verifier builds an input from changes.
-    function _refusedByTheRealProof(GooglePlatformVerifier real, GooglePlatformVerifier.GoogleProof memory s) private {
+    function _refusedByTheRealProof(GooglePlatformVerifier real, OidcPlatformVerifierBase.OidcProof memory s) private {
         (bool ok,) = address(real).call{gas: 5_000_000}(abi.encodeCall(real.verify, (abi.encode(s))));
         assertFalse(ok);
     }
 
     function test_verifiesARealProof() public {
-        (GooglePlatformVerifier real, GooglePlatformVerifier.GoogleProof memory s) = _realProof();
+        (GooglePlatformVerifier real, OidcPlatformVerifierBase.OidcProof memory s) = _realProof();
         ICeremony.VerifiedClaim memory f = real.verify(abi.encode(s));
         // hashlib.sha256(b"libid.google.user-id100000000000000000001")
         assertEq(f.idNode, 0x5e13b7e56f17994a08b7464e5c5c5758228d6816db0a0af9bbd73f65335fcec8);
@@ -194,7 +184,7 @@ contract GooglePlatformVerifierTest is Test {
 
     /// @dev One changed bit in either node is another account.
     function test_refusesARealProofUnderAnotherNode() public {
-        (GooglePlatformVerifier real, GooglePlatformVerifier.GoogleProof memory s) = _realProof();
+        (GooglePlatformVerifier real, OidcPlatformVerifierBase.OidcProof memory s) = _realProof();
         s.idNode ^= bytes32(uint256(1));
         _refusedByTheRealProof(real, s);
         (, s) = _realProof();
@@ -205,7 +195,7 @@ contract GooglePlatformVerifierTest is Test {
     /// @dev REQ-COMMON-02A: the signed `nonce` is the digest, so another nonce
     ///      or transaction fails the proof.
     function test_refusesARealProofForAnotherDigest() public {
-        (GooglePlatformVerifier real, GooglePlatformVerifier.GoogleProof memory s) = _realProof();
+        (GooglePlatformVerifier real, OidcPlatformVerifierBase.OidcProof memory s) = _realProof();
         s.authorizationNonce = bytes32(uint256(AUTH_NONCE) ^ 1);
         _refusedByTheRealProof(real, s);
         (, s) = _realProof();
@@ -216,7 +206,7 @@ contract GooglePlatformVerifierTest is Test {
     /// @dev The digest commits no chain, so the real proof verifies on another
     ///      chain too.
     function test_verifiesARealProofOnAnotherChain() public {
-        (GooglePlatformVerifier real, GooglePlatformVerifier.GoogleProof memory s) = _realProof();
+        (GooglePlatformVerifier real, OidcPlatformVerifierBase.OidcProof memory s) = _realProof();
         vm.chainId(block.chainid + 1);
         ICeremony.VerifiedClaim memory f = real.verify(abi.encode(s));
         assertEq(f.sessionId, digest);
@@ -225,22 +215,22 @@ contract GooglePlatformVerifierTest is Test {
     /// @dev REQ-PLAT-19A: the proof binds `sha256(aud)`, so another client
     ///      identifier is refused.
     function test_refusesARealProofForAnotherClientIdentifier() public {
-        (GooglePlatformVerifier real, GooglePlatformVerifier.GoogleProof memory s) = _realProof();
+        (GooglePlatformVerifier real, OidcPlatformVerifierBase.OidcProof memory s) = _realProof();
         s.clientIdentifier = "attacker.apps.googleusercontent.com";
         _refusedByTheRealProof(real, s);
     }
 
     /// @dev An earlier `exp` is still in the future, so only the proof refuses it.
     function test_refusesARealProofForAnotherExpiry() public {
-        (GooglePlatformVerifier real, GooglePlatformVerifier.GoogleProof memory s) = _realProof();
-        s.exp = REAL_EXP - 1;
+        (GooglePlatformVerifier real, OidcPlatformVerifierBase.OidcProof memory s) = _realProof();
+        s.time = REAL_EXP - 1;
         _refusedByTheRealProof(real, s);
     }
 
     /// @dev The verifier hands the Honk verifier REQ-PLAT-16B's layout, built
     ///      from the payload, its own digest and `sha256(aud)`.
     function test_buildsThePublicInputsInTheirFixedOrder() public {
-        GooglePlatformVerifier.GoogleProof memory s = _payload();
+        OidcPlatformVerifierBase.OidcProof memory s = _payload();
         vm.expectCall(honk, abi.encodeCall(IHonkVerifier.verify, (s.proof, _inputs(digest, CLIENT_ID, EXP))));
         this.run(s);
     }
@@ -265,7 +255,7 @@ contract GooglePlatformVerifierTest is Test {
             address(impl),
             abi.encodeCall(
                 GooglePlatformVerifier.initialize,
-                (OWNER, INotaryService(address(0xDEAD)), IHonkVerifier(address(honk)), IGoogleJwtRoots(address(roots)))
+                (OWNER, INotaryService(address(0xDEAD)), IHonkVerifier(address(honk)), IJwtRoots(address(roots)))
             )
         );
     }
@@ -281,7 +271,7 @@ contract GooglePlatformVerifierTest is Test {
 
     /// @dev With no Notary Service, there is nothing to forward value to.
     function test_refusesAnyValue() public {
-        GooglePlatformVerifier.GoogleProof memory s = _payload();
+        OidcPlatformVerifierBase.OidcProof memory s = _payload();
         vm.expectRevert(abi.encodeWithSelector(PlatformVerifierBase.WrongValue.selector, 0, 1));
         this.run{value: 1}(s);
     }
@@ -289,7 +279,7 @@ contract GooglePlatformVerifierTest is Test {
     // ─── The payload ────────────────────────────────────────────────
 
     function test_rejectsAPayloadForAnotherCeremonyVersion() public {
-        GooglePlatformVerifier.GoogleProof memory s = _payload();
+        OidcPlatformVerifierBase.OidcProof memory s = _payload();
         s.ceremonyVersion = 2;
         vm.expectRevert(abi.encodeWithSelector(PlatformVerifierBase.WrongCeremonyVersion.selector, 1, 2));
         this.run(s);
@@ -298,9 +288,9 @@ contract GooglePlatformVerifierTest is Test {
     // ─── The audience ───────────────────────────────────────────────
 
     function test_rejectsAMissingClientIdentifier() public {
-        GooglePlatformVerifier.GoogleProof memory s = _payload();
+        OidcPlatformVerifierBase.OidcProof memory s = _payload();
         s.clientIdentifier = "";
-        vm.expectRevert(GooglePlatformVerifier.MissingClientIdentifier.selector);
+        vm.expectRevert(OidcPlatformVerifierBase.MissingClientIdentifier.selector);
         this.run(s);
     }
 
@@ -308,22 +298,22 @@ contract GooglePlatformVerifierTest is Test {
 
     /// @dev REQ-PLAT-23: the verifier, not the circuit, decides which modulus is trusted.
     function test_rejectsAnUntrustedModulus() public {
-        TrustingJwtRoots empty = new TrustingJwtRoots();
+        TrustingJwtRoots empty = new TrustingJwtRoots(CeremonyProfile.AUTHORITY_GOOGLEAPIS_WWW);
         vm.prank(OWNER);
-        verifier.setJwtRoots(IGoogleJwtRoots(address(empty)));
-        GooglePlatformVerifier.GoogleProof memory s = _payload();
-        vm.expectPartialRevert(GooglePlatformVerifier.UntrustedModulus.selector);
+        verifier.setJwtRoots(IJwtRoots(address(empty)));
+        OidcPlatformVerifierBase.OidcProof memory s = _payload();
+        vm.expectPartialRevert(OidcPlatformVerifierBase.UntrustedModulus.selector);
         this.run(s);
     }
 
     /// @dev Google rotates its keys, so a lapsed one fails closed.
     function test_rejectsAModulusWhoseTrustHasLapsed() public {
-        TrustingJwtRoots lapsed = new TrustingJwtRoots();
+        TrustingJwtRoots lapsed = new TrustingJwtRoots(CeremonyProfile.AUTHORITY_GOOGLEAPIS_WWW);
         lapsed.trust(_modulusHash(), T0);
         vm.prank(OWNER);
-        verifier.setJwtRoots(IGoogleJwtRoots(address(lapsed)));
-        GooglePlatformVerifier.GoogleProof memory s = _payload();
-        vm.expectPartialRevert(GooglePlatformVerifier.UntrustedModulus.selector);
+        verifier.setJwtRoots(IJwtRoots(address(lapsed)));
+        OidcPlatformVerifierBase.OidcProof memory s = _payload();
+        vm.expectPartialRevert(OidcPlatformVerifierBase.UntrustedModulus.selector);
         this.run(s);
     }
 
@@ -331,7 +321,7 @@ contract GooglePlatformVerifierTest is Test {
 
     function test_rejectsAnExpiredToken() public {
         vm.warp(EXP);
-        GooglePlatformVerifier.GoogleProof memory s = _payload();
+        OidcPlatformVerifierBase.OidcProof memory s = _payload();
         vm.expectPartialRevert(GooglePlatformVerifier.TokenExpired.selector);
         this.run(s);
     }
@@ -345,17 +335,43 @@ contract GooglePlatformVerifierTest is Test {
 
     function test_rejectsAProofThatDoesNotVerify() public {
         HonkStub.answer(honk, false);
-        GooglePlatformVerifier.GoogleProof memory s = _payload();
+        OidcPlatformVerifierBase.OidcProof memory s = _payload();
         vm.expectRevert(PlatformVerifierBase.BadProof.selector);
         this.run(s);
     }
 
     function test_onlyTheOwnerPointsAtJwtRoots() public {
         vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, address(this)));
-        verifier.setJwtRoots(IGoogleJwtRoots(address(roots)));
+        verifier.setJwtRoots(IJwtRoots(address(roots)));
         vm.prank(OWNER);
         vm.expectRevert(PlatformVerifierBase.ZeroAddress.selector);
-        verifier.setJwtRoots(IGoogleJwtRoots(address(0)));
+        verifier.setJwtRoots(IJwtRoots(address(0)));
+    }
+
+    function test_refusesTelegramsRootsList() public {
+        bytes32 telegram = CeremonyProfile.AUTHORITY_TELEGRAM_OAUTH;
+        TrustingJwtRoots telegrams = new TrustingJwtRoots(telegram);
+        vm.prank(OWNER);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                PlatformVerifierBase.WrongAuthority.selector, CeremonyProfile.AUTHORITY_GOOGLEAPIS_WWW, telegram
+            )
+        );
+        verifier.setJwtRoots(telegrams);
+    }
+
+    /// An address with no code, or code without `AUTHORITY()`, is refused by name.
+    function test_aRootsListWithoutAnAuthorityIsRefused() public {
+        address[2] memory lists = [address(0xC0DE), address(verifier)];
+        for (uint256 i = 0; i < 2; ++i) {
+            vm.prank(OWNER);
+            vm.expectRevert(
+                abi.encodeWithSelector(
+                    PlatformVerifierBase.WrongAuthority.selector, CeremonyProfile.AUTHORITY_GOOGLEAPIS_WWW, bytes32(0)
+                )
+            );
+            verifier.setJwtRoots(IJwtRoots(lists[i]));
+        }
     }
 
     /// @dev A TLSNotary-shaped payload at the Google verifier is refused.

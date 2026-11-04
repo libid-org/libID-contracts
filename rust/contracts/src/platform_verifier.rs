@@ -24,6 +24,7 @@ use crate::{
         GooglePlatformVerifier,
         IPlatformVerifier,
         PlatformVerifierBase,
+        TelegramPlatformVerifier,
         XPlatformVerifier,
     },
     circuits::Circuit,
@@ -34,7 +35,7 @@ use crate::{
     },
 };
 
-/// One of the three launch Platform Verifiers.
+/// One of the four launch Platform Verifiers.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum PlatformVerifier {
     /// `x/v1`: `XPlatformVerifier`, a TLSNotary profile.
@@ -44,11 +45,14 @@ pub enum PlatformVerifier {
     /// `google/v1`: `GooglePlatformVerifier`, a signed-token profile that
     /// notarizes nothing.
     Google,
+    /// `telegram/v1`: `TelegramPlatformVerifier`, a signed-token profile
+    /// that notarizes nothing.
+    Telegram,
 }
 
 impl PlatformVerifier {
     /// Every launch verifier.
-    pub const ALL: [Self; 3] = [Self::X, Self::GitHub, Self::Google];
+    pub const ALL: [Self; 4] = [Self::X, Self::GitHub, Self::Google, Self::Telegram];
 
     /// The contract, which is also its `.sol` file and its entry in
     /// [`COVERED`](crate::artifacts::COVERED).
@@ -57,6 +61,7 @@ impl PlatformVerifier {
             Self::X => "XPlatformVerifier",
             Self::GitHub => "GitHubPlatformVerifier",
             Self::Google => "GooglePlatformVerifier",
+            Self::Telegram => "TelegramPlatformVerifier",
         }
     }
 
@@ -67,6 +72,7 @@ impl PlatformVerifier {
             Self::X => "x",
             Self::GitHub => "github",
             Self::Google => "google",
+            Self::Telegram => "telegram",
         }
     }
 
@@ -82,6 +88,7 @@ impl PlatformVerifier {
         match self {
             Self::X | Self::GitHub => Circuit::BearerLink,
             Self::Google => Circuit::OidcGoogle,
+            Self::Telegram => Circuit::OidcTelegram,
         }
     }
 
@@ -91,7 +98,7 @@ impl PlatformVerifier {
     pub const fn notarizes(self) -> bool {
         match self {
             Self::X | Self::GitHub => true,
-            Self::Google => false,
+            Self::Google | Self::Telegram => false,
         }
     }
 }
@@ -181,15 +188,16 @@ pub struct TlsNotaryRoots {
     pub honk_verifier: Address,
 }
 
-/// What the Google Platform Verifier initializes with. The base refuses a
-/// Notary Service for this profile.
+/// What an OIDC Platform Verifier (`google/v1`, `telegram/v1`) initializes
+/// with. The base refuses a Notary Service for these profiles.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct GoogleRoots {
+pub struct OidcRoots {
     /// Governance.
     pub owner: Address,
-    /// The bb-generated UltraHonk verifier for the Google OIDC circuit.
+    /// The bb-generated UltraHonk verifier for this platform's OIDC circuit.
     pub honk_verifier: Address,
-    /// The `GoogleJwtRoots` proxy the trusted moduli are read through.
+    /// The platform's JWT roots proxy (`GoogleJwtRoots`, `TelegramJwtRoots`)
+    /// the trusted moduli are read through.
     pub jwt_roots: Address,
 }
 
@@ -201,7 +209,9 @@ pub enum Initializer {
     /// `GitHubPlatformVerifier`.
     GitHub(TlsNotaryRoots),
     /// `GooglePlatformVerifier`.
-    Google(GoogleRoots),
+    Google(OidcRoots),
+    /// `TelegramPlatformVerifier`.
+    Telegram(OidcRoots),
 }
 
 /// A built `initialize` call. Its [`abi_encode`](Self::abi_encode) is an
@@ -215,6 +225,8 @@ pub enum InitializeCall {
     GitHub(GitHubPlatformVerifier::initializeCall),
     /// `GooglePlatformVerifier.initialize`.
     Google(GooglePlatformVerifier::initializeCall),
+    /// `TelegramPlatformVerifier.initialize`.
+    Telegram(TelegramPlatformVerifier::initializeCall),
 }
 
 impl InitializeCall {
@@ -224,6 +236,7 @@ impl InitializeCall {
             Self::X(call) => call.abi_encode(),
             Self::GitHub(call) => call.abi_encode(),
             Self::Google(call) => call.abi_encode(),
+            Self::Telegram(call) => call.abi_encode(),
         }
     }
 }
@@ -235,6 +248,7 @@ impl Initializer {
             Self::X(_) => PlatformVerifier::X,
             Self::GitHub(_) => PlatformVerifier::GitHub,
             Self::Google(_) => PlatformVerifier::Google,
+            Self::Telegram(_) => PlatformVerifier::Telegram,
         }
     }
 
@@ -242,13 +256,13 @@ impl Initializer {
     pub const fn honk_verifier(&self) -> Address {
         match self {
             Self::X(roots) | Self::GitHub(roots) => roots.honk_verifier,
-            Self::Google(roots) => roots.honk_verifier,
+            Self::Google(roots) | Self::Telegram(roots) => roots.honk_verifier,
         }
     }
 
     /// The rules `initialize` enforces that need no chain: a nonzero owner
-    /// and Honk verifier, a Notary Service for a TLSNotary profile, and a
-    /// root list for Google. [`deploy_platform_verifier`] checks the code hash.
+    /// and Honk verifier, a Notary Service for a TLSNotary profile, a root
+    /// list for Google and Telegram. [`deploy_platform_verifier`] checks the code hash.
     pub fn check(&self) -> Result<()> {
         let contract = self.verifier().contract();
         let refuse = |detail: String| Error::Initializer {
@@ -274,7 +288,7 @@ impl Initializer {
                 }
                 Ok(())
             }
-            Self::Google(roots) => {
+            Self::Google(roots) | Self::Telegram(roots) => {
                 nonzero("owner", roots.owner)?;
                 nonzero("honk verifier", roots.honk_verifier)?;
                 nonzero("jwt roots", roots.jwt_roots)
@@ -302,6 +316,14 @@ impl Initializer {
                 InitializeCall::Google(GooglePlatformVerifier::initializeCall {
                     owner_: roots.owner,
                     // Attestation Count zero: no Notary Service (REQ-COMMON-05D).
+                    notary_: Address::ZERO,
+                    honkVerifier_: roots.honk_verifier,
+                    jwtRoots_: roots.jwt_roots,
+                })
+            }
+            Self::Telegram(roots) => {
+                InitializeCall::Telegram(TelegramPlatformVerifier::initializeCall {
+                    owner_: roots.owner,
                     notary_: Address::ZERO,
                     honkVerifier_: roots.honk_verifier,
                     jwtRoots_: roots.jwt_roots,
@@ -362,6 +384,9 @@ pub async fn deploy_platform_verifier<P: Provider>(
         InitializeCall::Google(call) => {
             deploy_behind_proxy(provider, artifacts, contract, &call, sender).await
         }
+        InitializeCall::Telegram(call) => {
+            deploy_behind_proxy(provider, artifacts, contract, &call, sender).await
+        }
     }
 }
 
@@ -378,8 +403,8 @@ mod tests {
         }
     }
 
-    fn google() -> GoogleRoots {
-        GoogleRoots {
+    fn google() -> OidcRoots {
+        OidcRoots {
             owner: Address::repeat_byte(0x01),
             honk_verifier: Address::repeat_byte(0x03),
             jwt_roots: Address::repeat_byte(0x04),
@@ -434,6 +459,32 @@ mod tests {
         Initializer::X(tls()).check().unwrap();
         Initializer::GitHub(tls()).check().unwrap();
         Initializer::Google(google()).check().unwrap();
+        Initializer::Telegram(telegram()).check().unwrap();
+    }
+
+    fn telegram() -> OidcRoots {
+        OidcRoots {
+            owner: Address::repeat_byte(0x01),
+            honk_verifier: Address::repeat_byte(0x03),
+            jwt_roots: Address::repeat_byte(0x04),
+        }
+    }
+
+    /// The Telegram call carries each field, and no Notary Service.
+    #[test]
+    fn a_telegram_initializer_encodes_its_fields() {
+        let roots = telegram();
+        let call = Initializer::Telegram(roots).call().unwrap().abi_encode();
+        let d = TelegramPlatformVerifier::initializeCall::abi_decode(&call).unwrap();
+        assert_eq!(
+            (d.owner_, d.notary_, d.honkVerifier_, d.jwtRoots_),
+            (
+                roots.owner,
+                Address::ZERO,
+                roots.honk_verifier,
+                roots.jwt_roots
+            )
+        );
     }
 
     #[test]
@@ -451,7 +502,7 @@ mod tests {
 
     #[test]
     fn zero_addresses_are_refused() {
-        let cases: [(Initializer, &str); 5] = [
+        let cases: [(Initializer, &str); 8] = [
             (
                 Initializer::X(TlsNotaryRoots {
                     owner: Address::ZERO,
@@ -467,23 +518,44 @@ mod tests {
                 "honk verifier",
             ),
             (
-                Initializer::Google(GoogleRoots {
+                Initializer::Google(OidcRoots {
                     owner: Address::ZERO,
                     ..google()
                 }),
                 "owner",
             ),
             (
-                Initializer::Google(GoogleRoots {
+                Initializer::Google(OidcRoots {
                     honk_verifier: Address::ZERO,
                     ..google()
                 }),
                 "honk verifier",
             ),
             (
-                Initializer::Google(GoogleRoots {
+                Initializer::Google(OidcRoots {
                     jwt_roots: Address::ZERO,
                     ..google()
+                }),
+                "jwt roots",
+            ),
+            (
+                Initializer::Telegram(OidcRoots {
+                    owner: Address::ZERO,
+                    ..telegram()
+                }),
+                "owner",
+            ),
+            (
+                Initializer::Telegram(OidcRoots {
+                    honk_verifier: Address::ZERO,
+                    ..telegram()
+                }),
+                "honk verifier",
+            ),
+            (
+                Initializer::Telegram(OidcRoots {
+                    jwt_roots: Address::ZERO,
+                    ..telegram()
                 }),
                 "jwt roots",
             ),

@@ -1,13 +1,17 @@
 {
-  "version": "0.8.0",
+  "version": "0.9.0",
   "circuits": {
     "bearer-link": {
       "contract": "BearerLinkHonkVerifier",
-      "sha256": "2957ac0018b8384ca945e08b31c793b4054a03cad04d658a1ddb30ef0eadfb6d"
+      "sha256": "0c937b8ccfa60247ec7d86985e0411e4b4b89edfbf745e69cf280a22be59ceb5"
     },
     "oidc-google": {
       "contract": "OidcGoogleHonkVerifier",
-      "sha256": "13a512f77fffe2d880cd3f300c22107a3dbe4add31a7fb3235d78824a2cd70b7"
+      "sha256": "e215ddd7c03d452698f0a499494636c622a3467a834b37911d24425c3922ee45"
+    },
+    "oidc-telegram": {
+      "contract": "OidcTelegramHonkVerifier",
+      "sha256": "4c1ea1fd5dace0f13c1a1489d1274955c77c7f5da99edde0f0e000ae198143f9"
     }
   }
 }

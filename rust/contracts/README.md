@@ -3,10 +3,10 @@
 Typed [alloy](https://github.com/alloy-rs/alloy) bindings, embedded forge
 artifacts, and deploy/upgrade helpers for the libid identity stack: the
 ceremony verification path (`NotaryService`, `CeremonyProofVerifier`, the
-three launch Platform Verifiers it routes to, the two UltraHonk verifiers
-they pin, and `GoogleJwtRoots`, the signing keys the `google/v1` verifier
-trusts), the identity registry (`IdentityRegistry`), and the deterministic
-deployment factory (`LibidFactory`).
+four launch Platform Verifiers it routes to, the three UltraHonk verifiers
+they pin, and `GoogleJwtRoots` and `TelegramJwtRoots`, the signing keys the
+`google/v1` and `telegram/v1` verifiers trust), the identity registry
+(`IdentityRegistry`), and the deterministic deployment factory (`LibidFactory`).
 
 The compiled artifacts are embedded in the crate, so a consumer deploys or
 upgrades the stack with no filesystem access at runtime. The bindings are
@@ -54,6 +54,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // The Google JWT root list pays that fee on every rotation. It starts
     // empty until a keeper submits a notarized reading of Google's JWKS.
+    // `TelegramJwtRoots` deploys the same way.
     let roots = deploy_behind_proxy(
         &provider,
         &artifacts,
@@ -113,7 +114,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         deploy_honk_verifier(&provider, &artifacts, PlatformVerifier::X.circuit(), None).await?;
 
     // `x/v1` notarizes two sessions, so it needs a Notary Service.
-    // `Initializer::Google` takes `GoogleRoots`: the JWT root list instead.
+    // `Initializer::Google` takes `OidcRoots`: the JWT root list instead.
     let verifier = deploy_platform_verifier(
         &provider,
         &artifacts,
@@ -158,8 +159,10 @@ Other entry points:
 - `BindError::decode` — a refused `bind` by name (`HandleNotProved`,
   `NotYourHandle`, `SumcheckFailed`, …), from every contract on the route
   and bb's Honk verifiers. A revert does not say which contract raised it,
-  so `contracts()` lists every one that declares the error.
-- `bindings::ceremony::{TlsNotaryProof, GoogleProof}` — the payload a Platform
+  so `contracts()` lists every one that declares the error. For
+  `telegram/v1`, `AttestationAhead` and `ProofExpired` date the signed
+  token's `iat`, not an attestation.
+- `bindings::ceremony::{TlsNotaryProof, OidcProof}` — the payload a Platform
   Verifier decodes; its `SolValue::abi_encode` is the `payload` `bind` takes.
 
 ## Feature `testing`

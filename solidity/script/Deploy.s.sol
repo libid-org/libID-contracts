@@ -9,10 +9,12 @@ import {INotaryService} from "../contracts/ceremony/INotaryService.sol";
 import {CeremonyProofVerifier} from "../contracts/ceremony/CeremonyProofVerifier.sol";
 import {IProofVerifier} from "../contracts/ceremony/IProofVerifier.sol";
 import {GoogleJwtRoots} from "../contracts/ceremony/GoogleJwtRoots.sol";
+import {JwtRootsBase} from "../contracts/ceremony/JwtRootsBase.sol";
+import {TelegramJwtRoots} from "../contracts/ceremony/TelegramJwtRoots.sol";
 
-/// @notice Deploy the identity stack to any EVM chain: four UUPS proxies for the
-/// Notary Service, Proof Verifier, identity registry and Google JWT root list.
-/// No Platform Verifier is registered.
+/// @notice Deploy the identity stack to any EVM chain: five UUPS proxies for the
+/// Notary Service, Proof Verifier, identity registry and the Google and
+/// Telegram JWT root lists. No Platform Verifier is registered.
 ///
 /// Usage:
 ///   forge script script/Deploy.s.sol \
@@ -62,16 +64,12 @@ contract Deploy is Script {
         registry.setProofVerifier(IProofVerifier(proofVerifierAddr));
         // A platform is enabled by `CeremonyProofVerifier.setVerifier`, which needs circuit artifacts.
 
-        // 4. The Google JWT root list the Google Platform Verifier reads its
-        //    trusted moduli from. It verifies notarized JWKS readings through
-        //    the Notary Service and starts empty.
-        GoogleJwtRoots rootsImpl = new GoogleJwtRoots();
-        address jwtRootsAddr = address(
-            new ERC1967Proxy(
-                address(rootsImpl),
-                abi.encodeCall(GoogleJwtRoots.initialize, (deployer, INotaryService(notaryServiceAddr)))
-            )
-        );
+        // 4. The JWT root lists the Google and Telegram Platform Verifiers
+        //    read their trusted moduli from. Each verifies notarized JWKS
+        //    readings through the Notary Service and starts empty.
+        bytes memory rootsInit = abi.encodeCall(JwtRootsBase.initialize, (deployer, INotaryService(notaryServiceAddr)));
+        address jwtRootsAddr = address(new ERC1967Proxy(address(new GoogleJwtRoots()), rootsInit));
+        address telegramJwtRootsAddr = address(new ERC1967Proxy(address(new TelegramJwtRoots()), rootsInit));
 
         vm.stopBroadcast();
 
@@ -81,12 +79,15 @@ contract Deploy is Script {
         console.log("CEREMONY_PROOF_VERIFIER_ADDRESS= ", proofVerifierAddr);
         console.log("IDENTITY_REGISTRY_ADDRESS= ", identityRegistryAddr);
         console.log("GOOGLE_JWT_ROOTS_ADDRESS= ", jwtRootsAddr);
+        console.log("TELEGRAM_JWT_ROOTS_ADDRESS= ", telegramJwtRootsAddr);
         console.log("NOTE: no Platform Verifier is registered yet. Add one with");
         console.log("      CeremonyProofVerifier.setVerifier once the ceremony");
         console.log("      circuit artifacts are released. Until then no");
         console.log("      platform can bind.");
-        // Until the first JWKS reading lands, every Google binding reverts `UntrustedModulus`.
-        console.log("NOTE: point the keeper at GOOGLE_JWT_ROOTS_ADDRESS");
-        console.log("      before Google bindings work. The trust list starts empty.");
+        // Until a list's first JWKS reading lands, every binding it serves reverts `UntrustedModulus`.
+        console.log("NOTE: point the keeper at GOOGLE_JWT_ROOTS_ADDRESS before");
+        console.log("      Google bindings work. The trust lists start empty, and");
+        console.log("      no keeper reads Telegram's JWKS yet, so every Telegram");
+        console.log("      binding reverts until TELEGRAM_JWT_ROOTS_ADDRESS holds a key.");
     }
 }

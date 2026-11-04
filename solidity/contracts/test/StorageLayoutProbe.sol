@@ -2,9 +2,9 @@
 pragma solidity ^0.8.24;
 
 import {CeremonyProofVerifier} from "../ceremony/CeremonyProofVerifier.sol";
-import {GoogleJwtRoots} from "../ceremony/GoogleJwtRoots.sol";
-import {GooglePlatformVerifier} from "../ceremony/GooglePlatformVerifier.sol";
+import {JwtRootsBase} from "../ceremony/JwtRootsBase.sol";
 import {NotaryService} from "../ceremony/NotaryService.sol";
+import {OidcPlatformVerifierBase} from "../ceremony/OidcPlatformVerifierBase.sol";
 import {PlatformVerifierBase} from "../ceremony/PlatformVerifierBase.sol";
 import {HandleEscrow} from "../escrow/HandleEscrow.sol";
 import {IdentityRegistry} from "../identity/IdentityRegistry.sol";
@@ -20,10 +20,10 @@ import {IdentityRegistry} from "../identity/IdentityRegistry.sol";
 ///      committed beside each contract. Never deployed; nothing calls it.
 contract StorageLayoutProbe {
     CeremonyProofVerifier.ProofVerifierStorage internal ceremonyProofVerifier;
-    GoogleJwtRoots.GoogleJwtRootsStorage internal googleJwtRoots;
-    GooglePlatformVerifier.GoogleStorage internal googlePlatformVerifier;
     NotaryService.NotaryServiceStorage internal notaryService;
+    JwtRootsBase.JwtRootsStorage internal jwtRoots;
     PlatformVerifierBase.PlatformVerifierStorage internal platformVerifier;
+    OidcPlatformVerifierBase.OidcStorage internal oidcPlatformVerifier;
     HandleEscrow.HandleEscrowStorage internal handleEscrow;
     IdentityRegistry.IdentityRegistryStorage internal identityRegistry;
 }

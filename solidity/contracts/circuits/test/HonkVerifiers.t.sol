@@ -5,7 +5,10 @@ import {Test} from "forge-std/Test.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
 import {GitHubPlatformVerifier} from "../../ceremony/GitHubPlatformVerifier.sol";
-import {GooglePlatformVerifier, IGoogleJwtRoots} from "../../ceremony/GooglePlatformVerifier.sol";
+import {GooglePlatformVerifier, IJwtRoots} from "../../ceremony/GooglePlatformVerifier.sol";
+import {TelegramPlatformVerifier} from "../../ceremony/TelegramPlatformVerifier.sol";
+import {CeremonyProfile} from "../../ceremony/CeremonyProfile.sol";
+import {TrustingJwtRoots} from "../../ceremony/test/TrustingJwtRoots.sol";
 import {INotaryService} from "../../ceremony/INotaryService.sol";
 import {IHonkVerifier} from "../../ceremony/PlatformVerifierBase.sol";
 import {XPlatformVerifier} from "../../ceremony/XPlatformVerifier.sol";
@@ -25,10 +28,12 @@ contract HonkVerifiersTest is Test {
 
     IHonkVerifier bearerLink;
     IHonkVerifier oidcGoogle;
+    IHonkVerifier oidcTelegram;
 
     function setUp() public {
         bearerLink = IHonkVerifier(vm.deployCode("BearerLinkHonkVerifier.sol:BearerLinkHonkVerifier"));
         oidcGoogle = IHonkVerifier(vm.deployCode("OidcGoogleHonkVerifier.sol:OidcGoogleHonkVerifier"));
+        oidcTelegram = IHonkVerifier(vm.deployCode("OidcTelegramHonkVerifier.sol:OidcTelegramHonkVerifier"));
     }
 
     /// The `logN` a verifier reports for its own circuit, read by handing
@@ -73,6 +78,7 @@ contract HonkVerifiersTest is Test {
     function test_verifiersFitUnderTheCodeSizeLimit() public view {
         assertLe(address(bearerLink).code.length, 24_576, "bearer-link over EIP-170");
         assertLe(address(oidcGoogle).code.length, 24_576, "oidc-google over EIP-170");
+        assertLe(address(oidcTelegram).code.length, 24_576, "oidc-telegram over EIP-170");
     }
 
     function test_eachVerifierAnswersForItsOwnCircuit() public view {
@@ -130,7 +136,12 @@ contract HonkVerifiersTest is Test {
                     address(gImpl),
                     abi.encodeCall(
                         GooglePlatformVerifier.initialize,
-                        (OWNER, INotaryService(address(0)), oidcGoogle, IGoogleJwtRoots(address(0x2007)))
+                        (
+                            OWNER,
+                            INotaryService(address(0)),
+                            oidcGoogle,
+                            new TrustingJwtRoots(CeremonyProfile.AUTHORITY_GOOGLEAPIS_WWW)
+                        )
                     )
                 )
             )
@@ -144,29 +155,16 @@ contract HonkVerifiersTest is Test {
     function test_theCommittedCodehashesAreTheVendoredVerifiers() public view {
         assertEq(address(bearerLink).codehash, CircuitCodehashes.BEARER_LINK, "bearer-link");
         assertEq(address(oidcGoogle).codehash, CircuitCodehashes.OIDC_GOOGLE, "oidc-google");
+        assertEq(address(oidcTelegram).codehash, CircuitCodehashes.OIDC_TELEGRAM, "oidc-telegram");
     }
 
     /// @dev Each Platform Verifier refuses every vendored verifier but its own circuit's.
     function test_eachPlatformVerifierRefusesTheOtherCircuits() public {
         _refuses(address(new XPlatformVerifier()), oidcGoogle, CircuitCodehashes.BEARER_LINK);
         _refuses(address(new GitHubPlatformVerifier()), oidcGoogle, CircuitCodehashes.BEARER_LINK);
-
-        GooglePlatformVerifier google = new GooglePlatformVerifier();
-        {
-            IHonkVerifier wrong = bearerLink;
-            vm.expectRevert(
-                abi.encodeWithSelector(
-                    PlatformVerifierBase.WrongCircuit.selector, CircuitCodehashes.OIDC_GOOGLE, address(wrong).codehash
-                )
-            );
-            new ERC1967Proxy(
-                address(google),
-                abi.encodeCall(
-                    GooglePlatformVerifier.initialize,
-                    (OWNER, INotaryService(address(0)), wrong, IGoogleJwtRoots(address(0x0808)))
-                )
-            );
-        }
+        _refusesOidc(address(new GooglePlatformVerifier()), bearerLink, CircuitCodehashes.OIDC_GOOGLE);
+        _refusesOidc(address(new GooglePlatformVerifier()), oidcTelegram, CircuitCodehashes.OIDC_GOOGLE);
+        _refusesOidc(address(new TelegramPlatformVerifier()), oidcGoogle, CircuitCodehashes.OIDC_TELEGRAM);
     }
 
     /// An X or GitHub `impl` behind a proxy initialized with `wrong` reverts
@@ -177,6 +175,20 @@ contract HonkVerifiersTest is Test {
         );
         new ERC1967Proxy(
             impl, abi.encodeCall(XPlatformVerifier.initialize, (OWNER, INotaryService(address(0x0707)), wrong))
+        );
+    }
+
+    /// The same for a Google or Telegram `impl`, whose `initialize` is one.
+    function _refusesOidc(address impl, IHonkVerifier wrong, bytes32 expected) private {
+        vm.expectRevert(
+            abi.encodeWithSelector(PlatformVerifierBase.WrongCircuit.selector, expected, address(wrong).codehash)
+        );
+        new ERC1967Proxy(
+            impl,
+            abi.encodeCall(
+                GooglePlatformVerifier.initialize,
+                (OWNER, INotaryService(address(0)), wrong, IJwtRoots(address(0x0808)))
+            )
         );
     }
 }

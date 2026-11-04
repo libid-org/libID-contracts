@@ -111,17 +111,14 @@ library CeremonyFields {
     ///         overlapping copies included.
     function occurrences(bytes memory haystack, bytes memory needle) internal pure returns (uint256 count) {
         for (
-            uint256 at = _indexOf(haystack, needle, 0);
-            at != type(uint256).max;
-            at = _indexOf(haystack, needle, at + 1)
-        ) {
+            uint256 at = indexOf(haystack, needle, 0); at != type(uint256).max; at = indexOf(haystack, needle, at + 1)) {
             ++count;
         }
     }
 
-    /// @dev The first offset at or after `from` that begins a copy of
-    ///      `needle` in `data`, or `max`.
-    function _indexOf(bytes memory data, bytes memory needle, uint256 from) private pure returns (uint256 at) {
+    /// @notice The first offset at or after `from` that begins a copy of
+    ///         `needle` in `data`, or `max`.
+    function indexOf(bytes memory data, bytes memory needle, uint256 from) internal pure returns (uint256 at) {
         at = type(uint256).max;
         uint256 n = needle.length;
         if (n > data.length) return at;

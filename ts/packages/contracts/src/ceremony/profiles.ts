@@ -135,8 +135,20 @@ export const GITHUB: Profile = {
   },
 }
 
+/**
+ * Like Google, the evidence is a token signed with the platform's published
+ * keys, so the profile notarizes nothing. The audience is the bot id the
+ * payload names, and any bot is admitted (REQ-COMMON-17C).
+ */
+export const TELEGRAM: Profile = {
+  platform: 'telegram',
+  ceremonyVersion: 1,
+  token: null,
+  identity: null,
+}
+
 /** The launch profiles. */
-export const LAUNCH: readonly Profile[] = [GOOGLE, X, GITHUB]
+export const LAUNCH: readonly Profile[] = [GOOGLE, X, GITHUB, TELEGRAM]
 
 /** The launch profile for a platform name, or undefined. */
 export function launch(platform: string): Profile | undefined {
@@ -224,3 +236,23 @@ export const MAX_FUTURE_ATTESTATION_SKEW_SECONDS_GITHUB = 300
  * time on one scale.
  */
 export const FUTURE_OBSERVATION_ALLOWANCE_SECONDS_GITHUB = 300
+
+// The circuit exposes the signed `iat`. A token is accepted while
+// Block Time is in [iat - 5 min, iat + 1 h): five minutes for clock
+// skew. The observation is `iat` less five minutes, so an `iat` inside
+// the skew cannot outrank a later binding.
+/**
+ * `telegram/v1`: maximum age of the signed `iat`.
+ */
+export const PROOF_LIFETIME_SECONDS_TELEGRAM = 3600
+/**
+ * `telegram/v1`: how far ahead of Block Time the signed `iat` may be
+ * dated.
+ */
+export const MAX_FUTURE_ATTESTATION_SKEW_SECONDS_TELEGRAM = 300
+/**
+ * `telegram/v1`: how far ahead of Block Time the evidence time may
+ * run. The verifier subtracts it, so every version of a platform
+ * reports time on one scale.
+ */
+export const FUTURE_OBSERVATION_ALLOWANCE_SECONDS_TELEGRAM = 300

@@ -26,6 +26,8 @@ export const PLATFORM_GOOGLE_KEY = 'google'
 export const PLATFORM_X_KEY = 'x'
 /** keccak256 of this string is the platform id. */
 export const PLATFORM_GITHUB_KEY = 'github'
+/** keccak256 of this string is the platform id. */
+export const PLATFORM_TELEGRAM_KEY = 'telegram'
 
 export const PLATFORM_GOOGLE: Platform = {
   key: PLATFORM_GOOGLE_KEY,
@@ -63,9 +65,21 @@ export const PLATFORM_GITHUB: Platform = {
     decimal: true,
   },
 }
+export const PLATFORM_TELEGRAM: Platform = {
+  key: PLATFORM_TELEGRAM_KEY,
+  userIdTag: 'libid.telegram.user-id',
+  handleTag: 'libid.telegram.handle',
+  rules: {
+    maxLength: 32,
+  },
+  idRules: {
+    maxLength: 20,
+    decimal: true,
+  },
+}
 
 /** Every platform, in table order. */
-export const PLATFORMS: readonly Platform[] = [PLATFORM_GOOGLE, PLATFORM_X, PLATFORM_GITHUB]
+export const PLATFORMS: readonly Platform[] = [PLATFORM_GOOGLE, PLATFORM_X, PLATFORM_GITHUB, PLATFORM_TELEGRAM]
 
 /** The platform with this key, if the table names it. */
 export function platform(key: string): Platform | undefined {

@@ -145,7 +145,7 @@ fn the_counts_follow_the_sessions() {
 
 #[test]
 fn the_launch_list_is_closed() {
-    assert_eq!(LAUNCH.len(), 3);
+    assert_eq!(LAUNCH.len(), 4);
     assert_eq!(libid_profiles::launch("x"), Some(&X));
     // A suffixed platform string is not one of these profiles (TEST-PLAT-17).
     assert_eq!(libid_profiles::launch("x2"), None);

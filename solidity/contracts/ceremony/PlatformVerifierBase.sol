@@ -53,7 +53,9 @@ abstract contract PlatformVerifierBase is ICeremony, Initializable, UUPSUpgradea
     ///      implement. Checked before any fee moves.
     error WrongCeremonyVersion(uint16 expected, uint16 found);
     error WrongAuthority(bytes32 expected, bytes32 found);
+    /// @dev `createdAt` is the token attestation's, or `telegram/v1`'s signed `iat`.
     error AttestationAhead(uint64 createdAt, uint64 blockTime, uint64 allowance);
+    /// @dev `validUntil` counts from the same time as `AttestationAhead`'s `createdAt`.
     error ProofExpired(uint64 validUntil, uint64 blockTime);
     error ObservedInTheFuture(uint64 observedAt, uint64 limit);
     error BadProof();
@@ -123,9 +125,10 @@ abstract contract PlatformVerifierBase is ICeremony, Initializable, UUPSUpgradea
     ///      it ran; a different window is a new ceremony version
     ///      (REQ-PARAM-01). No caller substitute exists (REQ-PARAM-02).
     ///
-    ///      The maximum age of the token attestation; `_maxFutureAttestationSkew`
-    ///      is its maximum lead over Block Time. Both are zero for a profile
-    ///      that notarizes nothing.
+    ///      The maximum age of the evidence time, a token attestation's
+    ///      creation time or a signed `iat`; `_maxFutureAttestationSkew` is its
+    ///      maximum lead over Block Time. Both are zero for Google, whose
+    ///      signed `exp` bounds validity.
     function _proofLifetime() internal pure virtual returns (uint64) {
         return CeremonyProfile.proofLifetime(_platform());
     }
@@ -193,9 +196,9 @@ abstract contract PlatformVerifierBase is ICeremony, Initializable, UUPSUpgradea
         }
     }
 
-    /// @dev Turn the token attestation's signed creation time into the window
-    ///      section 2.2 fixes. The token attestation carries the one-time PKCE
-    ///      and digest binding, so it alone supplies evidence time.
+    /// @dev Turn a signed evidence time into the profile's window: the token
+    ///      attestation's creation time, which alone carries the one-time PKCE
+    ///      and digest binding, or Telegram's signed `iat`.
     function _requireFresh(uint64 createdAt) internal view returns (uint64 metadataObservedAt) {
         uint64 blockTime = uint64(block.timestamp);
         uint64 skew = _maxFutureAttestationSkew();

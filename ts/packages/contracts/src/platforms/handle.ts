@@ -1,7 +1,14 @@
 /// Turns a typed handle into the form the identity circuits hash into a node.
 /// Mirrors the circuits and Rust; all run the `handles.json` vectors.
 
-import { HandleError, PLATFORM_GITHUB, PLATFORM_GOOGLE, PLATFORM_X, platform } from './platforms.js'
+import {
+  HandleError,
+  PLATFORM_GITHUB,
+  PLATFORM_GOOGLE,
+  PLATFORM_TELEGRAM,
+  PLATFORM_X,
+  platform,
+} from './platforms.js'
 
 /// What one platform's circuit takes, generated from the circuits' `platforms.json`.
 export interface Rules {
@@ -12,6 +19,7 @@ export interface Rules {
 export const RULES_X: Rules = PLATFORM_X.rules
 export const RULES_GITHUB: Rules = PLATFORM_GITHUB.rules
 export const RULES_GOOGLE: Rules = PLATFORM_GOOGLE.rules
+export const RULES_TELEGRAM: Rules = PLATFORM_TELEGRAM.rules
 
 /// The rules for a platform key from the generated table.
 export function rulesFor(platformKey: string): Rules | null {

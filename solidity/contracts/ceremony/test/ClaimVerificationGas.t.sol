@@ -31,15 +31,18 @@ contract ClaimVerificationGasTest is Test {
     string constant BEARER_LINK_X_PROOF = "contracts/circuits/test/fixtures/bearer-link-x-proof.json";
     string constant BEARER_LINK_GITHUB_PROOF = "contracts/circuits/test/fixtures/bearer-link-github-proof.json";
     string constant OIDC_GOOGLE_PROOF = "contracts/circuits/test/fixtures/oidc-google-proof.json";
+    string constant OIDC_TELEGRAM_PROOF = "contracts/circuits/test/fixtures/oidc-telegram-proof.json";
 
     IHonkVerifier bearerLink;
     IHonkVerifier oidcGoogle;
+    IHonkVerifier oidcTelegram;
     IPlatformVerifier x;
     IPlatformVerifier gitHub;
 
     function setUp() public {
         bearerLink = IHonkVerifier(vm.deployCode(HonkStub.BEARER_LINK));
         oidcGoogle = IHonkVerifier(vm.deployCode(HonkStub.GOOGLE));
+        oidcTelegram = IHonkVerifier(vm.deployCode(HonkStub.TELEGRAM));
 
         INotaryService notary = INotaryService(
             address(
@@ -85,6 +88,10 @@ contract ClaimVerificationGasTest is Test {
 
     function test_verifyOidcGoogleProof() public {
         _verifyProof(oidcGoogle, OIDC_GOOGLE_PROOF, "OidcGoogleHonkVerifier.verify");
+    }
+
+    function test_verifyOidcTelegramProof() public {
+        _verifyProof(oidcTelegram, OIDC_TELEGRAM_PROOF, "OidcTelegramHonkVerifier.verify");
     }
 
     function _verifyCeremony(

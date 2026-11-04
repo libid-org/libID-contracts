@@ -28,6 +28,7 @@ library CeremonyProfile {
     bytes32 internal constant PLATFORM_GOOGLE = keccak256(bytes("google"));
     bytes32 internal constant PLATFORM_X = keccak256(bytes("x"));
     bytes32 internal constant PLATFORM_GITHUB = keccak256(bytes("github"));
+    bytes32 internal constant PLATFORM_TELEGRAM = keccak256(bytes("telegram"));
 
     // --- Node tags ----------------------------------------------------------
 
@@ -38,6 +39,8 @@ library CeremonyProfile {
     bytes internal constant X_HANDLE_TAG = "libid.x.handle";
     bytes internal constant GITHUB_USER_ID_TAG = "libid.github.user-id";
     bytes internal constant GITHUB_HANDLE_TAG = "libid.github.handle";
+    bytes internal constant TELEGRAM_USER_ID_TAG = "libid.telegram.user-id";
+    bytes internal constant TELEGRAM_HANDLE_TAG = "libid.telegram.handle";
 
     // --- Authorities --------------------------------------------------------
 
@@ -46,9 +49,21 @@ library CeremonyProfile {
     ///      never from the prover-composed `Host` header (REQ-COMMON-21,
     ///      REQ-COMMON-21A).
 
+    bytes32 internal constant AUTHORITY_GOOGLEAPIS_WWW = keccak256(bytes("www.googleapis.com"));
     bytes32 internal constant AUTHORITY_X_API = keccak256(bytes("api.x.com"));
     bytes32 internal constant AUTHORITY_GITHUB = keccak256(bytes("github.com"));
     bytes32 internal constant AUTHORITY_GITHUB_API = keccak256(bytes("api.github.com"));
+    bytes32 internal constant AUTHORITY_TELEGRAM_OAUTH = keccak256(bytes("oauth.telegram.org"));
+
+    // --- JWKS endpoints -------------------------------------------------------
+
+    /// @dev The `Host` and whole request line, CRLF included, a JWT roots list
+    ///      pins for an OIDC profile's signing keys.
+
+    bytes internal constant GOOGLE_JWKS_HOST = "www.googleapis.com";
+    bytes internal constant GOOGLE_JWKS_REQUEST_LINE = "GET /oauth2/v3/certs HTTP/1.1\r\n";
+    bytes internal constant TELEGRAM_JWKS_HOST = "oauth.telegram.org";
+    bytes internal constant TELEGRAM_JWKS_REQUEST_LINE = "GET /.well-known/jwks.json HTTP/1.1\r\n";
 
     // --- Sessions -------------------------------------------------------------
 
@@ -138,16 +153,24 @@ library CeremonyProfile {
     uint64 internal constant MAX_FUTURE_ATTESTATION_SKEW_SECONDS_GITHUB = 300;
     uint64 internal constant FUTURE_OBSERVATION_ALLOWANCE_SECONDS_GITHUB = 300;
 
+    // The circuit exposes the signed `iat`. A token is accepted while
+    // Block Time is in [iat - 5 min, iat + 1 h): five minutes for clock
+    // skew. The observation is `iat` less five minutes, so an `iat` inside
+    // the skew cannot outrank a later binding.
+    uint64 internal constant PROOF_LIFETIME_SECONDS_TELEGRAM = 3600;
+    uint64 internal constant MAX_FUTURE_ATTESTATION_SKEW_SECONDS_TELEGRAM = 300;
+    uint64 internal constant FUTURE_OBSERVATION_ALLOWANCE_SECONDS_TELEGRAM = 300;
+
     // --- Launch profile shape ------------------------------------------------
 
-    /// @dev Launch profiles are `google/v1`, `x/v1`, `github/v1`
+    /// @dev Launch profiles are `google/v1`, `x/v1`, `github/v1`, `telegram/v1`
     ///      (REQ-PLAT-01).
     uint16 internal constant LAUNCH_VERSION = 1;
 
     /// @dev The attestations a submission carries, one per session of the
     ///      profile (REQ-COMMON-41).
     function attestationCount(bytes32 platformId) internal pure returns (uint8) {
-        if (platformId == PLATFORM_GOOGLE) return 0;
+        if (platformId == PLATFORM_GOOGLE || platformId == PLATFORM_TELEGRAM) return 0;
         if (platformId == PLATFORM_X || platformId == PLATFORM_GITHUB) return 2;
         revert UnknownPlatform(platformId);
     }
@@ -156,7 +179,8 @@ library CeremonyProfile {
 
     /// @dev Whether a profile names this platform.
     function knows(bytes32 platformId) internal pure returns (bool) {
-        return platformId == PLATFORM_GOOGLE || platformId == PLATFORM_X || platformId == PLATFORM_GITHUB;
+        return platformId == PLATFORM_GOOGLE || platformId == PLATFORM_X || platformId == PLATFORM_GITHUB
+            || platformId == PLATFORM_TELEGRAM;
     }
 
     /// @dev The tag the platform's id nodes are hashed under.
@@ -164,6 +188,7 @@ library CeremonyProfile {
         if (platformId == PLATFORM_GOOGLE) return GOOGLE_USER_ID_TAG;
         if (platformId == PLATFORM_X) return X_USER_ID_TAG;
         if (platformId == PLATFORM_GITHUB) return GITHUB_USER_ID_TAG;
+        if (platformId == PLATFORM_TELEGRAM) return TELEGRAM_USER_ID_TAG;
         revert UnknownPlatform(platformId);
     }
 
@@ -172,6 +197,7 @@ library CeremonyProfile {
         if (platformId == PLATFORM_GOOGLE) return GOOGLE_HANDLE_TAG;
         if (platformId == PLATFORM_X) return X_HANDLE_TAG;
         if (platformId == PLATFORM_GITHUB) return GITHUB_HANDLE_TAG;
+        if (platformId == PLATFORM_TELEGRAM) return TELEGRAM_HANDLE_TAG;
         revert UnknownPlatform(platformId);
     }
 
@@ -180,22 +206,25 @@ library CeremonyProfile {
         if (platformId == PLATFORM_GOOGLE) return 1;
         if (platformId == PLATFORM_X) return 1;
         if (platformId == PLATFORM_GITHUB) return 1;
+        if (platformId == PLATFORM_TELEGRAM) return 1;
         revert UnknownPlatform(platformId);
     }
 
-    /// @dev In seconds: maximum age of the token attestation.
+    /// @dev In seconds: maximum age of the token attestation, or of a signed `iat`.
     function proofLifetime(bytes32 platformId) internal pure returns (uint64) {
         if (platformId == PLATFORM_X) return PROOF_LIFETIME_SECONDS_X;
         if (platformId == PLATFORM_GITHUB) return PROOF_LIFETIME_SECONDS_GITHUB;
+        if (platformId == PLATFORM_TELEGRAM) return PROOF_LIFETIME_SECONDS_TELEGRAM;
         if (platformId == PLATFORM_GOOGLE) return 0;
         revert UnknownPlatform(platformId);
     }
 
-    /// @dev In seconds: how far ahead of Block Time the token attestation may be
-    ///      dated.
+    /// @dev In seconds: how far ahead of Block Time the token attestation, or a
+    ///      signed `iat`, may be dated.
     function maxFutureAttestationSkew(bytes32 platformId) internal pure returns (uint64) {
         if (platformId == PLATFORM_X) return MAX_FUTURE_ATTESTATION_SKEW_SECONDS_X;
         if (platformId == PLATFORM_GITHUB) return MAX_FUTURE_ATTESTATION_SKEW_SECONDS_GITHUB;
+        if (platformId == PLATFORM_TELEGRAM) return MAX_FUTURE_ATTESTATION_SKEW_SECONDS_TELEGRAM;
         if (platformId == PLATFORM_GOOGLE) return 0;
         revert UnknownPlatform(platformId);
     }
@@ -207,6 +236,21 @@ library CeremonyProfile {
         if (platformId == PLATFORM_GOOGLE) return FUTURE_OBSERVATION_ALLOWANCE_SECONDS_GOOGLE;
         if (platformId == PLATFORM_X) return FUTURE_OBSERVATION_ALLOWANCE_SECONDS_X;
         if (platformId == PLATFORM_GITHUB) return FUTURE_OBSERVATION_ALLOWANCE_SECONDS_GITHUB;
+        if (platformId == PLATFORM_TELEGRAM) return FUTURE_OBSERVATION_ALLOWANCE_SECONDS_TELEGRAM;
+        revert UnknownPlatform(platformId);
+    }
+
+    /// @dev The JWKS host a JWT roots list reads.
+    function jwksHost(bytes32 platformId) internal pure returns (bytes memory) {
+        if (platformId == PLATFORM_GOOGLE) return GOOGLE_JWKS_HOST;
+        if (platformId == PLATFORM_TELEGRAM) return TELEGRAM_JWKS_HOST;
+        revert UnknownPlatform(platformId);
+    }
+
+    /// @dev The JWKS request line, CRLF included.
+    function jwksRequestLine(bytes32 platformId) internal pure returns (bytes memory) {
+        if (platformId == PLATFORM_GOOGLE) return GOOGLE_JWKS_REQUEST_LINE;
+        if (platformId == PLATFORM_TELEGRAM) return TELEGRAM_JWKS_REQUEST_LINE;
         revert UnknownPlatform(platformId);
     }
 
