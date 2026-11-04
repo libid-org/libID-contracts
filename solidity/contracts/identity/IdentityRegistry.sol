@@ -5,12 +5,14 @@ import {Initializable} from "@openzeppelin/contracts/proxy/utils/Initializable.s
 import {UUPSUpgradeable} from "@openzeppelin/contracts/proxy/utils/UUPSUpgradeable.sol";
 import {Ownable2StepUpgradeable} from "@openzeppelin/contracts-upgradeable/access/Ownable2StepUpgradeable.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import {LowLevelCall} from "@openzeppelin/contracts/utils/LowLevelCall.sol";
 
 import {ICeremony} from "../ceremony/ICeremony.sol";
 import {IProofVerifier} from "../ceremony/IProofVerifier.sol";
 import {CeremonyProfile} from "../ceremony/CeremonyProfile.sol";
 import {HandleNode} from "../handles/HandleNode.sol";
 import {IHandleReveal} from "../handles/IHandleReveal.sol";
+import {IBindFeeReceiver} from "./IBindFeeReceiver.sol";
 import {IIdentityRegistry} from "./IIdentityRegistry.sol";
 import {IdentityList} from "./IdentityList.sol";
 
@@ -160,6 +162,11 @@ contract IdentityRegistry is
     error NoncanonicalFee(uint256 amount, address receiver);
     /// @dev The fee receiver refused the value; the binding reverts.
     error FeeTransferFailed(address receiver, uint256 amount);
+    /// @dev `bindWithFeeCall` names no fee. A free bind uses `bind`.
+    error NoFee();
+    /// @dev The fee receiver has no code, reverted without a reason, or did not
+    ///      answer `onBindFee` with its selector.
+    error FeeCallRefused(address receiver);
     /// The proof names a different address than the caller.
     error NotProofTarget(address proved, address caller);
     /// The proof carries no observation time, so it cannot be ordered.
@@ -206,7 +213,9 @@ contract IdentityRegistry is
         uint256 feeAmount,
         address feeReceiver
     ) external payable nonReentrant {
-        _bind(platformId, verifierVersion, payload, handle, primary, feeAmount, feeReceiver);
+        ICeremony.VerifiedClaim memory claimed =
+            _bind(platformId, verifierVersion, payload, handle, primary, feeAmount, feeReceiver);
+        _transferFee(claimed.sessionId, feeAmount, feeReceiver);
     }
 
     /// @notice `bind` disclosing nothing.
@@ -217,7 +226,47 @@ contract IdentityRegistry is
         uint256 feeAmount,
         address feeReceiver
     ) external payable nonReentrant {
-        _bind(platformId, verifierVersion, payload, "", false, feeAmount, feeReceiver);
+        ICeremony.VerifiedClaim memory claimed =
+            _bind(platformId, verifierVersion, payload, "", false, feeAmount, feeReceiver);
+        _transferFee(claimed.sessionId, feeAmount, feeReceiver);
+    }
+
+    /// @notice `bind`, paying the service fee to a contract that learns what was
+    ///         bound: `feeReceiver.onBindFee` gets the fee with the binder, the
+    ///         platform, the handle node, the digest and `feeData`. An empty
+    ///         `handle` binds unlisted.
+    /// @dev The callback runs once the binding is written, under this contract's
+    ///      reentrancy guard, and must return its selector. A receiver's revert
+    ///      reverts the bind with the receiver's error.
+    function bindWithFeeCall(
+        bytes32 platformId,
+        uint16 verifierVersion,
+        bytes calldata payload,
+        string calldata handle,
+        bool primary,
+        uint256 feeAmount,
+        address feeReceiver,
+        bytes calldata feeData
+    ) external payable nonReentrant {
+        if (feeAmount == 0) revert NoFee();
+        ICeremony.VerifiedClaim memory claimed =
+            _bind(platformId, verifierVersion, payload, handle, primary, feeAmount, feeReceiver);
+
+        (bool called, bytes32 answer,) = LowLevelCall.callReturn64Bytes(
+            feeReceiver,
+            feeAmount,
+            abi.encodeCall(
+                IBindFeeReceiver.onBindFee, (msg.sender, platformId, claimed.handleNode, claimed.sessionId, feeData)
+            )
+        );
+        if (!called && LowLevelCall.returnDataSize() != 0) LowLevelCall.bubbleRevert();
+        // `answer` holds the return data only when it is one word. An account
+        // without code answers nothing; a contract without the function, or a
+        // Safe, reverts without a reason or answers something else.
+        if (!called || LowLevelCall.returnDataSize() != 32 || answer != bytes32(IBindFeeReceiver.onBindFee.selector)) {
+            revert FeeCallRefused(feeReceiver);
+        }
+        emit BindFeePaid(claimed.sessionId, feeReceiver, feeAmount);
     }
 
     function _bind(
@@ -228,7 +277,7 @@ contract IdentityRegistry is
         bool primary,
         uint256 feeAmount,
         address feeReceiver
-    ) private {
+    ) private returns (ICeremony.VerifiedClaim memory claimed) {
         _requireKnown(platformId);
         if (primary && bytes(handle).length == 0) revert PrimaryWithoutHandle();
 
@@ -236,7 +285,7 @@ contract IdentityRegistry is
         uint256 required = pv.quote(platformId, verifierVersion);
         if (msg.value < required) revert WrongBindValue(required, msg.value);
 
-        ICeremony.VerifiedClaim memory claimed = pv.verify{value: required}(platformId, verifierVersion, payload);
+        claimed = pv.verify{value: required}(platformId, verifierVersion, payload);
 
         if (claimed.operationDomain != OPERATION_DOMAIN) {
             revert ForeignOperationDomain(claimed.operationDomain);
@@ -279,12 +328,14 @@ contract IdentityRegistry is
         }
 
         emit CeremonyBound(claimed.sessionId, msg.sender, platformId, claimed.clientIdentifier);
+    }
 
-        if (feeAmount != 0) {
-            (bool paid,) = feeReceiver.call{value: feeAmount}("");
-            if (!paid) revert FeeTransferFailed(feeReceiver, feeAmount);
-            emit BindFeePaid(claimed.sessionId, feeReceiver, feeAmount);
-        }
+    /// @dev Pays a nonzero fee to its receiver as a plain transfer.
+    function _transferFee(bytes32 sessionId, uint256 feeAmount, address feeReceiver) private {
+        if (feeAmount == 0) return;
+        (bool paid,) = feeReceiver.call{value: feeAmount}("");
+        if (!paid) revert FeeTransferFailed(feeReceiver, feeAmount);
+        emit BindFeePaid(sessionId, feeReceiver, feeAmount);
     }
 
     /// @notice What `bind` costs for this platform and verifier version, before

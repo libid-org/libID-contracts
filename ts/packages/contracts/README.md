@@ -144,6 +144,9 @@ const call = calls.identityRegistry.bind(
 // primary handle on any platform, `false` only reveals it.
 // calls.identityRegistry.bindPrivately(IDENTITY_REGISTRY, fee + serviceFee, github, 1, payload, serviceFee, feeReceiver)
 // is the same with no handle.
+// calls.identityRegistry.bindWithFeeCall(IDENTITY_REGISTRY, fee + serviceFee, github, 1, payload, 'octocat', true, serviceFee, feeReceiver, feeData)
+// pays a nonzero fee to a contract through its IBindFeeReceiver.onBindFee, which
+// learns the binder, the platform, the handle node and the digest, with feeData as given.
 // calls.identityRegistry.reveal(IDENTITY_REGISTRY, github, 'octocat') reveals a held handle later.
 ```
 
