@@ -35,6 +35,11 @@ const contracts = [
   { file: 'IdentityRegistry.sol', name: 'IdentityRegistry', exportName: 'identityRegistryAbi' },
   { file: 'HandleResolver.sol', name: 'HandleResolver', exportName: 'handleResolverAbi' },
   { file: 'HandleEscrow.sol', name: 'HandleEscrow', exportName: 'handleEscrowAbi' },
+  {
+    file: 'ReferralSplitter.sol',
+    name: 'ReferralSplitter',
+    exportName: 'referralSplitterAbi',
+  },
   { file: 'NotaryService.sol', name: 'NotaryService', exportName: 'notaryServiceAbi' },
   {
     file: 'CeremonyProofVerifier.sol',
