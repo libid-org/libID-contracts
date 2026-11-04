@@ -240,8 +240,8 @@ contract GooglePlatformVerifierTest is Test {
         assertEq(f.idNode, USER_ID);
         assertEq(f.handleNode, HANDLE_NODE);
         assertEq(string(f.clientIdentifier), string(CLIENT_ID));
-        // Section 2.2: the watermark is the signed `exp` on the shared scale,
-        // so it does not outrank X or GitHub claims from the same hour.
+        // Section 2.2: the signed `exp` less Google's allowance, a
+        // conservative watermark.
         assertEq(f.metadataObservedAt, EXP - GOOGLE_ALLOWANCE);
     }
 

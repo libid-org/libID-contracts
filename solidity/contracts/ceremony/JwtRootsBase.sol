@@ -104,8 +104,7 @@ abstract contract JwtRootsBase is Initializable, UUPSUpgradeable, Ownable2StepUp
     struct JwtRootsStorage {
         /// Authenticates a reading and charges for it.
         INotaryService notary;
-        /// The latest reading applied. Google's set already lists the key it
-        /// will sign with next, so for Google this is its current AND next keys.
+        /// The latest reading applied.
         Generation current;
         /// The reading before it, kept for the tokens still in flight under a
         /// key the issuer has since dropped.

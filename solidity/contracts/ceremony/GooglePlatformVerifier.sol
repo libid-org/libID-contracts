@@ -14,7 +14,8 @@ import {IHonkVerifier} from "./PlatformVerifierBase.sol";
 /// @dev The verifier builds the circuit's public inputs: the rebuilt digest
 ///      is the signed OIDC `nonce` (REQ-COMMON-02A), `sha256(aud)` the
 ///      audience, and the nodes, `exp` and modulus come from the payload.
-///      `exp` gives both `metadataObservedAt` and `proofValidUntil`.
+///      `exp` is the evidence time: `proofValidUntil` is `exp`, and
+///      `metadataObservedAt` is `exp` less the future observation allowance.
 contract GooglePlatformVerifier is OidcPlatformVerifierBase {
     // @custom:storage-location erc7201:libid.storage.GooglePlatformVerifier
     // keccak256(abi.encode(uint256(keccak256("libid.storage.GooglePlatformVerifier")) - 1)) & ~bytes32(uint256(0xff))
