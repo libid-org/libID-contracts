@@ -1,0 +1,246 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.24;
+
+import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
+import {Ownable2Step} from "@openzeppelin/contracts/access/Ownable2Step.sol";
+
+import {HandleEscrow, NATIVE_TOKEN} from "../escrow/HandleEscrow.sol";
+import {IBindFeeReceiver} from "../identity/IBindFeeReceiver.sol";
+import {IIdentityRegistry} from "../identity/IIdentityRegistry.sol";
+
+/// @title ReferralSplitter - a bind's service fee, shared with the handle that referred it.
+/// @notice The registry's `bindWithFeeCall` pays the fee here. With a referral in
+///         `feeData`, `shareBps` of the fee goes to the referrer's handle node
+///         through the escrow: to its holder, or held until somebody binds it. The
+///         rest, and any share that cannot be delivered, goes to `treasury`.
+/// @dev Holds no balance between transactions. Its escrow contributions are the
+///      shares of nodes nobody held yet; with `expiry` set, `expire` returns one to
+///      the treasury that long after its last deposit.
+contract ReferralSplitter is IBindFeeReceiver, Ownable2Step {
+    /// @notice What happened to a referral's share.
+    enum Outcome {
+        /// Deposited with the escrow, which logs `Forwarded` or `Deposited` with this contract as `sender`.
+        Paid,
+        /// The binder holds the referrer's node; the treasury took the share.
+        SelfReferral,
+        /// The escrow refused the deposit or ran out of `DEPOSIT_GAS`; the treasury took the share.
+        Refused
+    }
+
+    /// @notice The gas a share's deposit may use. A first booked contribution needs
+    ///         about 89,000 and a forward to a wallet that logs about 42,500, so a
+    ///         holder that burns gas costs a bind at most this much.
+    uint256 public constant DEPOSIT_GAS = 150_000;
+
+    /// @dev Gas kept beside the deposit's: the call itself with its value, then the
+    ///      log and the treasury's part after a deposit that used all of its gas,
+    ///      for a treasury that holds code or a balance. Running short after the
+    ///      deposit reverts the whole bind, so the reserve decides no outcome.
+    uint256 private constant RESERVE = 40_000;
+
+    uint16 private constant WHOLE = 10_000;
+
+    /// @notice The registry whose binds pay here. Only it may call `onBindFee`.
+    IIdentityRegistry public immutable REGISTRY;
+
+    /// @notice The escrow that holds a share for a node nobody holds.
+    HandleEscrow public immutable ESCROW;
+
+    /// @notice Where every part of a fee that is not a delivered share goes.
+    address public treasury;
+
+    /// @notice The referrer's part of a fee, in basis points.
+    uint16 public shareBps;
+
+    /// @notice How long after its last deposit a held share may be returned to the
+    ///         treasury; 0 keeps it for the referrer, however long it takes.
+    uint64 public expiry;
+
+    /// @notice A fee below this pays the treasury alone, referral or not, so a
+    ///         one-wei bind cannot add to a referrer's history.
+    uint256 public minReferralFee;
+
+    // ─── Events ─────────────────────────────────────────────────────
+
+    /// @notice A bind named a referrer. `share` is the referrer's part at the
+    ///         current rate; `outcome` says whether it was delivered.
+    event Referred(
+        bytes32 indexed referrerNode,
+        address indexed binder,
+        bytes32 indexed sessionId,
+        bytes32 referrerPlatformId,
+        bytes32 platformId,
+        bytes32 handleNode,
+        uint256 fee,
+        uint256 share,
+        Outcome outcome
+    );
+
+    event ShareSet(uint16 shareBps);
+    event TreasurySet(address treasury);
+    event ExpirySet(uint64 expiry);
+    event MinReferralFeeSet(uint256 minReferralFee);
+
+    /// @notice A held share went back to the treasury.
+    event Expired(bytes32 indexed handleNode, uint256 amount);
+
+    // ─── Errors ─────────────────────────────────────────────────────
+
+    error ZeroAddress();
+    /// The escrow resolves nodes through another registry.
+    error EscrowOfAnotherRegistry(address escrowRegistry);
+    /// `onBindFee` came from somebody other than the registry.
+    error NotRegistry(address caller);
+    /// `feeData` is neither empty nor `abi.encode(bytes32 referrerPlatformId, bytes32 referrerNode)`.
+    error BadFeeData(uint256 length);
+    /// Too little gas is left for the deposit to have all of `DEPOSIT_GAS`.
+    error InsufficientGas(uint256 left, uint256 needed);
+    /// The treasury refused its part, which reverts the bind.
+    error TreasuryRefused(address treasury, uint256 amount);
+    error BadTreasury(address treasury);
+    error ShareAboveWhole(uint16 shareBps);
+    /// A nonzero expiry shorter than the escrow's `REFUND_GRACE`.
+    error ExpiryTooShort(uint64 expiry);
+    error ExpiryOff();
+    error NothingToExpire(bytes32 handleNode);
+    error NotExpired(bytes32 handleNode, uint256 expiresAt);
+    error RenounceDisabled();
+
+    // ─── Setup ──────────────────────────────────────────────────────
+
+    /// @dev The owner is an argument, so a deploy through a factory names it.
+    constructor(
+        IIdentityRegistry registry,
+        HandleEscrow escrow,
+        address owner_,
+        address treasury_,
+        uint16 shareBps_,
+        uint256 minReferralFee_
+    ) Ownable(owner_) {
+        if (address(registry) == address(0) || address(escrow) == address(0)) revert ZeroAddress();
+        if (address(escrow.registry()) != address(registry)) {
+            revert EscrowOfAnotherRegistry(address(escrow.registry()));
+        }
+        REGISTRY = registry;
+        ESCROW = escrow;
+        _setTreasury(treasury_);
+        _setShare(shareBps_);
+        _setMinReferralFee(minReferralFee_);
+    }
+
+    // ─── Settings ───────────────────────────────────────────────────
+
+    function setTreasury(address treasury_) external onlyOwner {
+        _setTreasury(treasury_);
+    }
+
+    /// @notice Up to 10,000, the whole fee.
+    function setShare(uint16 shareBps_) external onlyOwner {
+        _setShare(shareBps_);
+    }
+
+    /// @notice 0, or at least the escrow's `REFUND_GRACE`.
+    function setExpiry(uint64 expiry_) external onlyOwner {
+        if (expiry_ != 0 && expiry_ < ESCROW.REFUND_GRACE()) revert ExpiryTooShort(expiry_);
+        expiry = expiry_;
+        emit ExpirySet(expiry_);
+    }
+
+    function setMinReferralFee(uint256 minReferralFee_) external onlyOwner {
+        _setMinReferralFee(minReferralFee_);
+    }
+
+    function _setTreasury(address treasury_) private {
+        if (treasury_ == address(0) || treasury_ == address(this)) revert BadTreasury(treasury_);
+        treasury = treasury_;
+        emit TreasurySet(treasury_);
+    }
+
+    function _setShare(uint16 shareBps_) private {
+        if (shareBps_ > WHOLE) revert ShareAboveWhole(shareBps_);
+        shareBps = shareBps_;
+        emit ShareSet(shareBps_);
+    }
+
+    function _setMinReferralFee(uint256 minReferralFee_) private {
+        minReferralFee = minReferralFee_;
+        emit MinReferralFeeSet(minReferralFee_);
+    }
+
+    /// @dev The treasury and the settings stay changeable.
+    function renounceOwnership() public pure override {
+        revert RenounceDisabled();
+    }
+
+    // ─── Splitting ──────────────────────────────────────────────────
+
+    /// @inheritdoc IBindFeeReceiver
+    /// @dev `feeData` is empty for no referral, or `abi.encode(referrerPlatformId,
+    ///      referrerNode)`. A referral emits `Referred` only when it carries a share:
+    ///      a fee of at least `minReferralFee` and a nonzero `shareBps`.
+    function onBindFee(
+        address binder,
+        bytes32 platformId,
+        bytes32 handleNode,
+        bytes32 sessionId,
+        bytes calldata feeData
+    ) external payable returns (bytes4) {
+        if (msg.sender != address(REGISTRY)) revert NotRegistry(msg.sender);
+        if (feeData.length != 0 && feeData.length != 64) revert BadFeeData(feeData.length);
+
+        uint256 fee = msg.value;
+        uint256 share = feeData.length == 0 || fee < minReferralFee ? 0 : fee * shareBps / WHOLE;
+        if (share == 0) {
+            _payTreasury(fee);
+            return IBindFeeReceiver.onBindFee.selector;
+        }
+
+        (bytes32 referrerPlatformId, bytes32 referrerNode) = abi.decode(feeData, (bytes32, bytes32));
+        Outcome outcome = _deliver(binder, referrerPlatformId, referrerNode, share);
+        emit Referred(referrerNode, binder, sessionId, referrerPlatformId, platformId, handleNode, fee, share, outcome);
+        _payTreasury(outcome == Outcome.Paid ? fee - share : fee);
+        return IBindFeeReceiver.onBindFee.selector;
+    }
+
+    /// @dev Deposits the share unless the binder holds the referrer's node. The
+    ///      deposit cannot revert the bind: its holder's refusal or gas only lose
+    ///      the share to the treasury.
+    function _deliver(address binder, bytes32 referrerPlatformId, bytes32 referrerNode, uint256 share)
+        private
+        returns (Outcome)
+    {
+        (address holder,) = REGISTRY.handleBinding(referrerNode);
+        if (holder == binder) return Outcome.SelfReferral;
+
+        // Below this, the deposit would get less than DEPOSIT_GAS, and a gas limit
+        // estimated to the lowest that succeeds would run it out of gas.
+        uint256 needed = DEPOSIT_GAS * 64 / 63 + RESERVE;
+        if (gasleft() < needed) revert InsufficientGas(gasleft(), needed);
+        try ESCROW.deposit{value: share, gas: DEPOSIT_GAS}(referrerPlatformId, referrerNode, NATIVE_TOKEN, share) {
+            return Outcome.Paid;
+        } catch {
+            return Outcome.Refused;
+        }
+    }
+
+    function _payTreasury(uint256 amount) private {
+        if (amount == 0) return;
+        (bool paid,) = treasury.call{value: amount}("");
+        if (!paid) revert TreasuryRefused(treasury, amount);
+    }
+
+    // ─── Expiry ─────────────────────────────────────────────────────
+
+    /// @notice Return this contract's held share for a node to the treasury, once
+    ///         `expiry` has passed since its last deposit. Anyone may call it.
+    function expire(bytes32 handleNode) external {
+        uint64 expiry_ = expiry;
+        if (expiry_ == 0) revert ExpiryOff();
+        (uint256 amount, uint64 refundableAt) = ESCROW.contribution(handleNode, NATIVE_TOKEN, address(this));
+        if (amount == 0) revert NothingToExpire(handleNode);
+        uint256 expiresAt = refundableAt - ESCROW.REFUND_GRACE() + expiry_;
+        if (block.timestamp < expiresAt) revert NotExpired(handleNode, expiresAt);
+        ESCROW.refund(handleNode, NATIVE_TOKEN, treasury);
+        emit Expired(handleNode, amount);
+    }
+}

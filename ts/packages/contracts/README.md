@@ -2,9 +2,9 @@
 
 Typed, viem-ready ABIs for the libid identity stack (NotaryService,
 CeremonyProofVerifier, GoogleJwtRoots, IdentityRegistry, HandleEscrow,
-HandleResolver, LibidFactory, WTIA9), the errors a bind can revert with, a call
-builder for every state-changing function, and the identity helper layer:
-handle normalization, node derivation and resolution.
+ReferralSplitter, HandleResolver, LibidFactory, WTIA9), the errors a bind can
+revert with, a call builder for every state-changing function, and the identity
+helper layer: handle normalization, node derivation and resolution.
 
 `src/abis/` and `src/calls/` are generated from the forge artifacts
 (`solidity/out`) by `scripts/codegen.mjs` and are not committed. Each ABI is
@@ -168,7 +168,8 @@ const payload = encodeTlsNotaryProof({
 
 A refused bind reverts with the error of whichever contract on its route
 refused it: the registry, the Proof Verifier, a Platform Verifier, the Notary
-Service or a Honk verifier. `bindErrorsAbi` carries all of them:
+Service, a Honk verifier or, for a referred bind, the referral splitter.
+`bindErrorsAbi` carries all of them:
 
 ```ts
 import { decodeErrorResult } from 'viem'
