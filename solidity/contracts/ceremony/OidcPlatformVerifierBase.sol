@@ -120,8 +120,8 @@ abstract contract OidcPlatformVerifierBase is IPlatformVerifier, PlatformVerifie
         return address(_jwtRoots());
     }
 
-    /// @dev Keys rotate, and every ceremony fails closed while an active
-    ///      modulus is untrusted (REQ-PLAT-24).
+    /// @dev The owner selects the key list this profile reads (REQ-PLAT-73
+    ///      for Google).
     function setJwtRoots(IJwtRoots roots) external onlyOwner {
         _setJwtRoots(roots);
     }

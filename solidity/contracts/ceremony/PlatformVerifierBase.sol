@@ -140,8 +140,8 @@ abstract contract PlatformVerifierBase is ICeremony, Initializable, UUPSUpgradea
     /// @dev How far ahead of Block Time this profile's evidence time may run.
     ///      Google's is a signed `exp` about an hour ahead, a TLSNotary
     ///      profile's an attestation creation time. Each verifier subtracts its
-    ///      allowance so evidence times compare on one scale, and refuses
-    ///      evidence dated further ahead.
+    ///      allowance to keep `metadataObservedAt` at or below Block Time, and
+    ///      refuses evidence dated further ahead.
     function _futureObservationAllowance() internal pure virtual returns (uint64) {
         return CeremonyProfile.futureObservationAllowance(_platform());
     }
@@ -214,7 +214,7 @@ abstract contract PlatformVerifierBase is ICeremony, Initializable, UUPSUpgradea
         // watermark in the future would make later honest proofs read stale.
         _requireNotAhead(createdAt);
 
-        // Onto the shared scale, comparable across profiles.
+        // A conservative watermark, at or below Block Time (section 2.2).
         return _onSharedScale(createdAt, _futureObservationAllowance());
     }
 

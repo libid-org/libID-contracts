@@ -262,8 +262,8 @@ contract GitHubPlatformVerifierTest is RealTlsNotaryProofTest {
         assertEq(f.operationDomain, DOMAIN);
         assertEq(f.transactionData, _txData());
         assertEq(f.ceremonyVersion, 1);
-        // On the shared scale: each verifier subtracts its own allowance so
-        // claims from different profiles compare.
+        // Section 2.2: evidence time less the profile's allowance, a
+        // conservative watermark.
         assertEq(f.metadataObservedAt, T0 - ALLOWANCE);
     }
 
