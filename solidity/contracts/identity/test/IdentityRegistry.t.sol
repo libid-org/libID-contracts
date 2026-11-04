@@ -104,13 +104,13 @@ contract IdentityRegistryTest is PrivacyScan {
         );
     }
 
-    /// Submit the staged bind, disclosing `disclosed` (empty for a private bind). Caller supplies the prank.
+    /// Submit the staged bind, disclosing `disclosed` (empty for an unlisted bind). Caller supplies the prank.
     function _submit(bytes32 platformId, string memory disclosed) internal {
         bytes memory payload = _payload(V1);
         registry.bind(platformId, V1, payload, disclosed, bytes(disclosed).length != 0, 0, address(0));
     }
 
-    /// Stage and bind privately as `who`.
+    /// Stage and bind as `who`, unlisted.
     function _bind(address who, string memory id, string memory handle, uint64 at) internal {
         _stage(id, handle, who, at);
         vm.prank(who);
@@ -451,7 +451,7 @@ contract IdentityRegistryTest is PrivacyScan {
 
     // ─── Disclosure ─────────────────────────────────────────────────
 
-    function test_aPrivateBindPublishesNothing() public {
+    function test_anUnlistedBindPublishesNothing() public {
         vm.recordLogs();
         _bind(alice, "123", "alice", 100);
 
@@ -692,13 +692,13 @@ contract IdentityRegistryTest is PrivacyScan {
         vm.recordLogs();
         _bind(alice, "123", "alice", 200);
         Vm.Log[] memory logs = vm.getRecordedLogs();
-        assertEq(_count(logs, IdentityRegistry.HandlePublished.selector), 0, "a private bind published");
-        assertEq(_count(logs, IdentityRegistry.HandleUnpublished.selector), 0, "a private bind withdrew");
+        assertEq(_count(logs, IdentityRegistry.HandlePublished.selector), 0, "an unlisted bind published");
+        assertEq(_count(logs, IdentityRegistry.HandleUnpublished.selector), 0, "an unlisted bind withdrew");
         assertEq(_nameOn(alice, X), "alice", "a re-proof dropped the name");
     }
 
     /// A rename withdraws the name of the handle it retires, so proving that
-    /// handle again in private does not show the name again.
+    /// handle again, unlisted, does not show the name again.
     function test_aRetiredHandlesNameStaysWithdrawn() public {
         _bindDisclosing(alice, "123", "alice", 100);
 
@@ -709,7 +709,7 @@ contract IdentityRegistryTest is PrivacyScan {
 
         _bind(alice, "123", "alice", 300);
         assertEq(registry.resolveHandle(X, "alice"), alice);
-        assertEq(_nameOn(alice, X), "", "a private re-proof showed the old name");
+        assertEq(_nameOn(alice, X), "", "an unlisted re-proof showed the old name");
     }
 
     /// A retirement leaves a name that names another handle alone.
@@ -767,8 +767,8 @@ contract IdentityRegistryTest is PrivacyScan {
         assertEq(_nameOn(alice, X), "alice", "publishing on X did not take the name back");
     }
 
-    /// A private bind on another platform leaves the name where it is.
-    function test_aPrivateBindOnAnotherPlatformLeavesTheName() public {
+    /// An unlisted bind on another platform leaves the name where it is.
+    function test_anUnlistedBindOnAnotherPlatformLeavesTheName() public {
         _bindDisclosing(alice, "123", "alice", 100);
         _stage("456", "octo", alice, 200);
         vm.prank(alice);
@@ -829,7 +829,7 @@ contract IdentityRegistryTest is PrivacyScan {
         assertEq(_nameOn(alice, X), "", "it no longer resolves back");
 
         _bind(alice, "123", "shared", 300);
-        assertEq(_nameOn(alice, X), "", "a private re-proof showed the old name");
+        assertEq(_nameOn(alice, X), "", "an unlisted re-proof showed the old name");
     }
 
     /// The handle moved on, then its first identity renamed: the rename retires
@@ -841,7 +841,7 @@ contract IdentityRegistryTest is PrivacyScan {
         _bind(alice, "123", "shared", 400);
 
         assertEq(registry.resolveHandle(X, "shared"), alice);
-        assertEq(_nameOn(alice, X), "", "a private re-proof showed the old name");
+        assertEq(_nameOn(alice, X), "", "an unlisted re-proof showed the old name");
     }
 
     /// An identity proved from a new wallet withdraws the old wallet's name for its handle.
@@ -884,8 +884,8 @@ contract IdentityRegistryTest is PrivacyScan {
         return [SECRET_ID, SECRET_HANDLE, SECRET_FOLDED];
     }
 
-    /// No log of a private bind carries a byte run of the id or the handle, raw or folded.
-    function test_aPrivateBindLogsNoByteOfTheIdOrTheHandle() public {
+    /// No log of an unlisted bind carries a byte run of the id or the handle, raw or folded.
+    function test_anUnlistedBindLogsNoByteOfTheIdOrTheHandle() public {
         _stage(SECRET_ID, SECRET_HANDLE, alice, 100);
         vm.recordLogs();
         vm.prank(alice);
@@ -912,8 +912,8 @@ contract IdentityRegistryTest is PrivacyScan {
         assertTrue(found, "the disclosed handle is not in the logs");
     }
 
-    /// No run of the storage words a private bind wrote, on any contract, holds the id or the handle.
-    function test_aPrivateBindStoresNoByteOfTheIdOrTheHandle() public {
+    /// No run of the storage words an unlisted bind wrote, on any contract, holds the id or the handle.
+    function test_anUnlistedBindStoresNoByteOfTheIdOrTheHandle() public {
         _stage(SECRET_ID, SECRET_HANDLE, alice, 100);
         vm.startStateDiffRecording();
         vm.prank(alice);
