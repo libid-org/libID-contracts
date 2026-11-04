@@ -22,6 +22,7 @@ use crate::bindings::{
     },
     circuits::IHonkVerifierErrors::IHonkVerifierErrorsErrors,
     identity::IdentityRegistry::IdentityRegistryErrors,
+    referral::ReferralSplitter::ReferralSplitterErrors,
 };
 
 /// A `bind` revert, decoded by the first error set on the route that
@@ -43,6 +44,8 @@ pub enum BindError {
     NotaryService(NotaryServiceErrors),
     /// `HonkVerifier`.
     HonkVerifier(IHonkVerifierErrorsErrors),
+    /// `ReferralSplitter`, the fee receiver of a referred `bindWithFeeCall`.
+    Referral(ReferralSplitterErrors),
     /// A Solidity `Panic(uint256)`, with its code: a failed `assert`, an
     /// overflow, an index out of bounds, in any contract on the route.
     Panic(U256),
@@ -56,7 +59,7 @@ pub(crate) type Declares = fn([u8; 4]) -> bool;
 pub(crate) type Decode = fn(&[u8]) -> Option<BindError>;
 
 /// The route's error sets, in the order `BindError::decode` tries them.
-pub(crate) const ROUTE: [(&str, Declares, Decode); 8] = [
+pub(crate) const ROUTE: [(&str, Declares, Decode); 9] = [
     (
         "IdentityRegistry",
         IdentityRegistryErrors::valid_selector,
@@ -97,6 +100,11 @@ pub(crate) const ROUTE: [(&str, Declares, Decode); 8] = [
         IHonkVerifierErrorsErrors::valid_selector,
         |d| IHonkVerifierErrorsErrors::abi_decode(d).ok().map(BindError::HonkVerifier),
     ),
+    (
+        "ReferralSplitter",
+        ReferralSplitterErrors::valid_selector,
+        |d| ReferralSplitterErrors::abi_decode(d).ok().map(BindError::Referral),
+    ),
 ];
 
 impl BindError {
@@ -110,6 +118,7 @@ impl BindError {
             Self::OidcVerifier(e) => GooglePlatformVerifierErrors::signature_by_selector(e.selector()),
             Self::NotaryService(e) => NotaryServiceErrors::signature_by_selector(e.selector()),
             Self::HonkVerifier(e) => IHonkVerifierErrorsErrors::signature_by_selector(e.selector()),
+            Self::Referral(e) => ReferralSplitterErrors::signature_by_selector(e.selector()),
             Self::Panic(_) => Some(Panic::SIGNATURE),
         }
         .unwrap_or("unknown")
@@ -125,6 +134,7 @@ impl BindError {
             Self::OidcVerifier(e) => e.selector(),
             Self::NotaryService(e) => e.selector(),
             Self::HonkVerifier(e) => e.selector(),
+            Self::Referral(e) => e.selector(),
             Self::Panic(_) => Panic::SELECTOR,
         }
     }

@@ -47,7 +47,8 @@ class Hop:
 
 
 # In call order. The Honk verifier's errors are IHonkVerifierErrors, since
-# bb's artifacts declare none.
+# bb's artifacts declare none. `bindWithFeeCall` calls its fee receiver after
+# the proof checks.
 ROUTE = (
     Hop("IdentityRegistry", "Registry", "IdentityRegistry", "identity"),
     Hop("CeremonyProofVerifier", "ProofVerifier", "CeremonyProofVerifier", "ceremony"),
@@ -65,6 +66,13 @@ ROUTE = (
     Hop("TelegramPlatformVerifier", None, "TelegramPlatformVerifier", "ceremony"),
     Hop("NotaryService", "NotaryService", "NotaryService", "ceremony"),
     Hop("IHonkVerifierErrors", "HonkVerifier", "HonkVerifier", "circuits"),
+    Hop(
+        "ReferralSplitter",
+        "Referral",
+        "ReferralSplitter",
+        "referral",
+        "`ReferralSplitter`, the fee receiver of a referred `bindWithFeeCall`.",
+    ),
 )
 
 DECODED = tuple(hop for hop in ROUTE if hop.variant)

@@ -57,6 +57,8 @@ ARTIFACTS=(
     "HandleResolver:HandleResolver"
     # escrow
     "HandleEscrow:HandleEscrow"
+    # referral
+    "ReferralSplitter:ReferralSplitter"
     # factory
     "LibidFactory:LibidFactory"
     "WTIA9:WTIA9"
@@ -88,6 +90,7 @@ ABIS=(
     "IdentityRegistry:IdentityRegistry"
     "HandleResolver:HandleResolver"
     "HandleEscrow:HandleEscrow"
+    "ReferralSplitter:ReferralSplitter"
     "LibidFactory:LibidFactory"
     "ERC1967Proxy:ERC1967Proxy"
     "UUPSUpgradeable:UUPSUpgradeable"

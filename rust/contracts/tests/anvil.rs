@@ -1321,3 +1321,174 @@ async fn binds_through_the_stub_platform_verifier() {
         deployer
     );
 }
+
+/// A referred bind through the splitter at the gas the node estimates: the
+/// estimate is the lowest limit that succeeds, and there the referrer's share
+/// is held for its unheld handle and the treasury takes the rest.
+#[cfg(feature = "testing")]
+#[tokio::test]
+async fn refers_a_bind_at_the_estimated_gas() {
+    use alloy::{
+        primitives::B256,
+        sol_types::SolValue,
+    };
+    use libid_contracts::{
+        bindings::{
+            escrow::HandleEscrow,
+            referral::ReferralSplitter,
+        },
+        deploy::deploy_with_ctor,
+        platform_verifier::PlatformVerifier,
+        testing::{
+            deploy_stub_platform_verifier,
+            stub_payload,
+            StubPayload,
+            StubPlatformVerifier,
+        },
+    };
+    use libid_identity::platforms::PLATFORM_X;
+
+    let provider = test_provider();
+    let artifacts = Artifacts::embedded();
+    let deployer = default_signer(&provider).await;
+    let treasury = Address::repeat_byte(0x7e);
+    let x = PlatformVerifier::X.platform_id();
+    let quote = U256::from(7);
+    let fee = U256::from(10_000_000_000_000_000u64);
+    let share_bps = 3_000u16;
+
+    let verifier_proxy = deploy_behind_proxy(
+        &provider,
+        &artifacts,
+        "CeremonyProofVerifier",
+        &CeremonyProofVerifier::initializeCall { owner_: deployer },
+        None,
+    )
+    .await
+    .unwrap();
+    let registry_proxy = deploy_behind_proxy(
+        &provider,
+        &artifacts,
+        "IdentityRegistry",
+        &IdentityRegistry::initializeCall { owner_: deployer },
+        None,
+    )
+    .await
+    .unwrap();
+    let stub_address =
+        deploy_stub_platform_verifier(&provider, &artifacts, x, quote, None)
+            .await
+            .unwrap();
+    let escrow_proxy = deploy_behind_proxy(
+        &provider,
+        &artifacts,
+        "HandleEscrow",
+        &HandleEscrow::initializeCall {
+            owner_: deployer,
+            registry_: registry_proxy,
+        },
+        None,
+    )
+    .await
+    .unwrap();
+    let ctor_args = (
+        registry_proxy,
+        escrow_proxy,
+        deployer,
+        treasury,
+        share_bps,
+        U256::ZERO,
+    )
+        .abi_encode_params();
+    let splitter_address = deploy_with_ctor(
+        &provider,
+        &artifacts.bytecode("ReferralSplitter").unwrap(),
+        &ctor_args,
+        "ReferralSplitter",
+        None,
+    )
+    .await
+    .unwrap();
+
+    let registry = IdentityRegistry::new(registry_proxy, &provider);
+    registry
+        .setProofVerifier(verifier_proxy)
+        .send()
+        .await
+        .unwrap()
+        .get_receipt()
+        .await
+        .unwrap();
+    CeremonyProofVerifier::new(verifier_proxy, &provider)
+        .setVerifier(x, 1, stub_address)
+        .send()
+        .await
+        .unwrap()
+        .get_receipt()
+        .await
+        .unwrap();
+    StubPlatformVerifier::new(stub_address, &provider)
+        .set("1234567890".into(), "Alice_X".into())
+        .send()
+        .await
+        .unwrap()
+        .get_receipt()
+        .await
+        .unwrap();
+    let splitter = ReferralSplitter::new(splitter_address, &provider);
+    assert_eq!(splitter.REGISTRY().call().await.unwrap(), registry_proxy);
+    assert_eq!(splitter.ESCROW().call().await.unwrap(), escrow_proxy);
+    assert_eq!(splitter.treasury().call().await.unwrap(), treasury);
+
+    let referrer = B256::from(PLATFORM_X.handle_node("carol").unwrap());
+    let payload = stub_payload(&StubPayload {
+        ceremonyVersion: 1,
+        operationDomain: registry.OPERATION_DOMAIN().call().await.unwrap(),
+        authorizationNonce: B256::repeat_byte(0x01),
+        transactionData: (deployer,).abi_encode_params().into(),
+    });
+    let receipt = registry
+        .bindWithFeeCall(
+            x,
+            1,
+            payload,
+            "alice_x".into(),
+            false,
+            fee,
+            splitter_address,
+            (x, referrer).abi_encode_params().into(),
+        )
+        .value(quote + fee)
+        .send()
+        .await
+        .unwrap()
+        .get_receipt()
+        .await
+        .unwrap();
+    assert!(receipt.status());
+
+    let share = fee * U256::from(share_bps) / U256::from(10_000);
+    let referred = receipt
+        .decoded_log::<ReferralSplitter::Referred>()
+        .expect("Referred");
+    assert_eq!(referred.referrerNode, referrer);
+    assert_eq!(referred.binder, deployer);
+    assert_eq!(
+        referred.handleNode,
+        PLATFORM_X.handle_node("Alice_X").unwrap()
+    );
+    assert_eq!(referred.share, share);
+    assert_eq!(referred.outcome, 0, "Paid");
+
+    let escrow = HandleEscrow::new(escrow_proxy, &provider);
+    let native = escrow.NATIVE().call().await.unwrap();
+    assert_eq!(
+        escrow.escrowed(referrer, native).call().await.unwrap(),
+        share
+    );
+    assert_eq!(provider.get_balance(treasury).await.unwrap(), fee - share);
+    assert_eq!(
+        provider.get_balance(splitter_address).await.unwrap(),
+        U256::ZERO
+    );
+}

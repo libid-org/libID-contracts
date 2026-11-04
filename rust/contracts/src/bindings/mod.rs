@@ -9,3 +9,4 @@ pub mod escrow;
 pub mod factory;
 pub mod identity;
 pub mod proxy;
+pub mod referral;
