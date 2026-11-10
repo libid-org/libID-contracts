@@ -14,8 +14,12 @@ import {
 /// @notice Constructor: `WebWallet(address identityValidator)`, the one module it accepts.
 /// @dev `installModule`, `uninstallModule` and `upgradeToAndCall` accept only the
 ///      installed validator, which calls them for a matured root operation.
-///      Delegatecall execution is refused.
-interface IWebWallet is IERC7579Execution, IERC7579AccountConfig, IERC7579ModuleConfig, IERC1271, IERC5267 {
+///      Delegatecall execution is refused. `isValidSignature` asks the validator about the
+///      ERC-7739 `PersonalSign` hash of `hash` under `eip712Domain()`.
+interface IWebWallet is IERC1271, IERC7579Execution, IERC7579AccountConfig, IERC7579ModuleConfig, IERC5267 {
+    /// Only the constructor's validator may be installed.
+    error ModuleNotAllowed(address module);
+
     /// Installs the validator with `validatorData`. Once, by the factory.
     function initialize(bytes calldata validatorData) external;
 

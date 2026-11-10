@@ -1,0 +1,382 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.24;
+
+import {PackedUserOperation} from "@openzeppelin/contracts/interfaces/IERC4337.sol";
+import {IERC1271} from "@openzeppelin/contracts/interfaces/IERC1271.sol";
+import {
+    IERC7579Execution,
+    IERC7579Module,
+    MODULE_TYPE_VALIDATOR
+} from "@openzeppelin/contracts/interfaces/draft-IERC7579.sol";
+import {ERC4337Utils} from "@openzeppelin/contracts/account/utils/ERC4337Utils.sol";
+import {CallType, ERC7579Utils, Execution, Mode} from "@openzeppelin/contracts/account/utils/draft-ERC7579Utils.sol";
+import {Address} from "@openzeppelin/contracts/utils/Address.sol";
+import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
+import {SignatureChecker} from "@openzeppelin/contracts/utils/cryptography/SignatureChecker.sol";
+
+import {IIdentityValidator, identityOf} from "./IIdentityValidator.sol";
+
+/// @title IdentityValidator - the one ERC-7579 validator of every WebWallet.
+/// @notice Holds each account's linked identities, sessions, threshold and root operations.
+/// @dev Every slot read in validation has the account as its innermost mapping key (ERC-7562),
+///      and validation reads no clock: windows go back to the EntryPoint packed.
+contract IdentityValidator is IIdentityValidator {
+    using ERC7579Utils for bytes;
+    using ERC7579Utils for Mode;
+
+    uint48 public constant MIN_RECOVERY_DELAY = 48 hours;
+    uint48 public constant ROOT_DELAY = MIN_RECOVERY_DELAY;
+
+    address private immutable REGISTRY;
+
+    /// What `callData` asks of the account.
+    enum Scope {
+        Call,
+        Admin,
+        Refused
+    }
+
+    /// One install's settings for one account.
+    struct AccountState {
+        bytes32 platformId;
+        bytes32 idNode;
+        uint48 recoveryDelay;
+        uint8 threshold;
+        bool hadSession;
+        uint32 adminSessions;
+    }
+
+    /// @dev Keyed by install, then by item, then by account.
+    /// @custom:storage-location erc7201:libid.storage.IdentityValidator
+    struct IdentityValidatorStorage {
+        mapping(address account => uint256) installs;
+        mapping(uint256 install => mapping(address account => AccountState)) accounts;
+        mapping(uint256 install => mapping(bytes32 keyHash => mapping(address account => Session))) sessions;
+        mapping(uint256 install => mapping(bytes32 identity => mapping(address account => bool))) links;
+        mapping(uint256 install => mapping(bytes32 identity => mapping(address account => bytes))) pendingKeys;
+        mapping(uint256 install => mapping(bytes32 opId => mapping(address account => uint48))) roots;
+    }
+
+    // cast index-erc7201 libid.storage.IdentityValidator
+    bytes32 private constant IDENTITY_VALIDATOR_STORAGE =
+        0x873011f05c4a0f65dcb571f9747866179ce051ed2f0788dad77cc90e91439700;
+
+    function _s() private pure returns (IdentityValidatorStorage storage $) {
+        assembly {
+            $.slot := IDENTITY_VALIDATOR_STORAGE
+        }
+    }
+
+    function _install(address account) private view returns (uint256) {
+        return _s().installs[account];
+    }
+
+    function _account(address account) private view returns (AccountState storage) {
+        return _s().accounts[_install(account)][account];
+    }
+
+    function _session(address account, bytes memory key) private view returns (Session storage) {
+        return _s().sessions[_install(account)][keccak256(key)][account];
+    }
+
+    modifier onlyRegistry() {
+        if (msg.sender != REGISTRY) revert NotRegistry(msg.sender);
+        _;
+    }
+
+    constructor(address walletRegistry_) {
+        REGISTRY = walletRegistry_;
+    }
+
+    // ─── ERC-7579 module ────────────────────────────────────────────
+
+    function isModuleType(uint256 moduleTypeId) external pure returns (bool) {
+        return moduleTypeId == MODULE_TYPE_VALIDATOR;
+    }
+
+    /// @dev Starts a fresh install: nothing of an earlier one is visible.
+    function onInstall(bytes calldata data) external {
+        (bytes32 platformId, bytes32 idNode) = abi.decode(data, (bytes32, bytes32));
+        AccountState storage a = _s().accounts[++_s().installs[msg.sender]][msg.sender];
+        a.platformId = platformId;
+        a.idNode = idNode;
+    }
+
+    function onUninstall(bytes calldata) external {
+        ++_s().installs[msg.sender];
+    }
+
+    function validateUserOp(PackedUserOperation calldata userOp, bytes32 userOpHash) external view returns (uint256) {
+        Scope scope = _scope(msg.sender, userOp.callData);
+        if (scope == Scope.Refused) return ERC4337Utils.SIG_VALIDATION_FAILED;
+        (bool ok, uint256 admins, uint48 validAfter, uint48 validUntil) =
+            _verify(msg.sender, userOpHash, userOp.signature);
+        if (!ok || (scope == Scope.Admin && admins < threshold(msg.sender))) {
+            return ERC4337Utils.SIG_VALIDATION_FAILED;
+        }
+        return (uint256(validAfter) << 208) | (uint256(validUntil) << 160);
+    }
+
+    /// @dev The account has already wrapped `hash` as ERC-7739 `PersonalSign` under its domain.
+    function isValidSignatureWithSender(address, bytes32 hash, bytes calldata signature)
+        external
+        view
+        returns (bytes4)
+    {
+        (bool ok, uint256 admins, uint48 validAfter, uint48 validUntil) = _verify(msg.sender, hash, signature);
+        bool live = validAfter <= block.timestamp && (validUntil == 0 || block.timestamp <= validUntil);
+        return ok && admins != 0 && live ? IERC1271.isValidSignature.selector : bytes4(0xffffffff);
+    }
+
+    // ─── Views ──────────────────────────────────────────────────────
+
+    function walletRegistry() external view returns (address) {
+        return REGISTRY;
+    }
+
+    function genesisIdentity(address account) external view returns (bytes32 platformId, bytes32 idNode) {
+        AccountState storage a = _account(account);
+        return (a.platformId, a.idNode);
+    }
+
+    function isLinked(address account, bytes32 identity) public view returns (bool) {
+        return _s().links[_install(account)][identity][account];
+    }
+
+    function sessionOf(address account, bytes calldata key) external view returns (Session memory) {
+        return _session(account, key);
+    }
+
+    function threshold(address account) public view returns (uint8) {
+        uint8 t = _account(account).threshold;
+        return t == 0 ? 1 : t;
+    }
+
+    function recoveryDelay(address account) public view returns (uint48) {
+        uint48 d = _account(account).recoveryDelay;
+        return d == 0 ? MIN_RECOVERY_DELAY : d;
+    }
+
+    function hadSession(address account) external view returns (bool) {
+        return _account(account).hadSession;
+    }
+
+    function rootReadyAt(address account, bytes32 opId) external view returns (uint48) {
+        return _s().roots[_install(account)][opId][account];
+    }
+
+    // ─── Registry ───────────────────────────────────────────────────
+
+    function link(address account, bytes32 platformId, bytes32 idNode) external onlyRegistry {
+        _s().links[_install(account)][identityOf(platformId, idNode)][account] = true;
+    }
+
+    function addSessionByProof(address account, bytes32 identity, bytes calldata key, Policy calldata policy)
+        external
+        onlyRegistry
+        returns (uint48 activeAt)
+    {
+        if (_account(account).hadSession) {
+            // forge-lint: disable-next-line(unsafe-typecast)
+            activeAt = uint48(block.timestamp) + recoveryDelay(account);
+            _replacePending(account, identity, key);
+        }
+        _add(account, identity, key, policy, activeAt);
+    }
+
+    function addSessionByAccount(address account, bytes32 identity, bytes calldata key, Policy calldata policy)
+        external
+        onlyRegistry
+    {
+        _add(account, identity, key, policy, 0);
+    }
+
+    // ─── The account ────────────────────────────────────────────────
+
+    function addSession(bytes32 identity, bytes calldata key, Policy calldata policy) external {
+        _add(msg.sender, identity, key, policy, 0);
+    }
+
+    function revokeSession(bytes calldata key) external {
+        _revoke(msg.sender, key, false);
+    }
+
+    function setRecoveryDelay(uint48 delay) external {
+        if (delay < recoveryDelay(msg.sender)) revert RecoveryDelayTooShort(delay);
+        _account(msg.sender).recoveryDelay = delay;
+    }
+
+    function setThreshold(uint8) external pure {
+        revert RootOperationRequired();
+    }
+
+    function queueRoot(address target, bytes calldata data) external returns (bytes32 opId) {
+        bytes4 selector = _selector(data);
+        bool own = target == address(this)
+            && (selector == this.setThreshold.selector || selector == this.revokeSession.selector);
+        if (target != msg.sender && !own) revert BadRootOperation(target);
+        opId = keccak256(abi.encode(msg.sender, target, data));
+        // forge-lint: disable-next-line(unsafe-typecast)
+        uint48 readyAt = uint48(block.timestamp) + recoveryDelay(msg.sender);
+        _s().roots[_install(msg.sender)][opId][msg.sender] = readyAt;
+        emit RootQueued(msg.sender, opId, target, data, readyAt);
+    }
+
+    function cancelRoot(bytes32 opId) external {
+        mapping(address => uint48) storage root = _s().roots[_install(msg.sender)][opId];
+        if (root[msg.sender] == 0) revert RootNotReady(opId);
+        delete root[msg.sender];
+        emit RootCancelled(msg.sender, opId);
+    }
+
+    function executeRoot(address account, address target, bytes calldata data) external {
+        bytes32 opId = keccak256(abi.encode(account, target, data));
+        mapping(address => uint48) storage root = _s().roots[_install(account)][opId];
+        uint48 readyAt = root[account];
+        if (readyAt == 0 || block.timestamp < readyAt) revert RootNotReady(opId);
+        delete root[account];
+        emit RootExecuted(account, opId);
+
+        if (target == account) {
+            Address.functionCall(account, data);
+        } else if (_selector(data) == this.setThreshold.selector) {
+            _account(account).threshold = abi.decode(data[4:], (uint8));
+        } else {
+            _revoke(account, abi.decode(data[4:], (bytes)), true);
+        }
+    }
+
+    // ─── Internals ──────────────────────────────────────────────────
+
+    function _add(address account, bytes32 identity, bytes memory key, Policy memory policy, uint48 activeAt) private {
+        if (!isLinked(account, identity)) revert NotLinked(account, identity);
+        if (key.length < 20) revert InvalidKey(key);
+        Session storage s = _session(account, key);
+        if (s.identity != 0) revert SessionExists(key);
+        s.identity = identity;
+        s.policy = policy;
+        s.activeAt = activeAt;
+
+        AccountState storage a = _account(account);
+        a.hadSession = true;
+        if (policy.admin) ++a.adminSessions;
+
+        bytes32 policyHash = keccak256(abi.encode(policy));
+        if (activeAt == 0) emit SessionAdded(account, identity, key, policyHash);
+        else emit SessionPending(account, identity, key, policyHash, activeAt);
+    }
+
+    function _revoke(address account, bytes memory key, bool root) private {
+        Session storage s = _session(account, key);
+        bytes32 identity = s.identity;
+        if (identity == 0) revert NoSession(key);
+        if (s.policy.admin) {
+            AccountState storage a = _account(account);
+            if (a.adminSessions == 1 && !root) revert RootOperationRequired();
+            --a.adminSessions;
+        }
+        delete s.identity;
+        delete s.policy;
+        delete s.activeAt;
+        emit SessionRevoked(account, identity, key);
+    }
+
+    /// Drops the identity's earlier session by proof while it is still pending.
+    function _replacePending(address account, bytes32 identity, bytes memory key) private {
+        bytes storage pending = _s().pendingKeys[_install(account)][identity][account];
+        bytes memory old = pending;
+        if (old.length != 0) {
+            Session storage o = _session(account, old);
+            if (o.identity == identity && o.activeAt > block.timestamp) _revoke(account, old, true);
+        }
+        _s().pendingKeys[_install(account)][identity][account] = key;
+    }
+
+    /// Whether every signature is by a session, the distinct admin identities among them,
+    /// and the window they all share.
+    function _verify(address account, bytes32 hash, bytes calldata signature)
+        private
+        view
+        returns (bool ok, uint256 admins, uint48 validAfter, uint48 validUntil)
+    {
+        SessionSignature[] memory sigs = abi.decode(signature, (SessionSignature[]));
+        if (sigs.length == 0) return (false, 0, 0, 0);
+        bytes32[] memory adminIds = new bytes32[](sigs.length);
+        for (uint256 i; i < sigs.length; ++i) {
+            Session storage s = _session(account, sigs[i].key);
+            bytes32 identity = s.identity;
+            if (identity == 0 || !_signedBy(sigs[i].key, hash, sigs[i].signature)) return (false, 0, 0, 0);
+            Policy memory p = s.policy;
+            uint48 activeAt = s.activeAt;
+            uint48 start = p.validAfter > activeAt ? p.validAfter : activeAt;
+            if (start > validAfter) validAfter = start;
+            if (p.validUntil != 0 && (validUntil == 0 || p.validUntil < validUntil)) validUntil = p.validUntil;
+            if (p.admin && !_contains(adminIds, admins, identity)) adminIds[admins++] = identity;
+        }
+        return (true, admins, validAfter, validUntil);
+    }
+
+    /// @dev A 20-byte key is recovered with ECDSA, never asked through ERC-1271:
+    ///      validation may not read a codeless address's code size (ERC-7562).
+    function _signedBy(bytes memory key, bytes32 hash, bytes memory signature) private view returns (bool) {
+        if (key.length != 20) return SignatureChecker.isValidSignatureNow(key, hash, signature);
+        (address signer, ECDSA.RecoverError err,) = ECDSA.tryRecover(hash, signature);
+        // forge-lint: disable-next-line(unsafe-typecast)
+        return err == ECDSA.RecoverError.NoError && signer == address(bytes20(key));
+    }
+
+    function _contains(bytes32[] memory ids, uint256 n, bytes32 id) private pure returns (bool) {
+        for (uint256 i; i < n; ++i) {
+            if (ids[i] == id) return true;
+        }
+        return false;
+    }
+
+    /// `execute` of single or batch calls to outside targets is an ordinary call. A call to
+    /// the account, this validator or the registry is an admin operation. Anything else, and
+    /// `onInstall`/`onUninstall` called directly, is refused.
+    function _scope(address account, bytes calldata callData) private view returns (Scope scope) {
+        if (_selector(callData) != IERC7579Execution.execute.selector) return Scope.Refused;
+        (CallType callType,,,) = Mode.wrap(bytes32(callData[4:36])).decodeMode();
+        bytes calldata executionCalldata = _executionCalldata(callData);
+        if (callType == ERC7579Utils.CALLTYPE_SINGLE) {
+            (address target,, bytes calldata data) = executionCalldata.decodeSingle();
+            return _targetScope(account, target, data);
+        }
+        if (callType == ERC7579Utils.CALLTYPE_BATCH) {
+            Execution[] calldata batch = executionCalldata.decodeBatch();
+            for (uint256 i; i < batch.length; ++i) {
+                Scope s = _targetScope(account, batch[i].target, batch[i].callData);
+                if (s > scope) scope = s;
+            }
+            return scope;
+        }
+        return Scope.Refused;
+    }
+
+    function _targetScope(address account, address target, bytes calldata data) private view returns (Scope) {
+        if (target == address(this)) {
+            bytes4 selector = _selector(data);
+            bool module =
+                selector == IERC7579Module.onInstall.selector || selector == IERC7579Module.onUninstall.selector;
+            return module ? Scope.Refused : Scope.Admin;
+        }
+        // The account executes a call to address(0) on itself.
+        if (target == account || target == address(0) || target == REGISTRY) return Scope.Admin;
+        return Scope.Call;
+    }
+
+    /// The first four bytes, zero-padded.
+    function _selector(bytes calldata data) private pure returns (bytes4) {
+        // forge-lint: disable-next-line(unsafe-typecast)
+        return bytes4(data);
+    }
+
+    /// The `bytes` argument of `execute(bytes32, bytes)`, as the account's ABI decoder reads it.
+    function _executionCalldata(bytes calldata callData) private pure returns (bytes calldata) {
+        bytes calldata args = callData[4:];
+        uint256 offset = uint256(bytes32(args[32:64]));
+        uint256 length = uint256(bytes32(args[offset:offset + 32]));
+        return args[offset + 32:offset + 32 + length];
+    }
+}

@@ -3,10 +3,15 @@ pragma solidity ^0.8.24;
 
 import {IERC7579Validator} from "@openzeppelin/contracts/interfaces/draft-IERC7579.sol";
 
+/// An identity: `keccak256(abi.encode(platformId, idNode))`.
+function identityOf(bytes32 platformId, bytes32 idNode) pure returns (bytes32) {
+    return keccak256(abi.encode(platformId, idNode));
+}
+
 /// @title IIdentityValidator - identities, sessions and root operations of ERC-7579 accounts.
 /// @notice Constructor: `IdentityValidator(address walletRegistry)`. Immutable, no owner.
 /// @dev State is per account and per install: an uninstall drops it.
-///      An identity is `keccak256(abi.encode(platformId, idNode))`.
+///      An identity is `identityOf(platformId, idNode)`.
 ///      A session key is an ERC-7913 signer: a 20-byte address, or `verifier || key`.
 ///      A policy hash is `keccak256(abi.encode(policy))`.
 ///      `userOp.signature`, and the ERC-1271 signature after the validator's
@@ -53,10 +58,16 @@ interface IIdentityValidator is IERC7579Validator {
     error RootNotReady(bytes32 opId);
     /// The recovery delay may only grow, and never below the floor.
     error RecoveryDelayTooShort(uint48 delay);
+    /// A session key is a 20-byte address or `verifier || key`.
+    error InvalidKey(bytes key);
+    error SessionExists(bytes key);
+    error NoSession(bytes key);
+    /// A root operation targets the account, or this validator's `setThreshold` or `revokeSession`.
+    error BadRootOperation(address target);
 
     /// The floor of the wait for sessions added by proof.
     function MIN_RECOVERY_DELAY() external view returns (uint48);
-    /// The wait between `queueRoot` and `executeRoot`.
+    /// The floor of the wait between `queueRoot` and `executeRoot`, which is the account's `recoveryDelay`.
     function ROOT_DELAY() external view returns (uint48);
     function walletRegistry() external view returns (address);
 
@@ -78,6 +89,8 @@ interface IIdentityValidator is IERC7579Validator {
     function addSessionByProof(address account, bytes32 identity, bytes calldata key, Policy calldata policy)
         external
         returns (uint48 activeAt);
+    /// Active at once: the account itself submitted the proof.
+    function addSessionByAccount(address account, bytes32 identity, bytes calldata key, Policy calldata policy) external;
 
     // The account itself (an admin operation, under the threshold).
     /// Active at once. The identity must be linked.
@@ -88,7 +101,7 @@ interface IIdentityValidator is IERC7579Validator {
     /// Root operation only: reverts `RootOperationRequired` when the account calls it.
     function setThreshold(uint8 threshold_) external;
     /// `target` is the account (install, uninstall, upgrade) or this validator
-    /// (`setThreshold`, `revokeSession` of the last admin).
+    /// (`setThreshold`, `revokeSession` of the last admin). Ready after `recoveryDelay`.
     function queueRoot(address target, bytes calldata data) external returns (bytes32 opId);
     function cancelRoot(bytes32 opId) external;
 

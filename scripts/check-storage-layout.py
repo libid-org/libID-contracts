@@ -162,6 +162,9 @@ LAYOUTS = (
         "IdentityRegistry.IdentityRegistryStorage",
         "IDENTITY_REGISTRY_STORAGE",
     ),
+    # Its namespaces are OpenZeppelin's (AccountERC7579, Initializable), declared
+    # in lib/, which this script does not read: only its own variables are checked.
+    Layout("wallet/WebWallet.sol", ("WebWallet",)),
 )
 
 

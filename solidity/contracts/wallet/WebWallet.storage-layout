@@ -1,0 +1,4 @@
+# WebWallet storage layout. Checked in CI by scripts/check-storage-layout.py.
+# Fields may only be APPENDED. Record an append with --update; see the script.
+contract WebWallet slot=0 offset=0 _nameFallback: string
+contract WebWallet slot=1 offset=0 _versionFallback: string

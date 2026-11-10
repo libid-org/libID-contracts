@@ -61,16 +61,19 @@ contract WalletFactoryTest is WalletTestBase {
         assertFalse(validator.isLinked(w, _identity(X, MALLORY)), "mallory linked");
     }
 
-    /// R1: an earlier prediction still deploys after the factory's code changes.
-    function test_factoryUpgradeKeepsEveryPrediction() public {
-        address predicted = factory.walletAddress(X, ALICE, 0);
+    /// R1: the address is a function of (factory, platformId, idNode, index) only, not of
+    ///     the chain or the wallet implementation the factory deploys.
+    function test_addressDependsOnlyOnFactoryAndIdentity() public {
+        address predicted = factory.walletAddress(X, ALICE, 1);
         address impl2 = deployCode("WebWallet.sol:WebWallet", abi.encode(address(validator)));
-        vm.store(address(factory), IMPL_SLOT, bytes32(uint256(uint160(_factoryImpl(impl2)))));
+        address other = deployCode("WalletFactory.sol:WalletFactory", abi.encode(impl2));
+        vm.etch(address(factory), other.code);
+        vm.chainId(8453);
 
-        assertEq(factory.walletAddress(X, ALICE, 0), predicted, "prediction moved");
-        address w = factory.createWallet(X, ALICE, 0);
+        assertEq(factory.walletAddress(X, ALICE, 1), predicted, "prediction moved");
+        address w = factory.createWallet(X, ALICE, 1);
         assertEq(w, predicted, "deployed elsewhere");
-        assertEq(address(uint160(uint256(vm.load(w, IMPL_SLOT)))), impl2, "not the new implementation");
+        assertEq(address(uint160(uint256(vm.load(w, IMPL_SLOT)))), impl2, "not the other implementation");
         (, bytes32 idNode) = validator.genesisIdentity(w);
         assertEq(idNode, ALICE, "genesis lost");
     }
