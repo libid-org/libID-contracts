@@ -118,6 +118,20 @@ contract IdentityValidatorTest is WalletTestBase {
         assertEq(validator.validateUserOp(op, keccak256("h")), 1);
     }
 
+    /// A signature that is not a session list fails validation instead of reverting it.
+    function test_aMalformedSignatureFails() public {
+        address w = _claim();
+        PackedUserOperation memory op = _op(w, 0, _hit());
+        bytes[3] memory sigs =
+            [bytes(""), abi.encodePacked(bytes32(type(uint256).max), bytes32(0), bytes1(0)), new bytes(65)];
+        sigs[2][64] = 0x1b;
+        for (uint256 i; i < sigs.length; ++i) {
+            op.signature = sigs[i];
+            vm.prank(w);
+            assertEq(validator.validateUserOp(op, keccak256("h")), 1);
+        }
+    }
+
     function test_unknownAndRevokedKeysFail() public {
         address w = _claim();
         assertEq(_validate(w, _hit(), _pks(MALLORY_PK)), 1, "unknown key");
@@ -338,8 +352,24 @@ contract IdentityValidatorTest is WalletTestBase {
         vm.stopPrank();
         assertEq(validator.recoveryDelay(w), 72 hours);
 
+        uint48 max = validator.MAX_RECOVERY_DELAY();
+        vm.prank(w);
+        vm.expectRevert(abi.encodeWithSelector(IIdentityValidator.RecoveryDelayTooLong.selector, max + 1));
+        validator.setRecoveryDelay(max + 1);
+
         _addByProof(relayer, X, ALICE, w, _key(ALICE2_PK), _admin());
         assertEq(validator.sessionOf(w, _key(ALICE2_PK)).activeAt, _now() + 72 hours, "raised delay ignored");
+    }
+
+    /// The threshold may not exceed the linked identities, or no admin operation could pass again.
+    function test_thresholdAboveTheLinkedIdentitiesIsRefused() public {
+        address w = _claim();
+        bytes memory data = abi.encodeCall(IIdentityValidator.setThreshold, (2));
+        vm.prank(w);
+        validator.queueRoot(address(validator), data);
+        vm.warp(_now() + 48 hours);
+        vm.expectRevert(abi.encodeWithSelector(IIdentityValidator.ThresholdTooHigh.selector, uint8(2), uint32(1)));
+        validator.executeRoot(w, address(validator), data);
     }
 
     /// R6: state is keyed by install, so a reinstall starts empty.
@@ -411,7 +441,6 @@ contract IdentityValidatorTest is WalletTestBase {
     }
 
     /// `validAfter` is the last second before the window, as the EntryPoint reads it.
-    /// @dev Fails today: ERC-1271 accepts at `validAfter` itself, the EntryPoint one second later.
     function test_erc1271WindowStartsWithTheEntryPoints() public {
         bytes32 h = keccak256("a message");
         address w = _claim();
@@ -428,7 +457,6 @@ contract IdentityValidatorTest is WalletTestBase {
 
     /// EntryPoint v0.9 reads bit 47 of both bounds as a block-number range flag, so a session
     /// with `validAfter >= 2^47` and `validUntil == 0` is live at once: no policy may set the bit.
-    /// @dev Fails today: no path refuses such a policy.
     function test_policyBoundsStayBelowBit47() public {
         address w = _claim();
         uint48 flag = uint48(1 << 47);

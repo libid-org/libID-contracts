@@ -58,6 +58,10 @@ interface IIdentityValidator is IERC7579Validator {
     error RootNotReady(bytes32 opId);
     /// The recovery delay may only grow, and never below the floor.
     error RecoveryDelayTooShort(uint48 delay);
+    /// The recovery delay may not exceed `MAX_RECOVERY_DELAY`.
+    error RecoveryDelayTooLong(uint48 delay);
+    /// The threshold may not exceed the number of linked identities.
+    error ThresholdTooHigh(uint8 threshold, uint32 identities);
     /// A session key is a 20-byte address or `verifier || key`.
     error InvalidKey(bytes key);
     error SessionExists(bytes key);
@@ -71,6 +75,8 @@ interface IIdentityValidator is IERC7579Validator {
     function MIN_RECOVERY_DELAY() external view returns (uint48);
     /// The floor of the wait between `queueRoot` and `executeRoot`, which is the account's `recoveryDelay`.
     function ROOT_DELAY() external view returns (uint48);
+    /// Ceiling of `recoveryDelay`.
+    function MAX_RECOVERY_DELAY() external view returns (uint48);
     function walletRegistry() external view returns (address);
 
     function genesisIdentity(address account) external view returns (bytes32 platformId, bytes32 idNode);
@@ -97,7 +103,7 @@ interface IIdentityValidator is IERC7579Validator {
     // The account itself (an admin operation, under the threshold).
     /// Active at once. The identity must be linked.
     function addSession(bytes32 identity, bytes calldata key, Policy calldata policy) external;
-    /// Revokes an active or pending session. Removing the last admin session is a root operation.
+    /// Revokes an active or pending session. Removing the last admin session, counting pending and expired ones, is a root operation.
     function revokeSession(bytes calldata key) external;
     function setRecoveryDelay(uint48 delay) external;
     /// Root operation only: reverts `RootOperationRequired` when the account calls it.

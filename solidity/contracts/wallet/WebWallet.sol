@@ -69,7 +69,9 @@ contract WebWallet is AccountERC7579Upgradeable, UUPSUpgradeable, EIP712, IWebWa
         override(IERC7579ModuleConfig, AccountERC7579Upgradeable)
         onlyModule(MODULE_TYPE_VALIDATOR, Calldata.emptyBytes())
     {
-        _uninstallModule(moduleTypeId, module, deInitData);
+        // The validator is the only module, and nothing could install it again.
+        (moduleTypeId, deInitData);
+        revert ModuleNotAllowed(module);
     }
 
     function upgradeToAndCall(address newImplementation, bytes memory data)

@@ -26,6 +26,7 @@ contract IdentityValidator is IIdentityValidator {
 
     uint48 public constant MIN_RECOVERY_DELAY = 48 hours;
     uint48 public constant ROOT_DELAY = MIN_RECOVERY_DELAY;
+    uint48 public constant MAX_RECOVERY_DELAY = 365 days;
 
     address private immutable REGISTRY;
 
@@ -44,6 +45,7 @@ contract IdentityValidator is IIdentityValidator {
         uint8 threshold;
         bool hadSession;
         uint32 adminSessions;
+        uint32 identities;
     }
 
     /// @dev Keyed by install, then by item, then by account.
@@ -168,7 +170,10 @@ contract IdentityValidator is IIdentityValidator {
     // ─── Registry ───────────────────────────────────────────────────
 
     function link(address account, bytes32 platformId, bytes32 idNode) external onlyRegistry {
-        _s().links[_install(account)][identityOf(platformId, idNode)][account] = true;
+        mapping(address => bool) storage linked = _s().links[_install(account)][identityOf(platformId, idNode)];
+        if (linked[account]) return;
+        linked[account] = true;
+        ++_account(account).identities;
     }
 
     function addSessionByProof(address account, bytes32 identity, bytes calldata key, Policy calldata policy)
@@ -202,7 +207,13 @@ contract IdentityValidator is IIdentityValidator {
 
     function setRecoveryDelay(uint48 delay) external {
         if (delay < recoveryDelay(msg.sender)) revert RecoveryDelayTooShort(delay);
+        if (delay > MAX_RECOVERY_DELAY) revert RecoveryDelayTooLong(delay);
         _account(msg.sender).recoveryDelay = delay;
+    }
+
+    /// Decodes a signature list; external so a malformed one fails validation instead of reverting it.
+    function decodeSignatures(bytes calldata signature) external pure returns (SessionSignature[] memory) {
+        return abi.decode(signature, (SessionSignature[]));
     }
 
     function setThreshold(uint8) external pure {
@@ -238,7 +249,10 @@ contract IdentityValidator is IIdentityValidator {
         if (target == account) {
             Address.functionCall(account, data);
         } else if (_selector(data) == this.setThreshold.selector) {
-            _account(account).threshold = abi.decode(data[4:], (uint8));
+            AccountState storage a = _account(account);
+            uint8 t = abi.decode(data[4:], (uint8));
+            if (t > a.identities) revert ThresholdTooHigh(t, a.identities);
+            a.threshold = t;
         } else {
             _revoke(account, abi.decode(data[4:], (bytes)), true);
         }
@@ -249,7 +263,7 @@ contract IdentityValidator is IIdentityValidator {
     function _add(address account, bytes32 identity, bytes memory key, Policy memory policy, uint48 activeAt) private {
         if (!isLinked(account, identity)) revert NotLinked(account, identity);
         if (key.length < 20) revert InvalidKey(key);
-        if ((policy.validAfter | policy.validUntil) >= 1 << 47) {
+        if ((policy.validAfter | policy.validUntil | activeAt) >= 1 << 47) {
             revert PolicyOutOfRange(policy.validAfter, policy.validUntil);
         }
         Session storage s = _session(account, key);
@@ -310,7 +324,12 @@ contract IdentityValidator is IIdentityValidator {
         view
         returns (bool ok, uint256 admins, uint48 validAfter, uint48 validUntil)
     {
-        SessionSignature[] memory sigs = abi.decode(signature, (SessionSignature[]));
+        SessionSignature[] memory sigs;
+        try this.decodeSignatures(signature) returns (SessionSignature[] memory decoded) {
+            sigs = decoded;
+        } catch {
+            return (false, 0, 0, 0);
+        }
         if (sigs.length == 0) return (false, 0, 0, 0);
         bytes32[] memory adminIds = new bytes32[](sigs.length);
         for (uint256 i; i < sigs.length; ++i) {
