@@ -177,8 +177,7 @@ contract IdentityValidator is IIdentityValidator {
         returns (uint48 activeAt)
     {
         if (_account(account).hadSession) {
-            // forge-lint: disable-next-line(unsafe-typecast)
-            activeAt = uint48(block.timestamp) + recoveryDelay(account);
+            activeAt = _maturity(account);
             _replacePending(account, identity, key);
         }
         _add(account, identity, key, policy, activeAt);
@@ -215,9 +214,8 @@ contract IdentityValidator is IIdentityValidator {
         bool own = target == address(this)
             && (selector == this.setThreshold.selector || selector == this.revokeSession.selector);
         if (target != msg.sender && !own) revert BadRootOperation(target);
-        opId = keccak256(abi.encode(msg.sender, target, data));
-        // forge-lint: disable-next-line(unsafe-typecast)
-        uint48 readyAt = uint48(block.timestamp) + recoveryDelay(msg.sender);
+        opId = _rootId(msg.sender, target, data);
+        uint48 readyAt = _maturity(msg.sender);
         _s().roots[_install(msg.sender)][opId][msg.sender] = readyAt;
         emit RootQueued(msg.sender, opId, target, data, readyAt);
     }
@@ -230,7 +228,7 @@ contract IdentityValidator is IIdentityValidator {
     }
 
     function executeRoot(address account, address target, bytes calldata data) external {
-        bytes32 opId = keccak256(abi.encode(account, target, data));
+        bytes32 opId = _rootId(account, target, data);
         mapping(address => uint48) storage root = _s().roots[_install(account)][opId];
         uint48 readyAt = root[account];
         if (readyAt == 0 || block.timestamp < readyAt) revert RootNotReady(opId);
@@ -281,15 +279,25 @@ contract IdentityValidator is IIdentityValidator {
         emit SessionRevoked(account, identity, key);
     }
 
+    function _rootId(address account, address target, bytes calldata data) private pure returns (bytes32) {
+        return keccak256(abi.encode(account, target, data));
+    }
+
+    /// When a wait of the account's recovery delay, started now, ends.
+    function _maturity(address account) private view returns (uint48) {
+        // forge-lint: disable-next-line(unsafe-typecast)
+        return uint48(block.timestamp) + recoveryDelay(account);
+    }
+
     /// Drops the identity's earlier session by proof while it is still pending.
     function _replacePending(address account, bytes32 identity, bytes memory key) private {
-        bytes storage pending = _s().pendingKeys[_install(account)][identity][account];
-        bytes memory old = pending;
+        mapping(address => bytes) storage pending = _s().pendingKeys[_install(account)][identity];
+        bytes memory old = pending[account];
         if (old.length != 0) {
             Session storage o = _session(account, old);
             if (o.identity == identity && o.activeAt > block.timestamp) _revoke(account, old, true);
         }
-        _s().pendingKeys[_install(account)][identity][account] = key;
+        pending[account] = key;
     }
 
     /// Whether every signature is by a session, the distinct admin identities among them,
@@ -307,13 +315,22 @@ contract IdentityValidator is IIdentityValidator {
             bytes32 identity = s.identity;
             if (identity == 0 || !_signedBy(sigs[i].key, hash, sigs[i].signature)) return (false, 0, 0, 0);
             Policy memory p = s.policy;
-            uint48 activeAt = s.activeAt;
-            uint48 start = p.validAfter > activeAt ? p.validAfter : activeAt;
-            if (start > validAfter) validAfter = start;
-            if (p.validUntil != 0 && (validUntil == 0 || p.validUntil < validUntil)) validUntil = p.validUntil;
+            (validAfter, validUntil) = _narrow(validAfter, validUntil, p, s.activeAt);
             if (p.admin && !_contains(adminIds, admins, identity)) adminIds[admins++] = identity;
         }
         return (true, admins, validAfter, validUntil);
+    }
+
+    /// The window narrowed to one session's: its policy window, starting no earlier than `activeAt`.
+    function _narrow(uint48 validAfter, uint48 validUntil, Policy memory p, uint48 activeAt)
+        private
+        pure
+        returns (uint48, uint48)
+    {
+        uint48 start = p.validAfter > activeAt ? p.validAfter : activeAt;
+        if (start > validAfter) validAfter = start;
+        if (p.validUntil != 0 && (validUntil == 0 || p.validUntil < validUntil)) validUntil = p.validUntil;
+        return (validAfter, validUntil);
     }
 
     /// @dev A 20-byte key is recovered with ECDSA, never asked through ERC-1271:

@@ -103,10 +103,26 @@ contract WalletRegistry is IWalletRegistry {
         if (_s().spentDigests[claimed.sessionId]) revert DigestAlreadySpent(claimed.sessionId);
         _s().spentDigests[claimed.sessionId] = true;
 
+        (address wallet, bytes memory key) = _transactionData(claimed.transactionData, policy);
+        return Accepted({
+            idNode: claimed.idNode,
+            digest: claimed.sessionId,
+            wallet: wallet,
+            key: key,
+            dataLength: claimed.transactionData.length
+        });
+    }
+
+    /// The wallet and session key of canonical transaction data for this chain that commits to `policy`.
+    function _transactionData(bytes memory data, IIdentityValidator.Policy calldata policy)
+        private
+        view
+        returns (address wallet, bytes memory key)
+    {
         // Canonical: re-encoding gives back the same bytes (REQ-COMMON-01F).
-        bytes memory data = claimed.transactionData;
-        (uint256 chainId, address wallet, bytes memory key, bytes32 policyHash) =
-            abi.decode(data, (uint256, address, bytes, bytes32));
+        uint256 chainId;
+        bytes32 policyHash;
+        (chainId, wallet, key, policyHash) = abi.decode(data, (uint256, address, bytes, bytes32));
         bool linkOnly = key.length == 0 && policyHash == bytes32(0);
         if (
             keccak256(abi.encode(chainId, wallet, key, policyHash)) != keccak256(data) || (!linkOnly && key.length < 20)
@@ -116,8 +132,5 @@ contract WalletRegistry is IWalletRegistry {
             bytes32 given = keccak256(abi.encode(policy));
             if (given != policyHash) revert PolicyMismatch(policyHash, given);
         }
-        return Accepted({
-            idNode: claimed.idNode, digest: claimed.sessionId, wallet: wallet, key: key, dataLength: data.length
-        });
     }
 }
