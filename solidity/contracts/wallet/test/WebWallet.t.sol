@@ -32,7 +32,7 @@ contract WebWalletTest is WalletTestBase {
 
         assertEq(target.calls(), 1, "the call did not run");
         assertEq(target.last(), w, "not called by the wallet");
-        assertEq(IEntryPoint(EP).getNonce(w, key), 1, "nonce not used");
+        assertEq(uint64(IEntryPoint(EP).getNonce(w, key)), 1, "nonce not used");
     }
 
     /// R9: a non-admin session may only `execute` single or batch calls to outside targets.

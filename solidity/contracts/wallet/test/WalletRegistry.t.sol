@@ -95,7 +95,7 @@ contract WalletRegistryTest is WalletTestBase {
         registry.linkIdentity(X, V1, payload, _admin());
 
         payload = _payload(X, ALICE, LINK, _txData(w, "", bytes32(0)));
-        uint256 here = block.chainid;
+        uint256 here = vm.getChainId();
         vm.chainId(8453);
         vm.expectRevert(abi.encodeWithSelector(IWalletRegistry.WrongChain.selector, here));
         registry.linkIdentity(X, V1, payload, _admin());
