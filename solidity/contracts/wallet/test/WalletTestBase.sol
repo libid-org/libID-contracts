@@ -5,7 +5,6 @@ import {Test} from "forge-std/Test.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {IEntryPoint, PackedUserOperation} from "@openzeppelin/contracts/interfaces/IERC4337.sol";
 import {IERC7579Execution} from "@openzeppelin/contracts/interfaces/draft-IERC7579.sol";
-import {EntryPoint} from "account-abstraction/core/EntryPoint.sol";
 
 import {CeremonyProfile} from "../../ceremony/CeremonyProfile.sol";
 import {CeremonyProofVerifier} from "../../ceremony/CeremonyProofVerifier.sol";
@@ -48,9 +47,10 @@ interface IUserOpHash {
     function getUserOpHash(PackedUserOperation calldata op) external view returns (bytes32);
 }
 
-/// @notice The wallet stack on stub Platform Verifiers and a local EntryPoint v0.9.
+/// @notice The wallet stack on stub Platform Verifiers and EntryPoint v0.9 at its canonical address.
 /// @dev Production contracts are deployed by artifact name, so this compiles before they exist.
 ///      A filtered `forge test` compiles only what the tests import: run `forge build` first.
+///      The EntryPoint is Base mainnet's runtime code, from `fixtures/entrypoint-v0.9.json`.
 abstract contract WalletTestBase is Test {
     address internal constant EP = 0x433709009B8330FDa32311DF1C2AFA402eD8D009;
     bytes32 internal constant IMPL_SLOT = 0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc;
@@ -118,22 +118,19 @@ abstract contract WalletTestBase is Test {
         );
         assertEq(address(registry), registryAt, "registry address");
         walletImpl = deployCode("WebWallet.sol:WebWallet", abi.encode(address(validator)));
-        factory = IWalletFactory(address(new ERC1967Proxy(_factoryImpl(walletImpl), "")));
+        factory = IWalletFactory(deployCode("WalletFactory.sol:WalletFactory", abi.encode(walletImpl)));
         target = new CallTarget();
 
         // Stub observation times lie in the past.
         vm.warp(1_800_000_000);
     }
 
+    /// The EntryPoint and the SenderCreator its immutables name, each at its own address.
     function _deployEntryPoint() private {
-        vm.etch(EP, type(EntryPoint).creationCode);
-        (bool ok, bytes memory runtime) = EP.call("");
-        require(ok, "EntryPoint constructor");
-        vm.etch(EP, runtime);
-    }
-
-    function _factoryImpl(address wallet) internal returns (address) {
-        return deployCode("WalletFactory.sol:WalletFactory", abi.encode(wallet));
+        string memory json = vm.readFile("contracts/wallet/test/fixtures/entrypoint-v0.9.json");
+        assertEq(vm.parseJsonAddress(json, ".entryPoint.address"), EP, "fixture address");
+        vm.etch(EP, vm.parseJsonBytes(json, ".entryPoint.code"));
+        vm.etch(vm.parseJsonAddress(json, ".senderCreator.address"), vm.parseJsonBytes(json, ".senderCreator.code"));
     }
 
     // ─── Identities and proofs ──────────────────────────────────────

@@ -27,6 +27,8 @@ fs_permissions = [
     { access = "read", path = "contracts/circuits/test/fixtures" },
     # The shared handle vectors from the pinned circuits release (HandleNode.t.sol).
     { access = "read", path = "contracts/circuits/handles.json" },
+    # EntryPoint v0.9's runtime code from Base mainnet (WalletTestBase.sol).
+    { access = "read", path = "contracts/wallet/test/fixtures" },
 ]
 # Only the `gas` profile writes gas snapshots: they are measured under
 # eden-testnet's rules, which a default run would overwrite with cancun's.
