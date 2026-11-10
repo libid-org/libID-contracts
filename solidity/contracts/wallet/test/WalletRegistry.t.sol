@@ -52,6 +52,16 @@ contract WalletRegistryTest is WalletTestBase {
         assertTrue(validator.isLinked(w, _identity(GITHUB, BOB)), "bob not linked");
     }
 
+    function test_aLinkByTheWalletAddsItsSessionAtOnce() public {
+        address w = _claim();
+        bytes memory payload = _payload(GITHUB, BOB, LINK, _txData(w, _key(BOB_PK), _ph(_admin())));
+        vm.prank(w);
+        registry.linkIdentity(GITHUB, V1, payload, _admin());
+        IIdentityValidator.Session memory s = validator.sessionOf(w, _key(BOB_PK));
+        assertEq(s.identity, _identity(GITHUB, BOB), "no session");
+        assertEq(s.activeAt, 0, "the wallet's own session waits");
+    }
+
     /// R5: a phished link to another wallet does not keep the canonical wallet from linking.
     function test_phishedLinkDoesNotSquat() public {
         address canonical = factory.walletAddress(X, ALICE, 0);

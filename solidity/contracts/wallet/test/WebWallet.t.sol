@@ -8,6 +8,7 @@ import {
     IERC7579Execution,
     IERC7579ModuleConfig
 } from "@openzeppelin/contracts/interfaces/draft-IERC7579.sol";
+import {ERC7579Utils} from "@openzeppelin/contracts/account/utils/draft-ERC7579Utils.sol";
 
 import {IIdentityValidator} from "../IIdentityValidator.sol";
 import {IWebWallet} from "../IWebWallet.sol";
@@ -134,5 +135,21 @@ contract WebWalletTest is WalletTestBase {
         assertEq(vm.load(w, bytes32(uint256(0x1234))), bytes32(0), "delegatecall ran");
         assertEq(address(uint160(uint256(vm.load(w, IMPL_SLOT)))), implBefore, "upgraded without timelock");
         assertTrue(IWebWallet(w).isModuleInstalled(1, address(validator), ""), "validator removed");
+    }
+
+    function test_delegatecallIsUnsupported() public {
+        address w = _claim();
+        assertTrue(IWebWallet(w).supportsExecutionMode(MODE_SINGLE), "single");
+        assertTrue(IWebWallet(w).supportsExecutionMode(MODE_BATCH), "batch");
+        assertFalse(IWebWallet(w).supportsExecutionMode(MODE_DELEGATE), "delegatecall");
+        vm.prank(EP);
+        vm.expectRevert(abi.encodeWithSelector(ERC7579Utils.ERC7579UnsupportedCallType.selector, bytes1(0xff)));
+        IERC7579Execution(w).execute(MODE_DELEGATE, abi.encodePacked(address(target)));
+    }
+
+    function test_rootOperationUninstallsTheValidator() public {
+        address w = _claim();
+        _root(w, w, abi.encodeCall(IERC7579ModuleConfig.uninstallModule, (1, address(validator), "")));
+        assertFalse(IWebWallet(w).isModuleInstalled(1, address(validator), ""), "still installed");
     }
 }

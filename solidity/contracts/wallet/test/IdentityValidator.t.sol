@@ -23,6 +23,21 @@ contract IdentityValidatorTest is WalletTestBase {
         vm.stopPrank();
     }
 
+    function test_accountEntriesRefuseBadInput() public {
+        address w = _claim();
+        bytes memory short = hex"0102";
+        vm.startPrank(w);
+        vm.expectRevert(abi.encodeWithSelector(IIdentityValidator.BadRootOperation.selector, mallory));
+        validator.queueRoot(mallory, "");
+        vm.expectRevert(abi.encodeWithSelector(IIdentityValidator.InvalidKey.selector, short));
+        validator.addSession(_identity(X, ALICE), short, _app());
+        vm.expectRevert(abi.encodeWithSelector(IIdentityValidator.SessionExists.selector, _key(ALICE_PK)));
+        validator.addSession(_identity(X, ALICE), _key(ALICE_PK), _app());
+        vm.expectRevert(abi.encodeWithSelector(IIdentityValidator.NoSession.selector, _key(APP_PK)));
+        validator.revokeSession(_key(APP_PK));
+        vm.stopPrank();
+    }
+
     // ─── Validation data (R2) ───────────────────────────────────────
 
     /// The window comes back packed; `activeAt` folds into `validAfter`.
@@ -43,6 +58,14 @@ contract IdentityValidatorTest is WalletTestBase {
         uint256 early = _validate(w, _hit(), _pks(ALICE_PK));
         vm.warp(_now() + 3650 days);
         assertEq(_validate(w, _hit(), _pks(ALICE_PK)), early, "expired session answered differently");
+    }
+
+    function test_anEmptySignatureListFails() public {
+        address w = _claim();
+        PackedUserOperation memory op = _op(w, 0, _hit());
+        op.signature = abi.encode(new IIdentityValidator.SessionSignature[](0));
+        vm.prank(w);
+        assertEq(validator.validateUserOp(op, keccak256("h")), 1);
     }
 
     function test_unknownAndRevokedKeysFail() public {
