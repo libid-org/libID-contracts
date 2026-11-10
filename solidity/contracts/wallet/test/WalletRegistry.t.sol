@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
+import {Vm} from "forge-std/Vm.sol";
+
 import {IPlatformVerifier} from "../../ceremony/IPlatformVerifier.sol";
 import {StubPlatformVerifier} from "../../identity/test/StubPlatformVerifier.sol";
 import {IIdentityValidator} from "../IIdentityValidator.sol";
@@ -50,6 +52,12 @@ contract WalletRegistryTest is WalletTestBase {
         vm.prank(w);
         registry.linkIdentity(GITHUB, V1, payload, _admin());
         assertTrue(validator.isLinked(w, _identity(GITHUB, BOB)), "bob not linked");
+
+        // The genesis id node on another platform is another identity.
+        bytes memory sameNode = _payload(GITHUB, ALICE, LINK, _txData(w, "", bytes32(0)));
+        vm.prank(mallory);
+        vm.expectRevert(abi.encodeWithSelector(IWalletRegistry.NotWallet.selector, w, mallory));
+        registry.linkIdentity(GITHUB, V1, sameNode, _admin());
     }
 
     function test_aLinkByTheWalletAddsItsSessionAtOnce() public {
@@ -77,8 +85,11 @@ contract WalletRegistryTest is WalletTestBase {
     function test_aDigestIsSpentOnce() public {
         address w = factory.createWallet(X, ALICE, 0);
         bytes memory payload = _payload(X, ALICE, LINK, _txData(w, "", bytes32(0)));
+        vm.recordLogs();
         registry.linkIdentity(X, V1, payload, _admin());
         bytes32 digest = xStub.lastDigest();
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+        assertEq(abi.decode(logs[logs.length - 1].data, (bytes32)), digest, "IdentityLinked digest");
         vm.expectRevert(abi.encodeWithSelector(IWalletRegistry.DigestAlreadySpent.selector, digest));
         registry.linkIdentity(X, V1, payload, _admin());
     }
@@ -230,6 +241,23 @@ contract WalletRegistryTest is WalletTestBase {
         vm.warp(_now() + 30 days);
         _addByProof(mallory, X, ALICE, w, _key(MALLORY_PK), _admin());
         assertEq(validator.sessionOf(w, _key(MALLORY_PK)).activeAt, _now() + 48 hours, "dormant wallet skipped wait");
+    }
+
+    /// Only a still-pending session of the same identity is replaced.
+    function test_replacementSparesMaturedAndForeignSessions() public {
+        address w = _claim();
+        _addByProof(relayer, X, ALICE, w, _key(ALICE2_PK), _admin());
+        vm.warp(validator.sessionOf(w, _key(ALICE2_PK)).activeAt);
+        _addByProof(relayer, X, ALICE, w, _key(MALLORY_PK), _admin());
+        assertEq(validator.sessionOf(w, _key(ALICE2_PK)).identity, _identity(X, ALICE), "matured session replaced");
+
+        // Alice's pending key, revoked, then pending again for Bob.
+        vm.prank(w);
+        validator.revokeSession(_key(MALLORY_PK));
+        _link(w, GITHUB, BOB, w, "", _admin());
+        _addByProof(relayer, GITHUB, BOB, w, _key(MALLORY_PK), _admin());
+        _addByProof(relayer, X, ALICE, w, _key(APP_PK), _admin());
+        assertEq(validator.sessionOf(w, _key(MALLORY_PK)).identity, _identity(GITHUB, BOB), "bob's session replaced");
     }
 
     function test_aNewerPendingSessionReplacesTheOlder() public {

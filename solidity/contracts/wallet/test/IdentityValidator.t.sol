@@ -1,12 +1,25 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-import {IERC7579ModuleConfig} from "@openzeppelin/contracts/interfaces/draft-IERC7579.sol";
+import {
+    Execution,
+    IERC7579AccountConfig,
+    IERC7579Execution,
+    IERC7579Module,
+    IERC7579ModuleConfig
+} from "@openzeppelin/contracts/interfaces/draft-IERC7579.sol";
 import {PackedUserOperation} from "@openzeppelin/contracts/interfaces/IERC4337.sol";
 
 import {IIdentityValidator} from "../IIdentityValidator.sol";
 import {IWebWallet} from "../IWebWallet.sol";
 import {AcceptingVerifier, WalletTestBase} from "./WalletTestBase.sol";
+
+/// An ERC-1271 signer that accepts every signature.
+contract Accepting1271 {
+    function isValidSignature(bytes32, bytes calldata) external pure returns (bytes4) {
+        return 0x1626ba7e;
+    }
+}
 
 /// @notice Sessions, threshold, root timelock, ERC-1271 and ERC-7562 rules of the validator.
 contract IdentityValidatorTest is WalletTestBase {
@@ -29,8 +42,17 @@ contract IdentityValidatorTest is WalletTestBase {
         vm.startPrank(w);
         vm.expectRevert(abi.encodeWithSelector(IIdentityValidator.BadRootOperation.selector, mallory));
         validator.queueRoot(mallory, "");
+        vm.expectRevert(abi.encodeWithSelector(IIdentityValidator.BadRootOperation.selector, mallory));
+        validator.queueRoot(mallory, abi.encodeCall(IIdentityValidator.setThreshold, (2)));
+        vm.expectRevert(abi.encodeWithSelector(IIdentityValidator.BadRootOperation.selector, address(validator)));
+        validator.queueRoot(address(validator), abi.encodeCall(IIdentityValidator.setRecoveryDelay, (72 hours)));
+        vm.expectRevert(abi.encodeWithSelector(IIdentityValidator.RootNotReady.selector, keccak256("never queued")));
+        validator.cancelRoot(keccak256("never queued"));
         vm.expectRevert(abi.encodeWithSelector(IIdentityValidator.InvalidKey.selector, short));
         validator.addSession(_identity(X, ALICE), short, _app());
+        bytes memory key19 = hex"00112233445566778899aabbccddeeff001122";
+        vm.expectRevert(abi.encodeWithSelector(IIdentityValidator.InvalidKey.selector, key19));
+        validator.addSession(_identity(X, ALICE), key19, _app());
         vm.expectRevert(abi.encodeWithSelector(IIdentityValidator.SessionExists.selector, _key(ALICE_PK)));
         validator.addSession(_identity(X, ALICE), _key(ALICE_PK), _app());
         vm.expectRevert(abi.encodeWithSelector(IIdentityValidator.NoSession.selector, _key(APP_PK)));
@@ -58,6 +80,34 @@ contract IdentityValidatorTest is WalletTestBase {
         uint256 early = _validate(w, _hit(), _pks(ALICE_PK));
         vm.warp(_now() + 3650 days);
         assertEq(_validate(w, _hit(), _pks(ALICE_PK)), early, "expired session answered differently");
+    }
+
+    /// Co-signers' windows intersect, whatever their order.
+    function test_windowIsTheIntersectionOfAllSigners() public {
+        address w = _claim();
+        uint48 t = uint48(_now());
+        vm.startPrank(w);
+        validator.addSession(_identity(X, ALICE), _key(ALICE2_PK), IIdentityValidator.Policy(t + 10, t + 2000, true));
+        validator.addSession(_identity(X, ALICE), _key(BOB_PK), IIdentityValidator.Policy(t + 20, t + 1000, true));
+        vm.stopPrank();
+        assertEq(_validate(w, _hit(), _pks(ALICE2_PK, BOB_PK)), _window(t + 20, t + 1000), "wide first");
+        assertEq(_validate(w, _hit(), _pks(BOB_PK, ALICE2_PK)), _window(t + 20, t + 1000), "narrow first");
+    }
+
+    /// A 20-byte key is an ECDSA address: never asked through ERC-1271, and no signature recovers to zero.
+    function test_twentyByteKeysAreRecovered() public {
+        address w = _claim();
+        bytes[2] memory keys = [abi.encodePacked(address(new Accepting1271())), abi.encodePacked(address(0))];
+        IIdentityValidator.SessionSignature[] memory s = new IIdentityValidator.SessionSignature[](1);
+        PackedUserOperation memory op = _op(w, 0, _hit());
+        for (uint256 i; i < keys.length; ++i) {
+            vm.prank(w);
+            validator.addSession(_identity(X, ALICE), keys[i], _app());
+            s[0] = IIdentityValidator.SessionSignature({key: keys[i], signature: hex"1234"});
+            op.signature = abi.encode(s);
+            vm.prank(w);
+            assertEq(validator.validateUserOp(op, keccak256("op")), 1, "a 20-byte key accepted a bad signature");
+        }
     }
 
     function test_anEmptySignatureListFails() public {
@@ -109,6 +159,47 @@ contract IdentityValidatorTest is WalletTestBase {
             if (found && key == a) return true;
         }
         return false;
+    }
+
+    // ─── Scope (R9) ─────────────────────────────────────────────────
+
+    /// Module hooks are refused even to admins; self, zero-address and registry targets are admin;
+    /// a batch takes its widest call; the execution is read where the account's decoder reads it.
+    function test_outerCallScope() public {
+        address w = _claim();
+        vm.prank(w);
+        validator.addSession(_identity(X, ALICE), _key(APP_PK), _app());
+        bytes memory toWallet = abi.encodeCall(IERC7579AccountConfig.supportsModule, (2));
+
+        Execution[] memory batch = new Execution[](2);
+        batch[0] = Execution({
+            target: address(validator), value: 0, callData: abi.encodeCall(IERC7579Module.onUninstall, (""))
+        });
+        batch[1] = Execution({target: address(target), value: 0, callData: ""});
+        Execution[] memory appBatch = new Execution[](2);
+        appBatch[0] = Execution({target: w, value: 0, callData: toWallet});
+        appBatch[1] = batch[1];
+
+        // A decoy outside call where a canonical encoding puts the execution; the real one where the offset points.
+        bytes memory decoy = abi.encodePacked(address(target), uint256(0), abi.encodeCall(this.setUp, ()));
+        bytes memory real = abi.encodePacked(w, uint256(0), toWallet);
+        bytes memory offset = abi.encodePacked(
+            IERC7579Execution.execute.selector, MODE_SINGLE, uint256(0xa0), decoy.length, decoy, bytes8(0)
+        );
+
+        bytes[8] memory calls = [
+            _exec(address(validator), abi.encodeCall(IERC7579Module.onUninstall, (""))),
+            _exec(address(validator), abi.encodeCall(IERC7579Module.onInstall, (abi.encode(X, MALLORY)))),
+            abi.encodeCall(IERC7579Execution.execute, (MODE_BATCH, abi.encode(batch))),
+            abi.encodeCall(IWebWallet.upgradeToAndCall, (address(target), "")),
+            _exec(address(0), _hit()),
+            _exec(address(registry), ""),
+            abi.encodeCall(IERC7579Execution.execute, (MODE_BATCH, abi.encode(appBatch))),
+            abi.encodePacked(offset, real.length, real)
+        ];
+        for (uint256 i; i < calls.length; ++i) {
+            assertEq(_validate(w, calls[i], _pks(i < 4 ? ALICE_PK : APP_PK)), 1, vm.toString(i));
+        }
     }
 
     // ─── Threshold (R8) ─────────────────────────────────────────────
@@ -222,6 +313,12 @@ contract IdentityValidatorTest is WalletTestBase {
 
     function test_revokingTheLastAdminIsARootOperation() public {
         address w = _claim();
+        vm.startPrank(w);
+        validator.addSession(_identity(X, ALICE), _key(ALICE2_PK), _admin());
+        validator.revokeSession(_key(ALICE2_PK));
+        vm.expectRevert(IIdentityValidator.RootOperationRequired.selector);
+        validator.revokeSession(_key(ALICE_PK));
+        vm.stopPrank();
         _root(w, address(validator), abi.encodeCall(IIdentityValidator.revokeSession, (_key(ALICE_PK))));
         assertEq(validator.sessionOf(w, _key(ALICE_PK)).identity, bytes32(0), "not revoked");
 
@@ -234,6 +331,7 @@ contract IdentityValidatorTest is WalletTestBase {
         vm.startPrank(w);
         vm.expectRevert(abi.encodeWithSelector(IIdentityValidator.RecoveryDelayTooShort.selector, 47 hours));
         validator.setRecoveryDelay(47 hours);
+        validator.setRecoveryDelay(72 hours);
         validator.setRecoveryDelay(72 hours);
         vm.expectRevert(abi.encodeWithSelector(IIdentityValidator.RecoveryDelayTooShort.selector, 60 hours));
         validator.setRecoveryDelay(60 hours);
@@ -249,11 +347,17 @@ contract IdentityValidatorTest is WalletTestBase {
         address w = _claim();
         vm.startPrank(w);
         validator.onUninstall("");
+        assertFalse(validator.isLinked(w, _identity(X, ALICE)), "link kept by an uninstall");
         validator.onInstall(abi.encode(X, ALICE));
         vm.stopPrank();
         assertEq(validator.sessionOf(w, _key(ALICE_PK)).identity, bytes32(0), "session came back");
         assertFalse(validator.isLinked(w, _identity(X, ALICE)), "link came back");
         assertEq(_validate(w, _hit(), _pks(ALICE_PK)), 1, "old key validates");
+
+        _link(relayer, X, ALICE, w, "", _admin());
+        vm.prank(w);
+        validator.onInstall(abi.encode(X, ALICE));
+        assertFalse(validator.isLinked(w, _identity(X, ALICE)), "an install kept the earlier one's link");
     }
 
     // ─── ERC-1271 (R3) ──────────────────────────────────────────────
@@ -289,6 +393,21 @@ contract IdentityValidatorTest is WalletTestBase {
         assertTrue(_isValid1271(w, h, BOB_PK, _wrapped(w, h)), "in window");
         vm.warp(_now() + 2 hours);
         assertFalse(_isValid1271(w, h, BOB_PK, _wrapped(w, h)), "expired");
+    }
+
+    /// `validUntil` is the last valid second, as the EntryPoint reads it.
+    function test_erc1271WindowEndsWithTheEntryPoints() public {
+        bytes32 h = keccak256("a message");
+        address w = _claim();
+        uint48 t = uint48(_now());
+        vm.prank(w);
+        validator.addSession(_identity(X, ALICE), _key(BOB_PK), IIdentityValidator.Policy(0, t + 20, true));
+        vm.warp(t + 20);
+        assertTrue(_isValid1271(w, h, BOB_PK, _wrapped(w, h)), "at validUntil");
+        _handle(_signed(_op(w, 0, _hit()), _pks(BOB_PK)));
+        vm.warp(t + 21);
+        assertFalse(_isValid1271(w, h, BOB_PK, _wrapped(w, h)), "after validUntil");
+        _refused(_signed(_op(w, 1, _hit()), _pks(BOB_PK)), "after validUntil");
     }
 
     function test_erc1271SignatureDoesNotReplayOnAnotherAccount() public {

@@ -151,5 +151,8 @@ contract WebWalletTest is WalletTestBase {
         address w = _claim();
         _root(w, w, abi.encodeCall(IERC7579ModuleConfig.uninstallModule, (1, address(validator), "")));
         assertFalse(IWebWallet(w).isModuleInstalled(1, address(validator), ""), "still installed");
+        vm.prank(mallory);
+        vm.expectRevert();
+        IWebWallet(w).installModule(1, address(validator), abi.encode(X, MALLORY));
     }
 }
