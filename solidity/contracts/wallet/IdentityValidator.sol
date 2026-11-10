@@ -124,7 +124,7 @@ contract IdentityValidator is IIdentityValidator {
         returns (bytes4)
     {
         (bool ok, uint256 admins, uint48 validAfter, uint48 validUntil) = _verify(msg.sender, hash, signature);
-        bool live = validAfter <= block.timestamp && (validUntil == 0 || block.timestamp <= validUntil);
+        bool live = validAfter < block.timestamp && (validUntil == 0 || block.timestamp <= validUntil);
         return ok && admins != 0 && live ? IERC1271.isValidSignature.selector : bytes4(0xffffffff);
     }
 
@@ -249,6 +249,9 @@ contract IdentityValidator is IIdentityValidator {
     function _add(address account, bytes32 identity, bytes memory key, Policy memory policy, uint48 activeAt) private {
         if (!isLinked(account, identity)) revert NotLinked(account, identity);
         if (key.length < 20) revert InvalidKey(key);
+        if ((policy.validAfter | policy.validUntil) >= 1 << 47) {
+            revert PolicyOutOfRange(policy.validAfter, policy.validUntil);
+        }
         Session storage s = _session(account, key);
         if (s.identity != 0) revert SessionExists(key);
         s.identity = identity;

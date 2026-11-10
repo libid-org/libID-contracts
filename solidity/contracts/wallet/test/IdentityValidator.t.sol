@@ -410,6 +410,46 @@ contract IdentityValidatorTest is WalletTestBase {
         _refused(_signed(_op(w, 1, _hit()), _pks(BOB_PK)), "after validUntil");
     }
 
+    /// `validAfter` is the last second before the window, as the EntryPoint reads it.
+    /// @dev Fails today: ERC-1271 accepts at `validAfter` itself, the EntryPoint one second later.
+    function test_erc1271WindowStartsWithTheEntryPoints() public {
+        bytes32 h = keccak256("a message");
+        address w = _claim();
+        uint48 t = uint48(_now());
+        vm.prank(w);
+        validator.addSession(_identity(X, ALICE), _key(BOB_PK), IIdentityValidator.Policy(t + 10, 0, true));
+        vm.warp(t + 10);
+        _refused(_signed(_op(w, 0, _hit()), _pks(BOB_PK)), "at validAfter");
+        assertFalse(_isValid1271(w, h, BOB_PK, _wrapped(w, h)), "ERC-1271 accepts at validAfter");
+        vm.warp(t + 11);
+        assertTrue(_isValid1271(w, h, BOB_PK, _wrapped(w, h)), "after validAfter");
+        _handle(_signed(_op(w, 0, _hit()), _pks(BOB_PK)));
+    }
+
+    /// EntryPoint v0.9 reads bit 47 of both bounds as a block-number range flag, so a session
+    /// with `validAfter >= 2^47` and `validUntil == 0` is live at once: no policy may set the bit.
+    /// @dev Fails today: no path refuses such a policy.
+    function test_policyBoundsStayBelowBit47() public {
+        address w = _claim();
+        uint48 flag = uint48(1 << 47);
+        IIdentityValidator.Policy[2] memory ps =
+            [IIdentityValidator.Policy(flag, 0, false), IIdentityValidator.Policy(0, flag, false)];
+        for (uint256 i; i < ps.length; ++i) {
+            vm.prank(w);
+            vm.expectRevert();
+            validator.addSession(_identity(X, ALICE), _key(APP_PK), ps[i]);
+
+            bytes memory payload = _payload(X, ALICE, ADD, _txData(w, _key(APP_PK), _ph(ps[i])));
+            vm.expectRevert();
+            registry.addSessionByProof(X, V1, payload, ps[i]);
+
+            payload = _payload(X, ALICE, LINK, _txData(w, _key(APP_PK), _ph(ps[i])));
+            vm.prank(w);
+            vm.expectRevert();
+            registry.linkIdentity(X, V1, payload, ps[i]);
+        }
+    }
+
     function test_erc1271SignatureDoesNotReplayOnAnotherAccount() public {
         bytes32 h = keccak256("a message");
         address w = _claim();
