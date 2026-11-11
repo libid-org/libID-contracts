@@ -268,6 +268,8 @@ contract IdentityValidatorTest is WalletTestBase {
             _exec(address(validator), abi.encodeCall(IIdentityValidator.setRecoveryDelay, (72 hours)));
         assertEq(_validate(w, adminOp, _pks(ALICE_PK, MALLORY_PK)), 1, "two X identities met the threshold");
         assertEq(_validate(w, adminOp, _pks(MALLORY_PK, CAROL_PK)), 0, "X and Google missed the threshold");
+        assertEq(_validate(w, _hit(), _pks(ALICE_PK, MALLORY_PK)), 1, "two X identities skipped the session rules");
+        assertEq(_validate(w, _hit(), _pks(MALLORY_PK, CAROL_PK)), 0, "X and Google were held to the session rules");
     }
 
     /// The threshold may not exceed the platforms with a linked identity, however many identities there are.
