@@ -37,4 +37,21 @@ contract RecoveryFrozenTest is WalletTestBase {
         _addByProof(mallory, GITHUB, BOB, w, _key(MALLORY_PK), _admin());
         assertEq(validator.sessionOf(w, _key(MALLORY_PK)).identity, bob, "no session after the unfreeze");
     }
+
+    function test_aFreezeRevokesThePendingSessionByProof() public {
+        address w = _claim();
+        _link(w, GITHUB, BOB, w, "", _admin());
+        bytes32 bob = _identity(GITHUB, BOB);
+        vm.prank(w);
+        validator.queueRoot(address(validator), _freeze(bob, true));
+        vm.warp(_now() + 1 hours);
+        _addByProof(mallory, GITHUB, BOB, w, _key(MALLORY_PK), _admin());
+        assertEq(validator.sessionOf(w, _key(MALLORY_PK)).identity, bob, "no pending session");
+
+        vm.warp(_now() + 47 hours);
+        validator.executeRoot(w, address(validator), _freeze(bob, true));
+        assertEq(validator.sessionOf(w, _key(MALLORY_PK)).identity, bytes32(0), "the pending session survived");
+        vm.warp(_now() + 48 hours);
+        _refused(_signed(_op(w, 0, _hit()), _pks(MALLORY_PK)), "a revoked session by proof");
+    }
 }

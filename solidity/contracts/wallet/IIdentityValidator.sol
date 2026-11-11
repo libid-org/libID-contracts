@@ -44,6 +44,7 @@ interface IIdentityValidator is IERC7579Validator {
     ///      A session whose `generation` is not its identity's current one, bumped by each unlink, is dead.
     ///      `byProof`: added by proof to an account that already had a session. Its operations, ordinary
     ///      calls and ERC-1271 signatures included, need signers that reach the threshold.
+    ///      A non-admin session by proof counts toward no platform, so it never acts alone.
     struct Session {
         bytes32 identity;
         Policy policy;
@@ -128,7 +129,7 @@ interface IIdentityValidator is IERC7579Validator {
     function recoveryDelay(address account) external view returns (uint48);
     /// One-way: set once the account has had any session.
     function hadSession(address account) external view returns (bool);
-    /// Whether `addSessionByProof` refuses the identity.
+    /// Whether `addSessionByProof` refuses the identity. The flag survives an unlink and a relink.
     function recoveryFrozen(address account, bytes32 identity) external view returns (bool);
     /// `keccak256(abi.encode(account, target, data))` once queued, else 0; also 0 once an unlink or an admin revoke supersedes it.
     function rootReadyAt(address account, bytes32 opId) external view returns (uint48);
@@ -160,7 +161,8 @@ interface IIdentityValidator is IERC7579Validator {
     /// Refused for an identity not linked, the last one, the last of a platform the threshold still needs,
     /// the genesis identity, or when the account would be left with no admin session.
     function unlink(bytes32 identity) external;
-    /// Root operation only. While frozen, `addSessionByProof` refuses the identity; its sessions keep working.
+    /// Root operation only. While frozen, `addSessionByProof` refuses the identity; its active sessions
+    /// keep working. Freezing revokes the identity's latest session by proof while it is still pending.
     function setRecoveryFrozen(bytes32 identity, bool frozen) external;
     /// `target` is the account (install, uninstall, upgrade) or this validator
     /// (`setThreshold`, `unlink`, `setRecoveryFrozen`, `revokeSession` of the last admin, a lower

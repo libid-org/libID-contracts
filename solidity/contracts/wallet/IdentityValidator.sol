@@ -364,6 +364,7 @@ contract IdentityValidator is IIdentityValidator {
         } else if (selector == this.setRecoveryFrozen.selector) {
             (bytes32 identity, bool frozen) = abi.decode(data[4:], (bytes32, bool));
             _s().recoveryFrozen[_install(account)][identity][account] = frozen;
+            if (frozen) _revokePending(account, identity);
         } else {
             _revoke(account, abi.decode(data[4:], (bytes)), true);
         }
@@ -484,13 +485,17 @@ contract IdentityValidator is IIdentityValidator {
 
     /// Drops the identity's earlier session by proof while it is still pending.
     function _replacePending(address account, bytes32 identity, bytes memory key) private {
-        mapping(address => bytes) storage pending = _s().pendingKeys[_install(account)][identity];
-        bytes memory old = pending[account];
+        _revokePending(account, identity);
+        _s().pendingKeys[_install(account)][identity][account] = key;
+    }
+
+    /// Revokes the identity's latest session by proof while it is still pending.
+    function _revokePending(address account, bytes32 identity) private {
+        bytes memory old = _s().pendingKeys[_install(account)][identity][account];
         if (old.length != 0) {
             Session storage o = _session(account, old);
             if (o.identity == identity && o.activeAt >= block.timestamp) _revoke(account, old, true);
         }
-        pending[account] = key;
     }
 
     /// Checks that every signature is by a session of its identity's current link,
