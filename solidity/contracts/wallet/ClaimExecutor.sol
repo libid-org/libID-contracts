@@ -10,18 +10,18 @@ import {
 } from "@openzeppelin/contracts/account/utils/draft-ERC7579Utils.sol";
 
 import {IHandleEscrow} from "../escrow/IHandleEscrow.sol";
-import {IdentityRegistry} from "../identity/IdentityRegistry.sol";
+import {IIdentityRegistry} from "../identity/IIdentityRegistry.sol";
 import {IClaimExecutor} from "./IClaimExecutor.sol";
 import {IIdentityValidator, identityOf} from "./IIdentityValidator.sol";
 
 /// @title ClaimExecutor - binds a wallet's linked identity and claims its escrow, for anyone.
 contract ClaimExecutor is IClaimExecutor {
-    IdentityRegistry private immutable IDENTITY_REGISTRY;
+    IIdentityRegistry private immutable IDENTITY_REGISTRY;
     IHandleEscrow private immutable ESCROW;
     IIdentityValidator private immutable VALIDATOR;
 
     constructor(address identityRegistry, address handleEscrow, address identityValidator) {
-        IDENTITY_REGISTRY = IdentityRegistry(identityRegistry);
+        IDENTITY_REGISTRY = IIdentityRegistry(identityRegistry);
         ESCROW = IHandleEscrow(handleEscrow);
         VALIDATOR = IIdentityValidator(identityValidator);
     }
@@ -35,13 +35,13 @@ contract ClaimExecutor is IClaimExecutor {
     function onUninstall(bytes calldata) external {}
 
     function bind(address wallet, bytes32 platformId, uint16 verifierVersion, bytes calldata payload) external payable {
-        IdentityRegistry.Identity[] memory before = _held(wallet);
+        IIdentityRegistry.Identity[] memory before = _held(wallet);
         bytes memory data =
-            abi.encodeCall(IdentityRegistry.bindPrivately, (platformId, verifierVersion, payload, 0, address(0)));
+            abi.encodeCall(IIdentityRegistry.bindPrivately, (platformId, verifierVersion, payload, 0, address(0)));
         _call(wallet, address(IDENTITY_REGISTRY), msg.value, data);
 
         // The registry reports no bound node, and its list order is arbitrary: compare by membership.
-        IdentityRegistry.Identity[] memory held = _held(wallet);
+        IIdentityRegistry.Identity[] memory held = _held(wallet);
         for (uint256 i; i < held.length; ++i) {
             if (_contains(before, held[i].idNode)) continue;
             if (!VALIDATOR.isLinked(wallet, identityOf(held[i].platformId, held[i].idNode))) {
@@ -54,11 +54,11 @@ contract ClaimExecutor is IClaimExecutor {
         _call(wallet, address(ESCROW), 0, abi.encodeCall(IHandleEscrow.claim, (handleNode, tokens, wallet)));
     }
 
-    function _held(address wallet) private view returns (IdentityRegistry.Identity[] memory) {
+    function _held(address wallet) private view returns (IIdentityRegistry.Identity[] memory) {
         return IDENTITY_REGISTRY.identitiesOf(wallet, 0, IDENTITY_REGISTRY.identityCount(wallet));
     }
 
-    function _contains(IdentityRegistry.Identity[] memory ids, bytes32 idNode) private pure returns (bool) {
+    function _contains(IIdentityRegistry.Identity[] memory ids, bytes32 idNode) private pure returns (bool) {
         for (uint256 i; i < ids.length; ++i) {
             if (ids[i].idNode == idNode) return true;
         }

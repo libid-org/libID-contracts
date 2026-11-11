@@ -75,6 +75,14 @@ contract SettableRegistry is IIdentityRegistry {
     function nodeKeyed() external pure virtual returns (bool) {
         return true;
     }
+
+    function bindPrivately(bytes32, uint16, bytes calldata, uint256, address) external payable {}
+
+    function identityCount(address) external pure returns (uint256) {
+        return 0;
+    }
+
+    function identitiesOf(address, uint256, uint256) external pure returns (Identity[] memory) {}
 }
 
 /// @notice Its `handleNodeOf` reverts with the handle as the reason on every known platform.
