@@ -43,7 +43,7 @@ contract IdentityValidator is IIdentityValidator {
     /// The ERC-7739 detection hash: with an empty signature, it answers `0x77390001`.
     bytes32 private constant ERC7739_PROBE = 0x7739773977397739773977397739773977397739773977397739773977397739;
 
-    /// What `callData` asks of the account.
+    /// What one execution asks of the account.
     enum Scope {
         Call,
         Admin,
@@ -212,19 +212,13 @@ contract IdentityValidator is IIdentityValidator {
     /// @dev Below quorum, charges the session's allowances: a refused operation's charges are
     ///      reverted with the EntryPoint's call.
     function validateUserOp(PackedUserOperation calldata userOp, bytes32 userOpHash) external returns (uint256) {
-        (Scope scope, CallType callType, bytes calldata executions) = _scope(msg.sender, userOp.callData);
-        if (scope == Scope.Refused) return ERC4337Utils.SIG_VALIDATION_FAILED;
         Authorization memory auth = _decode(userOp.signature);
         uint8 quorum = threshold(msg.sender);
         Verified memory v = _verify(msg.sender, userOpHash, auth.signatures, quorum, auth.at);
         if (!v.ok) return ERC4337Utils.SIG_VALIDATION_FAILED;
-        if (
-            v.adminPlatforms < quorum
-                && (scope == Scope.Admin
-                    || v.byProof
-                    || auth.signatures.length != 1
-                    || !_withinRules(msg.sender, v, auth, userOp, callType, executions))
-        ) return ERC4337Utils.SIG_VALIDATION_FAILED;
+        bool below = v.adminPlatforms < quorum;
+        if (below && (v.byProof || auth.signatures.length != 1)) return ERC4337Utils.SIG_VALIDATION_FAILED;
+        if (!_allowed(msg.sender, v, auth, userOp, below)) return ERC4337Utils.SIG_VALIDATION_FAILED;
         return (uint256(v.validAfter) << 208) | (uint256(v.validUntil) << 160);
     }
 
@@ -609,51 +603,71 @@ contract IdentityValidator is IIdentityValidator {
         v.ok = true;
     }
 
-    /// Below quorum: at least one execution, each proved under the session's scope, and their spend
-    /// charged. A paymaster must be one the session lists; with none, the operation's maximum gas cost
-    /// is charged to `NATIVE_TOKEN` with its value.
-    /// @dev `scopeRoot == 0` and `paymastersRoot == 0` prove no leaf.
-    function _withinRules(
+    /// `execute` of single or batch calls, none refused by `_targetScope`. Below quorum, at least one
+    /// execution, each an outside call within the session's rules, and a paymaster must be one the
+    /// session lists; with none, the operation's maximum gas cost is charged to `NATIVE_TOKEN` with
+    /// its value.
+    /// @dev `paymastersRoot == 0` proves no leaf.
+    function _allowed(
         address account,
         Verified memory v,
         Authorization memory auth,
         PackedUserOperation calldata userOp,
-        CallType callType,
-        bytes calldata executions
+        bool below
     ) private returns (bool) {
-        Session storage s = _sessions(account, v.keyHash)[account];
-        (bytes32 scopeRoot, bytes32 rulesHash) = (s.scopeRoot, s.rulesHash);
+        bytes calldata callData = userOp.callData;
+        if (_selector(callData) != IERC7579Execution.execute.selector) return false;
+        (CallType callType, bytes calldata executions) = _executions(callData);
+        bytes32 scopeRoot;
+        bytes32 rulesHash;
         uint256 native;
-        if (userOp.paymasterAndData.length == 0) {
-            native = _maxGasCost(userOp);
-        } else if (!MerkleProof.verify(auth.paymasterProof, s.paymastersRoot, _leaf(abi.encode(userOp.paymaster())))) {
-            return false;
+        if (below) {
+            Session storage s = _sessions(account, v.keyHash)[account];
+            (scopeRoot, rulesHash) = (s.scopeRoot, s.rulesHash);
+            if (userOp.paymasterAndData.length == 0) {
+                native = _maxGasCost(userOp);
+            } else if (!MerkleProof.verify(
+                    auth.paymasterProof, s.paymastersRoot, _leaf(abi.encode(userOp.paymaster()))
+                )) {
+                return false;
+            }
         }
         if (callType == ERC7579Utils.CALLTYPE_SINGLE) {
             (address target, uint256 value, bytes calldata data) = executions.decodeSingle();
+            Scope scope = _targetScope(account, target, data);
+            if (scope == Scope.Refused) return false;
+            if (!below) return true;
             if (
-                auth.calls.length != 1
+                scope == Scope.Admin || auth.calls.length != 1
                     || !_withinCall(account, v, scopeRoot, rulesHash, target, value, data, auth.calls[0], auth.at)
             ) return false;
             native += value;
-        } else {
+        } else if (callType == ERC7579Utils.CALLTYPE_BATCH) {
             Execution[] calldata batch = executions.decodeBatch();
-            if (batch.length == 0 || auth.calls.length != batch.length) return false;
+            if (below && (batch.length == 0 || auth.calls.length != batch.length)) return false;
             for (uint256 i; i < batch.length; ++i) {
                 Execution calldata x = batch[i];
-                if (!_withinCall(
-                        account, v, scopeRoot, rulesHash, x.target, x.value, x.callData, auth.calls[i], auth.at
-                    )) {
-                    return false;
+                Scope scope = _targetScope(account, x.target, x.callData);
+                if (scope == Scope.Refused) return false;
+                if (below) {
+                    if (
+                        scope == Scope.Admin
+                            || !_withinCall(
+                                account, v, scopeRoot, rulesHash, x.target, x.value, x.callData, auth.calls[i], auth.at
+                            )
+                    ) return false;
+                    native += x.value;
                 }
-                native += x.value;
             }
+        } else {
+            return false;
         }
         return native == 0 || _charge(v, _counter(account, v.keyHash, rulesHash, NATIVE_TOKEN), native, auth.at);
     }
 
-    /// One execution: proved under the session's scope, and its token spend charged.
-    /// @dev A value past uint128 fits no allowance; refusing it keeps the operation's sum from overflowing.
+    /// One outside call: proved under the session's scope, and its token spend charged.
+    /// @dev `scopeRoot == 0` proves no leaf. A value past uint128 fits no allowance; refusing it keeps
+    ///      the operation's sum from overflowing.
     function _withinCall(
         address account,
         Verified memory v,
@@ -763,35 +777,9 @@ contract IdentityValidator is IIdentityValidator {
         return false;
     }
 
-    /// `execute` of single or batch calls to outside targets is an ordinary call. A call to
-    /// the account, this validator or the registry is an admin operation. Any other target is
-    /// outside, the ClaimExecutor included: anyone may call its entries. Anything but `execute`,
-    /// and this validator's `onInstall`/`onUninstall` called directly, is refused.
-    /// The call type and encoded executions come back with the scope, undecoded.
-    function _scope(address account, bytes calldata callData)
-        private
-        view
-        returns (Scope scope, CallType callType, bytes calldata executions)
-    {
-        if (_selector(callData) != IERC7579Execution.execute.selector) {
-            return (Scope.Refused, callType, callData[:0]);
-        }
-        (callType, executions) = _executions(callData);
-        if (callType == ERC7579Utils.CALLTYPE_SINGLE) {
-            (address target,, bytes calldata data) = executions.decodeSingle();
-            return (_targetScope(account, target, data), callType, executions);
-        }
-        if (callType == ERC7579Utils.CALLTYPE_BATCH) {
-            Execution[] calldata batch = executions.decodeBatch();
-            for (uint256 i; i < batch.length; ++i) {
-                Scope s = _targetScope(account, batch[i].target, batch[i].callData);
-                if (s > scope) scope = s;
-            }
-            return (scope, callType, executions);
-        }
-        return (Scope.Refused, callType, executions);
-    }
-
+    /// A call to the account, this validator or the registry is an admin operation. Any other target
+    /// is outside, the ClaimExecutor included: anyone may call its entries. This validator's
+    /// `onInstall`/`onUninstall` called directly is refused.
     function _targetScope(address account, address target, bytes calldata data) private view returns (Scope) {
         if (target == address(this)) {
             bytes4 selector = _selector(data);
