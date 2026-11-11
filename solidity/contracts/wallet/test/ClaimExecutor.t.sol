@@ -34,7 +34,14 @@ contract Relay {
         uint256 fee
     ) external payable {
         address w = factory.createWallet(platformId, idNode);
-        registry.linkIdentity{value: fee}(platformId, 2, linkPayload, IIdentityValidator.Policy(0, 0, false));
+        registry.linkIdentity{value: fee}(
+            platformId,
+            2,
+            linkPayload,
+            IIdentityValidator.Policy(
+                0, 0, false, IIdentityValidator.Rules(0, 0, new IIdentityValidator.Allowance[](0))
+            )
+        );
         executor.bind{value: fee}(w, platformId, 2, bindPayload);
         executor.claimToSelf(w, handleNode, nativeOnly());
     }

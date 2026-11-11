@@ -169,16 +169,30 @@ abstract contract WalletTestBase is Test {
         return keccak256(abi.encode(platformId, idNode));
     }
 
+    /// The rules hash, expanded word by word from the spec's encoding.
+    function _rh(IIdentityValidator.Rules memory r) internal pure returns (bytes32) {
+        IIdentityValidator.Allowance[] memory a = r.allowances;
+        bytes memory words = abi.encodePacked(r.scopeRoot, r.domainsRoot, uint256(0x60), a.length);
+        for (uint256 i; i < a.length; ++i) {
+            words = abi.encodePacked(words, uint256(uint160(a[i].token)), uint256(a[i].amount), uint256(a[i].period));
+        }
+        return keccak256(words);
+    }
+
     function _ph(IIdentityValidator.Policy memory p) internal pure returns (bytes32) {
-        return keccak256(abi.encode(p.validAfter, p.validUntil, p.admin));
+        return keccak256(abi.encode(p.validAfter, p.validUntil, p.admin, _rh(p.rules)));
+    }
+
+    function _noRules() internal pure returns (IIdentityValidator.Rules memory r) {
+        r.allowances = new IIdentityValidator.Allowance[](0);
     }
 
     function _admin() internal pure returns (IIdentityValidator.Policy memory) {
-        return IIdentityValidator.Policy({validAfter: 0, validUntil: 0, admin: true});
+        return IIdentityValidator.Policy({validAfter: 0, validUntil: 0, admin: true, rules: _noRules()});
     }
 
     function _app() internal pure returns (IIdentityValidator.Policy memory) {
-        return IIdentityValidator.Policy({validAfter: 0, validUntil: 0, admin: false});
+        return IIdentityValidator.Policy({validAfter: 0, validUntil: 0, admin: false, rules: _noRules()});
     }
 
     function _key(uint256 pk) internal pure returns (bytes memory) {
@@ -261,13 +275,39 @@ abstract contract WalletTestBase is Test {
         r[1] = b;
     }
 
-    function _sigs(uint256[] memory pks, bytes32 h) internal pure returns (bytes memory) {
+    /// An `Authorization` of `pks` over `h`, at the block time, with no call or domain proofs.
+    function _sigs(uint256[] memory pks, bytes32 h) internal view returns (bytes memory) {
+        return _auth(pks, h, uint48(_now()), new IIdentityValidator.CallProof[](0), new bytes32[](0));
+    }
+
+    function _auth(
+        uint256[] memory pks,
+        bytes32 h,
+        uint48 at,
+        IIdentityValidator.CallProof[] memory calls,
+        bytes32[] memory domainProof
+    ) internal pure returns (bytes memory) {
         IIdentityValidator.SessionSignature[] memory s = new IIdentityValidator.SessionSignature[](pks.length);
         for (uint256 i; i < pks.length; ++i) {
             (uint8 v, bytes32 r, bytes32 sv) = vm.sign(pks[i], h);
             s[i] = IIdentityValidator.SessionSignature({key: _key(pks[i]), signature: abi.encodePacked(r, sv, v)});
         }
-        return abi.encode(s);
+        return
+            abi.encode(
+                IIdentityValidator.Authorization({signatures: s, at: at, calls: calls, domainProof: domainProof})
+            );
+    }
+
+    /// `s` as an `Authorization` at the block time, with no call or domain proofs.
+    function _wrap(IIdentityValidator.SessionSignature[] memory s) internal view returns (bytes memory) {
+        return abi.encode(
+            IIdentityValidator.Authorization({
+                signatures: s,
+                at: uint48(_now()),
+                calls: new IIdentityValidator.CallProof[](0),
+                domainProof: new bytes32[](0)
+            })
+        );
     }
 
     function _exec(address to, bytes memory data) internal pure returns (bytes memory) {
@@ -388,5 +428,18 @@ abstract contract WalletTestBase is Test {
     function _isValid1271(address wallet, bytes32 h, uint256 pk, bytes32 signed) internal view returns (bool) {
         bytes memory sig = abi.encodePacked(address(validator), _sigs(_pks(pk), signed));
         return IWebWallet(wallet).isValidSignature(h, sig) == bytes4(0x1626ba7e);
+    }
+
+    // ─── ERC-7562 ───────────────────────────────────────────────────
+
+    /// `slot` of the validator is `A` or `keccak(A || x) + n`, n <= 128. Needs `vm.startMappingRecording`.
+    function _associated(address account, bytes32 slot) internal view returns (bool) {
+        bytes32 a = bytes32(uint256(uint160(account)));
+        if (slot == a) return true;
+        for (uint256 n; n <= 128 && n <= uint256(slot); ++n) {
+            (bool found, bytes32 key,) = vm.getMappingKeyAndParentOf(address(validator), bytes32(uint256(slot) - n));
+            if (found && key == a) return true;
+        }
+        return false;
     }
 }

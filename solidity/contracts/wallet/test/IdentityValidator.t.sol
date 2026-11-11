@@ -86,7 +86,8 @@ contract IdentityValidatorTest is WalletTestBase {
     function test_validationReturnsThePackedWindow() public {
         uint48 start = uint48(_now() + 10);
         uint48 end = uint48(_now() + 1000);
-        address w = _claimWith(IIdentityValidator.Policy({validAfter: start, validUntil: end, admin: true}));
+        address w =
+            _claimWith(IIdentityValidator.Policy({validAfter: start, validUntil: end, admin: true, rules: _noRules()}));
         assertEq(_validate(w, _hit(), _pks(ALICE_PK)), _window(start, end), "policy window");
 
         _addByProof(relayer, X, ALICE, w, _key(ALICE2_PK), _admin());
@@ -95,8 +96,11 @@ contract IdentityValidatorTest is WalletTestBase {
 
     /// Validation reads no TIMESTAMP: the answer is the same at any time.
     function test_validationDoesNotReadTheClock() public {
-        address w =
-            _claimWith(IIdentityValidator.Policy({validAfter: 0, validUntil: uint48(_now() + 1 hours), admin: true}));
+        address w = _claimWith(
+            IIdentityValidator.Policy({
+                validAfter: 0, validUntil: uint48(_now() + 1 hours), admin: true, rules: _noRules()
+            })
+        );
         uint256 early = _validate(w, _hit(), _pks(ALICE_PK));
         vm.warp(_now() + 3650 days);
         assertEq(_validate(w, _hit(), _pks(ALICE_PK)), early, "expired session answered differently");
@@ -107,8 +111,12 @@ contract IdentityValidatorTest is WalletTestBase {
         address w = _claim();
         uint48 t = uint48(_now());
         vm.startPrank(w);
-        validator.addSession(_identity(X, ALICE), _key(ALICE2_PK), IIdentityValidator.Policy(t + 10, t + 2000, true));
-        validator.addSession(_identity(X, ALICE), _key(BOB_PK), IIdentityValidator.Policy(t + 20, t + 1000, true));
+        validator.addSession(
+            _identity(X, ALICE), _key(ALICE2_PK), IIdentityValidator.Policy(t + 10, t + 2000, true, _noRules())
+        );
+        validator.addSession(
+            _identity(X, ALICE), _key(BOB_PK), IIdentityValidator.Policy(t + 20, t + 1000, true, _noRules())
+        );
         vm.stopPrank();
         assertEq(_validate(w, _hit(), _pks(ALICE2_PK, BOB_PK)), _window(t + 20, t + 1000), "wide first");
         assertEq(_validate(w, _hit(), _pks(BOB_PK, ALICE2_PK)), _window(t + 20, t + 1000), "narrow first");
@@ -124,7 +132,7 @@ contract IdentityValidatorTest is WalletTestBase {
             vm.prank(w);
             validator.addSession(_identity(X, ALICE), keys[i], _app());
             s[0] = IIdentityValidator.SessionSignature({key: keys[i], signature: hex"1234"});
-            op.signature = abi.encode(s);
+            op.signature = _wrap(s);
             vm.prank(w);
             assertEq(validator.validateUserOp(op, keccak256("op")), 1, "a 20-byte key accepted a bad signature");
         }
@@ -133,7 +141,7 @@ contract IdentityValidatorTest is WalletTestBase {
     function test_anEmptySignatureListFails() public {
         address w = _claim();
         PackedUserOperation memory op = _op(w, 0, _hit());
-        op.signature = abi.encode(new IIdentityValidator.SessionSignature[](0));
+        op.signature = _wrap(new IIdentityValidator.SessionSignature[](0));
         vm.prank(w);
         assertEq(validator.validateUserOp(op, keccak256("h")), 1);
     }
@@ -173,7 +181,7 @@ contract IdentityValidatorTest is WalletTestBase {
         IIdentityValidator.SessionSignature[] memory s = new IIdentityValidator.SessionSignature[](1);
         s[0] = IIdentityValidator.SessionSignature({key: key, signature: hex"1234"});
         PackedUserOperation memory op = _op(w, 0, _hit());
-        op.signature = abi.encode(s);
+        op.signature = _wrap(s);
 
         vm.startMappingRecording();
         vm.record();
@@ -183,16 +191,6 @@ contract IdentityValidatorTest is WalletTestBase {
         for (uint256 i; i < reads.length; ++i) {
             assertTrue(_associated(w, reads[i]), "validation read a slot not associated with the account");
         }
-    }
-
-    function _associated(address account, bytes32 slot) internal view returns (bool) {
-        bytes32 a = bytes32(uint256(uint160(account)));
-        if (slot == a) return true;
-        for (uint256 n; n <= 128 && n <= uint256(slot); ++n) {
-            (bool found, bytes32 key,) = vm.getMappingKeyAndParentOf(address(validator), bytes32(uint256(slot) - n));
-            if (found && key == a) return true;
-        }
-        return false;
     }
 
     // ─── Scope (R9) ─────────────────────────────────────────────────
@@ -639,12 +637,16 @@ contract IdentityValidatorTest is WalletTestBase {
         validator.addSession(
             _identity(X, ALICE),
             _key(BOB_PK),
-            IIdentityValidator.Policy({validAfter: 0, validUntil: uint48(_now() + 1 hours), admin: true})
+            IIdentityValidator.Policy({
+                validAfter: 0, validUntil: uint48(_now() + 1 hours), admin: true, rules: _noRules()
+            })
         );
         validator.addSession(
             _identity(X, ALICE),
             _key(MALLORY_PK),
-            IIdentityValidator.Policy({validAfter: uint48(_now() + 1 hours), validUntil: 0, admin: true})
+            IIdentityValidator.Policy({
+                validAfter: uint48(_now() + 1 hours), validUntil: 0, admin: true, rules: _noRules()
+            })
         );
         vm.stopPrank();
         _addByProof(relayer, X, ALICE, w, _key(ALICE2_PK), _admin());
@@ -663,7 +665,7 @@ contract IdentityValidatorTest is WalletTestBase {
         address w = _claim();
         uint48 t = uint48(_now());
         vm.prank(w);
-        validator.addSession(_identity(X, ALICE), _key(BOB_PK), IIdentityValidator.Policy(0, t + 20, true));
+        validator.addSession(_identity(X, ALICE), _key(BOB_PK), IIdentityValidator.Policy(0, t + 20, true, _noRules()));
         vm.warp(t + 20);
         assertTrue(_isValid1271(w, h, BOB_PK, _wrapped(w, h)), "at validUntil");
         _handle(_signed(_op(w, 0, _hit()), _pks(BOB_PK)));
@@ -678,7 +680,7 @@ contract IdentityValidatorTest is WalletTestBase {
         address w = _claim();
         uint48 t = uint48(_now());
         vm.prank(w);
-        validator.addSession(_identity(X, ALICE), _key(BOB_PK), IIdentityValidator.Policy(t + 10, 0, true));
+        validator.addSession(_identity(X, ALICE), _key(BOB_PK), IIdentityValidator.Policy(t + 10, 0, true, _noRules()));
         vm.warp(t + 10);
         _refused(_signed(_op(w, 0, _hit()), _pks(BOB_PK)), "at validAfter");
         assertFalse(_isValid1271(w, h, BOB_PK, _wrapped(w, h)), "ERC-1271 accepts at validAfter");
@@ -692,8 +694,9 @@ contract IdentityValidatorTest is WalletTestBase {
     function test_policyBoundsStayBelowBit47() public {
         address w = _claim();
         uint48 flag = uint48(1 << 47);
-        IIdentityValidator.Policy[2] memory ps =
-            [IIdentityValidator.Policy(flag, 0, false), IIdentityValidator.Policy(0, flag, false)];
+        IIdentityValidator.Policy[2] memory ps = [
+            IIdentityValidator.Policy(flag, 0, false, _noRules()), IIdentityValidator.Policy(0, flag, false, _noRules())
+        ];
         for (uint256 i; i < ps.length; ++i) {
             vm.prank(w);
             vm.expectRevert();

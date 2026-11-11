@@ -8,9 +8,14 @@ function identityOf(bytes32 platformId, bytes32 idNode) pure returns (bytes32) {
     return keccak256(abi.encode(platformId, idNode));
 }
 
+/// A rule set's hash, stored in the session record and keying its allowance counters.
+function rulesHashOf(IIdentityValidator.Rules memory rules) pure returns (bytes32) {
+    return keccak256(abi.encode(rules.scopeRoot, rules.domainsRoot, rules.allowances));
+}
+
 /// A policy's hash, as a proof commits it.
 function policyHashOf(IIdentityValidator.Policy memory policy) pure returns (bytes32) {
-    return keccak256(abi.encode(policy));
+    return keccak256(abi.encode(policy.validAfter, policy.validUntil, policy.admin, rulesHashOf(policy.rules)));
 }
 
 /// @title IIdentityValidator - identities, sessions and root operations of ERC-7579 accounts.
@@ -20,10 +25,28 @@ function policyHashOf(IIdentityValidator.Policy memory policy) pure returns (byt
 ///      An identity is `identityOf(platformId, idNode)`.
 ///      A session key is an ERC-7913 signer: a 20-byte address, or `verifier || key`.
 ///      A policy hash is `policyHashOf(policy)`.
-///      `userOp.signature` is `abi.encode(SessionSignature[])` over `userOpHash`.
+///      `userOp.signature` is `abi.encode(Authorization)`; its signatures are over `userOpHash`.
 ///      The ERC-1271 signature after the validator's address is an ERC-7739 nested signature
 ///      under the account's `eip712Domain()`: `PersonalSign`, or `TypedDataSign` followed by the
-///      app separator, contents hash and contents type. Its signature part is `abi.encode(SessionSignature[])`.
+///      app separator, contents hash and contents type. Its signature part is `abi.encode(Authorization)`,
+///      of which only `signatures` and `domainProof` are read.
+///
+///      Quorum: admin sessions of `threshold` distinct platforms are unrestricted. Below it exactly
+///      one signature is accepted, governed by its session's rules, and never for an admin operation:
+///      - every execution needs `calls[i]`, a proof of the leaf `(target, selector, calls[i].maxValue)`
+///        under `scopeRoot`, with `value <= maxValue`; `scopeRoot == 0` allows no call;
+///      - native `value` is charged to `NATIVE_TOKEN` (0xEeee…EEeE); with no entry its limit is 0;
+///      - ERC-20 `transfer(to, amount)` and `approve(spender, amount)` charge `amount` to the target;
+///        `transferFrom`, a spending selector on a target with no allowance, and any other selector on
+///        a target with one are refused;
+///      - only `TypedDataSign` is accepted for ERC-1271, with the app separator proved under `domainsRoot`.
+///      Leaves are OpenZeppelin double-hashed, `keccak256(bytes.concat(keccak256(abi.encode(...))))`, of
+///      `(address target, bytes4 selector, uint256 maxValue)` or `(bytes32 appSeparator)`, under sorted-pair
+///      roots. Calldata shorter than four bytes has selector `0x00000000`.
+///      Allowances are charged in validation, even when the execution reverts. The period is
+///      `at - at % period`, or the session's whole life when `period == 0`. A charging operation's
+///      validity window is that period intersected with the session's; `at` must stay below 2^47.
+///      Counters are keyed by `(key, rulesHash, token)`: a key re-added with the same rules keeps its spend.
 ///      `isValidSignatureWithSender(_, 0x7739…7739, "")` answers `0x77390001` (ERC-7739 detection).
 ///      Fresh install data is `abi.encode(platformId, idNode)`: the genesis identity.
 ///      `onInstall` and `onUninstall` run only from the account's own install and uninstall:
@@ -33,11 +56,26 @@ function policyHashOf(IIdentityValidator.Policy memory policy) pure returns (byt
 ///      Revoking an active admin session, or unlinking an identity, voids every root operation
 ///      queued before it: a queued change does not outlive the sessions that could have queued it.
 interface IIdentityValidator is IERC7579Validator {
+    /// @dev `period == 0` is a lifetime cap.
+    struct Allowance {
+        address token;
+        uint128 amount;
+        uint48 period;
+    }
+
+    /// @dev What a session may do below quorum: Merkle roots of call leaves and app separators, and allowances.
+    struct Rules {
+        bytes32 scopeRoot;
+        bytes32 domainsRoot;
+        Allowance[] allowances;
+    }
+
     /// @dev `validUntil == 0` never expires. Only admin sessions may change the account.
     struct Policy {
         uint48 validAfter;
         uint48 validUntil;
         bool admin;
+        Rules rules;
     }
 
     /// @dev `identity == 0`: no such session. `activeAt` is the end of a pending wait.
@@ -47,15 +85,43 @@ interface IIdentityValidator is IERC7579Validator {
     ///      A non-admin session by proof counts toward no platform, so it never acts alone.
     struct Session {
         bytes32 identity;
-        Policy policy;
+        uint48 validAfter;
+        uint48 validUntil;
+        bool admin;
         uint48 activeAt;
         uint32 generation;
         bool byProof;
+        bytes32 scopeRoot;
+        bytes32 domainsRoot;
+        bytes32 rulesHash;
+    }
+
+    /// @dev A session's counter for one token: `spent` in the period starting at `periodStart`.
+    struct AllowanceState {
+        uint128 amount;
+        uint48 period;
+        uint48 periodStart;
+        uint128 spent;
     }
 
     struct SessionSignature {
         bytes key;
         bytes signature;
+    }
+
+    /// @dev The leaf of one execution: `maxValue` is the leaf's, `proof` its path to `scopeRoot`.
+    struct CallProof {
+        uint256 maxValue;
+        bytes32[] proof;
+    }
+
+    /// @dev `at` and `calls` are unsigned: `at` picks the allowance period, which the EntryPoint
+    ///      enforces as the validity window. `calls[i]` is for the i-th execution.
+    struct Authorization {
+        SessionSignature[] signatures;
+        uint48 at;
+        CallProof[] calls;
+        bytes32[] domainProof;
     }
 
     /// A session added by the account itself.
@@ -118,6 +184,11 @@ interface IIdentityValidator is IERC7579Validator {
     function genesisIdentity(address account) external view returns (bytes32 platformId, bytes32 idNode);
     function isLinked(address account, bytes32 identity) external view returns (bool);
     function sessionOf(address account, bytes calldata key) external view returns (Session memory);
+    /// The live session `key`'s counter for `token`; zero when it has no session or no such allowance.
+    function allowanceOf(address account, bytes calldata key, address token)
+        external
+        view
+        returns (AllowanceState memory);
     /// The identity's current generation: a session of any other is dead.
     function generationOf(address account, bytes32 identity) external view returns (uint32);
     /// Distinct platforms with at least one linked identity: the most `threshold` can be.

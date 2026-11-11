@@ -37,7 +37,7 @@ contract PasskeyTest is WalletTestBase {
         bytes memory auth = abi.encode(r, s, 23, 1, authenticatorData, clientDataJSON);
         IIdentityValidator.SessionSignature[] memory sigs = new IIdentityValidator.SessionSignature[](1);
         sigs[0] = IIdentityValidator.SessionSignature({key: passkey, signature: auth});
-        return abi.encode(sigs);
+        return _wrap(sigs);
     }
 
     function _withPasskey() internal returns (address w) {

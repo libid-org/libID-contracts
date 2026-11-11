@@ -105,7 +105,9 @@ contract WebWalletTest is WalletTestBase {
         validator.addSession(
             _identity(X, ALICE),
             _key(APP_PK),
-            IIdentityValidator.Policy({validAfter: 0, validUntil: uint48(_now() + 1 hours), admin: false})
+            IIdentityValidator.Policy({
+                validAfter: 0, validUntil: uint48(_now() + 1 hours), admin: false, rules: _noRules()
+            })
         );
         _addByProof(relayer, X, ALICE, w, _key(ALICE2_PK), _admin());
         bytes memory notDue = abi.encodeWithSelector(IEntryPoint.FailedOp.selector, 0, "AA22 expired or not due");

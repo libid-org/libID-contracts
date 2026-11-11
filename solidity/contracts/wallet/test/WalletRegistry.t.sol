@@ -31,7 +31,7 @@ contract WalletRegistryTest is WalletTestBase {
         assertTrue(validator.isLinked(w, alice), "not linked");
         IIdentityValidator.Session memory s = validator.sessionOf(w, _key(ALICE_PK));
         assertEq(s.identity, alice, "session identity");
-        assertTrue(s.policy.admin, "first session is not admin");
+        assertTrue(s.admin, "first session is not admin");
         assertLe(s.activeAt, _now(), "the first session waits");
         assertTrue(validator.hadSession(w), "flag not set");
         assertTrue(registry.digestSpent(xStub.lastDigest()), "digest not spent");
@@ -260,8 +260,11 @@ contract WalletRegistryTest is WalletTestBase {
 
     /// The review's dormant-wallet case: expired admins do not switch the wait off.
     function test_aDormantWalletStillWaits() public {
-        address w =
-            _claimWith(IIdentityValidator.Policy({validAfter: 0, validUntil: uint48(_now() + 1 days), admin: true}));
+        address w = _claimWith(
+            IIdentityValidator.Policy({
+                validAfter: 0, validUntil: uint48(_now() + 1 days), admin: true, rules: _noRules()
+            })
+        );
         vm.warp(_now() + 30 days);
         _addByProof(mallory, X, ALICE, w, _key(MALLORY_PK), _admin());
         assertEq(validator.sessionOf(w, _key(MALLORY_PK)).activeAt, _now() + 48 hours, "dormant wallet skipped wait");
