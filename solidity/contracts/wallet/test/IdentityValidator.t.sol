@@ -661,6 +661,59 @@ contract IdentityValidatorTest is WalletTestBase {
         }
     }
 
+    /// ERC-7739 `TypedDataSign`: the app's hash, nested under the account's domain, signed by an admin.
+    function test_erc1271TypedDataSign() public {
+        address w = _claim();
+        vm.prank(w);
+        validator.addSession(_identity(X, ALICE), _key(APP_PK), _app());
+        vm.warp(_now() + 1);
+        bytes32 app = keccak256("an app's domain separator");
+        bytes32 contents = keccak256("a Mail");
+        bytes32 h = keccak256(abi.encodePacked(hex"1901", app, contents));
+        string memory descr = "Mail(address to)";
+
+        assertEq(IWebWallet(w).isValidSignature(h, _typedSig(w, ALICE_PK, app, contents, descr)), bytes4(0x1626ba7e));
+        assertEq(IWebWallet(w).isValidSignature(h, _typedSig(w, APP_PK, app, contents, descr)), bytes4(0xffffffff));
+        bytes memory other = _typedSig(w, ALICE_PK, app, contents, descr);
+        assertEq(IWebWallet(w).isValidSignature(keccak256("other"), other), bytes4(0xffffffff), "another hash");
+        // An empty contents type gives a zero struct hash, which binds nothing.
+        bytes memory unbound = abi.encodePacked(
+            address(validator),
+            _sigs(_pks(ALICE_PK), keccak256(abi.encodePacked(hex"1901", app, bytes32(0)))),
+            app,
+            contents,
+            uint16(0)
+        );
+        assertEq(IWebWallet(w).isValidSignature(h, unbound), bytes4(0xffffffff), "zero struct hash");
+    }
+
+    function test_erc7739Probe() public {
+        address w = _claim();
+        bytes32 probe = 0x7739773977397739773977397739773977397739773977397739773977397739;
+        assertEq(IWebWallet(w).isValidSignature(probe, abi.encodePacked(address(validator))), bytes4(0x77390001));
+    }
+
+    /// `pk`'s ERC-7739 `TypedDataSign` signature of `contents` for the app `app`, built from the spec.
+    function _typedSig(address w, uint256 pk, bytes32 app, bytes32 contents, string memory descr)
+        internal
+        view
+        returns (bytes memory)
+    {
+        (, string memory name, string memory version, uint256 chainId, address verifying, bytes32 salt,) =
+            IWebWallet(w).eip712Domain();
+        bytes32 typehash = keccak256(
+            abi.encodePacked(
+                "TypedDataSign(Mail contents,string name,string version,uint256 chainId,address verifyingContract,bytes32 salt)",
+                descr
+            )
+        );
+        bytes32 structHash = keccak256(
+            abi.encode(typehash, contents, keccak256(bytes(name)), keccak256(bytes(version)), chainId, verifying, salt)
+        );
+        bytes memory sigs = _sigs(_pks(pk), keccak256(abi.encodePacked(hex"1901", app, structHash)));
+        return abi.encodePacked(address(validator), sigs, app, contents, descr, uint16(bytes(descr).length));
+    }
+
     function test_erc1271SignatureDoesNotReplayOnAnotherAccount() public {
         bytes32 h = keccak256("a message");
         address w = _claim();

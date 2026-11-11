@@ -3,6 +3,7 @@ pragma solidity ^0.8.24;
 
 import {PackedUserOperation} from "@openzeppelin/contracts/interfaces/IERC4337.sol";
 import {IERC1271} from "@openzeppelin/contracts/interfaces/IERC1271.sol";
+import {IERC5267} from "@openzeppelin/contracts/interfaces/IERC5267.sol";
 import {
     IERC7579Execution,
     IERC7579Module,
@@ -12,7 +13,9 @@ import {ERC4337Utils} from "@openzeppelin/contracts/account/utils/ERC4337Utils.s
 import {CallType, ERC7579Utils, Execution, Mode} from "@openzeppelin/contracts/account/utils/draft-ERC7579Utils.sol";
 import {Address} from "@openzeppelin/contracts/utils/Address.sol";
 import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
+import {MessageHashUtils} from "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
 import {SignatureChecker} from "@openzeppelin/contracts/utils/cryptography/SignatureChecker.sol";
+import {ERC7739Utils} from "@openzeppelin/contracts/utils/cryptography/draft-ERC7739Utils.sol";
 
 import {IIdentityValidator, identityOf} from "./IIdentityValidator.sol";
 
@@ -23,12 +26,19 @@ import {IIdentityValidator, identityOf} from "./IIdentityValidator.sol";
 contract IdentityValidator is IIdentityValidator {
     using ERC7579Utils for bytes;
     using ERC7579Utils for Mode;
+    using ERC7739Utils for *;
+    using MessageHashUtils for bytes32;
 
     uint48 public constant MIN_RECOVERY_DELAY = 48 hours;
     uint48 public constant ROOT_DELAY = MIN_RECOVERY_DELAY;
     uint48 public constant MAX_RECOVERY_DELAY = 365 days;
 
     address private immutable REGISTRY;
+
+    /// The ERC-7739 detection hash: with an empty signature, it answers `0x77390001`.
+    bytes32 private constant ERC7739_PROBE = 0x7739773977397739773977397739773977397739773977397739773977397739;
+    bytes32 private constant DOMAIN_TYPEHASH =
+        keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)");
 
     /// What `callData` asks of the account.
     enum Scope {
@@ -158,13 +168,15 @@ contract IdentityValidator is IIdentityValidator {
         return (uint256(v.validAfter) << 208) | (uint256(v.validUntil) << 160);
     }
 
-    /// @dev The account has already wrapped `hash` as ERC-7739 `PersonalSign` under its domain.
+    /// @dev Only admin sessions sign, inside their window.
     function isValidSignatureWithSender(address, bytes32 hash, bytes calldata signature)
         external
         view
         returns (bytes4)
     {
-        Verified memory v = _verify(msg.sender, hash, signature);
+        if (hash == ERC7739_PROBE && signature.length == 0) return bytes4(0x77390001);
+        (bytes32 signed, bytes calldata sigs) = _unnest(hash, signature);
+        Verified memory v = _verify(msg.sender, signed, sigs);
         bool live = v.validAfter < block.timestamp && (v.validUntil == 0 || block.timestamp <= v.validUntil);
         return v.ok && v.admins != 0 && live ? IERC1271.isValidSignature.selector : bytes4(0xffffffff);
     }
@@ -433,6 +445,25 @@ contract IdentityValidator is IIdentityValidator {
             if (i == 0) v.keyHash = keyHash;
         }
         v.ok = true;
+    }
+
+    /// The hash an ERC-7739 nested signature signs, and its signature list.
+    /// @dev The account's domain is OpenZeppelin `EIP712`'s: name, version, chainId and verifyingContract.
+    function _unnest(bytes32 hash, bytes calldata signature) private view returns (bytes32, bytes calldata) {
+        (, string memory name, string memory version, uint256 chainId, address verifying, bytes32 salt,) =
+            IERC5267(msg.sender).eip712Domain();
+        (bytes calldata inner, bytes32 appSeparator, bytes32 contentsHash, string calldata descr) =
+            signature.decodeTypedDataSig();
+        bytes memory domain = abi.encode(keccak256(bytes(name)), keccak256(bytes(version)), chainId, verifying, salt);
+        // Zero for an empty or malformed contents type, which binds nothing.
+        bytes32 structHash = descr.typedDataSignStructHash(contentsHash, domain);
+        if (structHash != 0 && hash == appSeparator.toTypedDataHash(contentsHash)) {
+            return (appSeparator.toTypedDataHash(structHash), inner);
+        }
+        bytes32 separator = keccak256(
+            abi.encode(DOMAIN_TYPEHASH, keccak256(bytes(name)), keccak256(bytes(version)), chainId, verifying)
+        );
+        return (separator.toTypedDataHash(hash.personalSignStructHash()), signature);
     }
 
     /// The window narrowed to one session's: its policy window, starting no earlier than `activeAt`.

@@ -2,7 +2,6 @@
 pragma solidity ^0.8.26;
 
 import {IEntryPoint} from "@openzeppelin/contracts/interfaces/IERC4337.sol";
-import {IERC1271} from "@openzeppelin/contracts/interfaces/IERC1271.sol";
 import {
     IERC7579AccountConfig,
     IERC7579ModuleConfig,
@@ -14,7 +13,6 @@ import {CallType, ERC7579Utils, Mode} from "@openzeppelin/contracts/account/util
 import {UUPSUpgradeable} from "@openzeppelin/contracts/proxy/utils/UUPSUpgradeable.sol";
 import {Calldata} from "@openzeppelin/contracts/utils/Calldata.sol";
 import {EIP712} from "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
-import {ERC7739Utils} from "@openzeppelin/contracts/utils/cryptography/draft-ERC7739Utils.sol";
 import {
     AccountERC7579Upgradeable
 } from "@openzeppelin/contracts-upgradeable/account/extensions/draft-AccountERC7579Upgradeable.sol";
@@ -88,16 +86,6 @@ contract WebWallet is AccountERC7579Upgradeable, UUPSUpgradeable, EIP712, IWebWa
 
     function entryPoint() public view override(IWebWallet, Account) returns (IEntryPoint) {
         return super.entryPoint();
-    }
-
-    /// The validator checks the ERC-7739 `PersonalSign` hash of `hash` under this account's domain.
-    function isValidSignature(bytes32 hash, bytes calldata signature)
-        public
-        view
-        override(IERC1271, AccountERC7579Upgradeable)
-        returns (bytes4)
-    {
-        return super.isValidSignature(_hashTypedDataV4(ERC7739Utils.personalSignStructHash(hash)), signature);
     }
 
     function _installModule(uint256 moduleTypeId, address module, bytes memory initData) internal override {

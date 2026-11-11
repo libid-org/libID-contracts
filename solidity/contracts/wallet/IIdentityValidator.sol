@@ -14,10 +14,10 @@ function identityOf(bytes32 platformId, bytes32 idNode) pure returns (bytes32) {
 ///      An identity is `identityOf(platformId, idNode)`.
 ///      A session key is an ERC-7913 signer: a 20-byte address, or `verifier || key`.
 ///      A policy hash is `keccak256(abi.encode(policy))`.
-///      `userOp.signature`, and the ERC-1271 signature after the validator's
-///      address, are `abi.encode(SessionSignature[])`. A UserOperation signs
-///      `userOpHash`; an ERC-1271 signature signs the ERC-7739 `PersonalSign`
-///      hash under the account's `eip712Domain()`.
+///      `userOp.signature` is `abi.encode(SessionSignature[])` over `userOpHash`.
+///      The ERC-1271 signature after the validator's address is an ERC-7739 nested signature
+///      under the account's `eip712Domain()`: `PersonalSign`, or `TypedDataSign` followed by the
+///      app separator, contents hash and contents type. Its signature part is `abi.encode(SessionSignature[])`.
 ///      Fresh install data is `abi.encode(platformId, idNode)`: the genesis identity.
 interface IIdentityValidator is IERC7579Validator {
     /// @dev `validUntil == 0` never expires. Only admin sessions may change the account.
