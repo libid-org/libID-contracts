@@ -136,13 +136,8 @@ abstract contract WalletTestBase is Test {
         identities.setProofVerifier(IProofVerifier(address(proofVerifier)));
         vm.stopPrank();
 
-        // The validator and the registry name each other.
-        address registryAt = vm.computeCreateAddress(address(this), vm.getNonce(address(this)) + 1);
-        validator = IIdentityValidator(deployCode("IdentityValidator.sol:IdentityValidator", abi.encode(registryAt)));
-        registry = IWalletRegistry(
-            deployCode("WalletRegistry.sol:WalletRegistry", abi.encode(address(proofVerifier), address(validator)))
-        );
-        assertEq(address(registry), registryAt, "registry address");
+        registry = IWalletRegistry(deployCode("WalletRegistry.sol:WalletRegistry", abi.encode(address(proofVerifier))));
+        validator = IIdentityValidator(registry.identityValidator());
         executor = IClaimExecutor(
             deployCode(
                 "ClaimExecutor.sol:ClaimExecutor", abi.encode(address(identities), address(escrow), address(validator))

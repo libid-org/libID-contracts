@@ -4,6 +4,7 @@ pragma solidity ^0.8.24;
 import {ICeremony} from "../ceremony/ICeremony.sol";
 import {IProofVerifier} from "../ceremony/IProofVerifier.sol";
 import {IIdentityValidator, identityOf, policyHashOf} from "./IIdentityValidator.sol";
+import {IdentityValidator} from "./IdentityValidator.sol";
 import {IWalletRegistry} from "./IWalletRegistry.sol";
 
 /// @title WalletRegistry - the Consumer of the `libid.webwallet.*` operations.
@@ -40,9 +41,13 @@ contract WalletRegistry is IWalletRegistry {
         uint256 dataLength;
     }
 
-    constructor(address proofVerifier, address identityValidator) {
+    constructor(address proofVerifier) {
         PROOF_VERIFIER = IProofVerifier(proofVerifier);
-        VALIDATOR = IIdentityValidator(identityValidator);
+        VALIDATOR = new IdentityValidator(address(this));
+    }
+
+    function identityValidator() external view returns (address) {
+        return address(VALIDATOR);
     }
 
     function linkIdentity(

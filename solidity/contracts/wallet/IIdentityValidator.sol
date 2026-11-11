@@ -14,7 +14,8 @@ function policyHashOf(IIdentityValidator.Policy memory policy) pure returns (byt
 }
 
 /// @title IIdentityValidator - identities, sessions and root operations of ERC-7579 accounts.
-/// @notice Constructor: `IdentityValidator(address walletRegistry)`. Immutable, no owner.
+/// @notice Constructor: `IdentityValidator(address walletRegistry)`, deployed by the WalletRegistry's
+///         own constructor. Immutable, no owner.
 /// @dev State is per account and per install: an uninstall drops it.
 ///      An identity is `identityOf(platformId, idNode)`.
 ///      A session key is an ERC-7913 signer: a 20-byte address, or `verifier || key`.

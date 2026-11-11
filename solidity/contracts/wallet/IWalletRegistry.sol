@@ -4,7 +4,8 @@ pragma solidity ^0.8.24;
 import {IIdentityValidator} from "./IIdentityValidator.sol";
 
 /// @title IWalletRegistry - links proved identities to wallets.
-/// @notice Constructor: `WalletRegistry(address proofVerifier, address identityValidator)`. Immutable, no owner.
+/// @notice Constructor: `WalletRegistry(address proofVerifier)`, which deploys its IdentityValidator.
+///         Immutable, no owner.
 /// @dev Both domains carry `abi.encode(uint256 chainId, address wallet, bytes sessionKey, bytes32 policyHash)`,
 ///      canonically encoded. An empty key with a zero policy hash links only, and `policy` is then ignored.
 ///      Anyone may submit the link of the wallet's genesis identity (`IIdentityValidator.genesisIdentity`)
@@ -47,6 +48,9 @@ interface IWalletRegistry {
         bytes calldata payload,
         IIdentityValidator.Policy calldata policy
     ) external payable;
+
+    /// The IdentityValidator this registry deployed and alone may call.
+    function identityValidator() external view returns (address);
 
     function quote(bytes32 platformId, uint16 verifierVersion) external view returns (uint256);
     function digestSpent(bytes32 digest) external view returns (bool);
