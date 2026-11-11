@@ -10,7 +10,8 @@ pragma solidity ^0.8.24;
 interface IWalletFactory {
     event WalletCreated(address indexed wallet, bytes32 indexed platformId, bytes32 indexed idNode);
 
-    /// Anyone may call. Reverts when the wallet exists.
+    /// Anyone may call. Returns the wallet's address, deploying it first if it does not exist;
+    /// emits `WalletCreated` only when it deploys.
     function createWallet(bytes32 platformId, bytes32 idNode) external returns (address wallet);
 
     function walletAddress(bytes32 platformId, bytes32 idNode) external view returns (address);

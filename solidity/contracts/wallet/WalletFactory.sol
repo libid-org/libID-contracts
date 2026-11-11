@@ -19,10 +19,12 @@ contract WalletFactory is IWalletFactory {
     }
 
     function createWallet(bytes32 platformId, bytes32 idNode) external returns (address wallet) {
+        bytes32 salt = identityOf(platformId, idNode);
+        wallet = Create3.addressOf(salt, address(this));
+        if (wallet.code.length != 0) return wallet;
         bytes memory init = abi.encodeCall(IWebWallet.initialize, (abi.encode(platformId, idNode)));
         wallet = Create3.deploy(
-            identityOf(platformId, idNode),
-            abi.encodePacked(type(ERC1967Proxy).creationCode, abi.encode(WALLET_IMPLEMENTATION, init))
+            salt, abi.encodePacked(type(ERC1967Proxy).creationCode, abi.encode(WALLET_IMPLEMENTATION, init))
         );
         emit WalletCreated(wallet, platformId, idNode);
     }

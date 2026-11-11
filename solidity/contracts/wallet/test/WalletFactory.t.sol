@@ -46,8 +46,9 @@ contract WalletFactoryTest is WalletTestBase {
     function test_genesisFrontRunGainsNothing() public {
         vm.prank(mallory);
         address w = factory.createWallet(X, ALICE);
-        vm.expectRevert();
-        factory.createWallet(X, ALICE);
+        vm.recordLogs();
+        assertEq(factory.createWallet(X, ALICE), w, "a second call moved the wallet");
+        assertEq(vm.getRecordedLogs().length, 0, "a second call emitted");
 
         bytes memory payload = _payload(X, MALLORY, LINK, _txData(w, _key(MALLORY_PK), _ph(_admin())));
         vm.prank(mallory);
