@@ -39,9 +39,10 @@ function policyHashOf(IIdentityValidator.Policy memory policy) pure returns (byt
 ///      - every execution needs `calls[i]`, a proof of the leaf `(target, selector, calls[i].maxValue)`
 ///        under `scopeRoot`, with `value <= maxValue`; `scopeRoot == 0` allows no call;
 ///      - native `value` is charged to `NATIVE_TOKEN` (0xEeee…EEeE); with no entry its limit is 0;
-///      - unless its paymaster is proved under `paymastersRoot` by `paymasterProof`, the operation's
-///        maximum gas cost, `(verificationGasLimit + callGasLimit + preVerificationGas) * maxFeePerGas`,
-///        is charged to `NATIVE_TOKEN` with the value; `paymastersRoot == 0` allows no paymaster;
+///      - an operation with a paymaster needs `paymasterProof`, a proof of the paymaster under
+///        `paymastersRoot`, and is charged no gas; `paymastersRoot == 0` allows no paymaster. Without one,
+///        its maximum gas cost, `(verificationGasLimit + callGasLimit + preVerificationGas) * maxFeePerGas`,
+///        is charged to `NATIVE_TOKEN` with the value;
 ///      - ERC-20 `transfer(to, amount)` and `approve(spender, amount)` charge `amount` to the target;
 ///        `transferFrom`, a spending selector on a target with no allowance, and any other selector on
 ///        a target with one are refused. Any other selector on a target with no allowance is charged

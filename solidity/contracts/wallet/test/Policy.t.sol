@@ -596,35 +596,47 @@ contract PolicyTest is WalletTestBase {
         assertEq(_spent(MALLORY_PK, NATIVE), 1 ether, "a sponsored operation was charged gas");
     }
 
-    /// A paymaster the session does not list is charged like none: a token paymaster the account
-    /// approved cannot take its fee past a zero NATIVE allowance. At quorum any paymaster pays uncharged.
-    function test_anUnlistedPaymasterIsChargedGas() public {
+    /// Below quorum a paymaster the session does not list is refused: a token paymaster the account
+    /// approved cannot take its fee. A listed one needs its proof. At quorum any paymaster pays.
+    function test_anUnlistedPaymasterIsRefused() public {
         TokenPaymaster drain = new TokenPaymaster(token);
         IEntryPoint(EP).depositTo{value: 100 ether}(address(drain));
         vm.prank(w);
         token.approve(address(drain), type(uint256).max);
-        _addApp(APP_PK, _rules(0, 100 ether, DAY, 0));
-        _addApp(BOB_PK, _daily());
+        bytes32[] memory listed = new bytes32[](2);
+        (listed[0], listed[1]) = (_paymasterLeaf(address(paymaster)), _paymasterLeaf(makeAddr("other")));
+        IIdentityValidator.Rules memory r = _daily();
+        bytes32[] memory proof;
+        (r.paymastersRoot, proof) = _tree(listed, 0);
+        _addApp(BOB_PK, r);
         Execution[] memory hit = _one(_e(address(target), 0, abi.encodeCall(CallTarget.hit, ())));
+        PackedUserOperation memory control = _opNow(BOB_PK, hit);
+        _withPaymasterProof(control, proof);
 
         PackedUserOperation memory op = _nextOp(_callData(hit));
         op.paymasterAndData = abi.encodePacked(address(drain), uint128(100_000), uint128(0));
-        _sign(op, _pks(APP_PK), _proofs(hit), uint48(_now()));
-        _refusedFor(op, _opNow(APP_PK, hit), "gas through an unlisted paymaster");
-        _refused(op, "gas through an unlisted paymaster");
-        assertEq(token.balanceOf(address(drain)), 0, "the paymaster took its fee");
-
         _sign(op, _pks(BOB_PK), _proofs(hit), uint48(_now()));
-        _handle(op);
-        assertEq(_spent(BOB_PK, NATIVE), _prefund(op), "the gas was not charged");
-        _handle(_opNow(BOB_PK, hit));
-        assertEq(_spent(BOB_PK, NATIVE), _prefund(op), "a listed paymaster was charged");
+        _withPaymasterProof(op, proof);
+        _refusedFor(op, control, "an unlisted paymaster");
+        _refused(op, "an unlisted paymaster");
+        assertEq(token.balanceOf(address(drain)), 0, "the paymaster took its fee");
+        _refusedFor(_opNow(BOB_PK, hit), control, "a listed paymaster without its proof");
+
+        _handle(control);
+        assertEq(_spent(BOB_PK, NATIVE), 0, "a listed paymaster was charged");
 
         op = _nextOp(_callData(hit));
         op.paymasterAndData = abi.encodePacked(address(drain), uint128(100_000), uint128(0));
         op.signature = _sigs(_pks(ALICE_PK), IUserOpHash(EP).getUserOpHash(op));
         _handle(op);
-        assertEq(target.calls(), 3, "calls");
+        assertEq(target.calls(), 2, "calls");
+    }
+
+    /// Sets `op`'s paymaster proof, which is not signed.
+    function _withPaymasterProof(PackedUserOperation memory op, bytes32[] memory proof) internal pure {
+        IIdentityValidator.Authorization memory a = abi.decode(op.signature, (IIdentityValidator.Authorization));
+        a.paymasterProof = proof;
+        op.signature = abi.encode(a);
     }
 
     // ─── Scope (S2) ─────────────────────────────────────────────────

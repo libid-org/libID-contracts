@@ -610,8 +610,8 @@ contract IdentityValidator is IIdentityValidator {
     }
 
     /// Below quorum: at least one execution, each proved under the session's scope, and their spend
-    /// charged. Unless a paymaster the session lists pays, the operation's maximum gas cost is charged
-    /// to `NATIVE_TOKEN` with its value.
+    /// charged. A paymaster must be one the session lists; with none, the operation's maximum gas cost
+    /// is charged to `NATIVE_TOKEN` with its value.
     /// @dev `scopeRoot == 0` and `paymastersRoot == 0` prove no leaf.
     function _withinRules(
         address account,
@@ -623,11 +623,12 @@ contract IdentityValidator is IIdentityValidator {
     ) private returns (bool) {
         Session storage s = _sessions(account, v.keyHash)[account];
         (bytes32 scopeRoot, bytes32 rulesHash) = (s.scopeRoot, s.rulesHash);
-        address paymaster = userOp.paymaster();
-        uint256 native = paymaster != address(0)
-            && MerkleProof.verify(auth.paymasterProof, s.paymastersRoot, _leaf(abi.encode(paymaster)))
-            ? 0
-            : _maxGasCost(userOp);
+        uint256 native;
+        if (userOp.paymasterAndData.length == 0) {
+            native = _maxGasCost(userOp);
+        } else if (!MerkleProof.verify(auth.paymasterProof, s.paymastersRoot, _leaf(abi.encode(userOp.paymaster())))) {
+            return false;
+        }
         if (callType == ERC7579Utils.CALLTYPE_SINGLE) {
             (address target, uint256 value, bytes calldata data) = executions.decodeSingle();
             if (
