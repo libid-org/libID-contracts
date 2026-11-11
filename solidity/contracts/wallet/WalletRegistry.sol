@@ -38,7 +38,6 @@ contract WalletRegistry is IWalletRegistry {
         bytes32 digest;
         address wallet;
         bytes key;
-        uint256 dataLength;
     }
 
     constructor(address proofVerifier) {
@@ -79,7 +78,6 @@ contract WalletRegistry is IWalletRegistry {
         IIdentityValidator.Policy calldata policy
     ) external payable {
         Accepted memory a = _accept(ADD_SESSION_DOMAIN, platformId, verifierVersion, payload, policy);
-        if (a.key.length == 0) revert BadTransactionData(a.dataLength);
         VALIDATOR.addSessionByProof(a.wallet, identityOf(platformId, a.idNode), a.key, policy);
     }
 
@@ -110,13 +108,7 @@ contract WalletRegistry is IWalletRegistry {
         _s().spentDigests[claimed.sessionId] = true;
 
         (address wallet, bytes memory key) = _transactionData(claimed.transactionData, policy);
-        return Accepted({
-            idNode: claimed.idNode,
-            digest: claimed.sessionId,
-            wallet: wallet,
-            key: key,
-            dataLength: claimed.transactionData.length
-        });
+        return Accepted({idNode: claimed.idNode, digest: claimed.sessionId, wallet: wallet, key: key});
     }
 
     /// The wallet and session key of canonical transaction data for this chain that commits to `policy`.
@@ -129,10 +121,13 @@ contract WalletRegistry is IWalletRegistry {
         uint256 chainId;
         bytes32 policyHash;
         (chainId, wallet, key, policyHash) = abi.decode(data, (uint256, address, bytes, bytes32));
-        bool linkOnly = key.length == 0 && policyHash == bytes32(0);
+        // An empty key links only, and commits no policy.
         if (
-            keccak256(abi.encode(chainId, wallet, key, policyHash)) != keccak256(data) || (!linkOnly && key.length < 20)
-        ) revert BadTransactionData(data.length);
+            keccak256(abi.encode(chainId, wallet, key, policyHash)) != keccak256(data)
+                || (key.length == 0 && policyHash != 0)
+        ) {
+            revert BadTransactionData(data.length);
+        }
         if (chainId != block.chainid) revert WrongChain(chainId);
         if (key.length != 0) {
             bytes32 given = policyHashOf(policy);

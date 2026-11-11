@@ -18,7 +18,7 @@ interface IWalletRegistry {
 
     error ForeignOperationDomain(bytes32 operationDomain);
     error DigestAlreadySpent(bytes32 digest);
-    /// Not the canonical encoding, or a key that is no ERC-7913 signer.
+    /// Not the canonical encoding, or an empty key with a policy hash.
     error BadTransactionData(uint256 length);
     /// The chain id the proof commits is not this chain's.
     error WrongChain(uint256 committed);

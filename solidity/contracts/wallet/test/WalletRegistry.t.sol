@@ -149,15 +149,14 @@ contract WalletRegistryTest is WalletTestBase {
         bytes memory good = _txData(w, key, ph);
         assertEq(good.length, 192, "reference length");
 
-        bytes[] memory bad = new bytes[](6);
+        bytes[] memory bad = new bytes[](5);
         bad[0] = abi.encodePacked(good, bytes1(0)); // trailing byte
         bad[1] = abi.encodePacked(good, bytes32(0)); // trailing word
         bad[2] = abi.encodePacked(block.chainid, uint256(uint160(w)), uint256(0xa0), ph, bytes32(0), uint256(20));
         bad[2] = abi.encodePacked(bad[2], key, bytes12(0)); // a gap before the key
-        bad[3] = abi.encode(block.chainid, w, hex"00112233445566778899aabbccddeeff001122", ph); // 19-byte key
-        bad[4] = abi.encode(block.chainid, w, bytes(""), ph); // link only, with a policy hash
-        bad[5] = abi.encodePacked(good); // key padding not zero
-        bad[5][191] = 0x01;
+        bad[3] = abi.encode(block.chainid, w, bytes(""), ph); // link only, with a policy hash
+        bad[4] = abi.encodePacked(good); // key padding not zero
+        bad[4][191] = 0x01;
         for (uint256 i; i < bad.length; ++i) {
             bytes memory payload = _payload(X, ALICE, LINK, bad[i]);
             vm.expectPartialRevert(IWalletRegistry.BadTransactionData.selector);
@@ -174,6 +173,12 @@ contract WalletRegistryTest is WalletTestBase {
             vm.expectRevert();
             registry.linkIdentity(X, V1, payload, _admin());
         }
+
+        // The validator owns the key format.
+        bytes memory key19 = hex"00112233445566778899aabbccddeeff001122";
+        bytes memory shortKey = _payload(X, ALICE, LINK, abi.encode(block.chainid, w, key19, ph));
+        vm.expectRevert(abi.encodeWithSelector(IIdentityValidator.InvalidKey.selector, key19));
+        registry.linkIdentity(X, V1, shortKey, _admin());
 
         bytes memory addPayload = _payload(X, ALICE, ADD, abi.encodePacked(good, bytes1(0)));
         vm.expectPartialRevert(IWalletRegistry.BadTransactionData.selector);
@@ -230,7 +235,7 @@ contract WalletRegistryTest is WalletTestBase {
         registry.addSessionByProof(GITHUB, V1, payload, _admin());
 
         payload = _payload(X, ALICE, ADD, _txData(w, "", bytes32(0)));
-        vm.expectPartialRevert(IWalletRegistry.BadTransactionData.selector);
+        vm.expectRevert(abi.encodeWithSelector(IIdentityValidator.InvalidKey.selector, ""));
         registry.addSessionByProof(X, V1, payload, _admin());
     }
 
