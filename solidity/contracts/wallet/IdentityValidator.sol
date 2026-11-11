@@ -226,18 +226,26 @@ contract IdentityValidator is IIdentityValidator {
         return (uint256(v.validAfter) << 208) | (uint256(v.validUntil) << 160);
     }
 
-    /// @dev Only admin sessions sign, inside their window; with a session by proof, under the threshold.
+    /// @dev Inside the signers' window; below quorum, one session not by proof signing `TypedDataSign`
+    ///      for a listed app.
     function isValidSignatureWithSender(address, bytes32 hash, bytes calldata signature)
         external
         view
         returns (bytes4)
     {
         if (hash == ERC7739_PROBE && signature.length == 0) return bytes4(0x77390001);
-        (bytes32 signed, bytes calldata inner) = _unnest(hash, signature);
-        Verified memory v = _verify(msg.sender, signed, _decode(inner).signatures);
+        (bytes32 signed, bytes calldata inner, bytes32 app) = _unnest(hash, signature);
+        Authorization memory auth = _decode(inner);
+        Verified memory v = _verify(msg.sender, signed, auth.signatures);
         bool live = v.validAfter < block.timestamp && (v.validUntil == 0 || block.timestamp <= v.validUntil);
-        uint256 quorum = v.byProof ? threshold(msg.sender) : 1;
-        return v.ok && v.adminPlatforms >= quorum && live ? IERC1271.isValidSignature.selector : bytes4(0xffffffff);
+        bool allowed = v.adminPlatforms >= threshold(msg.sender)
+            || (!v.byProof
+                && auth.signatures.length == 1
+                && app != 0
+                && MerkleProof.verify(
+                    auth.domainProof, _sessions(msg.sender, v.keyHash)[msg.sender].domainsRoot, _leaf(abi.encode(app))
+                ));
+        return v.ok && live && allowed ? IERC1271.isValidSignature.selector : bytes4(0xffffffff);
     }
 
     // ─── Views ──────────────────────────────────────────────────────
@@ -647,10 +655,11 @@ contract IdentityValidator is IIdentityValidator {
         return true;
     }
 
-    /// The hash an ERC-7739 nested signature signs, and its `Authorization`.
+    /// The hash an ERC-7739 nested signature signs, its `Authorization`, and the app separator
+    /// of a `TypedDataSign`, zero for `PersonalSign`.
     /// @dev Both forms use the account's `eip712Domain()`: `TypedDataSign` all five fields,
     ///      `PersonalSign` the fields it names. A domain with extensions reverts.
-    function _unnest(bytes32 hash, bytes calldata signature) private view returns (bytes32, bytes calldata) {
+    function _unnest(bytes32 hash, bytes calldata signature) private view returns (bytes32, bytes calldata, bytes32) {
         (bytes1 fields, string memory name, string memory version, uint256 chainId, address verifying, bytes32 salt,) =
             IERC5267(msg.sender).eip712Domain();
         bytes32 nameHash = keccak256(bytes(name));
@@ -661,10 +670,10 @@ contract IdentityValidator is IIdentityValidator {
         // Zero for an empty or malformed contents type, which binds nothing.
         bytes32 structHash = descr.typedDataSignStructHash(contentsHash, domain);
         if (structHash != 0 && hash == appSeparator.toTypedDataHash(contentsHash)) {
-            return (appSeparator.toTypedDataHash(structHash), inner);
+            return (appSeparator.toTypedDataHash(structHash), inner, appSeparator);
         }
         bytes32 separator = MessageHashUtils.toDomainSeparator(fields, nameHash, versionHash, chainId, verifying, salt);
-        return (separator.toTypedDataHash(hash.personalSignStructHash()), signature);
+        return (separator.toTypedDataHash(hash.personalSignStructHash()), signature, 0);
     }
 
     /// Narrows `v`'s window to `(validAfter, validUntil]`; `validUntil == 0` is unbounded.
