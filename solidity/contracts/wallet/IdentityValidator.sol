@@ -88,6 +88,7 @@ contract IdentityValidator is IIdentityValidator {
         mapping(uint256 install => mapping(bytes32 identity => mapping(address account => uint32))) adminSessions;
         mapping(uint256 install => mapping(bytes32 identity => mapping(address account => bytes32))) platformOf;
         mapping(uint256 install => mapping(bytes32 platformId => mapping(address account => uint32))) platformLinks;
+        mapping(uint256 install => mapping(bytes32 identity => mapping(address account => bool))) recoveryFrozen;
     }
 
     // cast index-erc7201 libid.storage.IdentityValidator
@@ -244,6 +245,10 @@ contract IdentityValidator is IIdentityValidator {
         return _generations(account, identity)[account];
     }
 
+    function recoveryFrozen(address account, bytes32 identity) public view returns (bool) {
+        return _s().recoveryFrozen[_install(account)][identity][account];
+    }
+
     function rootReadyAt(address account, bytes32 opId) external view returns (uint48) {
         Root memory r = _roots(account, opId)[account];
         return _superseded(account, r) ? 0 : r.readyAt;
@@ -267,6 +272,7 @@ contract IdentityValidator is IIdentityValidator {
         onlyRegistry
         returns (uint48 activeAt)
     {
+        if (recoveryFrozen(account, identity)) revert RecoveryFrozen(identity);
         bool byProof = _account(account).hadSession;
         if (byProof) {
             activeAt = _maturity(account);
@@ -311,13 +317,18 @@ contract IdentityValidator is IIdentityValidator {
         revert RootOperationRequired();
     }
 
+    function setRecoveryFrozen(bytes32, bool) external pure {
+        revert RootOperationRequired();
+    }
+
     function queueRoot(address target, bytes calldata data) external returns (bytes32 opId) {
         bytes4 selector = _selector(data);
         bool own = target == address(this)
             && (selector == this.setThreshold.selector
                 || selector == this.revokeSession.selector
                 || selector == this.unlink.selector
-                || selector == this.setRecoveryDelay.selector);
+                || selector == this.setRecoveryDelay.selector
+                || selector == this.setRecoveryFrozen.selector);
         if (target != msg.sender && !own) revert BadRootOperation(target);
         opId = _rootId(msg.sender, target, data);
         uint48 readyAt = _maturity(msg.sender);
@@ -350,6 +361,9 @@ contract IdentityValidator is IIdentityValidator {
             _unlink(account, abi.decode(data[4:], (bytes32)));
         } else if (selector == this.setRecoveryDelay.selector) {
             _setRecoveryDelay(account, abi.decode(data[4:], (uint48)));
+        } else if (selector == this.setRecoveryFrozen.selector) {
+            (bytes32 identity, bool frozen) = abi.decode(data[4:], (bytes32, bool));
+            _s().recoveryFrozen[_install(account)][identity][account] = frozen;
         } else {
             _revoke(account, abi.decode(data[4:], (bytes)), true);
         }

@@ -50,7 +50,7 @@ describe('generated call builders', () => {
   })
 
   it('builds the payloads of root-only functions', () => {
-    // setThreshold and unlink revert when called: the account queues their calldata.
+    // setThreshold, unlink and setRecoveryFrozen revert when called: the account queues their calldata.
     const op = calls.identityValidator.unlink(VALIDATOR, PLATFORM)
     expect(decodeFunctionData({ abi: identityValidatorAbi, data: op.data })).toEqual({
       functionName: 'unlink',
@@ -62,6 +62,12 @@ describe('generated call builders', () => {
       op.data,
     ])
     expect(calls.identityValidator.setThreshold(VALIDATOR, 2).data).toMatch(/^0x/)
+    expect(
+      decodeFunctionData({
+        abi: identityValidatorAbi,
+        data: calls.identityValidator.setRecoveryFrozen(VALIDATOR, PLATFORM, true).data,
+      }),
+    ).toEqual({ functionName: 'setRecoveryFrozen', args: [PLATFORM, true] })
   })
 
   it('namespaces by contract, so colliding names stay distinct', () => {
