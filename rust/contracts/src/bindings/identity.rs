@@ -16,5 +16,8 @@ mod inner {
     );
 }
 
+/// `identity/IIdentityRegistry.sol`'s types: `Identity`, as `identitiesOf`
+/// returns it.
+pub use inner::IIdentityRegistry;
 /// `identity/IdentityRegistry.sol`.
 pub use inner::IdentityRegistry;
