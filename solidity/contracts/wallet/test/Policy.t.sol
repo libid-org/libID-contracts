@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
+import {Vm} from "forge-std/Vm.sol";
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {IEntryPoint, IPaymaster, PackedUserOperation} from "@openzeppelin/contracts/interfaces/IERC4337.sol";
 import {Execution, IERC7579Execution} from "@openzeppelin/contracts/interfaces/draft-IERC7579.sol";
@@ -583,8 +584,7 @@ contract PolicyTest is WalletTestBase {
 
         PackedUserOperation memory paid = _nextOp(_callData(_pay(0.1 ether)));
         _sign(paid, _pks(MALLORY_PK), _proofs(_pay(0)), uint48(_now()));
-        _handle(paid);
-        uint256 gas = _prefund(paid);
+        uint256 gas = _missingFunds(paid);
         assertEq(_spent(MALLORY_PK, NATIVE_TOKEN), 0.1 ether + gas, "the value and the maximum gas cost");
 
         uint256 left = 1 ether - 0.1 ether - gas;
@@ -593,6 +593,25 @@ contract PolicyTest is WalletTestBase {
         _refused(over, "the value and gas, one wei over");
         _handle(_opNow(MALLORY_PK, _pay(left)));
         assertEq(_spent(MALLORY_PK, NATIVE_TOKEN), 1 ether, "a sponsored operation was charged gas");
+    }
+
+    /// Handles `op` from an empty deposit, and returns what the EntryPoint asked the account for in
+    /// validation, its `missingAccountFunds`, read from the deposit it recorded.
+    function _missingFunds(PackedUserOperation memory op) internal returns (uint256 missing) {
+        assertEq(IEntryPoint(EP).balanceOf(op.sender), 0, "the account has a deposit");
+        vm.recordLogs();
+        _handle(op);
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+        bytes32 deposited = keccak256("Deposited(address,uint256)");
+        for (uint256 i; i < logs.length; ++i) {
+            if (
+                logs[i].emitter == EP && logs[i].topics[0] == deposited
+                    && logs[i].topics[1] == bytes32(uint256(uint160(op.sender)))
+            ) {
+                return abi.decode(logs[i].data, (uint256));
+            }
+        }
+        fail("the account paid no prefund");
     }
 
     /// Below quorum a paymaster the session does not list is refused: a token paymaster the account
