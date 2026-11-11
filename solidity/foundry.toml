@@ -35,8 +35,9 @@ fs_permissions = [
 gas_snapshot_emit = false
 
 # What verifying a claim costs, recorded in snapshots/ by
-# ClaimVerificationGas.t.sol. CI fails when the committed numbers are stale:
-# update them with `FOUNDRY_PROFILE=gas forge test`.
+# ClaimVerificationGas.t.sol, and the one-transaction wallet claim, by
+# ClaimExecutor.t.sol. CI fails when the committed numbers are stale: update
+# them with `FOUNDRY_PROFILE=gas forge test`.
 #
 # Osaka because eden-testnet executes under it, and EIP-7883 reprices the
 # MODEXP the Honk verifiers call. `vm.setEvmVersion` cannot stand in: forge
@@ -50,7 +51,7 @@ gas_snapshot_emit = false
 evm_version = "osaka"
 isolate = false
 gas_snapshot_emit = true
-match_path = "contracts/ceremony/test/ClaimVerificationGas.t.sol"
+match_path = "contracts/{ceremony/test/ClaimVerificationGas,wallet/test/ClaimExecutor}.t.sol"
 
 # CI runs `forge lint -D notes`, which fails on any finding. `forge build`
 # runs the same linter but only prints.

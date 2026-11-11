@@ -72,6 +72,8 @@ contract ClaimExecutorTest is WalletTestBase {
         vm.deal(relayer, 1 ether);
         vm.prank(relayer);
         relay.claim{value: 2 * FEE}(factory, registry, executor, X, ALICE, HANDLE, link, bind, FEE);
+        // The frame's gas, written only by `FOUNDRY_PROFILE=gas forge test`. Both proofs are stubbed.
+        vm.snapshotValue("wallet-claim", "Relay.claim(stub proofs)", vm.lastFrameGas().gasTotalUsed);
 
         assertGt(w.code.length, 0, "no wallet");
         assertEq(identities.resolveId(ALICE), w, "not bound to the wallet");
