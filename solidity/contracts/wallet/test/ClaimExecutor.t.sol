@@ -82,9 +82,23 @@ contract ClaimExecutorTest is WalletTestBase {
     function test_bindRefusesAnIdentityNotLinkedToTheWallet() public {
         address w = _claim();
         bytes memory bind = _paidPayload(MALLORY, BIND, abi.encode(w));
-        vm.expectRevert(abi.encodeWithSelector(IClaimExecutor.NotLinked.selector, w, X, MALLORY));
+        vm.expectRevert(abi.encodeWithSelector(IClaimExecutor.HeldIdentityNotLinked.selector, w, X, MALLORY));
         executor.bind{value: FEE}(w, X, 2, bind);
         assertEq(identities.resolveId(MALLORY), address(0), "bound anyway");
+    }
+
+    /// A held identity the wallet has since unlinked does not block binding another.
+    function test_bindIgnoresIdentitiesHeldBefore() public {
+        address w = _claim();
+        _link(w, GITHUB, BOB, w, "", _admin());
+        bytes memory bind = _payload(GITHUB, BOB, BIND, abi.encode(w));
+        githubStub.setNodes(BOB, keccak256("bob's handle node"));
+        executor.bind(w, GITHUB, V1, bind);
+        _root(w, address(validator), abi.encodeCall(IIdentityValidator.unlink, (_identity(GITHUB, BOB))));
+
+        executor.bind{value: FEE}(w, X, 2, _paidPayload(ALICE, BIND, abi.encode(w)));
+        assertEq(identities.resolveId(ALICE), w, "not bound");
+        assertEq(identities.resolveId(BOB), w, "the earlier binding moved");
     }
 
     function test_theExecutorCannotMakeTheWalletDoAnythingElse() public {

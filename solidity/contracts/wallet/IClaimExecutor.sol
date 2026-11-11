@@ -8,12 +8,12 @@ import {IERC7579Module} from "@openzeppelin/contracts/interfaces/draft-IERC7579.
 ///         Stateless, no owner. Anyone may call either function for any wallet that installed it;
 ///         the proof or the wallet's own address fixes what each call does.
 interface IClaimExecutor is IERC7579Module {
-    /// After a bind, an identity the wallet holds in the IdentityRegistry is not linked to it.
-    error NotLinked(address wallet, bytes32 platformId, bytes32 idNode);
+    /// An identity the bind gave the wallet in the IdentityRegistry is not linked to it.
+    error HeldIdentityNotLinked(address wallet, bytes32 platformId, bytes32 idNode);
 
     /// The wallet calls `IdentityRegistry.bindPrivately(platformId, verifierVersion, payload, 0, address(0))`
-    /// with `msg.value`, which must be `quoteBind`. Reverts unless every identity the wallet then holds
-    /// in the IdentityRegistry is linked to it in the IdentityValidator.
+    /// with `msg.value`, which must be `quoteBind`. Reverts unless every identity the bind added to the
+    /// wallet in the IdentityRegistry is linked to it in the IdentityValidator.
     function bind(address wallet, bytes32 platformId, uint16 verifierVersion, bytes calldata payload) external payable;
 
     /// The wallet calls `HandleEscrow.claim(handleNode, tokens, wallet)`.
