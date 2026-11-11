@@ -243,7 +243,7 @@ contract IdentityValidatorTest is WalletTestBase {
 
     function test_rootOperationWaitsThenRunsOnce() public {
         address w = _claim();
-        address impl2 = deployCode("WebWallet.sol:WebWallet", abi.encode(address(validator)));
+        address impl2 = _walletImpl();
         bytes memory data = abi.encodeCall(IWebWallet.upgradeToAndCall, (impl2, ""));
         bytes32 opId = keccak256(abi.encode(w, w, data));
 
@@ -286,7 +286,7 @@ contract IdentityValidatorTest is WalletTestBase {
     /// Root changes have no path around the timelock.
     function test_rootChangesRefusedOutsideTheTimelock() public {
         address w = _claim();
-        address impl2 = deployCode("WebWallet.sol:WebWallet", abi.encode(address(validator)));
+        address impl2 = _walletImpl();
         bytes[3] memory calls = [
             abi.encodeCall(IERC7579ModuleConfig.installModule, (1, address(0xBEEF), "")),
             abi.encodeCall(IERC7579ModuleConfig.uninstallModule, (1, address(validator), "")),
@@ -310,13 +310,27 @@ contract IdentityValidatorTest is WalletTestBase {
         vm.stopPrank();
     }
 
-    /// R7: only the IdentityValidator, even through a matured root operation.
+    /// R7: only the IdentityValidator and the ClaimExecutor, even through a matured root operation.
     function test_moduleAllowlist() public {
         address w = _claim();
-        for (uint256 t = 2; t <= 4; ++t) {
-            assertFalse(IWebWallet(w).supportsModule(t), "a non-validator module type");
+        for (uint256 t = 3; t <= 4; ++t) {
+            assertFalse(IWebWallet(w).supportsModule(t), "a fallback or hook module type");
         }
         assertTrue(IWebWallet(w).supportsModule(1), "validators");
+        assertTrue(IWebWallet(w).supportsModule(2), "executors");
+        assertTrue(IWebWallet(w).isModuleInstalled(2, address(executor), ""), "executor not installed at genesis");
+
+        // The executor leaves and comes back only by root operation; no other executor comes in.
+        _root(w, w, abi.encodeCall(IERC7579ModuleConfig.uninstallModule, (2, address(executor), "")));
+        assertFalse(IWebWallet(w).isModuleInstalled(2, address(executor), ""), "executor not uninstalled");
+        _root(w, w, abi.encodeCall(IERC7579ModuleConfig.installModule, (2, address(executor), "")));
+        assertTrue(IWebWallet(w).isModuleInstalled(2, address(executor), ""), "executor not reinstalled");
+        bytes memory foreign = abi.encodeCall(IERC7579ModuleConfig.installModule, (2, address(target), ""));
+        vm.prank(w);
+        validator.queueRoot(w, foreign);
+        vm.warp(_now() + 48 hours);
+        vm.expectRevert(abi.encodeWithSelector(IWebWallet.ModuleNotAllowed.selector, address(target)));
+        validator.executeRoot(w, w, foreign);
 
         address other = deployCode("IdentityValidator.sol:IdentityValidator", abi.encode(address(registry)));
         bytes memory data = abi.encodeCall(IERC7579ModuleConfig.installModule, (1, other, abi.encode(X, ALICE)));

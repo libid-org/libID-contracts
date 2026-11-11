@@ -63,7 +63,7 @@ contract WalletFactoryTest is WalletTestBase {
     ///     the chain or the wallet implementation the factory deploys.
     function test_addressDependsOnlyOnFactoryAndIdentity() public {
         address predicted = factory.walletAddress(X, ALICE);
-        address impl2 = deployCode("WebWallet.sol:WebWallet", abi.encode(address(validator)));
+        address impl2 = _walletImpl();
         address other = deployCode("WalletFactory.sol:WalletFactory", abi.encode(impl2));
         vm.etch(address(factory), other.code);
         vm.chainId(8453);

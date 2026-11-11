@@ -6,6 +6,7 @@ import {IERC1271} from "@openzeppelin/contracts/interfaces/IERC1271.sol";
 import {
     IERC7579AccountConfig,
     IERC7579ModuleConfig,
+    MODULE_TYPE_EXECUTOR,
     MODULE_TYPE_VALIDATOR
 } from "@openzeppelin/contracts/interfaces/draft-IERC7579.sol";
 import {Account} from "@openzeppelin/contracts/account/Account.sol";
@@ -20,21 +21,24 @@ import {
 
 import {IWebWallet} from "./IWebWallet.sol";
 
-/// @title WebWallet - an ERC-7579 account whose one module is the IdentityValidator.
+/// @title WebWallet - an ERC-7579 account whose modules are the IdentityValidator and the ClaimExecutor.
 /// @notice Module changes and upgrades come only from that validator, for a matured root operation.
 contract WebWallet is AccountERC7579Upgradeable, UUPSUpgradeable, EIP712, IWebWallet {
     using ERC7579Utils for Mode;
 
     address private immutable VALIDATOR;
+    address private immutable EXECUTOR;
 
     /// @custom:oz-upgrades-unsafe-allow constructor
-    constructor(address identityValidator) EIP712("WebWallet", "1") {
+    constructor(address identityValidator, address claimExecutor) EIP712("WebWallet", "1") {
         VALIDATOR = identityValidator;
+        EXECUTOR = claimExecutor;
         _disableInitializers();
     }
 
     function initialize(bytes calldata validatorData) external initializer {
         _installModule(MODULE_TYPE_VALIDATOR, VALIDATOR, validatorData);
+        _installModule(MODULE_TYPE_EXECUTOR, EXECUTOR, "");
     }
 
     function supportsModule(uint256 moduleTypeId)
@@ -43,7 +47,7 @@ contract WebWallet is AccountERC7579Upgradeable, UUPSUpgradeable, EIP712, IWebWa
         override(IERC7579AccountConfig, AccountERC7579Upgradeable)
         returns (bool)
     {
-        return moduleTypeId == MODULE_TYPE_VALIDATOR;
+        return moduleTypeId == MODULE_TYPE_VALIDATOR || moduleTypeId == MODULE_TYPE_EXECUTOR;
     }
 
     function supportsExecutionMode(bytes32 encodedMode)
@@ -69,9 +73,9 @@ contract WebWallet is AccountERC7579Upgradeable, UUPSUpgradeable, EIP712, IWebWa
         override(IERC7579ModuleConfig, AccountERC7579Upgradeable)
         onlyModule(MODULE_TYPE_VALIDATOR, Calldata.emptyBytes())
     {
-        // The validator is the only module, and nothing could install it again.
-        (moduleTypeId, deInitData);
-        revert ModuleNotAllowed(module);
+        // Nothing could install the validator again.
+        if (module == VALIDATOR) revert ModuleNotAllowed(module);
+        _uninstallModule(moduleTypeId, module, deInitData);
     }
 
     function upgradeToAndCall(address newImplementation, bytes memory data)
@@ -97,7 +101,7 @@ contract WebWallet is AccountERC7579Upgradeable, UUPSUpgradeable, EIP712, IWebWa
     }
 
     function _installModule(uint256 moduleTypeId, address module, bytes memory initData) internal override {
-        if (module != VALIDATOR) revert ModuleNotAllowed(module);
+        if (module != (moduleTypeId == MODULE_TYPE_EXECUTOR ? EXECUTOR : VALIDATOR)) revert ModuleNotAllowed(module);
         super._installModule(moduleTypeId, module, initData);
     }
 

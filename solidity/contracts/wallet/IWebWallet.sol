@@ -11,16 +11,19 @@ import {
 } from "@openzeppelin/contracts/interfaces/draft-IERC7579.sol";
 
 /// @title IWebWallet - the ERC-7579 account core (OpenZeppelin v5.7.0, UUPS).
-/// @notice Constructor: `WebWallet(address identityValidator)`, the one module it accepts.
+/// @notice Constructor: `WebWallet(address identityValidator, address claimExecutor)`, the two
+///         modules it accepts, as validator and executor; `initialize` installs both.
 /// @dev `installModule`, `uninstallModule` and `upgradeToAndCall` accept only the
-///      installed validator, which calls them for a matured root operation.
+///      installed validator, which calls them for a matured root operation. The validator
+///      cannot be uninstalled. `executeFromExecutor` accepts only the installed executor,
+///      and its calls pass no validator.
 ///      Delegatecall execution is refused. `isValidSignature` asks the validator about the
 ///      ERC-7739 `PersonalSign` hash of `hash` under `eip712Domain()`.
 interface IWebWallet is IERC1271, IERC7579Execution, IERC7579AccountConfig, IERC7579ModuleConfig, IERC5267 {
-    /// Only the constructor's validator may be installed.
+    /// Only the constructor's modules may be installed, and the validator never uninstalled.
     error ModuleNotAllowed(address module);
 
-    /// Installs the validator with `validatorData`. Once, by the factory.
+    /// Installs the validator with `validatorData`, and the executor. Once, by the factory.
     function initialize(bytes calldata validatorData) external;
 
     function upgradeToAndCall(address newImplementation, bytes calldata data) external payable;

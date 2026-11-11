@@ -114,7 +114,7 @@ contract WebWalletTest is WalletTestBase {
     function test_adminCannotBypassTheTimelock() public {
         address w = _claim();
         SlotMarker marker = new SlotMarker();
-        address impl2 = deployCode("WebWallet.sol:WebWallet", abi.encode(address(validator)));
+        address impl2 = _walletImpl();
         address implBefore = address(uint160(uint256(vm.load(w, IMPL_SLOT))));
         bytes[4] memory calls = [
             abi.encodeCall(

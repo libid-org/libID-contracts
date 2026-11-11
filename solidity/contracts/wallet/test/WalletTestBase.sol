@@ -9,7 +9,11 @@ import {IERC7579Execution} from "@openzeppelin/contracts/interfaces/draft-IERC75
 import {CeremonyProfile} from "../../ceremony/CeremonyProfile.sol";
 import {CeremonyProofVerifier} from "../../ceremony/CeremonyProofVerifier.sol";
 import {IPlatformVerifier} from "../../ceremony/IPlatformVerifier.sol";
+import {IProofVerifier} from "../../ceremony/IProofVerifier.sol";
+import {HandleEscrow} from "../../escrow/HandleEscrow.sol";
+import {IdentityRegistry} from "../../identity/IdentityRegistry.sol";
 import {StubPlatformVerifier} from "../../identity/test/StubPlatformVerifier.sol";
+import {IClaimExecutor} from "../IClaimExecutor.sol";
 import {IIdentityValidator} from "../IIdentityValidator.sol";
 import {IWalletFactory} from "../IWalletFactory.sol";
 import {IWalletRegistry} from "../IWalletRegistry.sol";
@@ -86,6 +90,9 @@ abstract contract WalletTestBase is Test {
     StubPlatformVerifier internal xStub;
     StubPlatformVerifier internal githubStub;
     CallTarget internal target;
+    IdentityRegistry internal identities;
+    HandleEscrow internal escrow;
+    IClaimExecutor internal executor;
 
     address internal owner = makeAddr("owner");
     address internal relayer = makeAddr("relayer");
@@ -105,9 +112,22 @@ abstract contract WalletTestBase is Test {
         );
         xStub = new StubPlatformVerifier(X, 0);
         githubStub = new StubPlatformVerifier(GITHUB, 0);
+        identities = IdentityRegistry(
+            address(
+                new ERC1967Proxy(address(new IdentityRegistry()), abi.encodeCall(IdentityRegistry.initialize, (owner)))
+            )
+        );
+        escrow = HandleEscrow(
+            address(
+                new ERC1967Proxy(
+                    address(new HandleEscrow()), abi.encodeCall(HandleEscrow.initialize, (owner, identities))
+                )
+            )
+        );
         vm.startPrank(owner);
         proofVerifier.setVerifier(X, V1, IPlatformVerifier(address(xStub)));
         proofVerifier.setVerifier(GITHUB, V1, IPlatformVerifier(address(githubStub)));
+        identities.setProofVerifier(IProofVerifier(address(proofVerifier)));
         vm.stopPrank();
 
         // The validator and the registry name each other.
@@ -117,12 +137,21 @@ abstract contract WalletTestBase is Test {
             deployCode("WalletRegistry.sol:WalletRegistry", abi.encode(address(proofVerifier), address(validator)))
         );
         assertEq(address(registry), registryAt, "registry address");
-        walletImpl = deployCode("WebWallet.sol:WebWallet", abi.encode(address(validator)));
+        executor = IClaimExecutor(
+            deployCode(
+                "ClaimExecutor.sol:ClaimExecutor", abi.encode(address(identities), address(escrow), address(validator))
+            )
+        );
+        walletImpl = _walletImpl();
         factory = IWalletFactory(deployCode("WalletFactory.sol:WalletFactory", abi.encode(walletImpl)));
         target = new CallTarget();
 
         // Stub observation times lie in the past.
         vm.warp(1_800_000_000);
+    }
+
+    function _walletImpl() internal returns (address) {
+        return deployCode("WebWallet.sol:WebWallet", abi.encode(address(validator), address(executor)));
     }
 
     /// The EntryPoint and the SenderCreator its immutables name, each at its own address.
