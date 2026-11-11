@@ -6,13 +6,12 @@ import {IEntryPoint, IPaymaster, PackedUserOperation} from "@openzeppelin/contra
 import {Execution, IERC7579Execution} from "@openzeppelin/contracts/interfaces/draft-IERC7579.sol";
 import {MerkleProof} from "@openzeppelin/contracts/utils/cryptography/MerkleProof.sol";
 
+import {NATIVE_TOKEN} from "../../NativeToken.sol";
 import {IIdentityValidator, policyHashOf, rulesHashOf} from "../IIdentityValidator.sol";
 import {IWalletRegistry} from "../IWalletRegistry.sol";
 import {IWebWallet} from "../IWebWallet.sol";
 import {AcceptingVerifier, CallTarget, IUserOpHash, WalletTestBase} from "./WalletTestBase.sol";
 
-// EIP-7528's native asset.
-address constant NATIVE = 0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE;
 uint48 constant DAY = 1 days;
 
 contract Token is ERC20 {
@@ -68,7 +67,7 @@ contract PolicyEncodingTest is WalletTestBase {
 
     function test_hashesFollowTheSpec() public pure {
         IIdentityValidator.Allowance[] memory a = new IIdentityValidator.Allowance[](1);
-        a[0] = IIdentityValidator.Allowance({token: NATIVE, amount: 1 ether, period: DAY});
+        a[0] = IIdentityValidator.Allowance({token: NATIVE_TOKEN, amount: 1 ether, period: DAY});
         IIdentityValidator.Policy memory p = IIdentityValidator.Policy({
             validAfter: 10,
             validUntil: 20,
@@ -180,7 +179,7 @@ contract PolicyTest is WalletTestBase {
         r.domainsRoot = domainsRoot;
         r.paymastersRoot = _paymasterLeaf(address(paymaster));
         r.allowances = new IIdentityValidator.Allowance[](2);
-        r.allowances[0] = IIdentityValidator.Allowance({token: NATIVE, amount: native, period: period});
+        r.allowances[0] = IIdentityValidator.Allowance({token: NATIVE_TOKEN, amount: native, period: period});
         r.allowances[1] = IIdentityValidator.Allowance({token: address(token), amount: tokens, period: period});
     }
 
@@ -323,14 +322,14 @@ contract PolicyTest is WalletTestBase {
         _addApp(MALLORY_PK, _daily());
         vm.warp(day0 - 1);
         _refused(_opFor(APP_PK, _pay(0.6 ether), day0), "a future period");
-        assertEq(validator.allowanceOf(w, _key(APP_PK), NATIVE).periodStart, 0, "a refused period was recorded");
+        assertEq(validator.allowanceOf(w, _key(APP_PK), NATIVE_TOKEN).periodStart, 0, "a refused period was recorded");
 
         vm.warp(day0);
         _handle(_opFor(APP_PK, _pay(0.6 ether), day0));
         _refused(_opFor(APP_PK, _pay(0.5 ether), day0), "over the period's limit");
         vm.warp(day0 + DAY - 1);
         _handle(_opFor(APP_PK, _pay(0.4 ether), day0));
-        IIdentityValidator.AllowanceState memory s = validator.allowanceOf(w, _key(APP_PK), NATIVE);
+        IIdentityValidator.AllowanceState memory s = validator.allowanceOf(w, _key(APP_PK), NATIVE_TOKEN);
         assertEq(s.amount, 1 ether, "amount");
         assertEq(s.period, DAY, "period");
         assertEq(s.periodStart, day0, "periodStart");
@@ -341,7 +340,7 @@ contract PolicyTest is WalletTestBase {
         vm.warp(day0 + DAY);
         _refusedWith(_opFor(MALLORY_PK, _pay(0.1 ether), day0), "AA22 expired or not due");
         _handle(_opFor(APP_PK, _pay(1 ether), day0 + DAY + 5));
-        s = validator.allowanceOf(w, _key(APP_PK), NATIVE);
+        s = validator.allowanceOf(w, _key(APP_PK), NATIVE_TOKEN);
         assertEq(s.periodStart, day0 + DAY, "rolled over");
         assertEq(s.spent, 1 ether, "a fresh period");
         assertEq(payee.balance, 2 ether, "paid");
@@ -362,7 +361,7 @@ contract PolicyTest is WalletTestBase {
         vm.warp(_now() + 3650 days);
         _refused(_opNow(APP_PK, _pay(0.5 ether)), "ten years later, over the cap");
         _handle(_opNow(APP_PK, _pay(0.4 ether)));
-        assertEq(_spent(APP_PK, NATIVE), 1 ether, "spent");
+        assertEq(_spent(APP_PK, NATIVE_TOKEN), 1 ether, "spent");
     }
 
     /// A batch is charged its sum; amounts past uint128 or summing past uint256 do not wrap; only
@@ -404,7 +403,7 @@ contract PolicyTest is WalletTestBase {
             if (i == 9) x = _two(_e(payee, 0.6 ether, ""), _e(payee, 0.6 ether, ""));
             _refused(_opNow(APP_PK, x), why[i]);
         }
-        assertEq(_spent(APP_PK, address(token)) + _spent(APP_PK, NATIVE), 0, "a refused operation spent");
+        assertEq(_spent(APP_PK, address(token)) + _spent(APP_PK, NATIVE_TOKEN), 0, "a refused operation spent");
         IIdentityValidator.Rules memory noToken = _daily();
         noToken.allowances[1].token = address(loose);
         _addApp(MALLORY_PK, noToken);
@@ -419,7 +418,7 @@ contract PolicyTest is WalletTestBase {
         all[2] = _e(payee, 1 ether, "");
         _handle(_opNow(APP_PK, all));
         assertEq(_spent(APP_PK, address(token)), 100 ether, "transfer and approve both spend");
-        assertEq(_spent(APP_PK, NATIVE), 1 ether, "value spends");
+        assertEq(_spent(APP_PK, NATIVE_TOKEN), 1 ether, "value spends");
         assertEq(token.balanceOf(payee), 60 ether, "transferred");
         assertEq(token.allowance(w, payee), 40 ether, "approved");
     }
@@ -447,7 +446,7 @@ contract PolicyTest is WalletTestBase {
         _addApp(APP_PK, _daily());
         _handle(_opNow(APP_PK, _one(_e(address(sink), 0.4 ether, abi.encodeCall(Sink.boom, ())))));
         assertEq(address(sink).balance, 0, "the execution ran");
-        assertEq(_spent(APP_PK, NATIVE), 0.4 ether, "the charge was refunded");
+        assertEq(_spent(APP_PK, NATIVE_TOKEN), 0.4 ether, "the charge was refunded");
         _refused(_opNow(APP_PK, _pay(0.7 ether)), "over what is left");
     }
 
@@ -457,21 +456,21 @@ contract PolicyTest is WalletTestBase {
         _handle(_opNow(APP_PK, _pay(0.6 ether)));
         vm.prank(w);
         validator.revokeSession(_key(APP_PK));
-        assertEq(_spent(APP_PK, NATIVE), 0, "a revoked key has no counter");
+        assertEq(_spent(APP_PK, NATIVE_TOKEN), 0, "a revoked key has no counter");
 
         _addApp(APP_PK, _daily());
-        assertEq(_spent(APP_PK, NATIVE), 0.6 ether, "the same rules lost the spend");
+        assertEq(_spent(APP_PK, NATIVE_TOKEN), 0.6 ether, "the same rules lost the spend");
         _refused(_opNow(APP_PK, _pay(0.5 ether)), "the same rules, over the limit");
         assertEq(validator.sessionOf(w, _key(APP_PK)).rulesHash, _rh(_daily()), "rulesHash");
 
         vm.prank(w);
         validator.revokeSession(_key(APP_PK));
         _addApp(APP_PK, _rules(1 ether + 1, 100 ether, DAY, 0));
-        assertEq(_spent(APP_PK, NATIVE), 0, "new rules kept the spend");
+        assertEq(_spent(APP_PK, NATIVE_TOKEN), 0, "new rules kept the spend");
         _handle(_opNow(APP_PK, _pay(1 ether)));
         _addApp(BOB_PK, _rules(1 ether + 1, 100 ether, DAY, 0));
         _handle(_opNow(BOB_PK, _pay(1 ether)));
-        assertEq(_spent(BOB_PK, NATIVE), 1 ether, "another key shares the counter");
+        assertEq(_spent(BOB_PK, NATIVE_TOKEN), 1 ether, "another key shares the counter");
     }
 
     /// ERC-7562: every slot validation reads or writes is associated with the account, for a 64-byte key.
@@ -523,7 +522,7 @@ contract PolicyTest is WalletTestBase {
                 assertLt(uint48(r >> 208), 1 << 47, "validAfter");
             } catch {}
         }
-        assertEq(_spent(APP_PK, NATIVE), 0, "an out-of-range at was charged");
+        assertEq(_spent(APP_PK, NATIVE_TOKEN), 0, "an out-of-range at was charged");
 
         PackedUserOperation memory first = _opFor(APP_PK, _pay(0.1 ether), 100);
         bytes32 firstHash = IUserOpHash(EP).getUserOpHash(first);
@@ -541,11 +540,11 @@ contract PolicyTest is WalletTestBase {
     /// A repeated token, or a period reaching bit 47, is refused when the session is added, by proof too.
     function test_badAllowancesRefused() public {
         IIdentityValidator.Rules memory twice = _daily();
-        twice.allowances[1].token = NATIVE;
+        twice.allowances[1].token = NATIVE_TOKEN;
         IIdentityValidator.Rules memory far = _daily();
         far.allowances[1].period = uint48(1 << 47);
         vm.prank(w);
-        vm.expectRevert(abi.encodeWithSelector(IIdentityValidator.BadAllowance.selector, NATIVE));
+        vm.expectRevert(abi.encodeWithSelector(IIdentityValidator.BadAllowance.selector, NATIVE_TOKEN));
         validator.addSession(_identity(X, ALICE), _key(APP_PK), IIdentityValidator.Policy(0, 0, false, twice));
 
         IIdentityValidator.Policy memory p = IIdentityValidator.Policy(0, 0, false, far);
@@ -579,21 +578,21 @@ contract PolicyTest is WalletTestBase {
         _refused(drain, "gas over a zero NATIVE allowance");
         _sign(drain, _pks(BOB_PK), _proofs(hit), uint48(_now()));
         _refused(drain, "gas with no NATIVE entry");
-        IIdentityValidator.AllowanceState memory zero = validator.allowanceOf(w, _key(APP_PK), NATIVE);
+        IIdentityValidator.AllowanceState memory zero = validator.allowanceOf(w, _key(APP_PK), NATIVE_TOKEN);
         assertEq(zero.spent + zero.periodStart, 0, "a refused operation was charged");
 
         PackedUserOperation memory paid = _nextOp(_callData(_pay(0.1 ether)));
         _sign(paid, _pks(MALLORY_PK), _proofs(_pay(0)), uint48(_now()));
         _handle(paid);
         uint256 gas = _prefund(paid);
-        assertEq(_spent(MALLORY_PK, NATIVE), 0.1 ether + gas, "the value and the maximum gas cost");
+        assertEq(_spent(MALLORY_PK, NATIVE_TOKEN), 0.1 ether + gas, "the value and the maximum gas cost");
 
         uint256 left = 1 ether - 0.1 ether - gas;
         PackedUserOperation memory over = _nextOp(_callData(_pay(left - gas + 1)));
         _sign(over, _pks(MALLORY_PK), _proofs(_pay(0)), uint48(_now()));
         _refused(over, "the value and gas, one wei over");
         _handle(_opNow(MALLORY_PK, _pay(left)));
-        assertEq(_spent(MALLORY_PK, NATIVE), 1 ether, "a sponsored operation was charged gas");
+        assertEq(_spent(MALLORY_PK, NATIVE_TOKEN), 1 ether, "a sponsored operation was charged gas");
     }
 
     /// Below quorum a paymaster the session does not list is refused: a token paymaster the account
@@ -623,7 +622,7 @@ contract PolicyTest is WalletTestBase {
         _refusedFor(_opNow(BOB_PK, hit), control, "a listed paymaster without its proof");
 
         _handle(control);
-        assertEq(_spent(BOB_PK, NATIVE), 0, "a listed paymaster was charged");
+        assertEq(_spent(BOB_PK, NATIVE_TOKEN), 0, "a listed paymaster was charged");
 
         op = _nextOp(_callData(hit));
         op.paymasterAndData = abi.encodePacked(address(drain), uint128(100_000), uint128(0));
@@ -731,7 +730,7 @@ contract PolicyTest is WalletTestBase {
         _handle(_opAtQuorum(_pks(ALICE_PK, BOB_PK), _callData(outside)));
         _handle(_opAtQuorum(_pks(ALICE2_PK, BOB_PK), _callData(_pay(0.9 ether))));
         assertEq(validator.recoveryDelay(w), 72 hours, "quorum is unrestricted");
-        assertEq(_spent(ALICE2_PK, NATIVE), 0, "quorum was charged");
+        assertEq(_spent(ALICE2_PK, NATIVE_TOKEN), 0, "quorum was charged");
 
         vm.warp(_now() + 1);
         bytes32 h = keccak256("a message");
@@ -750,7 +749,7 @@ contract PolicyTest is WalletTestBase {
         Execution[] memory outside = _one(_e(address(target), 0, abi.encodeCall(target.calls, ())));
         _handle(_opAtQuorum(_pks(ALICE2_PK), _callData(outside)));
         _handle(_opAtQuorum(_pks(ALICE2_PK), _callData(_pay(0.9 ether))));
-        assertEq(_spent(ALICE2_PK, NATIVE), 0, "an unrestricted admin was charged");
+        assertEq(_spent(ALICE2_PK, NATIVE_TOKEN), 0, "an unrestricted admin was charged");
 
         Execution[] memory hit = _one(_e(address(target), 0, abi.encodeCall(CallTarget.hit, ())));
         _refusedFor(_opBy(_pks(APP_PK, BOB_PK), hit), _opNow(APP_PK, hit), "two app sessions");
@@ -839,7 +838,7 @@ contract PolicyTest is WalletTestBase {
         _add(w, _identity(GITHUB, BOB), APP_PK, false, _daily());
         _handle(_opNow(APP_PK, _pay(0.1 ether)));
         _root(w, address(validator), abi.encodeCall(IIdentityValidator.unlink, (_identity(GITHUB, BOB))));
-        assertEq(validator.allowanceOf(w, _key(APP_PK), NATIVE).amount, 0, "a dead session's allowance");
+        assertEq(validator.allowanceOf(w, _key(APP_PK), NATIVE_TOKEN).amount, 0, "a dead session's allowance");
     }
 
     /// The proof of a session commits its rules, which the session record keeps.
