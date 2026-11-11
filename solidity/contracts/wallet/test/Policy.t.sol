@@ -262,6 +262,7 @@ contract PolicyTest is WalletTestBase {
         assertEq(s.periodStart, day0 + DAY, "rolled over");
         assertEq(s.spent, 1 ether, "a fresh period");
         assertEq(payee.balance, 2 ether, "paid");
+        _handle(_opFor(APP_PK, _one(_e(address(target), 0, abi.encodeCall(CallTarget.hit, ()))), day0));
 
         PackedUserOperation memory closed = _opFor(APP_PK, _pay(1), day0);
         bytes32 closedHash = IUserOpHash(EP).getUserOpHash(closed);
@@ -282,7 +283,7 @@ contract PolicyTest is WalletTestBase {
     /// `transfer` and `approve` spend a token with an allowance, and a spending selector needs one.
     function test_spendingIsParsedAndSummed() public {
         _addApp(APP_PK, _daily());
-        Execution[10] memory refused = [
+        Execution[12] memory refused = [
             _e(address(0), 0, ""), // placeholder, replaced below
             _send(token, 1 << 200),
             _send(token, type(uint256).max),
@@ -292,9 +293,11 @@ contract PolicyTest is WalletTestBase {
             _send(loose, 1),
             _e(address(token), 0, abi.encodeCall(ERC20.approve, (payee, 100 ether + 1))),
             _e(address(0), 0, ""),
-            _e(address(0), 0, "")
+            _e(address(0), 0, ""),
+            _send(loose, 0),
+            _e(address(token), 0, abi.encodePacked(ERC20.transfer.selector, abi.encode(payee), bytes31(0)))
         ];
-        string[10] memory why = [
+        string[12] memory why = [
             "two transfers over the limit",
             "2^200",
             "uint256 max",
@@ -304,7 +307,9 @@ contract PolicyTest is WalletTestBase {
             "a token with no allowance",
             "approve over the limit",
             "two transfers summing past 2^256",
-            "two payments over the limit"
+            "two payments over the limit",
+            "zero of a token with no allowance",
+            "a 67-byte transfer"
         ];
         for (uint256 i; i < refused.length; ++i) {
             Execution[] memory x = _one(refused[i]);
@@ -314,6 +319,13 @@ contract PolicyTest is WalletTestBase {
             _refused(_opNow(APP_PK, x), why[i]);
         }
         assertEq(_spent(APP_PK, address(token)) + _spent(APP_PK, NATIVE), 0, "a refused operation spent");
+        IIdentityValidator.Rules memory noToken = _daily();
+        noToken.allowances[1].token = address(loose);
+        _addApp(MALLORY_PK, noToken);
+        _refused(
+            _opNow(MALLORY_PK, _one(_e(address(token), 0, abi.encodeCall(ERC20.transferFrom, (w, payee, 1))))),
+            "transferFrom on a token with no allowance"
+        );
 
         Execution[] memory all = new Execution[](3);
         all[0] = _send(token, 60 ether);
@@ -353,6 +365,9 @@ contract PolicyTest is WalletTestBase {
         _addApp(APP_PK, _rules(1 ether + 1, 100 ether, DAY, 0));
         assertEq(_spent(APP_PK, NATIVE), 0, "new rules kept the spend");
         _handle(_opNow(APP_PK, _pay(1 ether)));
+        _addApp(BOB_PK, _rules(1 ether + 1, 100 ether, DAY, 0));
+        _handle(_opNow(BOB_PK, _pay(1 ether)));
+        assertEq(_spent(BOB_PK, NATIVE), 1 ether, "another key shares the counter");
     }
 
     /// ERC-7562: every slot validation reads or writes is associated with the account, for a 64-byte key.
@@ -401,6 +416,13 @@ contract PolicyTest is WalletTestBase {
             } catch {}
         }
         assertEq(_spent(APP_PK, NATIVE), 0, "an out-of-range at was charged");
+
+        _addApp(BOB_PK, _rules(1 ether, 0, uint48(1 << 20), 0));
+        PackedUserOperation memory last = _opFor(BOB_PK, _pay(0.1 ether), uint48(1 << 47) - 1);
+        bytes32 lastHash = IUserOpHash(EP).getUserOpHash(last);
+        vm.prank(w);
+        uint256 window = validator.validateUserOp(last, lastHash);
+        assertEq(window, _window(uint48(1 << 47) - (1 << 20) - 1, uint48(1 << 47) - 1), "the period ending at bit 47");
     }
 
     /// A repeated token, or a period reaching bit 47, is refused when the session is added, by proof too.
@@ -465,6 +487,7 @@ contract PolicyTest is WalletTestBase {
         _handle(_opNow(APP_PK, _one(_e(address(target), 0.5 ether, abi.encodeCall(CallTarget.hit, ())))));
         _handle(_opNow(BOB_PK, hit));
         _handle(_opNow(APP_PK, _pay(0.5 ether)));
+        _handle(_opNow(APP_PK, _one(_e(payee, 0, hex"abcdef"))));
         assertEq(target.calls(), 2, "in-scope calls");
         assertEq(payee.balance, 0.5 ether, "a plain transfer has selector 0");
     }
@@ -570,6 +593,34 @@ contract PolicyTest is WalletTestBase {
             assertEq(IWebWallet(w).isValidSignature(hashes[i], sigs[i]), bytes4(0xffffffff), why[i]);
         }
         assertEq(IWebWallet(w2).isValidSignature(h, sig), bytes4(0xffffffff), "replayed on another account");
+        (h, sig) = _typedSigBy(w, _pks(APP_PK, MALLORY_PK), apps[0], proofA);
+        assertEq(IWebWallet(w).isValidSignature(h, sig), bytes4(0xffffffff), "two sessions below quorum");
+    }
+
+    /// A domain set grants neither separator 0 nor `PersonalSign` under the account's own separator.
+    function test_erc1271DomainSetsListNoZeroOrAccountSeparator() public {
+        bytes32[] memory listed = new bytes32[](2);
+        (listed[0], listed[1]) = (_domainLeaf(0), _domainLeaf(_separator(w)));
+        (bytes32 domains, bytes32[] memory proofZero) = _tree(listed, 0);
+        (, bytes32[] memory proofOwn) = _tree(listed, 1);
+        _addApp(APP_PK, _rules(0, 0, DAY, domains));
+        vm.warp(_now() + 1);
+
+        (bytes32 h, bytes memory sig) = _typedSig(w, APP_PK, 0, proofZero);
+        assertEq(IWebWallet(w).isValidSignature(h, sig), bytes4(0xffffffff), "separator 0");
+        h = keccak256("a message");
+        IIdentityValidator.CallProof[] memory none = new IIdentityValidator.CallProof[](0);
+        sig = abi.encodePacked(address(validator), _auth(_pks(APP_PK), _wrapped(w, h), 0, none, proofOwn));
+        assertEq(IWebWallet(w).isValidSignature(h, sig), bytes4(0xffffffff), "PersonalSign, own separator listed");
+    }
+
+    /// An unlinked identity's session shows no allowance.
+    function test_anUnlinkedSessionShowsNoAllowance() public {
+        _link(w, GITHUB, BOB, w, "", _admin());
+        _add(w, _identity(GITHUB, BOB), APP_PK, false, _daily());
+        _handle(_opNow(APP_PK, _pay(0.1 ether)));
+        _root(w, address(validator), abi.encodeCall(IIdentityValidator.unlink, (_identity(GITHUB, BOB))));
+        assertEq(validator.allowanceOf(w, _key(APP_PK), NATIVE).amount, 0, "a dead session's allowance");
     }
 
     /// The proof of a session commits its rules, which the session record keeps.
@@ -599,6 +650,14 @@ contract PolicyTest is WalletTestBase {
     function _typedSig(address account, uint256 pk, bytes32 app, bytes32[] memory domainProof)
         internal
         view
+        returns (bytes32, bytes memory)
+    {
+        return _typedSigBy(account, _pks(pk), app, domainProof);
+    }
+
+    function _typedSigBy(address account, uint256[] memory pks, bytes32 app, bytes32[] memory domainProof)
+        internal
+        view
         returns (bytes32 h, bytes memory sig)
     {
         bytes32 contents = keccak256("a Mail");
@@ -615,7 +674,7 @@ contract PolicyTest is WalletTestBase {
             abi.encode(typehash, contents, keccak256(bytes(name)), keccak256(bytes(version)), chainId, verifying, salt)
         );
         bytes memory auth = _auth(
-            _pks(pk),
+            pks,
             keccak256(abi.encodePacked(hex"1901", app, structHash)),
             0,
             new IIdentityValidator.CallProof[](0),

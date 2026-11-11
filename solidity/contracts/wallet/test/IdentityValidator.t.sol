@@ -716,6 +716,12 @@ contract IdentityValidatorTest is WalletTestBase {
             vm.expectRevert();
             registry.linkIdentity(X, V1, payload, ps[i]);
         }
+
+        vm.warp(flag - 1 hours);
+        IIdentityValidator.Policy memory app = _app();
+        bytes memory late = _payload(X, ALICE, ADD, _txData(w, _key(APP_PK), _ph(app)));
+        vm.expectRevert(abi.encodeWithSelector(IIdentityValidator.PolicyOutOfRange.selector, 0, 0));
+        registry.addSessionByProof(X, V1, late, app);
     }
 
     /// ERC-7739 `TypedDataSign`: the app's hash, nested under the account's domain, signed by an admin.

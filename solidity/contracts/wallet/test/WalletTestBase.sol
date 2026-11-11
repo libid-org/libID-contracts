@@ -484,9 +484,14 @@ abstract contract WalletTestBase is Test, Trees {
 
     /// The ERC-7739 PersonalSign hash of `h` under the wallet's own EIP-712 domain.
     function _wrapped(address wallet, bytes32 h) internal view returns (bytes32) {
+        return keccak256(abi.encodePacked(hex"1901", _separator(wallet), keccak256(abi.encode(PERSONAL_SIGN, h))));
+    }
+
+    /// The wallet's unsalted EIP-712 domain separator.
+    function _separator(address wallet) internal view returns (bytes32) {
         (, string memory name, string memory version, uint256 chainId, address verifying,,) =
             IWebWallet(wallet).eip712Domain();
-        bytes32 separator = keccak256(
+        return keccak256(
             abi.encode(
                 keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)"),
                 keccak256(bytes(name)),
@@ -495,7 +500,6 @@ abstract contract WalletTestBase is Test, Trees {
                 verifying
             )
         );
-        return keccak256(abi.encodePacked(hex"1901", separator, keccak256(abi.encode(PERSONAL_SIGN, h))));
     }
 
     function _isValid1271(address wallet, bytes32 h, uint256 pk, bytes32 signed) internal view returns (bool) {
