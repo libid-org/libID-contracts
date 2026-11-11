@@ -30,7 +30,6 @@ contract IdentityValidator is IIdentityValidator {
     using MessageHashUtils for bytes32;
 
     uint48 public constant MIN_RECOVERY_DELAY = 48 hours;
-    uint48 public constant ROOT_DELAY = MIN_RECOVERY_DELAY;
     uint48 public constant MAX_RECOVERY_DELAY = 365 days;
 
     address private immutable REGISTRY;

@@ -47,7 +47,6 @@ contract IdentityValidatorTest is WalletTestBase {
     function test_registryOnlyEntries() public {
         assertEq(validator.walletRegistry(), address(registry));
         assertEq(validator.MIN_RECOVERY_DELAY(), 48 hours);
-        assertEq(validator.ROOT_DELAY(), 48 hours);
         address w = _claim();
         vm.startPrank(mallory);
         vm.expectRevert(abi.encodeWithSelector(IIdentityValidator.NotRegistry.selector, mallory));

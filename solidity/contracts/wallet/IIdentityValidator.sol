@@ -88,10 +88,8 @@ interface IIdentityValidator is IERC7579Validator {
     /// A root operation targets the account, or this validator's `setThreshold`, `revokeSession` or `unlink`.
     error BadRootOperation(address target);
 
-    /// The floor of the wait for sessions added by proof.
+    /// Floor of `recoveryDelay`.
     function MIN_RECOVERY_DELAY() external view returns (uint48);
-    /// The floor of the wait between `queueRoot` and `executeRoot`, which is the account's `recoveryDelay`.
-    function ROOT_DELAY() external view returns (uint48);
     /// Ceiling of `recoveryDelay`.
     function MAX_RECOVERY_DELAY() external view returns (uint48);
     function walletRegistry() external view returns (address);
@@ -103,6 +101,7 @@ interface IIdentityValidator is IERC7579Validator {
     function generationOf(address account, bytes32 identity) external view returns (uint32);
     /// Distinct admin identities an admin operation needs. Defaults to 1.
     function threshold(address account) external view returns (uint8);
+    /// The account's wait for sessions added by proof and for root operations (see `rootReadyAt`).
     function recoveryDelay(address account) external view returns (uint48);
     /// One-way: set once the account has had any session.
     function hadSession(address account) external view returns (bool);
