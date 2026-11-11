@@ -21,6 +21,27 @@ contract Accepting1271 {
     }
 }
 
+/// An account whose EIP-712 domain has a salt; it passes ERC-1271 to the validator as WebWallet does.
+contract SaltedAccount {
+    IIdentityValidator private immutable VALIDATOR;
+
+    constructor(IIdentityValidator validator) {
+        VALIDATOR = validator;
+    }
+
+    function eip712Domain()
+        external
+        view
+        returns (bytes1, string memory, string memory, uint256, address, bytes32, uint256[] memory)
+    {
+        return (0x1f, "Salted", "1", block.chainid, address(this), keccak256("salt"), new uint256[](0));
+    }
+
+    function isValidSignature(bytes32 hash, bytes calldata signature) external view returns (bytes4) {
+        return VALIDATOR.isValidSignatureWithSender(msg.sender, hash, signature[20:]);
+    }
+}
+
 /// @notice Sessions, threshold, root timelock, ERC-1271 and ERC-7562 rules of the validator.
 contract IdentityValidatorTest is WalletTestBase {
     function test_registryOnlyEntries() public {
@@ -693,6 +714,43 @@ contract IdentityValidatorTest is WalletTestBase {
         assertEq(IWebWallet(w).isValidSignature(probe, ""), bytes4(0x77390001), "standard probe");
         assertEq(IWebWallet(w).isValidSignature(probe, abi.encodePacked(address(validator))), bytes4(0x77390001));
         assertEq(IWebWallet(w).isValidSignature(keccak256("other"), ""), bytes4(0xffffffff), "empty signature");
+    }
+
+    /// Both ERC-7739 forms follow the account's whole domain, salt included.
+    function test_erc1271FollowsASaltedDomain() public {
+        SaltedAccount a = new SaltedAccount(validator);
+        vm.prank(address(a));
+        validator.onInstall(abi.encode(X, ALICE));
+        vm.prank(address(registry));
+        validator.link(address(a), X, ALICE);
+        vm.prank(address(a));
+        validator.addSession(_identity(X, ALICE), _key(ALICE_PK), _admin());
+        vm.warp(_now() + 1);
+
+        bytes32 h = keccak256("a message");
+        bytes32 separator = keccak256(
+            abi.encode(
+                keccak256(
+                    "EIP712Domain(string name,string version,uint256 chainId,address verifyingContract,bytes32 salt)"
+                ),
+                keccak256("Salted"),
+                keccak256("1"),
+                block.chainid,
+                address(a),
+                keccak256("salt")
+            )
+        );
+        bytes32 signed = keccak256(abi.encodePacked(hex"1901", separator, keccak256(abi.encode(PERSONAL_SIGN, h))));
+        bytes memory personal = abi.encodePacked(address(validator), _sigs(_pks(ALICE_PK), signed));
+        assertEq(a.isValidSignature(h, personal), bytes4(0x1626ba7e), "PersonalSign");
+        bytes memory unsalted = abi.encodePacked(address(validator), _sigs(_pks(ALICE_PK), _wrapped(address(a), h)));
+        assertEq(a.isValidSignature(h, unsalted), bytes4(0xffffffff), "PersonalSign without the salt");
+
+        bytes32 app = keccak256("an app's domain separator");
+        bytes32 contents = keccak256("a Mail");
+        bytes32 typed = keccak256(abi.encodePacked(hex"1901", app, contents));
+        bytes memory sig = _typedSig(address(a), ALICE_PK, app, contents, "Mail(address to)");
+        assertEq(a.isValidSignature(typed, sig), bytes4(0x1626ba7e), "TypedDataSign");
     }
 
     /// `pk`'s ERC-7739 `TypedDataSign` signature of `contents` for the app `app`, built from the spec.

@@ -37,8 +37,6 @@ contract IdentityValidator is IIdentityValidator {
 
     /// The ERC-7739 detection hash: with an empty signature, it answers `0x77390001`.
     bytes32 private constant ERC7739_PROBE = 0x7739773977397739773977397739773977397739773977397739773977397739;
-    bytes32 private constant DOMAIN_TYPEHASH =
-        keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)");
 
     /// What `callData` asks of the account.
     enum Scope {
@@ -450,21 +448,22 @@ contract IdentityValidator is IIdentityValidator {
     }
 
     /// The hash an ERC-7739 nested signature signs, and its signature list.
-    /// @dev The account's domain is OpenZeppelin `EIP712`'s: name, version, chainId and verifyingContract.
+    /// @dev Both forms use the account's `eip712Domain()`: `TypedDataSign` all five fields,
+    ///      `PersonalSign` the fields it names. A domain with extensions reverts.
     function _unnest(bytes32 hash, bytes calldata signature) private view returns (bytes32, bytes calldata) {
-        (, string memory name, string memory version, uint256 chainId, address verifying, bytes32 salt,) =
+        (bytes1 fields, string memory name, string memory version, uint256 chainId, address verifying, bytes32 salt,) =
             IERC5267(msg.sender).eip712Domain();
+        bytes32 nameHash = keccak256(bytes(name));
+        bytes32 versionHash = keccak256(bytes(version));
         (bytes calldata inner, bytes32 appSeparator, bytes32 contentsHash, string calldata descr) =
             signature.decodeTypedDataSig();
-        bytes memory domain = abi.encode(keccak256(bytes(name)), keccak256(bytes(version)), chainId, verifying, salt);
+        bytes memory domain = abi.encode(nameHash, versionHash, chainId, verifying, salt);
         // Zero for an empty or malformed contents type, which binds nothing.
         bytes32 structHash = descr.typedDataSignStructHash(contentsHash, domain);
         if (structHash != 0 && hash == appSeparator.toTypedDataHash(contentsHash)) {
             return (appSeparator.toTypedDataHash(structHash), inner);
         }
-        bytes32 separator = keccak256(
-            abi.encode(DOMAIN_TYPEHASH, keccak256(bytes(name)), keccak256(bytes(version)), chainId, verifying)
-        );
+        bytes32 separator = MessageHashUtils.toDomainSeparator(fields, nameHash, versionHash, chainId, verifying, salt);
         return (separator.toTypedDataHash(hash.personalSignStructHash()), signature);
     }
 
