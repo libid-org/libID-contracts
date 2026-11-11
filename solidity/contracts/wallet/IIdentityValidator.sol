@@ -10,7 +10,7 @@ function identityOf(bytes32 platformId, bytes32 idNode) pure returns (bytes32) {
 
 /// A rule set's hash, stored in the session record and keying its allowance counters.
 function rulesHashOf(IIdentityValidator.Rules memory rules) pure returns (bytes32) {
-    return keccak256(abi.encode(rules.scopeRoot, rules.domainsRoot, rules.allowances));
+    return keccak256(abi.encode(rules.scopeRoot, rules.domainsRoot, rules.paymastersRoot, rules.allowances));
 }
 
 /// A policy's hash, as a proof commits it.
@@ -39,8 +39,9 @@ function policyHashOf(IIdentityValidator.Policy memory policy) pure returns (byt
 ///      - every execution needs `calls[i]`, a proof of the leaf `(target, selector, calls[i].maxValue)`
 ///        under `scopeRoot`, with `value <= maxValue`; `scopeRoot == 0` allows no call;
 ///      - native `value` is charged to `NATIVE_TOKEN` (0xEeee…EEeE); with no entry its limit is 0;
-///      - with no paymaster, the operation's maximum gas cost, `(verificationGasLimit + callGasLimit +
-///        preVerificationGas) * maxFeePerGas`, is charged to `NATIVE_TOKEN` with the value;
+///      - unless its paymaster is proved under `paymastersRoot` by `paymasterProof`, the operation's
+///        maximum gas cost, `(verificationGasLimit + callGasLimit + preVerificationGas) * maxFeePerGas`,
+///        is charged to `NATIVE_TOKEN` with the value; `paymastersRoot == 0` allows no paymaster;
 ///      - ERC-20 `transfer(to, amount)` and `approve(spender, amount)` charge `amount` to the target;
 ///        `transferFrom`, a spending selector on a target with no allowance, and any other selector on
 ///        a target with one are refused. Any other selector on a target with no allowance is charged
@@ -48,9 +49,10 @@ function policyHashOf(IIdentityValidator.Policy memory policy) pure returns (byt
 ///        `approve` and `transferFrom` share ERC-20's selectors;
 ///      - only `TypedDataSign` is accepted for ERC-1271, with the app separator proved under `domainsRoot`.
 ///      Leaves are OpenZeppelin double-hashed, `keccak256(bytes.concat(keccak256(abi.encode(...))))`, of
-///      `(address target, bytes4 selector, uint256 maxValue)` or `(bytes32 appSeparator)`, under sorted-pair
-///      roots. Calldata shorter than four bytes has selector `0x00000000`: a `0x00000000` leaf is the
-///      fallback and plain-send leaf, matching empty calldata, 1–3 bytes, and calldata starting `0x00000000`.
+///      `(address target, bytes4 selector, uint256 maxValue)`, `(bytes32 appSeparator)` or
+///      `(address paymaster)`, under sorted-pair roots. Calldata shorter than four bytes has selector
+///      `0x00000000`: a `0x00000000` leaf is the fallback and plain-send leaf, matching empty calldata,
+///      1–3 bytes, and calldata starting `0x00000000`.
 ///      Allowances are charged in validation, even when the execution reverts. The period is
 ///      `at - at % period`, or the session's whole life when `period == 0`. A charging operation's
 ///      validity window is that period intersected with the session's. A charge needs `at != 0`, and
@@ -72,10 +74,12 @@ interface IIdentityValidator is IERC7579Validator {
         uint48 period;
     }
 
-    /// @dev What a session may do below quorum: Merkle roots of call leaves and app separators, and allowances.
+    /// @dev What a session may do below quorum: Merkle roots of call leaves, app separators and paymasters
+    ///      that pay its gas, and allowances.
     struct Rules {
         bytes32 scopeRoot;
         bytes32 domainsRoot;
+        bytes32 paymastersRoot;
         Allowance[] allowances;
     }
 
@@ -102,6 +106,7 @@ interface IIdentityValidator is IERC7579Validator {
         bool byProof;
         bytes32 scopeRoot;
         bytes32 domainsRoot;
+        bytes32 paymastersRoot;
         bytes32 rulesHash;
     }
 
@@ -126,12 +131,13 @@ interface IIdentityValidator is IERC7579Validator {
 
     /// @dev Below quorum `at` is signed: it picks the allowance period, which the EntryPoint enforces
     ///      as the validity window. At quorum it is ignored. `calls` is unsigned; `calls[i]` is for the
-    ///      i-th execution.
+    ///      i-th execution. `paymasterProof` proves the operation's paymaster under `paymastersRoot`.
     struct Authorization {
         SessionSignature[] signatures;
         uint48 at;
         CallProof[] calls;
         bytes32[] domainProof;
+        bytes32[] paymasterProof;
     }
 
     /// A session added by the account itself.

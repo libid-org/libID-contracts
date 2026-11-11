@@ -43,6 +43,25 @@ contract FreePaymaster is IPaymaster {
     function postOp(PostOpMode, bytes calldata, uint256, uint256) external pure {}
 }
 
+/// Takes its maximum cost in a token the sender approved, whatever the operation.
+contract TokenPaymaster is IPaymaster {
+    Token internal immutable TOKEN;
+
+    constructor(Token token) {
+        TOKEN = token;
+    }
+
+    function validatePaymasterUserOp(PackedUserOperation calldata op, bytes32, uint256 maxCost)
+        external
+        returns (bytes memory, uint256)
+    {
+        TOKEN.transferFrom(op.sender, address(this), maxCost);
+        return ("", 0);
+    }
+
+    function postOp(PostOpMode, bytes calldata, uint256, uint256) external pure {}
+}
+
 /// @notice The encodings the spec pins, against vectors computed outside Solidity. Deploys nothing.
 contract PolicyEncodingTest is WalletTestBase {
     function setUp() public override {}
@@ -54,13 +73,15 @@ contract PolicyEncodingTest is WalletTestBase {
             validAfter: 10,
             validUntil: 20,
             admin: false,
-            rules: IIdentityValidator.Rules({scopeRoot: keccak256("s"), domainsRoot: keccak256("d"), allowances: a})
+            rules: IIdentityValidator.Rules({
+                scopeRoot: keccak256("s"), domainsRoot: keccak256("d"), paymastersRoot: keccak256("p"), allowances: a
+            })
         });
-        // cast keccak (cast abi-encode "f(bytes32,bytes32,(address,uint128,uint48)[])" ...), then of the policy.
-        bytes32 rules = 0x0f1074e6644618e47a9636a8033a3a1ce2519dea1e15e38cd647bb937141ec4e;
+        // cast keccak (cast abi-encode "f(bytes32,bytes32,bytes32,(address,uint128,uint48)[])" ...), then of the policy.
+        bytes32 rules = 0x91a60d66d4b51055570ae803ab60eeb97f5719221a31686eb83fba2cd2169b20;
         assertEq(rulesHashOf(p.rules), rules, "rulesHashOf");
         assertEq(_rh(p.rules), rules, "the test base's rules hash");
-        assertEq(policyHashOf(p), 0x6e2eda5dfc5873fa5f0be05a2441ff27e9d0b4e8ec04b8835db9c42689f1ebb0, "policyHashOf");
+        assertEq(policyHashOf(p), 0x28fb19edd401b9226deca03df105d7f00a5aa309994e6983edafde4cd7a38f20, "policyHashOf");
         assertEq(_ph(p), policyHashOf(p), "the test base's policy hash");
         assertEq(
             _leaf(address(0x1234), 0xa9059cbb, 1 ether),
@@ -71,6 +92,11 @@ contract PolicyEncodingTest is WalletTestBase {
             _domainLeaf(keccak256("app A")),
             0x51c38235383b281a1fd65e7d4bb6ffc60fc412e9449cdbb033958a1a53557330,
             "domain leaf"
+        );
+        assertEq(
+            _paymasterLeaf(address(0x1234)),
+            0x29d86d891992a0a891ff8cc9477d178707448d6a8f2f8a15fe1ca735238569e4,
+            "paymaster leaf"
         );
     }
 
@@ -152,6 +178,7 @@ contract PolicyTest is WalletTestBase {
     {
         r.scopeRoot = _scopeRoot();
         r.domainsRoot = domainsRoot;
+        r.paymastersRoot = _paymasterLeaf(address(paymaster));
         r.allowances = new IIdentityValidator.Allowance[](2);
         r.allowances[0] = IIdentityValidator.Allowance({token: NATIVE, amount: native, period: period});
         r.allowances[1] = IIdentityValidator.Allowance({token: address(token), amount: tokens, period: period});
@@ -458,7 +485,11 @@ contract PolicyTest is WalletTestBase {
         PackedUserOperation memory op = _op(w, 0, _callData(x));
         op.signature = abi.encode(
             IIdentityValidator.Authorization({
-                signatures: s, at: uint48(_now()), calls: _proofs(x), domainProof: new bytes32[](0)
+                signatures: s,
+                at: uint48(_now()),
+                calls: _proofs(x),
+                domainProof: new bytes32[](0),
+                paymasterProof: new bytes32[](0)
             })
         );
 
@@ -531,7 +562,7 @@ contract PolicyTest is WalletTestBase {
     }
 
     /// Without a paymaster the operation's maximum gas cost is charged to NATIVE with its value, so a
-    /// session cannot spend the account's ether on gas it chose; with a paymaster no gas is charged.
+    /// session cannot spend the account's ether on gas it chose; with a listed paymaster no gas is charged.
     function test_gasIsChargedToTheNativeAllowance() public {
         _addApp(APP_PK, _rules(0, 100 ether, DAY, 0));
         IIdentityValidator.Rules memory noNative = _daily();
@@ -563,6 +594,37 @@ contract PolicyTest is WalletTestBase {
         _refused(over, "the value and gas, one wei over");
         _handle(_opNow(MALLORY_PK, _pay(left)));
         assertEq(_spent(MALLORY_PK, NATIVE), 1 ether, "a sponsored operation was charged gas");
+    }
+
+    /// A paymaster the session does not list is charged like none: a token paymaster the account
+    /// approved cannot take its fee past a zero NATIVE allowance. At quorum any paymaster pays uncharged.
+    function test_anUnlistedPaymasterIsChargedGas() public {
+        TokenPaymaster drain = new TokenPaymaster(token);
+        IEntryPoint(EP).depositTo{value: 100 ether}(address(drain));
+        vm.prank(w);
+        token.approve(address(drain), type(uint256).max);
+        _addApp(APP_PK, _rules(0, 100 ether, DAY, 0));
+        _addApp(BOB_PK, _daily());
+        Execution[] memory hit = _one(_e(address(target), 0, abi.encodeCall(CallTarget.hit, ())));
+
+        PackedUserOperation memory op = _nextOp(_callData(hit));
+        op.paymasterAndData = abi.encodePacked(address(drain), uint128(100_000), uint128(0));
+        _sign(op, _pks(APP_PK), _proofs(hit), uint48(_now()));
+        _refusedFor(op, _opNow(APP_PK, hit), "gas through an unlisted paymaster");
+        _refused(op, "gas through an unlisted paymaster");
+        assertEq(token.balanceOf(address(drain)), 0, "the paymaster took its fee");
+
+        _sign(op, _pks(BOB_PK), _proofs(hit), uint48(_now()));
+        _handle(op);
+        assertEq(_spent(BOB_PK, NATIVE), _prefund(op), "the gas was not charged");
+        _handle(_opNow(BOB_PK, hit));
+        assertEq(_spent(BOB_PK, NATIVE), _prefund(op), "a listed paymaster was charged");
+
+        op = _nextOp(_callData(hit));
+        op.paymasterAndData = abi.encodePacked(address(drain), uint128(100_000), uint128(0));
+        op.signature = _sigs(_pks(ALICE_PK), IUserOpHash(EP).getUserOpHash(op));
+        _handle(op);
+        assertEq(target.calls(), 3, "calls");
     }
 
     // ─── Scope (S2) ─────────────────────────────────────────────────

@@ -27,6 +27,7 @@ contract ScopeEdgesTest is WalletTestBase {
         w = _claim();
         IIdentityValidator.Policy memory p = _hitOnly();
         p.rules.scopeRoot = _root();
+        p.rules.paymastersRoot = _paymasterLeaf(makeAddr("paymaster"));
         vm.prank(w);
         validator.addSession(_identity(X, ALICE), _key(APP_PK), p);
     }
@@ -90,7 +91,7 @@ contract ScopeEdgesTest is WalletTestBase {
         assertEq(_answer(_opOn(payee, hex"00000001", leaf)), 1, "a nonzero selector");
     }
 
-    /// `at == 0` is refused only when something is charged: here the gas of an operation with no paymaster.
+    /// `at == 0` is refused only when something is charged: here the gas no listed paymaster pays.
     function test_atZeroIsRefusedOnlyWhenCharging() public {
         uint256 hit = selectors.length - 1;
         PackedUserOperation memory op = _opAt(address(target), abi.encodeCall(CallTarget.hit, ()), hit, 0);

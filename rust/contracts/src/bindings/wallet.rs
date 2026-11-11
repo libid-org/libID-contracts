@@ -129,6 +129,7 @@ mod tests {
             rules: IIdentityValidator::Rules {
                 scopeRoot: [1; 32].into(),
                 domainsRoot: [2; 32].into(),
+                paymastersRoot: [6; 32].into(),
                 allowances: vec![IIdentityValidator::Allowance {
                     token: [3; 20].into(),
                     amount: 4,
@@ -146,6 +147,7 @@ mod tests {
             rules: RegistryRules {
                 scopeRoot: [1; 32].into(),
                 domainsRoot: [2; 32].into(),
+                paymastersRoot: [6; 32].into(),
                 allowances: vec![RegistryAllowance {
                     token: [3; 20].into(),
                     amount: 4,

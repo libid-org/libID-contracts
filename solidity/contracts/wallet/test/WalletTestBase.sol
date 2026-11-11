@@ -62,6 +62,10 @@ abstract contract Trees {
         return keccak256(bytes.concat(keccak256(abi.encode(separator))));
     }
 
+    function _paymasterLeaf(address paymaster) internal pure returns (bytes32) {
+        return keccak256(bytes.concat(keccak256(abi.encode(paymaster))));
+    }
+
     function _pair(bytes32 a, bytes32 b) private pure returns (bytes32) {
         return a < b ? keccak256(abi.encode(a, b)) : keccak256(abi.encode(b, a));
     }
@@ -216,7 +220,7 @@ abstract contract WalletTestBase is Test, Trees {
     /// The rules hash, expanded word by word from the spec's encoding.
     function _rh(IIdentityValidator.Rules memory r) internal pure returns (bytes32) {
         IIdentityValidator.Allowance[] memory a = r.allowances;
-        bytes memory words = abi.encodePacked(r.scopeRoot, r.domainsRoot, uint256(0x60), a.length);
+        bytes memory words = abi.encodePacked(r.scopeRoot, r.domainsRoot, r.paymastersRoot, uint256(0x80), a.length);
         for (uint256 i; i < a.length; ++i) {
             words = abi.encodePacked(words, uint256(uint160(a[i].token)), uint256(a[i].amount), uint256(a[i].period));
         }
@@ -336,10 +340,11 @@ abstract contract WalletTestBase is Test, Trees {
             (uint8 v, bytes32 r, bytes32 sv) = vm.sign(pks[i], h);
             s[i] = IIdentityValidator.SessionSignature({key: _key(pks[i]), signature: abi.encodePacked(r, sv, v)});
         }
-        return
-            abi.encode(
-                IIdentityValidator.Authorization({signatures: s, at: at, calls: calls, domainProof: domainProof})
-            );
+        return abi.encode(
+            IIdentityValidator.Authorization({
+                signatures: s, at: at, calls: calls, domainProof: domainProof, paymasterProof: new bytes32[](0)
+            })
+        );
     }
 
     /// `s` as an `Authorization` at the block time, with no call or domain proofs.
@@ -349,7 +354,8 @@ abstract contract WalletTestBase is Test, Trees {
                 signatures: s,
                 at: uint48(_now()),
                 calls: new IIdentityValidator.CallProof[](0),
-                domainProof: new bytes32[](0)
+                domainProof: new bytes32[](0),
+                paymasterProof: new bytes32[](0)
             })
         );
     }
