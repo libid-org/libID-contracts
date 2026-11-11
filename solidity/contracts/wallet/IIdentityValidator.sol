@@ -43,15 +43,18 @@ function policyHashOf(IIdentityValidator.Policy memory policy) pure returns (byt
 ///        preVerificationGas) * maxFeePerGas`, is charged to `NATIVE_TOKEN` with the value;
 ///      - ERC-20 `transfer(to, amount)` and `approve(spender, amount)` charge `amount` to the target;
 ///        `transferFrom`, a spending selector on a target with no allowance, and any other selector on
-///        a target with one are refused;
+///        a target with one are refused. Any other selector on a target with no allowance is charged
+///        nothing: ERC-721 `safeTransferFrom` and `setApprovalForAll` in scope pass, while ERC-721
+///        `approve` and `transferFrom` share ERC-20's selectors;
 ///      - only `TypedDataSign` is accepted for ERC-1271, with the app separator proved under `domainsRoot`.
 ///      Leaves are OpenZeppelin double-hashed, `keccak256(bytes.concat(keccak256(abi.encode(...))))`, of
 ///      `(address target, bytes4 selector, uint256 maxValue)` or `(bytes32 appSeparator)`, under sorted-pair
-///      roots. Calldata shorter than four bytes has selector `0x00000000`.
+///      roots. Calldata shorter than four bytes has selector `0x00000000`: a `0x00000000` leaf is the
+///      fallback and plain-send leaf, matching empty calldata, 1–3 bytes, and calldata starting `0x00000000`.
 ///      Allowances are charged in validation, even when the execution reverts. The period is
 ///      `at - at % period`, or the session's whole life when `period == 0`. A charging operation's
-///      validity window is that period intersected with the session's; `at` must be nonzero and stay
-///      below 2^47.
+///      validity window is that period intersected with the session's. A charge needs `at != 0`, and
+///      under a nonzero period, a period ending below 2^47; an operation charging nothing ignores `at`.
 ///      Counters are keyed by `(key, rulesHash, token)`: a key re-added with the same rules keeps its spend.
 ///      `isValidSignatureWithSender(_, 0x7739…7739, "")` answers `0x77390001` (ERC-7739 detection).
 ///      Fresh install data is `abi.encode(platformId, idNode)`: the genesis identity.
