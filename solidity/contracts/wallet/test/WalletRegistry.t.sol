@@ -18,7 +18,7 @@ contract WalletRegistryTest is WalletTestBase {
 
     function test_genesisLinkByAnyoneCarriesTheFirstSession() public {
         vm.prank(relayer);
-        address w = factory.createWallet(X, ALICE, 0);
+        address w = factory.createWallet(X, ALICE);
         bytes memory payload = _payload(X, ALICE, LINK, _txData(w, _key(ALICE_PK), _ph(_admin())));
         vm.expectEmit(true, true, true, false, address(registry));
         emit IWalletRegistry.IdentityLinked(w, X, ALICE, bytes32(0));
@@ -36,7 +36,7 @@ contract WalletRegistryTest is WalletTestBase {
     }
 
     function test_linkOnlyAddsNoSession() public {
-        address w = factory.createWallet(X, ALICE, 0);
+        address w = factory.createWallet(X, ALICE);
         _link(relayer, X, ALICE, w, "", _admin());
         assertTrue(validator.isLinked(w, _identity(X, ALICE)), "not linked");
         assertFalse(validator.hadSession(w), "a session was added");
@@ -89,8 +89,8 @@ contract WalletRegistryTest is WalletTestBase {
 
     /// R5: a phished link to another wallet does not keep the canonical wallet from linking.
     function test_phishedLinkDoesNotSquat() public {
-        address canonical = factory.walletAddress(X, ALICE, 0);
-        address theirs = factory.createWallet(X, MALLORY, 0);
+        address canonical = factory.walletAddress(X, ALICE);
+        address theirs = factory.createWallet(X, MALLORY);
         _link(theirs, X, ALICE, theirs, "", _admin());
         assertTrue(validator.isLinked(theirs, _identity(X, ALICE)), "the phished link failed");
 
@@ -100,7 +100,7 @@ contract WalletRegistryTest is WalletTestBase {
     }
 
     function test_aDigestIsSpentOnce() public {
-        address w = factory.createWallet(X, ALICE, 0);
+        address w = factory.createWallet(X, ALICE);
         bytes memory payload = _payload(X, ALICE, LINK, _txData(w, "", bytes32(0)));
         vm.recordLogs();
         registry.linkIdentity(X, V1, payload, _admin());
@@ -126,7 +126,7 @@ contract WalletRegistryTest is WalletTestBase {
     }
 
     function test_crossChainReplayIsRefused() public {
-        address w = factory.createWallet(X, ALICE, 0);
+        address w = factory.createWallet(X, ALICE);
         bytes memory base = abi.encode(uint256(8453), w, bytes(""), bytes32(0));
         bytes memory payload = _payload(X, ALICE, LINK, base);
         vm.expectRevert(abi.encodeWithSelector(IWalletRegistry.WrongChain.selector, 8453));
@@ -141,7 +141,7 @@ contract WalletRegistryTest is WalletTestBase {
 
     /// REQ-COMMON-01F: exactly the canonical `abi.encode(chainId, wallet, key, policyHash)`.
     function test_transactionDataMustBeCanonical() public {
-        address w = factory.createWallet(X, ALICE, 0);
+        address w = factory.createWallet(X, ALICE);
         bytes memory key = _key(ALICE_PK);
         bytes32 ph = _ph(_admin());
         bytes memory good = _txData(w, key, ph);
@@ -179,7 +179,7 @@ contract WalletRegistryTest is WalletTestBase {
     }
 
     function test_policyMustMatchTheCommitment() public {
-        address w = factory.createWallet(X, ALICE, 0);
+        address w = factory.createWallet(X, ALICE);
         bytes memory payload = _payload(X, ALICE, LINK, _txData(w, _key(ALICE_PK), _ph(_admin())));
         vm.expectRevert(abi.encodeWithSelector(IWalletRegistry.PolicyMismatch.selector, _ph(_admin()), _ph(_app())));
         registry.linkIdentity(X, V1, payload, _app());
@@ -233,7 +233,7 @@ contract WalletRegistryTest is WalletTestBase {
     }
 
     function test_aWalletThatNeverHadASessionSkipsTheWait() public {
-        address w = factory.createWallet(X, ALICE, 0);
+        address w = factory.createWallet(X, ALICE);
         _link(relayer, X, ALICE, w, "", _admin());
         _addByProof(mallory, X, ALICE, w, _key(ALICE_PK), _admin());
         assertLe(validator.sessionOf(w, _key(ALICE_PK)).activeAt, _now(), "first session waits");

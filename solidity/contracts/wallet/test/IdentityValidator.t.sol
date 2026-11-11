@@ -565,7 +565,7 @@ contract IdentityValidatorTest is WalletTestBase {
     function test_erc1271SignatureDoesNotReplayOnAnotherAccount() public {
         bytes32 h = keccak256("a message");
         address w = _claim();
-        address w2 = factory.createWallet(GITHUB, BOB, 0);
+        address w2 = factory.createWallet(GITHUB, BOB);
         _link(relayer, GITHUB, BOB, w2, _key(ALICE_PK), _admin());
 
         assertTrue(_isValid1271(w2, h, ALICE_PK, _wrapped(w2, h)), "control");

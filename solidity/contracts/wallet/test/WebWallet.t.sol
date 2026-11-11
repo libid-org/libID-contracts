@@ -25,7 +25,7 @@ contract WebWalletTest is WalletTestBase {
 
     /// R12: the operation is signed for the predicted address before the wallet exists.
     function test_claim_createLinkThenNonceZeroOperation() public {
-        address w = factory.walletAddress(X, ALICE, 0);
+        address w = factory.walletAddress(X, ALICE);
         PackedUserOperation memory op = _signed(_op(w, 0, _hit()), _pks(ALICE_PK));
 
         _claim();

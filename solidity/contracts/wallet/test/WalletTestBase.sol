@@ -209,7 +209,7 @@ abstract contract WalletTestBase is Test {
     /// Alice's canonical wallet, linked by the relayer with her first session.
     function _claimWith(IIdentityValidator.Policy memory p) internal returns (address w) {
         vm.prank(relayer);
-        w = factory.createWallet(X, ALICE, 0);
+        w = factory.createWallet(X, ALICE);
         _link(relayer, X, ALICE, w, _key(ALICE_PK), p);
     }
 

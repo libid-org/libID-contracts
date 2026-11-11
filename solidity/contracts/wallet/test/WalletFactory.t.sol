@@ -11,21 +11,19 @@ import {WalletTestBase} from "./WalletTestBase.sol";
 /// @notice R1: addresses fixed by identity alone; genesis initialized in the creating call.
 contract WalletFactoryTest is WalletTestBase {
     function test_addressIsCreate3OfTheDerivedSalt() public {
-        for (uint256 index; index < 3; ++index) {
-            address expected = Create3.addressOf(keccak256(abi.encode(X, ALICE, index)), address(factory));
-            assertEq(factory.walletAddress(X, ALICE, index), expected, "salt is not (platformId, idNode, index)");
-        }
-        assertTrue(factory.walletAddress(X, ALICE, 0) != factory.walletAddress(GITHUB, ALICE, 0), "platform");
-        address here = factory.walletAddress(X, ALICE, 0);
+        address expected = Create3.addressOf(keccak256(abi.encode(X, ALICE)), address(factory));
+        assertEq(factory.walletAddress(X, ALICE), expected, "salt is not (platformId, idNode)");
+        assertTrue(factory.walletAddress(X, ALICE) != factory.walletAddress(GITHUB, ALICE), "platform");
+        address here = factory.walletAddress(X, ALICE);
         vm.chainId(8453);
-        assertEq(factory.walletAddress(X, ALICE, 0), here, "the address depends on the chain");
+        assertEq(factory.walletAddress(X, ALICE), here, "the address depends on the chain");
     }
 
     function test_createWalletInitializesTheGenesisIdentityInTheSameCall() public {
         vm.prank(mallory);
-        address w = factory.createWallet(X, ALICE, 0);
+        address w = factory.createWallet(X, ALICE);
 
-        assertEq(w, factory.walletAddress(X, ALICE, 0), "not at the predicted address");
+        assertEq(w, factory.walletAddress(X, ALICE), "not at the predicted address");
         (bytes32 platformId, bytes32 idNode) = validator.genesisIdentity(w);
         assertEq(platformId, X, "genesis platform");
         assertEq(idNode, ALICE, "genesis id");
@@ -47,9 +45,9 @@ contract WalletFactoryTest is WalletTestBase {
     /// Taking the address first changes nothing, and a foreign proof cannot link first.
     function test_genesisFrontRunGainsNothing() public {
         vm.prank(mallory);
-        address w = factory.createWallet(X, ALICE, 0);
+        address w = factory.createWallet(X, ALICE);
         vm.expectRevert();
-        factory.createWallet(X, ALICE, 0);
+        factory.createWallet(X, ALICE);
 
         bytes memory payload = _payload(X, MALLORY, LINK, _txData(w, _key(MALLORY_PK), _ph(_admin())));
         vm.prank(mallory);
@@ -61,17 +59,17 @@ contract WalletFactoryTest is WalletTestBase {
         assertFalse(validator.isLinked(w, _identity(X, MALLORY)), "mallory linked");
     }
 
-    /// R1: the address is a function of (factory, platformId, idNode, index) only, not of
+    /// R1: the address is a function of (factory, platformId, idNode) only, not of
     ///     the chain or the wallet implementation the factory deploys.
     function test_addressDependsOnlyOnFactoryAndIdentity() public {
-        address predicted = factory.walletAddress(X, ALICE, 1);
+        address predicted = factory.walletAddress(X, ALICE);
         address impl2 = deployCode("WebWallet.sol:WebWallet", abi.encode(address(validator)));
         address other = deployCode("WalletFactory.sol:WalletFactory", abi.encode(impl2));
         vm.etch(address(factory), other.code);
         vm.chainId(8453);
 
-        assertEq(factory.walletAddress(X, ALICE, 1), predicted, "prediction moved");
-        address w = factory.createWallet(X, ALICE, 1);
+        assertEq(factory.walletAddress(X, ALICE), predicted, "prediction moved");
+        address w = factory.createWallet(X, ALICE);
         assertEq(w, predicted, "deployed elsewhere");
         assertEq(address(uint160(uint256(vm.load(w, IMPL_SLOT)))), impl2, "not the other implementation");
         (, bytes32 idNode) = validator.genesisIdentity(w);
