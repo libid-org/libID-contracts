@@ -71,8 +71,8 @@ interface IIdentityValidator is IERC7579Validator {
     error RecoveryDelayTooShort(uint48 delay);
     /// The recovery delay may not exceed `MAX_RECOVERY_DELAY`.
     error RecoveryDelayTooLong(uint48 delay);
-    /// The threshold may not exceed the number of linked identities.
-    error ThresholdTooHigh(uint8 threshold, uint32 identities);
+    /// The threshold may not exceed the number of platforms with a linked identity.
+    error ThresholdTooHigh(uint8 threshold, uint32 platforms);
     /// An account keeps at least one linked identity.
     error LastIdentity(bytes32 identity);
     /// The unlink would leave the account no admin session.
@@ -99,7 +99,8 @@ interface IIdentityValidator is IERC7579Validator {
     function sessionOf(address account, bytes calldata key) external view returns (Session memory);
     /// The identity's current generation: a session of any other is dead.
     function generationOf(address account, bytes32 identity) external view returns (uint32);
-    /// Distinct admin identities an admin operation needs. Defaults to 1.
+    /// Distinct platforms an admin operation's admin sessions need: two identities on one platform count once.
+    /// Defaults to 1.
     function threshold(address account) external view returns (uint8);
     /// The account's wait for sessions added by proof and for root operations (see `rootReadyAt`).
     function recoveryDelay(address account) external view returns (uint48);
@@ -128,7 +129,7 @@ interface IIdentityValidator is IERC7579Validator {
     function setThreshold(uint8 threshold_) external;
     /// Root operation only. Every session of the identity, active or pending, stops validating for good,
     /// and every root operation queued before it stops executing.
-    /// Refused for an identity not linked, the last one, one the threshold still needs,
+    /// Refused for an identity not linked, the last one, the last of a platform the threshold still needs,
     /// or when the account would be left with no admin session.
     function unlink(bytes32 identity) external;
     /// `target` is the account (install, uninstall, upgrade) or this validator

@@ -21,6 +21,7 @@ import {IIdentityValidator, identityOf} from "./IIdentityValidator.sol";
 
 /// @title IdentityValidator - the one ERC-7579 validator of every WebWallet.
 /// @notice Holds each account's linked identities, sessions, threshold and root operations.
+///         The threshold counts distinct admin platforms.
 /// @dev Every slot read in validation has the account as its innermost mapping key (ERC-7562),
 ///      and validation reads no clock: windows go back to the EntryPoint packed.
 contract IdentityValidator is IIdentityValidator {
@@ -54,13 +55,14 @@ contract IdentityValidator is IIdentityValidator {
         uint32 adminSessions;
         uint32 identities;
         uint32 unlinkEpoch;
+        uint32 platforms;
     }
 
-    /// What `_verify` found: whether every signature holds, the distinct admin identities among them,
-    /// and the window they share.
+    /// What `_verify` found: whether every signature holds, the distinct platforms of its admin
+    /// sessions, and the window they share.
     struct Verified {
         bool ok;
-        uint256 admins;
+        uint256 adminPlatforms;
         uint48 validAfter;
         uint48 validUntil;
     }
@@ -82,6 +84,8 @@ contract IdentityValidator is IIdentityValidator {
         mapping(uint256 install => mapping(bytes32 opId => mapping(address account => Root))) roots;
         mapping(uint256 install => mapping(bytes32 identity => mapping(address account => uint32))) generations;
         mapping(uint256 install => mapping(bytes32 identity => mapping(address account => uint32))) adminSessions;
+        mapping(uint256 install => mapping(bytes32 identity => mapping(address account => bytes32))) platformOf;
+        mapping(uint256 install => mapping(bytes32 platformId => mapping(address account => uint32))) platformLinks;
     }
 
     // cast index-erc7201 libid.storage.IdentityValidator
@@ -123,6 +127,19 @@ contract IdentityValidator is IIdentityValidator {
         return _s().adminSessions[_install(account)][identity];
     }
 
+    function _platformOf(address account, bytes32 identity) private view returns (bytes32) {
+        return _s().platformOf[_install(account)][identity][account];
+    }
+
+    /// The platform's linked identities; `AccountState.platforms` counts the platforms with any.
+    function _platformLinks(address account, bytes32 platformId)
+        private
+        view
+        returns (mapping(address => uint32) storage)
+    {
+        return _s().platformLinks[_install(account)][platformId];
+    }
+
     modifier onlyRegistry() {
         if (msg.sender != REGISTRY) revert NotRegistry(msg.sender);
         _;
@@ -154,7 +171,7 @@ contract IdentityValidator is IIdentityValidator {
         Scope scope = _scope(msg.sender, userOp.callData);
         if (scope == Scope.Refused) return ERC4337Utils.SIG_VALIDATION_FAILED;
         Verified memory v = _verify(msg.sender, userOpHash, userOp.signature);
-        if (!v.ok || (scope == Scope.Admin && v.admins < threshold(msg.sender))) {
+        if (!v.ok || (scope == Scope.Admin && v.adminPlatforms < threshold(msg.sender))) {
             return ERC4337Utils.SIG_VALIDATION_FAILED;
         }
         return (uint256(v.validAfter) << 208) | (uint256(v.validUntil) << 160);
@@ -170,7 +187,7 @@ contract IdentityValidator is IIdentityValidator {
         (bytes32 signed, bytes calldata sigs) = _unnest(hash, signature);
         Verified memory v = _verify(msg.sender, signed, sigs);
         bool live = v.validAfter < block.timestamp && (v.validUntil == 0 || block.timestamp <= v.validUntil);
-        return v.ok && v.admins != 0 && live ? IERC1271.isValidSignature.selector : bytes4(0xffffffff);
+        return v.ok && v.adminPlatforms != 0 && live ? IERC1271.isValidSignature.selector : bytes4(0xffffffff);
     }
 
     // ─── Views ──────────────────────────────────────────────────────
@@ -218,10 +235,14 @@ contract IdentityValidator is IIdentityValidator {
     // ─── Registry ───────────────────────────────────────────────────
 
     function link(address account, bytes32 platformId, bytes32 idNode) external onlyRegistry {
-        mapping(address => bool) storage linked = _s().links[_install(account)][identityOf(platformId, idNode)];
+        bytes32 identity = identityOf(platformId, idNode);
+        mapping(address => bool) storage linked = _s().links[_install(account)][identity];
         if (linked[account]) return;
         linked[account] = true;
-        ++_account(account).identities;
+        _s().platformOf[_install(account)][identity][account] = platformId;
+        AccountState storage a = _account(account);
+        ++a.identities;
+        if (++_platformLinks(account, platformId)[account] == 1) ++a.platforms;
     }
 
     function addSessionByProof(address account, bytes32 identity, bytes calldata key, Policy calldata policy)
@@ -362,7 +383,7 @@ contract IdentityValidator is IIdentityValidator {
 
     function _setThreshold(address account, uint8 t) private {
         AccountState storage a = _account(account);
-        if (t > a.identities) revert ThresholdTooHigh(t, a.identities);
+        if (t > a.platforms) revert ThresholdTooHigh(t, a.platforms);
         a.threshold = t;
     }
 
@@ -372,14 +393,18 @@ contract IdentityValidator is IIdentityValidator {
         AccountState storage a = _account(account);
         uint32 left = a.identities - 1;
         if (left == 0) revert LastIdentity(identity);
-        if (a.threshold > left) revert ThresholdTooHigh(a.threshold, left);
+        mapping(address => uint32) storage platformLinks = _platformLinks(account, _platformOf(account, identity));
+        uint32 platformsLeft = platformLinks[account] == 1 ? a.platforms - 1 : a.platforms;
+        if (a.threshold > platformsLeft) revert ThresholdTooHigh(a.threshold, platformsLeft);
         mapping(address => uint32) storage admins = _identityAdmins(account, identity);
         if (admins[account] == a.adminSessions) revert LastAdmin(identity);
         a.adminSessions -= admins[account];
         delete admins[account];
         delete linked[account];
         ++_generations(account, identity)[account];
+        --platformLinks[account];
         a.identities = left;
+        a.platforms = platformsLeft;
         ++a.unlinkEpoch;
         emit IdentityUnlinked(account, identity);
     }
@@ -416,7 +441,8 @@ contract IdentityValidator is IIdentityValidator {
         pending[account] = key;
     }
 
-    /// Checks that every signature is by a session of its identity's current link.
+    /// Checks that every signature is by a session of its identity's current link,
+    /// and counts the distinct platforms of the admin sessions among them.
     function _verify(address account, bytes32 hash, bytes calldata signature) private view returns (Verified memory v) {
         SessionSignature[] memory sigs;
         try this.decodeSignatures(signature) returns (SessionSignature[] memory decoded) {
@@ -425,7 +451,7 @@ contract IdentityValidator is IIdentityValidator {
             return v;
         }
         if (sigs.length == 0) return v;
-        bytes32[] memory adminIds = new bytes32[](sigs.length);
+        bytes32[] memory adminPlatforms = new bytes32[](sigs.length);
         for (uint256 i; i < sigs.length; ++i) {
             Session storage s = _session(account, sigs[i].key);
             bytes32 identity = s.identity;
@@ -434,7 +460,12 @@ contract IdentityValidator is IIdentityValidator {
             }
             Policy memory p = s.policy;
             (v.validAfter, v.validUntil) = _narrow(v.validAfter, v.validUntil, p, s.activeAt);
-            if (p.admin && !_contains(adminIds, v.admins, identity)) adminIds[v.admins++] = identity;
+            if (p.admin) {
+                bytes32 platformId = _platformOf(account, identity);
+                if (!_contains(adminPlatforms, v.adminPlatforms, platformId)) {
+                    adminPlatforms[v.adminPlatforms++] = platformId;
+                }
+            }
         }
         v.ok = true;
     }

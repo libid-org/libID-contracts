@@ -71,9 +71,11 @@ abstract contract WalletTestBase is Test {
 
     bytes32 internal constant X = CeremonyProfile.PLATFORM_X;
     bytes32 internal constant GITHUB = CeremonyProfile.PLATFORM_GITHUB;
+    bytes32 internal constant GOOGLE = CeremonyProfile.PLATFORM_GOOGLE;
     bytes32 internal constant ALICE = keccak256("alice's X id node");
     bytes32 internal constant BOB = keccak256("bob's GitHub id node");
     bytes32 internal constant MALLORY = keccak256("mallory's X id node");
+    bytes32 internal constant CAROL = keccak256("carol's Google id node");
     uint16 internal constant V1 = 1;
 
     uint256 internal constant ALICE_PK = 0xA11CE;
@@ -81,6 +83,7 @@ abstract contract WalletTestBase is Test {
     uint256 internal constant BOB_PK = 0xB0B;
     uint256 internal constant APP_PK = 0xA99;
     uint256 internal constant MALLORY_PK = 0xBAD;
+    uint256 internal constant CAROL_PK = 0xCA401;
 
     IIdentityValidator internal validator;
     IWalletRegistry internal registry;
@@ -89,6 +92,7 @@ abstract contract WalletTestBase is Test {
     CeremonyProofVerifier internal proofVerifier;
     StubPlatformVerifier internal xStub;
     StubPlatformVerifier internal githubStub;
+    StubPlatformVerifier internal googleStub;
     CallTarget internal target;
     IdentityRegistry internal identities;
     HandleEscrow internal escrow;
@@ -112,6 +116,7 @@ abstract contract WalletTestBase is Test {
         );
         xStub = new StubPlatformVerifier(X, 0);
         githubStub = new StubPlatformVerifier(GITHUB, 0);
+        googleStub = new StubPlatformVerifier(GOOGLE, 0);
         identities = IdentityRegistry(
             address(
                 new ERC1967Proxy(address(new IdentityRegistry()), abi.encodeCall(IdentityRegistry.initialize, (owner)))
@@ -127,6 +132,7 @@ abstract contract WalletTestBase is Test {
         vm.startPrank(owner);
         proofVerifier.setVerifier(X, V1, IPlatformVerifier(address(xStub)));
         proofVerifier.setVerifier(GITHUB, V1, IPlatformVerifier(address(githubStub)));
+        proofVerifier.setVerifier(GOOGLE, V1, IPlatformVerifier(address(googleStub)));
         identities.setProofVerifier(IProofVerifier(address(proofVerifier)));
         vm.stopPrank();
 
@@ -185,7 +191,8 @@ abstract contract WalletTestBase is Test {
     }
 
     function _stub(bytes32 platformId) internal view returns (StubPlatformVerifier) {
-        return platformId == GITHUB ? githubStub : xStub;
+        if (platformId == GITHUB) return githubStub;
+        return platformId == GOOGLE ? googleStub : xStub;
     }
 
     function _txData(address wallet, bytes memory key, bytes32 policyHash) internal view returns (bytes memory) {

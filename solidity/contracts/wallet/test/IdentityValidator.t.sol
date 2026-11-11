@@ -163,12 +163,12 @@ contract IdentityValidatorTest is WalletTestBase {
     }
 
     /// ERC-7562: every slot read in validation is `A` or `keccak(A || x) + n`, n <= 128,
-    /// including for a 64-byte ERC-7913 key.
+    /// including for a 64-byte ERC-7913 admin key, whose identity's platform is read.
     function test_validationReadsOnlyAccountAssociatedStorage() public {
         address w = _claim();
         bytes memory key = abi.encodePacked(address(new AcceptingVerifier()), keccak256("x"), keccak256("y"));
         vm.prank(w);
-        validator.addSession(_identity(X, ALICE), key, _app());
+        validator.addSession(_identity(X, ALICE), key, _admin());
 
         IIdentityValidator.SessionSignature[] memory s = new IIdentityValidator.SessionSignature[](1);
         s[0] = IIdentityValidator.SessionSignature({key: key, signature: hex"1234"});
@@ -238,7 +238,7 @@ contract IdentityValidatorTest is WalletTestBase {
 
     // ─── Threshold (R8) ─────────────────────────────────────────────
 
-    function test_thresholdCountsDistinctAdminIdentities() public {
+    function test_thresholdCountsDistinctAdminPlatforms() public {
         address w = _claim();
         _link(w, GITHUB, BOB, w, "", _admin());
         vm.startPrank(w);
@@ -255,8 +255,58 @@ contract IdentityValidatorTest is WalletTestBase {
         assertEq(_validate(w, adminOp, _pks(ALICE_PK, ALICE_PK)), 1, "one key twice");
         assertEq(_validate(w, adminOp, _pks(ALICE_PK, ALICE2_PK)), 1, "two keys of one identity");
         assertEq(_validate(w, adminOp, _pks(ALICE_PK, APP_PK)), 1, "a non-admin session counted");
-        assertEq(_validate(w, adminOp, _pks(ALICE_PK, BOB_PK)), 0, "two admin identities");
+        assertEq(_validate(w, adminOp, _pks(ALICE_PK, BOB_PK)), 0, "two admin platforms");
         assertEq(_validate(w, _hit(), _pks(ALICE_PK)), 0, "an ordinary call needs no quorum");
+    }
+
+    /// Admin sessions of two identities on one platform count once toward the quorum.
+    function test_identitiesOfOnePlatformCountOnce() public {
+        address w = _claim();
+        _link(w, X, MALLORY, w, _key(MALLORY_PK), _admin());
+        _link(w, GOOGLE, CAROL, w, _key(CAROL_PK), _admin());
+        _root(w, address(validator), abi.encodeCall(IIdentityValidator.setThreshold, (2)));
+        bytes memory adminOp =
+            _exec(address(validator), abi.encodeCall(IIdentityValidator.setRecoveryDelay, (72 hours)));
+        assertEq(_validate(w, adminOp, _pks(ALICE_PK, MALLORY_PK)), 1, "two X identities met the threshold");
+        assertEq(_validate(w, adminOp, _pks(MALLORY_PK, CAROL_PK)), 0, "X and Google missed the threshold");
+    }
+
+    /// The threshold may not exceed the platforms with a linked identity, however many identities there are.
+    function test_thresholdIsBoundedByLinkedPlatforms() public {
+        address w = _claim();
+        _link(w, X, MALLORY, w, "", _admin());
+        bytes memory threshold2 = abi.encodeCall(IIdentityValidator.setThreshold, (2));
+        _rootReverts(
+            w,
+            address(validator),
+            threshold2,
+            abi.encodeWithSelector(IIdentityValidator.ThresholdTooHigh.selector, uint8(2), uint32(1))
+        );
+        _link(w, GOOGLE, CAROL, w, "", _admin());
+        _root(w, address(validator), threshold2);
+        assertEq(validator.threshold(w), 2, "threshold");
+    }
+
+    /// An unlink may not drop the last identity of a platform the threshold needs; a re-link counts it again.
+    function test_unlinkKeepsThePlatformsTheThresholdNeeds() public {
+        address w = _claim();
+        bytes32 mallory_ = _identity(X, MALLORY);
+        bytes32 carol = _identity(GOOGLE, CAROL);
+        bytes memory threshold2 = abi.encodeCall(IIdentityValidator.setThreshold, (2));
+        bytes memory tooHigh = abi.encodeWithSelector(IIdentityValidator.ThresholdTooHigh.selector, uint8(2), uint32(1));
+        _link(w, X, MALLORY, w, "", _admin());
+        _link(w, GOOGLE, CAROL, w, "", _admin());
+        _root(w, address(validator), threshold2);
+
+        _unlinkReverts(w, carol, tooHigh);
+        _root(w, address(validator), abi.encodeCall(IIdentityValidator.unlink, (mallory_)));
+
+        _root(w, address(validator), abi.encodeCall(IIdentityValidator.setThreshold, (1)));
+        _root(w, address(validator), abi.encodeCall(IIdentityValidator.unlink, (carol)));
+        _rootReverts(w, address(validator), threshold2, tooHigh);
+        _link(w, GOOGLE, CAROL, w, "", _admin());
+        _root(w, address(validator), threshold2);
+        assertEq(validator.threshold(w), 2, "a re-link did not count its platform again");
     }
 
     // ─── Root operations (D16) ──────────────────────────────────────
@@ -397,8 +447,8 @@ contract IdentityValidatorTest is WalletTestBase {
         assertEq(validator.sessionOf(w, _key(ALICE2_PK)).activeAt, _now() + 72 hours, "raised delay ignored");
     }
 
-    /// The threshold may not exceed the linked identities, or no admin operation could pass again.
-    function test_thresholdAboveTheLinkedIdentitiesIsRefused() public {
+    /// The threshold may not exceed the linked platforms, or no admin operation could pass again.
+    function test_thresholdAboveTheLinkedPlatformsIsRefused() public {
         address w = _claim();
         _rootReverts(
             w,
@@ -465,7 +515,7 @@ contract IdentityValidatorTest is WalletTestBase {
         assertTrue(_isValid1271(w, h, APP_PK, _wrapped(w, h)), "a fresh session fails ERC-1271");
     }
 
-    /// An unlink keeps one identity and enough identities for the threshold.
+    /// An unlink keeps one identity and enough platforms for the threshold.
     function test_unlinkRefusals() public {
         address w = _claim();
         bytes32 bob = _identity(GITHUB, BOB);
