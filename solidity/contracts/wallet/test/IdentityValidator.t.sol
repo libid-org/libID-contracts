@@ -410,6 +410,27 @@ contract IdentityValidatorTest is WalletTestBase {
         registry.addSessionByProof(GITHUB, V1, payload, _admin());
     }
 
+    /// A re-link starts a new generation: sessions of the earlier link stay dead.
+    function test_relinkDoesNotReviveSessions() public {
+        address w = _claim();
+        bytes32 bob = _identity(GITHUB, BOB);
+        bytes32 h = keccak256("a message");
+        _link(w, GITHUB, BOB, w, _key(BOB_PK), _admin());
+        _addByProof(mallory, GITHUB, BOB, w, _key(MALLORY_PK), _admin());
+        _root(w, address(validator), abi.encodeCall(IIdentityValidator.unlink, (bob)));
+        _link(w, GITHUB, BOB, w, "", _admin());
+
+        uint256[2] memory old = [BOB_PK, MALLORY_PK];
+        for (uint256 i; i < old.length; ++i) {
+            assertEq(_validate(w, _hit(), _pks(old[i])), 1, "an old session revived");
+            assertFalse(_isValid1271(w, h, old[i], _wrapped(w, h)), "an old session signs ERC-1271");
+        }
+        vm.prank(w);
+        validator.addSession(bob, _key(APP_PK), _admin());
+        assertEq(_validate(w, _hit(), _pks(APP_PK)), 0, "a fresh session fails");
+        assertTrue(_isValid1271(w, h, APP_PK, _wrapped(w, h)), "a fresh session fails ERC-1271");
+    }
+
     /// An unlink keeps one identity and enough identities for the threshold.
     function test_unlinkRefusals() public {
         address w = _claim();

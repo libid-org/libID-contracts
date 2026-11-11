@@ -57,6 +57,7 @@ contract IdentityValidator is IIdentityValidator {
         mapping(uint256 install => mapping(bytes32 identity => mapping(address account => bool))) links;
         mapping(uint256 install => mapping(bytes32 identity => mapping(address account => bytes))) pendingKeys;
         mapping(uint256 install => mapping(bytes32 opId => mapping(address account => uint48))) roots;
+        mapping(uint256 install => mapping(bytes32 identity => mapping(address account => uint32))) generations;
     }
 
     // cast index-erc7201 libid.storage.IdentityValidator
@@ -79,6 +80,10 @@ contract IdentityValidator is IIdentityValidator {
 
     function _session(address account, bytes memory key) private view returns (Session storage) {
         return _s().sessions[_install(account)][keccak256(key)][account];
+    }
+
+    function _generations(address account, bytes32 identity) private view returns (mapping(address => uint32) storage) {
+        return _s().generations[_install(account)][identity];
     }
 
     modifier onlyRegistry() {
@@ -279,6 +284,7 @@ contract IdentityValidator is IIdentityValidator {
         s.identity = identity;
         s.policy = policy;
         s.activeAt = activeAt;
+        s.generation = _generations(account, identity)[account];
 
         AccountState storage a = _account(account);
         a.hadSession = true;
@@ -301,6 +307,7 @@ contract IdentityValidator is IIdentityValidator {
         delete s.identity;
         delete s.policy;
         delete s.activeAt;
+        delete s.generation;
         emit SessionRevoked(account, identity, key);
     }
 
@@ -312,6 +319,7 @@ contract IdentityValidator is IIdentityValidator {
         if (left == 0) revert LastIdentity(identity);
         if (a.threshold > left) revert ThresholdTooHigh(a.threshold, left);
         delete linked[account];
+        ++_generations(account, identity)[account];
         a.identities = left;
         emit IdentityUnlinked(account, identity);
     }
@@ -337,7 +345,7 @@ contract IdentityValidator is IIdentityValidator {
         pending[account] = key;
     }
 
-    /// Whether every signature is by a session of a linked identity, the distinct admin identities among them,
+    /// Whether every signature is by a session of its identity's current link, the distinct admin identities among them,
     /// and the window they all share.
     function _verify(address account, bytes32 hash, bytes calldata signature)
         private
@@ -355,9 +363,8 @@ contract IdentityValidator is IIdentityValidator {
         for (uint256 i; i < sigs.length; ++i) {
             Session storage s = _session(account, sigs[i].key);
             bytes32 identity = s.identity;
-            if (identity == 0 || !isLinked(account, identity) || !_signedBy(sigs[i].key, hash, sigs[i].signature)) {
-                return (false, 0, 0, 0);
-            }
+            bool live = identity != 0 && s.generation == _generations(account, identity)[account];
+            if (!live || !_signedBy(sigs[i].key, hash, sigs[i].signature)) return (false, 0, 0, 0);
             Policy memory p = s.policy;
             (validAfter, validUntil) = _narrow(validAfter, validUntil, p, s.activeAt);
             if (p.admin && !_contains(adminIds, admins, identity)) adminIds[admins++] = identity;

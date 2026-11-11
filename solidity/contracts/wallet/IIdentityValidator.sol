@@ -28,10 +28,12 @@ interface IIdentityValidator is IERC7579Validator {
     }
 
     /// @dev `identity == 0`: no such session. `activeAt` is the end of a pending wait.
+    ///      A session whose `generation` is not its identity's current one, bumped by each unlink, is dead.
     struct Session {
         bytes32 identity;
         Policy policy;
         uint48 activeAt;
+        uint32 generation;
     }
 
     struct SessionSignature {
@@ -111,7 +113,7 @@ interface IIdentityValidator is IERC7579Validator {
     function setRecoveryDelay(uint48 delay) external;
     /// Root operation only: reverts `RootOperationRequired` when the account calls it.
     function setThreshold(uint8 threshold_) external;
-    /// Root operation only. Every session of the identity, active or pending, stops validating.
+    /// Root operation only. Every session of the identity, active or pending, stops validating for good.
     /// Refused for an identity not linked, the last one, or one the threshold still needs.
     function unlink(bytes32 identity) external;
     /// `target` is the account (install, uninstall, upgrade) or this validator
