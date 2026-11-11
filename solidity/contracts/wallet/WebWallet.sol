@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.26;
 
+import {IERC1271} from "@openzeppelin/contracts/interfaces/IERC1271.sol";
 import {IEntryPoint} from "@openzeppelin/contracts/interfaces/IERC4337.sol";
 import {
     IERC7579AccountConfig,
     IERC7579ModuleConfig,
+    IERC7579Validator,
     MODULE_TYPE_EXECUTOR,
     MODULE_TYPE_VALIDATOR
 } from "@openzeppelin/contracts/interfaces/draft-IERC7579.sol";
@@ -74,6 +76,23 @@ contract WebWallet is AccountERC7579Upgradeable, UUPSUpgradeable, EIP712, IWebWa
         // Nothing could install the validator again.
         if (module == VALIDATOR) revert ModuleNotAllowed(module);
         _uninstallModule(moduleTypeId, module, deInitData);
+    }
+
+    /// An empty signature goes to the validator, which answers the ERC-7739 probe.
+    function isValidSignature(bytes32 hash, bytes calldata signature)
+        public
+        view
+        override(IERC1271, AccountERC7579Upgradeable)
+        returns (bytes4)
+    {
+        if (signature.length != 0) return super.isValidSignature(hash, signature);
+        try IERC7579Validator(VALIDATOR).isValidSignatureWithSender(msg.sender, hash, signature) returns (
+            bytes4 magic
+        ) {
+            return magic;
+        } catch {
+            return bytes4(0xffffffff);
+        }
     }
 
     function upgradeToAndCall(address newImplementation, bytes memory data)

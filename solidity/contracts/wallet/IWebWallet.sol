@@ -18,7 +18,8 @@ import {
 ///      cannot be uninstalled. `executeFromExecutor` accepts only the installed executor,
 ///      and its calls pass no validator.
 ///      Delegatecall execution is refused. `isValidSignature` passes `hash` to the validator
-///      the signature names, which reads it as ERC-7739 under `eip712Domain()`.
+///      the signature names, which reads it as ERC-7739 under `eip712Domain()`; an empty
+///      signature goes to the constructor's validator, so the ERC-7739 probe is answered.
 interface IWebWallet is IERC1271, IERC7579Execution, IERC7579AccountConfig, IERC7579ModuleConfig, IERC5267 {
     /// Only the constructor's modules may be installed, and the validator never uninstalled.
     error ModuleNotAllowed(address module);

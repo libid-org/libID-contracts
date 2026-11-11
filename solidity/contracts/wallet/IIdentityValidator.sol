@@ -23,6 +23,7 @@ function policyHashOf(IIdentityValidator.Policy memory policy) pure returns (byt
 ///      The ERC-1271 signature after the validator's address is an ERC-7739 nested signature
 ///      under the account's `eip712Domain()`: `PersonalSign`, or `TypedDataSign` followed by the
 ///      app separator, contents hash and contents type. Its signature part is `abi.encode(SessionSignature[])`.
+///      `isValidSignatureWithSender(_, 0x7739…7739, "")` answers `0x77390001` (ERC-7739 detection).
 ///      Fresh install data is `abi.encode(platformId, idNode)`: the genesis identity.
 interface IIdentityValidator is IERC7579Validator {
     /// @dev `validUntil == 0` never expires. Only admin sessions may change the account.

@@ -690,7 +690,9 @@ contract IdentityValidatorTest is WalletTestBase {
     function test_erc7739Probe() public {
         address w = _claim();
         bytes32 probe = 0x7739773977397739773977397739773977397739773977397739773977397739;
+        assertEq(IWebWallet(w).isValidSignature(probe, ""), bytes4(0x77390001), "standard probe");
         assertEq(IWebWallet(w).isValidSignature(probe, abi.encodePacked(address(validator))), bytes4(0x77390001));
+        assertEq(IWebWallet(w).isValidSignature(keccak256("other"), ""), bytes4(0xffffffff), "empty signature");
     }
 
     /// `pk`'s ERC-7739 `TypedDataSign` signature of `contents` for the app `app`, built from the spec.
