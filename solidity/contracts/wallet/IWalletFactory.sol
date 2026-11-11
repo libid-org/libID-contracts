@@ -7,7 +7,7 @@ pragma solidity ^0.8.24;
 ///         A new version is a new factory. Deploys through `Create3` with
 ///         `salt = identityOf(platformId, idNode)` (`IIdentityValidator.sol`), and initializes the
 ///         genesis identity in the same call: one wallet per identity.
-///         It cannot serve as ERC-4337 `initCode`: ERC-7562 lets deployment's one CREATE2 deploy
+///         It cannot serve as ERC-4337 `initCode`: ERC-7562 [OP-031] lets deployment's one CREATE2 deploy
 ///         only the sender, and `Create3`'s deploys an intermediate proxy. Wallets are created by
 ///         plain transactions.
 interface IWalletFactory {
