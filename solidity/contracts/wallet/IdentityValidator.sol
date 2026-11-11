@@ -291,9 +291,8 @@ contract IdentityValidator is IIdentityValidator {
     }
 
     function setRecoveryDelay(uint48 delay) external {
-        if (delay < recoveryDelay(msg.sender)) revert RecoveryDelayTooShort(delay);
-        if (delay > MAX_RECOVERY_DELAY) revert RecoveryDelayTooLong(delay);
-        _account(msg.sender).recoveryDelay = delay;
+        if (delay < recoveryDelay(msg.sender)) revert RootOperationRequired();
+        _setRecoveryDelay(msg.sender, delay);
     }
 
     /// Decodes a signature list; external so a malformed one fails validation instead of reverting it.
@@ -314,7 +313,8 @@ contract IdentityValidator is IIdentityValidator {
         bool own = target == address(this)
             && (selector == this.setThreshold.selector
                 || selector == this.revokeSession.selector
-                || selector == this.unlink.selector);
+                || selector == this.unlink.selector
+                || selector == this.setRecoveryDelay.selector);
         if (target != msg.sender && !own) revert BadRootOperation(target);
         opId = _rootId(msg.sender, target, data);
         uint48 readyAt = _maturity(msg.sender);
@@ -345,6 +345,8 @@ contract IdentityValidator is IIdentityValidator {
             _setThreshold(account, abi.decode(data[4:], (uint8)));
         } else if (selector == this.unlink.selector) {
             _unlink(account, abi.decode(data[4:], (bytes32)));
+        } else if (selector == this.setRecoveryDelay.selector) {
+            _setRecoveryDelay(account, abi.decode(data[4:], (uint48)));
         } else {
             _revoke(account, abi.decode(data[4:], (bytes)), true);
         }
@@ -402,6 +404,12 @@ contract IdentityValidator is IIdentityValidator {
         AccountState storage a = _account(account);
         if (t > a.platforms) revert ThresholdTooHigh(t, a.platforms);
         a.threshold = t;
+    }
+
+    function _setRecoveryDelay(address account, uint48 delay) private {
+        if (delay < MIN_RECOVERY_DELAY) revert RecoveryDelayTooShort(delay);
+        if (delay > MAX_RECOVERY_DELAY) revert RecoveryDelayTooLong(delay);
+        _account(account).recoveryDelay = delay;
     }
 
     function _unlink(address account, bytes32 identity) private {

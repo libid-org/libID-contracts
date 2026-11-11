@@ -65,7 +65,7 @@ contract IdentityValidatorTest is WalletTestBase {
         vm.expectRevert(abi.encodeWithSelector(IIdentityValidator.BadRootOperation.selector, mallory));
         validator.queueRoot(mallory, abi.encodeCall(IIdentityValidator.setThreshold, (2)));
         vm.expectRevert(abi.encodeWithSelector(IIdentityValidator.BadRootOperation.selector, address(validator)));
-        validator.queueRoot(address(validator), abi.encodeCall(IIdentityValidator.setRecoveryDelay, (72 hours)));
+        validator.queueRoot(address(validator), abi.encodeCall(IIdentityValidator.cancelRoot, (bytes32(0))));
         vm.expectRevert(abi.encodeWithSelector(IIdentityValidator.RootNotReady.selector, keccak256("never queued")));
         validator.cancelRoot(keccak256("never queued"));
         vm.expectRevert(abi.encodeWithSelector(IIdentityValidator.InvalidKey.selector, short));
@@ -429,11 +429,11 @@ contract IdentityValidatorTest is WalletTestBase {
     function test_recoveryDelayOnlyGrows() public {
         address w = _claim();
         vm.startPrank(w);
-        vm.expectRevert(abi.encodeWithSelector(IIdentityValidator.RecoveryDelayTooShort.selector, 47 hours));
+        vm.expectRevert(IIdentityValidator.RootOperationRequired.selector);
         validator.setRecoveryDelay(47 hours);
         validator.setRecoveryDelay(72 hours);
         validator.setRecoveryDelay(72 hours);
-        vm.expectRevert(abi.encodeWithSelector(IIdentityValidator.RecoveryDelayTooShort.selector, 60 hours));
+        vm.expectRevert(IIdentityValidator.RootOperationRequired.selector);
         validator.setRecoveryDelay(60 hours);
         vm.stopPrank();
         assertEq(validator.recoveryDelay(w), 72 hours);
