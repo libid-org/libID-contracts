@@ -30,7 +30,9 @@ const callsDir = join(packageDir, 'src', 'calls')
 
 // Every contract the package ships an ABI for. `file` is the source unit under
 // solidity/out, `name` the contract inside it, `exportName` what a consumer
-// imports.
+// imports. `rootOnly` names pure functions that only revert when called but
+// whose calldata is a root operation's payload (`queueRoot(target, data)`):
+// they get builders too.
 const contracts = [
   { file: 'IdentityRegistry.sol', name: 'IdentityRegistry', exportName: 'identityRegistryAbi' },
   { file: 'HandleResolver.sol', name: 'HandleResolver', exportName: 'handleResolverAbi' },
@@ -57,7 +59,12 @@ const contracts = [
   { file: 'LibidFactory.sol', name: 'LibidFactory', exportName: 'libidFactoryAbi' },
   { file: 'WTIA9.sol', name: 'WTIA9', exportName: 'wtia9Abi' },
   { file: 'WebWallet.sol', name: 'WebWallet', exportName: 'webWalletAbi' },
-  { file: 'IdentityValidator.sol', name: 'IdentityValidator', exportName: 'identityValidatorAbi' },
+  {
+    file: 'IdentityValidator.sol',
+    name: 'IdentityValidator',
+    exportName: 'identityValidatorAbi',
+    rootOnly: ['setThreshold', 'unlink'],
+  },
   { file: 'WalletRegistry.sol', name: 'WalletRegistry', exportName: 'walletRegistryAbi' },
   { file: 'WalletFactory.sol', name: 'WalletFactory', exportName: 'walletFactoryAbi' },
   { file: 'ClaimExecutor.sol', name: 'ClaimExecutor', exportName: 'claimExecutorAbi' },
@@ -110,7 +117,7 @@ function generate(abisTarget, callsTarget) {
   /** @type {string[]} */
   const callModules = []
 
-  for (const { file, name, exportName } of contracts) {
+  for (const { file, name, exportName, rootOnly = [] } of contracts) {
     const artifact = readArtifact(file, name)
 
     const moduleName = exportName.replace(/Abi$/, '')
@@ -124,7 +131,7 @@ export const ${exportName} = ${body} as const satisfies Abi
 `
     writeFileSync(join(abisTarget, `${moduleName}.ts`), content)
 
-    const calls = callModule({ file, name, exportName, moduleName, abi: artifact.abi })
+    const calls = callModule({ file, name, exportName, moduleName, abi: artifact.abi, rootOnly })
     if (calls) {
       writeFileSync(join(callsTarget, `${moduleName}.ts`), calls)
       callModules.push(moduleName)
@@ -165,16 +172,22 @@ export const bindErrorsAbi = ${JSON.stringify(bindErrors(), null, 2)} as const s
 /// Payable functions take `value` before their arguments, so a missing value on
 /// a payable write, or a value on a nonpayable one, fails to compile.
 /**
- * @param {{ file: string, name: string, exportName: string, moduleName: string, abi: Abi }} target
+ * @param {{ file: string, name: string, exportName: string, moduleName: string, abi: Abi, rootOnly: string[] }} target
  * @returns {string | null}
  */
-function callModule({ file, name, exportName, moduleName, abi }) {
+function callModule({ file, name, exportName, moduleName, abi, rootOnly }) {
+  for (const fn of rootOnly) {
+    const entries = abi.filter((entry) => entry.type === 'function' && entry.name === fn)
+    if (entries.length === 0 || entries.some((entry) => entry.stateMutability !== 'pure')) {
+      throw new Error(`${name}.${fn}: rootOnly names a function the ABI has no pure entry for`)
+    }
+  }
   const writes = abi.filter(
     /** @returns {entry is AbiFunction} */
     (entry) =>
       entry.type === 'function' &&
-      entry.stateMutability !== 'view' &&
-      entry.stateMutability !== 'pure',
+      (rootOnly.includes(entry.name) ||
+        (entry.stateMutability !== 'view' && entry.stateMutability !== 'pure')),
   )
   if (writes.length === 0) return null
 
@@ -214,7 +227,7 @@ import {
 import type { Call } from '../call.js'
 import { ${exportName} } from '../abis/${moduleName}.js'
 
-type Mutability = 'nonpayable' | 'payable'
+type Mutability = 'nonpayable' | 'payable'${rootOnly.length === 0 ? '' : " | 'pure'"}
 type ${fnType} = ContractFunctionName<typeof ${exportName}, Mutability>
 type ${argsType}<F extends ${fnType}> = ContractFunctionArgs<typeof ${exportName}, Mutability, F>
 
