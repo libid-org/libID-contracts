@@ -43,7 +43,7 @@ interface IIdentityValidator is IERC7579Validator {
 
     event SessionAdded(address indexed account, bytes32 indexed identity, bytes key, bytes32 policyHash);
     event SessionPending(
-        address indexed wallet, bytes32 indexed identity, bytes key, bytes32 policyHash, uint48 activeAt
+        address indexed account, bytes32 indexed identity, bytes key, bytes32 policyHash, uint48 activeAt
     );
     event SessionRevoked(address indexed account, bytes32 indexed identity, bytes key);
     event RootQueued(address indexed account, bytes32 indexed opId, address target, bytes data, uint48 readyAt);

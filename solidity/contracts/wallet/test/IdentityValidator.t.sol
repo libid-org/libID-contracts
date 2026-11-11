@@ -325,12 +325,12 @@ contract IdentityValidatorTest is WalletTestBase {
         assertFalse(IWebWallet(w).isModuleInstalled(2, address(executor), ""), "executor not uninstalled");
         _root(w, w, abi.encodeCall(IERC7579ModuleConfig.installModule, (2, address(executor), "")));
         assertTrue(IWebWallet(w).isModuleInstalled(2, address(executor), ""), "executor not reinstalled");
-        bytes memory foreign = abi.encodeCall(IERC7579ModuleConfig.installModule, (2, address(target), ""));
-        vm.prank(w);
-        validator.queueRoot(w, foreign);
-        vm.warp(_now() + 48 hours);
-        vm.expectRevert(abi.encodeWithSelector(IWebWallet.ModuleNotAllowed.selector, address(target)));
-        validator.executeRoot(w, w, foreign);
+        _rootReverts(
+            w,
+            w,
+            abi.encodeCall(IERC7579ModuleConfig.installModule, (2, address(target), "")),
+            abi.encodeWithSelector(IWebWallet.ModuleNotAllowed.selector, address(target))
+        );
 
         address other = deployCode("IdentityValidator.sol:IdentityValidator", abi.encode(address(registry)));
         bytes memory data = abi.encodeCall(IERC7579ModuleConfig.installModule, (1, other, abi.encode(X, ALICE)));
@@ -380,12 +380,12 @@ contract IdentityValidatorTest is WalletTestBase {
     /// The threshold may not exceed the linked identities, or no admin operation could pass again.
     function test_thresholdAboveTheLinkedIdentitiesIsRefused() public {
         address w = _claim();
-        bytes memory data = abi.encodeCall(IIdentityValidator.setThreshold, (2));
-        vm.prank(w);
-        validator.queueRoot(address(validator), data);
-        vm.warp(_now() + 48 hours);
-        vm.expectRevert(abi.encodeWithSelector(IIdentityValidator.ThresholdTooHigh.selector, uint8(2), uint32(1)));
-        validator.executeRoot(w, address(validator), data);
+        _rootReverts(
+            w,
+            address(validator),
+            abi.encodeCall(IIdentityValidator.setThreshold, (2)),
+            abi.encodeWithSelector(IIdentityValidator.ThresholdTooHigh.selector, uint8(2), uint32(1))
+        );
     }
 
     /// After the timelock, every session of the identity stops validating, and no proof adds one.
@@ -462,12 +462,7 @@ contract IdentityValidatorTest is WalletTestBase {
     }
 
     function _unlinkReverts(address w, bytes32 identity, bytes memory err) internal {
-        bytes memory data = abi.encodeCall(IIdentityValidator.unlink, (identity));
-        vm.prank(w);
-        validator.queueRoot(address(validator), data);
-        vm.warp(_now() + 48 hours);
-        vm.expectRevert(err);
-        validator.executeRoot(w, address(validator), data);
+        _rootReverts(w, address(validator), abi.encodeCall(IIdentityValidator.unlink, (identity)), err);
     }
 
     /// An unlink may not take the account's last admin session with it.

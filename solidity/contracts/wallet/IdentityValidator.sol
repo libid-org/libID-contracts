@@ -90,11 +90,16 @@ contract IdentityValidator is IIdentityValidator {
         return _s().sessions[_install(account)][keccak256(key)][account];
     }
 
+    function _roots(address account, bytes32 opId) private view returns (mapping(address => Root) storage) {
+        return _s().roots[_install(account)][opId];
+    }
+
     function _generations(address account, bytes32 identity) private view returns (mapping(address => uint32) storage) {
         return _s().generations[_install(account)][identity];
     }
 
-    function _adminSessions(address account, bytes32 identity)
+    /// The identity's own admin sessions; `AccountState.adminSessions` counts the account's.
+    function _identityAdmins(address account, bytes32 identity)
         private
         view
         returns (mapping(address => uint32) storage)
@@ -189,8 +194,8 @@ contract IdentityValidator is IIdentityValidator {
     }
 
     function rootReadyAt(address account, bytes32 opId) external view returns (uint48) {
-        Root memory r = _s().roots[_install(account)][opId][account];
-        return r.epoch == _account(account).unlinkEpoch ? r.readyAt : 0;
+        Root memory r = _roots(account, opId)[account];
+        return _superseded(account, r) ? 0 : r.readyAt;
     }
 
     // ─── Registry ───────────────────────────────────────────────────
@@ -259,13 +264,12 @@ contract IdentityValidator is IIdentityValidator {
         if (target != msg.sender && !own) revert BadRootOperation(target);
         opId = _rootId(msg.sender, target, data);
         uint48 readyAt = _maturity(msg.sender);
-        _s().roots[_install(msg.sender)][opId][msg.sender] =
-            Root({readyAt: readyAt, epoch: _account(msg.sender).unlinkEpoch});
+        _roots(msg.sender, opId)[msg.sender] = Root({readyAt: readyAt, epoch: _account(msg.sender).unlinkEpoch});
         emit RootQueued(msg.sender, opId, target, data, readyAt);
     }
 
     function cancelRoot(bytes32 opId) external {
-        mapping(address => Root) storage root = _s().roots[_install(msg.sender)][opId];
+        mapping(address => Root) storage root = _roots(msg.sender, opId);
         if (root[msg.sender].readyAt == 0) revert RootNotReady(opId);
         delete root[msg.sender];
         emit RootCancelled(msg.sender, opId);
@@ -273,21 +277,19 @@ contract IdentityValidator is IIdentityValidator {
 
     function executeRoot(address account, address target, bytes calldata data) external {
         bytes32 opId = _rootId(account, target, data);
-        mapping(address => Root) storage root = _s().roots[_install(account)][opId];
+        mapping(address => Root) storage root = _roots(account, opId);
         Root memory r = root[account];
         if (r.readyAt == 0 || block.timestamp < r.readyAt) revert RootNotReady(opId);
-        if (r.epoch != _account(account).unlinkEpoch) revert RootSuperseded(opId);
+        if (_superseded(account, r)) revert RootSuperseded(opId);
         delete root[account];
         emit RootExecuted(account, opId);
 
+        bytes4 selector = _selector(data);
         if (target == account) {
             Address.functionCall(account, data);
-        } else if (_selector(data) == this.setThreshold.selector) {
-            AccountState storage a = _account(account);
-            uint8 t = abi.decode(data[4:], (uint8));
-            if (t > a.identities) revert ThresholdTooHigh(t, a.identities);
-            a.threshold = t;
-        } else if (_selector(data) == this.unlink.selector) {
+        } else if (selector == this.setThreshold.selector) {
+            _setThreshold(account, abi.decode(data[4:], (uint8)));
+        } else if (selector == this.unlink.selector) {
             _unlink(account, abi.decode(data[4:], (bytes32)));
         } else {
             _revoke(account, abi.decode(data[4:], (bytes)), true);
@@ -313,7 +315,7 @@ contract IdentityValidator is IIdentityValidator {
         a.hadSession = true;
         if (policy.admin) {
             ++a.adminSessions;
-            ++_adminSessions(account, identity)[account];
+            ++_identityAdmins(account, identity)[account];
         }
 
         bytes32 policyHash = keccak256(abi.encode(policy));
@@ -330,13 +332,19 @@ contract IdentityValidator is IIdentityValidator {
             AccountState storage a = _account(account);
             if (a.adminSessions == 1 && !root) revert RootOperationRequired();
             --a.adminSessions;
-            --_adminSessions(account, identity)[account];
+            --_identityAdmins(account, identity)[account];
         }
         delete s.identity;
         delete s.policy;
         delete s.activeAt;
         delete s.generation;
         emit SessionRevoked(account, identity, key);
+    }
+
+    function _setThreshold(address account, uint8 t) private {
+        AccountState storage a = _account(account);
+        if (t > a.identities) revert ThresholdTooHigh(t, a.identities);
+        a.threshold = t;
     }
 
     function _unlink(address account, bytes32 identity) private {
@@ -346,7 +354,7 @@ contract IdentityValidator is IIdentityValidator {
         uint32 left = a.identities - 1;
         if (left == 0) revert LastIdentity(identity);
         if (a.threshold > left) revert ThresholdTooHigh(a.threshold, left);
-        mapping(address => uint32) storage admins = _adminSessions(account, identity);
+        mapping(address => uint32) storage admins = _identityAdmins(account, identity);
         if (admins[account] == a.adminSessions) revert LastAdmin(identity);
         a.adminSessions -= admins[account];
         delete admins[account];
@@ -355,6 +363,11 @@ contract IdentityValidator is IIdentityValidator {
         a.identities = left;
         ++a.unlinkEpoch;
         emit IdentityUnlinked(account, identity);
+    }
+
+    /// Whether an unlink ran after the root operation was queued.
+    function _superseded(address account, Root memory r) private view returns (bool) {
+        return r.epoch != _account(account).unlinkEpoch;
     }
 
     /// Whether the session exists and belongs to its identity's current link.

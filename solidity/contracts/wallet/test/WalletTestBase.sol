@@ -356,6 +356,15 @@ abstract contract WalletTestBase is Test {
         validator.executeRoot(wallet, to, data);
     }
 
+    /// Queues a root operation and expects its matured execution to revert with `err`.
+    function _rootReverts(address wallet, address to, bytes memory data, bytes memory err) internal {
+        vm.prank(wallet);
+        validator.queueRoot(to, data);
+        vm.warp(_now() + 48 hours);
+        vm.expectRevert(err);
+        validator.executeRoot(wallet, to, data);
+    }
+
     // ─── ERC-1271 ───────────────────────────────────────────────────
 
     /// The ERC-7739 PersonalSign hash of `h` under the wallet's own EIP-712 domain.

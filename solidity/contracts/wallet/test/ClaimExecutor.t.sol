@@ -14,6 +14,12 @@ import {IWalletFactory} from "../IWalletFactory.sol";
 import {IWalletRegistry} from "../IWalletRegistry.sol";
 import {WalletTestBase} from "./WalletTestBase.sol";
 
+/// The escrow's native token, as a claim's token list.
+function nativeOnly() pure returns (address[] memory tokens) {
+    tokens = new address[](1);
+    tokens[0] = NATIVE_TOKEN;
+}
+
 /// Sends the whole claim as one transaction, as a relayer's multicall does.
 contract Relay {
     function claim(
@@ -30,9 +36,7 @@ contract Relay {
         address w = factory.createWallet(platformId, idNode);
         registry.linkIdentity{value: fee}(platformId, 2, linkPayload, IIdentityValidator.Policy(0, 0, false));
         executor.bind{value: fee}(w, platformId, 2, bindPayload);
-        address[] memory tokens = new address[](1);
-        tokens[0] = NATIVE_TOKEN;
-        executor.claimToSelf(w, handleNode, tokens);
+        executor.claimToSelf(w, handleNode, nativeOnly());
     }
 }
 
@@ -120,10 +124,8 @@ contract ClaimExecutorTest is WalletTestBase {
         // A claim pays the wallet, whoever sends it.
         bind = _paidPayload(ALICE, BIND, abi.encode(w));
         executor.bind{value: FEE}(w, X, 2, bind);
-        address[] memory tokens = new address[](1);
-        tokens[0] = NATIVE_TOKEN;
         vm.prank(mallory);
-        executor.claimToSelf(w, HANDLE, tokens);
+        executor.claimToSelf(w, HANDLE, nativeOnly());
         assertEq(w.balance, 1 ether, "not paid to the wallet");
         assertEq(mallory.balance, 0, "paid to the caller");
     }

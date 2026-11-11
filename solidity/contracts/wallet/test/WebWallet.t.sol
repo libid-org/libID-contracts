@@ -153,12 +153,12 @@ contract WebWalletTest is WalletTestBase {
     /// operation is refused.
     function test_theValidatorCannotBeUninstalled() public {
         address w = _claim();
-        bytes memory data = abi.encodeCall(IERC7579ModuleConfig.uninstallModule, (1, address(validator), ""));
-        vm.prank(w);
-        validator.queueRoot(w, data);
-        vm.warp(_now() + 48 hours);
-        vm.expectRevert(abi.encodeWithSelector(IWebWallet.ModuleNotAllowed.selector, address(validator)));
-        validator.executeRoot(w, w, data);
+        _rootReverts(
+            w,
+            w,
+            abi.encodeCall(IERC7579ModuleConfig.uninstallModule, (1, address(validator), "")),
+            abi.encodeWithSelector(IWebWallet.ModuleNotAllowed.selector, address(validator))
+        );
         assertTrue(IWebWallet(w).isModuleInstalled(1, address(validator), ""), "uninstalled");
     }
 }
