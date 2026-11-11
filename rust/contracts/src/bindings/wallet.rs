@@ -1,7 +1,8 @@
 //! Bindings for the web wallet (`solidity/contracts/wallet/`), read from the
 //! compiled artifacts. One `sol!` per contract: the structs they share, such
 //! as `IIdentityValidator.Policy`, are generated once per contract, so
-//! `WalletRegistry` calls take [`RegistryPolicy`].
+//! `WalletRegistry` calls take [`RegistryPolicy`], built from
+//! [`RegistryRules`] and [`RegistryAllowance`].
 
 #[allow(
     clippy::too_many_arguments,
@@ -59,9 +60,13 @@ mod wallet_registry {
     );
 }
 
+/// `IIdentityValidator.Allowance` of a [`RegistryRules`].
+pub use wallet_registry::IIdentityValidator::Allowance as RegistryAllowance;
 /// `IIdentityValidator.Policy` as `WalletRegistry` calls take it: the same
 /// struct as [`IIdentityValidator::Policy`], generated from this contract's ABI.
 pub use wallet_registry::IIdentityValidator::Policy as RegistryPolicy;
+/// `IIdentityValidator.Rules` of a [`RegistryPolicy`].
+pub use wallet_registry::IIdentityValidator::Rules as RegistryRules;
 /// `wallet/WalletRegistry.sol`: links proved identities to wallets.
 pub use wallet_registry::WalletRegistry;
 
@@ -109,7 +114,8 @@ mod tests {
 
     use super::*;
 
-    /// The two `Policy` bindings name one struct, so either decodes the other.
+    /// The two `Policy` bindings name one struct: either decodes the other, and
+    /// one built from the registry's own types encodes the same.
     #[test]
     fn the_registry_policy_is_the_validator_policy() {
         assert_eq!(
@@ -132,5 +138,21 @@ mod tests {
         };
         let decoded = RegistryPolicy::abi_decode(&policy.abi_encode()).unwrap();
         assert_eq!(decoded.abi_encode(), policy.abi_encode());
+
+        let built = RegistryPolicy {
+            validAfter: 1.try_into().unwrap(),
+            validUntil: 2.try_into().unwrap(),
+            admin: true,
+            rules: RegistryRules {
+                scopeRoot: [1; 32].into(),
+                domainsRoot: [2; 32].into(),
+                allowances: vec![RegistryAllowance {
+                    token: [3; 20].into(),
+                    amount: 4,
+                    period: 5.try_into().unwrap(),
+                }],
+            },
+        };
+        assert_eq!(built.abi_encode(), policy.abi_encode());
     }
 }
