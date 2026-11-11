@@ -25,6 +25,8 @@ function policyHashOf(IIdentityValidator.Policy memory policy) pure returns (byt
 ///      app separator, contents hash and contents type. Its signature part is `abi.encode(SessionSignature[])`.
 ///      `isValidSignatureWithSender(_, 0x7739…7739, "")` answers `0x77390001` (ERC-7739 detection).
 ///      Fresh install data is `abi.encode(platformId, idNode)`: the genesis identity.
+///      `onInstall` and `onUninstall` run only from the account's own install and uninstall:
+///      they revert while the account has this validator installed.
 interface IIdentityValidator is IERC7579Validator {
     /// @dev `validUntil == 0` never expires. Only admin sessions may change the account.
     struct Policy {
@@ -59,6 +61,11 @@ interface IIdentityValidator is IERC7579Validator {
     event RootExecuted(address indexed account, bytes32 indexed opId);
     event IdentityUnlinked(address indexed account, bytes32 indexed identity);
 
+    /// The account still has this validator installed: its hooks run only from the account's own
+    /// install and uninstall.
+    error InstallLive(address account);
+    /// The account has no install of this validator to end.
+    error NotInstalled(address account);
     /// A registry-only entry was called by someone else.
     error NotRegistry(address caller);
     /// The identity is not linked to the account.

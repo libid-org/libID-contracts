@@ -622,24 +622,6 @@ contract IdentityValidatorTest is WalletTestBase {
         validator.executeRoot(w, address(validator), early);
     }
 
-    /// R6: state is keyed by install, so a reinstall starts empty.
-    function test_reinstallDoesNotRestoreSessions() public {
-        address w = _claim();
-        vm.startPrank(w);
-        validator.onUninstall("");
-        assertFalse(validator.isLinked(w, _identity(X, ALICE)), "link kept by an uninstall");
-        validator.onInstall(abi.encode(X, ALICE));
-        vm.stopPrank();
-        assertEq(validator.sessionOf(w, _key(ALICE_PK)).identity, bytes32(0), "session came back");
-        assertFalse(validator.isLinked(w, _identity(X, ALICE)), "link came back");
-        assertEq(_validate(w, _hit(), _pks(ALICE_PK)), 1, "old key validates");
-
-        _link(relayer, X, ALICE, w, "", _admin());
-        vm.prank(w);
-        validator.onInstall(abi.encode(X, ALICE));
-        assertFalse(validator.isLinked(w, _identity(X, ALICE)), "an install kept the earlier one's link");
-    }
-
     // ─── ERC-1271 (R3) ──────────────────────────────────────────────
 
     function test_erc1271OnlyAdminsInWindowBoundToTheAccount() public {

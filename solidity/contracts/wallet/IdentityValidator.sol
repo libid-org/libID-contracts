@@ -7,6 +7,7 @@ import {IERC5267} from "@openzeppelin/contracts/interfaces/IERC5267.sol";
 import {
     IERC7579Execution,
     IERC7579Module,
+    IERC7579ModuleConfig,
     MODULE_TYPE_VALIDATOR
 } from "@openzeppelin/contracts/interfaces/draft-IERC7579.sol";
 import {ERC4337Utils} from "@openzeppelin/contracts/account/utils/ERC4337Utils.sol";
@@ -156,15 +157,25 @@ contract IdentityValidator is IIdentityValidator {
     }
 
     /// @dev Starts a fresh install: nothing of an earlier one is visible.
+    ///      `installs` is odd while an install is live.
     function onInstall(bytes calldata data) external {
+        uint256 install = _install(msg.sender);
+        if (install % 2 == 1) revert InstallLive(msg.sender);
         (bytes32 platformId, bytes32 idNode) = abi.decode(data, (bytes32, bytes32));
-        AccountState storage a = _s().accounts[++_s().installs[msg.sender]][msg.sender];
+        _s().installs[msg.sender] = ++install;
+        AccountState storage a = _s().accounts[install][msg.sender];
         a.platformId = platformId;
         a.idNode = idNode;
     }
 
+    /// @dev The account removes the module before it calls this hook.
     function onUninstall(bytes calldata) external {
-        ++_s().installs[msg.sender];
+        uint256 install = _install(msg.sender);
+        if (install % 2 == 0) revert NotInstalled(msg.sender);
+        if (IERC7579ModuleConfig(msg.sender).isModuleInstalled(MODULE_TYPE_VALIDATOR, address(this), "")) {
+            revert InstallLive(msg.sender);
+        }
+        _s().installs[msg.sender] = install + 1;
     }
 
     function validateUserOp(PackedUserOperation calldata userOp, bytes32 userOpHash) external view returns (uint256) {
