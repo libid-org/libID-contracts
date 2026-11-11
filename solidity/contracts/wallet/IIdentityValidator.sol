@@ -193,7 +193,8 @@ interface IIdentityValidator is IERC7579Validator {
     function genesisIdentity(address account) external view returns (bytes32 platformId, bytes32 idNode);
     function isLinked(address account, bytes32 identity) external view returns (bool);
     function sessionOf(address account, bytes calldata key) external view returns (Session memory);
-    /// The live session `key`'s counter for `token`; zero when it has no session or no such allowance.
+    /// The live session `key`'s raw counter for `token`; zero when it has no session or no such allowance.
+    /// `spent` applies to an operation only while its `at - at % period == periodStart`; a later period starts at 0.
     function allowanceOf(address account, bytes calldata key, address token)
         external
         view
