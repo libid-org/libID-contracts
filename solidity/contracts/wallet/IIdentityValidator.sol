@@ -59,6 +59,16 @@ function policyHashOf(IIdentityValidator.Policy memory policy) pure returns (byt
 ///      validity window is that period intersected with the session's. A charge needs `at != 0`, and
 ///      under a nonzero period, a period ending below 2^47; an operation charging nothing ignores `at`.
 ///      Counters are keyed by `(key, rulesHash, token)`: a key re-added with the same rules keeps its spend.
+///      Choosing `at`: the block time when signing. A charging operation's `validUntil` is its period's
+///      end, and bundlers such as Rundler refuse an operation within about 60 s of its `validUntil`:
+///      in a period's last minute, wait for the next period and sign then.
+///      Accepted risks below quorum:
+///      - a listed app domain whose typed data moves value (EIP-2612 `permit`, Permit2, Seaport, CoW,
+///        1inch orders) lets the session sign it past its allowances;
+///      - spending through a selector the allowances do not parse, such as a router pulling a standing
+///        approval, is bounded only by the scope;
+///      - re-adding a key with a different rules hash starts its counters fresh; adding a session is an
+///        admin operation.
 ///      `isValidSignatureWithSender(_, 0x7739…7739, "")` answers `0x77390001` (ERC-7739 detection).
 ///      Fresh install data is `abi.encode(platformId, idNode)`: the genesis identity.
 ///      `onInstall` and `onUninstall` run only from the account's own install and uninstall:
