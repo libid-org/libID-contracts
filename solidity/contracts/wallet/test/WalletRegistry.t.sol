@@ -20,6 +20,8 @@ contract WalletRegistryTest is WalletTestBase {
         vm.prank(relayer);
         address w = factory.createWallet(X, ALICE);
         bytes memory payload = _payload(X, ALICE, LINK, _txData(w, _key(ALICE_PK), _ph(_admin())));
+        vm.expectEmit(true, true, false, true, address(validator));
+        emit IIdentityValidator.SessionAddedByProof(w, _identity(X, ALICE), _key(ALICE_PK), _ph(_admin()), _admin(), 0);
         vm.expectEmit(true, true, true, false, address(registry));
         emit IWalletRegistry.IdentityLinked(w, X, ALICE, bytes32(0));
         vm.prank(mallory);
@@ -80,6 +82,8 @@ contract WalletRegistryTest is WalletTestBase {
     function test_aLinkByTheWalletAddsItsSessionAtOnce() public {
         address w = _claim();
         bytes memory payload = _payload(GITHUB, BOB, LINK, _txData(w, _key(BOB_PK), _ph(_admin())));
+        vm.expectEmit(true, true, false, true, address(validator));
+        emit IIdentityValidator.SessionAdded(w, _identity(GITHUB, BOB), _key(BOB_PK), _ph(_admin()), _admin());
         vm.prank(w);
         registry.linkIdentity(GITHUB, V1, payload, _admin());
         IIdentityValidator.Session memory s = validator.sessionOf(w, _key(BOB_PK));
@@ -245,7 +249,9 @@ contract WalletRegistryTest is WalletTestBase {
         uint48 due = uint48(_now() + 48 hours);
         bytes memory payload = _payload(X, ALICE, ADD, _txData(w, _key(ALICE2_PK), _ph(_admin())));
         vm.expectEmit(true, true, false, true, address(validator));
-        emit IIdentityValidator.SessionPending(w, _identity(X, ALICE), _key(ALICE2_PK), _ph(_admin()), due);
+        emit IIdentityValidator.SessionAddedByProof(
+            w, _identity(X, ALICE), _key(ALICE2_PK), _ph(_admin()), _admin(), due
+        );
         vm.prank(mallory);
         registry.addSessionByProof(X, V1, payload, _admin());
         assertEq(validator.sessionOf(w, _key(ALICE2_PK)).activeAt, due, "not pending for 48 h");

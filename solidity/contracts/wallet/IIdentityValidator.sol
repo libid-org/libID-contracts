@@ -8,12 +8,17 @@ function identityOf(bytes32 platformId, bytes32 idNode) pure returns (bytes32) {
     return keccak256(abi.encode(platformId, idNode));
 }
 
+/// A policy's hash, as a proof commits it.
+function policyHashOf(IIdentityValidator.Policy memory policy) pure returns (bytes32) {
+    return keccak256(abi.encode(policy));
+}
+
 /// @title IIdentityValidator - identities, sessions and root operations of ERC-7579 accounts.
 /// @notice Constructor: `IdentityValidator(address walletRegistry)`. Immutable, no owner.
 /// @dev State is per account and per install: an uninstall drops it.
 ///      An identity is `identityOf(platformId, idNode)`.
 ///      A session key is an ERC-7913 signer: a 20-byte address, or `verifier || key`.
-///      A policy hash is `keccak256(abi.encode(policy))`.
+///      A policy hash is `policyHashOf(policy)`.
 ///      `userOp.signature` is `abi.encode(SessionSignature[])` over `userOpHash`.
 ///      The ERC-1271 signature after the validator's address is an ERC-7739 nested signature
 ///      under the account's `eip712Domain()`: `PersonalSign`, or `TypedDataSign` followed by the
@@ -41,9 +46,11 @@ interface IIdentityValidator is IERC7579Validator {
         bytes signature;
     }
 
-    event SessionAdded(address indexed account, bytes32 indexed identity, bytes key, bytes32 policyHash);
-    event SessionPending(
-        address indexed account, bytes32 indexed identity, bytes key, bytes32 policyHash, uint48 activeAt
+    /// A session added by the account itself.
+    event SessionAdded(address indexed account, bytes32 indexed identity, bytes key, bytes32 policyHash, Policy policy);
+    /// A session added by proof, the event to alert on: `activeAt != 0` is pending until then.
+    event SessionAddedByProof(
+        address indexed account, bytes32 indexed identity, bytes key, bytes32 policyHash, Policy policy, uint48 activeAt
     );
     event SessionRevoked(address indexed account, bytes32 indexed identity, bytes key);
     event RootQueued(address indexed account, bytes32 indexed opId, address target, bytes data, uint48 readyAt);

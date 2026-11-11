@@ -3,7 +3,7 @@ pragma solidity ^0.8.24;
 
 import {ICeremony} from "../ceremony/ICeremony.sol";
 import {IProofVerifier} from "../ceremony/IProofVerifier.sol";
-import {IIdentityValidator, identityOf} from "./IIdentityValidator.sol";
+import {IIdentityValidator, identityOf, policyHashOf} from "./IIdentityValidator.sol";
 import {IWalletRegistry} from "./IWalletRegistry.sol";
 
 /// @title WalletRegistry - the Consumer of the `libid.webwallet.*` operations.
@@ -130,7 +130,7 @@ contract WalletRegistry is IWalletRegistry {
         ) revert BadTransactionData(data.length);
         if (chainId != block.chainid) revert WrongChain(chainId);
         if (key.length != 0) {
-            bytes32 given = keccak256(abi.encode(policy));
+            bytes32 given = policyHashOf(policy);
             if (given != policyHash) revert PolicyMismatch(policyHash, given);
         }
     }

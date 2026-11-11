@@ -17,7 +17,7 @@ import {MessageHashUtils} from "@openzeppelin/contracts/utils/cryptography/Messa
 import {SignatureChecker} from "@openzeppelin/contracts/utils/cryptography/SignatureChecker.sol";
 import {ERC7739Utils} from "@openzeppelin/contracts/utils/cryptography/draft-ERC7739Utils.sol";
 
-import {IIdentityValidator, identityOf} from "./IIdentityValidator.sol";
+import {IIdentityValidator, identityOf, policyHashOf} from "./IIdentityValidator.sol";
 
 /// @title IdentityValidator - the one ERC-7579 validator of every WebWallet.
 /// @notice Holds each account's linked identities, sessions, threshold and root operations.
@@ -242,19 +242,20 @@ contract IdentityValidator is IIdentityValidator {
             _replacePending(account, identity, key);
         }
         _add(account, identity, key, policy, activeAt);
+        emit SessionAddedByProof(account, identity, key, policyHashOf(policy), policy, activeAt);
     }
 
     function addSessionByAccount(address account, bytes32 identity, bytes calldata key, Policy calldata policy)
         external
         onlyRegistry
     {
-        _add(account, identity, key, policy, 0);
+        _addNow(account, identity, key, policy);
     }
 
     // ─── The account ────────────────────────────────────────────────
 
     function addSession(bytes32 identity, bytes calldata key, Policy calldata policy) external {
-        _add(msg.sender, identity, key, policy, 0);
+        _addNow(msg.sender, identity, key, policy);
     }
 
     function revokeSession(bytes calldata key) external {
@@ -342,10 +343,11 @@ contract IdentityValidator is IIdentityValidator {
             ++a.adminSessions;
             ++_identityAdmins(account, identity)[account];
         }
+    }
 
-        bytes32 policyHash = keccak256(abi.encode(policy));
-        if (activeAt == 0) emit SessionAdded(account, identity, key, policyHash);
-        else emit SessionPending(account, identity, key, policyHash, activeAt);
+    function _addNow(address account, bytes32 identity, bytes memory key, Policy memory policy) private {
+        _add(account, identity, key, policy, 0);
+        emit SessionAdded(account, identity, key, policyHashOf(policy), policy);
     }
 
     function _revoke(address account, bytes memory key, bool root) private {
