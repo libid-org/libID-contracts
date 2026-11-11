@@ -24,6 +24,12 @@ Each entry of LAYOUTS is one source file and its snapshot, the file's name with
 
 An entry with no namespace (LibidFactory) records only its `contract` lines.
 
+An entry may also name inherited namespaces declared in solidity/lib, such as
+OpenZeppelin's. Each records a `root` line, checked against the annotation and
+the root constant in the lib file that declares it, and its struct's members
+as `struct` lines, so each may grow at its own end. Naming one in a recorded
+layout adds a `root` line, which reads as INCOMPATIBLE.
+
 Types are compared by their label (`mapping(bytes32 => uint256)`), not by the
 compiler's `t_...` ids, which embed AST ids that move on unrelated edits.
 
@@ -80,6 +86,18 @@ SECTIONS = ("root", "contract", "field", "struct")
 
 
 @dataclass(frozen=True)
+class Namespace:
+    """An inherited ERC-7201 namespace declared outside solidity/contracts."""
+
+    struct: str
+    """The namespaced struct, as `Contract.Struct`."""
+    namespace: str
+    """The id after `erc7201:` in the struct's `@custom:storage-location`."""
+    source: str
+    """The file that declares it, relative to solidity/ (a `lib/` path)."""
+
+
+@dataclass(frozen=True)
 class Layout:
     source: str
     """The file, relative to solidity/contracts."""
@@ -89,6 +107,8 @@ class Layout:
     """The namespaced struct, as `Contract.Struct`; None for no namespace."""
     constant: str | None = None
     """The constant that holds the struct's ERC-7201 root."""
+    inherited: tuple[Namespace, ...] = ()
+    """Namespaces of base contracts in solidity/lib."""
 
     @property
     def path(self) -> pathlib.Path:
@@ -162,9 +182,22 @@ LAYOUTS = (
         "IdentityRegistry.IdentityRegistryStorage",
         "IDENTITY_REGISTRY_STORAGE",
     ),
-    # Its namespaces are OpenZeppelin's (AccountERC7579, Initializable), declared
-    # in lib/, which this script does not read: only its own variables are checked.
-    Layout("wallet/WebWallet.sol", ("WebWallet",)),
+    Layout(
+        "wallet/WebWallet.sol",
+        ("WebWallet",),
+        inherited=(
+            Namespace(
+                "AccountERC7579Upgradeable.AccountERC7579Storage",
+                "openzeppelin.storage.AccountERC7579",
+                "lib/openzeppelin-contracts-upgradeable/contracts/account/extensions/draft-AccountERC7579Upgradeable.sol",
+            ),
+            Namespace(
+                "Initializable.InitializableStorage",
+                "openzeppelin.storage.Initializable",
+                "lib/openzeppelin-contracts/contracts/proxy/utils/Initializable.sol",
+            ),
+        ),
+    ),
 )
 
 
@@ -280,6 +313,24 @@ def root(layout: Layout) -> str:
     return f"root erc7201:{namespace} {derived.lower()}"
 
 
+def declares(source: str, struct: str, namespace: str) -> bool:
+    """Whether `source` annotates the struct named last in `struct` with `namespace`."""
+    name = struct.rsplit(".", 1)[-1]
+    annotation = rf"@custom:storage-location erc7201:{re.escape(namespace)}\s*(?:\*/\s*)?struct {name}\b"
+    return re.search(annotation, source) is not None
+
+
+def inherited_root(ns: Namespace) -> str:
+    path = SOLIDITY_ROOT / ns.source
+    source = path.read_text()
+    if not declares(source, ns.struct, ns.namespace):
+        sys.exit(f"{shown(path)} does not declare {ns.struct} at erc7201:{ns.namespace}")
+    derived = run("cast", "index-erc7201", ns.namespace).strip()
+    if derived.lower()[2:] not in source.lower():
+        sys.exit(f"{shown(path)} has no constant equal to erc7201:{ns.namespace}, {derived}")
+    return f"root erc7201:{ns.namespace} {derived.lower()}"
+
+
 def nested(items: list[StorageItem], types: dict[str, StorageType]) -> list[str]:
     """`struct` lines for every struct `items` reach, in first-reached order."""
     lines: list[str] = []
@@ -299,17 +350,21 @@ def nested(items: list[StorageItem], types: dict[str, StorageType]) -> list[str]
     return lines
 
 
-def fields(struct: str, probe: StorageLayout) -> list[str]:
-    types = probe.types
-    held = [types[item.type] for item in probe.storage if types[item.type].label == f"struct {struct}"]
+def probed(struct: str, probe: StorageLayout) -> StorageItem:
+    held = [item for item in probe.storage if probe.types[item.type].label == f"struct {struct}"]
     if len(held) != 1:
         sys.exit(f"{PROBE} holds {struct} {len(held)} times; it must hold it once")
-    members = held[0].members or []
+    return held[0]
+
+
+def fields(struct: str, probe: StorageLayout) -> list[str]:
+    types = probe.types
+    members = types[probed(struct, probe).type].members or []
     return [entry("field", member, types) for member in members] + nested(members, types)
 
 
 def current(layout: Layout, probe: StorageLayout) -> list[str]:
-    lines = [root(layout)] if layout.struct else []
+    lines = ([root(layout)] if layout.struct else []) + [inherited_root(ns) for ns in layout.inherited]
     plain: list[str] = []
     for contract in layout.contracts:
         own = inspect(contract)
@@ -317,6 +372,8 @@ def current(layout: Layout, probe: StorageLayout) -> list[str]:
         plain += nested(own.storage, own.types)
     if layout.struct:
         lines += fields(layout.struct, probe)
+    for ns in layout.inherited:
+        plain += nested([probed(ns.struct, probe)], probe.types)
     return lines + [line for line in dict.fromkeys(plain) if line not in lines]
 
 
