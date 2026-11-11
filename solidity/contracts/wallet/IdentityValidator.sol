@@ -170,7 +170,7 @@ contract IdentityValidator is IIdentityValidator {
         a.idNode = idNode;
     }
 
-    /// @dev The account removes the module before it calls this hook.
+    /// @dev The account removes the module before it calls this hook, as OpenZeppelin's `AccountERC7579` does.
     function onUninstall(bytes calldata) external {
         uint256 install = _install(msg.sender);
         if (install % 2 == 0) revert NotInstalled(msg.sender);

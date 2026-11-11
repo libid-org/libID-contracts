@@ -28,6 +28,8 @@ function policyHashOf(IIdentityValidator.Policy memory policy) pure returns (byt
 ///      Fresh install data is `abi.encode(platformId, idNode)`: the genesis identity.
 ///      `onInstall` and `onUninstall` run only from the account's own install and uninstall:
 ///      they revert while the account has this validator installed.
+///      `onUninstall` expects the account to remove the module before it calls the hook, the order
+///      of OpenZeppelin's `AccountERC7579`: an account that calls the hook first cannot uninstall.
 ///      Revoking an active admin session, or unlinking an identity, voids every root operation
 ///      queued before it: a queued change does not outlive the sessions that could have queued it.
 interface IIdentityValidator is IERC7579Validator {
