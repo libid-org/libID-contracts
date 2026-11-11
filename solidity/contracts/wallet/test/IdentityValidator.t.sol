@@ -490,6 +490,35 @@ contract IdentityValidatorTest is WalletTestBase {
         vm.stopPrank();
     }
 
+    /// Admin and identity counts follow revokes, repeated links and unlinks; a threshold equal to what is left stays.
+    function test_countsFollowRevokesLinksAndUnlinks() public {
+        address w = _claim();
+        bytes32 bob = _identity(GITHUB, BOB);
+        bytes memory unlinkBob = abi.encodeCall(IIdentityValidator.unlink, (bob));
+        _root(w, address(validator), abi.encodeCall(IIdentityValidator.setThreshold, (1)));
+
+        // Bob's revoked admin session no longer counts as his.
+        _link(w, GITHUB, BOB, w, _key(BOB_PK), _admin());
+        vm.prank(w);
+        validator.revokeSession(_key(BOB_PK));
+        _root(w, address(validator), unlinkBob);
+
+        // An unlink clears Bob's admin count, so a later link starts from none.
+        _link(w, GITHUB, BOB, w, _key(APP_PK), _admin());
+        _root(w, address(validator), unlinkBob);
+        _link(w, GITHUB, BOB, w, "", _admin());
+        _root(w, address(validator), unlinkBob);
+
+        // A repeated link counts once, and an unlink takes its identity off the count.
+        _link(w, X, ALICE, w, "", _admin());
+        _rootReverts(
+            w,
+            address(validator),
+            abi.encodeCall(IIdentityValidator.setThreshold, (2)),
+            abi.encodeWithSelector(IIdentityValidator.ThresholdTooHigh.selector, uint8(2), uint32(1))
+        );
+    }
+
     /// `generationOf` tells a dead session from a live one, and a dead session's key can be added again.
     function test_aDeadSessionsKeyCanBeReused() public {
         address w = _claim();

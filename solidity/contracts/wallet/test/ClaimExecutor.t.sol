@@ -93,6 +93,16 @@ contract ClaimExecutorTest is WalletTestBase {
         assertEq(identities.resolveId(MALLORY), address(0), "bound anyway");
     }
 
+    /// A new identity is checked when the wallet already holds another.
+    function test_bindChecksANewIdentityAfterEarlierOnes() public {
+        address w = _claim();
+        executor.bind{value: FEE}(w, X, 2, _paidPayload(ALICE, BIND, abi.encode(w)));
+        bytes memory bind = _paidPayload(MALLORY, BIND, abi.encode(w));
+        paid.setNodes(MALLORY, keccak256("mallory's handle node"));
+        vm.expectRevert(abi.encodeWithSelector(IClaimExecutor.HeldIdentityNotLinked.selector, w, X, MALLORY));
+        executor.bind{value: FEE}(w, X, 2, bind);
+    }
+
     /// A held identity the wallet has since unlinked does not block binding another.
     function test_bindIgnoresIdentitiesHeldBefore() public {
         address w = _claim();
