@@ -86,6 +86,8 @@ interface IIdentityValidator is IERC7579Validator {
     error LastIdentity(bytes32 identity);
     /// The unlink would leave the account no admin session.
     error LastAdmin(bytes32 identity);
+    /// The genesis identity stays linked: it names the wallet's factory address.
+    error GenesisIdentity(bytes32 identity);
     /// An unlink or an active admin session's revoke ran after the root operation was queued.
     error RootSuperseded(bytes32 opId);
     /// A session key is a 20-byte address or `verifier || key`.
@@ -145,7 +147,7 @@ interface IIdentityValidator is IERC7579Validator {
     /// Root operation only. Every session of the identity, active or pending, stops validating for good,
     /// and every root operation queued before it stops executing.
     /// Refused for an identity not linked, the last one, the last of a platform the threshold still needs,
-    /// or when the account would be left with no admin session.
+    /// the genesis identity, or when the account would be left with no admin session.
     function unlink(bytes32 identity) external;
     /// `target` is the account (install, uninstall, upgrade) or this validator
     /// (`setThreshold`, `unlink`, `revokeSession` of the last admin, a lower `setRecoveryDelay`).

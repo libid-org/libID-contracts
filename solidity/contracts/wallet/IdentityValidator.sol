@@ -423,6 +423,7 @@ contract IdentityValidator is IIdentityValidator {
         if (a.threshold > platformsLeft) revert ThresholdTooHigh(a.threshold, platformsLeft);
         mapping(address => uint32) storage admins = _identityAdmins(account, identity);
         if (admins[account] == a.adminSessions) revert LastAdmin(identity);
+        if (identity == identityOf(a.platformId, a.idNode)) revert GenesisIdentity(identity);
         a.adminSessions -= admins[account];
         delete admins[account];
         delete linked[account];

@@ -62,12 +62,10 @@ contract WalletRegistryTest is WalletTestBase {
         registry.linkIdentity(GITHUB, V1, sameNode, _admin());
     }
 
-    /// Once the wallet had a session, only the wallet links its genesis identity, even after an unlink.
+    /// Once the wallet had a session, only the wallet links its genesis identity.
     function test_genesisLinkFromOthersEndsWithTheFirstSession() public {
         address w = _claim();
         bytes32 alice = _identity(X, ALICE);
-        _link(w, GITHUB, BOB, w, _key(BOB_PK), _admin());
-        _root(w, address(validator), abi.encodeCall(IIdentityValidator.unlink, (alice)));
 
         bytes memory payload = _payload(X, ALICE, LINK, _txData(w, "", bytes32(0)));
         vm.prank(mallory);
