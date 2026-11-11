@@ -12,7 +12,7 @@ import {PackedUserOperation} from "@openzeppelin/contracts/interfaces/IERC4337.s
 
 import {IIdentityValidator} from "../IIdentityValidator.sol";
 import {IWebWallet} from "../IWebWallet.sol";
-import {AcceptingVerifier, WalletTestBase} from "./WalletTestBase.sol";
+import {AcceptingVerifier, IUserOpHash, WalletTestBase} from "./WalletTestBase.sol";
 
 /// An ERC-1271 signer that accepts every signature.
 contract Accepting1271 {
@@ -254,7 +254,7 @@ contract IdentityValidatorTest is WalletTestBase {
         assertEq(_validate(w, adminOp, _pks(ALICE_PK, ALICE2_PK)), 1, "two keys of one identity");
         assertEq(_validate(w, adminOp, _pks(ALICE_PK, APP_PK)), 1, "a non-admin session counted");
         assertEq(_validate(w, adminOp, _pks(ALICE_PK, BOB_PK)), 0, "two admin platforms");
-        assertEq(_validate(w, _hit(), _pks(ALICE_PK)), 0, "an ordinary call needs no quorum");
+        assertEq(_validate(w, _hit(), _pks(ALICE_PK)), 1, "below quorum, an admin with no scope");
     }
 
     /// Admin sessions of two identities on one platform count once toward the quorum.
@@ -597,13 +597,18 @@ contract IdentityValidatorTest is WalletTestBase {
         _root(w, address(validator), abi.encodeCall(IIdentityValidator.unlink, (bob)));
         assertNotEq(validator.sessionOf(w, _key(BOB_PK)).generation, validator.generationOf(w, bob), "dead");
 
+        IIdentityValidator.Policy memory hitOnly = _app();
+        hitOnly.rules.scopeRoot = _hitScope();
         vm.startPrank(w);
-        validator.addSession(alice, _key(BOB_PK), _app());
+        validator.addSession(alice, _key(BOB_PK), hitOnly);
         vm.expectRevert(abi.encodeWithSelector(IIdentityValidator.SessionExists.selector, _key(BOB_PK)));
-        validator.addSession(alice, _key(BOB_PK), _app());
+        validator.addSession(alice, _key(BOB_PK), hitOnly);
         vm.stopPrank();
         assertEq(validator.sessionOf(w, _key(BOB_PK)).identity, alice, "not re-added");
-        assertEq(_validate(w, _hit(), _pks(BOB_PK)), 0, "the re-added session fails");
+        PackedUserOperation memory op = _signedWith(_op(w, 0, _hit()), _pks(BOB_PK), _hitProofs(1));
+        bytes32 h = IUserOpHash(EP).getUserOpHash(op);
+        vm.prank(w);
+        assertEq(validator.validateUserOp(op, h), 0, "the re-added session fails");
     }
 
     /// A root operation queued before an unlink does not run after it.

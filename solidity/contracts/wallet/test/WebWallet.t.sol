@@ -58,8 +58,10 @@ contract WebWalletTest is WalletTestBase {
     /// The account, the validator and the registry are not outside; the ClaimExecutor is.
     function test_nonAdminRefusedInValidation() public {
         address w = _claim();
+        IIdentityValidator.Policy memory hitOnly = _app();
+        hitOnly.rules.scopeRoot = _hitScope();
         vm.prank(w);
-        validator.addSession(_identity(X, ALICE), _key(APP_PK), _app());
+        validator.addSession(_identity(X, ALICE), _key(APP_PK), hitOnly);
         SlotMarker marker = new SlotMarker();
 
         Execution[] memory mixed = new Execution[](2);
@@ -92,10 +94,9 @@ contract WebWalletTest is WalletTestBase {
         Execution[] memory out = new Execution[](2);
         out[0] = mixed[0];
         out[1] = mixed[0];
-        _handle(_signed(_op(w, 0, _hit()), _pks(APP_PK)));
-        _handle(
-            _signed(_op(w, 1, abi.encodeCall(IERC7579Execution.execute, (MODE_BATCH, abi.encode(out)))), _pks(APP_PK))
-        );
+        bytes memory batch = abi.encodeCall(IERC7579Execution.execute, (MODE_BATCH, abi.encode(out)));
+        _handle(_signedWith(_op(w, 0, _hit()), _pks(APP_PK), _hitProofs(1)));
+        _handle(_signedWith(_op(w, 1, batch), _pks(APP_PK), _hitProofs(2)));
         assertEq(target.calls(), 3, "in-scope calls");
     }
 
@@ -106,7 +107,10 @@ contract WebWalletTest is WalletTestBase {
             _identity(X, ALICE),
             _key(APP_PK),
             IIdentityValidator.Policy({
-                validAfter: 0, validUntil: uint48(_now() + 1 hours), admin: false, rules: _noRules()
+                validAfter: 0,
+                validUntil: uint48(_now() + 1 hours),
+                admin: false,
+                rules: IIdentityValidator.Rules(_hitScope(), 0, new IIdentityValidator.Allowance[](0))
             })
         );
         _addByProof(relayer, X, ALICE, w, _key(ALICE2_PK), _admin());
@@ -119,7 +123,7 @@ contract WebWalletTest is WalletTestBase {
         IEntryPoint(EP).handleOps(_ops(pending), payable(bundler));
 
         vm.warp(_now() + 2 hours);
-        PackedUserOperation memory expired = _signed(_op(w, 0, _hit()), _pks(APP_PK));
+        PackedUserOperation memory expired = _signedWith(_op(w, 0, _hit()), _pks(APP_PK), _hitProofs(1));
         vm.prank(bundler, bundler);
         vm.expectRevert(notDue);
         IEntryPoint(EP).handleOps(_ops(expired), payable(bundler));

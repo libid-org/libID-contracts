@@ -32,7 +32,8 @@ function policyHashOf(IIdentityValidator.Policy memory policy) pure returns (byt
 ///      of which only `signatures` and `domainProof` are read.
 ///
 ///      Quorum: admin sessions of `threshold` distinct platforms are unrestricted. Below it exactly
-///      one signature is accepted, governed by its session's rules, and never for an admin operation:
+///      one signature is accepted, governed by its session's rules, never for an admin operation and
+///      never from a session by proof:
 ///      - every execution needs `calls[i]`, a proof of the leaf `(target, selector, calls[i].maxValue)`
 ///        under `scopeRoot`, with `value <= maxValue`; `scopeRoot == 0` allows no call;
 ///      - native `value` is charged to `NATIVE_TOKEN` (0xEeee…EEeE); with no entry its limit is 0;

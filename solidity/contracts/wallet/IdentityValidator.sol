@@ -12,18 +12,21 @@ import {
 } from "@openzeppelin/contracts/interfaces/draft-IERC7579.sol";
 import {ERC4337Utils} from "@openzeppelin/contracts/account/utils/ERC4337Utils.sol";
 import {CallType, ERC7579Utils, Execution, Mode} from "@openzeppelin/contracts/account/utils/draft-ERC7579Utils.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {Address} from "@openzeppelin/contracts/utils/Address.sol";
 import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
+import {MerkleProof} from "@openzeppelin/contracts/utils/cryptography/MerkleProof.sol";
 import {MessageHashUtils} from "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
 import {SignatureChecker} from "@openzeppelin/contracts/utils/cryptography/SignatureChecker.sol";
 import {ERC7739Utils} from "@openzeppelin/contracts/utils/cryptography/draft-ERC7739Utils.sol";
 
-import {IIdentityValidator, identityOf} from "./IIdentityValidator.sol";
+import {NATIVE_TOKEN} from "../NativeToken.sol";
+import {IIdentityValidator, identityOf, rulesHashOf} from "./IIdentityValidator.sol";
 
 /// @title IdentityValidator - the one ERC-7579 validator of every WebWallet.
 /// @notice Holds each account's linked identities, sessions, threshold and root operations.
 ///         The threshold counts distinct admin platforms.
-/// @dev Every slot read in validation has the account as its innermost mapping key (ERC-7562),
+/// @dev Every slot validation reads or writes has the account as its innermost mapping key (ERC-7562),
 ///      and validation reads no clock: windows go back to the EntryPoint packed.
 contract IdentityValidator is IIdentityValidator {
     using ERC7579Utils for bytes;
@@ -60,13 +63,24 @@ contract IdentityValidator is IIdentityValidator {
     }
 
     /// What `_verify` found: whether every signature holds, the distinct platforms of its admin
-    /// sessions, the window they share, and whether any signer is a session by proof.
+    /// sessions, the window they share, whether any signer is a session by proof, and the first
+    /// signer's key hash.
     struct Verified {
         bool ok;
         uint256 adminPlatforms;
         uint48 validAfter;
         uint48 validUntil;
         bool byProof;
+        bytes32 keyHash;
+    }
+
+    /// A session's counter for one token; `listed` marks a token its rules give an allowance.
+    struct Counter {
+        uint128 amount;
+        uint48 period;
+        uint48 periodStart;
+        bool listed;
+        uint128 spent;
     }
 
     /// A queued root operation: when it matures, and the root epoch it was queued in.
@@ -89,6 +103,7 @@ contract IdentityValidator is IIdentityValidator {
         mapping(uint256 install => mapping(bytes32 identity => mapping(address account => bytes32))) platformOf;
         mapping(uint256 install => mapping(bytes32 platformId => mapping(address account => uint32))) platformLinks;
         mapping(uint256 install => mapping(bytes32 identity => mapping(address account => bool))) recoveryFrozen;
+        mapping(uint256 install => mapping(bytes32 counterId => mapping(address account => Counter))) counters;
     }
 
     // cast index-erc7201 libid.storage.IdentityValidator
@@ -109,8 +124,21 @@ contract IdentityValidator is IIdentityValidator {
         return _s().accounts[_install(account)][account];
     }
 
+    function _sessions(address account, bytes32 keyHash) private view returns (mapping(address => Session) storage) {
+        return _s().sessions[_install(account)][keyHash];
+    }
+
     function _session(address account, bytes memory key) private view returns (Session storage) {
-        return _s().sessions[_install(account)][keccak256(key)][account];
+        return _sessions(account, keccak256(key))[account];
+    }
+
+    /// The counter of key `keyHash` under rules `rulesHash` for `token`.
+    function _counter(address account, bytes32 keyHash, bytes32 rulesHash, address token)
+        private
+        view
+        returns (Counter storage)
+    {
+        return _s().counters[_install(account)][keccak256(abi.encode(keyHash, rulesHash, token))][account];
     }
 
     function _roots(address account, bytes32 opId) private view returns (mapping(address => Root) storage) {
@@ -180,13 +208,21 @@ contract IdentityValidator is IIdentityValidator {
         _s().installs[msg.sender] = install + 1;
     }
 
-    function validateUserOp(PackedUserOperation calldata userOp, bytes32 userOpHash) external view returns (uint256) {
-        Scope scope = _scope(msg.sender, userOp.callData);
+    /// @dev Below quorum, charges the session's allowances: a refused operation's charges are
+    ///      reverted with the EntryPoint's call.
+    function validateUserOp(PackedUserOperation calldata userOp, bytes32 userOpHash) external returns (uint256) {
+        (Scope scope, Execution[] memory executions) = _scope(msg.sender, userOp.callData);
         if (scope == Scope.Refused) return ERC4337Utils.SIG_VALIDATION_FAILED;
-        Verified memory v = _verify(msg.sender, userOpHash, userOp.signature);
-        if (!v.ok || ((scope == Scope.Admin || v.byProof) && v.adminPlatforms < threshold(msg.sender))) {
-            return ERC4337Utils.SIG_VALIDATION_FAILED;
-        }
+        Authorization memory auth = _decode(userOp.signature);
+        Verified memory v = _verify(msg.sender, userOpHash, auth.signatures);
+        if (!v.ok) return ERC4337Utils.SIG_VALIDATION_FAILED;
+        if (
+            v.adminPlatforms < threshold(msg.sender)
+                && (scope == Scope.Admin
+                    || v.byProof
+                    || auth.signatures.length != 1
+                    || !_withinRules(msg.sender, v, auth, executions))
+        ) return ERC4337Utils.SIG_VALIDATION_FAILED;
         return (uint256(v.validAfter) << 208) | (uint256(v.validUntil) << 160);
     }
 
@@ -197,8 +233,8 @@ contract IdentityValidator is IIdentityValidator {
         returns (bytes4)
     {
         if (hash == ERC7739_PROBE && signature.length == 0) return bytes4(0x77390001);
-        (bytes32 signed, bytes calldata sigs) = _unnest(hash, signature);
-        Verified memory v = _verify(msg.sender, signed, sigs);
+        (bytes32 signed, bytes calldata inner) = _unnest(hash, signature);
+        Verified memory v = _verify(msg.sender, signed, _decode(inner).signatures);
         bool live = v.validAfter < block.timestamp && (v.validUntil == 0 || block.timestamp <= v.validUntil);
         uint256 quorum = v.byProof ? threshold(msg.sender) : 1;
         return v.ok && v.adminPlatforms >= quorum && live ? IERC1271.isValidSignature.selector : bytes4(0xffffffff);
@@ -225,6 +261,16 @@ contract IdentityValidator is IIdentityValidator {
 
     function linkedPlatforms(address account) external view returns (uint32) {
         return _account(account).platforms;
+    }
+
+    function allowanceOf(address account, bytes calldata key, address token)
+        external
+        view
+        returns (AllowanceState memory state)
+    {
+        Session storage s = _session(account, key);
+        Counter storage c = _counter(account, keccak256(key), s.rulesHash, token);
+        if (_live(account, s) && c.listed) state = AllowanceState(c.amount, c.period, c.periodStart, c.spent);
     }
 
     function threshold(address account) public view returns (uint8) {
@@ -304,9 +350,9 @@ contract IdentityValidator is IIdentityValidator {
         _setRecoveryDelay(msg.sender, delay);
     }
 
-    /// Decodes a signature list; external so a malformed one fails validation instead of reverting it.
-    function decodeSignatures(bytes calldata signature) external pure returns (SessionSignature[] memory) {
-        return abi.decode(signature, (SessionSignature[]));
+    /// Decodes an `Authorization`; external so a malformed one fails validation instead of reverting it.
+    function decodeAuthorization(bytes calldata signature) external pure returns (Authorization memory) {
+        return abi.decode(signature, (Authorization));
     }
 
     function setThreshold(uint8) external pure {
@@ -385,13 +431,29 @@ contract IdentityValidator is IIdentityValidator {
         if ((policy.validAfter | policy.validUntil | activeAt) >= 1 << 47) {
             revert PolicyOutOfRange(policy.validAfter, policy.validUntil);
         }
-        Session storage s = _session(account, key);
-        if (_live(account, s)) revert SessionExists(key);
-        s.identity = identity;
-        s.policy = policy;
-        s.activeAt = activeAt;
-        s.generation = _generations(account, identity)[account];
-        s.byProof = byProof;
+        bytes32 keyHash = keccak256(key);
+        mapping(address => Session) storage sessions = _sessions(account, keyHash);
+        if (_live(account, sessions[account])) revert SessionExists(key);
+        Rules memory r = policy.rules;
+        bytes32 rulesHash = rulesHashOf(r);
+        sessions[account] = Session({
+            identity: identity,
+            validAfter: policy.validAfter,
+            validUntil: policy.validUntil,
+            admin: policy.admin,
+            activeAt: activeAt,
+            generation: _generations(account, identity)[account],
+            byProof: byProof,
+            scopeRoot: r.scopeRoot,
+            domainsRoot: r.domainsRoot,
+            rulesHash: rulesHash
+        });
+        // A counter of the same key and rules keeps its spend.
+        for (uint256 i; i < r.allowances.length; ++i) {
+            Allowance memory al = r.allowances[i];
+            Counter storage c = _counter(account, keyHash, rulesHash, al.token);
+            (c.amount, c.period, c.listed) = (al.amount, al.period, true);
+        }
 
         AccountState storage a = _account(account);
         a.hadSession = true;
@@ -411,7 +473,7 @@ contract IdentityValidator is IIdentityValidator {
         bytes32 identity = s.identity;
         if (identity == 0) revert NoSession(key);
         // A dead session's admin count went with its unlink.
-        if (s.policy.admin && _live(account, s)) {
+        if (s.admin && _live(account, s)) {
             AccountState storage a = _account(account);
             if (a.adminSessions == 1 && !root) revert RootOperationRequired();
             --a.adminSessions;
@@ -419,11 +481,7 @@ contract IdentityValidator is IIdentityValidator {
             // A pending session has signed nothing; one that was active may have queued roots.
             if (s.activeAt < block.timestamp) ++a.rootEpoch;
         }
-        delete s.identity;
-        delete s.policy;
-        delete s.activeAt;
-        delete s.generation;
-        delete s.byProof;
+        delete _sessions(account, keccak256(key))[account];
         emit SessionRevoked(account, identity, key);
     }
 
@@ -498,27 +556,33 @@ contract IdentityValidator is IIdentityValidator {
         }
     }
 
+    /// The `Authorization` in `signature`, or one with no signatures when it is malformed.
+    function _decode(bytes calldata signature) private view returns (Authorization memory auth) {
+        try this.decodeAuthorization(signature) returns (Authorization memory decoded) {
+            auth = decoded;
+        } catch {}
+    }
+
     /// Checks that every signature is by a session of its identity's current link,
     /// and counts the distinct platforms of the admin sessions among them.
-    function _verify(address account, bytes32 hash, bytes calldata signature) private view returns (Verified memory v) {
-        SessionSignature[] memory sigs;
-        try this.decodeSignatures(signature) returns (SessionSignature[] memory decoded) {
-            sigs = decoded;
-        } catch {
-            return v;
-        }
+    function _verify(address account, bytes32 hash, SessionSignature[] memory sigs)
+        private
+        view
+        returns (Verified memory v)
+    {
         if (sigs.length == 0) return v;
         bytes32[] memory adminPlatforms = new bytes32[](sigs.length);
         for (uint256 i; i < sigs.length; ++i) {
-            Session storage s = _session(account, sigs[i].key);
+            bytes32 keyHash = keccak256(sigs[i].key);
+            Session storage s = _sessions(account, keyHash)[account];
             bytes32 identity = s.identity;
             if (!_live(account, s) || !_signedBy(sigs[i].key, hash, sigs[i].signature)) {
-                return Verified(false, 0, 0, 0, false);
+                return Verified(false, 0, 0, 0, false, 0);
             }
             if (s.byProof) v.byProof = true;
-            Policy memory p = s.policy;
-            (v.validAfter, v.validUntil) = _narrow(v.validAfter, v.validUntil, p, s.activeAt);
-            if (p.admin) {
+            if (i == 0) v.keyHash = keyHash;
+            _narrow(v, s.validAfter > s.activeAt ? s.validAfter : s.activeAt, s.validUntil);
+            if (s.admin) {
                 bytes32 platformId = _platformOf(account, identity);
                 if (!_contains(adminPlatforms, v.adminPlatforms, platformId)) {
                     adminPlatforms[v.adminPlatforms++] = platformId;
@@ -528,7 +592,62 @@ contract IdentityValidator is IIdentityValidator {
         v.ok = true;
     }
 
-    /// The hash an ERC-7739 nested signature signs, and its signature list.
+    /// Below quorum: every execution proved under the session's scope, and its spend charged.
+    /// @dev `scopeRoot == 0` proves no leaf.
+    function _withinRules(address account, Verified memory v, Authorization memory auth, Execution[] memory executions)
+        private
+        returns (bool)
+    {
+        if (auth.calls.length != executions.length) return false;
+        bytes32 scopeRoot = _sessions(account, v.keyHash)[account].scopeRoot;
+        bytes32 rulesHash = _sessions(account, v.keyHash)[account].rulesHash;
+        for (uint256 i; i < executions.length; ++i) {
+            Execution memory x = executions[i];
+            CallProof memory c = auth.calls[i];
+            bytes4 selector = _callSelector(x.callData);
+            if (
+                x.value > c.maxValue
+                    || !MerkleProof.verify(c.proof, scopeRoot, _leaf(abi.encode(x.target, selector, c.maxValue)))
+            ) return false;
+            if (x.value != 0 && !_charge(account, v, rulesHash, NATIVE_TOKEN, x.value, auth.at)) return false;
+            // A token with an allowance takes only `transfer` and `approve`, which only such a token takes.
+            bool spends = selector == IERC20.transfer.selector || selector == IERC20.approve.selector;
+            bool listed = _counter(account, v.keyHash, rulesHash, x.target).listed;
+            if (selector == IERC20.transferFrom.selector || spends != listed) return false;
+            if (
+                spends
+                    && (x.callData.length < 68
+                        || !_charge(account, v, rulesHash, x.target, _amount(x.callData), auth.at))
+            ) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /// Charges `amount` of `token` in the period of `at`, and narrows the window to that period.
+    function _charge(address account, Verified memory v, bytes32 rulesHash, address token, uint256 amount, uint48 at)
+        private
+        returns (bool)
+    {
+        Counter storage c = _counter(account, v.keyHash, rulesHash, token);
+        uint48 period = c.period;
+        uint48 start = c.periodStart;
+        uint128 spent = c.spent;
+        if (period != 0) {
+            uint48 current = at - at % period;
+            // Past periods are closed; window bounds stay below bit 47, a block-number flag to EntryPoint v0.9.
+            if (current < start || uint256(current) + period > 1 << 47) return false;
+            _narrow(v, current == 0 ? 0 : current - 1, current + period - 1);
+            if (current != start) (start, spent) = (current, 0);
+        }
+        if (amount > c.amount - spent) return false;
+        // forge-lint: disable-next-line(unsafe-typecast)
+        (c.periodStart, c.spent) = (start, spent + uint128(amount));
+        return true;
+    }
+
+    /// The hash an ERC-7739 nested signature signs, and its `Authorization`.
     /// @dev Both forms use the account's `eip712Domain()`: `TypedDataSign` all five fields,
     ///      `PersonalSign` the fields it names. A domain with extensions reverts.
     function _unnest(bytes32 hash, bytes calldata signature) private view returns (bytes32, bytes calldata) {
@@ -548,16 +667,22 @@ contract IdentityValidator is IIdentityValidator {
         return (separator.toTypedDataHash(hash.personalSignStructHash()), signature);
     }
 
-    /// The window narrowed to one session's: its policy window, starting no earlier than `activeAt`.
-    function _narrow(uint48 validAfter, uint48 validUntil, Policy memory p, uint48 activeAt)
-        private
-        pure
-        returns (uint48, uint48)
-    {
-        uint48 start = p.validAfter > activeAt ? p.validAfter : activeAt;
-        if (start > validAfter) validAfter = start;
-        if (p.validUntil != 0 && (validUntil == 0 || p.validUntil < validUntil)) validUntil = p.validUntil;
-        return (validAfter, validUntil);
+    /// Narrows `v`'s window to `(validAfter, validUntil]`; `validUntil == 0` is unbounded.
+    function _narrow(Verified memory v, uint48 validAfter, uint48 validUntil) private pure {
+        if (validAfter > v.validAfter) v.validAfter = validAfter;
+        if (validUntil != 0 && (v.validUntil == 0 || validUntil < v.validUntil)) v.validUntil = validUntil;
+    }
+
+    /// An OpenZeppelin double-hashed Merkle leaf.
+    function _leaf(bytes memory encoded) private pure returns (bytes32) {
+        return keccak256(bytes.concat(keccak256(encoded)));
+    }
+
+    /// The `amount` of ERC-20 `transfer(to, amount)` or `approve(spender, amount)`.
+    function _amount(bytes memory data) private pure returns (uint256 amount) {
+        assembly ("memory-safe") {
+            amount := mload(add(data, 68))
+        }
     }
 
     /// @dev A 20-byte key is recovered with ECDSA, never asked through ERC-1271:
@@ -580,28 +705,33 @@ contract IdentityValidator is IIdentityValidator {
     /// the account, this validator or the registry is an admin operation. Any other target is
     /// outside, the ClaimExecutor included: anyone may call its entries. Anything but `execute`,
     /// and this validator's `onInstall`/`onUninstall` called directly, is refused.
-    function _scope(address account, bytes calldata callData) private view returns (Scope scope) {
-        if (_selector(callData) != IERC7579Execution.execute.selector) return Scope.Refused;
+    /// The executions come back with the scope, a single call as a batch of one.
+    function _scope(address account, bytes calldata callData)
+        private
+        view
+        returns (Scope scope, Execution[] memory executions)
+    {
+        if (_selector(callData) != IERC7579Execution.execute.selector) return (Scope.Refused, executions);
         (CallType callType,,,) = Mode.wrap(bytes32(callData[4:36])).decodeMode();
         bytes calldata executionCalldata = _executionCalldata(callData);
         if (callType == ERC7579Utils.CALLTYPE_SINGLE) {
-            (address target,, bytes calldata data) = executionCalldata.decodeSingle();
-            return _targetScope(account, target, data);
+            (address target, uint256 value, bytes calldata data) = executionCalldata.decodeSingle();
+            executions = new Execution[](1);
+            executions[0] = Execution(target, value, data);
+        } else if (callType == ERC7579Utils.CALLTYPE_BATCH) {
+            executions = executionCalldata.decodeBatch();
+        } else {
+            return (Scope.Refused, executions);
         }
-        if (callType == ERC7579Utils.CALLTYPE_BATCH) {
-            Execution[] calldata batch = executionCalldata.decodeBatch();
-            for (uint256 i; i < batch.length; ++i) {
-                Scope s = _targetScope(account, batch[i].target, batch[i].callData);
-                if (s > scope) scope = s;
-            }
-            return scope;
+        for (uint256 i; i < executions.length; ++i) {
+            Scope s = _targetScope(account, executions[i].target, executions[i].callData);
+            if (s > scope) scope = s;
         }
-        return Scope.Refused;
     }
 
-    function _targetScope(address account, address target, bytes calldata data) private view returns (Scope) {
+    function _targetScope(address account, address target, bytes memory data) private view returns (Scope) {
         if (target == address(this)) {
-            bytes4 selector = _selector(data);
+            bytes4 selector = _callSelector(data);
             bool module =
                 selector == IERC7579Module.onInstall.selector || selector == IERC7579Module.onUninstall.selector;
             return module ? Scope.Refused : Scope.Admin;
@@ -615,6 +745,12 @@ contract IdentityValidator is IIdentityValidator {
     function _selector(bytes calldata data) private pure returns (bytes4) {
         // forge-lint: disable-next-line(unsafe-typecast)
         return bytes4(data);
+    }
+
+    /// An execution's selector: zero for calldata shorter than four bytes.
+    function _callSelector(bytes memory data) private pure returns (bytes4) {
+        // forge-lint: disable-next-line(unsafe-typecast)
+        return data.length < 4 ? bytes4(0) : bytes4(data);
     }
 
     /// The `bytes` argument of `execute(bytes32, bytes)`, as the account's ABI decoder reads it.

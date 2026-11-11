@@ -342,20 +342,50 @@ abstract contract WalletTestBase is Test {
         return op;
     }
 
+    /// Sign the EntryPoint's own hash of `op`, with a scope proof per execution.
+    function _signedWith(
+        PackedUserOperation memory op,
+        uint256[] memory pks,
+        IIdentityValidator.CallProof[] memory calls
+    ) internal view returns (PackedUserOperation memory) {
+        op.signature = _auth(pks, IUserOpHash(EP).getUserOpHash(op), uint48(_now()), calls, new bytes32[](0));
+        return op;
+    }
+
+    /// A scope of the one leaf `(target, hit(), 0)`: its root is the leaf.
+    function _hitScope() internal view returns (bytes32) {
+        return keccak256(bytes.concat(keccak256(abi.encode(address(target), CallTarget.hit.selector, uint256(0)))));
+    }
+
+    /// The proofs of `n` executions of `hit()` under `_hitScope()`: each empty.
+    function _hitProofs(uint256 n) internal pure returns (IIdentityValidator.CallProof[] memory calls) {
+        calls = new IIdentityValidator.CallProof[](n);
+        for (uint256 i; i < n; ++i) {
+            calls[i].proof = new bytes32[](0);
+        }
+    }
+
     function _ops(PackedUserOperation memory op) internal pure returns (PackedUserOperation[] memory ops) {
         ops = new PackedUserOperation[](1);
         ops[0] = op;
     }
 
+    /// What the EntryPoint takes from the sender before execution: its gas limits at its max fee.
+    function _prefund(PackedUserOperation memory op) internal pure returns (uint256) {
+        uint256 limits = uint256(op.accountGasLimits);
+        return ((limits >> 128) + uint128(limits) + op.preVerificationGas) * uint128(uint256(op.gasFees));
+    }
+
+    /// Funds the sender with 1 ether of value to send on top of the prefund.
     function _handle(PackedUserOperation memory op) internal {
-        vm.deal(op.sender, 1 ether);
+        vm.deal(op.sender, 1 ether + _prefund(op));
         vm.prank(bundler, bundler);
         IEntryPoint(EP).handleOps(_ops(op), payable(bundler));
     }
 
     /// `handleOps` refuses `op` in validation.
     function _refused(PackedUserOperation memory op, string memory why) internal {
-        vm.deal(op.sender, 1 ether);
+        vm.deal(op.sender, 1 ether + _prefund(op));
         vm.prank(bundler, bundler);
         try IEntryPoint(EP).handleOps(_ops(op), payable(bundler)) {
             fail(string.concat("accepted: ", why));
