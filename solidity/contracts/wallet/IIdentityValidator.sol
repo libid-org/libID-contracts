@@ -99,6 +99,8 @@ interface IIdentityValidator is IERC7579Validator {
     function sessionOf(address account, bytes calldata key) external view returns (Session memory);
     /// The identity's current generation: a session of any other is dead.
     function generationOf(address account, bytes32 identity) external view returns (uint32);
+    /// Distinct platforms with at least one linked identity: the most `threshold` can be.
+    function linkedPlatforms(address account) external view returns (uint32);
     /// Distinct platforms an admin operation's admin sessions need: two identities on one platform count once.
     /// Defaults to 1.
     function threshold(address account) external view returns (uint8);

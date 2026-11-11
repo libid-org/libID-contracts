@@ -209,6 +209,10 @@ contract IdentityValidator is IIdentityValidator {
         return _session(account, key);
     }
 
+    function linkedPlatforms(address account) external view returns (uint32) {
+        return _account(account).platforms;
+    }
+
     function threshold(address account) public view returns (uint8) {
         uint8 t = _account(account).threshold;
         return t == 0 ? 1 : t;
