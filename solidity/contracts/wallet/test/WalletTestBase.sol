@@ -386,14 +386,20 @@ abstract contract WalletTestBase is Test, Trees {
         return op;
     }
 
-    /// Sign the EntryPoint's own hash of `op`, with a scope proof per execution.
+    /// Below quorum, sign the EntryPoint's own hash of `op` at the block time, with a scope proof per execution.
     function _signedWith(
         PackedUserOperation memory op,
         uint256[] memory pks,
         IIdentityValidator.CallProof[] memory calls
     ) internal view returns (PackedUserOperation memory) {
-        op.signature = _auth(pks, IUserOpHash(EP).getUserOpHash(op), uint48(_now()), calls, new bytes32[](0));
+        uint48 at = uint48(_now());
+        op.signature = _auth(pks, _belowQuorum(IUserOpHash(EP).getUserOpHash(op), at), at, calls, new bytes32[](0));
         return op;
+    }
+
+    /// What a lone session signs below quorum: the operation's hash bound to `at`.
+    function _belowQuorum(bytes32 userOpHash, uint48 at) internal pure returns (bytes32) {
+        return keccak256(abi.encode(userOpHash, at));
     }
 
     /// A scope of the one leaf `(target, hit(), 0)`: its root is the leaf.

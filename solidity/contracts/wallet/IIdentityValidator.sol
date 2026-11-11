@@ -25,7 +25,8 @@ function policyHashOf(IIdentityValidator.Policy memory policy) pure returns (byt
 ///      An identity is `identityOf(platformId, idNode)`.
 ///      A session key is an ERC-7913 signer: a 20-byte address, or `verifier || key`.
 ///      A policy hash is `policyHashOf(policy)`.
-///      `userOp.signature` is `abi.encode(Authorization)`; its signatures are over `userOpHash`.
+///      `userOp.signature` is `abi.encode(Authorization)`; its signatures are over `userOpHash`, except
+///      a lone signature below quorum, over `keccak256(abi.encode(userOpHash, at))`.
 ///      The ERC-1271 signature after the validator's address is an ERC-7739 nested signature
 ///      under the account's `eip712Domain()`: `PersonalSign`, or `TypedDataSign` followed by the
 ///      app separator, contents hash and contents type. Its signature part is `abi.encode(Authorization)`,
@@ -120,8 +121,9 @@ interface IIdentityValidator is IERC7579Validator {
         bytes32[] proof;
     }
 
-    /// @dev `at` and `calls` are unsigned: `at` picks the allowance period, which the EntryPoint
-    ///      enforces as the validity window. `calls[i]` is for the i-th execution.
+    /// @dev Below quorum `at` is signed: it picks the allowance period, which the EntryPoint enforces
+    ///      as the validity window. At quorum it is ignored. `calls` is unsigned; `calls[i]` is for the
+    ///      i-th execution.
     struct Authorization {
         SessionSignature[] signatures;
         uint48 at;

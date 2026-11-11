@@ -215,10 +215,11 @@ contract IdentityValidator is IIdentityValidator {
         (Scope scope, CallType callType, bytes calldata executions) = _scope(msg.sender, userOp.callData);
         if (scope == Scope.Refused) return ERC4337Utils.SIG_VALIDATION_FAILED;
         Authorization memory auth = _decode(userOp.signature);
-        Verified memory v = _verify(msg.sender, userOpHash, auth.signatures);
+        uint8 quorum = threshold(msg.sender);
+        Verified memory v = _verify(msg.sender, userOpHash, auth.signatures, quorum, auth.at);
         if (!v.ok) return ERC4337Utils.SIG_VALIDATION_FAILED;
         if (
-            v.adminPlatforms < threshold(msg.sender)
+            v.adminPlatforms < quorum
                 && (scope == Scope.Admin
                     || v.byProof
                     || auth.signatures.length != 1
@@ -237,7 +238,7 @@ contract IdentityValidator is IIdentityValidator {
         if (hash == ERC7739_PROBE && signature.length == 0) return bytes4(0x77390001);
         (bytes32 signed, bytes calldata inner, bytes32 app) = _unnest(hash, signature);
         Authorization memory auth = _decode(inner);
-        Verified memory v = _verify(msg.sender, signed, auth.signatures);
+        Verified memory v = _verify(msg.sender, signed, auth.signatures, 0, 0);
         bool live = _inWindow(v);
         bool allowed = v.adminPlatforms >= threshold(msg.sender)
             || (!v.byProof
@@ -576,9 +577,10 @@ contract IdentityValidator is IIdentityValidator {
         } catch {}
     }
 
-    /// Checks that every signature is by a session of its identity's current link,
-    /// and counts the distinct platforms of the admin sessions among them.
-    function _verify(address account, bytes32 hash, SessionSignature[] memory sigs)
+    /// Checks that every signature is by a session of its identity's current link, and counts the
+    /// distinct platforms of the admin sessions among them. A lone signature short of `quorum` signs
+    /// `keccak256(abi.encode(hash, at))`; `quorum == 0` binds no `at`.
+    function _verify(address account, bytes32 hash, SessionSignature[] memory sigs, uint8 quorum, uint48 at)
         private
         view
         returns (Verified memory v)
@@ -589,7 +591,8 @@ contract IdentityValidator is IIdentityValidator {
             bytes32 keyHash = keccak256(sigs[i].key);
             Session storage s = _sessions(account, keyHash)[account];
             bytes32 identity = s.identity;
-            if (!_live(account, s) || !_signedBy(sigs[i].key, hash, sigs[i].signature)) {
+            bytes32 signed = sigs.length == 1 && (s.admin ? 1 : 0) < quorum ? keccak256(abi.encode(hash, at)) : hash;
+            if (!_live(account, s) || !_signedBy(sigs[i].key, signed, sigs[i].signature)) {
                 return Verified(false, 0, 0, 0, false, 0);
             }
             if (s.byProof) v.byProof = true;

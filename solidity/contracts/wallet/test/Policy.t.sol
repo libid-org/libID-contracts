@@ -239,7 +239,7 @@ contract PolicyTest is WalletTestBase {
         return op;
     }
 
-    /// `pks`' sponsored operation for the period of `at`.
+    /// Below quorum, `pks`' sponsored operation for the period of `at`.
     function _opWith(
         uint256[] memory pks,
         bytes memory callData,
@@ -250,14 +250,14 @@ contract PolicyTest is WalletTestBase {
         _sign(op, pks, calls, at);
     }
 
-    /// Signs `op` at `at`.
+    /// Signs `op` below quorum, at `at`.
     function _sign(
         PackedUserOperation memory op,
         uint256[] memory pks,
         IIdentityValidator.CallProof[] memory calls,
         uint48 at
     ) internal view {
-        op.signature = _auth(pks, IUserOpHash(EP).getUserOpHash(op), at, calls, new bytes32[](0));
+        op.signature = _auth(pks, _belowQuorum(IUserOpHash(EP).getUserOpHash(op), at), at, calls, new bytes32[](0));
     }
 
     /// At quorum, `pks`' operation: the plain hash, no proofs, no paymaster.
@@ -664,6 +664,25 @@ contract PolicyTest is WalletTestBase {
 
         Execution[] memory hit = _one(_e(address(target), 0, abi.encodeCall(CallTarget.hit, ())));
         _refused(_opWith(_pks(APP_PK, BOB_PK), _callData(hit), _proofs(hit), uint48(_now())), "two app sessions");
+    }
+
+    /// Below quorum `at` is signed: moved to a later period, the signature fails. At quorum it is ignored.
+    function test_atIsSignedBelowQuorum() public {
+        _addApp(APP_PK, _daily());
+        PackedUserOperation memory op = _opFor(APP_PK, _pay(0.1 ether), day0);
+        IIdentityValidator.Authorization memory auth = abi.decode(op.signature, (IIdentityValidator.Authorization));
+        auth.at = day0 + DAY;
+        op.signature = abi.encode(auth);
+        assertEq(_answer(op), 1, "at moved to the next period");
+        auth.at = day0;
+        op.signature = abi.encode(auth);
+        assertEq(_answer(op), _window(day0 - 1, day0 + DAY - 1), "the signed at");
+
+        op = _opAtQuorum(_pks(ALICE_PK), _callData(_pay(0.1 ether)));
+        auth = abi.decode(op.signature, (IIdentityValidator.Authorization));
+        auth.at = day0 + DAY;
+        op.signature = abi.encode(auth);
+        assertEq(_answer(op), 0, "at quorum");
     }
 
     // ─── ERC-1271 domain sets (S3) ──────────────────────────────────
