@@ -5,7 +5,7 @@ pragma solidity ^0.8.24;
 /// @notice Constructor: `WalletFactory(address walletImplementation)`. Immutable, no owner, no
 ///         proxy; deployed under a `LibidFactory` name, so it has one address on every chain.
 ///         A new version is a new factory. Deploys through `Create3` with
-///         `salt = keccak256(abi.encode(platformId, idNode))`, and initializes the
+///         `salt = identityOf(platformId, idNode)` (`IIdentityValidator.sol`), and initializes the
 ///         genesis identity in the same call: one wallet per identity.
 interface IWalletFactory {
     event WalletCreated(address indexed wallet, bytes32 indexed platformId, bytes32 indexed idNode);
