@@ -458,6 +458,36 @@ abstract contract WalletTestBase is Test, Trees {
         }
     }
 
+    /// `handleOps` refuses `op` in validation with `FailedOp(0, reason)`.
+    function _refusedWith(PackedUserOperation memory op, string memory reason) internal {
+        vm.deal(op.sender, 1 ether + _prefund(op));
+        vm.prank(bundler, bundler);
+        try IEntryPoint(EP).handleOps(_ops(op), payable(bundler)) {
+            fail(string.concat("accepted: ", reason));
+        } catch (bytes memory err) {
+            assertEq(err, abi.encodeWithSelector(IEntryPoint.FailedOp.selector, 0, reason), reason);
+        }
+    }
+
+    /// The validator's answer for `op`, as its sender asks it.
+    function _answer(PackedUserOperation memory op) internal returns (uint256) {
+        bytes32 h = IUserOpHash(EP).getUserOpHash(op);
+        vm.prank(op.sender);
+        return validator.validateUserOp(op, h);
+    }
+
+    /// The validator refuses `op` and accepts `control`, `op` with the guarded part fixed, from the same
+    /// state: the refusal is the guard's, not the signature's.
+    function _refusedFor(PackedUserOperation memory op, PackedUserOperation memory control, string memory why)
+        internal
+    {
+        uint256 state = vm.snapshotState();
+        assertEq(_answer(op), 1, why);
+        vm.revertToState(state);
+        assertNotEq(_answer(control), 1, string.concat("control: ", why));
+        vm.revertToStateAndDelete(state);
+    }
+
     /// The validator's answer for `callData` signed by `pks`, as the wallet asks it.
     function _validate(address wallet, bytes memory callData, uint256[] memory pks) internal returns (uint256) {
         PackedUserOperation memory op = _op(wallet, 0, callData);

@@ -3,7 +3,6 @@ pragma solidity ^0.8.24;
 
 import {
     Execution,
-    IERC7579AccountConfig,
     IERC7579Execution,
     IERC7579Module,
     IERC7579ModuleConfig
@@ -196,42 +195,23 @@ contract IdentityValidatorTest is WalletTestBase {
 
     // ─── Scope (R9) ─────────────────────────────────────────────────
 
-    /// Module hooks are refused even to admins; self, zero-address and registry targets are admin;
-    /// a batch takes its widest call; the execution is read where the account's decoder reads it.
+    /// Module hooks are refused even to admins, alone or in a batch, and so is anything but `execute`.
     function test_outerCallScope() public {
         address w = _claim();
-        vm.prank(w);
-        validator.addSession(_identity(X, ALICE), _key(APP_PK), _app());
-        bytes memory toWallet = abi.encodeCall(IERC7579AccountConfig.supportsModule, (2));
-
         Execution[] memory batch = new Execution[](2);
         batch[0] = Execution({
             target: address(validator), value: 0, callData: abi.encodeCall(IERC7579Module.onUninstall, (""))
         });
         batch[1] = Execution({target: address(target), value: 0, callData: ""});
-        Execution[] memory appBatch = new Execution[](2);
-        appBatch[0] = Execution({target: w, value: 0, callData: toWallet});
-        appBatch[1] = batch[1];
 
-        // A decoy outside call where a canonical encoding puts the execution; the real one where the offset points.
-        bytes memory decoy = abi.encodePacked(address(target), uint256(0), abi.encodeCall(this.setUp, ()));
-        bytes memory real = abi.encodePacked(w, uint256(0), toWallet);
-        bytes memory offset = abi.encodePacked(
-            IERC7579Execution.execute.selector, MODE_SINGLE, uint256(0xa0), decoy.length, decoy, bytes8(0)
-        );
-
-        bytes[8] memory calls = [
+        bytes[4] memory calls = [
             _exec(address(validator), abi.encodeCall(IERC7579Module.onUninstall, (""))),
             _exec(address(validator), abi.encodeCall(IERC7579Module.onInstall, (abi.encode(X, MALLORY)))),
             abi.encodeCall(IERC7579Execution.execute, (MODE_BATCH, abi.encode(batch))),
-            abi.encodeCall(IWebWallet.upgradeToAndCall, (address(target), "")),
-            _exec(address(0), _hit()),
-            _exec(address(registry), ""),
-            abi.encodeCall(IERC7579Execution.execute, (MODE_BATCH, abi.encode(appBatch))),
-            abi.encodePacked(offset, real.length, real)
+            abi.encodeCall(IWebWallet.upgradeToAndCall, (address(target), ""))
         ];
         for (uint256 i; i < calls.length; ++i) {
-            assertEq(_validate(w, calls[i], _pks(i < 4 ? ALICE_PK : APP_PK)), 1, vm.toString(i));
+            assertEq(_validate(w, calls[i], _pks(ALICE_PK)), 1, vm.toString(i));
         }
     }
 

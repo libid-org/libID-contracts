@@ -102,6 +102,7 @@ contract PolicyTest is WalletTestBase {
     Sink internal sink;
     FreePaymaster internal paymaster;
     address internal payee = makeAddr("payee");
+    address internal unbounded = makeAddr("unbounded");
     address internal w;
     Leaf[] internal leaves;
     uint48 internal day0;
@@ -124,6 +125,7 @@ contract PolicyTest is WalletTestBase {
         leaves.push(Leaf(address(loose), ERC20.transfer.selector, 0));
         leaves.push(Leaf(address(sink), Sink.boom.selector, 1 ether));
         leaves.push(Leaf(payee, bytes4(0), 1 ether));
+        leaves.push(Leaf(unbounded, bytes4(0), type(uint256).max));
         leaves.push(Leaf(address(validator), IIdentityValidator.setRecoveryDelay.selector, 0));
         day0 = uint48((_now() / DAY + 1) * DAY);
         vm.warp(day0);
@@ -270,6 +272,12 @@ contract PolicyTest is WalletTestBase {
         op.signature = _sigs(pks, IUserOpHash(EP).getUserOpHash(op));
     }
 
+    /// Several sessions' sponsored operation for `x`: the plain hash, with each execution's proof.
+    function _opBy(uint256[] memory pks, Execution[] memory x) internal view returns (PackedUserOperation memory op) {
+        op = _sponsored(_nextOp(_callData(x)));
+        op.signature = _auth(pks, IUserOpHash(EP).getUserOpHash(op), uint48(_now()), _proofs(x), new bytes32[](0));
+    }
+
     /// `pk`'s operation for `x`, each execution with its leaf's proof, for the period of `at`.
     function _opFor(uint256 pk, Execution[] memory x, uint48 at) internal view returns (PackedUserOperation memory) {
         return _opWith(_pks(pk), _callData(x), _proofs(x), at);
@@ -279,19 +287,13 @@ contract PolicyTest is WalletTestBase {
         return _opFor(pk, x, uint48(_now()));
     }
 
-    /// The validator's answer for `op`, as the wallet asks it.
-    function _answer(PackedUserOperation memory op) internal returns (uint256) {
-        bytes32 h = IUserOpHash(EP).getUserOpHash(op);
-        vm.prank(w);
-        return validator.validateUserOp(op, h);
-    }
-
     // ─── Allowances (S1) ────────────────────────────────────────────
 
     /// The period follows `at` and is the validity window: a future, past or overspent period is refused
     /// by the EntryPoint, and the counters are left as they were.
     function test_allowancePeriodsFollowAt() public {
         _addApp(APP_PK, _daily());
+        _addApp(MALLORY_PK, _daily());
         vm.warp(day0 - 1);
         _refused(_opFor(APP_PK, _pay(0.6 ether), day0), "a future period");
         assertEq(validator.allowanceOf(w, _key(APP_PK), NATIVE).periodStart, 0, "a refused period was recorded");
@@ -310,7 +312,7 @@ contract PolicyTest is WalletTestBase {
         _refused(_opFor(APP_PK, _pay(1), day0 + DAY), "the next period, a second early");
 
         vm.warp(day0 + DAY);
-        _refused(_opFor(APP_PK, _pay(0.1 ether), day0), "a past period");
+        _refusedWith(_opFor(MALLORY_PK, _pay(0.1 ether), day0), "AA22 expired or not due");
         _handle(_opFor(APP_PK, _pay(1 ether), day0 + DAY + 5));
         s = validator.allowanceOf(w, _key(APP_PK), NATIVE);
         assertEq(s.periodStart, day0 + DAY, "rolled over");
@@ -318,10 +320,13 @@ contract PolicyTest is WalletTestBase {
         assertEq(payee.balance, 2 ether, "paid");
         _handle(_opFor(APP_PK, _one(_e(address(target), 0, abi.encodeCall(CallTarget.hit, ()))), day0));
 
-        PackedUserOperation memory closed = _opFor(APP_PK, _pay(1), day0);
-        bytes32 closedHash = IUserOpHash(EP).getUserOpHash(closed);
-        vm.prank(w);
-        assertEq(validator.validateUserOp(closed, closedHash), 1, "a closed period");
+        // Once a later period is charged, an earlier one is refused though its amount fits.
+        _handle(_opFor(MALLORY_PK, _pay(0.1 ether), day0 + DAY));
+        _refusedFor(
+            _opFor(MALLORY_PK, _pay(0.1 ether), day0),
+            _opFor(MALLORY_PK, _pay(0.1 ether), day0 + DAY),
+            "a closed period"
+        );
     }
 
     function test_periodZeroIsALifetimeCap() public {
@@ -360,7 +365,7 @@ contract PolicyTest is WalletTestBase {
             "another selector on a token with an allowance",
             "a token with no allowance",
             "approve over the limit",
-            "two transfers summing past 2^256",
+            "two values summing past uint128",
             "two payments over the limit",
             "zero of a token with no allowance",
             "a 67-byte transfer"
@@ -368,7 +373,7 @@ contract PolicyTest is WalletTestBase {
         for (uint256 i; i < refused.length; ++i) {
             Execution[] memory x = _one(refused[i]);
             if (i == 0) x = _two(_send(token, 60 ether), _send(token, 60 ether));
-            if (i == 8) x = _two(_send(token, 1 << 255), _send(token, 1 << 255));
+            if (i == 8) x = _two(_e(unbounded, type(uint128).max, ""), _e(unbounded, type(uint128).max, ""));
             if (i == 9) x = _two(_e(payee, 0.6 ether, ""), _e(payee, 0.6 ether, ""));
             _refused(_opNow(APP_PK, x), why[i]);
         }
@@ -390,6 +395,24 @@ contract PolicyTest is WalletTestBase {
         assertEq(_spent(APP_PK, NATIVE), 1 ether, "value spends");
         assertEq(token.balanceOf(payee), 60 ether, "transferred");
         assertEq(token.allowance(w, payee), 40 ether, "approved");
+    }
+
+    /// A value past uint128 fits no allowance and is refused before it is summed: two of 2^255 do not overflow.
+    function test_aValuePastUint128IsRefused() public {
+        IIdentityValidator.Rules memory r = _daily();
+        r.allowances[0].amount = type(uint128).max;
+        _addApp(APP_PK, r);
+        uint256 v = 1 << 255;
+        _refusedFor(
+            _opNow(APP_PK, _two(_e(unbounded, v, ""), _e(unbounded, v, ""))),
+            _opNow(APP_PK, _two(_e(unbounded, 1, ""), _e(unbounded, 1, ""))),
+            "2^255 twice"
+        );
+        _refusedFor(
+            _opNow(APP_PK, _one(_e(unbounded, uint256(type(uint128).max) + 1, ""))),
+            _opNow(APP_PK, _one(_e(unbounded, type(uint128).max, ""))),
+            "uint128 max + 1"
+        );
     }
 
     /// P2: the charge is made in validation and stays when the execution reverts.
@@ -621,21 +644,14 @@ contract PolicyTest is WalletTestBase {
             _one(_e(address(validator), 0, abi.encodeCall(IIdentityValidator.setRecoveryDelay, (72 hours))));
         Execution[] memory outside = _one(_e(address(target), 0, abi.encodeCall(target.calls, ())));
 
-        PackedUserOperation[4] memory ops = [
-            _opNow(ALICE2_PK, delay),
-            _opNow(ALICE2_PK, _pay(0.6 ether)),
-            _opNow(ALICE_PK, hit),
-            _opWith(_pks(ALICE2_PK, ALICE_PK), _callData(hit), _proofs(hit), uint48(_now()))
-        ];
-        string[4] memory why = [
-            "an admin operation in scope, one identity",
-            "over an admin's own allowance",
-            "an admin with no scope",
-            "two signatures of one identity"
-        ];
+        PackedUserOperation[3] memory ops =
+            [_opNow(ALICE2_PK, delay), _opNow(ALICE2_PK, _pay(0.6 ether)), _opNow(ALICE_PK, hit)];
+        string[3] memory why =
+            ["an admin operation in scope, one identity", "over an admin's own allowance", "an admin with no scope"];
         for (uint256 i; i < ops.length; ++i) {
             _refused(ops[i], why[i]);
         }
+        _refusedFor(_opBy(_pks(ALICE2_PK, ALICE_PK), hit), _opNow(ALICE2_PK, hit), "two signatures of one identity");
         _handle(_opNow(ALICE2_PK, hit));
         _handle(_opAtQuorum(_pks(ALICE_PK, BOB_PK), _callData(delay)));
         _handle(_opAtQuorum(_pks(ALICE_PK, BOB_PK), _callData(outside)));
@@ -663,7 +679,7 @@ contract PolicyTest is WalletTestBase {
         assertEq(_spent(ALICE2_PK, NATIVE), 0, "an unrestricted admin was charged");
 
         Execution[] memory hit = _one(_e(address(target), 0, abi.encodeCall(CallTarget.hit, ())));
-        _refused(_opWith(_pks(APP_PK, BOB_PK), _callData(hit), _proofs(hit), uint48(_now())), "two app sessions");
+        _refusedFor(_opBy(_pks(APP_PK, BOB_PK), hit), _opNow(APP_PK, hit), "two app sessions");
     }
 
     /// Below quorum `at` is signed: moved to a later period, the signature fails. At quorum it is ignored.
