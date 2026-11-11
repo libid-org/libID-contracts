@@ -47,6 +47,7 @@ interface IIdentityValidator is IERC7579Validator {
     event RootQueued(address indexed account, bytes32 indexed opId, address target, bytes data, uint48 readyAt);
     event RootCancelled(address indexed account, bytes32 indexed opId);
     event RootExecuted(address indexed account, bytes32 indexed opId);
+    event IdentityUnlinked(address indexed account, bytes32 indexed identity);
 
     /// A registry-only entry was called by someone else.
     error NotRegistry(address caller);
@@ -62,13 +63,15 @@ interface IIdentityValidator is IERC7579Validator {
     error RecoveryDelayTooLong(uint48 delay);
     /// The threshold may not exceed the number of linked identities.
     error ThresholdTooHigh(uint8 threshold, uint32 identities);
+    /// An account keeps at least one linked identity.
+    error LastIdentity(bytes32 identity);
     /// A session key is a 20-byte address or `verifier || key`.
     error InvalidKey(bytes key);
     error SessionExists(bytes key);
     error NoSession(bytes key);
     /// A policy bound reaches bit 47, which EntryPoint v0.9 reads as a block-number flag.
     error PolicyOutOfRange(uint48 validAfter, uint48 validUntil);
-    /// A root operation targets the account, or this validator's `setThreshold` or `revokeSession`.
+    /// A root operation targets the account, or this validator's `setThreshold`, `revokeSession` or `unlink`.
     error BadRootOperation(address target);
 
     /// The floor of the wait for sessions added by proof.
@@ -108,8 +111,11 @@ interface IIdentityValidator is IERC7579Validator {
     function setRecoveryDelay(uint48 delay) external;
     /// Root operation only: reverts `RootOperationRequired` when the account calls it.
     function setThreshold(uint8 threshold_) external;
+    /// Root operation only. Every session of the identity, active or pending, stops validating.
+    /// Refused for an identity not linked, the last one, or one the threshold still needs.
+    function unlink(bytes32 identity) external;
     /// `target` is the account (install, uninstall, upgrade) or this validator
-    /// (`setThreshold`, `revokeSession` of the last admin). Ready after `recoveryDelay`.
+    /// (`setThreshold`, `unlink`, `revokeSession` of the last admin). Ready after `recoveryDelay`.
     function queueRoot(address target, bytes calldata data) external returns (bytes32 opId);
     function cancelRoot(bytes32 opId) external;
 

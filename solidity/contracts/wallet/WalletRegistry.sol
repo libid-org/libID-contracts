@@ -55,7 +55,8 @@ contract WalletRegistry is IWalletRegistry {
         bool byWallet = msg.sender == a.wallet;
         if (!byWallet) {
             (bytes32 genesisPlatform, bytes32 genesisId) = VALIDATOR.genesisIdentity(a.wallet);
-            if (genesisPlatform != platformId || genesisId != a.idNode) revert NotWallet(a.wallet, msg.sender);
+            bool genesis = genesisPlatform == platformId && genesisId == a.idNode;
+            if (!genesis || VALIDATOR.hadSession(a.wallet)) revert NotWallet(a.wallet, msg.sender);
         }
         VALIDATOR.link(a.wallet, platformId, a.idNode);
         if (a.key.length != 0) {

@@ -305,6 +305,8 @@ contract IdentityValidatorTest is WalletTestBase {
         validator.setThreshold(2);
         vm.expectRevert(IIdentityValidator.RootOperationRequired.selector);
         validator.revokeSession(_key(ALICE_PK));
+        vm.expectRevert(IIdentityValidator.RootOperationRequired.selector);
+        validator.unlink(_identity(X, ALICE));
         vm.stopPrank();
     }
 
@@ -369,6 +371,67 @@ contract IdentityValidatorTest is WalletTestBase {
         validator.queueRoot(address(validator), data);
         vm.warp(_now() + 48 hours);
         vm.expectRevert(abi.encodeWithSelector(IIdentityValidator.ThresholdTooHigh.selector, uint8(2), uint32(1)));
+        validator.executeRoot(w, address(validator), data);
+    }
+
+    /// After the timelock, every session of the identity stops validating, and no proof adds one.
+    function test_unlinkStopsTheIdentitysSessions() public {
+        address w = _claim();
+        bytes32 bob = _identity(GITHUB, BOB);
+        _link(w, GITHUB, BOB, w, _key(BOB_PK), _admin());
+        _addByProof(relayer, GITHUB, BOB, w, _key(APP_PK), _admin());
+
+        bytes memory data = abi.encodeCall(IIdentityValidator.unlink, (bob));
+        vm.prank(w);
+        validator.queueRoot(address(validator), data);
+        vm.warp(_now() + 48 hours - 1);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IIdentityValidator.RootNotReady.selector, keccak256(abi.encode(w, address(validator), data))
+            )
+        );
+        validator.executeRoot(w, address(validator), data);
+        vm.warp(_now() + 1);
+        bytes32 h = keccak256("a message");
+        assertEq(_validate(w, _hit(), _pks(APP_PK)), _window(uint48(_now()), 0), "pending control");
+        assertTrue(_isValid1271(w, h, BOB_PK, _wrapped(w, h)), "active control");
+
+        vm.expectEmit(true, true, false, false, address(validator));
+        emit IIdentityValidator.IdentityUnlinked(w, bob);
+        validator.executeRoot(w, address(validator), data);
+        assertFalse(validator.isLinked(w, bob), "still linked");
+        assertEq(_validate(w, _hit(), _pks(BOB_PK)), 1, "active session validates");
+        assertEq(_validate(w, _hit(), _pks(APP_PK)), 1, "pending session validates");
+        assertFalse(_isValid1271(w, h, BOB_PK, _wrapped(w, h)), "ERC-1271 accepts an unlinked identity");
+        assertTrue(_isValid1271(w, h, ALICE_PK, _wrapped(w, h)), "the other identity stopped");
+
+        bytes memory payload = _payload(GITHUB, BOB, ADD, _txData(w, _key(MALLORY_PK), _ph(_admin())));
+        vm.expectRevert(abi.encodeWithSelector(IIdentityValidator.NotLinked.selector, w, bob));
+        registry.addSessionByProof(GITHUB, V1, payload, _admin());
+    }
+
+    /// An unlink keeps one identity and enough identities for the threshold.
+    function test_unlinkRefusals() public {
+        address w = _claim();
+        bytes32 bob = _identity(GITHUB, BOB);
+        _unlinkReverts(w, bob, abi.encodeWithSelector(IIdentityValidator.NotLinked.selector, w, bob));
+        bytes32 alice = _identity(X, ALICE);
+        _unlinkReverts(w, alice, abi.encodeWithSelector(IIdentityValidator.LastIdentity.selector, alice));
+
+        _link(w, GITHUB, BOB, w, "", _admin());
+        _root(w, address(validator), abi.encodeCall(IIdentityValidator.setThreshold, (2)));
+        _unlinkReverts(
+            w, bob, abi.encodeWithSelector(IIdentityValidator.ThresholdTooHigh.selector, uint8(2), uint32(1))
+        );
+        assertTrue(validator.isLinked(w, bob), "unlinked anyway");
+    }
+
+    function _unlinkReverts(address w, bytes32 identity, bytes memory err) internal {
+        bytes memory data = abi.encodeCall(IIdentityValidator.unlink, (identity));
+        vm.prank(w);
+        validator.queueRoot(address(validator), data);
+        vm.warp(_now() + 48 hours);
+        vm.expectRevert(err);
         validator.executeRoot(w, address(validator), data);
     }
 

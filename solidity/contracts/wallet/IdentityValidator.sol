@@ -220,10 +220,16 @@ contract IdentityValidator is IIdentityValidator {
         revert RootOperationRequired();
     }
 
+    function unlink(bytes32) external pure {
+        revert RootOperationRequired();
+    }
+
     function queueRoot(address target, bytes calldata data) external returns (bytes32 opId) {
         bytes4 selector = _selector(data);
         bool own = target == address(this)
-            && (selector == this.setThreshold.selector || selector == this.revokeSession.selector);
+            && (selector == this.setThreshold.selector
+                || selector == this.revokeSession.selector
+                || selector == this.unlink.selector);
         if (target != msg.sender && !own) revert BadRootOperation(target);
         opId = _rootId(msg.sender, target, data);
         uint48 readyAt = _maturity(msg.sender);
@@ -253,6 +259,8 @@ contract IdentityValidator is IIdentityValidator {
             uint8 t = abi.decode(data[4:], (uint8));
             if (t > a.identities) revert ThresholdTooHigh(t, a.identities);
             a.threshold = t;
+        } else if (_selector(data) == this.unlink.selector) {
+            _unlink(account, abi.decode(data[4:], (bytes32)));
         } else {
             _revoke(account, abi.decode(data[4:], (bytes)), true);
         }
@@ -296,6 +304,18 @@ contract IdentityValidator is IIdentityValidator {
         emit SessionRevoked(account, identity, key);
     }
 
+    function _unlink(address account, bytes32 identity) private {
+        mapping(address => bool) storage linked = _s().links[_install(account)][identity];
+        if (!linked[account]) revert NotLinked(account, identity);
+        AccountState storage a = _account(account);
+        uint32 left = a.identities - 1;
+        if (left == 0) revert LastIdentity(identity);
+        if (a.threshold > left) revert ThresholdTooHigh(a.threshold, left);
+        delete linked[account];
+        a.identities = left;
+        emit IdentityUnlinked(account, identity);
+    }
+
     function _rootId(address account, address target, bytes calldata data) private pure returns (bytes32) {
         return keccak256(abi.encode(account, target, data));
     }
@@ -317,7 +337,7 @@ contract IdentityValidator is IIdentityValidator {
         pending[account] = key;
     }
 
-    /// Whether every signature is by a session, the distinct admin identities among them,
+    /// Whether every signature is by a session of a linked identity, the distinct admin identities among them,
     /// and the window they all share.
     function _verify(address account, bytes32 hash, bytes calldata signature)
         private
@@ -335,7 +355,9 @@ contract IdentityValidator is IIdentityValidator {
         for (uint256 i; i < sigs.length; ++i) {
             Session storage s = _session(account, sigs[i].key);
             bytes32 identity = s.identity;
-            if (identity == 0 || !_signedBy(sigs[i].key, hash, sigs[i].signature)) return (false, 0, 0, 0);
+            if (identity == 0 || !isLinked(account, identity) || !_signedBy(sigs[i].key, hash, sigs[i].signature)) {
+                return (false, 0, 0, 0);
+            }
             Policy memory p = s.policy;
             (validAfter, validUntil) = _narrow(validAfter, validUntil, p, s.activeAt);
             if (p.admin && !_contains(adminIds, admins, identity)) adminIds[admins++] = identity;

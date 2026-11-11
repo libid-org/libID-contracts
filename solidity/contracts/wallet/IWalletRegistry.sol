@@ -7,7 +7,8 @@ import {IIdentityValidator} from "./IIdentityValidator.sol";
 /// @notice Constructor: `WalletRegistry(address proofVerifier, address identityValidator)`. Immutable, no owner.
 /// @dev Both domains carry `abi.encode(uint256 chainId, address wallet, bytes sessionKey, bytes32 policyHash)`,
 ///      canonically encoded. An empty key with a zero policy hash links only, and `policy` is then ignored.
-///      The wallet's genesis identity is `IIdentityValidator.genesisIdentity(wallet)`; anyone may submit its link.
+///      Anyone may submit the link of the wallet's genesis identity (`IIdentityValidator.genesisIdentity`)
+///      while the wallet has never had a session; every other link only the wallet.
 ///      `msg.value` is exactly `quote`. Links are not exclusive.
 interface IWalletRegistry {
     event IdentityLinked(
@@ -20,7 +21,7 @@ interface IWalletRegistry {
     error BadTransactionData(uint256 length);
     /// The chain id the proof commits is not this chain's.
     error WrongChain(uint256 committed);
-    /// Only the wallet may submit a link of an identity other than its genesis identity.
+    /// Only the wallet may submit this link.
     error NotWallet(address wallet, address caller);
     /// The policy given does not hash to the one the proof commits.
     error PolicyMismatch(bytes32 committed, bytes32 given);
