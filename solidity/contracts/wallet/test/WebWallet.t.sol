@@ -9,10 +9,27 @@ import {
     IERC7579ModuleConfig
 } from "@openzeppelin/contracts/interfaces/draft-IERC7579.sol";
 import {ERC7579Utils} from "@openzeppelin/contracts/account/utils/draft-ERC7579Utils.sol";
+import {IERC721Receiver} from "@openzeppelin/contracts/token/ERC721/IERC721Receiver.sol";
+import {ERC721} from "@openzeppelin/contracts/token/ERC721/ERC721.sol";
+import {IERC1155Receiver} from "@openzeppelin/contracts/token/ERC1155/IERC1155Receiver.sol";
+import {ERC1155} from "@openzeppelin/contracts/token/ERC1155/ERC1155.sol";
+import {IERC165} from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
 
 import {IIdentityValidator} from "../IIdentityValidator.sol";
 import {IWebWallet} from "../IWebWallet.sol";
 import {CallTarget, SlotMarker, WalletTestBase} from "./WalletTestBase.sol";
+
+contract MockERC721 is ERC721("Mock", "M") {
+    function mint(address to, uint256 id) external {
+        _mint(to, id);
+    }
+}
+
+contract MockERC1155 is ERC1155("") {
+    function mint(address to, uint256 id, uint256 amount) external {
+        _mint(to, id, amount, "");
+    }
+}
 
 /// @notice The account through a local EntryPoint v0.9 `handleOps`.
 contract WebWalletTest is WalletTestBase {
@@ -166,5 +183,33 @@ contract WebWalletTest is WalletTestBase {
             abi.encodeWithSelector(IWebWallet.ModuleNotAllowed.selector, address(validator))
         );
         assertTrue(IWebWallet(w).isModuleInstalled(1, address(validator), ""), "uninstalled");
+    }
+
+    function test_acceptsSafeTokenTransfers() public {
+        address w = _claim();
+        MockERC721 nft = new MockERC721();
+        nft.mint(mallory, 1);
+        vm.prank(mallory);
+        nft.safeTransferFrom(mallory, w, 1);
+        assertEq(nft.ownerOf(1), w, "ERC-721 refused");
+
+        MockERC1155 multi = new MockERC1155();
+        multi.mint(mallory, 1, 5);
+        multi.mint(mallory, 2, 7);
+        uint256[] memory ids = new uint256[](2);
+        uint256[] memory amounts = new uint256[](2);
+        (ids[0], ids[1], amounts[0], amounts[1]) = (1, 2, 2, 7);
+        vm.startPrank(mallory);
+        multi.safeTransferFrom(mallory, w, 1, 3, "");
+        multi.safeBatchTransferFrom(mallory, w, ids, amounts, "");
+        vm.stopPrank();
+        assertEq(multi.balanceOf(w, 1), 5, "ERC-1155 single or batch refused");
+        assertEq(multi.balanceOf(w, 2), 7, "ERC-1155 batch refused");
+
+        IERC165 wallet = IERC165(w);
+        assertTrue(wallet.supportsInterface(type(IERC721Receiver).interfaceId), "ERC-721 receiver");
+        assertTrue(wallet.supportsInterface(type(IERC1155Receiver).interfaceId), "ERC-1155 receiver");
+        assertTrue(wallet.supportsInterface(type(IERC165).interfaceId), "ERC-165");
+        assertFalse(wallet.supportsInterface(0xffffffff), "ERC-165 invalid id");
     }
 }

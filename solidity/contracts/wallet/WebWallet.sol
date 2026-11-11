@@ -13,8 +13,12 @@ import {
 import {Account} from "@openzeppelin/contracts/account/Account.sol";
 import {CallType, ERC7579Utils, Mode} from "@openzeppelin/contracts/account/utils/draft-ERC7579Utils.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts/proxy/utils/UUPSUpgradeable.sol";
+import {IERC721Receiver} from "@openzeppelin/contracts/token/ERC721/IERC721Receiver.sol";
+import {ERC721Holder} from "@openzeppelin/contracts/token/ERC721/utils/ERC721Holder.sol";
+import {ERC1155Holder} from "@openzeppelin/contracts/token/ERC1155/utils/ERC1155Holder.sol";
 import {Calldata} from "@openzeppelin/contracts/utils/Calldata.sol";
 import {EIP712} from "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
+import {IERC165} from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
 import {
     AccountERC7579Upgradeable
 } from "@openzeppelin/contracts-upgradeable/account/extensions/draft-AccountERC7579Upgradeable.sol";
@@ -23,7 +27,7 @@ import {IWebWallet} from "./IWebWallet.sol";
 
 /// @title WebWallet - an ERC-7579 account whose modules are the IdentityValidator and the ClaimExecutor.
 /// @notice Module changes and upgrades come only from that validator, for a matured root operation.
-contract WebWallet is AccountERC7579Upgradeable, UUPSUpgradeable, EIP712, IWebWallet {
+contract WebWallet is AccountERC7579Upgradeable, UUPSUpgradeable, EIP712, ERC721Holder, ERC1155Holder, IWebWallet {
     using ERC7579Utils for Mode;
 
     address private immutable VALIDATOR;
@@ -105,6 +109,10 @@ contract WebWallet is AccountERC7579Upgradeable, UUPSUpgradeable, EIP712, IWebWa
 
     function entryPoint() public view override(IWebWallet, Account) returns (IEntryPoint) {
         return super.entryPoint();
+    }
+
+    function supportsInterface(bytes4 interfaceId) public view override(ERC1155Holder, IERC165) returns (bool) {
+        return interfaceId == type(IERC721Receiver).interfaceId || super.supportsInterface(interfaceId);
     }
 
     function _installModule(uint256 moduleTypeId, address module, bytes memory initData) internal override {

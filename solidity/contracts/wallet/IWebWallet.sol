@@ -4,6 +4,8 @@ pragma solidity ^0.8.24;
 import {IERC1271} from "@openzeppelin/contracts/interfaces/IERC1271.sol";
 import {IERC5267} from "@openzeppelin/contracts/interfaces/IERC5267.sol";
 import {IEntryPoint} from "@openzeppelin/contracts/interfaces/IERC4337.sol";
+import {IERC721Receiver} from "@openzeppelin/contracts/token/ERC721/IERC721Receiver.sol";
+import {IERC1155Receiver} from "@openzeppelin/contracts/token/ERC1155/IERC1155Receiver.sol";
 import {
     IERC7579AccountConfig,
     IERC7579Execution,
@@ -20,7 +22,16 @@ import {
 ///      Delegatecall execution is refused. `isValidSignature` passes `hash` to the validator
 ///      the signature names, which reads it as ERC-7739 under `eip712Domain()`; an empty
 ///      signature goes to the constructor's validator, so the ERC-7739 probe is answered.
-interface IWebWallet is IERC1271, IERC7579Execution, IERC7579AccountConfig, IERC7579ModuleConfig, IERC5267 {
+///      ERC-721 and ERC-1155 safe transfers are accepted; ERC-165 reports both receivers.
+interface IWebWallet is
+    IERC1271,
+    IERC7579Execution,
+    IERC7579AccountConfig,
+    IERC7579ModuleConfig,
+    IERC5267,
+    IERC721Receiver,
+    IERC1155Receiver
+{
     /// Only the constructor's modules may be installed, and the validator never uninstalled.
     error ModuleNotAllowed(address module);
 
