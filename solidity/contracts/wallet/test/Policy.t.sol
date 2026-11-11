@@ -83,6 +83,12 @@ contract PolicyEncodingTest is WalletTestBase {
         assertEq(_rh(p.rules), rules, "the test base's rules hash");
         assertEq(policyHashOf(p), 0x28fb19edd401b9226deca03df105d7f00a5aa309994e6983edafde4cd7a38f20, "policyHashOf");
         assertEq(_ph(p), policyHashOf(p), "the test base's policy hash");
+        // cast keccak (cast abi-encode "f(bytes32,uint48)" (cast keccak op) 1234)
+        assertEq(
+            _belowQuorum(keccak256("op"), 1234),
+            0x8c0f295ba05cf4321f217414c5e4fb63b06d09e3e32556f3c183b88ebac155a4,
+            "the below-quorum hash"
+        );
         assertEq(
             _leaf(address(0x1234), 0xa9059cbb, 1 ether),
             0xc5e4492e68d976c7dc45dbb80faeb5fbdc26f01081812eb880795e79e0a1e7ed,
