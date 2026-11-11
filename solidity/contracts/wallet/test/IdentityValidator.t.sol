@@ -159,9 +159,12 @@ contract IdentityValidatorTest is WalletTestBase {
         vm.record();
         vm.prank(w);
         assertEq(validator.validateUserOp(op, keccak256("op")), 0, "the 7913 key did not validate");
-        (bytes32[] memory reads,) = vm.accesses(address(validator));
+        (bytes32[] memory reads, bytes32[] memory writes) = vm.accesses(address(validator));
         for (uint256 i; i < reads.length; ++i) {
             assertTrue(_associated(w, reads[i]), "validation read a slot not associated with the account");
+        }
+        for (uint256 i; i < writes.length; ++i) {
+            assertTrue(_associated(w, writes[i]), "validation wrote a slot not associated with the account");
         }
     }
 

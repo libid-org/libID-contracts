@@ -37,6 +37,7 @@ contract WebWalletTest is WalletTestBase {
     }
 
     /// R9: a non-admin session may only `execute` single or batch calls to outside targets.
+    /// The account, the validator and the registry are not outside; the ClaimExecutor is.
     function test_nonAdminRefusedInValidation() public {
         address w = _claim();
         vm.prank(w);
@@ -59,7 +60,12 @@ contract WebWalletTest is WalletTestBase {
             abi.encodeCall(IWebWallet.upgradeToAndCall, (address(marker), ""))
         ];
         string[6] memory why = [
-            "installModule", "delegatecall", "call to the wallet", "call to a module", "batch to the wallet", "upgrade"
+            "installModule",
+            "delegatecall",
+            "call to the wallet",
+            "call to the validator",
+            "batch to the wallet",
+            "upgrade"
         ];
         for (uint256 i; i < calls.length; ++i) {
             _refused(_signed(_op(w, 0, calls[i]), _pks(APP_PK)), why[i]);
