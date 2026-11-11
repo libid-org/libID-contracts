@@ -521,7 +521,9 @@ contract IdentityValidatorTest is WalletTestBase {
         bytes memory early = abi.encodeCall(IIdentityValidator.setThreshold, (2));
         vm.prank(w);
         bytes32 opId = validator.queueRoot(address(validator), early);
+        assertGt(validator.rootReadyAt(w, opId), 0, "not queued");
         _root(w, address(validator), abi.encodeCall(IIdentityValidator.unlink, (_identity(GITHUB, BOB))));
+        assertEq(validator.rootReadyAt(w, opId), 0, "a superseded op reads as ready");
         vm.expectRevert(abi.encodeWithSelector(IIdentityValidator.RootSuperseded.selector, opId));
         validator.executeRoot(w, address(validator), early);
     }

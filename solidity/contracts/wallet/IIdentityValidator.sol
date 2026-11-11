@@ -98,7 +98,7 @@ interface IIdentityValidator is IERC7579Validator {
     function recoveryDelay(address account) external view returns (uint48);
     /// One-way: set once the account has had any session.
     function hadSession(address account) external view returns (bool);
-    /// `keccak256(abi.encode(account, target, data))` once queued, else 0.
+    /// `keccak256(abi.encode(account, target, data))` once queued, else 0; also 0 once an unlink supersedes it.
     function rootReadyAt(address account, bytes32 opId) external view returns (uint48);
 
     // Registry only.

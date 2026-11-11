@@ -189,7 +189,8 @@ contract IdentityValidator is IIdentityValidator {
     }
 
     function rootReadyAt(address account, bytes32 opId) external view returns (uint48) {
-        return _s().roots[_install(account)][opId][account].readyAt;
+        Root memory r = _s().roots[_install(account)][opId][account];
+        return r.epoch == _account(account).unlinkEpoch ? r.readyAt : 0;
     }
 
     // ─── Registry ───────────────────────────────────────────────────
