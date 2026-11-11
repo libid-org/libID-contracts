@@ -29,6 +29,7 @@ import {IIdentityValidator, identityOf, rulesHashOf} from "./IIdentityValidator.
 /// @dev Every slot validation reads or writes has the account as its innermost mapping key (ERC-7562),
 ///      and validation reads no clock: windows go back to the EntryPoint packed.
 contract IdentityValidator is IIdentityValidator {
+    using ERC4337Utils for PackedUserOperation;
     using ERC7579Utils for bytes;
     using ERC7579Utils for Mode;
     using ERC7739Utils for *;
@@ -221,7 +222,7 @@ contract IdentityValidator is IIdentityValidator {
                 && (scope == Scope.Admin
                     || v.byProof
                     || auth.signatures.length != 1
-                    || !_withinRules(msg.sender, v, auth, callType, executions))
+                    || !_withinRules(msg.sender, v, auth, userOp, callType, executions))
         ) return ERC4337Utils.SIG_VALIDATION_FAILED;
         return (uint256(v.validAfter) << 208) | (uint256(v.validUntil) << 160);
     }
@@ -604,18 +605,20 @@ contract IdentityValidator is IIdentityValidator {
         v.ok = true;
     }
 
-    /// Below quorum: every execution proved under the session's scope, and its spend charged.
+    /// Below quorum: every execution proved under the session's scope, and its spend charged. Without
+    /// a paymaster, the operation's maximum gas cost is charged to `NATIVE_TOKEN` with its value.
     /// @dev `scopeRoot == 0` proves no leaf.
     function _withinRules(
         address account,
         Verified memory v,
         Authorization memory auth,
+        PackedUserOperation calldata userOp,
         CallType callType,
         bytes calldata executions
     ) private returns (bool) {
         Session storage s = _sessions(account, v.keyHash)[account];
         (bytes32 scopeRoot, bytes32 rulesHash) = (s.scopeRoot, s.rulesHash);
-        uint256 native;
+        uint256 native = userOp.paymasterAndData.length == 0 ? _maxGasCost(userOp) : 0;
         if (callType == ERC7579Utils.CALLTYPE_SINGLE) {
             (address target, uint256 value, bytes calldata data) = executions.decodeSingle();
             if (
@@ -687,6 +690,12 @@ contract IdentityValidator is IIdentityValidator {
         // forge-lint: disable-next-line(unsafe-typecast)
         (c.periodStart, c.spent) = (start, spent + uint128(amount));
         return true;
+    }
+
+    /// What the EntryPoint may take from the account for the operation's gas: its limits at its maximum fee.
+    function _maxGasCost(PackedUserOperation calldata userOp) private pure returns (uint256) {
+        return
+            (userOp.verificationGasLimit() + userOp.callGasLimit() + userOp.preVerificationGas) * userOp.maxFeePerGas();
     }
 
     /// The hash an ERC-7739 nested signature signs, its `Authorization`, and the app separator

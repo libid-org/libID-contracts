@@ -2,7 +2,7 @@
 pragma solidity ^0.8.24;
 
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
-import {IEntryPoint, PackedUserOperation} from "@openzeppelin/contracts/interfaces/IERC4337.sol";
+import {IEntryPoint, IPaymaster, PackedUserOperation} from "@openzeppelin/contracts/interfaces/IERC4337.sol";
 import {Execution, IERC7579Execution} from "@openzeppelin/contracts/interfaces/draft-IERC7579.sol";
 import {MerkleProof} from "@openzeppelin/contracts/utils/cryptography/MerkleProof.sol";
 
@@ -28,6 +28,19 @@ contract Sink {
     function boom() external payable {
         revert("boom");
     }
+}
+
+/// Pays for every operation, unconditionally.
+contract FreePaymaster is IPaymaster {
+    function validatePaymasterUserOp(PackedUserOperation calldata, bytes32, uint256)
+        external
+        pure
+        returns (bytes memory, uint256)
+    {
+        return ("", 0);
+    }
+
+    function postOp(PostOpMode, bytes calldata, uint256, uint256) external pure {}
 }
 
 /// @notice The encodings the spec pins, against vectors computed outside Solidity. Deploys nothing.
@@ -87,6 +100,7 @@ contract PolicyTest is WalletTestBase {
     Token internal token;
     Token internal loose;
     Sink internal sink;
+    FreePaymaster internal paymaster;
     address internal payee = makeAddr("payee");
     address internal w;
     Leaf[] internal leaves;
@@ -97,6 +111,8 @@ contract PolicyTest is WalletTestBase {
         token = new Token();
         loose = new Token();
         sink = new Sink();
+        paymaster = new FreePaymaster();
+        IEntryPoint(EP).depositTo{value: 100 ether}(address(paymaster));
         w = _claim();
         token.mint(w, 1000 ether);
         loose.mint(w, 1000 ether);
@@ -212,15 +228,46 @@ contract PolicyTest is WalletTestBase {
         }
     }
 
+    function _nextOp(bytes memory callData) internal view returns (PackedUserOperation memory) {
+        uint192 key = uint192(uint160(address(validator))) << 32;
+        return _op(w, uint64(IEntryPoint(EP).getNonce(w, key)), callData);
+    }
+
+    /// `paymaster` pays the gas, so allowances are charged the value alone.
+    function _sponsored(PackedUserOperation memory op) internal view returns (PackedUserOperation memory) {
+        op.paymasterAndData = abi.encodePacked(address(paymaster), uint128(100_000), uint128(0));
+        return op;
+    }
+
+    /// `pks`' sponsored operation for the period of `at`.
     function _opWith(
         uint256[] memory pks,
         bytes memory callData,
         IIdentityValidator.CallProof[] memory calls,
         uint48 at
     ) internal view returns (PackedUserOperation memory op) {
-        uint192 key = uint192(uint160(address(validator))) << 32;
-        op = _op(w, uint64(IEntryPoint(EP).getNonce(w, key)), callData);
+        op = _sponsored(_nextOp(callData));
+        _sign(op, pks, calls, at);
+    }
+
+    /// Signs `op` at `at`.
+    function _sign(
+        PackedUserOperation memory op,
+        uint256[] memory pks,
+        IIdentityValidator.CallProof[] memory calls,
+        uint48 at
+    ) internal view {
         op.signature = _auth(pks, IUserOpHash(EP).getUserOpHash(op), at, calls, new bytes32[](0));
+    }
+
+    /// At quorum, `pks`' operation: the plain hash, no proofs, no paymaster.
+    function _opAtQuorum(uint256[] memory pks, bytes memory callData)
+        internal
+        view
+        returns (PackedUserOperation memory op)
+    {
+        op = _nextOp(callData);
+        op.signature = _sigs(pks, IUserOpHash(EP).getUserOpHash(op));
     }
 
     /// `pk`'s operation for `x`, each execution with its leaf's proof, for the period of `at`.
@@ -446,6 +493,41 @@ contract PolicyTest is WalletTestBase {
         registry.addSessionByProof(X, V1, payload, p);
     }
 
+    /// Without a paymaster the operation's maximum gas cost is charged to NATIVE with its value, so a
+    /// session cannot spend the account's ether on gas it chose; with a paymaster no gas is charged.
+    function test_gasIsChargedToTheNativeAllowance() public {
+        _addApp(APP_PK, _rules(0, 100 ether, DAY, 0));
+        IIdentityValidator.Rules memory noNative = _daily();
+        noNative.allowances[0].token = address(loose);
+        _addApp(BOB_PK, noNative);
+        _addApp(MALLORY_PK, _daily());
+        Execution[] memory hit = _one(_e(address(target), 0, abi.encodeCall(CallTarget.hit, ())));
+
+        // The session picks fees worth 10 ether and bundles its own operation.
+        PackedUserOperation memory drain = _nextOp(_callData(hit));
+        drain.preVerificationGas = 8_000_000;
+        drain.gasFees = bytes32((uint256(1000 gwei) << 128) | 1000 gwei);
+        _sign(drain, _pks(APP_PK), _proofs(hit), uint48(_now()));
+        _refused(drain, "gas over a zero NATIVE allowance");
+        _sign(drain, _pks(BOB_PK), _proofs(hit), uint48(_now()));
+        _refused(drain, "gas with no NATIVE entry");
+        IIdentityValidator.AllowanceState memory zero = validator.allowanceOf(w, _key(APP_PK), NATIVE);
+        assertEq(zero.spent + zero.periodStart, 0, "a refused operation was charged");
+
+        PackedUserOperation memory paid = _nextOp(_callData(_pay(0.1 ether)));
+        _sign(paid, _pks(MALLORY_PK), _proofs(_pay(0)), uint48(_now()));
+        _handle(paid);
+        uint256 gas = _prefund(paid);
+        assertEq(_spent(MALLORY_PK, NATIVE), 0.1 ether + gas, "the value and the maximum gas cost");
+
+        uint256 left = 1 ether - 0.1 ether - gas;
+        PackedUserOperation memory over = _nextOp(_callData(_pay(left - gas + 1)));
+        _sign(over, _pks(MALLORY_PK), _proofs(_pay(0)), uint48(_now()));
+        _refused(over, "the value and gas, one wei over");
+        _handle(_opNow(MALLORY_PK, _pay(left)));
+        assertEq(_spent(MALLORY_PK, NATIVE), 1 ether, "a sponsored operation was charged gas");
+    }
+
     // ─── Scope (S2) ─────────────────────────────────────────────────
 
     function test_scopeRefusals() public {
@@ -513,7 +595,6 @@ contract PolicyTest is WalletTestBase {
         Execution[] memory delay =
             _one(_e(address(validator), 0, abi.encodeCall(IIdentityValidator.setRecoveryDelay, (72 hours))));
         Execution[] memory outside = _one(_e(address(target), 0, abi.encodeCall(target.calls, ())));
-        IIdentityValidator.CallProof[] memory none = new IIdentityValidator.CallProof[](0);
 
         PackedUserOperation[4] memory ops = [
             _opNow(ALICE2_PK, delay),
@@ -531,9 +612,9 @@ contract PolicyTest is WalletTestBase {
             _refused(ops[i], why[i]);
         }
         _handle(_opNow(ALICE2_PK, hit));
-        _handle(_opWith(_pks(ALICE_PK, BOB_PK), _callData(delay), none, uint48(_now())));
-        _handle(_opWith(_pks(ALICE_PK, BOB_PK), _callData(outside), none, uint48(_now())));
-        _handle(_opWith(_pks(ALICE2_PK, BOB_PK), _callData(_pay(0.9 ether)), none, uint48(_now())));
+        _handle(_opAtQuorum(_pks(ALICE_PK, BOB_PK), _callData(delay)));
+        _handle(_opAtQuorum(_pks(ALICE_PK, BOB_PK), _callData(outside)));
+        _handle(_opAtQuorum(_pks(ALICE2_PK, BOB_PK), _callData(_pay(0.9 ether))));
         assertEq(validator.recoveryDelay(w), 72 hours, "quorum is unrestricted");
         assertEq(_spent(ALICE2_PK, NATIVE), 0, "quorum was charged");
 
@@ -551,10 +632,9 @@ contract PolicyTest is WalletTestBase {
         _add(w, _identity(X, ALICE), ALICE2_PK, true, _rules(0.1 ether, 0, DAY, 0));
         _addApp(APP_PK, _daily());
         _addApp(BOB_PK, _daily());
-        IIdentityValidator.CallProof[] memory none = new IIdentityValidator.CallProof[](0);
         Execution[] memory outside = _one(_e(address(target), 0, abi.encodeCall(target.calls, ())));
-        _handle(_opWith(_pks(ALICE2_PK), _callData(outside), none, uint48(_now())));
-        _handle(_opWith(_pks(ALICE2_PK), _callData(_pay(0.9 ether)), none, uint48(_now())));
+        _handle(_opAtQuorum(_pks(ALICE2_PK), _callData(outside)));
+        _handle(_opAtQuorum(_pks(ALICE2_PK), _callData(_pay(0.9 ether))));
         assertEq(_spent(ALICE2_PK, NATIVE), 0, "an unrestricted admin was charged");
 
         Execution[] memory hit = _one(_e(address(target), 0, abi.encodeCall(CallTarget.hit, ())));

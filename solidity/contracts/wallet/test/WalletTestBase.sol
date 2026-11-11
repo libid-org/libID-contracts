@@ -11,6 +11,7 @@ import {CeremonyProofVerifier} from "../../ceremony/CeremonyProofVerifier.sol";
 import {IPlatformVerifier} from "../../ceremony/IPlatformVerifier.sol";
 import {IProofVerifier} from "../../ceremony/IProofVerifier.sol";
 import {HandleEscrow} from "../../escrow/HandleEscrow.sol";
+import {NATIVE_TOKEN} from "../../NativeToken.sol";
 import {IdentityRegistry} from "../../identity/IdentityRegistry.sol";
 import {StubPlatformVerifier} from "../../identity/test/StubPlatformVerifier.sol";
 import {IClaimExecutor} from "../IClaimExecutor.sol";
@@ -398,6 +399,14 @@ abstract contract WalletTestBase is Test, Trees {
     /// A scope of the one leaf `(target, hit(), 0)`: its root is the leaf.
     function _hitScope() internal view returns (bytes32) {
         return _leaf(address(target), CallTarget.hit.selector, 0);
+    }
+
+    /// A non-admin policy of `_hitScope()`, with a lifetime NATIVE allowance to pay its operations' gas.
+    function _hitOnly() internal view returns (IIdentityValidator.Policy memory p) {
+        p = _app();
+        p.rules.scopeRoot = _hitScope();
+        p.rules.allowances = new IIdentityValidator.Allowance[](1);
+        p.rules.allowances[0] = IIdentityValidator.Allowance({token: NATIVE_TOKEN, amount: 1 ether, period: 0});
     }
 
     /// The proofs of `n` executions of `hit()` under `_hitScope()`: each empty.

@@ -598,8 +598,7 @@ contract IdentityValidatorTest is WalletTestBase {
         _root(w, address(validator), abi.encodeCall(IIdentityValidator.unlink, (bob)));
         assertNotEq(validator.sessionOf(w, _key(BOB_PK)).generation, validator.generationOf(w, bob), "dead");
 
-        IIdentityValidator.Policy memory hitOnly = _app();
-        hitOnly.rules.scopeRoot = _hitScope();
+        IIdentityValidator.Policy memory hitOnly = _hitOnly();
         vm.startPrank(w);
         validator.addSession(alice, _key(BOB_PK), hitOnly);
         vm.expectRevert(abi.encodeWithSelector(IIdentityValidator.SessionExists.selector, _key(BOB_PK)));

@@ -58,10 +58,8 @@ contract WebWalletTest is WalletTestBase {
     /// The account, the validator and the registry are not outside; the ClaimExecutor is.
     function test_nonAdminRefusedInValidation() public {
         address w = _claim();
-        IIdentityValidator.Policy memory hitOnly = _app();
-        hitOnly.rules.scopeRoot = _hitScope();
         vm.prank(w);
-        validator.addSession(_identity(X, ALICE), _key(APP_PK), hitOnly);
+        validator.addSession(_identity(X, ALICE), _key(APP_PK), _hitOnly());
         SlotMarker marker = new SlotMarker();
 
         Execution[] memory mixed = new Execution[](2);
@@ -102,17 +100,10 @@ contract WebWalletTest is WalletTestBase {
 
     function test_pendingAndExpiredSessionsRefused() public {
         address w = _claim();
+        IIdentityValidator.Policy memory hourly = _hitOnly();
+        hourly.validUntil = uint48(_now() + 1 hours);
         vm.prank(w);
-        validator.addSession(
-            _identity(X, ALICE),
-            _key(APP_PK),
-            IIdentityValidator.Policy({
-                validAfter: 0,
-                validUntil: uint48(_now() + 1 hours),
-                admin: false,
-                rules: IIdentityValidator.Rules(_hitScope(), 0, new IIdentityValidator.Allowance[](0))
-            })
-        );
+        validator.addSession(_identity(X, ALICE), _key(APP_PK), hourly);
         _addByProof(relayer, X, ALICE, w, _key(ALICE2_PK), _admin());
         bytes memory notDue = abi.encodeWithSelector(IEntryPoint.FailedOp.selector, 0, "AA22 expired or not due");
 
