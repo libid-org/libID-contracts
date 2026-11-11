@@ -56,6 +56,11 @@ const contracts = [
   },
   { file: 'LibidFactory.sol', name: 'LibidFactory', exportName: 'libidFactoryAbi' },
   { file: 'WTIA9.sol', name: 'WTIA9', exportName: 'wtia9Abi' },
+  { file: 'WebWallet.sol', name: 'WebWallet', exportName: 'webWalletAbi' },
+  { file: 'IdentityValidator.sol', name: 'IdentityValidator', exportName: 'identityValidatorAbi' },
+  { file: 'WalletRegistry.sol', name: 'WalletRegistry', exportName: 'walletRegistryAbi' },
+  { file: 'WalletFactory.sol', name: 'WalletFactory', exportName: 'walletFactoryAbi' },
+  { file: 'ClaimExecutor.sol', name: 'ClaimExecutor', exportName: 'claimExecutorAbi' },
 ]
 
 /**
