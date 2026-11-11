@@ -211,7 +211,7 @@ contract IdentityValidator is IIdentityValidator {
     /// @dev Below quorum, charges the session's allowances: a refused operation's charges are
     ///      reverted with the EntryPoint's call.
     function validateUserOp(PackedUserOperation calldata userOp, bytes32 userOpHash) external returns (uint256) {
-        (Scope scope, Execution[] memory executions) = _scope(msg.sender, userOp.callData);
+        (Scope scope, CallType callType, bytes calldata executions) = _scope(msg.sender, userOp.callData);
         if (scope == Scope.Refused) return ERC4337Utils.SIG_VALIDATION_FAILED;
         Authorization memory auth = _decode(userOp.signature);
         Verified memory v = _verify(msg.sender, userOpHash, auth.signatures);
@@ -221,7 +221,7 @@ contract IdentityValidator is IIdentityValidator {
                 && (scope == Scope.Admin
                     || v.byProof
                     || auth.signatures.length != 1
-                    || !_withinRules(msg.sender, v, auth, executions))
+                    || !_withinRules(msg.sender, v, auth, callType, executions))
         ) return ERC4337Utils.SIG_VALIDATION_FAILED;
         return (uint256(v.validAfter) << 208) | (uint256(v.validUntil) << 160);
     }
@@ -606,52 +606,73 @@ contract IdentityValidator is IIdentityValidator {
 
     /// Below quorum: every execution proved under the session's scope, and its spend charged.
     /// @dev `scopeRoot == 0` proves no leaf.
-    function _withinRules(address account, Verified memory v, Authorization memory auth, Execution[] memory executions)
-        private
-        returns (bool)
-    {
-        if (auth.calls.length != executions.length) return false;
+    function _withinRules(
+        address account,
+        Verified memory v,
+        Authorization memory auth,
+        CallType callType,
+        bytes calldata executions
+    ) private returns (bool) {
         Session storage s = _sessions(account, v.keyHash)[account];
-        bytes32 scopeRoot = s.scopeRoot;
-        bytes32 rulesHash = s.rulesHash;
-        for (uint256 i; i < executions.length; ++i) {
-            Execution memory x = executions[i];
-            CallProof memory proof = auth.calls[i];
-            bytes4 selector = _callSelector(x.callData);
+        (bytes32 scopeRoot, bytes32 rulesHash) = (s.scopeRoot, s.rulesHash);
+        uint256 native;
+        if (callType == ERC7579Utils.CALLTYPE_SINGLE) {
+            (address target, uint256 value, bytes calldata data) = executions.decodeSingle();
             if (
-                x.value > proof.maxValue
-                    || !MerkleProof.verify(
-                        proof.proof, scopeRoot, _leaf(abi.encode(x.target, selector, proof.maxValue))
-                    )
+                auth.calls.length != 1
+                    || !_withinCall(account, v, scopeRoot, rulesHash, target, value, data, auth.calls[0], auth.at)
             ) return false;
-            if (x.value != 0 && !_charge(account, v, rulesHash, NATIVE_TOKEN, x.value, auth.at)) return false;
-            if (!_chargeToken(account, v, rulesHash, x, selector, auth.at)) return false;
+            native += value;
+        } else {
+            Execution[] calldata batch = executions.decodeBatch();
+            if (auth.calls.length != batch.length) return false;
+            for (uint256 i; i < batch.length; ++i) {
+                Execution calldata x = batch[i];
+                if (!_withinCall(
+                        account, v, scopeRoot, rulesHash, x.target, x.value, x.callData, auth.calls[i], auth.at
+                    )) {
+                    return false;
+                }
+                native += x.value;
+            }
         }
-        return true;
+        return native == 0 || _charge(v, _counter(account, v.keyHash, rulesHash, NATIVE_TOKEN), native, auth.at);
+    }
+
+    /// One execution: proved under the session's scope, and its token spend charged.
+    /// @dev A value past uint128 fits no allowance; refusing it keeps the operation's sum from overflowing.
+    function _withinCall(
+        address account,
+        Verified memory v,
+        bytes32 scopeRoot,
+        bytes32 rulesHash,
+        address target,
+        uint256 value,
+        bytes calldata data,
+        CallProof memory proof,
+        uint48 at
+    ) private returns (bool) {
+        bytes4 selector = _selector(data);
+        if (
+            value > proof.maxValue || value > type(uint128).max
+                || !MerkleProof.verify(proof.proof, scopeRoot, _leaf(abi.encode(target, selector, proof.maxValue)))
+        ) return false;
+        return _chargeToken(v, _counter(account, v.keyHash, rulesHash, target), data, selector, at);
     }
 
     /// Refuses a token call the allowances forbid, and charges a `transfer` or `approve` amount.
     /// @dev A token with an allowance takes only `transfer` and `approve`, which only such a token takes.
-    function _chargeToken(
-        address account,
-        Verified memory v,
-        bytes32 rulesHash,
-        Execution memory x,
-        bytes4 selector,
-        uint48 at
-    ) private returns (bool) {
-        bool spends = selector == IERC20.transfer.selector || selector == IERC20.approve.selector;
-        bool listed = _counter(account, v.keyHash, rulesHash, x.target).listed;
-        if (selector == IERC20.transferFrom.selector || spends != listed) return false;
-        return !spends || (x.callData.length >= 68 && _charge(account, v, rulesHash, x.target, _amount(x.callData), at));
-    }
-
-    /// Charges `amount` of `token` in the period of `at`, and narrows the window to that period.
-    function _charge(address account, Verified memory v, bytes32 rulesHash, address token, uint256 amount, uint48 at)
+    function _chargeToken(Verified memory v, Counter storage c, bytes calldata data, bytes4 selector, uint48 at)
         private
         returns (bool)
     {
-        Counter storage c = _counter(account, v.keyHash, rulesHash, token);
+        bool spends = selector == IERC20.transfer.selector || selector == IERC20.approve.selector;
+        if (selector == IERC20.transferFrom.selector || spends != c.listed) return false;
+        return !spends || (data.length >= 68 && _charge(v, c, uint256(bytes32(data[36:68])), at));
+    }
+
+    /// Charges `amount` to `c` in the period of `at`, and narrows the window to that period.
+    function _charge(Verified memory v, Counter storage c, uint256 amount, uint48 at) private returns (bool) {
         uint48 period = c.period;
         uint48 start = c.periodStart;
         uint128 spent = c.spent;
@@ -705,13 +726,6 @@ contract IdentityValidator is IIdentityValidator {
         return keccak256(bytes.concat(keccak256(encoded)));
     }
 
-    /// The `amount` of ERC-20 `transfer(to, amount)` or `approve(spender, amount)`.
-    function _amount(bytes memory data) private pure returns (uint256 amount) {
-        assembly ("memory-safe") {
-            amount := mload(add(data, 68))
-        }
-    }
-
     /// @dev A 20-byte key is recovered with ECDSA, never asked through ERC-1271:
     ///      validation may not read a codeless address's code size (ERC-7562).
     function _signedBy(bytes memory key, bytes32 hash, bytes memory signature) private view returns (bool) {
@@ -732,33 +746,34 @@ contract IdentityValidator is IIdentityValidator {
     /// the account, this validator or the registry is an admin operation. Any other target is
     /// outside, the ClaimExecutor included: anyone may call its entries. Anything but `execute`,
     /// and this validator's `onInstall`/`onUninstall` called directly, is refused.
-    /// The executions come back with the scope, a single call as a batch of one.
+    /// The call type and encoded executions come back with the scope, undecoded.
     function _scope(address account, bytes calldata callData)
         private
         view
-        returns (Scope scope, Execution[] memory executions)
+        returns (Scope scope, CallType callType, bytes calldata executions)
     {
-        if (_selector(callData) != IERC7579Execution.execute.selector) return (Scope.Refused, executions);
-        (CallType callType,,,) = Mode.wrap(bytes32(callData[4:36])).decodeMode();
-        bytes calldata executionCalldata = _executionCalldata(callData);
+        if (_selector(callData) != IERC7579Execution.execute.selector) {
+            return (Scope.Refused, callType, callData[:0]);
+        }
+        (callType, executions) = _executions(callData);
         if (callType == ERC7579Utils.CALLTYPE_SINGLE) {
-            (address target, uint256 value, bytes calldata data) = executionCalldata.decodeSingle();
-            executions = new Execution[](1);
-            executions[0] = Execution(target, value, data);
-        } else if (callType == ERC7579Utils.CALLTYPE_BATCH) {
-            executions = executionCalldata.decodeBatch();
-        } else {
-            return (Scope.Refused, executions);
+            (address target,, bytes calldata data) = executions.decodeSingle();
+            return (_targetScope(account, target, data), callType, executions);
         }
-        for (uint256 i; i < executions.length; ++i) {
-            Scope s = _targetScope(account, executions[i].target, executions[i].callData);
-            if (s > scope) scope = s;
+        if (callType == ERC7579Utils.CALLTYPE_BATCH) {
+            Execution[] calldata batch = executions.decodeBatch();
+            for (uint256 i; i < batch.length; ++i) {
+                Scope s = _targetScope(account, batch[i].target, batch[i].callData);
+                if (s > scope) scope = s;
+            }
+            return (scope, callType, executions);
         }
+        return (Scope.Refused, callType, executions);
     }
 
-    function _targetScope(address account, address target, bytes memory data) private view returns (Scope) {
+    function _targetScope(address account, address target, bytes calldata data) private view returns (Scope) {
         if (target == address(this)) {
-            bytes4 selector = _callSelector(data);
+            bytes4 selector = _selector(data);
             bool module =
                 selector == IERC7579Module.onInstall.selector || selector == IERC7579Module.onUninstall.selector;
             return module ? Scope.Refused : Scope.Admin;
@@ -768,23 +783,19 @@ contract IdentityValidator is IIdentityValidator {
         return Scope.Call;
     }
 
-    /// The first four bytes, zero-padded.
+    /// The first four bytes: zero for data shorter than four bytes.
     function _selector(bytes calldata data) private pure returns (bytes4) {
-        // forge-lint: disable-next-line(unsafe-typecast)
-        return bytes4(data);
-    }
-
-    /// An execution's selector: zero for calldata shorter than four bytes.
-    function _callSelector(bytes memory data) private pure returns (bytes4) {
         // forge-lint: disable-next-line(unsafe-typecast)
         return data.length < 4 ? bytes4(0) : bytes4(data);
     }
 
-    /// The `bytes` argument of `execute(bytes32, bytes)`, as the account's ABI decoder reads it.
-    function _executionCalldata(bytes calldata callData) private pure returns (bytes calldata) {
+    /// The call type of `execute(bytes32 mode, bytes executionCalldata)`, and `executionCalldata` as the
+    /// account's ABI decoder reads it.
+    function _executions(bytes calldata callData) private pure returns (CallType callType, bytes calldata) {
+        (callType,,,) = Mode.wrap(bytes32(callData[4:36])).decodeMode();
         bytes calldata args = callData[4:];
         uint256 offset = uint256(bytes32(args[32:64]));
         uint256 length = uint256(bytes32(args[offset:offset + 32]));
-        return args[offset + 32:offset + 32 + length];
+        return (callType, args[offset + 32:offset + 32 + length]);
     }
 }
