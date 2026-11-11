@@ -412,7 +412,7 @@ contract IdentityValidator is IIdentityValidator {
         bytes memory old = pending[account];
         if (old.length != 0) {
             Session storage o = _session(account, old);
-            if (o.identity == identity && o.activeAt > block.timestamp) _revoke(account, old, true);
+            if (o.identity == identity && o.activeAt >= block.timestamp) _revoke(account, old, true);
         }
         pending[account] = key;
     }

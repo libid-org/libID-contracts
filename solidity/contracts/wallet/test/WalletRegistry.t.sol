@@ -268,7 +268,7 @@ contract WalletRegistryTest is WalletTestBase {
     function test_replacementSparesMaturedAndForeignSessions() public {
         address w = _claim();
         _addByProof(relayer, X, ALICE, w, _key(ALICE2_PK), _admin());
-        vm.warp(validator.sessionOf(w, _key(ALICE2_PK)).activeAt);
+        vm.warp(validator.sessionOf(w, _key(ALICE2_PK)).activeAt + 1);
         _addByProof(relayer, X, ALICE, w, _key(MALLORY_PK), _admin());
         assertEq(validator.sessionOf(w, _key(ALICE2_PK)).identity, _identity(X, ALICE), "matured session replaced");
 
@@ -279,6 +279,18 @@ contract WalletRegistryTest is WalletTestBase {
         _addByProof(relayer, GITHUB, BOB, w, _key(MALLORY_PK), _admin());
         _addByProof(relayer, X, ALICE, w, _key(APP_PK), _admin());
         assertEq(validator.sessionOf(w, _key(MALLORY_PK)).identity, _identity(GITHUB, BOB), "bob's session replaced");
+    }
+
+    /// A session signs only after `activeAt`, so at that second it is still pending and replaced.
+    function test_aSessionIsPendingThroughItsActiveAtSecond() public {
+        address w = _claim();
+        _addByProof(relayer, X, ALICE, w, _key(ALICE2_PK), _admin());
+        vm.warp(validator.sessionOf(w, _key(ALICE2_PK)).activeAt);
+        bytes32 h = keccak256("hello");
+        assertFalse(_isValid1271(w, h, ALICE2_PK, _wrapped(w, h)), "signs at activeAt");
+
+        _addByProof(relayer, X, ALICE, w, _key(MALLORY_PK), _admin());
+        assertEq(validator.sessionOf(w, _key(ALICE2_PK)).identity, bytes32(0), "pending session kept");
     }
 
     function test_aNewerPendingSessionReplacesTheOlder() public {
