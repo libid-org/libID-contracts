@@ -440,6 +440,22 @@ contract PolicyTest is WalletTestBase, Trees {
         assertEq(_spent(APP_PK, NATIVE), 0, "an out-of-range at was charged");
     }
 
+    /// A repeated token, or a period reaching bit 47, is refused when the session is added, by proof too.
+    function test_badAllowancesRefused() public {
+        IIdentityValidator.Rules memory twice = _daily();
+        twice.allowances[1].token = NATIVE;
+        IIdentityValidator.Rules memory far = _daily();
+        far.allowances[1].period = uint48(1 << 47);
+        vm.prank(w);
+        vm.expectRevert(abi.encodeWithSelector(IIdentityValidator.BadAllowance.selector, NATIVE));
+        validator.addSession(_identity(X, ALICE), _key(APP_PK), IIdentityValidator.Policy(0, 0, false, twice));
+
+        IIdentityValidator.Policy memory p = IIdentityValidator.Policy(0, 0, false, far);
+        bytes memory payload = _payload(X, ALICE, ADD, _txData(w, _key(APP_PK), _ph(p)));
+        vm.expectRevert(abi.encodeWithSelector(IIdentityValidator.BadAllowance.selector, address(token)));
+        registry.addSessionByProof(X, V1, payload, p);
+    }
+
     // ─── Scope (S2) ─────────────────────────────────────────────────
 
     function test_scopeRefusals() public {

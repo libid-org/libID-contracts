@@ -170,6 +170,8 @@ interface IIdentityValidator is IERC7579Validator {
     error NoSession(bytes key);
     /// A policy bound reaches bit 47, which EntryPoint v0.9 reads as a block-number flag.
     error PolicyOutOfRange(uint48 validAfter, uint48 validUntil);
+    /// An allowance repeats an earlier one's token, or its period reaches bit 47.
+    error BadAllowance(address token);
     /// A root operation targets the account, or this validator's `setThreshold`, `revokeSession`,
     /// `unlink`, `setRecoveryDelay` or `setRecoveryFrozen`.
     error BadRootOperation(address target);
