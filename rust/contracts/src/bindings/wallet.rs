@@ -38,8 +38,8 @@ mod identity_validator {
 }
 
 /// `wallet/IIdentityValidator.sol`'s types for `IdentityValidator` calls:
-/// `Policy`, `Session` and `SessionSignature`, whose list is
-/// `abi_encode`d as a signature.
+/// `Policy` and its `Rules`, `Session`, `AllowanceState`, and
+/// `Authorization`, which is `abi_encode`d as a signature.
 pub use identity_validator::IIdentityValidator;
 /// `wallet/IdentityValidator.sol`: each wallet's identities, sessions and root
 /// operations.
@@ -120,6 +120,15 @@ mod tests {
             validAfter: 1.try_into().unwrap(),
             validUntil: 2.try_into().unwrap(),
             admin: true,
+            rules: IIdentityValidator::Rules {
+                scopeRoot: [1; 32].into(),
+                domainsRoot: [2; 32].into(),
+                allowances: vec![IIdentityValidator::Allowance {
+                    token: [3; 20].into(),
+                    amount: 4,
+                    period: 5.try_into().unwrap(),
+                }],
+            },
         };
         let decoded = RegistryPolicy::abi_decode(&policy.abi_encode()).unwrap();
         assert_eq!(decoded.abi_encode(), policy.abi_encode());
