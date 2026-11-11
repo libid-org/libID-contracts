@@ -48,10 +48,10 @@ interface IIdentityValidator is IERC7579Validator {
     }
 
     /// A session added by the account itself.
-    event SessionAdded(address indexed account, bytes32 indexed identity, bytes key, bytes32 policyHash, Policy policy);
+    event SessionAdded(address indexed account, bytes32 indexed identity, bytes key, Policy policy);
     /// A session added by proof, the event to alert on: `activeAt != 0` is pending until then.
     event SessionAddedByProof(
-        address indexed account, bytes32 indexed identity, bytes key, bytes32 policyHash, Policy policy, uint48 activeAt
+        address indexed account, bytes32 indexed identity, bytes key, Policy policy, uint48 activeAt
     );
     event SessionRevoked(address indexed account, bytes32 indexed identity, bytes key);
     event RootQueued(address indexed account, bytes32 indexed opId, address target, bytes data, uint48 readyAt);
