@@ -60,12 +60,13 @@ contract IdentityValidator is IIdentityValidator {
     }
 
     /// What `_verify` found: whether every signature holds, the distinct platforms of its admin
-    /// sessions, and the window they share.
+    /// sessions, the window they share, and whether any signer is a session by proof.
     struct Verified {
         bool ok;
         uint256 adminPlatforms;
         uint48 validAfter;
         uint48 validUntil;
+        bool byProof;
     }
 
     /// A queued root operation: when it matures, and the root epoch it was queued in.
@@ -182,13 +183,13 @@ contract IdentityValidator is IIdentityValidator {
         Scope scope = _scope(msg.sender, userOp.callData);
         if (scope == Scope.Refused) return ERC4337Utils.SIG_VALIDATION_FAILED;
         Verified memory v = _verify(msg.sender, userOpHash, userOp.signature);
-        if (!v.ok || (scope == Scope.Admin && v.adminPlatforms < threshold(msg.sender))) {
+        if (!v.ok || ((scope == Scope.Admin || v.byProof) && v.adminPlatforms < threshold(msg.sender))) {
             return ERC4337Utils.SIG_VALIDATION_FAILED;
         }
         return (uint256(v.validAfter) << 208) | (uint256(v.validUntil) << 160);
     }
 
-    /// @dev Only admin sessions sign, inside their window.
+    /// @dev Only admin sessions sign, inside their window; with a session by proof, under the threshold.
     function isValidSignatureWithSender(address, bytes32 hash, bytes calldata signature)
         external
         view
@@ -198,7 +199,8 @@ contract IdentityValidator is IIdentityValidator {
         (bytes32 signed, bytes calldata sigs) = _unnest(hash, signature);
         Verified memory v = _verify(msg.sender, signed, sigs);
         bool live = v.validAfter < block.timestamp && (v.validUntil == 0 || block.timestamp <= v.validUntil);
-        return v.ok && v.adminPlatforms != 0 && live ? IERC1271.isValidSignature.selector : bytes4(0xffffffff);
+        uint256 quorum = v.byProof ? threshold(msg.sender) : 1;
+        return v.ok && v.adminPlatforms >= quorum && live ? IERC1271.isValidSignature.selector : bytes4(0xffffffff);
     }
 
     // ─── Views ──────────────────────────────────────────────────────
@@ -265,11 +267,12 @@ contract IdentityValidator is IIdentityValidator {
         onlyRegistry
         returns (uint48 activeAt)
     {
-        if (_account(account).hadSession) {
+        bool byProof = _account(account).hadSession;
+        if (byProof) {
             activeAt = _maturity(account);
             _replacePending(account, identity, key);
         }
-        _add(account, identity, key, policy, activeAt);
+        _add(account, identity, key, policy, activeAt, byProof);
         emit SessionAddedByProof(account, identity, key, policy, activeAt);
     }
 
@@ -354,7 +357,14 @@ contract IdentityValidator is IIdentityValidator {
 
     // ─── Internals ──────────────────────────────────────────────────
 
-    function _add(address account, bytes32 identity, bytes memory key, Policy memory policy, uint48 activeAt) private {
+    function _add(
+        address account,
+        bytes32 identity,
+        bytes memory key,
+        Policy memory policy,
+        uint48 activeAt,
+        bool byProof
+    ) private {
         if (!isLinked(account, identity)) revert NotLinked(account, identity);
         if (key.length < 20) revert InvalidKey(key);
         if ((policy.validAfter | policy.validUntil | activeAt) >= 1 << 47) {
@@ -366,6 +376,7 @@ contract IdentityValidator is IIdentityValidator {
         s.policy = policy;
         s.activeAt = activeAt;
         s.generation = _generations(account, identity)[account];
+        s.byProof = byProof;
 
         AccountState storage a = _account(account);
         a.hadSession = true;
@@ -376,7 +387,7 @@ contract IdentityValidator is IIdentityValidator {
     }
 
     function _addNow(address account, bytes32 identity, bytes memory key, Policy memory policy) private {
-        _add(account, identity, key, policy, 0);
+        _add(account, identity, key, policy, 0, false);
         emit SessionAdded(account, identity, key, policy);
     }
 
@@ -397,6 +408,7 @@ contract IdentityValidator is IIdentityValidator {
         delete s.policy;
         delete s.activeAt;
         delete s.generation;
+        delete s.byProof;
         emit SessionRevoked(account, identity, key);
     }
 
@@ -482,8 +494,9 @@ contract IdentityValidator is IIdentityValidator {
             Session storage s = _session(account, sigs[i].key);
             bytes32 identity = s.identity;
             if (!_live(account, s) || !_signedBy(sigs[i].key, hash, sigs[i].signature)) {
-                return Verified(false, 0, 0, 0);
+                return Verified(false, 0, 0, 0, false);
             }
+            if (s.byProof) v.byProof = true;
             Policy memory p = s.policy;
             (v.validAfter, v.validUntil) = _narrow(v.validAfter, v.validUntil, p, s.activeAt);
             if (p.admin) {

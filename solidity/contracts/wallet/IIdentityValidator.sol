@@ -40,11 +40,14 @@ interface IIdentityValidator is IERC7579Validator {
 
     /// @dev `identity == 0`: no such session. `activeAt` is the end of a pending wait.
     ///      A session whose `generation` is not its identity's current one, bumped by each unlink, is dead.
+    ///      `byProof`: added by proof to an account that already had a session. Its operations, ordinary
+    ///      calls and ERC-1271 signatures included, need signers that reach the threshold.
     struct Session {
         bytes32 identity;
         Policy policy;
         uint48 activeAt;
         uint32 generation;
+        bool byProof;
     }
 
     struct SessionSignature {
@@ -126,7 +129,7 @@ interface IIdentityValidator is IERC7579Validator {
 
     // Registry only.
     function link(address account, bytes32 platformId, bytes32 idNode) external;
-    /// Active at once while the account never had a session, else pending for `recoveryDelay`.
+    /// Active at once while the account never had a session, else pending for `recoveryDelay` and `byProof`.
     /// A newer pending session of the same identity replaces the older one.
     function addSessionByProof(address account, bytes32 identity, bytes calldata key, Policy calldata policy)
         external
