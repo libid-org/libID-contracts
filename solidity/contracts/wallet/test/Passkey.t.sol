@@ -56,7 +56,9 @@ contract PasskeyTest is WalletTestBase {
         PackedUserOperation memory op = _op(w, 0, callData);
         op.signature = _passkeySigs(IUserOpHash(EP).getUserOpHash(op));
         _handle(op);
-        assertEq(validator.sessionOf(w, _key(ALICE2_PK)).activeAt, 0, "the new session waits");
+        IIdentityValidator.Session memory added = validator.sessionOf(w, _key(ALICE2_PK));
+        assertEq(added.identity, _identity(X, ALICE), "no session added");
+        assertEq(added.activeAt, 0, "the new session waits");
 
         // The validator's own answer, and its cost with OZ's Solidity P-256 (no precompile under cancun).
         bytes32 h = keccak256("user op");

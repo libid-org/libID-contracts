@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
+import {Vm} from "forge-std/Vm.sol";
 import {IEntryPoint, PackedUserOperation} from "@openzeppelin/contracts/interfaces/IERC4337.sol";
 import {
     Execution,
@@ -139,27 +140,45 @@ contract WebWalletTest is WalletTestBase {
         SlotMarker marker = new SlotMarker();
         address impl2 = _walletImpl();
         address implBefore = address(uint160(uint256(vm.load(w, IMPL_SLOT))));
-        bytes[5] memory calls = [
+        // Refused in validation.
+        bytes[2] memory refused = [
             abi.encodeCall(
                 IERC7579Execution.execute,
                 (MODE_DELEGATE, abi.encodePacked(address(marker), abi.encodeCall(SlotMarker.mark, ())))
             ),
-            abi.encodeCall(IWebWallet.upgradeToAndCall, (impl2, "")),
+            abi.encodeCall(IWebWallet.upgradeToAndCall, (impl2, ""))
+        ];
+        for (uint256 i; i < refused.length; ++i) {
+            _refused(_signed(_op(w, 0, refused[i]), _pks(ALICE_PK)), vm.toString(i));
+        }
+        // Admin calls to the wallet itself: validated, then reverted in execution.
+        bytes[3] memory reverted = [
             _exec(w, abi.encodeCall(IWebWallet.upgradeToAndCall, (impl2, ""))),
             _exec(w, abi.encodeCall(IERC7579ModuleConfig.uninstallModule, (1, address(validator), ""))),
             _exec(w, abi.encodeCall(IERC7579ModuleConfig.uninstallModule, (2, address(executor), "")))
         ];
-        for (uint256 i; i < calls.length; ++i) {
-            PackedUserOperation memory op =
-                _signed(_op(w, uint64(IEntryPoint(EP).getNonce(w, key)), calls[i]), _pks(ALICE_PK));
-            vm.deal(w, 1 ether);
-            vm.prank(bundler, bundler);
-            try IEntryPoint(EP).handleOps(_ops(op), payable(bundler)) {} catch {}
+        for (uint256 i; i < reverted.length; ++i) {
+            vm.recordLogs();
+            _handle(_signed(_op(w, uint64(i), reverted[i]), _pks(ALICE_PK)));
+            assertFalse(_opSucceeded(), vm.toString(i));
         }
         assertEq(vm.load(w, bytes32(uint256(0x1234))), bytes32(0), "delegatecall ran");
         assertEq(address(uint160(uint256(vm.load(w, IMPL_SLOT)))), implBefore, "upgraded without timelock");
         assertTrue(IWebWallet(w).isModuleInstalled(1, address(validator), ""), "validator removed");
         assertTrue(IWebWallet(w).isModuleInstalled(2, address(executor), ""), "executor removed");
+    }
+
+    /// The `success` of the last recorded `UserOperationEvent`.
+    function _opSucceeded() internal returns (bool success) {
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+        bytes32 topic = keccak256("UserOperationEvent(bytes32,address,address,uint256,bool,uint256,uint256)");
+        for (uint256 i = logs.length; i > 0; --i) {
+            if (logs[i - 1].topics[0] == topic) {
+                (, success,,) = abi.decode(logs[i - 1].data, (uint256, bool, uint256, uint256));
+                return success;
+            }
+        }
+        fail("no UserOperationEvent");
     }
 
     function test_delegatecallIsUnsupported() public {
