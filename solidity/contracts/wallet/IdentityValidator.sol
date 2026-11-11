@@ -58,13 +58,12 @@ contract IdentityValidator is IIdentityValidator {
     }
 
     /// What `_verify` found: whether every signature holds, the distinct admin identities among them,
-    /// the window they share, and the hash of the first signature's key.
+    /// and the window they share.
     struct Verified {
         bool ok;
         uint256 admins;
         uint48 validAfter;
         uint48 validUntil;
-        bytes32 keyHash;
     }
 
     /// A queued root operation: when it matures, and the unlink epoch it was queued in.
@@ -105,11 +104,7 @@ contract IdentityValidator is IIdentityValidator {
     }
 
     function _session(address account, bytes memory key) private view returns (Session storage) {
-        return _sessionAt(account, keccak256(key));
-    }
-
-    function _sessionAt(address account, bytes32 keyHash) private view returns (Session storage) {
-        return _s().sessions[_install(account)][keyHash][account];
+        return _s().sessions[_install(account)][keccak256(key)][account];
     }
 
     function _roots(address account, bytes32 opId) private view returns (mapping(address => Root) storage) {
@@ -157,7 +152,7 @@ contract IdentityValidator is IIdentityValidator {
     }
 
     function validateUserOp(PackedUserOperation calldata userOp, bytes32 userOpHash) external view returns (uint256) {
-        (Scope scope,) = _scope(msg.sender, userOp.callData);
+        Scope scope = _scope(msg.sender, userOp.callData);
         if (scope == Scope.Refused) return ERC4337Utils.SIG_VALIDATION_FAILED;
         Verified memory v = _verify(msg.sender, userOpHash, userOp.signature);
         if (!v.ok || (scope == Scope.Admin && v.admins < threshold(msg.sender))) {
@@ -433,16 +428,14 @@ contract IdentityValidator is IIdentityValidator {
         if (sigs.length == 0) return v;
         bytes32[] memory adminIds = new bytes32[](sigs.length);
         for (uint256 i; i < sigs.length; ++i) {
-            bytes32 keyHash = keccak256(sigs[i].key);
-            Session storage s = _sessionAt(account, keyHash);
+            Session storage s = _session(account, sigs[i].key);
             bytes32 identity = s.identity;
             if (!_live(account, s) || !_signedBy(sigs[i].key, hash, sigs[i].signature)) {
-                return Verified(false, 0, 0, 0, 0);
+                return Verified(false, 0, 0, 0);
             }
             Policy memory p = s.policy;
             (v.validAfter, v.validUntil) = _narrow(v.validAfter, v.validUntil, p, s.activeAt);
             if (p.admin && !_contains(adminIds, v.admins, identity)) adminIds[v.admins++] = identity;
-            if (i == 0) v.keyHash = keyHash;
         }
         v.ok = true;
     }
@@ -499,20 +492,13 @@ contract IdentityValidator is IIdentityValidator {
     /// the account, this validator or the registry is an admin operation. Any other target is
     /// outside, the ClaimExecutor included: anyone may call its entries. Anything but `execute`,
     /// and this validator's `onInstall`/`onUninstall` called directly, is refused.
-    /// Also returns the decoded executions.
-    function _scope(address account, bytes calldata callData)
-        private
-        view
-        returns (Scope scope, Execution[] memory executions)
-    {
-        if (_selector(callData) != IERC7579Execution.execute.selector) return (Scope.Refused, executions);
+    function _scope(address account, bytes calldata callData) private view returns (Scope scope) {
+        if (_selector(callData) != IERC7579Execution.execute.selector) return Scope.Refused;
         (CallType callType,,,) = Mode.wrap(bytes32(callData[4:36])).decodeMode();
         bytes calldata executionCalldata = _executionCalldata(callData);
         if (callType == ERC7579Utils.CALLTYPE_SINGLE) {
-            (address target, uint256 value, bytes calldata data) = executionCalldata.decodeSingle();
-            executions = new Execution[](1);
-            executions[0] = Execution({target: target, value: value, callData: data});
-            return (_targetScope(account, target, data), executions);
+            (address target,, bytes calldata data) = executionCalldata.decodeSingle();
+            return _targetScope(account, target, data);
         }
         if (callType == ERC7579Utils.CALLTYPE_BATCH) {
             Execution[] calldata batch = executionCalldata.decodeBatch();
@@ -520,9 +506,9 @@ contract IdentityValidator is IIdentityValidator {
                 Scope s = _targetScope(account, batch[i].target, batch[i].callData);
                 if (s > scope) scope = s;
             }
-            return (scope, batch);
+            return scope;
         }
-        return (Scope.Refused, executions);
+        return Scope.Refused;
     }
 
     function _targetScope(address account, address target, bytes calldata data) private view returns (Scope) {
