@@ -417,6 +417,11 @@ contract PolicyTest is WalletTestBase {
         }
         assertEq(_spent(APP_PK, NATIVE), 0, "an out-of-range at was charged");
 
+        PackedUserOperation memory first = _opFor(APP_PK, _pay(0.1 ether), 100);
+        bytes32 firstHash = IUserOpHash(EP).getUserOpHash(first);
+        vm.prank(w);
+        assertEq(validator.validateUserOp(first, firstHash), _window(0, DAY - 1), "the period starting at 0");
+
         _addApp(BOB_PK, _rules(1 ether, 0, uint48(1 << 20), 0));
         PackedUserOperation memory last = _opFor(BOB_PK, _pay(0.1 ether), uint48(1 << 47) - 1);
         bytes32 lastHash = IUserOpHash(EP).getUserOpHash(last);

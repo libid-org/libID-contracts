@@ -120,6 +120,7 @@ contract IdentityValidatorTest is WalletTestBase {
         vm.stopPrank();
         assertEq(_validate(w, _hit(), _pks(ALICE2_PK, BOB_PK)), _window(t + 20, t + 1000), "wide first");
         assertEq(_validate(w, _hit(), _pks(BOB_PK, ALICE2_PK)), _window(t + 20, t + 1000), "narrow first");
+        assertEq(_validate(w, _hit(), _pks(BOB_PK, ALICE_PK)), _window(t + 20, t + 1000), "unbounded last");
     }
 
     /// A 20-byte key is an ECDSA address: never asked through ERC-1271, and no signature recovers to zero.
