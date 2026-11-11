@@ -55,7 +55,7 @@ contract IdentityValidator is IIdentityValidator {
         bool hadSession;
         uint32 adminSessions;
         uint32 identities;
-        uint32 unlinkEpoch;
+        uint32 rootEpoch;
         uint32 platforms;
     }
 
@@ -68,7 +68,7 @@ contract IdentityValidator is IIdentityValidator {
         uint48 validUntil;
     }
 
-    /// A queued root operation: when it matures, and the unlink epoch it was queued in.
+    /// A queued root operation: when it matures, and the root epoch it was queued in.
     struct Root {
         uint48 readyAt;
         uint32 epoch;
@@ -318,7 +318,7 @@ contract IdentityValidator is IIdentityValidator {
         if (target != msg.sender && !own) revert BadRootOperation(target);
         opId = _rootId(msg.sender, target, data);
         uint48 readyAt = _maturity(msg.sender);
-        _roots(msg.sender, opId)[msg.sender] = Root({readyAt: readyAt, epoch: _account(msg.sender).unlinkEpoch});
+        _roots(msg.sender, opId)[msg.sender] = Root({readyAt: readyAt, epoch: _account(msg.sender).rootEpoch});
         emit RootQueued(msg.sender, opId, target, data, readyAt);
     }
 
@@ -388,6 +388,8 @@ contract IdentityValidator is IIdentityValidator {
             if (a.adminSessions == 1 && !root) revert RootOperationRequired();
             --a.adminSessions;
             --_identityAdmins(account, identity)[account];
+            // A pending session has signed nothing; one that was active may have queued roots.
+            if (s.activeAt < block.timestamp) ++a.rootEpoch;
         }
         delete s.identity;
         delete s.policy;
@@ -420,13 +422,13 @@ contract IdentityValidator is IIdentityValidator {
         --platformLinks[account];
         a.identities = left;
         a.platforms = platformsLeft;
-        ++a.unlinkEpoch;
+        ++a.rootEpoch;
         emit IdentityUnlinked(account, identity);
     }
 
-    /// Whether an unlink ran after the root operation was queued.
+    /// Whether an unlink or an active admin session's revoke ran after the root operation was queued.
     function _superseded(address account, Root memory r) private view returns (bool) {
-        return r.epoch != _account(account).unlinkEpoch;
+        return r.epoch != _account(account).rootEpoch;
     }
 
     /// Whether the session exists and belongs to its identity's current link.

@@ -27,6 +27,8 @@ function policyHashOf(IIdentityValidator.Policy memory policy) pure returns (byt
 ///      Fresh install data is `abi.encode(platformId, idNode)`: the genesis identity.
 ///      `onInstall` and `onUninstall` run only from the account's own install and uninstall:
 ///      they revert while the account has this validator installed.
+///      Revoking an active admin session, or unlinking an identity, voids every root operation
+///      queued before it: a queued change does not outlive the sessions that could have queued it.
 interface IIdentityValidator is IERC7579Validator {
     /// @dev `validUntil == 0` never expires. Only admin sessions may change the account.
     struct Policy {
@@ -84,7 +86,7 @@ interface IIdentityValidator is IERC7579Validator {
     error LastIdentity(bytes32 identity);
     /// The unlink would leave the account no admin session.
     error LastAdmin(bytes32 identity);
-    /// An unlink ran after the root operation was queued.
+    /// An unlink or an active admin session's revoke ran after the root operation was queued.
     error RootSuperseded(bytes32 opId);
     /// A session key is a 20-byte address or `verifier || key`.
     error InvalidKey(bytes key);
@@ -115,7 +117,7 @@ interface IIdentityValidator is IERC7579Validator {
     function recoveryDelay(address account) external view returns (uint48);
     /// One-way: set once the account has had any session.
     function hadSession(address account) external view returns (bool);
-    /// `keccak256(abi.encode(account, target, data))` once queued, else 0; also 0 once an unlink supersedes it.
+    /// `keccak256(abi.encode(account, target, data))` once queued, else 0; also 0 once an unlink or an admin revoke supersedes it.
     function rootReadyAt(address account, bytes32 opId) external view returns (uint48);
 
     // Registry only.
@@ -132,6 +134,7 @@ interface IIdentityValidator is IERC7579Validator {
     /// Active at once. The identity must be linked. A dead session's key may be reused.
     function addSession(bytes32 identity, bytes calldata key, Policy calldata policy) external;
     /// Revokes an active or pending session. Removing the last admin session, counting pending and expired ones, is a root operation.
+    /// Revoking an active admin session voids every root operation queued before it.
     function revokeSession(bytes calldata key) external;
     function setRecoveryDelay(uint48 delay) external;
     /// Root operation only: reverts `RootOperationRequired` when the account calls it.
@@ -146,6 +149,6 @@ interface IIdentityValidator is IERC7579Validator {
     function queueRoot(address target, bytes calldata data) external returns (bytes32 opId);
     function cancelRoot(bytes32 opId) external;
 
-    /// Anyone, once `rootReadyAt` has passed, unless an unlink ran since it was queued.
+    /// Anyone, once `rootReadyAt` has passed, unless an unlink or an admin revoke superseded it.
     function executeRoot(address account, address target, bytes calldata data) external;
 }
