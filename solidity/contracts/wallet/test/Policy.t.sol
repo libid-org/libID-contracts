@@ -279,6 +279,13 @@ contract PolicyTest is WalletTestBase {
         return _opFor(pk, x, uint48(_now()));
     }
 
+    /// The validator's answer for `op`, as the wallet asks it.
+    function _answer(PackedUserOperation memory op) internal returns (uint256) {
+        bytes32 h = IUserOpHash(EP).getUserOpHash(op);
+        vm.prank(w);
+        return validator.validateUserOp(op, h);
+    }
+
     // ─── Allowances (S1) ────────────────────────────────────────────
 
     /// The period follows `at` and is the validity window: a future, past or overspent period is refused
@@ -493,6 +500,13 @@ contract PolicyTest is WalletTestBase {
         registry.addSessionByProof(X, V1, payload, p);
     }
 
+    /// `at == 0` is refused: in a one-second period it would end the window at 0, which is unbounded.
+    function test_atZeroIsRefused() public {
+        _addApp(APP_PK, _rules(1 ether, 0, 1, 0));
+        assertEq(_answer(_opFor(APP_PK, _pay(0.1 ether), 0)), 1, "at 0");
+        assertEq(_answer(_opFor(APP_PK, _pay(0.1 ether), 1)), _window(0, 1), "at 1");
+    }
+
     /// Without a paymaster the operation's maximum gas cost is charged to NATIVE with its value, so a
     /// session cannot spend the account's ether on gas it chose; with a paymaster no gas is charged.
     function test_gasIsChargedToTheNativeAllowance() public {
@@ -577,6 +591,17 @@ contract PolicyTest is WalletTestBase {
         _handle(_opNow(APP_PK, _one(_e(payee, 0, hex"abcdef"))));
         assertEq(target.calls(), 2, "in-scope calls");
         assertEq(payee.balance, 0.5 ether, "a plain transfer has selector 0");
+    }
+
+    /// Below quorum an operation of no executions is refused, even with `scopeRoot == 0`; at quorum it passes.
+    function test_anEmptyBatchIsRefusedBelowQuorum() public {
+        IIdentityValidator.Rules memory unscoped = _daily();
+        unscoped.scopeRoot = 0;
+        _addApp(APP_PK, unscoped);
+        bytes memory empty = _callData(new Execution[](0));
+        IIdentityValidator.CallProof[] memory none = new IIdentityValidator.CallProof[](0);
+        assertEq(_answer(_opWith(_pks(APP_PK), empty, none, uint48(_now()))), 1, "below quorum");
+        assertEq(_answer(_opAtQuorum(_pks(ALICE_PK), empty)), 0, "at quorum");
     }
 
     // ─── Quorum (S2, S3) ────────────────────────────────────────────

@@ -34,6 +34,7 @@ function policyHashOf(IIdentityValidator.Policy memory policy) pure returns (byt
 ///      Quorum: admin sessions of `threshold` distinct platforms are unrestricted. Below it exactly
 ///      one signature is accepted, governed by its session's rules, never for an admin operation and
 ///      never from a session by proof:
+///      - an operation has at least one execution;
 ///      - every execution needs `calls[i]`, a proof of the leaf `(target, selector, calls[i].maxValue)`
 ///        under `scopeRoot`, with `value <= maxValue`; `scopeRoot == 0` allows no call;
 ///      - native `value` is charged to `NATIVE_TOKEN` (0xEeee…EEeE); with no entry its limit is 0;
@@ -48,7 +49,8 @@ function policyHashOf(IIdentityValidator.Policy memory policy) pure returns (byt
 ///      roots. Calldata shorter than four bytes has selector `0x00000000`.
 ///      Allowances are charged in validation, even when the execution reverts. The period is
 ///      `at - at % period`, or the session's whole life when `period == 0`. A charging operation's
-///      validity window is that period intersected with the session's; `at` must stay below 2^47.
+///      validity window is that period intersected with the session's; `at` must be nonzero and stay
+///      below 2^47.
 ///      Counters are keyed by `(key, rulesHash, token)`: a key re-added with the same rules keeps its spend.
 ///      `isValidSignatureWithSender(_, 0x7739…7739, "")` answers `0x77390001` (ERC-7739 detection).
 ///      Fresh install data is `abi.encode(platformId, idNode)`: the genesis identity.

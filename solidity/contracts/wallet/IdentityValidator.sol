@@ -605,8 +605,8 @@ contract IdentityValidator is IIdentityValidator {
         v.ok = true;
     }
 
-    /// Below quorum: every execution proved under the session's scope, and its spend charged. Without
-    /// a paymaster, the operation's maximum gas cost is charged to `NATIVE_TOKEN` with its value.
+    /// Below quorum: at least one execution, each proved under the session's scope, and their spend
+    /// charged. Without a paymaster, the operation's maximum gas cost is charged to `NATIVE_TOKEN` with its value.
     /// @dev `scopeRoot == 0` proves no leaf.
     function _withinRules(
         address account,
@@ -628,7 +628,7 @@ contract IdentityValidator is IIdentityValidator {
             native += value;
         } else {
             Execution[] calldata batch = executions.decodeBatch();
-            if (auth.calls.length != batch.length) return false;
+            if (batch.length == 0 || auth.calls.length != batch.length) return false;
             for (uint256 i; i < batch.length; ++i) {
                 Execution calldata x = batch[i];
                 if (!_withinCall(
@@ -675,7 +675,9 @@ contract IdentityValidator is IIdentityValidator {
     }
 
     /// Charges `amount` to `c` in the period of `at`, and narrows the window to that period.
+    /// @dev `at == 0` is refused: the period 1 starting at 0 would end at 0, an unbounded window.
     function _charge(Verified memory v, Counter storage c, uint256 amount, uint48 at) private returns (bool) {
+        if (at == 0) return false;
         uint48 period = c.period;
         uint48 start = c.periodStart;
         uint128 spent = c.spent;
