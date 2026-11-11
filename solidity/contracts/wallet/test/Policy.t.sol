@@ -30,51 +30,8 @@ contract Sink {
     }
 }
 
-/// The spec's Merkle trees, built by hand: double-hashed leaves under sorted-pair nodes.
-abstract contract Trees {
-    function _leaf(address t, bytes4 selector, uint256 maxValue) internal pure returns (bytes32) {
-        return keccak256(bytes.concat(keccak256(abi.encode(t, selector, maxValue))));
-    }
-
-    function _domainLeaf(bytes32 separator) internal pure returns (bytes32) {
-        return keccak256(bytes.concat(keccak256(abi.encode(separator))));
-    }
-
-    function _pair(bytes32 a, bytes32 b) private pure returns (bytes32) {
-        return a < b ? keccak256(abi.encode(a, b)) : keccak256(abi.encode(b, a));
-    }
-
-    /// The root of `leaves` and the proof of leaf `index`; an odd last node rises a level.
-    function _tree(bytes32[] memory leaves, uint256 index)
-        internal
-        pure
-        returns (bytes32 root, bytes32[] memory proof)
-    {
-        uint256 n = leaves.length;
-        bytes32[] memory level = new bytes32[](n);
-        for (uint256 i; i < n; ++i) {
-            level[i] = leaves[i];
-        }
-        bytes32[] memory path = new bytes32[](16);
-        uint256 depth;
-        while (n > 1) {
-            if ((index ^ 1) < n) path[depth++] = level[index ^ 1];
-            for (uint256 i; i < n; i += 2) {
-                level[i / 2] = i + 1 < n ? _pair(level[i], level[i + 1]) : level[i];
-            }
-            n = (n + 1) / 2;
-            index /= 2;
-        }
-        proof = new bytes32[](depth);
-        for (uint256 i; i < depth; ++i) {
-            proof[i] = path[i];
-        }
-        return (level[0], proof);
-    }
-}
-
 /// @notice The encodings the spec pins, against vectors computed outside Solidity. Deploys nothing.
-contract PolicyEncodingTest is WalletTestBase, Trees {
+contract PolicyEncodingTest is WalletTestBase {
     function setUp() public override {}
 
     function test_hashesFollowTheSpec() public pure {
@@ -120,7 +77,7 @@ contract PolicyEncodingTest is WalletTestBase, Trees {
 }
 
 /// @notice Session rules: call scope, allowances, the quorum rule and ERC-1271 domain sets.
-contract PolicyTest is WalletTestBase, Trees {
+contract PolicyTest is WalletTestBase {
     struct Leaf {
         address target;
         bytes4 selector;
@@ -305,6 +262,11 @@ contract PolicyTest is WalletTestBase, Trees {
         assertEq(s.periodStart, day0 + DAY, "rolled over");
         assertEq(s.spent, 1 ether, "a fresh period");
         assertEq(payee.balance, 2 ether, "paid");
+
+        PackedUserOperation memory closed = _opFor(APP_PK, _pay(1), day0);
+        bytes32 closedHash = IUserOpHash(EP).getUserOpHash(closed);
+        vm.prank(w);
+        assertEq(validator.validateUserOp(closed, closedHash), 1, "a closed period");
     }
 
     function test_periodZeroIsALifetimeCap() public {
@@ -429,8 +391,9 @@ contract PolicyTest is WalletTestBase, Trees {
         uint48[3] memory ats = [uint48(1 << 47) - 1, uint48(1 << 47), type(uint48).max];
         for (uint256 i; i < ats.length; ++i) {
             PackedUserOperation memory op = _opFor(APP_PK, _pay(0.1 ether), ats[i]);
+            bytes32 opHash = IUserOpHash(EP).getUserOpHash(op);
             vm.prank(w);
-            try validator.validateUserOp(op, IUserOpHash(EP).getUserOpHash(op)) returns (uint256 r) {
+            try validator.validateUserOp(op, opHash) returns (uint256 r) {
                 if (r == 1) continue;
                 uint48 until = uint48(r >> 160);
                 assertTrue(until != 0 && until < 1 << 47, "validUntil");

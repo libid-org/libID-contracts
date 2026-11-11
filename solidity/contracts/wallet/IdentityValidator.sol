@@ -237,7 +237,7 @@ contract IdentityValidator is IIdentityValidator {
         (bytes32 signed, bytes calldata inner, bytes32 app) = _unnest(hash, signature);
         Authorization memory auth = _decode(inner);
         Verified memory v = _verify(msg.sender, signed, auth.signatures);
-        bool live = v.validAfter < block.timestamp && (v.validUntil == 0 || block.timestamp <= v.validUntil);
+        bool live = _inWindow(v);
         bool allowed = v.adminPlatforms >= threshold(msg.sender)
             || (!v.byProof
                 && auth.signatures.length == 1
@@ -458,13 +458,13 @@ contract IdentityValidator is IIdentityValidator {
         });
         // A counter of the same key and rules keeps its spend.
         for (uint256 i; i < r.allowances.length; ++i) {
-            Allowance memory al = r.allowances[i];
-            if (al.period >= 1 << 47) revert BadAllowance(al.token);
+            Allowance memory allowance = r.allowances[i];
+            if (allowance.period >= 1 << 47) revert BadAllowance(allowance.token);
             for (uint256 j; j < i; ++j) {
-                if (r.allowances[j].token == al.token) revert BadAllowance(al.token);
+                if (r.allowances[j].token == allowance.token) revert BadAllowance(allowance.token);
             }
-            Counter storage c = _counter(account, keyHash, rulesHash, al.token);
-            (c.amount, c.period, c.listed) = (al.amount, al.period, true);
+            Counter storage c = _counter(account, keyHash, rulesHash, allowance.token);
+            (c.amount, c.period, c.listed) = (allowance.amount, allowance.period, true);
         }
 
         AccountState storage a = _account(account);
@@ -611,30 +611,39 @@ contract IdentityValidator is IIdentityValidator {
         returns (bool)
     {
         if (auth.calls.length != executions.length) return false;
-        bytes32 scopeRoot = _sessions(account, v.keyHash)[account].scopeRoot;
-        bytes32 rulesHash = _sessions(account, v.keyHash)[account].rulesHash;
+        Session storage s = _sessions(account, v.keyHash)[account];
+        bytes32 scopeRoot = s.scopeRoot;
+        bytes32 rulesHash = s.rulesHash;
         for (uint256 i; i < executions.length; ++i) {
             Execution memory x = executions[i];
-            CallProof memory c = auth.calls[i];
+            CallProof memory proof = auth.calls[i];
             bytes4 selector = _callSelector(x.callData);
             if (
-                x.value > c.maxValue
-                    || !MerkleProof.verify(c.proof, scopeRoot, _leaf(abi.encode(x.target, selector, c.maxValue)))
+                x.value > proof.maxValue
+                    || !MerkleProof.verify(
+                        proof.proof, scopeRoot, _leaf(abi.encode(x.target, selector, proof.maxValue))
+                    )
             ) return false;
             if (x.value != 0 && !_charge(account, v, rulesHash, NATIVE_TOKEN, x.value, auth.at)) return false;
-            // A token with an allowance takes only `transfer` and `approve`, which only such a token takes.
-            bool spends = selector == IERC20.transfer.selector || selector == IERC20.approve.selector;
-            bool listed = _counter(account, v.keyHash, rulesHash, x.target).listed;
-            if (selector == IERC20.transferFrom.selector || spends != listed) return false;
-            if (
-                spends
-                    && (x.callData.length < 68
-                        || !_charge(account, v, rulesHash, x.target, _amount(x.callData), auth.at))
-            ) {
-                return false;
-            }
+            if (!_chargeToken(account, v, rulesHash, x, selector, auth.at)) return false;
         }
         return true;
+    }
+
+    /// Refuses a token call the allowances forbid, and charges a `transfer` or `approve` amount.
+    /// @dev A token with an allowance takes only `transfer` and `approve`, which only such a token takes.
+    function _chargeToken(
+        address account,
+        Verified memory v,
+        bytes32 rulesHash,
+        Execution memory x,
+        bytes4 selector,
+        uint48 at
+    ) private returns (bool) {
+        bool spends = selector == IERC20.transfer.selector || selector == IERC20.approve.selector;
+        bool listed = _counter(account, v.keyHash, rulesHash, x.target).listed;
+        if (selector == IERC20.transferFrom.selector || spends != listed) return false;
+        return !spends || (x.callData.length >= 68 && _charge(account, v, rulesHash, x.target, _amount(x.callData), at));
     }
 
     /// Charges `amount` of `token` in the period of `at`, and narrows the window to that period.
@@ -678,6 +687,11 @@ contract IdentityValidator is IIdentityValidator {
         }
         bytes32 separator = MessageHashUtils.toDomainSeparator(fields, nameHash, versionHash, chainId, verifying, salt);
         return (separator.toTypedDataHash(hash.personalSignStructHash()), signature, 0);
+    }
+
+    /// The block's timestamp is inside `v`'s window.
+    function _inWindow(Verified memory v) private view returns (bool) {
+        return v.validAfter < block.timestamp && (v.validUntil == 0 || block.timestamp <= v.validUntil);
     }
 
     /// Narrows `v`'s window to `(validAfter, validUntil]`; `validUntil == 0` is unbounded.

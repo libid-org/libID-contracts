@@ -51,11 +51,54 @@ interface IUserOpHash {
     function getUserOpHash(PackedUserOperation calldata op) external view returns (bytes32);
 }
 
+/// The spec's Merkle trees, built by hand: double-hashed leaves under sorted-pair nodes.
+abstract contract Trees {
+    function _leaf(address t, bytes4 selector, uint256 maxValue) internal pure returns (bytes32) {
+        return keccak256(bytes.concat(keccak256(abi.encode(t, selector, maxValue))));
+    }
+
+    function _domainLeaf(bytes32 separator) internal pure returns (bytes32) {
+        return keccak256(bytes.concat(keccak256(abi.encode(separator))));
+    }
+
+    function _pair(bytes32 a, bytes32 b) private pure returns (bytes32) {
+        return a < b ? keccak256(abi.encode(a, b)) : keccak256(abi.encode(b, a));
+    }
+
+    /// The root of `leaves` and the proof of leaf `index`; an odd last node rises a level.
+    function _tree(bytes32[] memory leaves, uint256 index)
+        internal
+        pure
+        returns (bytes32 root, bytes32[] memory proof)
+    {
+        uint256 n = leaves.length;
+        bytes32[] memory level = new bytes32[](n);
+        for (uint256 i; i < n; ++i) {
+            level[i] = leaves[i];
+        }
+        bytes32[] memory path = new bytes32[](16);
+        uint256 depth;
+        while (n > 1) {
+            if ((index ^ 1) < n) path[depth++] = level[index ^ 1];
+            for (uint256 i; i < n; i += 2) {
+                level[i / 2] = i + 1 < n ? _pair(level[i], level[i + 1]) : level[i];
+            }
+            n = (n + 1) / 2;
+            index /= 2;
+        }
+        proof = new bytes32[](depth);
+        for (uint256 i; i < depth; ++i) {
+            proof[i] = path[i];
+        }
+        return (level[0], proof);
+    }
+}
+
 /// @notice The wallet stack on stub Platform Verifiers and EntryPoint v0.9 at its canonical address.
 /// @dev Production contracts are deployed by artifact name, so this compiles before they exist.
 ///      A filtered `forge test` compiles only what the tests import: run `forge build` first.
 ///      The EntryPoint is Base mainnet's runtime code, from `fixtures/entrypoint-v0.9.json`.
-abstract contract WalletTestBase is Test {
+abstract contract WalletTestBase is Test, Trees {
     address internal constant EP = 0x433709009B8330FDa32311DF1C2AFA402eD8D009;
     bytes32 internal constant IMPL_SLOT = 0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc;
 
@@ -354,7 +397,7 @@ abstract contract WalletTestBase is Test {
 
     /// A scope of the one leaf `(target, hit(), 0)`: its root is the leaf.
     function _hitScope() internal view returns (bytes32) {
-        return keccak256(bytes.concat(keccak256(abi.encode(address(target), CallTarget.hit.selector, uint256(0)))));
+        return _leaf(address(target), CallTarget.hit.selector, 0);
     }
 
     /// The proofs of `n` executions of `hit()` under `_hitScope()`: each empty.
