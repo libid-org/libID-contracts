@@ -470,6 +470,62 @@ contract IdentityValidatorTest is WalletTestBase {
         validator.executeRoot(w, address(validator), data);
     }
 
+    /// An unlink may not take the account's last admin session with it.
+    function test_unlinkOfTheLastAdminIsRefused() public {
+        address w = _claim();
+        bytes32 alice = _identity(X, ALICE);
+        _link(w, GITHUB, BOB, w, _key(BOB_PK), _app());
+        _unlinkReverts(w, alice, abi.encodeWithSelector(IIdentityValidator.LastAdmin.selector, alice));
+    }
+
+    /// An unlinked identity's admin sessions stop counting, even after a re-link or a revoke.
+    function test_deadAdminSessionsDoNotCount() public {
+        address w = _claim();
+        bytes32 bob = _identity(GITHUB, BOB);
+        bytes32 alice = _identity(X, ALICE);
+        _link(w, GITHUB, BOB, w, _key(BOB_PK), _admin());
+        _root(w, address(validator), abi.encodeCall(IIdentityValidator.unlink, (bob)));
+        _link(w, GITHUB, BOB, w, "", _admin());
+        _unlinkReverts(w, alice, abi.encodeWithSelector(IIdentityValidator.LastAdmin.selector, alice));
+
+        vm.startPrank(w);
+        validator.revokeSession(_key(BOB_PK));
+        vm.expectRevert(IIdentityValidator.RootOperationRequired.selector);
+        validator.revokeSession(_key(ALICE_PK));
+        vm.stopPrank();
+    }
+
+    /// `generationOf` tells a dead session from a live one, and a dead session's key can be added again.
+    function test_aDeadSessionsKeyCanBeReused() public {
+        address w = _claim();
+        bytes32 bob = _identity(GITHUB, BOB);
+        bytes32 alice = _identity(X, ALICE);
+        _link(w, GITHUB, BOB, w, _key(BOB_PK), _admin());
+        assertEq(validator.sessionOf(w, _key(BOB_PK)).generation, validator.generationOf(w, bob), "live");
+        _root(w, address(validator), abi.encodeCall(IIdentityValidator.unlink, (bob)));
+        assertNotEq(validator.sessionOf(w, _key(BOB_PK)).generation, validator.generationOf(w, bob), "dead");
+
+        vm.startPrank(w);
+        validator.addSession(alice, _key(BOB_PK), _app());
+        vm.expectRevert(abi.encodeWithSelector(IIdentityValidator.SessionExists.selector, _key(BOB_PK)));
+        validator.addSession(alice, _key(BOB_PK), _app());
+        vm.stopPrank();
+        assertEq(validator.sessionOf(w, _key(BOB_PK)).identity, alice, "not re-added");
+        assertEq(_validate(w, _hit(), _pks(BOB_PK)), 0, "the re-added session fails");
+    }
+
+    /// A root operation queued before an unlink does not run after it.
+    function test_anUnlinkSupersedesEarlierRootOperations() public {
+        address w = _claim();
+        _link(w, GITHUB, BOB, w, "", _admin());
+        bytes memory early = abi.encodeCall(IIdentityValidator.setThreshold, (2));
+        vm.prank(w);
+        bytes32 opId = validator.queueRoot(address(validator), early);
+        _root(w, address(validator), abi.encodeCall(IIdentityValidator.unlink, (_identity(GITHUB, BOB))));
+        vm.expectRevert(abi.encodeWithSelector(IIdentityValidator.RootSuperseded.selector, opId));
+        validator.executeRoot(w, address(validator), early);
+    }
+
     /// R6: state is keyed by install, so a reinstall starts empty.
     function test_reinstallDoesNotRestoreSessions() public {
         address w = _claim();

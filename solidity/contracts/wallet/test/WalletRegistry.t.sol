@@ -64,7 +64,7 @@ contract WalletRegistryTest is WalletTestBase {
     function test_genesisLinkFromOthersEndsWithTheFirstSession() public {
         address w = _claim();
         bytes32 alice = _identity(X, ALICE);
-        _link(w, GITHUB, BOB, w, "", _admin());
+        _link(w, GITHUB, BOB, w, _key(BOB_PK), _admin());
         _root(w, address(validator), abi.encodeCall(IIdentityValidator.unlink, (alice)));
 
         bytes memory payload = _payload(X, ALICE, LINK, _txData(w, "", bytes32(0)));

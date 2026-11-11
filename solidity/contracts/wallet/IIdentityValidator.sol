@@ -67,6 +67,10 @@ interface IIdentityValidator is IERC7579Validator {
     error ThresholdTooHigh(uint8 threshold, uint32 identities);
     /// An account keeps at least one linked identity.
     error LastIdentity(bytes32 identity);
+    /// The unlink would leave the account no admin session.
+    error LastAdmin(bytes32 identity);
+    /// An unlink ran after the root operation was queued.
+    error RootSuperseded(bytes32 opId);
     /// A session key is a 20-byte address or `verifier || key`.
     error InvalidKey(bytes key);
     error SessionExists(bytes key);
@@ -87,6 +91,8 @@ interface IIdentityValidator is IERC7579Validator {
     function genesisIdentity(address account) external view returns (bytes32 platformId, bytes32 idNode);
     function isLinked(address account, bytes32 identity) external view returns (bool);
     function sessionOf(address account, bytes calldata key) external view returns (Session memory);
+    /// The identity's current generation: a session of any other is dead.
+    function generationOf(address account, bytes32 identity) external view returns (uint32);
     /// Distinct admin identities an admin operation needs. Defaults to 1.
     function threshold(address account) external view returns (uint8);
     function recoveryDelay(address account) external view returns (uint48);
@@ -106,21 +112,23 @@ interface IIdentityValidator is IERC7579Validator {
     function addSessionByAccount(address account, bytes32 identity, bytes calldata key, Policy calldata policy) external;
 
     // The account itself (an admin operation, under the threshold).
-    /// Active at once. The identity must be linked.
+    /// Active at once. The identity must be linked. A dead session's key may be reused.
     function addSession(bytes32 identity, bytes calldata key, Policy calldata policy) external;
     /// Revokes an active or pending session. Removing the last admin session, counting pending and expired ones, is a root operation.
     function revokeSession(bytes calldata key) external;
     function setRecoveryDelay(uint48 delay) external;
     /// Root operation only: reverts `RootOperationRequired` when the account calls it.
     function setThreshold(uint8 threshold_) external;
-    /// Root operation only. Every session of the identity, active or pending, stops validating for good.
-    /// Refused for an identity not linked, the last one, or one the threshold still needs.
+    /// Root operation only. Every session of the identity, active or pending, stops validating for good,
+    /// and every root operation queued before it stops executing.
+    /// Refused for an identity not linked, the last one, one the threshold still needs,
+    /// or when the account would be left with no admin session.
     function unlink(bytes32 identity) external;
     /// `target` is the account (install, uninstall, upgrade) or this validator
     /// (`setThreshold`, `unlink`, `revokeSession` of the last admin). Ready after `recoveryDelay`.
     function queueRoot(address target, bytes calldata data) external returns (bytes32 opId);
     function cancelRoot(bytes32 opId) external;
 
-    /// Anyone, once `rootReadyAt` has passed.
+    /// Anyone, once `rootReadyAt` has passed, unless an unlink ran since it was queued.
     function executeRoot(address account, address target, bytes calldata data) external;
 }
