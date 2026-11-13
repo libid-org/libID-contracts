@@ -15,7 +15,7 @@ contract RecoveryFrozenTest is WalletTestBase {
         _link(w, GITHUB, BOB, w, "", _admin());
         bytes32 bob = _identity(GITHUB, BOB);
         vm.prank(w);
-        validator.addSession(bob, _key(BOB_PK), _app());
+        validator.addSession(bob, _key(BOB_PK), _hitOnly());
 
         vm.prank(w);
         vm.expectRevert(IIdentityValidator.RootOperationRequired.selector);
@@ -29,7 +29,7 @@ contract RecoveryFrozenTest is WalletTestBase {
         registry.addSessionByProof(GITHUB, V1, payload, _admin());
         _addByProof(mallory, X, ALICE, w, _key(ALICE2_PK), _admin());
 
-        _handle(_signed(_op(w, 0, _hit()), _pks(BOB_PK)));
+        _handle(_signedWith(_op(w, 0, _hit()), _pks(BOB_PK), _hitProofs(1)));
         assertEq(target.calls(), 1, "an existing session of the frozen identity");
 
         _root(w, address(validator), _freeze(bob, false));

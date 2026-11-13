@@ -3,7 +3,6 @@ pragma solidity ^0.8.24;
 
 import {
     Execution,
-    IERC7579AccountConfig,
     IERC7579Execution,
     IERC7579Module,
     IERC7579ModuleConfig
@@ -12,7 +11,7 @@ import {PackedUserOperation} from "@openzeppelin/contracts/interfaces/IERC4337.s
 
 import {IIdentityValidator} from "../IIdentityValidator.sol";
 import {IWebWallet} from "../IWebWallet.sol";
-import {AcceptingVerifier, WalletTestBase} from "./WalletTestBase.sol";
+import {AcceptingVerifier, IUserOpHash, WalletTestBase} from "./WalletTestBase.sol";
 
 /// An ERC-1271 signer that accepts every signature.
 contract Accepting1271 {
@@ -86,7 +85,9 @@ contract IdentityValidatorTest is WalletTestBase {
     function test_validationReturnsThePackedWindow() public {
         uint48 start = uint48(_now() + 10);
         uint48 end = uint48(_now() + 1000);
-        address w = _claimWith(IIdentityValidator.Policy({validAfter: start, validUntil: end, admin: true}));
+        address w = _claimWith(
+            IIdentityValidator.Policy({validAfter: start, validUntil: end, admin: true, signers: 0, rules: _noRules()})
+        );
         assertEq(_validate(w, _hit(), _pks(ALICE_PK)), _window(start, end), "policy window");
 
         _addByProof(relayer, X, ALICE, w, _key(ALICE2_PK), _admin());
@@ -95,8 +96,11 @@ contract IdentityValidatorTest is WalletTestBase {
 
     /// Validation reads no TIMESTAMP: the answer is the same at any time.
     function test_validationDoesNotReadTheClock() public {
-        address w =
-            _claimWith(IIdentityValidator.Policy({validAfter: 0, validUntil: uint48(_now() + 1 hours), admin: true}));
+        address w = _claimWith(
+            IIdentityValidator.Policy({
+                validAfter: 0, validUntil: uint48(_now() + 1 hours), admin: true, signers: 0, rules: _noRules()
+            })
+        );
         uint256 early = _validate(w, _hit(), _pks(ALICE_PK));
         vm.warp(_now() + 3650 days);
         assertEq(_validate(w, _hit(), _pks(ALICE_PK)), early, "expired session answered differently");
@@ -107,11 +111,16 @@ contract IdentityValidatorTest is WalletTestBase {
         address w = _claim();
         uint48 t = uint48(_now());
         vm.startPrank(w);
-        validator.addSession(_identity(X, ALICE), _key(ALICE2_PK), IIdentityValidator.Policy(t + 10, t + 2000, true));
-        validator.addSession(_identity(X, ALICE), _key(BOB_PK), IIdentityValidator.Policy(t + 20, t + 1000, true));
+        validator.addSession(
+            _identity(X, ALICE), _key(ALICE2_PK), IIdentityValidator.Policy(t + 10, t + 2000, true, 0, _noRules())
+        );
+        validator.addSession(
+            _identity(X, ALICE), _key(BOB_PK), IIdentityValidator.Policy(t + 20, t + 1000, true, 0, _noRules())
+        );
         vm.stopPrank();
         assertEq(_validate(w, _hit(), _pks(ALICE2_PK, BOB_PK)), _window(t + 20, t + 1000), "wide first");
         assertEq(_validate(w, _hit(), _pks(BOB_PK, ALICE2_PK)), _window(t + 20, t + 1000), "narrow first");
+        assertEq(_validate(w, _hit(), _pks(BOB_PK, ALICE_PK)), _window(t + 20, t + 1000), "unbounded last");
     }
 
     /// A 20-byte key is an ECDSA address: never asked through ERC-1271, and no signature recovers to zero.
@@ -124,7 +133,7 @@ contract IdentityValidatorTest is WalletTestBase {
             vm.prank(w);
             validator.addSession(_identity(X, ALICE), keys[i], _app());
             s[0] = IIdentityValidator.SessionSignature({key: keys[i], signature: hex"1234"});
-            op.signature = abi.encode(s);
+            op.signature = _wrap(s);
             vm.prank(w);
             assertEq(validator.validateUserOp(op, keccak256("op")), 1, "a 20-byte key accepted a bad signature");
         }
@@ -133,7 +142,7 @@ contract IdentityValidatorTest is WalletTestBase {
     function test_anEmptySignatureListFails() public {
         address w = _claim();
         PackedUserOperation memory op = _op(w, 0, _hit());
-        op.signature = abi.encode(new IIdentityValidator.SessionSignature[](0));
+        op.signature = _wrap(new IIdentityValidator.SessionSignature[](0));
         vm.prank(w);
         assertEq(validator.validateUserOp(op, keccak256("h")), 1);
     }
@@ -173,7 +182,7 @@ contract IdentityValidatorTest is WalletTestBase {
         IIdentityValidator.SessionSignature[] memory s = new IIdentityValidator.SessionSignature[](1);
         s[0] = IIdentityValidator.SessionSignature({key: key, signature: hex"1234"});
         PackedUserOperation memory op = _op(w, 0, _hit());
-        op.signature = abi.encode(s);
+        op.signature = _wrap(s);
 
         vm.startMappingRecording();
         vm.record();
@@ -185,54 +194,25 @@ contract IdentityValidatorTest is WalletTestBase {
         }
     }
 
-    function _associated(address account, bytes32 slot) internal view returns (bool) {
-        bytes32 a = bytes32(uint256(uint160(account)));
-        if (slot == a) return true;
-        for (uint256 n; n <= 128 && n <= uint256(slot); ++n) {
-            (bool found, bytes32 key,) = vm.getMappingKeyAndParentOf(address(validator), bytes32(uint256(slot) - n));
-            if (found && key == a) return true;
-        }
-        return false;
-    }
-
     // ─── Scope (R9) ─────────────────────────────────────────────────
 
-    /// Module hooks are refused even to admins; self, zero-address and registry targets are admin;
-    /// a batch takes its widest call; the execution is read where the account's decoder reads it.
+    /// Module hooks are refused even to admins, alone or in a batch, and so is anything but `execute`.
     function test_outerCallScope() public {
         address w = _claim();
-        vm.prank(w);
-        validator.addSession(_identity(X, ALICE), _key(APP_PK), _app());
-        bytes memory toWallet = abi.encodeCall(IERC7579AccountConfig.supportsModule, (2));
-
         Execution[] memory batch = new Execution[](2);
         batch[0] = Execution({
             target: address(validator), value: 0, callData: abi.encodeCall(IERC7579Module.onUninstall, (""))
         });
         batch[1] = Execution({target: address(target), value: 0, callData: ""});
-        Execution[] memory appBatch = new Execution[](2);
-        appBatch[0] = Execution({target: w, value: 0, callData: toWallet});
-        appBatch[1] = batch[1];
 
-        // A decoy outside call where a canonical encoding puts the execution; the real one where the offset points.
-        bytes memory decoy = abi.encodePacked(address(target), uint256(0), abi.encodeCall(this.setUp, ()));
-        bytes memory real = abi.encodePacked(w, uint256(0), toWallet);
-        bytes memory offset = abi.encodePacked(
-            IERC7579Execution.execute.selector, MODE_SINGLE, uint256(0xa0), decoy.length, decoy, bytes8(0)
-        );
-
-        bytes[8] memory calls = [
+        bytes[4] memory calls = [
             _exec(address(validator), abi.encodeCall(IERC7579Module.onUninstall, (""))),
             _exec(address(validator), abi.encodeCall(IERC7579Module.onInstall, (abi.encode(X, MALLORY)))),
             abi.encodeCall(IERC7579Execution.execute, (MODE_BATCH, abi.encode(batch))),
-            abi.encodeCall(IWebWallet.upgradeToAndCall, (address(target), "")),
-            _exec(address(0), _hit()),
-            _exec(address(registry), ""),
-            abi.encodeCall(IERC7579Execution.execute, (MODE_BATCH, abi.encode(appBatch))),
-            abi.encodePacked(offset, real.length, real)
+            abi.encodeCall(IWebWallet.upgradeToAndCall, (address(target), ""))
         ];
         for (uint256 i; i < calls.length; ++i) {
-            assertEq(_validate(w, calls[i], _pks(i < 4 ? ALICE_PK : APP_PK)), 1, vm.toString(i));
+            assertEq(_validate(w, calls[i], _pks(ALICE_PK)), 1, vm.toString(i));
         }
     }
 
@@ -256,7 +236,7 @@ contract IdentityValidatorTest is WalletTestBase {
         assertEq(_validate(w, adminOp, _pks(ALICE_PK, ALICE2_PK)), 1, "two keys of one identity");
         assertEq(_validate(w, adminOp, _pks(ALICE_PK, APP_PK)), 1, "a non-admin session counted");
         assertEq(_validate(w, adminOp, _pks(ALICE_PK, BOB_PK)), 0, "two admin platforms");
-        assertEq(_validate(w, _hit(), _pks(ALICE_PK)), 0, "an ordinary call needs no quorum");
+        assertEq(_validate(w, _hit(), _pks(ALICE_PK)), 1, "below quorum, an admin with no scope");
     }
 
     /// Admin sessions of two identities on one platform count once toward the quorum.
@@ -269,6 +249,8 @@ contract IdentityValidatorTest is WalletTestBase {
             _exec(address(validator), abi.encodeCall(IIdentityValidator.setRecoveryDelay, (72 hours)));
         assertEq(_validate(w, adminOp, _pks(ALICE_PK, MALLORY_PK)), 1, "two X identities met the threshold");
         assertEq(_validate(w, adminOp, _pks(MALLORY_PK, CAROL_PK)), 0, "X and Google missed the threshold");
+        assertEq(_validate(w, _hit(), _pks(ALICE_PK, MALLORY_PK)), 1, "two X identities skipped the session rules");
+        assertEq(_validate(w, _hit(), _pks(MALLORY_PK, CAROL_PK)), 0, "X and Google were held to the session rules");
     }
 
     /// The threshold may not exceed the platforms with a linked identity, however many identities there are.
@@ -599,13 +581,17 @@ contract IdentityValidatorTest is WalletTestBase {
         _root(w, address(validator), abi.encodeCall(IIdentityValidator.unlink, (bob)));
         assertNotEq(validator.sessionOf(w, _key(BOB_PK)).generation, validator.generationOf(w, bob), "dead");
 
+        IIdentityValidator.Policy memory hitOnly = _hitOnly();
         vm.startPrank(w);
-        validator.addSession(alice, _key(BOB_PK), _app());
+        validator.addSession(alice, _key(BOB_PK), hitOnly);
         vm.expectRevert(abi.encodeWithSelector(IIdentityValidator.SessionExists.selector, _key(BOB_PK)));
-        validator.addSession(alice, _key(BOB_PK), _app());
+        validator.addSession(alice, _key(BOB_PK), hitOnly);
         vm.stopPrank();
         assertEq(validator.sessionOf(w, _key(BOB_PK)).identity, alice, "not re-added");
-        assertEq(_validate(w, _hit(), _pks(BOB_PK)), 0, "the re-added session fails");
+        PackedUserOperation memory op = _signedWith(_op(w, 0, _hit()), _pks(BOB_PK), _hitProofs(1));
+        bytes32 h = IUserOpHash(EP).getUserOpHash(op);
+        vm.prank(w);
+        assertEq(validator.validateUserOp(op, h), 0, "the re-added session fails");
     }
 
     /// A root operation queued before an unlink does not run after it.
@@ -639,12 +625,16 @@ contract IdentityValidatorTest is WalletTestBase {
         validator.addSession(
             _identity(X, ALICE),
             _key(BOB_PK),
-            IIdentityValidator.Policy({validAfter: 0, validUntil: uint48(_now() + 1 hours), admin: true})
+            IIdentityValidator.Policy({
+                validAfter: 0, validUntil: uint48(_now() + 1 hours), admin: true, signers: 0, rules: _noRules()
+            })
         );
         validator.addSession(
             _identity(X, ALICE),
             _key(MALLORY_PK),
-            IIdentityValidator.Policy({validAfter: uint48(_now() + 1 hours), validUntil: 0, admin: true})
+            IIdentityValidator.Policy({
+                validAfter: uint48(_now() + 1 hours), validUntil: 0, admin: true, signers: 0, rules: _noRules()
+            })
         );
         vm.stopPrank();
         _addByProof(relayer, X, ALICE, w, _key(ALICE2_PK), _admin());
@@ -663,7 +653,9 @@ contract IdentityValidatorTest is WalletTestBase {
         address w = _claim();
         uint48 t = uint48(_now());
         vm.prank(w);
-        validator.addSession(_identity(X, ALICE), _key(BOB_PK), IIdentityValidator.Policy(0, t + 20, true));
+        validator.addSession(
+            _identity(X, ALICE), _key(BOB_PK), IIdentityValidator.Policy(0, t + 20, true, 0, _noRules())
+        );
         vm.warp(t + 20);
         assertTrue(_isValid1271(w, h, BOB_PK, _wrapped(w, h)), "at validUntil");
         _handle(_signed(_op(w, 0, _hit()), _pks(BOB_PK)));
@@ -678,7 +670,9 @@ contract IdentityValidatorTest is WalletTestBase {
         address w = _claim();
         uint48 t = uint48(_now());
         vm.prank(w);
-        validator.addSession(_identity(X, ALICE), _key(BOB_PK), IIdentityValidator.Policy(t + 10, 0, true));
+        validator.addSession(
+            _identity(X, ALICE), _key(BOB_PK), IIdentityValidator.Policy(t + 10, 0, true, 0, _noRules())
+        );
         vm.warp(t + 10);
         _refused(_signed(_op(w, 0, _hit()), _pks(BOB_PK)), "at validAfter");
         assertFalse(_isValid1271(w, h, BOB_PK, _wrapped(w, h)), "ERC-1271 accepts at validAfter");
@@ -692,8 +686,10 @@ contract IdentityValidatorTest is WalletTestBase {
     function test_policyBoundsStayBelowBit47() public {
         address w = _claim();
         uint48 flag = uint48(1 << 47);
-        IIdentityValidator.Policy[2] memory ps =
-            [IIdentityValidator.Policy(flag, 0, false), IIdentityValidator.Policy(0, flag, false)];
+        IIdentityValidator.Policy[2] memory ps = [
+            IIdentityValidator.Policy(flag, 0, false, 0, _noRules()),
+            IIdentityValidator.Policy(0, flag, false, 0, _noRules())
+        ];
         for (uint256 i; i < ps.length; ++i) {
             vm.prank(w);
             vm.expectRevert();
@@ -708,6 +704,12 @@ contract IdentityValidatorTest is WalletTestBase {
             vm.expectRevert();
             registry.linkIdentity(X, V1, payload, ps[i]);
         }
+
+        vm.warp(flag - 1 hours);
+        IIdentityValidator.Policy memory app = _app();
+        bytes memory late = _payload(X, ALICE, ADD, _txData(w, _key(APP_PK), _ph(app)));
+        vm.expectRevert(abi.encodeWithSelector(IIdentityValidator.PolicyOutOfRange.selector, 0, 0));
+        registry.addSessionByProof(X, V1, late, app);
     }
 
     /// ERC-7739 `TypedDataSign`: the app's hash, nested under the account's domain, signed by an admin.

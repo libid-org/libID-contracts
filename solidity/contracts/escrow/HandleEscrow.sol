@@ -12,10 +12,8 @@ import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 import {HandleNode} from "../handles/HandleNode.sol";
 import {IHandleReveal} from "../handles/IHandleReveal.sol";
 import {IIdentityRegistry} from "../identity/IIdentityRegistry.sol";
+import {NATIVE_TOKEN} from "../NativeToken.sol";
 import {IHandleEscrow} from "./IHandleEscrow.sol";
-
-// The EIP-7528 address that stands for the chain's native token.
-address constant NATIVE_TOKEN = 0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE;
 
 /// @title HandleEscrow - send to a platform handle before anybody holds it.
 /// @notice Holds value against a handle node until its holder claims it. Until

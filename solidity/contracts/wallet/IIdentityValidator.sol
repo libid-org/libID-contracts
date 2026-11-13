@@ -8,17 +8,26 @@ function identityOf(bytes32 platformId, bytes32 idNode) pure returns (bytes32) {
     return keccak256(abi.encode(platformId, idNode));
 }
 
+/// A rule set's hash, stored in the session record and keying its allowance counters.
+function rulesHashOf(IIdentityValidator.Rules memory rules) pure returns (bytes32) {
+    return keccak256(abi.encode(rules.scopeRoot, rules.domainsRoot, rules.paymastersRoot, rules.allowances));
+}
+
 /// A policy's hash, as a proof commits it.
 function policyHashOf(IIdentityValidator.Policy memory policy) pure returns (bytes32) {
-    return keccak256(abi.encode(policy));
+    return keccak256(
+        abi.encode(policy.validAfter, policy.validUntil, policy.admin, policy.signers, rulesHashOf(policy.rules))
+    );
 }
 
 /// @title IIdentityValidator - identities, sessions and root operations of ERC-7579 accounts.
 /// @notice Constructor: `IdentityValidator(address walletRegistry)`, deployed by the WalletRegistry's
 ///         own constructor. Immutable, no owner.
 /// @dev State is per account and per install: an uninstall drops it.
-///      An identity is `identityOf(platformId, idNode)`. Signature formats, install data and
-///      validator migration are in README.md beside this file.
+///      An identity is `identityOf(platformId, idNode)`. Signature formats, what a session may do
+///      below quorum, install data and validator migration are in README.md beside this file.
+///      Admin sessions of `threshold` distinct platforms are unrestricted; below it a session acts
+///      only within its `Rules`.
 ///      Install data is `abi.encode(platformId, idNode)`, the genesis identity, which the install
 ///      links, optionally followed by an admin session's `key` and `policy`, which it adds.
 ///      `onInstall` and `onUninstall` run only from the account's own install and uninstall:
@@ -28,11 +37,30 @@ function policyHashOf(IIdentityValidator.Policy memory policy) pure returns (byt
 ///      Revoking an active admin session, or unlinking an identity, voids every root operation
 ///      queued before it: a queued change does not outlive the sessions that could have queued it.
 interface IIdentityValidator is IERC7579Validator {
+    /// @dev `period == 0` is a lifetime cap.
+    struct Allowance {
+        address token;
+        uint128 amount;
+        uint48 period;
+    }
+
+    /// @dev What a session may do below quorum: Merkle roots of call leaves, app separators and paymasters
+    ///      that pay its gas, and allowances.
+    struct Rules {
+        bytes32 scopeRoot;
+        bytes32 domainsRoot;
+        bytes32 paymastersRoot;
+        Allowance[] allowances;
+    }
+
     /// @dev `validUntil == 0` never expires. Only admin sessions may change the account.
+    ///      `signers`: below quorum, the distinct platforms whose sessions sign with this one; 0 is 1.
     struct Policy {
         uint48 validAfter;
         uint48 validUntil;
         bool admin;
+        uint8 signers;
+        Rules rules;
     }
 
     /// @dev `identity == 0`: no such session. `activeAt` is the end of a pending wait.
@@ -42,15 +70,48 @@ interface IIdentityValidator is IERC7579Validator {
     ///      A non-admin session by proof counts toward no platform, so it never acts alone.
     struct Session {
         bytes32 identity;
-        Policy policy;
+        uint48 validAfter;
+        uint48 validUntil;
+        bool admin;
         uint48 activeAt;
         uint32 generation;
         bool byProof;
+        uint8 signers;
+        bytes32 scopeRoot;
+        bytes32 domainsRoot;
+        bytes32 paymastersRoot;
+        bytes32 rulesHash;
+    }
+
+    /// @dev A session's counter for one token: `spent` in the period starting at `periodStart`.
+    struct AllowanceState {
+        uint128 amount;
+        uint48 period;
+        uint48 periodStart;
+        uint128 spent;
     }
 
     struct SessionSignature {
         bytes key;
         bytes signature;
+    }
+
+    /// @dev The leaf of one execution: `maxValue` is the leaf's, `proof` its path to `scopeRoot`.
+    struct CallProof {
+        uint256 maxValue;
+        bytes32[] proof;
+    }
+
+    /// @dev Below quorum `signatures[0]` governs and `at` is signed: it picks the allowance period,
+    ///      which the EntryPoint enforces as the validity window. At quorum it is ignored. `calls` is
+    ///      unsigned; `calls[i]` is for the i-th execution. `paymasterProof` proves the operation's
+    ///      paymaster under `paymastersRoot`.
+    struct Authorization {
+        SessionSignature[] signatures;
+        uint48 at;
+        CallProof[] calls;
+        bytes32[] domainProof;
+        bytes32[] paymasterProof;
     }
 
     /// A session added by the account itself.
@@ -100,6 +161,8 @@ interface IIdentityValidator is IERC7579Validator {
     error PolicyOutOfRange(uint48 validAfter, uint48 validUntil);
     /// The session carried by install data is not an admin session.
     error InstallSessionNotAdmin();
+    /// An allowance repeats an earlier one's token, or its period reaches bit 47.
+    error BadAllowance(address token);
     /// A root operation targets the account, or this validator's `setThreshold`, `revokeSession`,
     /// `unlink`, `setRecoveryDelay` or `setRecoveryFrozen`.
     error BadRootOperation(address target);
@@ -115,6 +178,12 @@ interface IIdentityValidator is IERC7579Validator {
     function genesisIdentity(address account) external view returns (bytes32 platformId, bytes32 idNode);
     function isLinked(address account, bytes32 identity) external view returns (bool);
     function sessionOf(address account, bytes calldata key) external view returns (Session memory);
+    /// The live session `key`'s raw counter for `token`; zero when it has no session or no such allowance.
+    /// `spent` applies to an operation only while its `at - at % period == periodStart`; a later period starts at 0.
+    function allowanceOf(address account, bytes calldata key, address token)
+        external
+        view
+        returns (AllowanceState memory);
     /// The identity's current generation: a session of any other is dead.
     function generationOf(address account, bytes32 identity) external view returns (uint32);
     /// Distinct platforms with at least one linked identity: the most `threshold` can be.

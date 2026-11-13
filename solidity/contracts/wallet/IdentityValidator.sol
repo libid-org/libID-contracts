@@ -4,30 +4,26 @@ pragma solidity ^0.8.24;
 import {PackedUserOperation} from "@openzeppelin/contracts/interfaces/IERC4337.sol";
 import {IERC1271} from "@openzeppelin/contracts/interfaces/IERC1271.sol";
 import {IERC5267} from "@openzeppelin/contracts/interfaces/IERC5267.sol";
-import {
-    IERC7579Execution,
-    IERC7579Module,
-    IERC7579ModuleConfig,
-    MODULE_TYPE_VALIDATOR
-} from "@openzeppelin/contracts/interfaces/draft-IERC7579.sol";
+import {IERC7579ModuleConfig, MODULE_TYPE_VALIDATOR} from "@openzeppelin/contracts/interfaces/draft-IERC7579.sol";
 import {ERC4337Utils} from "@openzeppelin/contracts/account/utils/ERC4337Utils.sol";
-import {CallType, ERC7579Utils, Execution, Mode} from "@openzeppelin/contracts/account/utils/draft-ERC7579Utils.sol";
 import {Address} from "@openzeppelin/contracts/utils/Address.sol";
 import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
+import {MerkleProof} from "@openzeppelin/contracts/utils/cryptography/MerkleProof.sol";
 import {MessageHashUtils} from "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
 import {SignatureChecker} from "@openzeppelin/contracts/utils/cryptography/SignatureChecker.sol";
 import {ERC7739Utils} from "@openzeppelin/contracts/utils/cryptography/draft-ERC7739Utils.sol";
 
-import {IIdentityValidator, identityOf} from "./IIdentityValidator.sol";
+import {IIdentityValidator, identityOf, rulesHashOf} from "./IIdentityValidator.sol";
+import {IdentityValidatorState} from "./IdentityValidatorState.sol";
+import {SessionRules} from "./SessionRules.sol";
 
 /// @title IdentityValidator - the one ERC-7579 validator of every WebWallet.
 /// @notice Holds each account's linked identities, sessions, threshold and root operations.
 ///         The threshold counts distinct admin platforms.
-/// @dev Every slot read in validation has the account as its innermost mapping key (ERC-7562),
-///      and validation reads no clock: windows go back to the EntryPoint packed.
-contract IdentityValidator is IIdentityValidator {
-    using ERC7579Utils for bytes;
-    using ERC7579Utils for Mode;
+/// @dev Every slot validation reads or writes has the account as its innermost mapping key (ERC-7562),
+///      and validation reads no clock: windows go back to the EntryPoint packed. What an operation may
+///      do runs in SessionRules, deployed by the constructor and called through DELEGATECALL.
+contract IdentityValidator is IIdentityValidator, IdentityValidatorState {
     using ERC7739Utils for *;
     using MessageHashUtils for bytes32;
 
@@ -35,39 +31,10 @@ contract IdentityValidator is IIdentityValidator {
     uint48 public constant MAX_RECOVERY_DELAY = 365 days;
 
     address private immutable REGISTRY;
+    address private immutable RULES;
 
     /// The ERC-7739 detection hash: with an empty signature, it answers `0x77390001`.
     bytes32 private constant ERC7739_PROBE = 0x7739773977397739773977397739773977397739773977397739773977397739;
-
-    /// What `callData` asks of the account.
-    enum Scope {
-        Call,
-        Admin,
-        Refused
-    }
-
-    /// One install's settings for one account.
-    struct AccountState {
-        bytes32 platformId;
-        bytes32 idNode;
-        uint48 recoveryDelay;
-        uint8 threshold;
-        bool hadSession;
-        uint32 adminSessions;
-        uint32 identities;
-        uint32 rootEpoch;
-        uint32 platforms;
-    }
-
-    /// What `_verify` found: whether every signature holds, the distinct platforms of its admin
-    /// sessions, the window they share, and whether any signer is a session by proof.
-    struct Verified {
-        bool ok;
-        uint256 adminPlatforms;
-        uint48 validAfter;
-        uint48 validUntil;
-        bool byProof;
-    }
 
     /// What a root operation does: a call by the account to itself, or one of this validator's own.
     enum RootAction {
@@ -79,80 +46,6 @@ contract IdentityValidator is IIdentityValidator {
         SetRecoveryFrozen
     }
 
-    /// A queued root operation: when it matures, and the root epoch it was queued in.
-    struct Root {
-        uint48 readyAt;
-        uint32 epoch;
-    }
-
-    /// @dev Keyed by install, then by item, then by account.
-    /// @custom:storage-location erc7201:libid.storage.IdentityValidator
-    struct IdentityValidatorStorage {
-        mapping(address account => uint256) installs;
-        mapping(uint256 install => mapping(address account => AccountState)) accounts;
-        mapping(uint256 install => mapping(bytes32 keyHash => mapping(address account => Session))) sessions;
-        mapping(uint256 install => mapping(bytes32 identity => mapping(address account => bool))) links;
-        mapping(uint256 install => mapping(bytes32 identity => mapping(address account => bytes))) pendingKeys;
-        mapping(uint256 install => mapping(bytes32 opId => mapping(address account => Root))) roots;
-        mapping(uint256 install => mapping(bytes32 identity => mapping(address account => uint32))) generations;
-        mapping(uint256 install => mapping(bytes32 identity => mapping(address account => uint32))) adminSessions;
-        mapping(uint256 install => mapping(bytes32 identity => mapping(address account => bytes32))) platformOf;
-        mapping(uint256 install => mapping(bytes32 platformId => mapping(address account => uint32))) platformLinks;
-        mapping(uint256 install => mapping(bytes32 identity => mapping(address account => bool))) recoveryFrozen;
-    }
-
-    // cast index-erc7201 libid.storage.IdentityValidator
-    bytes32 private constant IDENTITY_VALIDATOR_STORAGE =
-        0x873011f05c4a0f65dcb571f9747866179ce051ed2f0788dad77cc90e91439700;
-
-    function _s() private pure returns (IdentityValidatorStorage storage $) {
-        assembly {
-            $.slot := IDENTITY_VALIDATOR_STORAGE
-        }
-    }
-
-    function _install(address account) private view returns (uint256) {
-        return _s().installs[account];
-    }
-
-    function _account(address account) private view returns (AccountState storage) {
-        return _s().accounts[_install(account)][account];
-    }
-
-    function _session(address account, bytes memory key) private view returns (Session storage) {
-        return _s().sessions[_install(account)][keccak256(key)][account];
-    }
-
-    function _roots(address account, bytes32 opId) private view returns (mapping(address => Root) storage) {
-        return _s().roots[_install(account)][opId];
-    }
-
-    function _generations(address account, bytes32 identity) private view returns (mapping(address => uint32) storage) {
-        return _s().generations[_install(account)][identity];
-    }
-
-    /// The identity's own admin sessions; `AccountState.adminSessions` counts the account's.
-    function _identityAdmins(address account, bytes32 identity)
-        private
-        view
-        returns (mapping(address => uint32) storage)
-    {
-        return _s().adminSessions[_install(account)][identity];
-    }
-
-    function _platformOf(address account, bytes32 identity) private view returns (bytes32) {
-        return _s().platformOf[_install(account)][identity][account];
-    }
-
-    /// The platform's linked identities; `AccountState.platforms` counts the platforms with any.
-    function _platformLinks(address account, bytes32 platformId)
-        private
-        view
-        returns (mapping(address => uint32) storage)
-    {
-        return _s().platformLinks[_install(account)][platformId];
-    }
-
     modifier onlyRegistry() {
         if (msg.sender != REGISTRY) revert NotRegistry(msg.sender);
         _;
@@ -160,6 +53,7 @@ contract IdentityValidator is IIdentityValidator {
 
     constructor(address walletRegistry_) {
         REGISTRY = walletRegistry_;
+        RULES = address(new SessionRules());
     }
 
     // ─── ERC-7579 module ────────────────────────────────────────────
@@ -195,28 +89,45 @@ contract IdentityValidator is IIdentityValidator {
         _s().installs[msg.sender] = install + 1;
     }
 
-    function validateUserOp(PackedUserOperation calldata userOp, bytes32 userOpHash) external view returns (uint256) {
-        Scope scope = _scope(msg.sender, userOp.callData);
-        if (scope == Scope.Refused) return ERC4337Utils.SIG_VALIDATION_FAILED;
-        Verified memory v = _verify(msg.sender, userOpHash, userOp.signature);
-        if (!v.ok || ((scope == Scope.Admin || v.byProof) && v.adminPlatforms < threshold(msg.sender))) {
-            return ERC4337Utils.SIG_VALIDATION_FAILED;
-        }
+    /// @dev Below quorum, charges the session's allowances: a refused operation's charges are
+    ///      reverted with the EntryPoint's call.
+    function validateUserOp(PackedUserOperation calldata userOp, bytes32 userOpHash) external returns (uint256) {
+        Authorization memory auth = _decode(userOp.signature);
+        uint8 quorum = threshold(msg.sender);
+        Verified memory v = _verify(msg.sender, userOpHash, auth.signatures, quorum, auth.at);
+        if (!v.ok) return ERC4337Utils.SIG_VALIDATION_FAILED;
+        bool below = v.adminPlatforms < quorum;
+        if (below && !_cosigned(v, auth.signatures.length)) return ERC4337Utils.SIG_VALIDATION_FAILED;
+        bool ok;
+        (ok, v) = abi.decode(
+            Address.functionDelegateCall(
+                RULES, abi.encodeCall(SessionRules.allowed, (msg.sender, REGISTRY, v, userOp, below))
+            ),
+            (bool, Verified)
+        );
+        if (!ok) return ERC4337Utils.SIG_VALIDATION_FAILED;
         return (uint256(v.validAfter) << 208) | (uint256(v.validUntil) << 160);
     }
 
-    /// @dev Only admin sessions sign, inside their window; with a session by proof, under the threshold.
+    /// @dev Inside the signers' window; below quorum, signers `_cosigned` signing `TypedDataSign` for an
+    ///      app the first one lists.
     function isValidSignatureWithSender(address, bytes32 hash, bytes calldata signature)
         external
         view
         returns (bytes4)
     {
         if (hash == ERC7739_PROBE && signature.length == 0) return bytes4(0x77390001);
-        (bytes32 signed, bytes calldata sigs) = _unnest(hash, signature);
-        Verified memory v = _verify(msg.sender, signed, sigs);
-        bool live = v.validAfter < block.timestamp && (v.validUntil == 0 || block.timestamp <= v.validUntil);
-        uint256 quorum = v.byProof ? threshold(msg.sender) : 1;
-        return v.ok && v.adminPlatforms >= quorum && live ? IERC1271.isValidSignature.selector : bytes4(0xffffffff);
+        (bytes32 signed, bytes calldata inner, bytes32 app) = _unnest(hash, signature);
+        Authorization memory auth = _decode(inner);
+        Verified memory v = _verify(msg.sender, signed, auth.signatures, 0, 0);
+        bool live = _inWindow(v);
+        bool allowed = v.adminPlatforms >= threshold(msg.sender)
+            || (_cosigned(v, auth.signatures.length)
+                && app != 0
+                && MerkleProof.verify(
+                    auth.domainProof, _sessions(msg.sender, v.keyHash)[msg.sender].domainsRoot, _leaf(abi.encode(app))
+                ));
+        return v.ok && live && allowed ? IERC1271.isValidSignature.selector : bytes4(0xffffffff);
     }
 
     // ─── Views ──────────────────────────────────────────────────────
@@ -240,6 +151,16 @@ contract IdentityValidator is IIdentityValidator {
 
     function linkedPlatforms(address account) external view returns (uint32) {
         return _account(account).platforms;
+    }
+
+    function allowanceOf(address account, bytes calldata key, address token)
+        external
+        view
+        returns (AllowanceState memory state)
+    {
+        Session storage s = _session(account, key);
+        Counter storage c = _counter(account, keccak256(key), s.rulesHash, token);
+        if (_live(account, s) && c.listed) state = AllowanceState(c.amount, c.period, c.periodStart, c.spent);
     }
 
     function threshold(address account) public view returns (uint8) {
@@ -312,9 +233,9 @@ contract IdentityValidator is IIdentityValidator {
         _setRecoveryDelay(msg.sender, delay);
     }
 
-    /// Decodes a signature list; external so a malformed one fails validation instead of reverting it.
-    function decodeSignatures(bytes calldata signature) external pure returns (SessionSignature[] memory) {
-        return abi.decode(signature, (SessionSignature[]));
+    /// Decodes an `Authorization`; external so a malformed one fails validation instead of reverting it.
+    function decodeAuthorization(bytes calldata signature) external pure returns (Authorization memory) {
+        return abi.decode(signature, (Authorization));
     }
 
     function setThreshold(uint8) external pure {
@@ -397,13 +318,35 @@ contract IdentityValidator is IIdentityValidator {
         if ((policy.validAfter | policy.validUntil | activeAt) >= 1 << 47) {
             revert PolicyOutOfRange(policy.validAfter, policy.validUntil);
         }
-        Session storage s = _session(account, key);
-        if (_live(account, s)) revert SessionExists(key);
-        s.identity = identity;
-        s.policy = policy;
-        s.activeAt = activeAt;
-        s.generation = _generations(account, identity)[account];
-        s.byProof = byProof;
+        bytes32 keyHash = keccak256(key);
+        mapping(address => Session) storage sessions = _sessions(account, keyHash);
+        if (_live(account, sessions[account])) revert SessionExists(key);
+        Rules memory r = policy.rules;
+        bytes32 rulesHash = rulesHashOf(r);
+        sessions[account] = Session({
+            identity: identity,
+            validAfter: policy.validAfter,
+            validUntil: policy.validUntil,
+            admin: policy.admin,
+            activeAt: activeAt,
+            generation: _generations(account, identity)[account],
+            byProof: byProof,
+            signers: policy.signers,
+            scopeRoot: r.scopeRoot,
+            domainsRoot: r.domainsRoot,
+            paymastersRoot: r.paymastersRoot,
+            rulesHash: rulesHash
+        });
+        // A counter of the same key and rules keeps its spend.
+        for (uint256 i; i < r.allowances.length; ++i) {
+            Allowance memory allowance = r.allowances[i];
+            if (allowance.period >= 1 << 47) revert BadAllowance(allowance.token);
+            for (uint256 j; j < i; ++j) {
+                if (r.allowances[j].token == allowance.token) revert BadAllowance(allowance.token);
+            }
+            Counter storage c = _counter(account, keyHash, rulesHash, allowance.token);
+            (c.amount, c.period, c.listed) = (allowance.amount, allowance.period, true);
+        }
 
         AccountState storage a = _account(account);
         a.hadSession = true;
@@ -423,7 +366,7 @@ contract IdentityValidator is IIdentityValidator {
         bytes32 identity = s.identity;
         if (identity == 0) revert NoSession(key);
         // A dead session's admin count went with its unlink.
-        if (s.policy.admin && _live(account, s)) {
+        if (s.admin && _live(account, s)) {
             AccountState storage a = _account(account);
             if (a.adminSessions == 1 && !root) revert RootOperationRequired();
             --a.adminSessions;
@@ -431,11 +374,7 @@ contract IdentityValidator is IIdentityValidator {
             // A pending session has signed nothing; one that was active may have queued roots.
             if (s.activeAt < block.timestamp) ++a.rootEpoch;
         }
-        delete s.identity;
-        delete s.policy;
-        delete s.activeAt;
-        delete s.generation;
-        delete s.byProof;
+        delete _sessions(account, keccak256(key))[account];
         emit SessionRevoked(account, identity, key);
     }
 
@@ -524,40 +463,56 @@ contract IdentityValidator is IIdentityValidator {
         }
     }
 
-    /// Checks that every signature is by a session of its identity's current link,
-    /// and counts the distinct platforms of the admin sessions among them.
-    function _verify(address account, bytes32 hash, bytes calldata signature) private view returns (Verified memory v) {
-        SessionSignature[] memory sigs;
-        try this.decodeSignatures(signature) returns (SessionSignature[] memory decoded) {
-            sigs = decoded;
-        } catch {
-            return v;
-        }
+    /// The `Authorization` in `signature`, or one with no signatures when it is malformed.
+    function _decode(bytes calldata signature) private view returns (Authorization memory auth) {
+        try this.decodeAuthorization(signature) returns (Authorization memory decoded) {
+            auth = decoded;
+        } catch {}
+    }
+
+    /// Checks that every signature is by a session of its identity's current link, and counts the
+    /// distinct platforms of its signers and of the admin sessions among them. Short of `quorum`, every
+    /// signature is over `keccak256(abi.encode(hash, at))`; `quorum == 0` binds no `at`.
+    function _verify(address account, bytes32 hash, SessionSignature[] memory sigs, uint8 quorum, uint48 at)
+        private
+        view
+        returns (Verified memory v)
+    {
         if (sigs.length == 0) return v;
+        bytes32[] memory platforms = new bytes32[](sigs.length);
         bytes32[] memory adminPlatforms = new bytes32[](sigs.length);
         for (uint256 i; i < sigs.length; ++i) {
-            Session storage s = _session(account, sigs[i].key);
-            bytes32 identity = s.identity;
-            if (!_live(account, s) || !_signedBy(sigs[i].key, hash, sigs[i].signature)) {
-                return Verified(false, 0, 0, 0, false);
-            }
+            bytes32 keyHash = keccak256(sigs[i].key);
+            Session storage s = _sessions(account, keyHash)[account];
+            if (!_live(account, s)) return v;
             if (s.byProof) v.byProof = true;
-            Policy memory p = s.policy;
-            (v.validAfter, v.validUntil) = _narrow(v.validAfter, v.validUntil, p, s.activeAt);
-            if (p.admin) {
-                bytes32 platformId = _platformOf(account, identity);
-                if (!_contains(adminPlatforms, v.adminPlatforms, platformId)) {
-                    adminPlatforms[v.adminPlatforms++] = platformId;
-                }
+            if (i == 0) (v.keyHash, v.signers) = (keyHash, s.signers);
+            _narrow(v, s.validAfter > s.activeAt ? s.validAfter : s.activeAt, s.validUntil);
+            bytes32 platformId = _platformOf(account, s.identity);
+            if (!_contains(platforms, v.platforms, platformId)) platforms[v.platforms++] = platformId;
+            if (s.admin && !_contains(adminPlatforms, v.adminPlatforms, platformId)) {
+                adminPlatforms[v.adminPlatforms++] = platformId;
             }
+        }
+        bytes32 signed = v.adminPlatforms < quorum ? keccak256(abi.encode(hash, at)) : hash;
+        for (uint256 i; i < sigs.length; ++i) {
+            if (!_signedBy(sigs[i].key, signed, sigs[i].signature)) return v;
         }
         v.ok = true;
     }
 
-    /// The hash an ERC-7739 nested signature signs, and its signature list.
+    /// Below quorum: `n` signatures, by sessions none by proof, of as many distinct platforms as the
+    /// first session's `signers`.
+    function _cosigned(Verified memory v, uint256 n) private pure returns (bool) {
+        uint256 need = v.signers == 0 ? 1 : v.signers;
+        return !v.byProof && n == need && v.platforms == need;
+    }
+
+    /// The hash an ERC-7739 nested signature signs, its `Authorization`, and the app separator
+    /// of a `TypedDataSign`, zero for `PersonalSign`.
     /// @dev Both forms use the account's `eip712Domain()`: `TypedDataSign` all five fields,
     ///      `PersonalSign` the fields it names. A domain with extensions reverts.
-    function _unnest(bytes32 hash, bytes calldata signature) private view returns (bytes32, bytes calldata) {
+    function _unnest(bytes32 hash, bytes calldata signature) private view returns (bytes32, bytes calldata, bytes32) {
         (bytes1 fields, string memory name, string memory version, uint256 chainId, address verifying, bytes32 salt,) =
             IERC5267(msg.sender).eip712Domain();
         bytes32 nameHash = keccak256(bytes(name));
@@ -568,22 +523,15 @@ contract IdentityValidator is IIdentityValidator {
         // Zero for an empty or malformed contents type, which binds nothing.
         bytes32 structHash = descr.typedDataSignStructHash(contentsHash, domain);
         if (structHash != 0 && hash == appSeparator.toTypedDataHash(contentsHash)) {
-            return (appSeparator.toTypedDataHash(structHash), inner);
+            return (appSeparator.toTypedDataHash(structHash), inner, appSeparator);
         }
         bytes32 separator = MessageHashUtils.toDomainSeparator(fields, nameHash, versionHash, chainId, verifying, salt);
-        return (separator.toTypedDataHash(hash.personalSignStructHash()), signature);
+        return (separator.toTypedDataHash(hash.personalSignStructHash()), signature, 0);
     }
 
-    /// The window narrowed to one session's: its policy window, starting no earlier than `activeAt`.
-    function _narrow(uint48 validAfter, uint48 validUntil, Policy memory p, uint48 activeAt)
-        private
-        pure
-        returns (uint48, uint48)
-    {
-        uint48 start = p.validAfter > activeAt ? p.validAfter : activeAt;
-        if (start > validAfter) validAfter = start;
-        if (p.validUntil != 0 && (validUntil == 0 || p.validUntil < validUntil)) validUntil = p.validUntil;
-        return (validAfter, validUntil);
+    /// The block's timestamp is inside `v`'s window.
+    function _inWindow(Verified memory v) private view returns (bool) {
+        return v.validAfter < block.timestamp && (v.validUntil == 0 || block.timestamp <= v.validUntil);
     }
 
     /// @dev A 20-byte key is recovered with ECDSA, never asked through ERC-1271:
@@ -600,54 +548,5 @@ contract IdentityValidator is IIdentityValidator {
             if (ids[i] == id) return true;
         }
         return false;
-    }
-
-    /// `execute` of single or batch calls to outside targets is an ordinary call. A call to
-    /// the account, this validator or the registry is an admin operation. Any other target is
-    /// outside, the ClaimExecutor included: anyone may call its entries. Anything but `execute`,
-    /// and this validator's `onInstall`/`onUninstall` called directly, is refused.
-    function _scope(address account, bytes calldata callData) private view returns (Scope scope) {
-        if (_selector(callData) != IERC7579Execution.execute.selector) return Scope.Refused;
-        (CallType callType,,,) = Mode.wrap(bytes32(callData[4:36])).decodeMode();
-        bytes calldata executionCalldata = _executionCalldata(callData);
-        if (callType == ERC7579Utils.CALLTYPE_SINGLE) {
-            (address target,, bytes calldata data) = executionCalldata.decodeSingle();
-            return _targetScope(account, target, data);
-        }
-        if (callType == ERC7579Utils.CALLTYPE_BATCH) {
-            Execution[] calldata batch = executionCalldata.decodeBatch();
-            for (uint256 i; i < batch.length; ++i) {
-                Scope s = _targetScope(account, batch[i].target, batch[i].callData);
-                if (s > scope) scope = s;
-            }
-            return scope;
-        }
-        return Scope.Refused;
-    }
-
-    function _targetScope(address account, address target, bytes calldata data) private view returns (Scope) {
-        if (target == address(this)) {
-            bytes4 selector = _selector(data);
-            bool module =
-                selector == IERC7579Module.onInstall.selector || selector == IERC7579Module.onUninstall.selector;
-            return module ? Scope.Refused : Scope.Admin;
-        }
-        // The account executes a call to address(0) on itself.
-        if (target == account || target == address(0) || target == REGISTRY) return Scope.Admin;
-        return Scope.Call;
-    }
-
-    /// The first four bytes, zero-padded.
-    function _selector(bytes calldata data) private pure returns (bytes4) {
-        // forge-lint: disable-next-line(unsafe-typecast)
-        return bytes4(data);
-    }
-
-    /// The `bytes` argument of `execute(bytes32, bytes)`, as the account's ABI decoder reads it.
-    function _executionCalldata(bytes calldata callData) private pure returns (bytes calldata) {
-        bytes calldata args = callData[4:];
-        uint256 offset = uint256(bytes32(args[32:64]));
-        uint256 length = uint256(bytes32(args[offset:offset + 32]));
-        return args[offset + 32:offset + 32 + length];
     }
 }

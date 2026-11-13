@@ -7,9 +7,16 @@ import {WalletTestBase} from "./WalletTestBase.sol";
 
 /// A session added by proof to a wallet that had one acts only with signers that reach the threshold.
 contract QuorumByProofTest is WalletTestBase {
-    /// Alice's wallet with Bob's GitHub identity linked and a threshold of 2.
+    /// An admin policy whose rules allow `hit()` below quorum.
+    function _adminHitOnly() internal view returns (IIdentityValidator.Policy memory p) {
+        p = _hitOnly();
+        p.admin = true;
+    }
+
+    /// Alice's wallet, her session allowed `hit()` below quorum, with Bob's GitHub identity linked
+    /// and a threshold of 2.
     function _twoPlatforms() internal returns (address w) {
-        w = _claim();
+        w = _claimWith(_adminHitOnly());
         _link(w, GITHUB, BOB, w, "", _admin());
         _root(w, address(validator), abi.encodeCall(IIdentityValidator.setThreshold, (2)));
     }
@@ -21,17 +28,18 @@ contract QuorumByProofTest is WalletTestBase {
 
     function test_aProofSessionAloneIsBelowTheThreshold() public {
         address w = _twoPlatforms();
-        _addByProof(mallory, GITHUB, BOB, w, _key(BOB_PK), _admin());
+        _addByProof(mallory, GITHUB, BOB, w, _key(BOB_PK), _adminHitOnly());
         vm.warp(_now() + 48 hours + 1);
         assertTrue(validator.sessionOf(w, _key(BOB_PK)).byProof, "not marked");
         assertFalse(validator.sessionOf(w, _key(ALICE_PK)).byProof, "the genesis session is marked");
 
         _refused(_signed(_op(w, 0, _hit()), _pks(BOB_PK)), "an ordinary call by one proof session");
+        _refused(_signedWith(_op(w, 0, _hit()), _pks(BOB_PK), _hitProofs(1)), "a proof session within its rules");
         bytes32 h = keccak256("message");
         assertFalse(_isValid1271(w, h, BOB_PK, _wrapped(w, h)), "ERC-1271 by one proof session");
 
-        // The genesis session is not marked: it still calls alone.
-        _handle(_signed(_op(w, 0, _hit()), _pks(ALICE_PK)));
+        // The genesis session is not marked: it still calls alone, within its rules.
+        _handle(_signedWith(_op(w, 0, _hit()), _pks(ALICE_PK), _hitProofs(1)));
         assertEq(target.calls(), 1, "the genesis session's call");
 
         _addByProof(mallory, X, ALICE, w, _key(ALICE2_PK), _admin());

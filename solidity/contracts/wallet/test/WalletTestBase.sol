@@ -11,6 +11,7 @@ import {CeremonyProofVerifier} from "../../ceremony/CeremonyProofVerifier.sol";
 import {IPlatformVerifier} from "../../ceremony/IPlatformVerifier.sol";
 import {IProofVerifier} from "../../ceremony/IProofVerifier.sol";
 import {HandleEscrow} from "../../escrow/HandleEscrow.sol";
+import {NATIVE_TOKEN} from "../../NativeToken.sol";
 import {IdentityRegistry} from "../../identity/IdentityRegistry.sol";
 import {StubPlatformVerifier} from "../../identity/test/StubPlatformVerifier.sol";
 import {IClaimExecutor} from "../IClaimExecutor.sol";
@@ -51,11 +52,58 @@ interface IUserOpHash {
     function getUserOpHash(PackedUserOperation calldata op) external view returns (bytes32);
 }
 
+/// The spec's Merkle trees, built by hand: double-hashed leaves under sorted-pair nodes.
+abstract contract Trees {
+    function _leaf(address t, bytes4 selector, uint256 maxValue) internal pure returns (bytes32) {
+        return keccak256(bytes.concat(keccak256(abi.encode(t, selector, maxValue))));
+    }
+
+    function _domainLeaf(bytes32 separator) internal pure returns (bytes32) {
+        return keccak256(bytes.concat(keccak256(abi.encode(separator))));
+    }
+
+    function _paymasterLeaf(address paymaster) internal pure returns (bytes32) {
+        return keccak256(bytes.concat(keccak256(abi.encode(paymaster))));
+    }
+
+    function _pair(bytes32 a, bytes32 b) private pure returns (bytes32) {
+        return a < b ? keccak256(abi.encode(a, b)) : keccak256(abi.encode(b, a));
+    }
+
+    /// The root of `leaves` and the proof of leaf `index`; an odd last node rises a level.
+    function _tree(bytes32[] memory leaves, uint256 index)
+        internal
+        pure
+        returns (bytes32 root, bytes32[] memory proof)
+    {
+        uint256 n = leaves.length;
+        bytes32[] memory level = new bytes32[](n);
+        for (uint256 i; i < n; ++i) {
+            level[i] = leaves[i];
+        }
+        bytes32[] memory path = new bytes32[](16);
+        uint256 depth;
+        while (n > 1) {
+            if ((index ^ 1) < n) path[depth++] = level[index ^ 1];
+            for (uint256 i; i < n; i += 2) {
+                level[i / 2] = i + 1 < n ? _pair(level[i], level[i + 1]) : level[i];
+            }
+            n = (n + 1) / 2;
+            index /= 2;
+        }
+        proof = new bytes32[](depth);
+        for (uint256 i; i < depth; ++i) {
+            proof[i] = path[i];
+        }
+        return (level[0], proof);
+    }
+}
+
 /// @notice The wallet stack on stub Platform Verifiers and EntryPoint v0.9 at its canonical address.
 /// @dev Production contracts are deployed by artifact name, so this compiles before they exist.
 ///      A filtered `forge test` compiles only what the tests import: run `forge build` first.
 ///      The EntryPoint is Base mainnet's runtime code, from `fixtures/entrypoint-v0.9.json`.
-abstract contract WalletTestBase is Test {
+abstract contract WalletTestBase is Test, Trees {
     address internal constant EP = 0x433709009B8330FDa32311DF1C2AFA402eD8D009;
     bytes32 internal constant IMPL_SLOT = 0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc;
 
@@ -175,16 +223,30 @@ abstract contract WalletTestBase is Test {
         return keccak256(abi.encode(platformId, idNode));
     }
 
+    /// The rules hash, expanded word by word from the spec's encoding.
+    function _rh(IIdentityValidator.Rules memory r) internal pure returns (bytes32) {
+        IIdentityValidator.Allowance[] memory a = r.allowances;
+        bytes memory words = abi.encodePacked(r.scopeRoot, r.domainsRoot, r.paymastersRoot, uint256(0x80), a.length);
+        for (uint256 i; i < a.length; ++i) {
+            words = abi.encodePacked(words, uint256(uint160(a[i].token)), uint256(a[i].amount), uint256(a[i].period));
+        }
+        return keccak256(words);
+    }
+
     function _ph(IIdentityValidator.Policy memory p) internal pure returns (bytes32) {
-        return keccak256(abi.encode(p.validAfter, p.validUntil, p.admin));
+        return keccak256(abi.encode(p.validAfter, p.validUntil, p.admin, p.signers, _rh(p.rules)));
+    }
+
+    function _noRules() internal pure returns (IIdentityValidator.Rules memory r) {
+        r.allowances = new IIdentityValidator.Allowance[](0);
     }
 
     function _admin() internal pure returns (IIdentityValidator.Policy memory) {
-        return IIdentityValidator.Policy({validAfter: 0, validUntil: 0, admin: true});
+        return IIdentityValidator.Policy({validAfter: 0, validUntil: 0, admin: true, signers: 0, rules: _noRules()});
     }
 
     function _app() internal pure returns (IIdentityValidator.Policy memory) {
-        return IIdentityValidator.Policy({validAfter: 0, validUntil: 0, admin: false});
+        return IIdentityValidator.Policy({validAfter: 0, validUntil: 0, admin: false, signers: 0, rules: _noRules()});
     }
 
     function _key(uint256 pk) internal pure returns (bytes memory) {
@@ -267,13 +329,41 @@ abstract contract WalletTestBase is Test {
         r[1] = b;
     }
 
-    function _sigs(uint256[] memory pks, bytes32 h) internal pure returns (bytes memory) {
+    /// An `Authorization` of `pks` over `h`, at the block time, with no call or domain proofs.
+    function _sigs(uint256[] memory pks, bytes32 h) internal view returns (bytes memory) {
+        return _auth(pks, h, uint48(_now()), new IIdentityValidator.CallProof[](0), new bytes32[](0));
+    }
+
+    function _auth(
+        uint256[] memory pks,
+        bytes32 h,
+        uint48 at,
+        IIdentityValidator.CallProof[] memory calls,
+        bytes32[] memory domainProof
+    ) internal pure returns (bytes memory) {
         IIdentityValidator.SessionSignature[] memory s = new IIdentityValidator.SessionSignature[](pks.length);
         for (uint256 i; i < pks.length; ++i) {
             (uint8 v, bytes32 r, bytes32 sv) = vm.sign(pks[i], h);
             s[i] = IIdentityValidator.SessionSignature({key: _key(pks[i]), signature: abi.encodePacked(r, sv, v)});
         }
-        return abi.encode(s);
+        return abi.encode(
+            IIdentityValidator.Authorization({
+                signatures: s, at: at, calls: calls, domainProof: domainProof, paymasterProof: new bytes32[](0)
+            })
+        );
+    }
+
+    /// `s` as an `Authorization` at the block time, with no call or domain proofs.
+    function _wrap(IIdentityValidator.SessionSignature[] memory s) internal view returns (bytes memory) {
+        return abi.encode(
+            IIdentityValidator.Authorization({
+                signatures: s,
+                at: uint48(_now()),
+                calls: new IIdentityValidator.CallProof[](0),
+                domainProof: new bytes32[](0),
+                paymasterProof: new bytes32[](0)
+            })
+        );
     }
 
     function _exec(address to, bytes memory data) internal pure returns (bytes memory) {
@@ -308,20 +398,64 @@ abstract contract WalletTestBase is Test {
         return op;
     }
 
+    /// Below quorum, sign the EntryPoint's own hash of `op` at the block time, with a scope proof per execution.
+    function _signedWith(
+        PackedUserOperation memory op,
+        uint256[] memory pks,
+        IIdentityValidator.CallProof[] memory calls
+    ) internal view returns (PackedUserOperation memory) {
+        uint48 at = uint48(_now());
+        op.signature = _auth(pks, _belowQuorum(IUserOpHash(EP).getUserOpHash(op), at), at, calls, new bytes32[](0));
+        return op;
+    }
+
+    /// What a lone session signs below quorum: the operation's hash bound to `at`.
+    function _belowQuorum(bytes32 userOpHash, uint48 at) internal pure returns (bytes32) {
+        return keccak256(abi.encode(userOpHash, at));
+    }
+
+    /// A scope of the one leaf `(target, hit(), 0)`: its root is the leaf.
+    function _hitScope() internal view returns (bytes32) {
+        return _leaf(address(target), CallTarget.hit.selector, 0);
+    }
+
+    /// A non-admin policy of `_hitScope()`, with a lifetime NATIVE allowance to pay its operations' gas.
+    function _hitOnly() internal view returns (IIdentityValidator.Policy memory p) {
+        p = _app();
+        p.rules.scopeRoot = _hitScope();
+        p.rules.allowances = new IIdentityValidator.Allowance[](1);
+        p.rules.allowances[0] = IIdentityValidator.Allowance({token: NATIVE_TOKEN, amount: 1 ether, period: 0});
+    }
+
+    /// The proofs of `n` executions of `hit()` under `_hitScope()`: each empty.
+    function _hitProofs(uint256 n) internal pure returns (IIdentityValidator.CallProof[] memory calls) {
+        calls = new IIdentityValidator.CallProof[](n);
+        for (uint256 i; i < n; ++i) {
+            calls[i].proof = new bytes32[](0);
+        }
+    }
+
     function _ops(PackedUserOperation memory op) internal pure returns (PackedUserOperation[] memory ops) {
         ops = new PackedUserOperation[](1);
         ops[0] = op;
     }
 
+    /// What the EntryPoint takes from the sender before execution: its gas limits at its max fee.
+    function _prefund(PackedUserOperation memory op) internal pure returns (uint256) {
+        uint256 limits = uint256(op.accountGasLimits);
+        return ((limits >> 128) + uint128(limits) + op.preVerificationGas) * uint128(uint256(op.gasFees));
+    }
+
+    /// Funds the sender with 1 ether of value to send on top of the prefund.
     function _handle(PackedUserOperation memory op) internal {
-        vm.deal(op.sender, 1 ether);
+        vm.deal(op.sender, 1 ether + _prefund(op));
         vm.prank(bundler, bundler);
         IEntryPoint(EP).handleOps(_ops(op), payable(bundler));
     }
 
     /// `handleOps` refuses `op` in validation.
     function _refused(PackedUserOperation memory op, string memory why) internal {
-        vm.deal(op.sender, 1 ether);
+        vm.deal(op.sender, 1 ether + _prefund(op));
         vm.prank(bundler, bundler);
         try IEntryPoint(EP).handleOps(_ops(op), payable(bundler)) {
             fail(string.concat("accepted: ", why));
@@ -334,6 +468,36 @@ abstract contract WalletTestBase is Test {
                 string.concat("not a validation failure: ", why)
             );
         }
+    }
+
+    /// `handleOps` refuses `op` in validation with `FailedOp(0, reason)`.
+    function _refusedWith(PackedUserOperation memory op, string memory reason) internal {
+        vm.deal(op.sender, 1 ether + _prefund(op));
+        vm.prank(bundler, bundler);
+        try IEntryPoint(EP).handleOps(_ops(op), payable(bundler)) {
+            fail(string.concat("accepted: ", reason));
+        } catch (bytes memory err) {
+            assertEq(err, abi.encodeWithSelector(IEntryPoint.FailedOp.selector, 0, reason), reason);
+        }
+    }
+
+    /// The validator's answer for `op`, as its sender asks it.
+    function _answer(PackedUserOperation memory op) internal returns (uint256) {
+        bytes32 h = IUserOpHash(EP).getUserOpHash(op);
+        vm.prank(op.sender);
+        return validator.validateUserOp(op, h);
+    }
+
+    /// The validator refuses `op` and accepts `control`, `op` with the guarded part fixed, from the same
+    /// state: the refusal is the guard's, not the signature's.
+    function _refusedFor(PackedUserOperation memory op, PackedUserOperation memory control, string memory why)
+        internal
+    {
+        uint256 state = vm.snapshotState();
+        assertEq(_answer(op), 1, why);
+        vm.revertToState(state);
+        assertNotEq(_answer(control), 1, string.concat("control: ", why));
+        vm.revertToStateAndDelete(state);
     }
 
     /// The validator's answer for `callData` signed by `pks`, as the wallet asks it.
@@ -377,9 +541,14 @@ abstract contract WalletTestBase is Test {
 
     /// The ERC-7739 PersonalSign hash of `h` under the wallet's own EIP-712 domain.
     function _wrapped(address wallet, bytes32 h) internal view returns (bytes32) {
+        return keccak256(abi.encodePacked(hex"1901", _separator(wallet), keccak256(abi.encode(PERSONAL_SIGN, h))));
+    }
+
+    /// The wallet's unsalted EIP-712 domain separator.
+    function _separator(address wallet) internal view returns (bytes32) {
         (, string memory name, string memory version, uint256 chainId, address verifying,,) =
             IWebWallet(wallet).eip712Domain();
-        bytes32 separator = keccak256(
+        return keccak256(
             abi.encode(
                 keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)"),
                 keccak256(bytes(name)),
@@ -388,11 +557,53 @@ abstract contract WalletTestBase is Test {
                 verifying
             )
         );
-        return keccak256(abi.encodePacked(hex"1901", separator, keccak256(abi.encode(PERSONAL_SIGN, h))));
     }
 
     function _isValid1271(address wallet, bytes32 h, uint256 pk, bytes32 signed) internal view returns (bool) {
         bytes memory sig = abi.encodePacked(address(validator), _sigs(_pks(pk), signed));
         return IWebWallet(wallet).isValidSignature(h, sig) == bytes4(0x1626ba7e);
+    }
+
+    /// `pks`' ERC-7739 `TypedDataSign` of a fixed Mail for the app separator `app`, with `domainProof`.
+    function _typedSigBy(address account, uint256[] memory pks, bytes32 app, bytes32[] memory domainProof)
+        internal
+        view
+        returns (bytes32 h, bytes memory sig)
+    {
+        bytes32 contents = keccak256("a Mail");
+        string memory descr = "Mail(address to)";
+        (, string memory name, string memory version, uint256 chainId, address verifying, bytes32 salt,) =
+            IWebWallet(account).eip712Domain();
+        bytes32 typehash = keccak256(
+            abi.encodePacked(
+                "TypedDataSign(Mail contents,string name,string version,uint256 chainId,address verifyingContract,bytes32 salt)",
+                descr
+            )
+        );
+        bytes32 structHash = keccak256(
+            abi.encode(typehash, contents, keccak256(bytes(name)), keccak256(bytes(version)), chainId, verifying, salt)
+        );
+        bytes memory auth = _auth(
+            pks,
+            keccak256(abi.encodePacked(hex"1901", app, structHash)),
+            0,
+            new IIdentityValidator.CallProof[](0),
+            domainProof
+        );
+        h = keccak256(abi.encodePacked(hex"1901", app, contents));
+        sig = abi.encodePacked(address(validator), auth, app, contents, descr, uint16(bytes(descr).length));
+    }
+
+    // ─── ERC-7562 ───────────────────────────────────────────────────
+
+    /// `slot` of the validator is `A` or `keccak(A || x) + n`, n <= 128. Needs `vm.startMappingRecording`.
+    function _associated(address account, bytes32 slot) internal view returns (bool) {
+        bytes32 a = bytes32(uint256(uint160(account)));
+        if (slot == a) return true;
+        for (uint256 n; n <= 128 && n <= uint256(slot); ++n) {
+            (bool found, bytes32 key,) = vm.getMappingKeyAndParentOf(address(validator), bytes32(uint256(slot) - n));
+            if (found && key == a) return true;
+        }
+        return false;
     }
 }

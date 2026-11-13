@@ -71,14 +71,14 @@ contract ValidatorMigrationTest is WalletTestBase {
     function test_theReplacedValidatorNoLongerValidates() public {
         address w = _claim();
         vm.prank(w);
-        validator.addSession(_identity(X, ALICE), _key(APP_PK), _app());
+        validator.addSession(_identity(X, ALICE), _key(APP_PK), _hitOnly());
         assertTrue(_signs(w, address(validator), ALICE_PK), "v1 could not sign before");
 
         _root(w, w, _upgrade(abi.encode(X, ALICE, _key(ALICE_PK), _admin())));
         assertTrue(IWebWallet(w).isModuleInstalled(1, address(validator), ""), "v1 uninstalled");
 
         _refused(_opVia(w, address(validator), ALICE_PK, _hit()), "a v1 admin session");
-        _refused(_opVia(w, address(validator), APP_PK, _hit()), "a v1 app session");
+        _refused(_signedWith(_op(w, 0, _hit()), _pks(APP_PK), _hitProofs(1)), "a v1 app session in its scope");
         assertFalse(_signs(w, address(validator), ALICE_PK), "a v1 session signed");
 
         assertTrue(_signs(w, address(v2), ALICE_PK), "the carried session could not sign");
@@ -93,14 +93,18 @@ contract ValidatorMigrationTest is WalletTestBase {
     }
 
     /// Found in review: a v2 app session queued an upgrade on the old validator, which stayed
-    /// installed, and anyone executed it after the delay.
+    /// installed, and anyone executed it after the delay. The session's scope lists that call.
     function test_theOldValidatorCannotUpgradeAfterMigration() public {
         address w = _migrated();
+        IIdentityValidator.Policy memory p = _hitOnly();
+        p.rules.scopeRoot = _leaf(address(validator), IIdentityValidator.queueRoot.selector, 0);
         vm.prank(w);
-        v2.addSession(_identity(X, ALICE), _key(APP_PK), _app());
+        v2.addSession(_identity(X, ALICE), _key(APP_PK), p);
         bytes memory up = abi.encodeCall(IWebWallet.upgradeToAndCall, (_walletImpl(), ""));
-        bytes memory queue = _exec(address(validator), abi.encodeCall(IIdentityValidator.queueRoot, (w, up)));
-        _handle(_opVia(w, address(v2), APP_PK, queue));
+        PackedUserOperation memory op =
+            _op(w, 0, _exec(address(validator), abi.encodeCall(IIdentityValidator.queueRoot, (w, up))));
+        op.nonce = uint256(uint160(address(v2))) << 96;
+        _handle(_signedWith(op, _pks(APP_PK), _hitProofs(1)));
         vm.warp(_now() + 48 hours);
         vm.expectRevert(abi.encodeWithSelector(IWebWallet.NotValidator.selector, address(validator)));
         validator.executeRoot(w, w, up);
