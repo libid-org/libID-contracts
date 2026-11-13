@@ -78,10 +78,10 @@ contract CreateAndExecuteTest is ExecuteBase {
         return abi.encode(x);
     }
 
-    /// K signs `calls` for nonce 0 under the validator's key, written by hand: the wallet has no code yet.
-    function _signedByK(bytes memory calls) internal view returns (bytes memory) {
+    /// `pk` signs `calls` for nonce 0 under the validator's key, written by hand: the wallet has no code yet.
+    function _signedBy(uint256 pk, bytes memory calls) internal view returns (bytes memory) {
         uint256 n = uint256(uint160(address(validator))) << 96;
-        return _aliceFor(w, calls, n);
+        return _directAt(w, _pks(pk), calls, n, uint48(_now()), false, _hitProofs(0));
     }
 
     function _send(bytes memory calls, bytes memory auth) internal {
@@ -94,7 +94,7 @@ contract CreateAndExecuteTest is ExecuteBase {
     function test_oneCreateAndExecuteOnboardsAlice() public {
         assertEq(w.code.length, 0, "the wallet exists");
         bytes memory calls = _onboarding();
-        _send(calls, _signedByK(calls));
+        _send(calls, _signedBy(ALICE_PK, calls));
 
         assertGt(w.code.length, 0, "no wallet");
         (address holder,) = identities.handleBinding(HANDLE);
@@ -124,15 +124,10 @@ contract CreateAndExecuteTest is ExecuteBase {
     /// Someone else signing for Alice's new wallet is refused, though the batch would link K.
     function test_onlyTheLinkedKeySignsTheOnboarding() public {
         bytes memory calls = _onboarding();
-        uint256 n = uint256(uint160(address(validator))) << 96;
-        bytes memory auth = _directAt(w, _pks(MALLORY_PK), calls, n, uint48(_now()), false, _hitProofs(0));
-        vm.prank(relayer, relayer);
         vm.expectRevert(NOT_AUTHORIZED);
-        IWalletFactoryOnboarding(address(factory)).createAndExecute{value: linkFee + FEE}(
-            X, ALICE, AUTHORIZED_MODE, _data(calls, auth)
-        );
+        _send(calls, _signedBy(MALLORY_PK, calls));
         assertEq(w.code.length, 0, "the wallet was created");
-        _send(calls, _signedByK(calls));
+        _send(calls, _signedBy(ALICE_PK, calls));
         assertEq(token.balanceOf(w), CLAIMED, "control");
     }
 }

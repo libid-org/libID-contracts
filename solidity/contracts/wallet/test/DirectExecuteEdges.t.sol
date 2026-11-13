@@ -6,7 +6,7 @@ import {ERC7579Utils} from "@openzeppelin/contracts/account/utils/draft-ERC7579U
 import {IEntryPoint} from "@openzeppelin/contracts/interfaces/IERC4337.sol";
 import {Execution, IERC7579Execution, IERC7579Validator} from "@openzeppelin/contracts/interfaces/draft-IERC7579.sol";
 
-import {IIdentityValidator} from "../IIdentityValidator.sol";
+import {IExecutionCheck, IIdentityValidator} from "../IIdentityValidator.sol";
 import {AUTHORIZED_MODE, IWebWallet} from "../IWebWallet.sol";
 import {CallTarget} from "./WalletTestBase.sol";
 import {ExecuteBase} from "./DirectExecute.t.sol";
@@ -73,30 +73,52 @@ contract DirectExecuteEdgesTest is ExecuteBase {
         assertEq(target.calls(), 0, "a refused mode ran");
     }
 
-    /// Signed for one batch, submitted as another.
-    function test_aChangedBatchIsRefused() public {
-        CallTarget other = new CallTarget();
-        Execution[] memory x = _hits(2);
+    /// The signed batch: two hits, the second with 0.1 ether.
+    function _batch() internal view returns (Execution[] memory x) {
+        x = _hits(2);
         x[1].value = 0.1 ether;
-        bytes memory auth = _signedFor(AUTHORIZED_MODE, abi.encode(x));
+    }
 
-        Execution[][6] memory changed;
+    /// Signed for one batch, mode, deadline, gas and chain; submitted with one of them changed.
+    function test_aChangedBatchIsRefused() public {
+        Execution[] memory x = _batch();
+        bytes memory calls = abi.encode(x);
+        uint256 n = _nonce(w, address(validator));
+        uint48 at = uint48(_now());
+        uint48 deadline = at + 1 hours;
+        IIdentityValidator.Authorization memory a =
+            _authOf(_pks(ALICE_PK), _execDigest(w, AUTHORIZED_MODE, calls, at, n, deadline), at, false, _hitProofs(0));
+        bytes memory auth = _env(a, deadline);
+
+        Execution[][6] memory batches;
         for (uint256 i; i < 6; ++i) {
-            changed[i] = _hits(2);
-            changed[i][1].value = 0.1 ether;
+            batches[i] = _batch();
         }
-        changed[0][0].target = address(other);
-        changed[1][1].value = 0.2 ether;
-        changed[2][0].callData = abi.encodeWithSelector(CallTarget.hit.selector, uint256(1));
-        (changed[3][0], changed[3][1]) = (x[1], x[0]);
-        changed[4] = _hits(3);
-        changed[4][1].value = 0.1 ether;
-        changed[5] = _hits(1);
-        for (uint256 i; i < changed.length; ++i) {
-            _refuses(w, abi.encode(changed[i]), auth, NOT_AUTHORIZED);
+        batches[0][0].target = address(new CallTarget());
+        batches[1][1].value = 0.2 ether;
+        batches[2][0].callData = abi.encodeWithSelector(CallTarget.hit.selector, uint256(1));
+        (batches[3][0], batches[3][1]) = (x[1], x[0]);
+        batches[4] = _hits(3);
+        batches[4][1].value = 0.1 ether;
+        batches[5] = _hits(1);
+        for (uint256 i; i < batches.length; ++i) {
+            _refuses(w, abi.encode(batches[i]), auth, NOT_AUTHORIZED, string.concat("batch ", vm.toString(i)));
         }
-        _refuses(w, bytes.concat(abi.encode(x), hex"00"), auth, NOT_AUTHORIZED);
-        _runs(w, abi.encode(x), auth);
+
+        bytes32 h = _execDigest(w, AUTHORIZED_MODE | bytes32(uint256(1)), calls, at, n, deadline);
+        _refuses(w, calls, _alice(h, at, deadline), NOT_AUTHORIZED, "mode");
+        _refuses(w, bytes.concat(calls, hex"00"), auth, NOT_AUTHORIZED, "a trailing byte");
+        _refuses(w, calls, abi.encode(a, deadline + 1, CALL_GAS), NOT_AUTHORIZED, "deadline");
+        _refuses(w, calls, abi.encode(a, deadline, CALL_GAS - 1), NOT_AUTHORIZED, "callGas");
+        h = _execDigest(w, AUTHORIZED_MODE, calls, at, n, at - 1);
+        _refuses(w, calls, _alice(h, at, at - 1), IExecutionCheck.ExecutionExpired.selector, "expired");
+        h = _execDigest(w, AUTHORIZED_MODE, calls, at, n, 0);
+        _refuses(w, calls, _alice(h, at, 0), IExecutionCheck.ExecutionExpired.selector, "no deadline");
+        uint256 chain = vm.getChainId();
+        vm.chainId(chain + 1);
+        _refuses(w, calls, auth, NOT_AUTHORIZED, "chain");
+        vm.chainId(chain);
+        _runs(w, calls, auth);
     }
 
     /// Pending, expired, not yet valid, revoked and unlinked admin sessions sign nothing.

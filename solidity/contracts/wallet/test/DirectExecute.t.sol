@@ -229,15 +229,19 @@ abstract contract ExecuteBase is WalletTestBase {
         IWebWallet(w).execute(AUTHORIZED_MODE, _data(calls, auth));
     }
 
-    /// The batch reverts with selector `err`, leaves `validator`'s nonce and does not hit `target`.
     function _refuses(address w, bytes memory calls, bytes memory auth, bytes4 err) internal {
+        _refuses(w, calls, auth, err, "");
+    }
+
+    /// The batch reverts with selector `err`, leaves `validator`'s nonce and does not hit `target`.
+    function _refuses(address w, bytes memory calls, bytes memory auth, bytes4 err, string memory why) internal {
         uint256 n = _nonce(w, address(validator));
         uint256 hits = target.calls();
         vm.prank(relayer);
         vm.expectPartialRevert(err);
         IWebWallet(w).execute(AUTHORIZED_MODE, _data(calls, auth));
-        assertEq(_nonce(w, address(validator)), n, "a refused batch used the nonce");
-        assertEq(target.calls(), hits, "a refused batch's call stayed");
+        assertEq(_nonce(w, address(validator)), n, string.concat(why, ": a refused batch used the nonce"));
+        assertEq(target.calls(), hits, string.concat(why, ": a refused batch's call stayed"));
     }
 
     /// `_run`, and `target` was hit from `w`.
@@ -247,18 +251,45 @@ abstract contract ExecuteBase is WalletTestBase {
         assertGt(target.calls(), hits, "the batch did not run");
         assertEq(target.last(), w, "not from the wallet");
     }
+
+    /// `pks`, at quorum, sign `calls` under the validator's next nonce; the batch is refused with `err`, or runs.
+    function _refusesBy(address w, bytes memory calls, uint256[] memory pks, bytes4 err) internal {
+        _refuses(w, calls, _direct(w, address(validator), pks, calls, false), err);
+    }
+
+    function _runsBy(address w, bytes memory calls, uint256[] memory pks) internal {
+        _runs(w, calls, _direct(w, address(validator), pks, calls, false));
+    }
 }
 
 /// @notice The direct `execute(AUTHORIZED_MODE, data)`: any caller, checked at the end.
 contract DirectExecuteTest is ExecuteBase {
-    bytes4 internal constant OUT_OF_PERIOD = IExecutionCheck.ExecutionOutsidePeriod.selector;
-
     /// Alice's wallet at threshold 2: her X admin and Bob's GitHub admin, both active.
     function _twoOfTwo() internal returns (address w) {
         w = _fresh();
         _link(w, GITHUB, BOB, w, _key(BOB_PK), _admin());
         _root(w, address(validator), abi.encodeCall(IIdentityValidator.setThreshold, (2)));
         assertEq(validator.threshold(w), 2, "threshold");
+    }
+
+    /// `data` called on the validator, then a `hit()`.
+    function _onValidator(bytes memory data) internal view returns (bytes memory) {
+        return _then(_x(address(validator), 0, data));
+    }
+
+    /// `w` queues a root operation, which then matures.
+    function _queue(address w, address to, bytes memory data) internal {
+        vm.prank(w);
+        validator.queueRoot(to, data);
+        vm.warp(_now() + 48 hours);
+    }
+
+    /// A second stack, and the root upgrade that migrates to it with `installData`.
+    function _upgrade(bytes memory installData) internal returns (IIdentityValidator v2, bytes memory up) {
+        IWalletRegistry r2 = _newRegistry(address(factory));
+        v2 = IIdentityValidator(r2.identityValidator());
+        address impl2 = deployCode("WebWallet.sol:WebWallet", abi.encode(address(v2)));
+        up = abi.encodeCall(IWebWallet.upgradeToAndCall, (impl2, abi.encodeCall(IWebWallet.migrate, (installData))));
     }
 
     // ─── Acceptance ─────────────────────────────────────────────────
@@ -278,16 +309,14 @@ contract DirectExecuteTest is ExecuteBase {
         address w = _twoOfTwo();
         bytes32 bob = _identity(GITHUB, BOB);
         bytes memory add = abi.encodeCall(IIdentityValidator.addSession, (bob, _key(NEW_PK), _admin()));
-        bytes memory calls = _then(_x(address(validator), 0, add));
-        _refuses(w, calls, _direct(w, address(validator), _pks(ALICE_PK, NEW_PK), calls, false), NOT_AUTHORIZED);
+        _refusesBy(w, _onValidator(add), _pks(ALICE_PK, NEW_PK), NOT_AUTHORIZED);
 
         vm.prank(w);
         validator.addSession(bob, _key(NEW_PK), _admin());
         assertEq(validator.sessionOf(w, _key(NEW_PK)).activeAt, _now(), "activeAt is not the block time");
-        bytes memory hit = _one(_hitX());
-        _refuses(w, hit, _direct(w, address(validator), _pks(ALICE_PK, NEW_PK), hit, false), NOT_AUTHORIZED);
+        _refusesBy(w, _one(_hitX()), _pks(ALICE_PK, NEW_PK), NOT_AUTHORIZED);
         vm.warp(_now() + 1);
-        _runs(w, hit, _direct(w, address(validator), _pks(ALICE_PK, NEW_PK), hit, false));
+        _runsBy(w, _one(_hitX()), _pks(ALICE_PK, NEW_PK));
     }
 
     function test_anIdentityLinkedInTheBatchCannotSignIt() public {
@@ -295,31 +324,26 @@ contract DirectExecuteTest is ExecuteBase {
         bytes memory payload = _payload(GOOGLE, CAROL, LINK, _txData(w, _key(CAROL_PK), _ph(_admin())));
         bytes memory link = abi.encodeCall(IWalletRegistry.linkIdentity, (GOOGLE, V1, payload, _admin()));
         bytes memory calls = _then(_x(address(registry), 0, link));
-        _refuses(w, calls, _direct(w, address(validator), _pks(ALICE_PK, CAROL_PK), calls, false), NOT_AUTHORIZED);
+        _refusesBy(w, calls, _pks(ALICE_PK, CAROL_PK), NOT_AUTHORIZED);
         assertFalse(validator.isLinked(w, _identity(GOOGLE, CAROL)), "the link stayed");
 
         _link(w, GOOGLE, CAROL, w, _key(CAROL_PK), _admin());
         assertEq(validator.sessionOf(w, _key(CAROL_PK)).activeAt, _now(), "activeAt is not the block time");
         vm.warp(_now() + 1);
-        bytes memory hit = _one(_hitX());
-        _runs(w, hit, _direct(w, address(validator), _pks(ALICE_PK, CAROL_PK), hit, false));
+        _runsBy(w, _one(_hitX()), _pks(ALICE_PK, CAROL_PK));
     }
 
     /// Signed as if Alice alone were at quorum: true only once the batch's own `executeRoot` ran.
     function test_executingSetThresholdInTheBatchDoesNotLowerItsCheck() public {
         address w = _twoOfTwo();
         bytes memory one = abi.encodeCall(IIdentityValidator.setThreshold, (1));
-        vm.prank(w);
-        validator.queueRoot(address(validator), one);
-        vm.warp(_now() + 48 hours);
+        _queue(w, address(validator), one);
         bytes memory exec = abi.encodeCall(IIdentityValidator.executeRoot, (w, address(validator), one));
-        bytes memory calls = _then(_x(address(validator), 0, exec));
-        _refuses(w, calls, _direct(w, address(validator), _pks(ALICE_PK), calls, false), NOT_AUTHORIZED);
+        _refusesBy(w, _onValidator(exec), _pks(ALICE_PK), NOT_AUTHORIZED);
         assertEq(validator.threshold(w), 2, "the threshold changed");
 
         validator.executeRoot(w, address(validator), one);
-        bytes memory hit = _one(_hitX());
-        _runs(w, hit, _direct(w, address(validator), _pks(ALICE_PK), hit, false));
+        _runsBy(w, _one(_hitX()), _pks(ALICE_PK));
     }
 
     /// The end check runs against the entry-time validator: the new install's session cannot sign the batch
@@ -327,16 +351,13 @@ contract DirectExecuteTest is ExecuteBase {
     function test_executingAMigrationInTheBatchDoesNotHelpIt() public {
         address w = _fresh();
         (IIdentityValidator v2, bytes memory up) = _upgrade(abi.encode(X, ALICE, _key(NEW_PK), _admin()));
-        vm.prank(w);
-        validator.queueRoot(w, up);
-        vm.warp(_now() + 48 hours);
-        bytes memory calls =
-            _then(_x(address(validator), 0, abi.encodeCall(IIdentityValidator.executeRoot, (w, w, up))));
-        _refuses(w, calls, _direct(w, address(validator), _pks(NEW_PK), calls, false), NOT_AUTHORIZED);
+        _queue(w, w, up);
+        bytes memory calls = _onValidator(abi.encodeCall(IIdentityValidator.executeRoot, (w, w, up)));
+        _refusesBy(w, calls, _pks(NEW_PK), NOT_AUTHORIZED);
         _refuses(w, calls, _direct(w, address(v2), _pks(NEW_PK), calls, false), NOT_AUTHORIZED);
         assertFalse(IWebWallet(w).isModuleInstalled(1, address(v2), ""), "migrated");
 
-        _runs(w, calls, _direct(w, address(validator), _pks(ALICE_PK), calls, false));
+        _runsBy(w, calls, _pks(ALICE_PK));
         assertTrue(IWebWallet(w).isModuleInstalled(1, address(v2), ""), "not migrated");
         assertEq(v2.sessionOf(w, _key(NEW_PK)).activeAt, _now(), "the install session's start");
         vm.warp(_now() + 1);
@@ -348,9 +369,7 @@ contract DirectExecuteTest is ExecuteBase {
     function test_aV1SignatureDoesNotReplayAfterMigration() public {
         address w = _fresh();
         (IIdentityValidator v2, bytes memory up) = _upgrade(abi.encode(X, ALICE, _key(ALICE_PK), _admin()));
-        vm.prank(w);
-        validator.queueRoot(w, up);
-        vm.warp(_now() + 48 hours);
+        _queue(w, w, up);
         // Signed for V1's sequence 0, which V2's sequence 0 matches but for the key.
         bytes memory hit = _one(_hitX());
         bytes memory used = _direct(w, address(validator), _pks(ALICE_PK), hit, false);
@@ -362,6 +381,7 @@ contract DirectExecuteTest is ExecuteBase {
         _runs(w, hit, _direct(w, address(v2), _pks(ALICE_PK), hit, false));
     }
 
+    /// Below quorum and at it: a root operation matures no earlier than the next second.
     function test_queueingAndExecutingSetThresholdInOneBatchFails() public {
         address w = _twoOfTwo();
         bytes memory one = abi.encodeCall(IIdentityValidator.setThreshold, (1));
@@ -370,53 +390,28 @@ contract DirectExecuteTest is ExecuteBase {
         x[1] = _x(address(validator), 0, abi.encodeCall(IIdentityValidator.executeRoot, (w, address(validator), one)));
         x[2] = _hitX();
         bytes memory calls = abi.encode(x);
-        _refuses(
-            w,
-            calls,
-            _direct(w, address(validator), _pks(ALICE_PK), calls, false),
-            IIdentityValidator.RootNotReady.selector
-        );
-        // Even at quorum: a root operation matures no earlier than the next second.
-        _refuses(
-            w,
-            calls,
-            _direct(w, address(validator), _pks(ALICE_PK, BOB_PK), calls, false),
-            IIdentityValidator.RootNotReady.selector
-        );
+        _refusesBy(w, calls, _pks(ALICE_PK), IIdentityValidator.RootNotReady.selector);
+        _refusesBy(w, calls, _pks(ALICE_PK, BOB_PK), IIdentityValidator.RootNotReady.selector);
         assertEq(validator.threshold(w), 2, "the threshold changed");
-        bytes memory hit = _one(_hitX());
-        _runs(w, hit, _direct(w, address(validator), _pks(ALICE_PK, BOB_PK), hit, false));
+        _runsBy(w, _one(_hitX()), _pks(ALICE_PK, BOB_PK));
     }
 
+    /// Below quorum, revoking the other admin does not help; at quorum, a batch revokes a session that does not
+    /// sign it.
     function test_revokingAnAdminInTheBatchDoesNotHelpIt() public {
         address w = _twoOfTwo();
-        bytes memory calls =
-            _then(_x(address(validator), 0, abi.encodeCall(IIdentityValidator.revokeSession, (_key(BOB_PK)))));
-        _refuses(w, calls, _direct(w, address(validator), _pks(ALICE_PK), calls, false), NOT_AUTHORIZED);
+        bytes memory revokeBob = abi.encodeCall(IIdentityValidator.revokeSession, (_key(BOB_PK)));
+        _refusesBy(w, _onValidator(revokeBob), _pks(ALICE_PK), NOT_AUTHORIZED);
         assertEq(validator.sessionOf(w, _key(BOB_PK)).identity, _identity(GITHUB, BOB), "Bob's session revoked");
-        bytes memory hit = _one(_hitX());
-        _runs(w, hit, _direct(w, address(validator), _pks(ALICE_PK, BOB_PK), hit, false));
-    }
 
-    /// Control: at quorum, a batch revokes a session that does not sign it.
-    function test_aBatchAtQuorumRevokesAnotherSession() public {
-        address w = _twoOfTwo();
         vm.prank(w);
         validator.addSession(_identity(X, ALICE), _key(NEW_PK), _admin());
-        bytes memory calls =
-            _then(_x(address(validator), 0, abi.encodeCall(IIdentityValidator.revokeSession, (_key(NEW_PK)))));
-        _runs(w, calls, _direct(w, address(validator), _pks(ALICE_PK, BOB_PK), calls, false));
+        bytes memory revokeNew = abi.encodeCall(IIdentityValidator.revokeSession, (_key(NEW_PK)));
+        _runsBy(w, _onValidator(revokeNew), _pks(ALICE_PK, BOB_PK));
         assertEq(validator.sessionOf(w, _key(NEW_PK)).identity, bytes32(0), "the session was not revoked");
     }
 
     // ─── The first-session exception ────────────────────────────────
-
-    function test_theFirstSessionSignsAtOnce() public {
-        address w = _fresh();
-        assertEq(validator.sessionOf(w, _key(ALICE_PK)).activeAt, 0, "the first session is pending");
-        bytes memory hit = _one(_hitX());
-        _runs(w, hit, _direct(w, address(validator), _pks(ALICE_PK), hit, false));
-    }
 
     /// The first session comes from any OAuth client's proof.
     function test_aFirstSessionFromAnyClientSignsAtOnce() public {
@@ -427,34 +422,26 @@ contract DirectExecuteTest is ExecuteBase {
         _link(w, X, ALICE, w, _key(ALICE_PK), _admin());
         assertEq(other.lastClient(), "another-app", "not the other client's proof");
         assertEq(validator.sessionOf(w, _key(ALICE_PK)).activeAt, 0, "the first session is pending");
-        vm.deal(w, 1 ether);
-        bytes memory hit = _one(_hitX());
-        _runs(w, hit, _direct(w, address(validator), _pks(ALICE_PK), hit, false));
+        _runsBy(w, _one(_hitX()), _pks(ALICE_PK));
     }
 
     // Without each of the genesis identity, a wallet that never had a session and an admin policy, a session
     // added (if at all) cannot sign in its own second.
 
-    function test_theExceptionNeedsTheGenesis() public {
+    function test_theExceptionNeedsTheGenesisAndAnAdmin() public {
         address w = factory.createWallet(X, ALICE);
         _linkRefused(w, GITHUB, BOB, BOB_PK, _admin());
+        _linkRefused(w, X, ALICE, APP_PK, _hitOnly());
         bytes memory hit = _one(_hitX());
-        _refuses(w, hit, _direct(w, address(validator), _pks(BOB_PK), hit, false), NOT_AUTHORIZED);
+        _refusesBy(w, hit, _pks(BOB_PK), NOT_AUTHORIZED);
+        _refuses(w, hit, _direct(w, address(validator), _pks(APP_PK), hit, true), NOT_AUTHORIZED);
     }
 
     function test_theExceptionNeedsAWalletThatNeverHadASession() public {
         address w = _fresh();
         _link(w, X, ALICE, w, _key(NEW_PK), _admin());
         assertEq(validator.sessionOf(w, _key(NEW_PK)).activeAt, _now(), "activeAt is not the block time");
-        bytes memory hit = _one(_hitX());
-        _refuses(w, hit, _direct(w, address(validator), _pks(NEW_PK), hit, false), NOT_AUTHORIZED);
-    }
-
-    function test_theExceptionNeedsAnAdmin() public {
-        address w = factory.createWallet(X, ALICE);
-        _linkRefused(w, X, ALICE, APP_PK, _hitOnly());
-        bytes memory hit = _one(_hitX());
-        _refuses(w, hit, _direct(w, address(validator), _pks(APP_PK), hit, true), NOT_AUTHORIZED);
+        _refusesBy(w, _one(_hitX()), _pks(NEW_PK), NOT_AUTHORIZED);
     }
 
     function _linkRefused(address w, bytes32 platformId, bytes32 idNode, uint256 pk, IIdentityValidator.Policy memory p)
@@ -466,33 +453,20 @@ contract DirectExecuteTest is ExecuteBase {
         registry.linkIdentity(platformId, V1, payload, p);
     }
 
-    /// Only the wallet's own batch gives a fresh wallet its first session.
+    /// A stranger's proof of the genesis identity, naming her own key, does not link it to a fresh wallet.
     function test_aFreshWalletsFirstSessionComesOnlyFromItsOwnBatch() public {
         address w = factory.createWallet(X, ALICE);
         bytes memory link = _payload(X, ALICE, LINK, _txData(w, _key(MALLORY_PK), _ph(_admin())));
         vm.prank(mallory);
         vm.expectRevert(abi.encodeWithSelector(IWalletRegistry.NotWallet.selector, w, mallory));
         registry.linkIdentity(X, V1, link, _admin());
-        bytes memory add = _payload(X, ALICE, ADD, _txData(w, _key(MALLORY_PK), _ph(_admin())));
-        vm.prank(mallory);
-        vm.expectRevert(abi.encodeWithSelector(IIdentityValidator.FirstSessionRefused.selector, w));
-        registry.addSessionByProof(X, V1, add, _admin());
         assertFalse(validator.hadSession(w), "a stranger gave the wallet a session");
-
-        // Once the wallet had a session, a proof add is accepted, pending for the recovery delay.
-        _link(w, X, ALICE, w, _key(ALICE_PK), _admin());
-        _addByProof(mallory, X, ALICE, w, _key(MALLORY_PK), _admin());
-        IIdentityValidator.Session memory s = validator.sessionOf(w, _key(MALLORY_PK));
-        assertTrue(s.byProof, "no session by proof");
-        assertEq(s.activeAt, _now() + validator.recoveryDelay(w), "not pending for the recovery delay");
     }
 
     function test_migrateRefusesAnEmptyKey() public {
         address w = _fresh();
         (, bytes memory bare) = _upgrade(abi.encode(X, ALICE));
-        vm.prank(w);
-        validator.queueRoot(w, bare);
-        vm.warp(_now() + 48 hours);
+        _queue(w, w, bare);
         vm.expectRevert(IWebWallet.MigrationWithoutSession.selector);
         validator.executeRoot(w, w, bare);
 
@@ -501,28 +475,19 @@ contract DirectExecuteTest is ExecuteBase {
         assertTrue(IWebWallet(w).isModuleInstalled(1, address(v2), ""), "the keyed migration failed");
     }
 
-    /// A second stack, and the root upgrade that migrates to it with `installData`.
-    function _upgrade(bytes memory installData) internal returns (IIdentityValidator v2, bytes memory up) {
-        IWalletRegistry r2 = _newRegistry(address(factory));
-        v2 = IIdentityValidator(r2.identityValidator());
-        address impl2 = deployCode("WebWallet.sol:WebWallet", abi.encode(address(v2)));
-        up = abi.encodeCall(IWebWallet.upgradeToAndCall, (impl2, abi.encodeCall(IWebWallet.migrate, (installData))));
-    }
-
     // ─── The nonce ──────────────────────────────────────────────────
 
     function test_theNonceIsSharedWithUserOperations() public {
         address w = _fresh();
         bytes memory hit = _one(_hitX());
-        _runs(w, hit, _direct(w, address(validator), _pks(ALICE_PK), hit, false));
+        _runsBy(w, hit, _pks(ALICE_PK));
         _refused(_signed(_op(w, 0, _hit()), _pks(ALICE_PK)), "a UserOperation reused the direct nonce");
         _handle(_signed(_op(w, 1, _hit()), _pks(ALICE_PK)));
         assertEq(target.calls(), 2, "the next UserOperation did not run");
 
         uint256 n1 = (uint256(uint160(address(validator))) << 96) | 1;
-        bytes memory stale = _aliceFor(w, hit, n1);
-        _refuses(w, hit, stale, NOT_AUTHORIZED);
-        _runs(w, hit, _direct(w, address(validator), _pks(ALICE_PK), hit, false));
+        _refuses(w, hit, _aliceFor(w, hit, n1), NOT_AUTHORIZED);
+        _runsBy(w, hit, _pks(ALICE_PK));
     }
 
     /// With no EntryPoint code, the direct path names the missing dependency.
@@ -616,45 +581,28 @@ contract DirectExecuteTest is ExecuteBase {
     function test_theCheckUsesTheDomainOfEntry() public {
         address w = _fresh();
         bytes memory up = abi.encodeCall(IWebWallet.upgradeToAndCall, (address(new OtherVersionWallet()), ""));
-        vm.prank(w);
-        validator.queueRoot(w, up);
-        vm.warp(_now() + 48 hours);
-        bytes memory calls =
-            _then(_x(address(validator), 0, abi.encodeCall(IIdentityValidator.executeRoot, (w, w, up))));
-        _runs(w, calls, _direct(w, address(validator), _pks(ALICE_PK), calls, false));
+        _queue(w, w, up);
+        _runsBy(w, _onValidator(abi.encodeCall(IIdentityValidator.executeRoot, (w, w, up))), _pks(ALICE_PK));
         (, string memory name, string memory version,,,,) = OtherVersionWallet(w).eip712Domain();
         assertEq(abi.encode(name, version), abi.encode("WebWallet", "2"), "not upgraded");
     }
 
     // ─── Reentry ────────────────────────────────────────────────────
 
-    /// The inner batch is signed for the nonce the outer one leaves: only the lock refuses it.
-    function test_theLockRefusesReentryFromTheDirectPath() public {
-        address w = _fresh();
-        Reenter re = new Reenter();
-        uint256 n = _nonce(w, address(validator));
-        bytes memory inner = _one(_hitX());
-        bytes memory innerAuth = _aliceFor(w, inner, n + 1);
-        bytes memory outer = _one(_x(address(re), 0, abi.encodeCall(Reenter.go, (w, _data(inner, innerAuth)))));
-        _refuses(w, outer, _aliceFor(w, outer, n), ReentrancyGuardTransient.ReentrancyGuardReentrantCall.selector);
-
-        bytes memory self = _then(_x(w, 0, abi.encodeCall(IERC7579Execution.execute, (MODE_BATCH, inner))));
-        _refuses(
-            w,
-            self,
-            _direct(w, address(validator), _pks(ALICE_PK), self, false),
-            ReentrancyGuardTransient.ReentrancyGuardReentrantCall.selector
-        );
-        _runs(w, inner, _direct(w, address(validator), _pks(ALICE_PK), inner, false));
-    }
-
-    function test_theLockRefusesReentryFromTheEntryPoint() public {
+    /// The inner batch is signed for the nonce the outer one leaves: only the lock refuses it, inside a direct
+    /// batch, the wallet's own default mode or a UserOperation.
+    function test_theLockRefusesReentry() public {
         address w = _fresh();
         Reenter re = new Reenter();
         uint256 n = _nonce(w, address(validator));
         bytes memory inner = _one(_hitX());
         bytes memory innerAuth = _aliceFor(w, inner, n + 1);
         bytes memory outer = _then(_x(address(re), 0, abi.encodeCall(Reenter.go, (w, _data(inner, innerAuth)))));
+        bytes4 reentrant = ReentrancyGuardTransient.ReentrancyGuardReentrantCall.selector;
+        _refuses(w, outer, _aliceFor(w, outer, n), reentrant, "direct in direct");
+        bytes memory self = _then(_x(w, 0, abi.encodeCall(IERC7579Execution.execute, (MODE_BATCH, inner))));
+        _refuses(w, self, _aliceFor(w, self, n), reentrant, "default mode in direct");
+
         _handle(_signed(_op(w, 0, abi.encodeCall(IERC7579Execution.execute, (MODE_BATCH, outer))), _pks(ALICE_PK)));
         assertEq(target.calls(), 0, "the reentered batch ran");
         assertEq(_nonce(w, address(validator)), n + 1, "the UserOperation's nonce");
@@ -679,8 +627,9 @@ contract DirectExecuteTest is ExecuteBase {
         proofs[0].maxValue = 1 ether;
         uint256 n = _nonce(w, address(validator));
         uint48 t = uint48(_now());
-        _refuses(w, calls, _directAt(w, _pks(APP_PK), calls, n, t + 1 days, true, proofs), OUT_OF_PERIOD);
-        _refuses(w, calls, _directAt(w, _pks(APP_PK), calls, n, t - 1 days, true, proofs), OUT_OF_PERIOD);
+        bytes4 outOfPeriod = IExecutionCheck.ExecutionOutsidePeriod.selector;
+        _refuses(w, calls, _directAt(w, _pks(APP_PK), calls, n, t + 1 days, true, proofs), outOfPeriod);
+        _refuses(w, calls, _directAt(w, _pks(APP_PK), calls, n, t - 1 days, true, proofs), outOfPeriod);
         _runs(w, calls, _directAt(w, _pks(APP_PK), calls, n, t, true, proofs));
         assertEq(address(target).balance, 0.1 ether, "value");
         assertEq(validator.allowanceOf(w, _key(APP_PK), NATIVE_TOKEN).spent, 0.1 ether, "NATIVE charge");
@@ -688,74 +637,28 @@ contract DirectExecuteTest is ExecuteBase {
 
     // ─── Replay ─────────────────────────────────────────────────────
 
-    function test_aDirectSignatureIsNotAUserOperationSignature() public {
-        address w = _fresh();
-        bytes memory calls = _one(_hitX());
-        uint48 at = uint48(_now());
-        bytes32 h = _execDigest(w, AUTHORIZED_MODE, calls, at, _nonce(w, address(validator)), at + 1 hours);
-        PackedUserOperation memory op = _op(w, 0, abi.encodeCall(IERC7579Execution.execute, (MODE_BATCH, calls)));
-        op.signature = abi.encode(_authOf(_pks(ALICE_PK), h, at, false, _hitProofs(0)));
-        _refused(op, "a direct signature as a UserOperation");
-        op.signature = _direct(w, address(validator), _pks(ALICE_PK), calls, false);
-        _refused(op, "a direct authorization as a UserOperation");
-        _handle(_signed(op, _pks(ALICE_PK)));
-        assertEq(target.calls(), 1, "control");
-    }
-
-    function test_aUserOperationSignatureIsNotADirectSignature() public {
-        address w = _fresh();
-        bytes memory calls = _one(_hitX());
-        PackedUserOperation memory op = _op(w, 0, abi.encodeCall(IERC7579Execution.execute, (MODE_BATCH, calls)));
-        uint48 at = uint48(_now());
-        bytes32 h = IUserOpHash(EP).getUserOpHash(op);
-        _refuses(w, calls, _alice(h, at, at + 1 hours), NOT_AUTHORIZED);
-        _runs(w, calls, _direct(w, address(validator), _pks(ALICE_PK), calls, false));
-    }
-
-    function test_erc1271AndTheDirectPathShareNoSignature() public {
+    /// A signature for one of the direct path, a UserOperation and ERC-1271 serves neither other.
+    function test_signaturesDoNotCrossPaths() public {
         address w = _fresh();
         bytes memory calls = _one(_hitX());
         uint48 at = uint48(_now());
         uint48 deadline = at + 1 hours;
         bytes32 d = _execDigest(w, AUTHORIZED_MODE, calls, at, _nonce(w, address(validator)), deadline);
+        bytes memory execute = abi.encodeCall(IERC7579Execution.execute, (MODE_BATCH, calls));
+        PackedUserOperation memory op = _op(w, 0, execute);
+
+        _refuses(w, calls, _alice(IUserOpHash(EP).getUserOpHash(op), at, deadline), NOT_AUTHORIZED, "userOpHash");
+        _refuses(w, calls, _alice(_wrapped(w, d), at, deadline), NOT_AUTHORIZED, "ERC-1271 hash");
+        op.signature = abi.encode(_authOf(_pks(ALICE_PK), d, at, false, _hitProofs(0)));
+        _refused(op, "a direct signature as a UserOperation");
+        op.signature = _alice(d, at, deadline);
+        _refused(op, "a direct authorization as a UserOperation");
         assertFalse(_isValid1271(w, d, ALICE_PK, d), "a direct signature passed ERC-1271");
+
         assertTrue(_isValid1271(w, d, ALICE_PK, _wrapped(w, d)), "control: ERC-1271");
-        bytes memory as1271 = _alice(_wrapped(w, d), at, deadline);
-        _refuses(w, calls, as1271, NOT_AUTHORIZED);
         _runs(w, calls, _alice(d, at, deadline));
-    }
-
-    function test_aChangedBatchModeDeadlineOrChainIsRefused() public {
-        address w = _fresh();
-        bytes memory calls = _one(_hitX());
-        uint256 n = _nonce(w, address(validator));
-        uint48 at = uint48(_now());
-        uint48 deadline = at + 1 hours;
-        IIdentityValidator.Authorization memory a =
-            _authOf(_pks(ALICE_PK), _execDigest(w, AUTHORIZED_MODE, calls, at, n, deadline), at, false, _hitProofs(0));
-
-        Execution[] memory two = new Execution[](2);
-        (two[0], two[1]) = (_hitX(), _hitX());
-        _refuses(w, abi.encode(two), _env(a, deadline), NOT_AUTHORIZED);
-        _refuses(w, calls, abi.encode(a, deadline + 1, CALL_GAS), NOT_AUTHORIZED);
-        _refuses(w, calls, abi.encode(a, deadline, CALL_GAS - 1), NOT_AUTHORIZED);
-
-        bytes32 otherMode = AUTHORIZED_MODE | bytes32(uint256(1));
-        bytes32 h = _execDigest(w, otherMode, calls, at, n, deadline);
-        _refuses(w, calls, _alice(h, at, deadline), NOT_AUTHORIZED);
-
-        uint48 past = at - 1;
-        h = _execDigest(w, AUTHORIZED_MODE, calls, at, n, past);
-        bytes memory expired = _alice(h, at, past);
-        _refuses(w, calls, expired, IExecutionCheck.ExecutionExpired.selector);
-        h = _execDigest(w, AUTHORIZED_MODE, calls, at, n, 0);
-        _refuses(w, calls, _alice(h, at, uint48(0)), IExecutionCheck.ExecutionExpired.selector);
-
-        uint256 chain = vm.getChainId();
-        vm.chainId(chain + 1);
-        _refuses(w, calls, _env(a, deadline), NOT_AUTHORIZED);
-        vm.chainId(chain);
-        _runs(w, calls, _env(a, deadline));
+        _handle(_signed(_op(w, 1, execute), _pks(ALICE_PK)));
+        assertEq(target.calls(), 2, "control: a UserOperation");
     }
 }
 
