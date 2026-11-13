@@ -102,10 +102,11 @@ interface IIdentityValidator is IERC7579Validator {
         bytes32[] proof;
     }
 
-    /// @dev Below quorum `signatures[0]` governs and `at` is signed: it picks the allowance period,
-    ///      which the EntryPoint enforces as the validity window. At quorum it is ignored. `calls` is
-    ///      unsigned; `calls[i]` is for the i-th execution. `paymasterProof` proves the operation's
-    ///      paymaster under `paymastersRoot`.
+    /// @dev Below quorum `signatures[0]` governs, and every signature is over
+    ///      `keccak256(abi.encode(hash, at, keccak256(signatures[0].key)))`. `at` picks the allowance
+    ///      period, which the EntryPoint enforces as the validity window; ERC-1271 signs `at` 0. At quorum
+    ///      signatures are over `hash` and `at` is ignored. `calls` is unsigned; `calls[i]` is for the
+    ///      i-th execution. `paymasterProof` proves the operation's paymaster under `paymastersRoot`.
     struct Authorization {
         SessionSignature[] signatures;
         uint48 at;

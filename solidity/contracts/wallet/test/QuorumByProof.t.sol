@@ -36,7 +36,9 @@ contract QuorumByProofTest is WalletTestBase {
         _refused(_signed(_op(w, 0, _hit()), _pks(BOB_PK)), "an ordinary call by one proof session");
         _refused(_signedWith(_op(w, 0, _hit()), _pks(BOB_PK), _hitProofs(1)), "a proof session within its rules");
         bytes32 h = keccak256("message");
-        assertFalse(_isValid1271(w, h, BOB_PK, _wrapped(w, h)), "ERC-1271 by one proof session");
+        assertFalse(
+            _isValid1271(w, h, BOB_PK, _belowQuorum(_wrapped(w, h), 0, _key(BOB_PK))), "ERC-1271 by one proof session"
+        );
 
         // The genesis session is not marked: it still calls alone, within its rules.
         _handle(_signedWith(_op(w, 0, _hit()), _pks(ALICE_PK), _hitProofs(1)));

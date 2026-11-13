@@ -55,8 +55,9 @@ contract ScopeEdgesTest is WalletTestBase {
         IIdentityValidator.CallProof[] memory calls = new IIdentityValidator.CallProof[](1);
         (, calls[0].proof) = _tree(_leaves(), index);
         op = _op(w, 0, _exec(to, data));
-        op.signature =
-            _auth(_pks(APP_PK), _belowQuorum(IUserOpHash(EP).getUserOpHash(op), at), at, calls, new bytes32[](0));
+        op.signature = _auth(
+            _pks(APP_PK), _belowQuorum(IUserOpHash(EP).getUserOpHash(op), at, _key(APP_PK)), at, calls, new bytes32[](0)
+        );
     }
 
     function _opOn(address to, bytes memory data, uint256 index) internal view returns (PackedUserOperation memory) {
@@ -99,7 +100,7 @@ contract ScopeEdgesTest is WalletTestBase {
         op.paymasterAndData = abi.encodePacked(makeAddr("paymaster"), uint128(100_000), uint128(0));
         op.signature = _auth(
             _pks(APP_PK),
-            _belowQuorum(IUserOpHash(EP).getUserOpHash(op), 0),
+            _belowQuorum(IUserOpHash(EP).getUserOpHash(op), 0, _key(APP_PK)),
             0,
             abi.decode(op.signature, (IIdentityValidator.Authorization)).calls,
             new bytes32[](0)

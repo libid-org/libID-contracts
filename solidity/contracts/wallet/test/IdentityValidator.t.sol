@@ -639,7 +639,7 @@ contract IdentityValidatorTest is WalletTestBase {
         vm.stopPrank();
         _addByProof(relayer, X, ALICE, w, _key(ALICE2_PK), _admin());
 
-        assertFalse(_isValid1271(w, h, APP_PK, _wrapped(w, h)), "non-admin");
+        assertFalse(_isValid1271(w, h, APP_PK, _belowQuorum(_wrapped(w, h), 0, _key(APP_PK))), "non-admin");
         assertFalse(_isValid1271(w, h, MALLORY_PK, _wrapped(w, h)), "before validAfter");
         assertFalse(_isValid1271(w, h, ALICE2_PK, _wrapped(w, h)), "pending");
         assertTrue(_isValid1271(w, h, BOB_PK, _wrapped(w, h)), "in window");
@@ -724,7 +724,8 @@ contract IdentityValidatorTest is WalletTestBase {
         string memory descr = "Mail(address to)";
 
         assertEq(IWebWallet(w).isValidSignature(h, _typedSig(w, ALICE_PK, app, contents, descr)), bytes4(0x1626ba7e));
-        assertEq(IWebWallet(w).isValidSignature(h, _typedSig(w, APP_PK, app, contents, descr)), bytes4(0xffffffff));
+        (bytes32 hApp, bytes memory byApp) = _typedSigBy(w, _pks(APP_PK), app, new bytes32[](0));
+        assertEq(IWebWallet(w).isValidSignature(hApp, byApp), bytes4(0xffffffff), "an app session, no domains");
         bytes memory other = _typedSig(w, ALICE_PK, app, contents, descr);
         assertEq(IWebWallet(w).isValidSignature(keccak256("other"), other), bytes4(0xffffffff), "another hash");
         // An empty contents type gives a zero struct hash, which binds nothing.

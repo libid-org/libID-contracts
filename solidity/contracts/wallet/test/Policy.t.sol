@@ -85,10 +85,10 @@ contract PolicyEncodingTest is WalletTestBase {
         assertEq(_rh(p.rules), rules, "the test base's rules hash");
         assertEq(policyHashOf(p), 0xc51a04460ba256d1efcef52fde677904487eed95b705a198c65d40178196f7e8, "policyHashOf");
         assertEq(_ph(p), policyHashOf(p), "the test base's policy hash");
-        // cast keccak (cast abi-encode "f(bytes32,uint48)" (cast keccak op) 1234)
+        // cast keccak (cast abi-encode "f(bytes32,uint48,bytes32)" (cast keccak op) 1234 (cast keccak 0x…1234))
         assertEq(
-            _belowQuorum(keccak256("op"), 1234),
-            0x8c0f295ba05cf4321f217414c5e4fb63b06d09e3e32556f3c183b88ebac155a4,
+            _belowQuorum(keccak256("op"), 1234, abi.encodePacked(address(0x1234))),
+            0xf63e6147bfa910f2dab04a6910a61fbf42066f204e2344c197c154c1b5a6e8dc,
             "the below-quorum hash"
         );
         assertEq(
@@ -294,7 +294,8 @@ contract PolicyTest is WalletTestBase {
         IIdentityValidator.CallProof[] memory calls,
         uint48 at
     ) internal view {
-        op.signature = _auth(pks, _belowQuorum(IUserOpHash(EP).getUserOpHash(op), at), at, calls, new bytes32[](0));
+        bytes32 signed = _belowQuorum(IUserOpHash(EP).getUserOpHash(op), at, _key(pks[0]));
+        op.signature = _auth(pks, signed, at, calls, new bytes32[](0));
     }
 
     /// At quorum, `pks`' operation: the plain hash, no proofs, no paymaster.
@@ -761,7 +762,8 @@ contract PolicyTest is WalletTestBase {
 
         vm.warp(_now() + 1);
         bytes32 h = keccak256("a message");
-        assertFalse(_isValid1271(w, h, ALICE_PK, _wrapped(w, h)), "PersonalSign by one admin");
+        bytes32 bound = _belowQuorum(_wrapped(w, h), 0, _key(ALICE_PK));
+        assertFalse(_isValid1271(w, h, ALICE_PK, bound), "PersonalSign by one admin");
         bytes memory both = abi.encodePacked(address(validator), _sigs(_pks(ALICE_PK, BOB_PK), _wrapped(w, h)));
         assertEq(IWebWallet(w).isValidSignature(h, both), bytes4(0x1626ba7e), "PersonalSign at quorum");
         (bytes32 typed, bytes memory sig) = _typedSig(w, ALICE2_PK, appA, new bytes32[](0));
@@ -831,7 +833,8 @@ contract PolicyTest is WalletTestBase {
         (hashes[2], sigs[2]) = _typedSig(w, APP_PK, apps[2], new bytes32[](0));
         (hashes[3], sigs[3]) = _typedSig(w, MALLORY_PK, apps[0], proofA);
         hashes[4] = keccak256("a message");
-        sigs[4] = abi.encodePacked(address(validator), _sigs(_pks(APP_PK), _wrapped(w, hashes[4])));
+        bytes32 bound = _belowQuorum(_wrapped(w, hashes[4]), 0, _key(APP_PK));
+        sigs[4] = abi.encodePacked(address(validator), _sigs(_pks(APP_PK), bound));
         string[5] memory why =
             ["another app's proof", "an unlisted app", "an unlisted app, no proof", "domainsRoot 0", "PersonalSign"];
         for (uint256 i; i < sigs.length; ++i) {
@@ -855,7 +858,8 @@ contract PolicyTest is WalletTestBase {
         assertEq(IWebWallet(w).isValidSignature(h, sig), bytes4(0xffffffff), "separator 0");
         h = keccak256("a message");
         IIdentityValidator.CallProof[] memory none = new IIdentityValidator.CallProof[](0);
-        sig = abi.encodePacked(address(validator), _auth(_pks(APP_PK), _wrapped(w, h), 0, none, proofOwn));
+        bytes32 bound = _belowQuorum(_wrapped(w, h), 0, _key(APP_PK));
+        sig = abi.encodePacked(address(validator), _auth(_pks(APP_PK), bound, 0, none, proofOwn));
         assertEq(IWebWallet(w).isValidSignature(h, sig), bytes4(0xffffffff), "PersonalSign, own separator listed");
     }
 

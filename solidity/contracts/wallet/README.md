@@ -41,12 +41,15 @@ executor.claimToSelf(w, handleNode, tokens);                         // pays the
   ECDSA, or `verifier || key`.
 - `userOp.signature` is `abi.encode(IIdentityValidator.Authorization)`. Its
   signatures are over the EntryPoint's `userOpHash`; below quorum, each is
-  over `keccak256(abi.encode(userOpHash, at))`.
+  over `keccak256(abi.encode(userOpHash, at, keccak256(governingKey)))`, where
+  the governing key is the first signature's. Reordering the signatures
+  changes which session governs, so it invalidates them.
 - An ERC-1271 signature is the validator's address followed by an ERC-7739
   nested signature under the wallet's `eip712Domain()`: `PersonalSign`, or
   `TypedDataSign` followed by the app separator, contents hash and contents
   type. Its signature part is `abi.encode(Authorization)`, of which only
-  `signatures` and `domainProof` are read. Signers sign inside their window.
+  `signatures` and `domainProof` are read. Signers sign inside their window;
+  below quorum each signs the nested hash bound as above, with `at` 0.
 - `isValidSignature(0x7739…7739, "")` answers `0x77390001` (ERC-7739
   detection).
 - A proof's transaction data, for both `libid.webwallet.*` domains, is

@@ -110,7 +110,7 @@ contract IdentityValidator is IIdentityValidator, IdentityValidatorState {
     }
 
     /// @dev Inside the signers' window; below quorum, signers `_cosigned` signing `TypedDataSign` for an
-    ///      app the first one lists.
+    ///      app the first one lists, bound to it at `at` 0.
     function isValidSignatureWithSender(address, bytes32 hash, bytes calldata signature)
         external
         view
@@ -119,9 +119,10 @@ contract IdentityValidator is IIdentityValidator, IdentityValidatorState {
         if (hash == ERC7739_PROBE && signature.length == 0) return bytes4(0x77390001);
         (bytes32 signed, bytes calldata inner, bytes32 app) = _unnest(hash, signature);
         Authorization memory auth = _decode(inner);
-        Verified memory v = _verify(msg.sender, signed, auth.signatures, 0, 0);
+        uint8 quorum = threshold(msg.sender);
+        Verified memory v = _verify(msg.sender, signed, auth.signatures, quorum, 0);
         bool live = _inWindow(v);
-        bool allowed = v.adminPlatforms >= threshold(msg.sender)
+        bool allowed = v.adminPlatforms >= quorum
             || (_cosigned(v, auth.signatures.length)
                 && app != 0
                 && MerkleProof.verify(
@@ -472,7 +473,7 @@ contract IdentityValidator is IIdentityValidator, IdentityValidatorState {
 
     /// Checks that every signature is by a session of its identity's current link, and counts the
     /// distinct platforms of its signers and of the admin sessions among them. Short of `quorum`, every
-    /// signature is over `keccak256(abi.encode(hash, at))`; `quorum == 0` binds no `at`.
+    /// signature is over `keccak256(abi.encode(hash, at, keccak256(sigs[0].key)))`: the governing session.
     function _verify(address account, bytes32 hash, SessionSignature[] memory sigs, uint8 quorum, uint48 at)
         private
         view
@@ -494,7 +495,7 @@ contract IdentityValidator is IIdentityValidator, IdentityValidatorState {
                 adminPlatforms[v.adminPlatforms++] = platformId;
             }
         }
-        bytes32 signed = v.adminPlatforms < quorum ? keccak256(abi.encode(hash, at)) : hash;
+        bytes32 signed = v.adminPlatforms < quorum ? keccak256(abi.encode(hash, at, v.keyHash)) : hash;
         for (uint256 i; i < sigs.length; ++i) {
             if (!_signedBy(sigs[i].key, signed, sigs[i].signature)) return v;
         }

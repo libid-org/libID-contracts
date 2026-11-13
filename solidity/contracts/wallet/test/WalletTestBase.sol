@@ -111,6 +111,9 @@ abstract contract WalletTestBase is Test, Trees {
     bytes32 internal constant LINK = 0xb76778e70fe9491d05f3d66a477c7f1cb97c40b477b88d0c00442e80bcc4e15c;
     bytes32 internal constant ADD = 0xadc0929729a450db24efd5992bbc0f04693c7d8e9d706da31c8cca0a429d1d59;
     bytes32 internal constant BIND = 0x4d59cd4487de0a5957f8c83addaac7a1238175aa5c29eeea2fbef57a8f5165ac;
+    /// The fixed Mail of `_typedSigBy`: its contents hash and type.
+    bytes32 internal constant MAIL = keccak256("a Mail");
+    string internal constant MAIL_TYPE = "Mail(address to)";
     bytes32 internal constant PERSONAL_SIGN = 0x983e65e5148e570cd828ead231ee759a8d7958721a768f93bc4483ba005c32de;
 
     bytes32 internal constant MODE_SINGLE = bytes32(0);
@@ -405,13 +408,14 @@ abstract contract WalletTestBase is Test, Trees {
         IIdentityValidator.CallProof[] memory calls
     ) internal view returns (PackedUserOperation memory) {
         uint48 at = uint48(_now());
-        op.signature = _auth(pks, _belowQuorum(IUserOpHash(EP).getUserOpHash(op), at), at, calls, new bytes32[](0));
+        bytes32 signed = _belowQuorum(IUserOpHash(EP).getUserOpHash(op), at, _key(pks[0]));
+        op.signature = _auth(pks, signed, at, calls, new bytes32[](0));
         return op;
     }
 
-    /// What a lone session signs below quorum: the operation's hash bound to `at`.
-    function _belowQuorum(bytes32 userOpHash, uint48 at) internal pure returns (bytes32) {
-        return keccak256(abi.encode(userOpHash, at));
+    /// What every signer signs below quorum: `hash` bound to `at` and the governing session's key.
+    function _belowQuorum(bytes32 hash, uint48 at, bytes memory governingKey) internal pure returns (bytes32) {
+        return keccak256(abi.encode(hash, at, keccak256(governingKey)));
     }
 
     /// A scope of the one leaf `(target, hit(), 0)`: its root is the leaf.
@@ -564,34 +568,36 @@ abstract contract WalletTestBase is Test, Trees {
         return IWebWallet(wallet).isValidSignature(h, sig) == bytes4(0x1626ba7e);
     }
 
-    /// `pks`' ERC-7739 `TypedDataSign` of a fixed Mail for the app separator `app`, with `domainProof`.
+    /// `pks`' ERC-7739 `TypedDataSign` below quorum of a fixed Mail for the app separator `app`, with `domainProof`.
     function _typedSigBy(address account, uint256[] memory pks, bytes32 app, bytes32[] memory domainProof)
         internal
         view
         returns (bytes32 h, bytes memory sig)
     {
-        bytes32 contents = keccak256("a Mail");
-        string memory descr = "Mail(address to)";
+        bytes32 signed = _belowQuorum(_typedHash(account, app), 0, _key(pks[0]));
+        return _typedSigOf(app, _auth(pks, signed, 0, new IIdentityValidator.CallProof[](0), domainProof));
+    }
+
+    /// The hash an ERC-7739 `TypedDataSign` of the fixed Mail for `app` signs, nested under `account`'s domain.
+    function _typedHash(address account, bytes32 app) internal view returns (bytes32) {
         (, string memory name, string memory version, uint256 chainId, address verifying, bytes32 salt,) =
             IWebWallet(account).eip712Domain();
         bytes32 typehash = keccak256(
             abi.encodePacked(
                 "TypedDataSign(Mail contents,string name,string version,uint256 chainId,address verifyingContract,bytes32 salt)",
-                descr
+                MAIL_TYPE
             )
         );
         bytes32 structHash = keccak256(
-            abi.encode(typehash, contents, keccak256(bytes(name)), keccak256(bytes(version)), chainId, verifying, salt)
+            abi.encode(typehash, MAIL, keccak256(bytes(name)), keccak256(bytes(version)), chainId, verifying, salt)
         );
-        bytes memory auth = _auth(
-            pks,
-            keccak256(abi.encodePacked(hex"1901", app, structHash)),
-            0,
-            new IIdentityValidator.CallProof[](0),
-            domainProof
-        );
-        h = keccak256(abi.encodePacked(hex"1901", app, contents));
-        sig = abi.encodePacked(address(validator), auth, app, contents, descr, uint16(bytes(descr).length));
+        return keccak256(abi.encodePacked(hex"1901", app, structHash));
+    }
+
+    /// `auth` as an ERC-7739 `TypedDataSign` of the fixed Mail for `app`, and the app's hash it answers.
+    function _typedSigOf(bytes32 app, bytes memory auth) internal view returns (bytes32 h, bytes memory sig) {
+        h = keccak256(abi.encodePacked(hex"1901", app, MAIL));
+        sig = abi.encodePacked(address(validator), auth, app, MAIL, MAIL_TYPE, uint16(bytes(MAIL_TYPE).length));
     }
 
     // ─── ERC-7562 ───────────────────────────────────────────────────

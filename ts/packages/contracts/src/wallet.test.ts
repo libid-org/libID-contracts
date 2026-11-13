@@ -27,8 +27,8 @@ describe('session-policy hashes', () => {
     expect(policyHashOf(POLICY)).toBe(
       '0xc51a04460ba256d1efcef52fde677904487eed95b705a198c65d40178196f7e8',
     )
-    expect(belowQuorumHash(keccak256(toHex('op')), 1234)).toBe(
-      '0x8c0f295ba05cf4321f217414c5e4fb63b06d09e3e32556f3c183b88ebac155a4',
-    )
+    expect(
+      belowQuorumHash(keccak256(toHex('op')), 1234, '0x0000000000000000000000000000000000001234'),
+    ).toBe('0xf63e6147bfa910f2dab04a6910a61fbf42066f204e2344c197c154c1b5a6e8dc')
   })
 })

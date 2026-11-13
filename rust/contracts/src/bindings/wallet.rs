@@ -163,11 +163,14 @@ macro_rules! policy_hashes {
 policy_hashes!(IIdentityValidator::Rules, IIdentityValidator::Policy);
 policy_hashes!(RegistryRules, RegistryPolicy);
 
-/// What each signer signs below quorum: `keccak256(abi.encode(userOpHash, at))`.
-/// `at` picks the allowance period, which the EntryPoint enforces as the
-/// operation's validity window.
-pub fn below_quorum_hash(user_op_hash: B256, at: U48) -> B256 {
-    keccak256((user_op_hash, at).abi_encode_params())
+/// What each signer signs below quorum:
+/// `keccak256(abi.encode(hash, at, keccak256(governingKey)))`, where the
+/// governing key is the first signature's. For an operation, `hash` is its
+/// `userOpHash` and `at` picks the allowance period, which the EntryPoint
+/// enforces as the operation's validity window. For ERC-1271, `hash` is the
+/// ERC-7739 nested hash and `at` is 0.
+pub fn below_quorum_hash(hash: B256, at: U48, governing_key: &[u8]) -> B256 {
+    keccak256((hash, at, keccak256(governing_key)).abi_encode_params())
 }
 
 #[cfg(test)]
@@ -215,8 +218,12 @@ mod tests {
         assert_eq!(registry.rules.rules_hash(), rules_hash);
         assert_eq!(registry.policy_hash(), policy_hash);
         assert_eq!(
-            below_quorum_hash(keccak256("op"), U48::from(1234)),
-            b256!("0x8c0f295ba05cf4321f217414c5e4fb63b06d09e3e32556f3c183b88ebac155a4")
+            below_quorum_hash(
+                keccak256("op"),
+                U48::from(1234),
+                address!("0x0000000000000000000000000000000000001234").as_slice()
+            ),
+            b256!("0xf63e6147bfa910f2dab04a6910a61fbf42066f204e2344c197c154c1b5a6e8dc")
         );
     }
 

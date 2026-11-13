@@ -23,11 +23,22 @@ contract SessionSignersTest is WalletTestBase {
 
     /// An app session of Alice's allowed `hit()` and app `APP`, needing `signers`.
     function _governing(uint8 signers) internal {
+        _governing(_identity(X, ALICE), APP_PK, signers);
+    }
+
+    function _governing(bytes32 identity, uint256 pk, uint8 signers) internal {
         IIdentityValidator.Policy memory p = _hitOnly();
         p.signers = signers;
         p.rules.domainsRoot = _domainLeaf(APP);
         vm.prank(w);
-        validator.addSession(_identity(X, ALICE), _key(APP_PK), p);
+        validator.addSession(identity, _key(pk), p);
+    }
+
+    /// `auth` with its first two signatures swapped.
+    function _swapped(bytes memory auth) internal pure returns (bytes memory) {
+        IIdentityValidator.Authorization memory a = abi.decode(auth, (IIdentityValidator.Authorization));
+        (a.signatures[0], a.signatures[1]) = (a.signatures[1], a.signatures[0]);
+        return abi.encode(a);
     }
 
     function _hitBy(uint64 seq, uint256[] memory pks) internal view returns (PackedUserOperation memory) {
@@ -85,5 +96,33 @@ contract SessionSignersTest is WalletTestBase {
         assertEq(IWebWallet(w).isValidSignature(h, sig), bytes4(0xffffffff), "one signer of two");
         (h, sig) = _typedSigBy(w, _pks(APP_PK, BOB_PK), APP, new bytes32[](0));
         assertEq(IWebWallet(w).isValidSignature(h, sig), bytes4(0x1626ba7e), "two platforms");
+    }
+
+    /// Either session could govern, but the signatures name the first: reordered, they are refused.
+    function test_theSignatureOrderIsSigned() public {
+        _governing(2);
+        _governing(_identity(GITHUB, BOB), CAROL_PK, 2);
+        PackedUserOperation memory op = _hitBy(0, _pks(APP_PK, CAROL_PK));
+        PackedUserOperation memory reordered = _hitBy(0, _pks(APP_PK, CAROL_PK));
+        reordered.signature = _swapped(reordered.signature);
+        _refused(reordered, "the signatures reordered");
+        _handle(op);
+        _handle(_hitBy(1, _pks(CAROL_PK, APP_PK)));
+        assertEq(target.calls(), 2, "either order, as signed");
+    }
+
+    function test_erc1271SignsTheSignatureOrder() public {
+        _governing(2);
+        _governing(_identity(GITHUB, BOB), CAROL_PK, 2);
+        vm.warp(_now() + 1);
+        (bytes32 h, bytes memory sig) = _typedSigBy(w, _pks(APP_PK, CAROL_PK), APP, new bytes32[](0));
+        assertEq(IWebWallet(w).isValidSignature(h, sig), bytes4(0x1626ba7e), "as signed");
+        (h, sig) = _typedSigBy(w, _pks(CAROL_PK, APP_PK), APP, new bytes32[](0));
+        assertEq(IWebWallet(w).isValidSignature(h, sig), bytes4(0x1626ba7e), "Carol governing, as signed");
+        bytes32 signed = _belowQuorum(_typedHash(w, APP), 0, _key(APP_PK));
+        bytes memory auth =
+            _auth(_pks(APP_PK, CAROL_PK), signed, 0, new IIdentityValidator.CallProof[](0), new bytes32[](0));
+        (h, sig) = _typedSigOf(APP, _swapped(auth));
+        assertEq(IWebWallet(w).isValidSignature(h, sig), bytes4(0xffffffff), "reordered");
     }
 }
