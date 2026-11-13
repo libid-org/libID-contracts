@@ -62,8 +62,9 @@ export function policyHashOf(policy: SessionPolicy): Hex {
 /// `keccak256(abi.encode(hash, at, keccak256(governingKey)))`, where the
 /// governing key is the first signature's. For an operation, `hash` is its
 /// `userOpHash` and `at` picks the allowance period, which the EntryPoint
-/// enforces as the operation's validity window. For ERC-1271, `hash` is the
-/// ERC-7739 nested hash and `at` is 0.
+/// enforces as the operation's validity window. For a direct `execute`, `hash`
+/// is its EIP-712 `Execute` digest and `at` the one it signs. For ERC-1271,
+/// `hash` is the ERC-7739 nested hash and `at` is 0.
 export function belowQuorumHash(hash: Hex, at: number, governingKey: Hex): Hex {
   return keccak256(
     encodeAbiParameters(parseAbiParameters('bytes32, uint48, bytes32'), [

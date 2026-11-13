@@ -15,15 +15,8 @@ contract WalletWiringTest is WalletTestBase {
         assertEq(_reads(address(registry), "proofVerifier()"), address(proofVerifier));
     }
 
-    function test_executorReportsItsRegistryEscrowAndValidator() public view {
-        assertEq(_reads(address(executor), "identityRegistry()"), address(identities));
-        assertEq(_reads(address(executor), "handleEscrow()"), address(escrow));
-        assertEq(_reads(address(executor), "identityValidator()"), address(validator));
-    }
-
     function test_walletImplementationReportsItsModules() public view {
         assertEq(_reads(walletImpl, "identityValidator()"), address(validator));
-        assertEq(_reads(walletImpl, "claimExecutor()"), address(executor));
     }
 
     function test_factoryReportsItsImplementation() public view {

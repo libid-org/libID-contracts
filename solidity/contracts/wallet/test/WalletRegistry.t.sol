@@ -16,30 +16,31 @@ contract WalletRegistryTest is WalletTestBase {
         assertEq(registry.ADD_SESSION_DOMAIN(), ADD);
     }
 
-    function test_genesisLinkByAnyoneCarriesTheFirstSession() public {
+    /// The wallet's genesis link carries its first session, active at once.
+    function test_theGenesisLinkCarriesTheFirstSession() public {
         vm.prank(relayer);
         address w = factory.createWallet(X, ALICE);
         bytes memory payload = _payload(X, ALICE, LINK, _txData(w, _key(ALICE_PK), _ph(_admin())));
         vm.expectEmit(true, true, false, true, address(validator));
-        emit IIdentityValidator.SessionAddedByProof(w, _identity(X, ALICE), _key(ALICE_PK), _admin(), 0);
+        emit IIdentityValidator.SessionAdded(w, _identity(X, ALICE), _key(ALICE_PK), _admin());
         vm.expectEmit(true, true, true, false, address(registry));
         emit IWalletRegistry.IdentityLinked(w, X, ALICE, bytes32(0));
-        vm.prank(mallory);
+        vm.prank(w);
         registry.linkIdentity(X, V1, payload, _admin());
 
         bytes32 alice = _identity(X, ALICE);
         assertTrue(validator.isLinked(w, alice), "not linked");
         IIdentityValidator.Session memory s = validator.sessionOf(w, _key(ALICE_PK));
         assertEq(s.identity, alice, "session identity");
-        assertTrue(s.admin, "first session is not admin");
-        assertLe(s.activeAt, _now(), "the first session waits");
+        assertTrue(s.admin && !s.byProof, "first session is not the wallet's admin");
+        assertEq(s.activeAt, 0, "the first session waits");
         assertTrue(validator.hadSession(w), "flag not set");
         assertTrue(registry.digestSpent(xStub.lastDigest()), "digest not spent");
     }
 
     function test_linkOnlyAddsNoSession() public {
         address w = factory.createWallet(X, ALICE);
-        _link(relayer, X, ALICE, w, "", _admin());
+        _link(w, X, ALICE, w, "", _admin());
         assertTrue(validator.isLinked(w, _identity(X, ALICE)), "not linked");
         assertFalse(validator.hadSession(w), "a session was added");
     }
@@ -77,7 +78,7 @@ contract WalletRegistryTest is WalletTestBase {
         assertTrue(validator.isLinked(w, alice), "the wallet could not re-link");
     }
 
-    function test_aLinkByTheWalletAddsItsSessionAtOnce() public {
+    function test_aLinkByTheWalletAddsItsSessionFromTheNextSecond() public {
         address w = _claim();
         bytes memory payload = _payload(GITHUB, BOB, LINK, _txData(w, _key(BOB_PK), _ph(_admin())));
         vm.expectEmit(true, true, false, true, address(validator));
@@ -86,7 +87,7 @@ contract WalletRegistryTest is WalletTestBase {
         registry.linkIdentity(GITHUB, V1, payload, _admin());
         IIdentityValidator.Session memory s = validator.sessionOf(w, _key(BOB_PK));
         assertEq(s.identity, _identity(GITHUB, BOB), "no session");
-        assertEq(s.activeAt, 0, "the wallet's own session waits");
+        assertEq(s.activeAt, _now(), "the wallet's own session does not start now");
     }
 
     /// R5: a phished link to another wallet does not keep the canonical wallet from linking.
@@ -105,11 +106,13 @@ contract WalletRegistryTest is WalletTestBase {
         address w = factory.createWallet(X, ALICE);
         bytes memory payload = _payload(X, ALICE, LINK, _txData(w, "", bytes32(0)));
         vm.recordLogs();
+        vm.prank(w);
         registry.linkIdentity(X, V1, payload, _admin());
         bytes32 digest = xStub.lastDigest();
         Vm.Log[] memory logs = vm.getRecordedLogs();
         assertEq(abi.decode(logs[logs.length - 1].data, (bytes32)), digest, "IdentityLinked digest");
         vm.expectRevert(abi.encodeWithSelector(IWalletRegistry.DigestAlreadySpent.selector, digest));
+        vm.prank(w);
         registry.linkIdentity(X, V1, payload, _admin());
     }
 
@@ -178,6 +181,7 @@ contract WalletRegistryTest is WalletTestBase {
         bytes memory key19 = hex"00112233445566778899aabbccddeeff001122";
         bytes memory shortKey = _payload(X, ALICE, LINK, abi.encode(block.chainid, w, key19, ph));
         vm.expectRevert(abi.encodeWithSelector(IIdentityValidator.InvalidKey.selector, key19));
+        vm.prank(w);
         registry.linkIdentity(X, V1, shortKey, _admin());
 
         bytes memory addPayload = _payload(X, ALICE, ADD, abi.encodePacked(good, bytes1(0)));
@@ -239,12 +243,14 @@ contract WalletRegistryTest is WalletTestBase {
         registry.addSessionByProof(X, V1, payload, _admin());
     }
 
-    function test_aWalletThatNeverHadASessionSkipsTheWait() public {
+    function test_aWalletThatNeverHadASessionTakesNoSessionByProof() public {
         address w = factory.createWallet(X, ALICE);
-        _link(relayer, X, ALICE, w, "", _admin());
-        _addByProof(mallory, X, ALICE, w, _key(ALICE_PK), _admin());
-        assertLe(validator.sessionOf(w, _key(ALICE_PK)).activeAt, _now(), "first session waits");
-        assertTrue(validator.hadSession(w), "flag not set");
+        _link(w, X, ALICE, w, "", _admin());
+        bytes memory payload = _payload(X, ALICE, ADD, _txData(w, _key(ALICE_PK), _ph(_admin())));
+        vm.prank(mallory);
+        vm.expectRevert(abi.encodeWithSelector(IIdentityValidator.FirstSessionRefused.selector, w));
+        registry.addSessionByProof(X, V1, payload, _admin());
+        assertFalse(validator.hadSession(w), "flag set");
     }
 
     function test_aSessionByProofWaitsAndIsAnnounced() public {

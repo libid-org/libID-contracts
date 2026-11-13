@@ -15,14 +15,11 @@ contract ValidatorMigrationTest is WalletTestBase {
     IWalletRegistry internal registry2;
     IIdentityValidator internal v2;
 
-    /// A second stack: registry, validator, executor and wallet implementation.
+    /// A second stack: registry, validator and wallet implementation.
     function _v2Impl() internal returns (address) {
-        registry2 = IWalletRegistry(deployCode("WalletRegistry.sol:WalletRegistry", abi.encode(address(proofVerifier))));
+        registry2 = _newRegistry(address(factory));
         v2 = IIdentityValidator(registry2.identityValidator());
-        address exec2 = deployCode(
-            "ClaimExecutor.sol:ClaimExecutor", abi.encode(address(identities), address(escrow), address(v2))
-        );
-        return deployCode("WebWallet.sol:WebWallet", abi.encode(address(v2), exec2));
+        return deployCode("WebWallet.sol:WebWallet", abi.encode(address(v2)));
     }
 
     function _upgrade(bytes memory installData) internal returns (bytes memory) {
@@ -30,12 +27,28 @@ contract ValidatorMigrationTest is WalletTestBase {
         return abi.encodeCall(IWebWallet.upgradeToAndCall, (impl2, abi.encodeCall(IWebWallet.migrate, (installData))));
     }
 
-    /// Alice's wallet moved to `v2`, carrying her admin session.
+    /// Alice's wallet moved to `v2`, carrying her admin session, which signs from the next second.
     function _migrated() internal returns (address w) {
         w = _claim();
         bytes memory upgrade = _upgrade(abi.encode(X, ALICE, _key(ALICE_PK), _admin()));
         _root(w, w, upgrade);
+        vm.warp(_now() + 1);
         assertTrue(IWebWallet(w).isModuleInstalled(1, address(v2), ""), "v2 not installed");
+    }
+
+    /// The new validator installs only the factory's wallet of the genesis named: a migration cannot rename it.
+    function test_aMigrationKeepsTheGenesis() public {
+        address w = _claim();
+        bytes memory renamed = _upgrade(abi.encode(X, MALLORY, _key(ALICE_PK), _admin()));
+        bytes memory err =
+            abi.encodeWithSelector(IIdentityValidator.NotFactoryWallet.selector, w, factory.walletAddress(X, MALLORY));
+        _rootReverts(w, w, renamed, err);
+        assertFalse(IWebWallet(w).isModuleInstalled(1, address(v2), ""), "migrated under another genesis");
+
+        _root(w, w, _upgrade(abi.encode(X, ALICE, _key(ALICE_PK), _admin())));
+        assertTrue(IWebWallet(w).isModuleInstalled(1, address(v2), ""), "the same genesis did not migrate");
+        (bytes32 platformId, bytes32 idNode) = v2.genesisIdentity(w);
+        assertEq(abi.encode(platformId, idNode), abi.encode(X, ALICE), "genesis");
     }
 
     function test_aValidatorMigrationKeepsStrangersOut() public {
@@ -75,6 +88,7 @@ contract ValidatorMigrationTest is WalletTestBase {
         assertTrue(_signs(w, address(validator), ALICE_PK), "v1 could not sign before");
 
         _root(w, w, _upgrade(abi.encode(X, ALICE, _key(ALICE_PK), _admin())));
+        vm.warp(_now() + 1);
         assertTrue(IWebWallet(w).isModuleInstalled(1, address(validator), ""), "v1 uninstalled");
 
         _refused(_opVia(w, address(validator), ALICE_PK, _hit()), "a v1 admin session");
@@ -100,6 +114,7 @@ contract ValidatorMigrationTest is WalletTestBase {
         p.rules.scopeRoot = _leaf(address(validator), IIdentityValidator.queueRoot.selector, 0);
         vm.prank(w);
         v2.addSession(_identity(X, ALICE), _key(APP_PK), p);
+        vm.warp(_now() + 1);
         bytes memory up = abi.encodeCall(IWebWallet.upgradeToAndCall, (_walletImpl(), ""));
         PackedUserOperation memory op =
             _op(w, 0, _exec(address(validator), abi.encodeCall(IIdentityValidator.queueRoot, (w, up))));
@@ -122,7 +137,6 @@ contract ValidatorMigrationTest is WalletTestBase {
 
     function test_migrateRunsOnlyInsideTheUpgrade() public {
         address w = _migrated();
-        assertTrue(IWebWallet(w).isModuleInstalled(2, IWebWallet(w).claimExecutor(), ""), "new executor");
         bytes memory data = abi.encode(X, ALICE, _key(MALLORY_PK), _admin());
         vm.prank(mallory);
         vm.expectRevert(Initializable.InvalidInitialization.selector);

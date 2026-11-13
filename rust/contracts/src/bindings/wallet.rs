@@ -28,8 +28,8 @@ mod web_wallet {
     );
 }
 
-/// `wallet/WebWallet.sol`: the ERC-7579 account, whose only modules are the
-/// IdentityValidator and the ClaimExecutor.
+/// `wallet/WebWallet.sol`: the ERC-7579 account, whose only module is the
+/// IdentityValidator.
 pub use web_wallet::WebWallet;
 /// The ERC-4337 operation `WebWallet.validateUserOp` takes.
 pub use web_wallet::WebWallet::PackedUserOperation;
@@ -97,24 +97,6 @@ mod wallet_factory {
 /// `wallet/WalletFactory.sol`: deploys wallets at addresses fixed by identity.
 pub use wallet_factory::WalletFactory;
 
-#[allow(
-    clippy::too_many_arguments,
-    missing_docs,
-    non_camel_case_types,
-    unused_attributes
-)]
-mod claim_executor {
-    alloy::sol!(
-        #[sol(rpc, all_derives)]
-        ClaimExecutor,
-        "abi/ClaimExecutor.json"
-    );
-}
-
-/// `wallet/ClaimExecutor.sol`: the executor that binds a wallet's identity and
-/// claims what the escrow holds for it.
-pub use claim_executor::ClaimExecutor;
-
 /// `rulesHashOf` and `policyHashOf` of `IIdentityValidator.sol`, on both
 /// bindings of `Rules` and `Policy`.
 macro_rules! policy_hashes {
@@ -167,8 +149,9 @@ policy_hashes!(RegistryRules, RegistryPolicy);
 /// `keccak256(abi.encode(hash, at, keccak256(governingKey)))`, where the
 /// governing key is the first signature's. For an operation, `hash` is its
 /// `userOpHash` and `at` picks the allowance period, which the EntryPoint
-/// enforces as the operation's validity window. For ERC-1271, `hash` is the
-/// ERC-7739 nested hash and `at` is 0.
+/// enforces as the operation's validity window. For a direct `execute`, `hash`
+/// is its EIP-712 `Execute` digest and `at` the one it signs. For ERC-1271,
+/// `hash` is the ERC-7739 nested hash and `at` is 0.
 pub fn below_quorum_hash(hash: B256, at: U48, governing_key: &[u8]) -> B256 {
     keccak256((hash, at, keccak256(governing_key)).abi_encode_params())
 }

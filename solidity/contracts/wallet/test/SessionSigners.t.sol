@@ -21,7 +21,7 @@ contract SessionSignersTest is WalletTestBase {
         validator.addSession(_identity(GITHUB, BOB), _key(BOB_PK), _app());
     }
 
-    /// An app session of Alice's allowed `hit()` and app `APP`, needing `signers`.
+    /// An app session of Alice's allowed `hit()` and app `APP`, needing `signers`, signing from the next second.
     function _governing(uint8 signers) internal {
         _governing(_identity(X, ALICE), APP_PK, signers);
     }
@@ -32,6 +32,7 @@ contract SessionSignersTest is WalletTestBase {
         p.rules.domainsRoot = _domainLeaf(APP);
         vm.prank(w);
         validator.addSession(identity, _key(pk), p);
+        vm.warp(_now() + 1);
     }
 
     /// `auth` with its first two signatures swapped.

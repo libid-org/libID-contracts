@@ -12,15 +12,26 @@ import {
     IERC7579ModuleConfig
 } from "@openzeppelin/contracts/interfaces/draft-IERC7579.sol";
 
+// The `AUTHORIZED` execution mode's selector.
+bytes4 constant AUTHORIZED_SELECTOR = bytes4(keccak256("libid.webwallet.authorized"));
+// The one `AUTHORIZED` mode word: batch call type, default exec type, `AUTHORIZED_SELECTOR`, zero payload.
+bytes32 constant AUTHORIZED_MODE = bytes32((uint256(0x01) << 248) | (uint256(uint32(AUTHORIZED_SELECTOR)) << 176));
+
 /// @title IWebWallet - the ERC-7579 account core (OpenZeppelin v5.7.0, UUPS).
-/// @notice Constructor: `WebWallet(address identityValidator, address claimExecutor)`, the two
-///         modules it accepts, as validator and executor; `initialize` installs both.
+/// @notice Constructor: `WebWallet(address identityValidator)`, the one module it accepts;
+///         `initialize` installs it.
 /// @dev `installModule`, `uninstallModule` and `upgradeToAndCall` accept only the constructor's
 ///      validator, which calls them for a matured root operation; another validator still installed
-///      has no power. The validator cannot be uninstalled. `executeFromExecutor` accepts only the installed executor,
-///      and its calls pass no validator.
-///      Delegatecall execution is refused. Only the constructor's validator validates UserOperations
-///      and signs: another validator still installed, such as the one a migration replaced, is refused.
+///      has no power. The validator cannot be uninstalled. No executor module is supported.
+///      `execute(mode, data)` takes a default-selector mode from the EntryPoint only, and `AUTHORIZED_MODE`
+///      from anyone, checked at the end: `data` is then
+///      `abi.encode(bytes executionCalldata, uint48 deadline, uint256 callGas, bytes authorization)`.
+///      For it the wallet consumes the EntryPoint nonce under key `uint192(uint160(validator)) << 32`,
+///      reads the threshold, requires `gasleft() >= callGas`, runs the batch, then calls the validator's
+///      `checkExecution`; any failure reverts everything, the nonce included. One reentrancy lock covers
+///      both modes. Any other mode selector, and delegatecall execution, are refused. Only the constructor's
+///      validator validates UserOperations and signs: another validator still installed, such as the
+///      one a migration replaced, is refused.
 ///      `isValidSignature` passes `hash` to that validator, which reads it as ERC-7739 under
 ///      `eip712Domain()`; an empty signature goes to it too, so the ERC-7739 probe is answered.
 ///      ERC-721 and ERC-1155 safe transfers are accepted; ERC-165 reports both receivers.
@@ -34,24 +45,31 @@ interface IWebWallet is
     IERC721Receiver,
     IERC1155Receiver
 {
-    /// Only the constructor's modules may be installed, and the validator never uninstalled.
+    /// Only the constructor's validator may be installed, and it is never uninstalled.
     error ModuleNotAllowed(address module);
 
     /// The caller is not the constructor's validator.
     error NotValidator(address caller);
 
-    /// Installs the validator with `validatorData`, and the executor. Once, by the factory.
+    /// A mode selector other than zero, outside `AUTHORIZED_MODE`.
+    error UnsupportedModeSelector(bytes4 selector);
+
+    /// The gas left before the calls is below the signed `callGas`.
+    error InsufficientCallGas(uint256 callGas, uint256 left);
+
+    /// The migration's install data added no session.
+    error MigrationWithoutSession();
+
+    /// Installs the validator with `validatorData`. Once, by the factory.
     function initialize(bytes calldata validatorData) external;
 
-    /// Moves the wallet to this implementation's validator: installs it with `validatorData`, and the
-    /// executor unless installed. Only an installed validator, once per implementation that migrates;
+    /// Moves the wallet to this implementation's validator: installs it with `validatorData`, which must add a
+    /// session. Only an installed validator, once per implementation that migrates;
     /// the old validator calls it as the data of its matured root upgrade.
     function migrate(bytes calldata validatorData) external;
 
     /// The only validator this implementation installs.
     function identityValidator() external view returns (address);
-    /// The only executor this implementation installs.
-    function claimExecutor() external view returns (address);
 
     function upgradeToAndCall(address newImplementation, bytes calldata data) external payable;
 

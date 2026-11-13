@@ -41,9 +41,10 @@ contract WalletRegistry is IWalletRegistry {
         bytes key;
     }
 
-    constructor(address proofVerifier) {
+    /// @param walletFactory The WalletFactory proxy's address, which may not exist yet.
+    constructor(address proofVerifier, address walletFactory) {
         PROOF_VERIFIER = IProofVerifier(proofVerifier);
-        VALIDATOR = new IdentityValidator(address(this));
+        VALIDATOR = new IdentityValidator(address(this), walletFactory);
     }
 
     function identityValidator() external view returns (address) {
@@ -61,17 +62,10 @@ contract WalletRegistry is IWalletRegistry {
         IIdentityValidator.Policy calldata policy
     ) external payable {
         Accepted memory a = _accept(LINK_IDENTITY_DOMAIN, platformId, verifierVersion, payload, policy);
-        bool byWallet = msg.sender == a.wallet;
-        if (!byWallet) {
-            (bytes32 genesisPlatform, bytes32 genesisId) = VALIDATOR.genesisIdentity(a.wallet);
-            bool genesis = genesisPlatform == platformId && genesisId == a.idNode;
-            if (!genesis || VALIDATOR.hadSession(a.wallet)) revert NotWallet(a.wallet, msg.sender);
-        }
+        if (msg.sender != a.wallet) revert NotWallet(a.wallet, msg.sender);
         VALIDATOR.link(a.wallet, platformId, a.idNode);
         if (a.key.length != 0) {
-            bytes32 identity = identityOf(platformId, a.idNode);
-            if (byWallet) VALIDATOR.addSessionByAccount(a.wallet, identity, a.key, policy);
-            else VALIDATOR.addSessionByProof(a.wallet, identity, a.key, policy);
+            VALIDATOR.addSessionByAccount(a.wallet, identityOf(platformId, a.idNode), a.key, policy);
         }
         emit IdentityLinked(a.wallet, platformId, a.idNode, a.digest);
     }

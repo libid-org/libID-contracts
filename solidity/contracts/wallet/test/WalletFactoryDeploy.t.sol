@@ -1,41 +1,38 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
-import {UUPSUpgradeable} from "@openzeppelin/contracts/proxy/utils/UUPSUpgradeable.sol";
-
-import {LibidFactory} from "../../factory/LibidFactory.sol";
+import {Create3} from "../../factory/Create3.sol";
+import {IIdentityValidator} from "../IIdentityValidator.sol";
 import {IWalletFactory} from "../IWalletFactory.sol";
+import {IWebWallet} from "../IWebWallet.sol";
 import {WalletTestBase} from "./WalletTestBase.sol";
 
-/// The factory proxy deployed under a `LibidFactory` name, as a deployment does.
+/// The deployment order: the registry's validator names the factory proxy by its `LibidFactory` name before the
+/// proxy exists, and installs only on that factory's wallets.
 contract WalletFactoryDeployTest is WalletTestBase {
-    LibidFactory internal names;
-
-    function setUp() public override {
-        super.setUp();
-        names = LibidFactory(
-            address(new ERC1967Proxy(address(new LibidFactory()), abi.encodeCall(LibidFactory.initialize, (owner))))
-        );
+    function test_theValidatorNamesTheFactoryBeforeItIsDeployed() public {
+        assertEq(address(factory), names.predict(FACTORY_NAME), "the factory is not at its name");
+        assertEq(validator.walletFactory(), address(factory), "the validator names another factory");
+        address w = factory.createWallet(X, ALICE);
+        assertTrue(IWebWallet(w).isModuleInstalled(1, address(validator), ""), "not installed");
     }
 
-    function test_aFixReachesNewWalletsAtTheirPromisedAddress() public {
-        bytes memory proxy = abi.encodePacked(
-            type(ERC1967Proxy).creationCode,
-            abi.encode(_factoryImpl(walletImpl), abi.encodeCall(IWalletFactory.initialize, (owner)))
-        );
+    /// A stack whose factory landed at another name than its validator was told cannot create wallets.
+    function test_aFactoryAtAnotherAddressCannotCreateWallets() public {
+        IIdentityValidator v = IIdentityValidator(_newRegistry(names.predict("WalletFactory-a")).identityValidator());
+        address impl = deployCode("WebWallet.sol:WebWallet", abi.encode(address(v)));
+        bytes memory proxy = _factoryProxy(_factoryImpl(impl));
         vm.prank(owner);
-        IWalletFactory named = IWalletFactory(names.deploy("WalletFactory", proxy));
-        assertEq(address(named), names.predict("WalletFactory"), "not at its name");
-        address promised = named.walletAddress(X, ALICE);
+        IWalletFactory wrong = IWalletFactory(names.deploy("WalletFactory-b", proxy));
+        vm.expectRevert(Create3.TargetDeployFailed.selector);
+        wrong.createWallet(X, ALICE);
 
-        address fixedImpl = _walletImpl();
-        address fixedFactory = _factoryImpl(fixedImpl);
-        vm.prank(owner);
-        UUPSUpgradeable(address(named)).upgradeToAndCall(fixedFactory, "");
-
-        address w = named.createWallet(X, ALICE);
-        assertEq(w, promised, "moved");
-        assertEq(address(uint160(uint256(vm.load(w, IMPL_SLOT)))), fixedImpl, "new wallet runs the old implementation");
+        // The deployed validator refuses that wallet's install.
+        address w = wrong.walletAddress(X, ALICE);
+        bytes memory err =
+            abi.encodeWithSelector(IIdentityValidator.NotFactoryWallet.selector, w, factory.walletAddress(X, ALICE));
+        vm.prank(w);
+        vm.expectRevert(err);
+        validator.onInstall(abi.encode(X, ALICE));
     }
 }

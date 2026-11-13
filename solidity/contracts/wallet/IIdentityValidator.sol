@@ -20,23 +20,52 @@ function policyHashOf(IIdentityValidator.Policy memory policy) pure returns (byt
     );
 }
 
+/// @title IExecutionCheck - the validator's end check of an `AUTHORIZED_MODE` `execute`.
+/// @dev `authorization` is `abi.encode(Authorization)`; `deadline` and `callGas` come from the account's `data`.
+///      The digest is EIP-712 under the account's own domain of
+///      `Execute(bytes32 mode,bytes executionCalldata,uint48 at,uint256 nonce,uint48 deadline,uint256 callGas)`,
+///      with `at = Authorization.at`, signed as `validateUserOp` signs its hash. The account (`msg.sender`)
+///      passes `EntryPoint.getNonce(account, uint192(uint160(validator)) << 32)` as it was before it consumed it,
+///      and the threshold it read before its calls. The signers and the rules are those of `validateUserOp`
+///      at that threshold, with no paymaster and no gas charge; below quorum the value is charged to
+///      `NATIVE_TOKEN`. The signers' window, narrowed to the periods charged, must hold the block time.
+interface IExecutionCheck {
+    /// `deadline` is zero or has passed.
+    error ExecutionExpired(uint48 deadline);
+    /// The signatures over the `Execute` digest do not authorize the batch at the threshold.
+    error ExecutionNotAuthorized();
+    /// The period `at` picks does not contain the block time.
+    error ExecutionOutsidePeriod(uint48 at);
+
+    function checkExecution(
+        bytes32 mode,
+        bytes calldata executionCalldata,
+        uint48 deadline,
+        uint256 callGas,
+        bytes calldata authorization,
+        uint256 nonce,
+        uint8 threshold
+    ) external;
+}
+
 /// @title IIdentityValidator - identities, sessions and root operations of ERC-7579 accounts.
-/// @notice Constructor: `IdentityValidator(address walletRegistry)`, deployed by the WalletRegistry's
-///         own constructor. Immutable, no owner.
+/// @notice Constructor: `IdentityValidator(address walletRegistry, address walletFactory)`, deployed by the
+///         WalletRegistry's own constructor. Immutable, no owner. `walletFactory` is the WalletFactory proxy's
+///         address, known before it is deployed: its `LibidFactory` name's `predict`.
 /// @dev State is per account and per install: an uninstall drops it.
 ///      An identity is `identityOf(platformId, idNode)`. Signature formats, what a session may do
 ///      below quorum, install data and validator migration are in README.md beside this file.
 ///      Admin sessions of `threshold` distinct platforms are unrestricted; below it a session acts
 ///      only within its `Rules`.
 ///      Install data is `abi.encode(platformId, idNode)`, the genesis identity, which the install
-///      links, optionally followed by an admin session's `key` and `policy`, which it adds.
+///      accepts only from `walletFactory().walletAddress(platformId, idNode)` and links, optionally followed by an admin session's `key` and `policy`, which it adds from the next second.
 ///      `onInstall` and `onUninstall` run only from the account's own install and uninstall:
 ///      they revert while the account has this validator installed.
 ///      `onUninstall` expects the account to remove the module before it calls the hook, the order
 ///      of OpenZeppelin's `AccountERC7579`: an account that calls the hook first cannot uninstall.
 ///      Revoking an active admin session, or unlinking an identity, voids every root operation
 ///      queued before it: a queued change does not outlive the sessions that could have queued it.
-interface IIdentityValidator is IERC7579Validator {
+interface IIdentityValidator is IERC7579Validator, IExecutionCheck {
     /// @dev `period == 0` is a lifetime cap.
     struct Allowance {
         address token;
@@ -63,7 +92,9 @@ interface IIdentityValidator is IERC7579Validator {
         Rules rules;
     }
 
-    /// @dev `identity == 0`: no such session. `activeAt` is the end of a pending wait.
+    /// @dev `identity == 0`: no such session. The session signs only after `activeAt`: the second it was
+    ///      added for an add by the account, its install or a link by the account; the end of the recovery
+    ///      delay for a session by proof; 0 for a new wallet's first session, which signs at once.
     ///      A session whose `generation` is not its identity's current one, bumped by each unlink, is dead.
     ///      `byProof`: added by proof to an account that already had a session. Its operations, ordinary
     ///      calls and ERC-1271 signatures included, need signers that reach the threshold.
@@ -117,7 +148,7 @@ interface IIdentityValidator is IERC7579Validator {
 
     /// A session added by the account itself.
     event SessionAdded(address indexed account, bytes32 indexed identity, bytes key, Policy policy);
-    /// A session added by proof, the event to alert on: `activeAt != 0` is pending until then.
+    /// A session added by proof, the event to alert on: it is pending until `activeAt`.
     event SessionAddedByProof(
         address indexed account, bytes32 indexed identity, bytes key, Policy policy, uint48 activeAt
     );
@@ -130,6 +161,8 @@ interface IIdentityValidator is IERC7579Validator {
     /// The account still has this validator installed: its hooks run only from the account's own
     /// install and uninstall.
     error InstallLive(address account);
+    /// The installing account is not the factory's wallet of the genesis identity it names.
+    error NotFactoryWallet(address account, address factoryWallet);
     /// The account has no install of this validator to end.
     error NotInstalled(address account);
     /// A registry-only entry was called by someone else.
@@ -169,12 +202,17 @@ interface IIdentityValidator is IERC7579Validator {
     error BadRootOperation(address target);
     /// The account froze recovery by proof for this identity.
     error RecoveryFrozen(bytes32 identity);
+    /// The registry adds to a wallet that never had a session only its first session: the genesis
+    /// identity's, admin, linked by the account.
+    error FirstSessionRefused(address account);
 
     /// Floor of `recoveryDelay`.
     function MIN_RECOVERY_DELAY() external view returns (uint48);
     /// Ceiling of `recoveryDelay`.
     function MAX_RECOVERY_DELAY() external view returns (uint48);
     function walletRegistry() external view returns (address);
+    /// The WalletFactory whose wallets alone may install this validator.
+    function walletFactory() external view returns (address);
 
     function genesisIdentity(address account) external view returns (bytes32 platformId, bytes32 idNode);
     function isLinked(address account, bytes32 identity) external view returns (bool);
@@ -204,17 +242,17 @@ interface IIdentityValidator is IERC7579Validator {
 
     // Registry only.
     function link(address account, bytes32 platformId, bytes32 idNode) external;
-    /// Active at once while the account never had a session, else pending for `recoveryDelay` and `byProof`.
-    /// A newer pending session of the same identity replaces the older one.
-    /// Refused while the identity's recovery is frozen.
+    /// Pending for `recoveryDelay`, and `byProof`. A newer pending session of the same identity replaces the older
+    /// one. Refused while the identity's recovery is frozen, and for an account that never had a session.
     function addSessionByProof(address account, bytes32 identity, bytes calldata key, Policy calldata policy)
         external
         returns (uint48 activeAt);
-    /// Active at once: the account itself submitted the proof.
+    /// The account itself submitted the proof: active from the next second. An account that never had a session
+    /// takes only the genesis identity's admin session, active at once.
     function addSessionByAccount(address account, bytes32 identity, bytes calldata key, Policy calldata policy) external;
 
     // The account itself (an admin operation, under the threshold).
-    /// Active at once. The identity must be linked. A dead session's key may be reused.
+    /// Active from the next second. The identity must be linked. A dead session's key may be reused.
     function addSession(bytes32 identity, bytes calldata key, Policy calldata policy) external;
     /// Revokes an active or pending session. Removing the last admin session, counting pending and expired ones, is a root operation.
     /// Revoking an active admin session voids every root operation queued before it.

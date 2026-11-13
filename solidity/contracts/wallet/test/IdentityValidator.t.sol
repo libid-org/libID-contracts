@@ -187,7 +187,9 @@ contract IdentityValidatorTest is WalletTestBase {
         vm.startMappingRecording();
         vm.record();
         vm.prank(w);
-        assertEq(validator.validateUserOp(op, keccak256("op")), 0, "the 7913 key did not validate");
+        assertEq(
+            validator.validateUserOp(op, keccak256("op")), _window(uint48(_now()), 0), "the 7913 key did not validate"
+        );
         (bytes32[] memory reads,) = vm.accesses(address(validator));
         for (uint256 i; i < reads.length; ++i) {
             assertTrue(_associated(w, reads[i]), "validation read a slot not associated with the account");
@@ -226,6 +228,7 @@ contract IdentityValidatorTest is WalletTestBase {
         validator.addSession(_identity(X, ALICE), _key(ALICE2_PK), _admin());
         validator.addSession(_identity(GITHUB, BOB), _key(APP_PK), _app());
         vm.stopPrank();
+        uint256 added = _window(uint48(_now()), 0);
         _root(w, address(validator), abi.encodeCall(IIdentityValidator.setThreshold, (2)));
         assertEq(validator.threshold(w), 2, "threshold");
 
@@ -235,7 +238,7 @@ contract IdentityValidatorTest is WalletTestBase {
         assertEq(_validate(w, adminOp, _pks(ALICE_PK, ALICE_PK)), 1, "one key twice");
         assertEq(_validate(w, adminOp, _pks(ALICE_PK, ALICE2_PK)), 1, "two keys of one identity");
         assertEq(_validate(w, adminOp, _pks(ALICE_PK, APP_PK)), 1, "a non-admin session counted");
-        assertEq(_validate(w, adminOp, _pks(ALICE_PK, BOB_PK)), 0, "two admin platforms");
+        assertEq(_validate(w, adminOp, _pks(ALICE_PK, BOB_PK)), added, "two admin platforms");
         assertEq(_validate(w, _hit(), _pks(ALICE_PK)), 1, "below quorum, an admin with no scope");
     }
 
@@ -244,13 +247,16 @@ contract IdentityValidatorTest is WalletTestBase {
         address w = _claim();
         _link(w, X, MALLORY, w, _key(MALLORY_PK), _admin());
         _link(w, GOOGLE, CAROL, w, _key(CAROL_PK), _admin());
+        uint256 linked = _window(uint48(_now()), 0);
         _root(w, address(validator), abi.encodeCall(IIdentityValidator.setThreshold, (2)));
         bytes memory adminOp =
             _exec(address(validator), abi.encodeCall(IIdentityValidator.setRecoveryDelay, (72 hours)));
         assertEq(_validate(w, adminOp, _pks(ALICE_PK, MALLORY_PK)), 1, "two X identities met the threshold");
-        assertEq(_validate(w, adminOp, _pks(MALLORY_PK, CAROL_PK)), 0, "X and Google missed the threshold");
+        assertEq(_validate(w, adminOp, _pks(MALLORY_PK, CAROL_PK)), linked, "X and Google missed the threshold");
         assertEq(_validate(w, _hit(), _pks(ALICE_PK, MALLORY_PK)), 1, "two X identities skipped the session rules");
-        assertEq(_validate(w, _hit(), _pks(MALLORY_PK, CAROL_PK)), 0, "X and Google were held to the session rules");
+        assertEq(
+            _validate(w, _hit(), _pks(MALLORY_PK, CAROL_PK)), linked, "X and Google were held to the session rules"
+        );
     }
 
     /// The threshold may not exceed the platforms with a linked identity, however many identities there are.
@@ -362,21 +368,13 @@ contract IdentityValidatorTest is WalletTestBase {
         vm.stopPrank();
     }
 
-    /// R7: only the IdentityValidator and the ClaimExecutor, even through a matured root operation.
+    /// R7: only the IdentityValidator, even through a matured root operation.
     function test_moduleAllowlist() public {
         address w = _claim();
-        for (uint256 t = 3; t <= 4; ++t) {
-            assertFalse(IWebWallet(w).supportsModule(t), "a fallback or hook module type");
+        for (uint256 t = 2; t <= 4; ++t) {
+            assertFalse(IWebWallet(w).supportsModule(t), "an executor, fallback or hook module type");
         }
         assertTrue(IWebWallet(w).supportsModule(1), "validators");
-        assertTrue(IWebWallet(w).supportsModule(2), "executors");
-        assertTrue(IWebWallet(w).isModuleInstalled(2, address(executor), ""), "executor not installed at genesis");
-
-        // The executor leaves and comes back only by root operation; no other executor comes in.
-        _root(w, w, abi.encodeCall(IERC7579ModuleConfig.uninstallModule, (2, address(executor), "")));
-        assertFalse(IWebWallet(w).isModuleInstalled(2, address(executor), ""), "executor not uninstalled");
-        _root(w, w, abi.encodeCall(IERC7579ModuleConfig.installModule, (2, address(executor), "")));
-        assertTrue(IWebWallet(w).isModuleInstalled(2, address(executor), ""), "executor not reinstalled");
         _rootReverts(
             w,
             w,
@@ -384,7 +382,8 @@ contract IdentityValidatorTest is WalletTestBase {
             abi.encodeWithSelector(IWebWallet.ModuleNotAllowed.selector, address(target))
         );
 
-        address other = deployCode("IdentityValidator.sol:IdentityValidator", abi.encode(address(registry)));
+        address other =
+            deployCode("IdentityValidator.sol:IdentityValidator", abi.encode(address(registry), address(factory)));
         bytes memory data = abi.encodeCall(IERC7579ModuleConfig.installModule, (1, other, abi.encode(X, ALICE)));
         vm.prank(w);
         validator.queueRoot(w, data);
@@ -493,7 +492,8 @@ contract IdentityValidatorTest is WalletTestBase {
         }
         vm.prank(w);
         validator.addSession(bob, _key(APP_PK), _admin());
-        assertEq(_validate(w, _hit(), _pks(APP_PK)), 0, "a fresh session fails");
+        assertEq(_validate(w, _hit(), _pks(APP_PK)), _window(uint48(_now()), 0), "a fresh session fails");
+        vm.warp(_now() + 1);
         assertTrue(_isValid1271(w, h, APP_PK, _wrapped(w, h)), "a fresh session fails ERC-1271");
     }
 
@@ -587,11 +587,12 @@ contract IdentityValidatorTest is WalletTestBase {
         vm.expectRevert(abi.encodeWithSelector(IIdentityValidator.SessionExists.selector, _key(BOB_PK)));
         validator.addSession(alice, _key(BOB_PK), hitOnly);
         vm.stopPrank();
+        uint48 readded = uint48(_now());
         assertEq(validator.sessionOf(w, _key(BOB_PK)).identity, alice, "not re-added");
         PackedUserOperation memory op = _signedWith(_op(w, 0, _hit()), _pks(BOB_PK), _hitProofs(1));
         bytes32 h = IUserOpHash(EP).getUserOpHash(op);
         vm.prank(w);
-        assertEq(validator.validateUserOp(op, h), 0, "the re-added session fails");
+        assertEq(validator.validateUserOp(op, h), _window(readded, 0), "the re-added session fails");
     }
 
     /// A root operation queued before an unlink does not run after it.
@@ -638,6 +639,7 @@ contract IdentityValidatorTest is WalletTestBase {
         );
         vm.stopPrank();
         _addByProof(relayer, X, ALICE, w, _key(ALICE2_PK), _admin());
+        vm.warp(_now() + 1);
 
         assertFalse(_isValid1271(w, h, APP_PK, _belowQuorum(_wrapped(w, h), 0, _key(APP_PK))), "non-admin");
         assertFalse(_isValid1271(w, h, MALLORY_PK, _wrapped(w, h)), "before validAfter");
@@ -749,7 +751,9 @@ contract IdentityValidatorTest is WalletTestBase {
 
     /// Both ERC-7739 forms follow the account's whole domain, salt included.
     function test_erc1271FollowsASaltedDomain() public {
-        SaltedAccount a = new SaltedAccount(validator);
+        // At the factory's address of its genesis, the only account the validator installs on.
+        SaltedAccount a = SaltedAccount(factory.walletAddress(X, ALICE));
+        vm.etch(address(a), address(new SaltedAccount(validator)).code);
         vm.prank(address(a));
         validator.onInstall(abi.encode(X, ALICE));
         vm.prank(address(registry));
@@ -809,7 +813,7 @@ contract IdentityValidatorTest is WalletTestBase {
         bytes32 h = keccak256("a message");
         address w = _claim();
         address w2 = factory.createWallet(GITHUB, BOB);
-        _link(relayer, GITHUB, BOB, w2, _key(ALICE_PK), _admin());
+        _link(w2, GITHUB, BOB, w2, _key(ALICE_PK), _admin());
 
         assertTrue(_isValid1271(w2, h, ALICE_PK, _wrapped(w2, h)), "control");
         assertFalse(_isValid1271(w2, h, ALICE_PK, _wrapped(w, h)), "replayed from another account");

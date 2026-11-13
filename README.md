@@ -22,7 +22,7 @@ solidity/            # Foundry project root
     identity/        # IdentityRegistry
     escrow/          # HandleEscrow: value sent to a handle before it is proved
     wallet/          # WebWallet (ERC-7579 account), IdentityValidator,
-                     # WalletRegistry, WalletFactory, ClaimExecutor
+                     # WalletRegistry, WalletFactory
     ens/             # HandleResolver
     factory/         # LibidFactory: deterministic CREATE3 deployment
     WTIA9.sol        # wrapped TIA
