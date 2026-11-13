@@ -83,7 +83,10 @@ One `execute(bytes32 mode, bytes data)`, ERC-7579's, takes two kinds of mode:
      `checkExecution(mode, executionCalldata, deadline, callGas, authorization, nonce, threshold, domainSeparator)`,
      with the domain separator it read before the batch.
 
-  Any failure reverts everything, the nonce included.
+  Any failure reverts everything, the nonce included. So a failed batch
+  stays valid until its deadline. Signing another batch at the same nonce
+  does not cancel it: only a batch or UserOperation that uses the nonce, or
+  the deadline passing, does.
 
 Any other mode reverts: `UnsupportedModeSelector` from the EntryPoint,
 `AccountUnauthorized` from anyone else. EntryPoint validation refuses every
@@ -241,8 +244,13 @@ is charged to `NATIVE_TOKEN` with its value.
 - After the upgrade the old validator stays installed but keeps no power:
   the wallet accepts UserOperations, ERC-1271 signatures, module changes and
   upgrades only from the validator its implementation names. Root operations
-  queued on the old validator, before or after the migration, revert
-  `NotValidator`.
+  queued on the old validator, before or after the migration, and executed
+  after it gain nothing:
+  - `installModule`, `uninstallModule` and `upgradeToAndCall` revert
+    `NotValidator`;
+  - `migrate` reverts `InvalidInitialization`: the wallet already ran it;
+  - the old validator's own operations, such as `setThreshold` or
+    `revokeSession`, run, but change only that validator's records.
 
 ## Deployment
 
@@ -306,6 +314,18 @@ it.
   a linked identity on that platform (not exercised: it needs a leaked key).
 - `entryPoint()` is fixed to v0.9: a later EntryPoint costs one root upgrade
   per wallet.
+- Direct batches of every signer share one nonce sequence, under key
+  `uint192(uint160(validator)) << 32`. A limited session can submit its own
+  in-scope batch at the current nonce and so void an admin's signed direct
+  batch, again and again, at almost no cost: the direct path charges no gas.
+  No funds or control are at risk. The admin can send a UserOperation under
+  another nonce key of the validator, or revoke the session.
+- An ERC-7913 verifier used for a session key must not read state the
+  wallet can write: the direct path asks the verifier after the batch ran.
+  OpenZeppelin's `ERC7913WebAuthnVerifier` is stateless.
+- A token paymaster the session lists takes its fee outside the
+  allowances.
+- Approvals a session made outlive its revocation.
 - Sessions cannot be listed from storage. Watch `SessionAddedByProof` and
   `RootQueued` to alert the owner: every wait protects only an owner who is
   told.
