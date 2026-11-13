@@ -6,6 +6,7 @@ import {
   decodeOidcProof,
   decodeTlsNotaryProof,
   encodeOidcProof,
+  encodeOperationList,
   encodeTlsNotaryProof,
   GooglePublicInputMismatch,
   type OidcProof,
@@ -119,6 +120,35 @@ describe('encodeOidcProof', () => {
       proof: '0xdeadbeef',
     }
     expect(decodeOidcProof(encodeOidcProof(payload))).toEqual(payload)
+  })
+})
+
+describe('encodeOperationList', () => {
+  // ceremony-common §5, the Operation List vector, one word per line.
+  const vector = `0x${[
+    '0000000000000000000000000000000000000000000000000000000000000020',
+    '0000000000000000000000000000000000000000000000000000000000000002',
+    '0000000000000000000000000000000000000000000000000000000000000040',
+    '00000000000000000000000000000000000000000000000000000000000000c0',
+    '4d59cd4487de0a5957f8c83addaac7a1238175aa5c29eeea2fbef57a8f5165ac',
+    '0000000000000000000000000000000000000000000000000000000000000040',
+    '0000000000000000000000000000000000000000000000000000000000000020',
+    '0000000000000000000000001111111111111111111111111111111111111111',
+    '6b8fd3a153cb2bc403041d7ca7d029d031243d8143d49a248230df9dd07fb723',
+    '0000000000000000000000000000000000000000000000000000000000000040',
+    '0000000000000000000000000000000000000000000000000000000000000001',
+    'ff00000000000000000000000000000000000000000000000000000000000000',
+  ].join('')}`
+
+  it('encodes the spec vector', () => {
+    const encoded = encodeOperationList([
+      {
+        domain: keccak256(toHex('libid.bind-identity')),
+        data: `0x${'00'.repeat(12)}${'11'.repeat(20)}`,
+      },
+      { domain: keccak256(toHex('libid.test.a')), data: '0xff' },
+    ])
+    expect(encoded).toBe(vector)
   })
 })
 

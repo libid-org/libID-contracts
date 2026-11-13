@@ -111,6 +111,7 @@ abstract contract WalletTestBase is Test, Trees {
     bytes32 internal constant LINK = 0xb76778e70fe9491d05f3d66a477c7f1cb97c40b477b88d0c00442e80bcc4e15c;
     bytes32 internal constant ADD = 0xadc0929729a450db24efd5992bbc0f04693c7d8e9d706da31c8cca0a429d1d59;
     bytes32 internal constant BIND = 0x4d59cd4487de0a5957f8c83addaac7a1238175aa5c29eeea2fbef57a8f5165ac;
+    bytes32 internal constant OPERATIONS = 0x60b329d7366897b03545eb9f63f4a707253258ee2e1cd0ba3a8973aa4959e967;
     /// The fixed Mail of `_typedSigBy`: its contents hash and type.
     bytes32 internal constant MAIL = keccak256("a Mail");
     string internal constant MAIL_TYPE = "Mail(address to)";

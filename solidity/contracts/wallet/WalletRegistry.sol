@@ -3,6 +3,7 @@ pragma solidity ^0.8.24;
 
 import {ICeremony} from "../ceremony/ICeremony.sol";
 import {IProofVerifier} from "../ceremony/IProofVerifier.sol";
+import {OperationList} from "../ceremony/OperationList.sol";
 import {IIdentityValidator, identityOf, policyHashOf} from "./IIdentityValidator.sol";
 import {IdentityValidator} from "./IdentityValidator.sol";
 import {IWalletRegistry} from "./IWalletRegistry.sol";
@@ -106,12 +107,18 @@ contract WalletRegistry is IWalletRegistry {
         ICeremony.VerifiedClaim memory claimed =
             PROOF_VERIFIER.verify{value: required}(platformId, verifierVersion, payload);
 
-        if (claimed.operationDomain != domain) revert ForeignOperationDomain(claimed.operationDomain);
+        // Both domains are this Consumer's, so a list may carry only one of them (REQ-COMMON-01I).
+        bytes32[] memory own = new bytes32[](2);
+        own[0] = LINK_IDENTITY_DOMAIN;
+        own[1] = ADD_SESSION_DOMAIN;
+        (bytes32 entryDomain, bytes memory data) =
+            OperationList.select(claimed.operationDomain, claimed.transactionData, own);
+        if (entryDomain != domain) revert ForeignOperationDomain(entryDomain);
         if (claimed.idNode == bytes32(0)) revert NoId();
         if (_s().spentDigests[claimed.sessionId]) revert DigestAlreadySpent(claimed.sessionId);
         _s().spentDigests[claimed.sessionId] = true;
 
-        (address wallet, bytes memory key) = _transactionData(claimed.transactionData, policy);
+        (address wallet, bytes memory key) = _transactionData(data, policy);
         return Accepted({idNode: claimed.idNode, digest: claimed.sessionId, wallet: wallet, key: key});
     }
 

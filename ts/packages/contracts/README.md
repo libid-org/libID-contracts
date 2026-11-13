@@ -164,6 +164,22 @@ const payload = encodeTlsNotaryProof({
 })
 ```
 
+One ceremony can authorize a bind and other operations together. Its
+transaction data is then an Operation List under the operation domain
+`keccak256("libid.operations")`, and each Consumer applies only its own entry:
+
+```ts
+import { encodeOperationList } from '@libid/contracts'
+
+const transactionData = encodeOperationList([
+  { domain: keccak256(toHex('libid.bind-identity')), data: encodeAbiParameters([{ type: 'address' }], [wallet]) },
+  { domain: keccak256(toHex('libid.webwallet.link-identity')), data: linkData },
+])
+```
+
+The same payload then goes to `bind` and to `WalletRegistry.linkIdentity`,
+once each.
+
 A refused bind reverts with the error of whichever contract on its route
 refused it: the registry, the Proof Verifier, a Platform Verifier, the Notary
 Service or a Honk verifier. `bindErrorsAbi` carries all of them:

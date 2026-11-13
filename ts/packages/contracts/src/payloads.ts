@@ -1,5 +1,6 @@
-/// The payloads `IdentityRegistry.bind` carries to a Platform Verifier,
-/// encoded with the tuple types `ceremonyPayloadsAbi` carries, no selector.
+/// The payloads `IdentityRegistry.bind` carries to a Platform Verifier, and
+/// the Operation List a payload's transaction data can be, encoded with the
+/// tuple types `ceremonyPayloadsAbi` carries, no selector.
 
 import {
   type AbiParameterToPrimitiveType,
@@ -26,6 +27,7 @@ function inputs<N extends PayloadName>(name: N): Inputs<N> {
 
 const TLS_NOTARY_PROOF = inputs('tlsNotaryProof')
 const OIDC_PROOF = inputs('oidcProof')
+const OPERATION_LIST = inputs('operationList')
 
 /// `TlsNotaryVerifierBase.TlsNotaryProof`: the `x/v1` and `github/v1` payload.
 export type TlsNotaryProof = AbiParameterToPrimitiveType<(typeof TLS_NOTARY_PROOF)[0]>
@@ -52,6 +54,17 @@ export function encodeOidcProof(payload: OidcProof): Hex {
 /// An OIDC payload back into its fields. Throws on bytes that are not one.
 export function decodeOidcProof(data: Hex): OidcProof {
   return decodeAbiParameters(OIDC_PROOF, data)[0]
+}
+
+/// One entry of an Operation List: an operation domain and the transaction
+/// data that domain fixes.
+export type Operation = AbiParameterToPrimitiveType<(typeof OPERATION_LIST)[0]>[number]
+
+/// The transaction data under the operation domain
+/// `keccak256("libid.operations")`: `abi.encode(entries)`, which each
+/// Consumer reads its one entry from.
+export function encodeOperationList(entries: readonly Operation[]): Hex {
+  return encodeAbiParameters(OPERATION_LIST, [entries])
 }
 
 /// The OIDC payload fields a verifier builds its public inputs from.
