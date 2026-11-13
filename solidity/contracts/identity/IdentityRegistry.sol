@@ -9,6 +9,7 @@ import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol
 import {ICeremony} from "../ceremony/ICeremony.sol";
 import {IProofVerifier} from "../ceremony/IProofVerifier.sol";
 import {CeremonyProfile} from "../ceremony/CeremonyProfile.sol";
+import {OperationList} from "../ceremony/OperationList.sol";
 import {HandleNode} from "../handles/HandleNode.sol";
 import {IHandleReveal} from "../handles/IHandleReveal.sol";
 import {IIdentityRegistry} from "./IIdentityRegistry.sol";
@@ -132,7 +133,8 @@ contract IdentityRegistry is
 
     // ─── Errors ─────────────────────────────────────────────────────
 
-    /// @notice The one operation this Consumer owns (REQ-COMMON-01A).
+    /// @notice The one operation this Consumer owns (REQ-COMMON-01A), alone or as
+    ///         its entry of an Operation List (REQ-PLAT-08P).
     bytes32 public constant OPERATION_DOMAIN = keccak256(bytes("libid.bind-identity"));
 
     error ZeroAddress();
@@ -229,19 +231,17 @@ contract IdentityRegistry is
 
         ICeremony.VerifiedClaim memory claimed = pv.verify{value: required}(platformId, verifierVersion, payload);
 
-        if (claimed.operationDomain != OPERATION_DOMAIN) {
-            revert ForeignOperationDomain(claimed.operationDomain);
-        }
+        (bytes32 domain, bytes memory data) =
+            OperationList.select(claimed.operationDomain, claimed.transactionData, OPERATION_DOMAIN);
+        if (domain != OPERATION_DOMAIN) revert ForeignOperationDomain(domain);
 
         if (_s().spentDigests[claimed.sessionId]) {
             revert DigestAlreadySpent(claimed.sessionId);
         }
         _s().spentDigests[claimed.sessionId] = true;
 
-        if (claimed.transactionData.length != 32) {
-            revert BadTransactionData(claimed.transactionData.length);
-        }
-        address target = abi.decode(claimed.transactionData, (address));
+        if (data.length != 32) revert BadTransactionData(data.length);
+        address target = abi.decode(data, (address));
         if (target != msg.sender) revert NotProofTarget(target, msg.sender);
 
         if ((feeAmount == 0) != (feeReceiver == address(0))) {

@@ -15,7 +15,7 @@ import {TlsNotaryVerifierBase} from "../../ceremony/TlsNotaryVerifierBase.sol";
 import {XPlatformVerifier} from "../../ceremony/XPlatformVerifier.sol";
 import {NATIVE_TOKEN} from "../../escrow/HandleEscrow.sol";
 import {IIdentityValidator} from "../IIdentityValidator.sol";
-import {Relay} from "./ClaimExecutor.t.sol";
+import {Relay, operationList} from "./ClaimExecutor.t.sol";
 import {WalletTestBase} from "./WalletTestBase.sol";
 
 /// The claim and a session by proof through the real X verifier, NotaryService and Honk verifier.
@@ -110,6 +110,28 @@ contract RealProofClaimTest is WalletTestBase {
         (, uint256 gas) = _claimReal();
         // The frame's gas, written only by `FOUNDRY_PROFILE=gas forge test`.
         vm.snapshotValue("wallet-claim", "Relay.claim(real X proof)", gas);
+    }
+
+    /// The claim with its first session from one real proof of an Operation List.
+    function test_aClaimWithAFirstSessionFromOneRealListProof() public {
+        address w = factory.walletAddress(X, idNode);
+        escrow.deposit{value: 0.01 ether}(X, handleNode, NATIVE_TOKEN, 0.01 ether);
+        IIdentityValidator.Policy memory p = _admin();
+        bytes memory payload =
+            _real(OPERATIONS, operationList(BIND, abi.encode(w), LINK, _txData(w, _key(ALICE_PK), _ph(p))));
+        uint256 fee = identities.quoteBind(X, VX) + registry.quote(X, VX);
+        Relay relay = new Relay();
+        vm.prank(relayer);
+        relay.claimWithSession{value: fee}(factory, registry, executor, X, VX, idNode, handleNode, payload, p);
+        // The frame's gas, written only by `FOUNDRY_PROFILE=gas forge test`.
+        vm.snapshotValue(
+            "wallet-claim", "Relay.claimWithSession(real X proof, operation list)", vm.lastFrameGas().gasTotalUsed
+        );
+
+        assertEq(identities.resolveId(idNode), w, "not bound");
+        assertEq(w.balance, 0.01 ether, "not claimed");
+        _handle(_signed(_op(w, 0, _hit()), _pks(ALICE_PK)));
+        assertEq(target.calls(), 1, "the first session could not act");
     }
 
     /// The claimed wallet's first session, by a second real proof: active at once.

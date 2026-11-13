@@ -5,18 +5,28 @@ import {IERC7579Execution} from "@openzeppelin/contracts/interfaces/draft-IERC75
 import {ERC7579Utils} from "@openzeppelin/contracts/account/utils/draft-ERC7579Utils.sol";
 
 import {IPlatformVerifier} from "../../ceremony/IPlatformVerifier.sol";
+import {OperationList} from "../../ceremony/OperationList.sol";
 import {NATIVE_TOKEN} from "../../escrow/HandleEscrow.sol";
 import {IdentityRegistry} from "../../identity/IdentityRegistry.sol";
 import {StubPlatformVerifier} from "../../identity/test/StubPlatformVerifier.sol";
 import {IClaimExecutor} from "../IClaimExecutor.sol";
 import {IIdentityValidator} from "../IIdentityValidator.sol";
 import {IWalletFactory} from "../IWalletFactory.sol";
+import {IWalletRegistry} from "../IWalletRegistry.sol";
 import {WalletTestBase} from "./WalletTestBase.sol";
 
 /// The escrow's native token, as a claim's token list.
 function nativeOnly() pure returns (address[] memory tokens) {
     tokens = new address[](1);
     tokens[0] = NATIVE_TOKEN;
+}
+
+/// The Operation List of two entries, `abi.encode(Operation[])`.
+function operationList(bytes32 d0, bytes memory data0, bytes32 d1, bytes memory data1) pure returns (bytes memory) {
+    OperationList.Operation[] memory e = new OperationList.Operation[](2);
+    e[0] = OperationList.Operation({domain: d0, data: data0});
+    e[1] = OperationList.Operation({domain: d1, data: data1});
+    return abi.encode(e);
 }
 
 /// Sends the whole claim as one transaction, as a relayer's multicall does.
@@ -32,6 +42,25 @@ contract Relay {
     ) external payable {
         address w = factory.createWallet(platformId, idNode);
         executor.bind{value: msg.value}(w, platformId, verifierVersion, bindPayload);
+        executor.claimToSelf(w, handleNode, nativeOnly());
+    }
+
+    /// The claim with the wallet's first session, from one proof of a bind and a link entry.
+    function claimWithSession(
+        IWalletFactory factory,
+        IWalletRegistry registry,
+        IClaimExecutor executor,
+        bytes32 platformId,
+        uint16 verifierVersion,
+        bytes32 idNode,
+        bytes32 handleNode,
+        bytes calldata payload,
+        IIdentityValidator.Policy calldata policy
+    ) external payable {
+        address w = factory.createWallet(platformId, idNode);
+        uint256 linkFee = registry.quote(platformId, verifierVersion);
+        registry.linkIdentity{value: linkFee}(platformId, verifierVersion, payload, policy);
+        executor.bind{value: msg.value - linkFee}(w, platformId, verifierVersion, payload);
         executor.claimToSelf(w, handleNode, nativeOnly());
     }
 }
@@ -79,6 +108,26 @@ contract ClaimExecutorTest is WalletTestBase {
         assertEq(identities.resolveId(ALICE), w, "not bound to the wallet");
         assertEq(w.balance, 1 ether, "escrow not claimed to the wallet");
         assertEq(paid.lastValue(), FEE, "the bind fee was not forwarded");
+    }
+
+    /// One proof of [bind-identity(w), link-identity(w, key, policy)]: the wallet with its
+    /// first session, bound and paid, in one transaction.
+    function test_relayerClaimsWithAFirstSessionFromOneList() public {
+        address w = factory.walletAddress(X, ALICE);
+        bytes memory list = operationList(BIND, abi.encode(w), LINK, _txData(w, _key(ALICE_PK), _ph(_admin())));
+        bytes memory payload = _paidPayload(ALICE, OPERATIONS, list);
+        Relay relay = new Relay();
+        vm.deal(relayer, 1 ether);
+        vm.prank(relayer);
+        relay.claimWithSession{value: 2 * FEE}(factory, registry, executor, X, 2, ALICE, HANDLE, payload, _admin());
+        vm.snapshotValue(
+            "wallet-claim", "Relay.claimWithSession(stub proof, operation list)", vm.lastFrameGas().gasTotalUsed
+        );
+
+        assertEq(identities.resolveId(ALICE), w, "not bound to the wallet");
+        assertEq(w.balance, 1 ether, "escrow not claimed to the wallet");
+        _handle(_signed(_op(w, 0, _hit()), _pks(ALICE_PK)));
+        assertEq(target.calls(), 1, "the first session could not act");
     }
 
     function test_bindRefusesAnIdentityNotLinkedToTheWallet() public {

@@ -184,11 +184,14 @@ mod payloads {
 /// `ceremony/ICeremonyPayloads.sol`: the payloads `IdentityRegistry.bind`
 /// carries to a Platform Verifier. A payload is the struct's
 /// [`SolValue::abi_encode`](alloy::sol_types::SolValue::abi_encode), never a
-/// call to any of its functions.
+/// call to any of its functions. The transaction data under
+/// `keccak256("libid.operations")` is an Operation List, a
+/// `Vec<Operation>`'s `abi_encode`.
 pub use payloads::{
     ICeremony::Attestation,
     ICeremonyPayloads,
     OidcPlatformVerifierBase::OidcProof,
+    OperationList::Operation,
     TlsNotaryVerifierBase::TlsNotaryProof,
 };
 
@@ -199,6 +202,7 @@ mod tests {
     use alloy::{
         primitives::{
             keccak256,
+            Address,
             Bytes,
             B256,
         },
@@ -287,6 +291,37 @@ mod tests {
         assert_eq!(encoded.len(), pinned.length);
         assert_eq!(keccak256(&encoded), pinned.keccak256);
         assert_eq!(TlsNotaryProof::abi_decode(&encoded).unwrap(), payload);
+    }
+
+    /// ceremony-common §5's Operation List vector.
+    #[test]
+    fn an_operation_list_encodes_to_the_spec_vector() {
+        let words = [
+            "0000000000000000000000000000000000000000000000000000000000000020",
+            "0000000000000000000000000000000000000000000000000000000000000002",
+            "0000000000000000000000000000000000000000000000000000000000000040",
+            "00000000000000000000000000000000000000000000000000000000000000c0",
+            "4d59cd4487de0a5957f8c83addaac7a1238175aa5c29eeea2fbef57a8f5165ac",
+            "0000000000000000000000000000000000000000000000000000000000000040",
+            "0000000000000000000000000000000000000000000000000000000000000020",
+            "0000000000000000000000001111111111111111111111111111111111111111",
+            "6b8fd3a153cb2bc403041d7ca7d029d031243d8143d49a248230df9dd07fb723",
+            "0000000000000000000000000000000000000000000000000000000000000040",
+            "0000000000000000000000000000000000000000000000000000000000000001",
+            "ff00000000000000000000000000000000000000000000000000000000000000",
+        ];
+        let vector = alloy::hex::decode(words.concat()).unwrap();
+        let entries = vec![
+            Operation {
+                domain: keccak256("libid.bind-identity"),
+                data: Address::repeat_byte(0x11).abi_encode().into(),
+            },
+            Operation {
+                domain: keccak256("libid.test.a"),
+                data: vec![0xff].into(),
+            },
+        ];
+        assert_eq!(entries.abi_encode(), vector);
     }
 
     #[test]

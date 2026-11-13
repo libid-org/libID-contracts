@@ -7,7 +7,9 @@ import {IIdentityValidator} from "./IIdentityValidator.sol";
 /// @notice Constructor: `WalletRegistry(address proofVerifier)`, which deploys its IdentityValidator.
 ///         Immutable, no owner.
 /// @dev Both domains carry `abi.encode(uint256 chainId, address wallet, bytes sessionKey, bytes32 policyHash)`,
-///      canonically encoded. An empty key with a zero policy hash links only, and `policy` is then ignored.
+///      canonically encoded, as the proof's operation or as its one entry of either domain in an
+///      Operation List (`OperationList.sol`). An empty key with a zero policy hash links only, and
+///      `policy` is then ignored.
 ///      The wallet's genesis identity (`IIdentityValidator.genesisIdentity`) is linked when the wallet
 ///      is created. Anyone may submit a link proof of it while the wallet has never had a session, to
 ///      add the first session; every other link only the wallet.
