@@ -6,12 +6,22 @@
 
 use alloy::{
     primitives::{
-        aliases::U48,
+        aliases::{
+            U192,
+            U48,
+        },
+        b256,
         keccak256,
+        Address,
+        Bytes,
         B256,
         U256,
     },
-    sol_types::SolValue,
+    sol_types::{
+        eip712_domain,
+        SolStruct,
+        SolValue,
+    },
 };
 
 #[allow(
@@ -156,8 +166,75 @@ pub fn below_quorum_hash(hash: B256, at: U48, governing_key: &[u8]) -> B256 {
     keccak256((hash, at, keccak256(governing_key)).abi_encode_params())
 }
 
+/// `AUTHORIZED_MODE` of `wallet/IWebWallet.sol`, the direct path's mode: the
+/// batch call type, the default exec type, the selector
+/// `bytes4(keccak256("libid.webwallet.authorized"))` and a zero payload.
+pub const AUTHORIZED_MODE: B256 =
+    b256!("0x01000000000018f4a5a900000000000000000000000000000000000000000000");
+
+#[allow(missing_docs)]
+mod execute {
+    alloy::sol! {
+        #[derive(Debug, PartialEq, Eq)]
+        struct Execute {
+            bytes32 mode;
+            bytes executionCalldata;
+            uint48 at;
+            uint256 nonce;
+            uint48 deadline;
+            uint256 callGas;
+        }
+    }
+}
+
+/// What the signers of a direct `execute(AUTHORIZED_MODE, data)` sign, as
+/// `IdentityValidator.checkExecution` hashes it: `mode` is
+/// [`AUTHORIZED_MODE`], `at` is `Authorization.at`, and `nonce` is the
+/// wallet's full EntryPoint nonce under [`direct_nonce_key`] before the batch.
+pub use execute::Execute;
+
+impl Execute {
+    /// The EIP-712 hash the signers sign: under the wallet's domain, name
+    /// `WebWallet`, version `1`, `chain_id` and `wallet`. Below quorum each
+    /// signer signs [`below_quorum_hash`] of it.
+    pub fn digest(&self, chain_id: u64, wallet: Address) -> B256 {
+        self.eip712_signing_hash(&eip712_domain! {
+            name: "WebWallet",
+            version: "1",
+            chain_id: chain_id,
+            verifying_contract: wallet,
+        })
+    }
+}
+
+/// The EntryPoint nonce key of the direct path for a wallet whose validator is
+/// `validator`: `uint192(uint160(validator)) << 32`. UserOperations share it.
+pub fn direct_nonce_key(validator: Address) -> U192 {
+    U192::from_be_slice(validator.as_slice()) << 32
+}
+
+/// `data` of `execute(AUTHORIZED_MODE, data)`:
+/// `abi.encode(executionCalldata, deadline, callGas, abi.encode(authorization))`.
+pub fn authorized_data(
+    execution_calldata: Bytes,
+    deadline: U48,
+    call_gas: U256,
+    authorization: &IIdentityValidator::Authorization,
+) -> Bytes {
+    (
+        execution_calldata,
+        deadline,
+        call_gas,
+        Bytes::from(authorization.abi_encode()),
+    )
+        .abi_encode_params()
+        .into()
+}
+
 #[cfg(test)]
 mod tests {
+    use std::fs;
+
     use alloy::{
         primitives::{
             address,
@@ -168,6 +245,8 @@ mod tests {
             SolValue,
         },
     };
+
+    use serde::Deserialize;
 
     use super::*;
 
@@ -208,6 +287,82 @@ mod tests {
             ),
             b256!("0xf63e6147bfa910f2dab04a6910a61fbf42066f204e2344c197c154c1b5a6e8dc")
         );
+    }
+
+    /// `solidity/contracts/wallet/test/fixtures/direct-execute-vector.json`,
+    /// which `ExecuteVectorTest` checks too.
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct DirectExecuteVector {
+        authorized_mode: B256,
+        execute_typehash: B256,
+        validator: Address,
+        nonce_key: U256,
+        nonce: U256,
+        execution_calldata: Bytes,
+        at: u64,
+        deadline: u64,
+        call_gas: u64,
+        session_key: Bytes,
+        signature: Bytes,
+        data_hash: B256,
+        chain_id: u64,
+        wallet: Address,
+        digest: B256,
+    }
+
+    #[test]
+    fn the_direct_path_matches_the_solidity_vector() {
+        let path = format!(
+            "{}/../../solidity/contracts/wallet/test/fixtures/direct-execute-vector.json",
+            env!("CARGO_MANIFEST_DIR")
+        );
+        let v: DirectExecuteVector =
+            serde_json::from_str(&fs::read_to_string(&path).expect(&path)).expect(&path);
+
+        assert_eq!(AUTHORIZED_MODE, v.authorized_mode);
+        assert_eq!(AUTHORIZED_MODE[0], 0x01);
+        assert_eq!(
+            &AUTHORIZED_MODE[6..10],
+            &keccak256("libid.webwallet.authorized")[..4]
+        );
+        assert_eq!(
+            keccak256(Execute::eip712_encode_type().as_bytes()),
+            v.execute_typehash
+        );
+
+        let key = direct_nonce_key(v.validator);
+        assert_eq!(U256::from(key), v.nonce_key);
+        assert_eq!((U256::from(key) << 64) | U256::from(7), v.nonce);
+
+        let at = U48::from(v.at);
+        let authorization = IIdentityValidator::Authorization {
+            signatures: vec![IIdentityValidator::SessionSignature {
+                key: v.session_key,
+                signature: v.signature,
+            }],
+            at,
+            calls: vec![],
+            domainProof: vec![],
+            paymasterProof: vec![],
+        };
+        let data = authorized_data(
+            v.execution_calldata.clone(),
+            U48::from(v.deadline),
+            U256::from(v.call_gas),
+            &authorization,
+        );
+        assert_eq!(keccak256(&data), v.data_hash);
+
+        let execute = Execute {
+            mode: AUTHORIZED_MODE,
+            executionCalldata: v.execution_calldata,
+            at,
+            nonce: v.nonce,
+            deadline: U48::from(v.deadline),
+            callGas: U256::from(v.call_gas),
+        };
+        assert_eq!(execute.digest(v.chain_id, v.wallet), v.digest);
     }
 
     /// The two `Policy` bindings name one struct: either decodes the other, and

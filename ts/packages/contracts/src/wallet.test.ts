@@ -1,7 +1,18 @@
-import { keccak256, toHex } from 'viem'
+import { readFileSync } from 'node:fs'
+import { type Address, type Hex, keccak256, toHex } from 'viem'
 import { describe, expect, it } from 'vitest'
 
-import { belowQuorumHash, type SessionPolicy, policyHashOf, rulesHashOf } from './wallet.js'
+import {
+  AUTHORIZED_MODE,
+  authorizedData,
+  belowQuorumHash,
+  directNonceKey,
+  EXECUTE_TYPEHASH,
+  executeDigest,
+  policyHashOf,
+  rulesHashOf,
+  type SessionPolicy,
+} from './wallet.js'
 
 // PolicyEncodingTest's vectors, which `cast` computes outside Solidity.
 const POLICY: SessionPolicy = {
@@ -30,5 +41,74 @@ describe('session-policy hashes', () => {
     expect(
       belowQuorumHash(keccak256(toHex('op')), 1234, '0x0000000000000000000000000000000000001234'),
     ).toBe('0xf63e6147bfa910f2dab04a6910a61fbf42066f204e2344c197c154c1b5a6e8dc')
+  })
+})
+
+// The vector ExecuteVectorTest checks too.
+interface DirectExecuteVector {
+  authorizedMode: Hex
+  executeTypehash: Hex
+  validator: Address
+  nonceKey: Hex
+  nonce: Hex
+  executionCalldata: Hex
+  at: number
+  deadline: number
+  callGas: number
+  sessionKey: Hex
+  signature: Hex
+  dataHash: Hex
+  chainId: number
+  wallet: Address
+  digest: Hex
+}
+
+const VECTOR = JSON.parse(
+  readFileSync(
+    new URL(
+      '../../../../solidity/contracts/wallet/test/fixtures/direct-execute-vector.json',
+      import.meta.url,
+    ),
+    'utf8',
+  ),
+) as DirectExecuteVector
+
+describe('the direct execute', () => {
+  it('matches the Solidity vector', () => {
+    const v = VECTOR
+    expect(AUTHORIZED_MODE).toBe(v.authorizedMode)
+    expect(AUTHORIZED_MODE.slice(0, 4)).toBe('0x01')
+    expect(AUTHORIZED_MODE.slice(14, 22)).toBe(
+      keccak256(toHex('libid.webwallet.authorized')).slice(2, 10),
+    )
+    expect(EXECUTE_TYPEHASH).toBe(v.executeTypehash)
+
+    const key = directNonceKey(v.validator)
+    expect(key).toBe(BigInt(v.nonceKey))
+    const nonce = (key << 64n) | 7n
+    expect(nonce).toBe(BigInt(v.nonce))
+
+    const data = authorizedData(v.executionCalldata, v.deadline, BigInt(v.callGas), {
+      signatures: [{ key: v.sessionKey, signature: v.signature }],
+      at: v.at,
+      calls: [],
+      domainProof: [],
+      paymasterProof: [],
+    })
+    expect(keccak256(data)).toBe(v.dataHash)
+
+    const digest = executeDigest(
+      {
+        mode: AUTHORIZED_MODE,
+        executionCalldata: v.executionCalldata,
+        at: v.at,
+        nonce,
+        deadline: v.deadline,
+        callGas: BigInt(v.callGas),
+      },
+      v.chainId,
+      v.wallet,
+    )
+    expect(digest).toBe(v.digest)
   })
 })

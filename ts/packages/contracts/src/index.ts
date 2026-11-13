@@ -1,5 +1,6 @@
 /// @libid/contracts: viem-ready ABIs, call builders, identity helpers,
-/// `bind` payload encoders and the wallet's session-policy hashes.
+/// `bind` payload encoders, the wallet's session-policy hashes and its
+/// direct-execute helpers.
 /// Subpaths: `/abis`, `/calls`, `/identity`, `/ceremony`.
 
 export * from './abis/index.js'

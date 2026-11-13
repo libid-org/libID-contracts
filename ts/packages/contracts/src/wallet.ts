@@ -1,12 +1,16 @@
-/// The session-policy hashes of `IIdentityValidator.sol`, and what each
-/// signer signs below quorum. Types follow `identityValidatorAbi`.
+/// The session-policy hashes of `IIdentityValidator.sol`, what each signer
+/// signs below quorum, and the direct `execute`'s mode, digest, nonce key and
+/// data. Types follow `identityValidatorAbi`.
 
 import {
   type AbiParameterToPrimitiveType,
+  type Address,
   encodeAbiParameters,
   type Hex,
+  hashTypedData,
   keccak256,
   parseAbiParameters,
+  toHex,
 } from 'viem'
 
 import { identityValidatorAbi } from './abis/identityValidator.js'
@@ -25,6 +29,22 @@ const POLICY = (() => {
   return (item as AddSession).inputs[2]
 })()
 const RULES = POLICY.components[4]
+
+type DecodeAuthorization = Extract<
+  (typeof identityValidatorAbi)[number],
+  { type: 'function'; name: 'decodeAuthorization' }
+>
+
+const AUTHORIZATION = (() => {
+  const item = identityValidatorAbi.find(
+    (entry) => entry.type === 'function' && entry.name === 'decodeAuthorization',
+  )
+  if (!item) throw new Error('identityValidatorAbi has no decodeAuthorization')
+  return (item as DecodeAuthorization).outputs[0]
+})()
+
+/// `IIdentityValidator.Authorization`.
+export type SessionAuthorization = AbiParameterToPrimitiveType<DecodeAuthorization['outputs'][0]>
 
 /// `IIdentityValidator.Policy`.
 export type SessionPolicy = AbiParameterToPrimitiveType<PolicyParameter>
@@ -73,4 +93,77 @@ export function belowQuorumHash(hash: Hex, at: number, governingKey: Hex): Hex {
       keccak256(governingKey),
     ]),
   )
+}
+
+/// `AUTHORIZED_MODE` of `IWebWallet.sol`, the direct path's mode: the batch
+/// call type, the default exec type, the selector
+/// `bytes4(keccak256("libid.webwallet.authorized"))` and a zero payload.
+export const AUTHORIZED_MODE: Hex =
+  '0x01000000000018f4a5a900000000000000000000000000000000000000000000'
+
+/// The typed-data types of what a direct `execute` signs.
+export const EXECUTE_TYPES = {
+  Execute: [
+    { name: 'mode', type: 'bytes32' },
+    { name: 'executionCalldata', type: 'bytes' },
+    { name: 'at', type: 'uint48' },
+    { name: 'nonce', type: 'uint256' },
+    { name: 'deadline', type: 'uint48' },
+    { name: 'callGas', type: 'uint256' },
+  ],
+} as const
+
+/// `Execute(bytes32 mode,bytes executionCalldata,uint48 at,uint256 nonce,uint48 deadline,uint256 callGas)`.
+export const EXECUTE_TYPE = `Execute(${EXECUTE_TYPES.Execute.map((f) => `${f.type} ${f.name}`).join(',')})`
+
+export const EXECUTE_TYPEHASH: Hex = keccak256(toHex(EXECUTE_TYPE))
+
+/// What a direct `execute` signs: `mode` is `AUTHORIZED_MODE`, `at` is
+/// `Authorization.at`, and `nonce` is the wallet's full EntryPoint nonce under
+/// `directNonceKey` before the batch.
+export type ExecuteMessage = {
+  mode: Hex
+  executionCalldata: Hex
+  at: number
+  nonce: bigint
+  deadline: number
+  callGas: bigint
+}
+
+/// The EIP-712 hash the signers of a direct `execute` sign, under the
+/// wallet's domain: name `WebWallet`, version `1`, `chainId` and `wallet`.
+/// Below quorum each signer signs `belowQuorumHash` of it.
+export function executeDigest(
+  execute: ExecuteMessage,
+  chainId: number | bigint,
+  wallet: Address,
+): Hex {
+  return hashTypedData({
+    domain: { name: 'WebWallet', version: '1', chainId, verifyingContract: wallet },
+    types: EXECUTE_TYPES,
+    primaryType: 'Execute',
+    message: execute,
+  })
+}
+
+/// The EntryPoint nonce key of the direct path for a wallet whose validator
+/// is `validator`: `uint192(uint160(validator)) << 32`. UserOperations share it.
+export function directNonceKey(validator: Address): bigint {
+  return BigInt(validator) << 32n
+}
+
+/// `data` of `execute(AUTHORIZED_MODE, data)`:
+/// `abi.encode(executionCalldata, deadline, callGas, abi.encode(authorization))`.
+export function authorizedData(
+  executionCalldata: Hex,
+  deadline: number,
+  callGas: bigint,
+  authorization: SessionAuthorization,
+): Hex {
+  return encodeAbiParameters(parseAbiParameters('bytes, uint48, uint256, bytes'), [
+    executionCalldata,
+    deadline,
+    callGas,
+    encodeAbiParameters([AUTHORIZATION], [authorization]),
+  ])
 }

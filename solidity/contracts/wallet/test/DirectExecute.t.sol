@@ -763,3 +763,47 @@ contract DirectExecuteTest is ExecuteBase {
         _runs(w, calls, _env(a, deadline));
     }
 }
+
+/// @notice The direct path's client vector in `fixtures/direct-execute-vector.json`, which the Rust and TypeScript
+///         helper tests read too. Its outputs are `cast`'s: `cast keccak` of `cast abi-encode` of the spec's
+///         encodings, `data` as `"f(bytes,uint48,uint256,bytes)"` with the authorization
+///         `"f(((bytes,bytes)[],uint48,(uint256,bytes32[])[],bytes32[],bytes32[]))"`.
+contract ExecuteVectorTest is ExecuteBase {
+    function setUp() public override {}
+
+    function test_theClientVector() public {
+        string memory j = vm.readFile("contracts/wallet/test/fixtures/direct-execute-vector.json");
+        assertEq(AUTHORIZED_MODE, vm.parseJsonBytes32(j, ".authorizedMode"), "AUTHORIZED_MODE");
+        assertEq(EXECUTE_V2_TYPEHASH, vm.parseJsonBytes32(j, ".executeTypehash"), "the Execute typehash");
+        uint192 key = _nonceKey(vm.parseJsonAddress(j, ".validator"));
+        assertEq(key, vm.parseJsonUint(j, ".nonceKey"), "the nonce key");
+        uint256 n = vm.parseJsonUint(j, ".nonce");
+        assertEq(n, (uint256(key) << 64) | 7, "the nonce");
+
+        bytes memory calls = vm.parseJsonBytes(j, ".executionCalldata");
+        uint48 at = uint48(vm.parseJsonUint(j, ".at"));
+        uint48 deadline = uint48(vm.parseJsonUint(j, ".deadline"));
+        uint256 callGas = vm.parseJsonUint(j, ".callGas");
+        IIdentityValidator.SessionSignature[] memory sigs = new IIdentityValidator.SessionSignature[](1);
+        sigs[0] = IIdentityValidator.SessionSignature({
+            key: vm.parseJsonBytes(j, ".sessionKey"), signature: vm.parseJsonBytes(j, ".signature")
+        });
+        IIdentityValidator.Authorization memory a = IIdentityValidator.Authorization({
+            signatures: sigs,
+            at: at,
+            calls: new IIdentityValidator.CallProof[](0),
+            domainProof: new bytes32[](0),
+            paymasterProof: new bytes32[](0)
+        });
+        assertEq(
+            keccak256(abi.encode(calls, deadline, callGas, abi.encode(a))), vm.parseJsonBytes32(j, ".dataHash"), "data"
+        );
+
+        vm.chainId(vm.parseJsonUint(j, ".chainId"));
+        assertEq(
+            _execDigestGas(vm.parseJsonAddress(j, ".wallet"), AUTHORIZED_MODE, calls, at, n, deadline, callGas),
+            vm.parseJsonBytes32(j, ".digest"),
+            "the Execute digest"
+        );
+    }
+}
