@@ -27,11 +27,13 @@ bytes32 constant AUTHORIZED_MODE = bytes32((uint256(0x01) << 248) | (uint256(uin
 ///      from anyone, checked at the end: `data` is then
 ///      `abi.encode(bytes executionCalldata, uint48 deadline, uint256 callGas, bytes authorization)`.
 ///      For it the wallet consumes the EntryPoint nonce under key `uint192(uint160(validator)) << 32`,
-///      reads the threshold, requires `gasleft() >= callGas`, runs the batch, then calls the validator's
-///      `checkExecution`; any failure reverts everything, the nonce included. One reentrancy lock covers
-///      both modes. Any other mode selector, and delegatecall execution, are refused. Only the constructor's
-///      validator validates UserOperations and signs: another validator still installed, such as the
-///      one a migration replaced, is refused.
+///      reads the threshold and its EIP-712 domain separator, requires
+///      `gasleft() * 63 / 64 >= callGas + 20_000`, so that the first call gets at least `callGas` when it
+///      carries up to about 16 KiB of call data in a batch of up to 64, runs the batch, then calls the
+///      validator's `checkExecution`; any failure reverts everything, the nonce included. One reentrancy lock covers both modes. Any other mode
+///      selector, and delegatecall execution, are refused. Only the constructor's validator validates
+///      UserOperations and signs: another validator still installed, such as the one a migration
+///      replaced, is refused.
 ///      `isValidSignature` passes `hash` to that validator, which reads it as ERC-7739 under
 ///      `eip712Domain()`; an empty signature goes to it too, so the ERC-7739 probe is answered.
 ///      ERC-721 and ERC-1155 safe transfers are accepted; ERC-165 reports both receivers.
@@ -54,8 +56,12 @@ interface IWebWallet is
     /// A mode selector other than zero, outside `AUTHORIZED_MODE`.
     error UnsupportedModeSelector(bytes4 selector);
 
-    /// The gas left before the calls is below the signed `callGas`.
+    /// The gas left before the calls would give the first call less than the signed `callGas`.
     error InsufficientCallGas(uint256 callGas, uint256 left);
+
+    /// `entryPoint` has no code: EntryPoint v0.9 must be deployed at its canonical address, which holds the
+    /// direct path's nonce.
+    error EntryPointMissing(address entryPoint);
 
     /// The migration's install data added no session.
     error MigrationWithoutSession();

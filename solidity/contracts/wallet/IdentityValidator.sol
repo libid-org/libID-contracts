@@ -144,18 +144,16 @@ contract IdentityValidator is IIdentityValidator, IdentityValidatorState {
         uint256 callGas,
         bytes calldata authorization,
         uint256 nonce,
-        uint8 quorum
+        uint8 quorum,
+        bytes32 domainSeparator
     ) external {
         Authorization memory auth = abi.decode(authorization, (Authorization));
         if (deadline == 0 || block.timestamp > deadline) revert ExecutionExpired(deadline);
-        (bytes1 fields, bytes32 nameHash, bytes32 versionHash, uint256 chainId, address verifying, bytes32 salt) =
-            _domain(msg.sender);
-        bytes32 digest = MessageHashUtils.toDomainSeparator(fields, nameHash, versionHash, chainId, verifying, salt)
-            .toTypedDataHash(
-                keccak256(
-                    abi.encode(EXECUTE_TYPEHASH, mode, keccak256(executionCalldata), auth.at, nonce, deadline, callGas)
-                )
-            );
+        bytes32 digest = domainSeparator.toTypedDataHash(
+            keccak256(
+                abi.encode(EXECUTE_TYPEHASH, mode, keccak256(executionCalldata), auth.at, nonce, deadline, callGas)
+            )
+        );
         (bool ok, bool below, Verified memory v) = _signers(digest, auth, quorum);
         if (!ok || !_inWindow(v)) revert ExecutionNotAuthorized();
         (ok, v) = _rules(

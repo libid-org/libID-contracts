@@ -95,7 +95,7 @@ contract DirectExecuteEdgesTest is ExecuteBase {
         for (uint256 i; i < changed.length; ++i) {
             _refuses(w, abi.encode(changed[i]), auth, NOT_AUTHORIZED);
         }
-        _refuses(w, bytes.concat(abi.encode(x), hex"00"), auth, bytes4(0));
+        _refuses(w, bytes.concat(abi.encode(x), hex"00"), auth, NOT_AUTHORIZED);
         _runs(w, abi.encode(x), auth);
     }
 
@@ -165,7 +165,7 @@ contract DirectExecuteEdgesTest is ExecuteBase {
         bytes memory single = abi.encodePacked(address(target), uint256(0), abi.encodeCall(CallTarget.hit, ()));
         for (uint256 i; i < callers.length; ++i) {
             vm.prank(callers[i]);
-            vm.expectRevert();
+            vm.expectRevert(abi.encodeWithSelector(ERC7579Utils.ERC7579UninstalledModule.selector, 2, callers[i]));
             IERC7579Execution(w).executeFromExecutor(MODE_SINGLE, single);
         }
     }

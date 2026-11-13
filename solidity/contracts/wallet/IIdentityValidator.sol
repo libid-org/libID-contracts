@@ -22,11 +22,11 @@ function policyHashOf(IIdentityValidator.Policy memory policy) pure returns (byt
 
 /// @title IExecutionCheck - the validator's end check of an `AUTHORIZED_MODE` `execute`.
 /// @dev `authorization` is `abi.encode(Authorization)`; `deadline` and `callGas` come from the account's `data`.
-///      The digest is EIP-712 under the account's own domain of
+///      The digest is EIP-712 under `domainSeparator` of
 ///      `Execute(bytes32 mode,bytes executionCalldata,uint48 at,uint256 nonce,uint48 deadline,uint256 callGas)`,
 ///      with `at = Authorization.at`, signed as `validateUserOp` signs its hash. The account (`msg.sender`)
 ///      passes `EntryPoint.getNonce(account, uint192(uint160(validator)) << 32)` as it was before it consumed it,
-///      and the threshold it read before its calls. The signers and the rules are those of `validateUserOp`
+///      and the threshold and its own EIP-712 domain separator as they were before its calls. The signers and the rules are those of `validateUserOp`
 ///      at that threshold, with no paymaster and no gas charge; below quorum the value is charged to
 ///      `NATIVE_TOKEN`. The signers' window, narrowed to the periods charged, must hold the block time.
 interface IExecutionCheck {
@@ -44,7 +44,8 @@ interface IExecutionCheck {
         uint256 callGas,
         bytes calldata authorization,
         uint256 nonce,
-        uint8 threshold
+        uint8 threshold,
+        bytes32 domainSeparator
     ) external;
 }
 

@@ -72,11 +72,16 @@ One `execute(bytes32 mode, bytes data)`, ERC-7579's, takes two kinds of mode:
   with `authorization = abi.encode(Authorization)`. The wallet:
   1. consumes the EntryPoint nonce under key
      `uint192(uint160(validator)) << 32`, which UserOperations share;
-  2. reads `threshold(wallet)`;
-  3. requires `gasleft()` of at least `callGas`;
+  2. reads `threshold(wallet)` and its own EIP-712 domain separator;
+  3. requires `gasleft() * 63 / 64` of at least `callGas` plus a fixed
+     20,000 for the calls' own start, so the first call gets at least
+     `callGas` (EIP-150 forwards at most 63/64 of the gas left). The 20,000
+     covers a first call of up to about 16 KiB of call data in a batch of up
+     to 64; a larger first call may get a little less;
   4. runs the batch;
   5. calls the validator's
-     `checkExecution(mode, executionCalldata, deadline, callGas, authorization, nonce, threshold)`.
+     `checkExecution(mode, executionCalldata, deadline, callGas, authorization, nonce, threshold, domainSeparator)`,
+     with the domain separator it read before the batch.
 
   Any failure reverts everything, the nonce included.
 
@@ -89,7 +94,8 @@ for `AUTHORIZED_MODE`.
 
 Signers sign the EIP-712 hash of
 `Execute(bytes32 mode,bytes executionCalldata,uint48 at,uint256 nonce,uint48 deadline,uint256 callGas)`
-under the wallet's `eip712Domain()`, with `mode = AUTHORIZED_MODE`,
+under the wallet's EIP-712 domain before the batch (name `WebWallet`,
+version `1`, the chain id and the wallet's address), with `mode = AUTHORIZED_MODE`,
 `at = Authorization.at` and `nonce` the full EntryPoint nonce before it was
 consumed. Below quorum each signs
 `keccak256(abi.encode(hash, at, keccak256(governingKey)))`, as for a
@@ -100,12 +106,15 @@ paymaster), then requires the block time inside the signers' window narrowed
 to the periods charged. Its errors are `ExecutionExpired`,
 `ExecutionNotAuthorized` and `ExecutionOutsidePeriod`.
 
-The check reads the threshold and the nonce from before the calls, and the
-sessions as the calls left them. A batch that executes `setThreshold`,
-revokes a signer or migrates the validator does not help its own check; one
-that revokes or unlinks its own signer cannot pass it.
+The check reads the threshold, the nonce and the domain from before the
+calls, and the sessions as the calls left them. A batch that executes
+`setThreshold`, revokes a signer or migrates the validator does not help its
+own check; one that revokes or unlinks its own signer cannot pass it. One
+that upgrades the wallet is checked under the domain its signers signed.
 
-The direct path needs EntryPoint v0.9 deployed: the nonce lives there.
+The direct path needs EntryPoint v0.9 deployed at its canonical address:
+the nonce lives there. Without it the direct path reverts
+`EntryPointMissing(entryPoint)`.
 
 ## Signatures
 

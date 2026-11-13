@@ -15,6 +15,7 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {MerkleProof} from "@openzeppelin/contracts/utils/cryptography/MerkleProof.sol";
 
 import {NATIVE_TOKEN} from "../NativeToken.sol";
+import {bytesAt} from "./AbiBytes.sol";
 import {IIdentityValidator} from "./IIdentityValidator.sol";
 import {IdentityValidatorState} from "./IdentityValidatorState.sol";
 
@@ -71,7 +72,8 @@ contract SessionRules is IdentityValidatorState {
         address paymaster;
         if (userOp.paymasterAndData.length != 0) {
             paymaster = userOp.paymaster();
-            // `address(0)` stands for no paymaster below.
+            // Refused at every threshold: `address(0)` stands for no paymaster below. EntryPoint v0.8 and
+            // later reject it before the account anyway.
             if (paymaster == address(0)) return (false, v);
         }
         return (_allowed(account, registry, v, auth, mode, executions, paymaster, _maxGasCost(userOp), below), v);
@@ -231,8 +233,6 @@ contract SessionRules is IdentityValidatorState {
     /// ABI decoder reads it.
     function _executions(bytes calldata callData) private pure returns (bytes32 mode, bytes calldata) {
         bytes calldata args = callData[4:];
-        uint256 offset = uint256(bytes32(args[32:64]));
-        uint256 length = uint256(bytes32(args[offset:offset + 32]));
-        return (bytes32(args[:32]), args[offset + 32:offset + 32 + length]);
+        return (bytes32(args[:32]), bytesAt(args, 32));
     }
 }

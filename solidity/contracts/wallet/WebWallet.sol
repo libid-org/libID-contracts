@@ -25,6 +25,7 @@ import {
     AccountERC7579Upgradeable
 } from "@openzeppelin/contracts-upgradeable/account/extensions/draft-AccountERC7579Upgradeable.sol";
 
+import {bytesAt} from "./AbiBytes.sol";
 import {IIdentityValidator} from "./IIdentityValidator.sol";
 import {AUTHORIZED_MODE, IWebWallet} from "./IWebWallet.sol";
 
@@ -48,6 +49,11 @@ contract WebWallet is
 
     /// The `reinitializer` version of `migrate`: each implementation that migrates raises it.
     uint64 private constant MIGRATION = 2;
+
+    /// The gas between the `callGas` check and the first call, which gets 63/64 of what is left: measured
+    /// 11.2k for one empty call to a cold target with value, 14.8k with 16 KiB of call data, 15.5k for a
+    /// batch of 64, 31.5k with 64 KiB. It covers a first call of up to about 16 KiB in a batch of up to 64.
+    uint256 private constant EXEC_OVERHEAD = 20_000;
 
     address private immutable VALIDATOR;
 
@@ -194,26 +200,23 @@ contract WebWallet is
         return super._execute(mode, executionCalldata);
     }
 
-    /// The validator checks the batch once it ran, against the nonce and threshold of entry.
+    /// The validator checks the batch once it ran, against the nonce, threshold and domain of entry.
     function _executeAuthorized(bytes calldata data) private {
-        bytes calldata executionCalldata = _bytesAt(data, 0);
+        bytes calldata executionCalldata = bytesAt(data, 0);
         (uint48 deadline, uint256 callGas) = abi.decode(data[32:96], (uint48, uint256));
         uint192 key = uint192(uint160(VALIDATOR)) << 32;
         IEntryPoint ep = entryPoint();
+        if (address(ep).code.length == 0) revert EntryPointMissing(address(ep));
         uint256 nonce = ep.getNonce(address(this), key);
         INonceIncrement(address(ep)).incrementNonce(key);
         uint8 threshold = IIdentityValidator(VALIDATOR).threshold(address(this));
-        if (gasleft() < callGas) revert InsufficientCallGas(callGas, gasleft());
+        bytes32 domain = _domainSeparatorV4();
+        if (gasleft() * 63 / 64 < callGas + EXEC_OVERHEAD) revert InsufficientCallGas(callGas, gasleft());
         _execute(Mode.wrap(AUTHORIZED_MODE), executionCalldata);
         IIdentityValidator(VALIDATOR)
-            .checkExecution(AUTHORIZED_MODE, executionCalldata, deadline, callGas, _bytesAt(data, 96), nonce, threshold);
-    }
-
-    /// The `bytes` member whose offset is the head word at `head` of the ABI tuple `data`.
-    function _bytesAt(bytes calldata data, uint256 head) private pure returns (bytes calldata) {
-        uint256 offset = uint256(bytes32(data[head:head + 32]));
-        uint256 length = uint256(bytes32(data[offset:offset + 32]));
-        return data[offset + 32:offset + 32 + length];
+            .checkExecution(
+                AUTHORIZED_MODE, executionCalldata, deadline, callGas, bytesAt(data, 96), nonce, threshold, domain
+            );
     }
 
     function _authorizeUpgrade(address) internal view override onlyValidator {}

@@ -116,7 +116,7 @@ contract CreateAndExecuteTest is ExecuteBase {
 
         // The bot acts alone within its rules, from the next second.
         bytes memory hit = _one(_hitX());
-        _refuses(w, hit, _direct(w, address(validator), _pks(BOT_PK), hit, true), bytes4(0));
+        _refuses(w, hit, _direct(w, address(validator), _pks(BOT_PK), hit, true), NOT_AUTHORIZED);
         vm.warp(_now() + 1);
         _runs(w, hit, _direct(w, address(validator), _pks(BOT_PK), hit, true));
     }
@@ -127,7 +127,7 @@ contract CreateAndExecuteTest is ExecuteBase {
         uint256 n = uint256(uint160(address(validator))) << 96;
         bytes memory auth = _directAt(w, _pks(MALLORY_PK), calls, n, uint48(_now()), false, _hitProofs(0));
         vm.prank(relayer, relayer);
-        vm.expectRevert();
+        vm.expectRevert(NOT_AUTHORIZED);
         IWalletFactoryOnboarding(address(factory)).createAndExecute{value: linkFee + FEE}(
             X, ALICE, AUTHORIZED_MODE, _data(calls, auth)
         );
