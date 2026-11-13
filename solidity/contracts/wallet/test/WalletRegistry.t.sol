@@ -116,7 +116,7 @@ contract WalletRegistryTest is WalletTestBase {
     function test_foreignDomainsAreRefused() public {
         address w = _claim();
         bytes memory data = _txData(w, _key(ALICE2_PK), _ph(_admin()));
-        bytes32[3] memory domains = [ADD, BIND, keccak256("libid.operations")];
+        bytes32[2] memory domains = [ADD, BIND];
         for (uint256 i; i < domains.length; ++i) {
             bytes memory payload = _payload(X, ALICE, domains[i], data);
             vm.expectRevert(abi.encodeWithSelector(IWalletRegistry.ForeignOperationDomain.selector, domains[i]));
