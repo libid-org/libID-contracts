@@ -114,6 +114,26 @@ class Classify(unittest.TestCase):
         new = [ROOT, "field slot=0 offset=0 b: uint256", "field slot=1 offset=0 a: uint256"]
         self.assertEqual(classify(old, new), "incompatible")
 
+    def test_each_inherited_namespace_struct_appends_on_its_own(self) -> None:
+        old = [
+            "root erc7201:a 0x01",
+            "root erc7201:b 0x02",
+            "struct A.S slot=0 offset=0 x: uint256",
+            "struct B.T slot=0 offset=0 y: uint64",
+        ]
+        self.assertEqual(classify(old, old[:3] + ["struct A.S slot=1 offset=0 z: uint256"] + old[3:]), "append")
+        self.assertEqual(classify(old, ["root erc7201:a 0x01"] + old[2:]), "incompatible")
+
+
+class Declares(unittest.TestCase):
+    def test_the_annotation_must_sit_on_the_named_struct(self) -> None:
+        natspec = "/// @custom:storage-location erc7201:oz.A\n    struct AStorage {"
+        block = "* @custom:storage-location erc7201:oz.I\n     */\n    struct IStorage {"
+        self.assertTrue(check.declares(natspec, "A.AStorage", "oz.A"))
+        self.assertTrue(check.declares(block, "I.IStorage", "oz.I"))
+        self.assertFalse(check.declares(natspec, "A.AStorage", "oz.B"))
+        self.assertFalse(check.declares(natspec, "A.Other", "oz.A"))
+
 
 class Settle(unittest.TestCase):
     OLD = [ROOT, "field slot=0 offset=0 a: uint256", "field slot=1 offset=0 dead: uint64"]

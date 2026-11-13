@@ -12,6 +12,7 @@ import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 import {HandleNode} from "../handles/HandleNode.sol";
 import {IHandleReveal} from "../handles/IHandleReveal.sol";
 import {IIdentityRegistry} from "../identity/IIdentityRegistry.sol";
+import {IHandleEscrow} from "./IHandleEscrow.sol";
 
 // The EIP-7528 address that stands for the chain's native token.
 address constant NATIVE_TOKEN = 0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE;
@@ -25,7 +26,14 @@ address constant NATIVE_TOKEN = 0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE;
 ///      make it deposit can keep it locked. A claim empties the slot and opens a new
 ///      round, ending the old round's refunds.
 ///      Integration notes are in README.md beside this file.
-contract HandleEscrow is IHandleReveal, Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, ReentrancyGuard {
+contract HandleEscrow is
+    IHandleEscrow,
+    IHandleReveal,
+    Initializable,
+    UUPSUpgradeable,
+    Ownable2StepUpgradeable,
+    ReentrancyGuard
+{
     using SafeERC20 for IERC20;
 
     /// @notice The native token of the chain, as a token address (EIP-7528).

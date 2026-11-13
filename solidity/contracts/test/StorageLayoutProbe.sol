@@ -1,6 +1,11 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
+import {
+    AccountERC7579Upgradeable
+} from "@openzeppelin/contracts-upgradeable/account/extensions/draft-AccountERC7579Upgradeable.sol";
+import {Initializable} from "@openzeppelin/contracts/proxy/utils/Initializable.sol";
+
 import {CeremonyProofVerifier} from "../ceremony/CeremonyProofVerifier.sol";
 import {JwtRootsBase} from "../ceremony/JwtRootsBase.sol";
 import {NotaryService} from "../ceremony/NotaryService.sol";
@@ -26,4 +31,7 @@ contract StorageLayoutProbe {
     OidcPlatformVerifierBase.OidcStorage internal oidcPlatformVerifier;
     HandleEscrow.HandleEscrowStorage internal handleEscrow;
     IdentityRegistry.IdentityRegistryStorage internal identityRegistry;
+    // OpenZeppelin's, inherited by WebWallet.
+    AccountERC7579Upgradeable.AccountERC7579Storage internal accountERC7579;
+    Initializable.InitializableStorage internal initializable;
 }

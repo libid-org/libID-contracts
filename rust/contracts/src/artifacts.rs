@@ -65,6 +65,12 @@ pub const COVERED: &[(&str, &str)] = &[
     // factory
     ("LibidFactory", "LibidFactory"),
     ("WTIA9", "WTIA9"),
+    // wallet
+    ("WebWallet", "WebWallet"),
+    ("IdentityValidator", "IdentityValidator"),
+    ("WalletRegistry", "WalletRegistry"),
+    ("WalletFactory", "WalletFactory"),
+    ("ClaimExecutor", "ClaimExecutor"),
 ];
 
 /// The test stand-ins the `testing` feature embeds, as in [`COVERED`]. Keep
