@@ -17,6 +17,11 @@ bytes4 constant AUTHORIZED_SELECTOR = bytes4(keccak256("libid.webwallet.authoriz
 // The one `AUTHORIZED` mode word: batch call type, default exec type, `AUTHORIZED_SELECTOR`, zero payload.
 bytes32 constant AUTHORIZED_MODE = bytes32((uint256(0x01) << 248) | (uint256(uint32(AUTHORIZED_SELECTOR)) << 176));
 
+/// EntryPoint v0.9's `incrementNonce`, which OpenZeppelin's interface leaves out.
+interface INonceIncrement {
+    function incrementNonce(uint192 key) external;
+}
+
 /// @title IWebWallet - the ERC-7579 account core (OpenZeppelin v5.7.0, UUPS).
 /// @notice Constructor: `WebWallet(address identityValidator)`, the one module it accepts;
 ///         `initialize` installs it.

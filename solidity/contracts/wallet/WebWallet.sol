@@ -27,12 +27,7 @@ import {
 
 import {bytesAt} from "./AbiBytes.sol";
 import {IIdentityValidator} from "./IIdentityValidator.sol";
-import {AUTHORIZED_MODE, IWebWallet} from "./IWebWallet.sol";
-
-/// EntryPoint v0.9's `incrementNonce`, which OpenZeppelin's interface leaves out.
-interface INonceIncrement {
-    function incrementNonce(uint192 key) external;
-}
+import {AUTHORIZED_MODE, INonceIncrement, IWebWallet} from "./IWebWallet.sol";
 
 /// @title WebWallet - an ERC-7579 account whose one module is the IdentityValidator.
 /// @notice Module changes and upgrades come only from that validator, for a matured root operation.

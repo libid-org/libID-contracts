@@ -57,6 +57,18 @@ library OperationList {
         return select(domain, data, owned);
     }
 
+    /// @notice `select` for a Consumer that owns two domains besides `libid.operations`.
+    function select(bytes32 domain, bytes memory data, bytes32 own0, bytes32 own1)
+        internal
+        pure
+        returns (bytes32, bytes memory)
+    {
+        if (domain != DOMAIN) return (domain, data);
+        bytes32[] memory owned = new bytes32[](2);
+        (owned[0], owned[1]) = (own0, own1);
+        return select(domain, data, owned);
+    }
+
     function _contains(bytes32[] memory set, bytes32 d) private pure returns (bool) {
         for (uint256 i; i < set.length; ++i) {
             if (set[i] == d) return true;

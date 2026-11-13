@@ -12,13 +12,8 @@ import {StubPlatformVerifier} from "../../identity/test/StubPlatformVerifier.sol
 import {NATIVE_TOKEN} from "../../NativeToken.sol";
 import {IExecutionCheck, IIdentityValidator} from "../IIdentityValidator.sol";
 import {IWalletRegistry} from "../IWalletRegistry.sol";
-import {AUTHORIZED_MODE, IWebWallet} from "../IWebWallet.sol";
+import {AUTHORIZED_MODE, INonceIncrement, IWebWallet} from "../IWebWallet.sol";
 import {CallTarget, IUserOpHash, WalletTestBase} from "./WalletTestBase.sol";
-
-/// EntryPoint v0.9's `incrementNonce`, which OpenZeppelin's interface leaves out.
-interface INonceIncrement {
-    function incrementNonce(uint192 key) external;
-}
 
 /// Reverts until opened.
 contract Gate {

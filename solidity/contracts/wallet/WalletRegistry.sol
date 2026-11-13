@@ -33,14 +33,6 @@ contract WalletRegistry is IWalletRegistry {
         }
     }
 
-    /// What a proof authorizes, once accepted.
-    struct Accepted {
-        bytes32 idNode;
-        bytes32 digest;
-        address wallet;
-        bytes key;
-    }
-
     /// @param walletFactory The WalletFactory proxy's address, which may not exist yet.
     constructor(address proofVerifier, address walletFactory) {
         PROOF_VERIFIER = IProofVerifier(proofVerifier);
@@ -61,13 +53,12 @@ contract WalletRegistry is IWalletRegistry {
         bytes calldata payload,
         IIdentityValidator.Policy calldata policy
     ) external payable {
-        Accepted memory a = _accept(LINK_IDENTITY_DOMAIN, platformId, verifierVersion, payload, policy);
-        if (msg.sender != a.wallet) revert NotWallet(a.wallet, msg.sender);
-        VALIDATOR.link(a.wallet, platformId, a.idNode);
-        if (a.key.length != 0) {
-            VALIDATOR.addSessionByAccount(a.wallet, identityOf(platformId, a.idNode), a.key, policy);
-        }
-        emit IdentityLinked(a.wallet, platformId, a.idNode, a.digest);
+        (bytes32 idNode, bytes32 digest, address wallet, bytes memory key) =
+            _accept(LINK_IDENTITY_DOMAIN, platformId, verifierVersion, payload, policy);
+        if (msg.sender != wallet) revert NotWallet(wallet, msg.sender);
+        VALIDATOR.link(wallet, platformId, idNode);
+        if (key.length != 0) VALIDATOR.addSessionByAccount(wallet, identityOf(platformId, idNode), key, policy);
+        emit IdentityLinked(wallet, platformId, idNode, digest);
     }
 
     function addSessionByProof(
@@ -76,8 +67,9 @@ contract WalletRegistry is IWalletRegistry {
         bytes calldata payload,
         IIdentityValidator.Policy calldata policy
     ) external payable {
-        Accepted memory a = _accept(ADD_SESSION_DOMAIN, platformId, verifierVersion, payload, policy);
-        VALIDATOR.addSessionByProof(a.wallet, identityOf(platformId, a.idNode), a.key, policy);
+        (bytes32 idNode,, address wallet, bytes memory key) =
+            _accept(ADD_SESSION_DOMAIN, platformId, verifierVersion, payload, policy);
+        VALIDATOR.addSessionByProof(wallet, identityOf(platformId, idNode), key, policy);
     }
 
     function quote(bytes32 platformId, uint16 verifierVersion) external view returns (uint256) {
@@ -88,32 +80,31 @@ contract WalletRegistry is IWalletRegistry {
         return _s().spentDigests[digest];
     }
 
-    /// Verifies the proof, spends its digest, and checks its transaction data.
+    /// Verifies the proof, spends its digest, and checks its transaction data: the identity, the digest,
+    /// and the wallet and session key the data names.
     function _accept(
         bytes32 domain,
         bytes32 platformId,
         uint16 verifierVersion,
         bytes calldata payload,
         IIdentityValidator.Policy calldata policy
-    ) private returns (Accepted memory a) {
+    ) private returns (bytes32 idNode, bytes32 digest, address wallet, bytes memory key) {
         uint256 required = PROOF_VERIFIER.quote(platformId, verifierVersion);
         if (msg.value != required) revert WrongValue(required, msg.value);
         ICeremony.VerifiedClaim memory claimed =
             PROOF_VERIFIER.verify{value: required}(platformId, verifierVersion, payload);
 
         // Both domains are this Consumer's, so a list may carry only one of them (REQ-COMMON-01I).
-        bytes32[] memory own = new bytes32[](2);
-        own[0] = LINK_IDENTITY_DOMAIN;
-        own[1] = ADD_SESSION_DOMAIN;
-        (bytes32 entryDomain, bytes memory data) =
-            OperationList.select(claimed.operationDomain, claimed.transactionData, own);
+        (bytes32 entryDomain, bytes memory data) = OperationList.select(
+            claimed.operationDomain, claimed.transactionData, LINK_IDENTITY_DOMAIN, ADD_SESSION_DOMAIN
+        );
         if (entryDomain != domain) revert ForeignOperationDomain(entryDomain);
         if (claimed.idNode == bytes32(0)) revert NoId();
         if (_s().spentDigests[claimed.sessionId]) revert DigestAlreadySpent(claimed.sessionId);
         _s().spentDigests[claimed.sessionId] = true;
 
-        (address wallet, bytes memory key) = _transactionData(data, policy);
-        return Accepted({idNode: claimed.idNode, digest: claimed.sessionId, wallet: wallet, key: key});
+        (wallet, key) = _transactionData(data, policy);
+        return (claimed.idNode, claimed.sessionId, wallet, key);
     }
 
     /// The wallet and session key of canonical transaction data for this chain that commits to `policy`.
