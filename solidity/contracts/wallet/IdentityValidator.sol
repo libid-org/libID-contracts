@@ -60,7 +60,7 @@ contract IdentityValidator is IIdentityValidator, IdentityValidatorState {
     constructor(address walletRegistry_, address walletFactory_) {
         REGISTRY = walletRegistry_;
         FACTORY = walletFactory_;
-        RULES = address(new SessionRules());
+        RULES = address(new SessionRules(walletRegistry_));
     }
 
     // ─── ERC-7579 module ────────────────────────────────────────────
@@ -106,7 +106,7 @@ contract IdentityValidator is IIdentityValidator, IdentityValidatorState {
         uint8 quorum = threshold(msg.sender);
         (bool ok, bool below, Verified memory v) = _signers(userOpHash, auth, quorum);
         if (!ok) return ERC4337Utils.SIG_VALIDATION_FAILED;
-        (ok, v) = _rules(abi.encodeCall(SessionRules.allowed, (msg.sender, REGISTRY, v, userOp, below)));
+        (ok, v) = _rules(abi.encodeCall(SessionRules.allowed, (v, userOp, below)));
         if (!ok) return ERC4337Utils.SIG_VALIDATION_FAILED;
         return (uint256(v.validAfter) << 208) | (uint256(v.validUntil) << 160);
     }
@@ -156,11 +156,7 @@ contract IdentityValidator is IIdentityValidator, IdentityValidatorState {
         );
         (bool ok, bool below, Verified memory v) = _signers(digest, auth, quorum);
         if (!ok || !_inWindow(v)) revert ExecutionNotAuthorized();
-        (ok, v) = _rules(
-            abi.encodeCall(
-                SessionRules.allowedExecution, (msg.sender, REGISTRY, v, mode, executionCalldata, auth, below)
-            )
-        );
+        (ok, v) = _rules(abi.encodeCall(SessionRules.allowedExecution, (v, mode, executionCalldata, auth, below)));
         if (!ok) revert ExecutionNotAuthorized();
         if (!_inWindow(v)) revert ExecutionOutsidePeriod(auth.at);
     }

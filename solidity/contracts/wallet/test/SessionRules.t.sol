@@ -11,23 +11,20 @@ import {SessionRules} from "../SessionRules.sol";
 /// SessionRules runs only through the validator's DELEGATECALL.
 contract SessionRulesTest is Test {
     function test_aDirectCallReverts() public {
-        address rules = deployCode("SessionRules.sol:SessionRules");
+        address rules = deployCode("SessionRules.sol:SessionRules", abi.encode(address(0)));
+        IdentityValidatorState.Verified memory v;
         PackedUserOperation memory op;
-        // `allowed(account, registry, v, userOp, below)`, its `Verified` the eight zero words.
-        bytes memory call = abi.encodePacked(
-            bytes4(0x7795e026), abi.encode(address(this), address(0), [uint256(0), 0, 0, 0, 0, 0, 0, 0], op, false)
-        );
+        bytes memory call = abi.encodeCall(SessionRules.allowed, (v, op, false));
         (bool ok, bytes memory err) = rules.call(call);
         assertFalse(ok, "accepted");
         assertEq(err, abi.encodeWithSignature("NotDelegated()"), "not NotDelegated");
     }
 
     function test_aDirectCallOfTheDirectPathsRulesReverts() public {
-        address rules = deployCode("SessionRules.sol:SessionRules");
+        address rules = deployCode("SessionRules.sol:SessionRules", abi.encode(address(0)));
         IdentityValidatorState.Verified memory v;
         IIdentityValidator.Authorization memory a;
-        bytes memory call =
-            abi.encodeCall(SessionRules.allowedExecution, (address(this), address(0), v, bytes32(0), "", a, false));
+        bytes memory call = abi.encodeCall(SessionRules.allowedExecution, (v, bytes32(0), "", a, false));
         (bool ok, bytes memory err) = rules.call(call);
         assertFalse(ok, "accepted");
         assertEq(err, abi.encodeWithSignature("NotDelegated()"), "not NotDelegated");

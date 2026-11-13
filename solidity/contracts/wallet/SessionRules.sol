@@ -22,12 +22,14 @@ import {IdentityValidatorState} from "./IdentityValidatorState.sol";
 /// @title SessionRules - what an operation may do, and the allowances it charges below quorum.
 /// @notice Deployed by IdentityValidator's constructor, which runs it through DELEGATECALL: it reads
 ///         and writes the validator's storage. Called directly, it reverts.
+///         In that frame `msg.sender` is the account and `address(this)` the validator.
 contract SessionRules is IdentityValidatorState {
     using ERC4337Utils for PackedUserOperation;
     using ERC7579Utils for bytes;
     using ERC7579Utils for Mode;
 
     address private immutable SELF = address(this);
+    address private immutable REGISTRY;
 
     /// Called other than through the validator's DELEGATECALL.
     error NotDelegated();
@@ -39,12 +41,9 @@ contract SessionRules is IdentityValidatorState {
         Refused
     }
 
-    /// What every execution of an operation is checked against: the account and its registry; below
-    /// quorum, the governing session's scope and rules hash, the signed `at`, and the native value and
-    /// gas charged so far.
+    /// What every execution of an operation is checked against below quorum: the governing session's
+    /// scope and rules hash, the signed `at`, and the native value and gas charged so far.
     struct Spend {
-        address account;
-        address registry;
         bytes32 keyHash;
         bytes32 scopeRoot;
         bytes32 rulesHash;
@@ -53,15 +52,17 @@ contract SessionRules is IdentityValidatorState {
         uint256 native;
     }
 
+    /// @param walletRegistry The registry whose calls are admin operations.
+    constructor(address walletRegistry) {
+        REGISTRY = walletRegistry;
+    }
+
     /// `_allowed` for a UserOperation's `execute(mode, executionCalldata)` under the default mode selector, and
     /// `v` with its window narrowed to the periods charged.
-    function allowed(
-        address account,
-        address registry,
-        Verified memory v,
-        PackedUserOperation calldata userOp,
-        bool below
-    ) external returns (bool, Verified memory) {
+    function allowed(Verified memory v, PackedUserOperation calldata userOp, bool below)
+        external
+        returns (bool, Verified memory)
+    {
         if (address(this) == SELF) revert NotDelegated();
         bytes calldata callData = userOp.callData;
         if (_selector(callData) != IERC7579Execution.execute.selector) return (false, v);
@@ -76,14 +77,12 @@ contract SessionRules is IdentityValidatorState {
             // later reject it before the account anyway.
             if (paymaster == address(0)) return (false, v);
         }
-        return (_allowed(account, registry, v, auth, mode, executions, paymaster, _maxGasCost(userOp), below), v);
+        return (_allowed(v, auth, mode, executions, paymaster, _maxGasCost(userOp), below), v);
     }
 
     /// `_allowed` for a direct execution, with no paymaster and no gas charge, and `v` with its window narrowed
     /// to the periods charged.
     function allowedExecution(
-        address account,
-        address registry,
         Verified memory v,
         bytes32 mode,
         bytes calldata executions,
@@ -91,7 +90,7 @@ contract SessionRules is IdentityValidatorState {
         bool below
     ) external returns (bool, Verified memory) {
         if (address(this) == SELF) revert NotDelegated();
-        return (_allowed(account, registry, v, auth, mode, executions, address(0), 0, below), v);
+        return (_allowed(v, auth, mode, executions, address(0), 0, below), v);
     }
 
     /// Single or batch calls, as `_calls` allows them. Below quorum, a
@@ -99,8 +98,6 @@ contract SessionRules is IdentityValidatorState {
     /// the value.
     /// @dev `paymastersRoot == 0` proves no leaf.
     function _allowed(
-        address account,
-        address registry,
         Verified memory v,
         IIdentityValidator.Authorization memory auth,
         bytes32 mode,
@@ -110,9 +107,9 @@ contract SessionRules is IdentityValidatorState {
         bool below
     ) private returns (bool) {
         (CallType callType,,,) = Mode.wrap(mode).decodeMode();
-        Spend memory sp = Spend(account, registry, v.keyHash, 0, 0, auth.at, below, 0);
+        Spend memory sp = Spend(v.keyHash, 0, 0, auth.at, below, 0);
         if (below) {
-            IIdentityValidator.Session storage s = _sessions(account, v.keyHash)[account];
+            IIdentityValidator.Session storage s = _sessions(msg.sender, v.keyHash)[msg.sender];
             (sp.scopeRoot, sp.rulesHash) = (s.scopeRoot, s.rulesHash);
             if (paymaster == address(0)) {
                 sp.native = maxGasCost;
@@ -148,7 +145,7 @@ contract SessionRules is IdentityValidatorState {
             return false;
         }
         return
-            sp.native == 0 || _charge(v, _counter(sp.account, sp.keyHash, sp.rulesHash, NATIVE_TOKEN), sp.native, sp.at);
+            sp.native == 0 || _charge(v, _counter(msg.sender, sp.keyHash, sp.rulesHash, NATIVE_TOKEN), sp.native, sp.at);
     }
 
     /// One execution, never refused by `_targetScope`. Below quorum, an outside call proved by `calls[i]`
@@ -164,7 +161,7 @@ contract SessionRules is IdentityValidatorState {
         IIdentityValidator.CallProof[] memory calls,
         uint256 i
     ) private returns (bool) {
-        Scope scope = _targetScope(sp, target, data);
+        Scope scope = _targetScope(target, data);
         if (scope == Scope.Refused) return false;
         if (!sp.below) return true;
         IIdentityValidator.CallProof memory proof = calls[i];
@@ -174,7 +171,7 @@ contract SessionRules is IdentityValidatorState {
                 || !MerkleProof.verify(proof.proof, sp.scopeRoot, _leaf(abi.encode(target, selector, proof.maxValue)))
         ) return false;
         sp.native += value;
-        return _chargeToken(v, _counter(sp.account, sp.keyHash, sp.rulesHash, target), data, selector, sp.at);
+        return _chargeToken(v, _counter(msg.sender, sp.keyHash, sp.rulesHash, target), data, selector, sp.at);
     }
 
     /// Refuses a token call the allowances forbid, and charges a `transfer` or `approve` amount.
@@ -217,7 +214,7 @@ contract SessionRules is IdentityValidatorState {
     /// A call to the account, the validator (`address(this)` under DELEGATECALL) or the registry is an
     /// admin operation. Any other target is outside. The validator's `onInstall`/`onUninstall` called
     /// directly is refused.
-    function _targetScope(Spend memory sp, address target, bytes calldata data) private view returns (Scope) {
+    function _targetScope(address target, bytes calldata data) private view returns (Scope) {
         if (target == address(this)) {
             bytes4 selector = _selector(data);
             bool module =
@@ -225,7 +222,7 @@ contract SessionRules is IdentityValidatorState {
             return module ? Scope.Refused : Scope.Admin;
         }
         // The account executes a call to address(0) on itself.
-        if (target == sp.account || target == address(0) || target == sp.registry) return Scope.Admin;
+        if (target == msg.sender || target == address(0) || target == REGISTRY) return Scope.Admin;
         return Scope.Call;
     }
 
