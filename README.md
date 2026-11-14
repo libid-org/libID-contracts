@@ -21,8 +21,8 @@ solidity/            # Foundry project root
     handles/         # HandleNode: the A-Z fold and the node hash
     identity/        # IdentityRegistry
     escrow/          # HandleEscrow: value sent to a handle before it is proved
-    referral/        # ReferralSplitter: a referred bind's fee, split between
-                     # the referrer's handle and the treasury
+    referral/        # ReferralSplitter: the bind fee it sets, split between
+                     # a referrer's handle and the treasury
     ens/             # HandleResolver
     factory/         # LibidFactory: deterministic CREATE3 deployment
     WTIA9.sol        # wrapped TIA

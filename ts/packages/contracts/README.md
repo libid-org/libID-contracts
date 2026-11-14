@@ -168,7 +168,7 @@ const payload = encodeTlsNotaryProof({
 
 A refused bind reverts with the error of whichever contract on its route
 refused it: the registry, the Proof Verifier, a Platform Verifier, the Notary
-Service, a Honk verifier or, for a referred bind, the referral splitter.
+Service, a Honk verifier or, for a bind that pays it, the referral splitter.
 `bindErrorsAbi` carries all of them:
 
 ```ts

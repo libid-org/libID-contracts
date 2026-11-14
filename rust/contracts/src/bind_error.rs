@@ -192,15 +192,18 @@ mod tests {
         );
     }
 
-    /// A splitter's refusal reaches the sender of a referred bind unchanged.
+    /// A splitter's refusal reaches the sender of a bind through it unchanged.
     #[test]
     fn names_a_referral_splitter_refusal() {
-        let data = revert("BadFeeData(uint256)", (U256::from(33),).abi_encode_params());
+        let data = revert(
+            "WrongBindFee(uint256,uint256)",
+            (U256::from(1), U256::from(2)).abi_encode_params(),
+        );
         let error = BindError::decode(&data).expect("decodes");
         assert_eq!(error.contracts(), ["ReferralSplitter"]);
         match error {
-            BindError::Referral(ReferralSplitterErrors::BadFeeData(e)) => {
-                assert_eq!(e.length, U256::from(33));
+            BindError::Referral(ReferralSplitterErrors::WrongBindFee(e)) => {
+                assert_eq!((e.required, e.provided), (U256::from(1), U256::from(2)));
             }
             other => panic!("decoded as {other}"),
         }

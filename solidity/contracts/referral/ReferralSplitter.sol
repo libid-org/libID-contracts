@@ -9,10 +9,11 @@ import {IBindFeeReceiver} from "../identity/IBindFeeReceiver.sol";
 import {IIdentityRegistry} from "../identity/IIdentityRegistry.sol";
 
 /// @title ReferralSplitter - a bind's service fee, shared with the handle that referred it.
-/// @notice The registry's `bindWithFeeCall` pays the fee here. With a referral in
-///         `feeData`, `shareBps` of the fee goes to the referrer's handle node
-///         through the escrow: to its holder, or held until somebody binds it. The
-///         rest, and any share that cannot be delivered, goes to `treasury`.
+/// @notice The registry's `bindWithFeeCall` pays `fee` here; any other amount
+///         reverts the bind. With a referral in `feeData`, `shareBps` of the fee
+///         goes to the referrer's handle node through the escrow: to its holder,
+///         or held until somebody binds it. The rest, and any share that cannot be
+///         delivered, goes to `treasury`.
 /// @dev Holds no balance between transactions. Its escrow contributions are the
 ///      shares of nodes nobody held yet, held until each node's holder claims them.
 contract ReferralSplitter is IBindFeeReceiver, Ownable2Step {
@@ -40,9 +41,9 @@ contract ReferralSplitter is IBindFeeReceiver, Ownable2Step {
     /// @notice The referrer's part of a fee, in basis points.
     uint16 public shareBps;
 
-    /// @notice A fee below this pays the treasury alone, referral or not, so a
-    ///         one-wei bind cannot add to a referrer's history.
-    uint256 public minReferralFee;
+    /// @notice What a bind through the splitter pays, with a referral or without.
+    ///         At zero every such bind reverts: the registry refuses a zero fee.
+    uint256 public fee;
 
     // ─── Events ─────────────────────────────────────────────────────
 
@@ -62,7 +63,7 @@ contract ReferralSplitter is IBindFeeReceiver, Ownable2Step {
 
     event ShareSet(uint16 shareBps);
     event TreasurySet(address treasury);
-    event MinReferralFeeSet(uint256 minReferralFee);
+    event FeeSet(uint256 fee);
 
     // ─── Errors ─────────────────────────────────────────────────────
 
@@ -71,6 +72,8 @@ contract ReferralSplitter is IBindFeeReceiver, Ownable2Step {
     error EscrowOfAnotherRegistry(address escrowRegistry);
     /// `onBindFee` came from somebody other than the registry.
     error NotRegistry(address caller);
+    /// `onBindFee` carried a value other than `fee`.
+    error WrongBindFee(uint256 required, uint256 provided);
     /// `feeData` is neither empty nor `abi.encode(bytes32 referrerPlatformId, bytes32 referrerNode)`.
     error BadFeeData(uint256 length);
     /// The treasury refused its part, which reverts the bind.
@@ -88,7 +91,7 @@ contract ReferralSplitter is IBindFeeReceiver, Ownable2Step {
         address owner_,
         address treasury_,
         uint16 shareBps_,
-        uint256 minReferralFee_
+        uint256 fee_
     ) Ownable(owner_) {
         if (address(registry) == address(0) || address(escrow) == address(0)) revert ZeroAddress();
         if (address(escrow.registry()) != address(registry)) {
@@ -98,7 +101,7 @@ contract ReferralSplitter is IBindFeeReceiver, Ownable2Step {
         ESCROW = escrow;
         _setTreasury(treasury_);
         _setShare(shareBps_);
-        _setMinReferralFee(minReferralFee_);
+        _setFee(fee_);
     }
 
     // ─── Settings ───────────────────────────────────────────────────
@@ -112,8 +115,8 @@ contract ReferralSplitter is IBindFeeReceiver, Ownable2Step {
         _setShare(shareBps_);
     }
 
-    function setMinReferralFee(uint256 minReferralFee_) external onlyOwner {
-        _setMinReferralFee(minReferralFee_);
+    function setFee(uint256 fee_) external onlyOwner {
+        _setFee(fee_);
     }
 
     function _setTreasury(address treasury_) private {
@@ -128,9 +131,9 @@ contract ReferralSplitter is IBindFeeReceiver, Ownable2Step {
         emit ShareSet(shareBps_);
     }
 
-    function _setMinReferralFee(uint256 minReferralFee_) private {
-        minReferralFee = minReferralFee_;
-        emit MinReferralFeeSet(minReferralFee_);
+    function _setFee(uint256 fee_) private {
+        fee = fee_;
+        emit FeeSet(fee_);
     }
 
     /// @dev The treasury and the settings stay changeable.
@@ -143,7 +146,7 @@ contract ReferralSplitter is IBindFeeReceiver, Ownable2Step {
     /// @inheritdoc IBindFeeReceiver
     /// @dev `feeData` is empty for no referral, or `abi.encode(referrerPlatformId,
     ///      referrerNode)`. A referral emits `Referred` only when it carries a share:
-    ///      a fee of at least `minReferralFee` and a nonzero `shareBps`.
+    ///      a nonzero `shareBps`.
     function onBindFee(
         address binder,
         bytes32 platformId,
@@ -152,26 +155,28 @@ contract ReferralSplitter is IBindFeeReceiver, Ownable2Step {
         bytes calldata feeData
     ) external payable returns (bytes4) {
         if (msg.sender != address(REGISTRY)) revert NotRegistry(msg.sender);
+        if (msg.value != fee) revert WrongBindFee(fee, msg.value);
         if (feeData.length != 0 && feeData.length != 64) revert BadFeeData(feeData.length);
 
-        uint256 fee = msg.value;
-        uint256 share = feeData.length == 0 || fee < minReferralFee ? 0 : fee * shareBps / WHOLE;
+        uint256 share = feeData.length == 0 ? 0 : msg.value * shareBps / WHOLE;
         if (share == 0) {
-            _payTreasury(fee);
+            _payTreasury(msg.value);
             return IBindFeeReceiver.onBindFee.selector;
         }
 
         (bytes32 referrerPlatformId, bytes32 referrerNode) = abi.decode(feeData, (bytes32, bytes32));
         Outcome outcome = _deliver(binder, referrerPlatformId, referrerNode, share);
-        emit Referred(referrerNode, binder, sessionId, referrerPlatformId, platformId, handleNode, fee, share, outcome);
-        _payTreasury(outcome == Outcome.Paid ? fee - share : fee);
+        emit Referred(
+            referrerNode, binder, sessionId, referrerPlatformId, platformId, handleNode, msg.value, share, outcome
+        );
+        _payTreasury(outcome == Outcome.Paid ? msg.value - share : msg.value);
         return IBindFeeReceiver.onBindFee.selector;
     }
 
     /// @dev Deposits the share unless the binder holds the referrer's node. A
     ///      reverted deposit loses the share to the treasury and the bind goes on.
     ///      The deposit gets all the gas left but 1/64. When it runs out of gas,
-    ///      that 1/64 pays for the log and the treasury only if the deposit had
+    ///      that 1/64 pays for the log and the treasury only if the holder got
     ///      about 383,000 gas with a Safe treasury, 297,000 with a funded EOA, or
     ///      814,000 with an account never paid; with less, the bind reverts. At
     ///      the lowest gas limit a bind succeeds at, which a dry run returns, a

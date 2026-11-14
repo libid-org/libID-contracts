@@ -1397,7 +1397,7 @@ async fn refers_a_bind_at_the_estimated_gas() {
         deployer,
         treasury,
         share_bps,
-        U256::ZERO,
+        fee,
     )
         .abi_encode_params();
     let splitter_address = deploy_with_ctor(
@@ -1439,6 +1439,7 @@ async fn refers_a_bind_at_the_estimated_gas() {
     assert_eq!(splitter.REGISTRY().call().await.unwrap(), registry_proxy);
     assert_eq!(splitter.ESCROW().call().await.unwrap(), escrow_proxy);
     assert_eq!(splitter.treasury().call().await.unwrap(), treasury);
+    assert_eq!(splitter.fee().call().await.unwrap(), fee);
 
     let referrer = B256::from(PLATFORM_X.handle_node("carol").unwrap());
     let payload = stub_payload(&StubPayload {
