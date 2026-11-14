@@ -46,7 +46,9 @@ gas_snapshot_emit = false
 # solc moves.
 #
 # Not isolated: an isolated call would add a base fee, calldata and cold state
-# that the `verify` frame inside a claim does not pay.
+# that the `verify` frame inside a claim does not pay. The onboarding is a
+# whole relayer transaction, so its tests isolate inline and record gas used
+# less the refund.
 [profile.gas]
 evm_version = "osaka"
 isolate = false

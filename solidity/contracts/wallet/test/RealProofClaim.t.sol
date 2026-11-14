@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
+import {Vm} from "forge-std/Vm.sol";
 import {Execution} from "@openzeppelin/contracts/interfaces/draft-IERC7579.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
@@ -156,7 +157,9 @@ contract RealProofClaimTest is ExecuteBase {
         bytes memory auth = _aliceFor(w, calls, n);
         vm.prank(relayer, relayer);
         factory.createAndExecute{value: linkFee + bindFee}(X, idNode, AUTHORIZED_MODE, _data(calls, auth));
-        gas = vm.lastFrameGas().gasTotalUsed;
+        Vm.Gas memory used = vm.lastFrameGas();
+        // forge-lint: disable-next-line(unsafe-typecast)
+        gas = used.gasTotalUsed - uint64(used.gasRefunded);
 
         assertEq(identities.resolveId(idNode), w, "not bound");
         assertEq(w.balance, CLAIMED - linkFee - bindFee, "not claimed");
@@ -166,15 +169,17 @@ contract RealProofClaimTest is ExecuteBase {
         assertEq(validator.sessionOf(w, _key(BOT_PK)).activeAt, _now(), "no bot session");
     }
 
+    /// forge-config: gas.isolate = true
     function test_oneCreateAndExecuteOnboardsOnOneRealListProof() public {
         (, uint256 gas) = _onboard(VX, _list(VX));
-        // The frame's gas, written only by `FOUNDRY_PROFILE=gas forge test`.
+        // The transaction's gas used, written only by `FOUNDRY_PROFILE=gas forge test`.
         vm.snapshotValue("wallet-claim", "createAndExecute onboarding(real X proof, operation list)", gas);
     }
 
+    /// forge-config: gas.isolate = true
     function test_oneCreateAndExecuteOnboardsOnOneStubListProof() public {
         (, uint256 gas) = _onboard(VSTUB, _list(VSTUB));
-        // The frame's gas, written only by `FOUNDRY_PROFILE=gas forge test`.
+        // The transaction's gas used, written only by `FOUNDRY_PROFILE=gas forge test`.
         vm.snapshotValue("wallet-claim", "createAndExecute onboarding(stub proof, operation list)", gas);
     }
 
