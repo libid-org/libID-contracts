@@ -286,21 +286,6 @@ contract ReferralSplitterTest is Test {
         _expectRefused(_referral(_node("carol")));
     }
 
-    /// @dev A burning holder costs the binder at most `DEPOSIT_GAS` more than a holder that takes the share.
-    function test_aHolderThatBurnsGasCostsTheBindAtMostTheDepositGas() public {
-        _hold(REFERRER, "carol");
-        _hold(address(new BurningHolder()), "erin");
-
-        uint256 start = gasleft();
-        _referredBind("alice", FEE, _referral(_node("carol")));
-        uint256 paying = start - gasleft();
-        start = gasleft();
-        _referredBind("frank", FEE, _referral(_node("erin")));
-        uint256 burning = start - gasleft();
-
-        assertLe(burning, paying + splitter.DEPOSIT_GAS());
-    }
-
     function test_aPlatformNobodyCanBindRefusesTheShare() public {
         _expectRefused(abi.encode(GITHUB, TestNodes.handleNode(GITHUB, "dave")));
     }
@@ -415,11 +400,8 @@ contract ReferralSplitterTest is Test {
     // ─── Gas ────────────────────────────────────────────────────────
 
     /// Each gas limit in 1k steps around the bind's cost: the bind either reverts
-    /// or ends in `expected`. Returns the refusal at the highest limit below every success.
-    function _sweep(bytes32 referrerNode, ReferralSplitter.Outcome expected)
-        private
-        returns (bytes memory lastRefusal)
-    {
+    /// or ends in `expected`.
+    function _sweep(bytes32 referrerNode, ReferralSplitter.Outcome expected) private {
         bytes memory payload = _stage(WALLET, "alice");
         bytes memory call = abi.encodeCall(
             IdentityRegistry.bindWithFeeCall,
@@ -438,13 +420,10 @@ contract ReferralSplitterTest is Test {
             snap = vm.snapshotState();
             vm.recordLogs();
             vm.prank(WALLET);
-            bytes memory ret;
-            (ok, ret) = address(registry).call{value: QUOTE + FEE, gas: limit}(call);
+            (ok,) = address(registry).call{value: QUOTE + FEE, gas: limit}(call);
             if (ok) {
                 assertEq(uint8(_outcome(vm.getRecordedLogs())), uint8(expected), "a gas limit changed the outcome");
                 ++successes;
-            } else if (successes == 0) {
-                lastRefusal = ret;
             }
             vm.revertToState(snap);
         }
@@ -452,31 +431,13 @@ contract ReferralSplitterTest is Test {
     }
 
     function test_everyGasLimitRevertsOrBooksTheShare() public {
-        bytes memory refusal = _sweep(_node("dave"), ReferralSplitter.Outcome.Paid);
-        assertEq(bytes4(refusal), ReferralSplitter.InsufficientGas.selector, "the floor sets the lowest limit");
+        _sweep(_node("dave"), ReferralSplitter.Outcome.Paid);
     }
 
     function test_everyGasLimitRevertsOrForwardsTheShare() public {
         address wallet = Clones.clone(address(new LoggingWallet()));
         _hold(wallet, "carol");
-        bytes memory refusal = _sweep(_node("carol"), ReferralSplitter.Outcome.Paid);
-        assertEq(bytes4(refusal), ReferralSplitter.InsufficientGas.selector, "the floor sets the lowest limit");
-    }
-
-    /// @dev With a treasury that already exists, `RESERVE` covers the log and the
-    ///      treasury's part after a deposit that used all of `DEPOSIT_GAS`.
-    function test_theReserveCoversWhatFollowsABurnedDeposit() public {
-        address safe = Clones.clone(address(new LoggingWallet()));
-        vm.prank(OWNER);
-        splitter.setTreasury(safe);
-        _hold(address(new BurningHolder()), "carol");
-        bytes memory refusal = _sweep(_node("carol"), ReferralSplitter.Outcome.Refused);
-        assertEq(bytes4(refusal), ReferralSplitter.InsufficientGas.selector, "the floor sets the lowest limit");
-    }
-
-    function test_everyGasLimitRevertsOrRefusesABurningHoldersShare() public {
-        _hold(address(new BurningHolder()), "carol");
-        _sweep(_node("carol"), ReferralSplitter.Outcome.Refused);
+        _sweep(_node("carol"), ReferralSplitter.Outcome.Paid);
     }
 
     // ─── Expiry ─────────────────────────────────────────────────────

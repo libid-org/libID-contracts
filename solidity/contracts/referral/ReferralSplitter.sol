@@ -23,20 +23,9 @@ contract ReferralSplitter is IBindFeeReceiver, Ownable2Step {
         Paid,
         /// The binder holds the referrer's node; the treasury took the share.
         SelfReferral,
-        /// The escrow refused the deposit or ran out of `DEPOSIT_GAS`; the treasury took the share.
+        /// The deposit reverted: the escrow or the holder refused the share, or the holder used up the gas; the treasury took the share.
         Refused
     }
-
-    /// @notice The gas a share's deposit may use. A first booked contribution needs
-    ///         about 89,000 and a forward to a wallet that logs about 42,500, so a
-    ///         holder that burns gas costs a bind at most this much.
-    uint256 public constant DEPOSIT_GAS = 150_000;
-
-    /// @dev Gas kept beside the deposit's: the call itself with its value, then the
-    ///      log and the treasury's part after a deposit that used all of its gas,
-    ///      for a treasury that holds code or a balance. Running short after the
-    ///      deposit reverts the whole bind, so the reserve decides no outcome.
-    uint256 private constant RESERVE = 40_000;
 
     uint16 private constant WHOLE = 10_000;
 
@@ -93,8 +82,6 @@ contract ReferralSplitter is IBindFeeReceiver, Ownable2Step {
     error NotRegistry(address caller);
     /// `feeData` is neither empty nor `abi.encode(bytes32 referrerPlatformId, bytes32 referrerNode)`.
     error BadFeeData(uint256 length);
-    /// Too little gas is left for the deposit to have all of `DEPOSIT_GAS`.
-    error InsufficientGas(uint256 left, uint256 needed);
     /// The treasury refused its part, which reverts the bind.
     error TreasuryRefused(address treasury, uint256 amount);
     error BadTreasury(address treasury);
@@ -202,9 +189,12 @@ contract ReferralSplitter is IBindFeeReceiver, Ownable2Step {
         return IBindFeeReceiver.onBindFee.selector;
     }
 
-    /// @dev Deposits the share unless the binder holds the referrer's node. The
-    ///      deposit cannot revert the bind: its holder's refusal or gas only lose
-    ///      the share to the treasury.
+    /// @dev Deposits the share unless the binder holds the referrer's node. A
+    ///      reverted deposit loses the share to the treasury and the bind goes on.
+    ///      The deposit gets all the gas left but 1/64. When it runs out of gas
+    ///      with less than about a million, that 1/64 cannot pay for the log and
+    ///      the treasury, and the bind reverts: the lowest gas limit a bind
+    ///      succeeds at pays a holder that accepts the share.
     function _deliver(address binder, bytes32 referrerPlatformId, bytes32 referrerNode, uint256 share)
         private
         returns (Outcome)
@@ -212,11 +202,7 @@ contract ReferralSplitter is IBindFeeReceiver, Ownable2Step {
         (address holder,) = REGISTRY.handleBinding(referrerNode);
         if (holder == binder) return Outcome.SelfReferral;
 
-        // Below this, the deposit would get less than DEPOSIT_GAS, and a gas limit
-        // estimated to the lowest that succeeds would run it out of gas.
-        uint256 needed = DEPOSIT_GAS * 64 / 63 + RESERVE;
-        if (gasleft() < needed) revert InsufficientGas(gasleft(), needed);
-        try ESCROW.deposit{value: share, gas: DEPOSIT_GAS}(referrerPlatformId, referrerNode, NATIVE_TOKEN, share) {
+        try ESCROW.deposit{value: share}(referrerPlatformId, referrerNode, NATIVE_TOKEN, share) {
             return Outcome.Paid;
         } catch {
             return Outcome.Refused;
