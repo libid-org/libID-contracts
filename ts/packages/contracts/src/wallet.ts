@@ -118,11 +118,10 @@ export const EXECUTE_TYPE = `Execute(${EXECUTE_TYPES.Execute.map((f) => `${f.typ
 
 export const EXECUTE_TYPEHASH: Hex = keccak256(toHex(EXECUTE_TYPE))
 
-/// What a direct `execute` signs: `mode` is `AUTHORIZED_MODE`, `at` is
-/// `Authorization.at`, and `nonce` is the wallet's full EntryPoint nonce under
-/// `directNonceKey` before the batch.
+/// What a direct `execute` signs, besides `mode`, which is always
+/// `AUTHORIZED_MODE`: `at` is `Authorization.at`, and `nonce` is the wallet's
+/// full EntryPoint nonce under `directNonceKey` before the batch.
 export type ExecuteMessage = {
-  mode: Hex
   executionCalldata: Hex
   at: number
   nonce: bigint
@@ -142,7 +141,7 @@ export function executeDigest(
     domain: { name: 'WebWallet', version: '1', chainId, verifyingContract: wallet },
     types: EXECUTE_TYPES,
     primaryType: 'Execute',
-    message: execute,
+    message: { ...execute, mode: AUTHORIZED_MODE },
   })
 }
 
@@ -152,18 +151,17 @@ export function directNonceKey(validator: Address): bigint {
   return BigInt(validator) << 32n
 }
 
-/// `data` of `execute(AUTHORIZED_MODE, data)`:
-/// `abi.encode(executionCalldata, deadline, callGas, abi.encode(authorization))`.
+/// `data` of `execute(AUTHORIZED_MODE, data)` for `message`:
+/// `abi.encode(executionCalldata, deadline, callGas, abi.encode(authorization))`,
+/// the authorization's `at` the message's.
 export function authorizedData(
-  executionCalldata: Hex,
-  deadline: number,
-  callGas: bigint,
-  authorization: SessionAuthorization,
+  message: ExecuteMessage,
+  authorization: Omit<SessionAuthorization, 'at'>,
 ): Hex {
   return encodeAbiParameters(parseAbiParameters('bytes, uint48, uint256, bytes'), [
-    executionCalldata,
-    deadline,
-    callGas,
-    encodeAbiParameters([AUTHORIZATION], [authorization]),
+    message.executionCalldata,
+    message.deadline,
+    message.callGas,
+    encodeAbiParameters([AUTHORIZATION], [{ ...authorization, at: message.at }]),
   ])
 }

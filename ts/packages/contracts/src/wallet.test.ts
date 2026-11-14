@@ -88,27 +88,21 @@ describe('the direct execute', () => {
     const nonce = (key << 64n) | 7n
     expect(nonce).toBe(BigInt(v.nonce))
 
-    const data = authorizedData(v.executionCalldata, v.deadline, BigInt(v.callGas), {
-      signatures: [{ key: v.sessionKey, signature: v.signature }],
+    const message = {
+      executionCalldata: v.executionCalldata,
       at: v.at,
+      nonce,
+      deadline: v.deadline,
+      callGas: BigInt(v.callGas),
+    }
+    const data = authorizedData(message, {
+      signatures: [{ key: v.sessionKey, signature: v.signature }],
       calls: [],
       domainProof: [],
       paymasterProof: [],
     })
     expect(keccak256(data)).toBe(v.dataHash)
-
-    const digest = executeDigest(
-      {
-        mode: AUTHORIZED_MODE,
-        executionCalldata: v.executionCalldata,
-        at: v.at,
-        nonce,
-        deadline: v.deadline,
-        callGas: BigInt(v.callGas),
-      },
-      v.chainId,
-      v.wallet,
-    )
+    const digest = executeDigest(message, v.chainId, v.wallet)
     expect(digest).toBe(v.digest)
   })
 })
