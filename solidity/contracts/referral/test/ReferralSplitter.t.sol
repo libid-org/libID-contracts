@@ -39,7 +39,6 @@ contract ReferralSplitterTest is Test {
     uint256 constant FEE = 0.01 ether;
     uint16 constant SHARE_BPS = 3_000;
     uint256 constant SHARE = FEE * SHARE_BPS / 10_000;
-    uint256 constant MIN_FEE = 0.001 ether;
 
     uint256 private nonce;
     uint256 private nextId = 1_000_000_000;
@@ -68,7 +67,7 @@ contract ReferralSplitterTest is Test {
                 )
             )
         );
-        splitter = new ReferralSplitter(registry, escrow, OWNER, treasury, SHARE_BPS, MIN_FEE);
+        splitter = new ReferralSplitter(registry, escrow, OWNER, treasury, SHARE_BPS, FEE);
         vm.deal(WALLET, 100 ether);
     }
 
@@ -198,21 +197,23 @@ contract ReferralSplitterTest is Test {
         assertEq(treasury.balance, FEE);
     }
 
-    function test_aFeeBelowTheMinimumIgnoresTheReferral() public {
+    /// @dev One wei more or less, with a referral or without, reverts the bind.
+    function test_anyFeeButTheSplittersRevertsTheBind() public {
         _hold(REFERRER, "carol");
-        uint256 before = REFERRER.balance;
-        vm.recordLogs();
-        _referredBind("alice", MIN_FEE - 1, _referral(_node("carol")));
-        assertEq(_referredCount(vm.getRecordedLogs()), 0);
-        assertEq(treasury.balance, MIN_FEE - 1);
-        assertEq(REFERRER.balance, before);
-    }
-
-    function test_aFeeAtTheMinimumCarriesTheReferral() public {
-        _hold(REFERRER, "carol");
-        vm.recordLogs();
-        _referredBind("alice", MIN_FEE, _referral(_node("carol")));
-        assertEq(uint8(_outcome(vm.getRecordedLogs())), uint8(ReferralSplitter.Outcome.Paid));
+        uint256[2] memory fees = [FEE - 1, FEE + 1];
+        bytes[2] memory feeData = [bytes(""), _referral(_node("carol"))];
+        for (uint256 i = 0; i < fees.length; ++i) {
+            for (uint256 j = 0; j < feeData.length; ++j) {
+                bytes memory payload = _stage(WALLET, "alice");
+                vm.prank(WALLET);
+                vm.expectRevert(abi.encodeWithSelector(ReferralSplitter.WrongBindFee.selector, FEE, fees[i]));
+                registry.bindWithFeeCall{value: QUOTE + fees[i]}(
+                    X, 1, payload, "", false, fees[i], address(splitter), feeData[j]
+                );
+            }
+        }
+        assertEq(registry.resolveHandle(X, "alice"), address(0));
+        assertEq(treasury.balance, 0);
     }
 
     function test_aZeroShareSendsTheWholeFeeAndNoReferral() public {
@@ -235,9 +236,12 @@ contract ReferralSplitterTest is Test {
         assertEq(treasury.balance, 0);
     }
 
-    function test_theShareRoundsDownAndThePartsAddUpToTheFee() public {
-        _hold(REFERRER, "carol");
+    /// @dev The fee the owner sets is what a bind pays and what the share is taken from.
+    function test_theShareIsTakenFromTheFeeAndRoundsDown() public {
         uint256 fee = 0.01 ether + 9_999;
+        vm.prank(OWNER);
+        splitter.setFee(fee);
+        _hold(REFERRER, "carol");
         uint256 before = REFERRER.balance;
         _referredBind("alice", fee, _referral(_node("carol")));
         uint256 share = REFERRER.balance - before;
@@ -434,7 +438,7 @@ contract ReferralSplitterTest is Test {
         vm.expectRevert(notOwner);
         splitter.setTreasury(address(1));
         vm.expectRevert(notOwner);
-        splitter.setMinReferralFee(0);
+        splitter.setFee(1);
     }
 
     function test_theSettingsAreBoundedAndLogged() public {
@@ -453,13 +457,13 @@ contract ReferralSplitterTest is Test {
         emit ReferralSplitter.TreasurySet(address(1));
         splitter.setTreasury(address(1));
         vm.expectEmit(false, false, false, true, address(splitter));
-        emit ReferralSplitter.MinReferralFeeSet(7);
-        splitter.setMinReferralFee(7);
+        emit ReferralSplitter.FeeSet(7);
+        splitter.setFee(7);
         vm.stopPrank();
 
         assertEq(splitter.shareBps(), 2_500);
         assertEq(splitter.treasury(), address(1));
-        assertEq(splitter.minReferralFee(), 7);
+        assertEq(splitter.fee(), 7);
     }
 
     function test_ownershipMovesInTwoStepsAndStays() public {
@@ -478,9 +482,9 @@ contract ReferralSplitterTest is Test {
 
     function test_theConstructorChecksItsContracts() public {
         vm.expectRevert(ReferralSplitter.ZeroAddress.selector);
-        new ReferralSplitter(IIdentityRegistry(address(0)), escrow, OWNER, treasury, SHARE_BPS, MIN_FEE);
+        new ReferralSplitter(IIdentityRegistry(address(0)), escrow, OWNER, treasury, SHARE_BPS, FEE);
         vm.expectRevert(ReferralSplitter.ZeroAddress.selector);
-        new ReferralSplitter(registry, HandleEscrow(address(0)), OWNER, treasury, SHARE_BPS, MIN_FEE);
+        new ReferralSplitter(registry, HandleEscrow(address(0)), OWNER, treasury, SHARE_BPS, FEE);
 
         IdentityRegistry other = IdentityRegistry(
             address(
@@ -488,10 +492,10 @@ contract ReferralSplitterTest is Test {
             )
         );
         vm.expectRevert(abi.encodeWithSelector(ReferralSplitter.EscrowOfAnotherRegistry.selector, address(registry)));
-        new ReferralSplitter(other, escrow, OWNER, treasury, SHARE_BPS, MIN_FEE);
+        new ReferralSplitter(other, escrow, OWNER, treasury, SHARE_BPS, FEE);
 
         vm.expectRevert(abi.encodeWithSelector(ReferralSplitter.ShareAboveWhole.selector, uint16(10_001)));
-        new ReferralSplitter(registry, escrow, OWNER, treasury, 10_001, MIN_FEE);
+        new ReferralSplitter(registry, escrow, OWNER, treasury, 10_001, FEE);
     }
 
     function test_theConstructorSetsTheSettings() public view {
@@ -500,7 +504,7 @@ contract ReferralSplitterTest is Test {
         assertEq(splitter.owner(), OWNER);
         assertEq(splitter.treasury(), treasury);
         assertEq(splitter.shareBps(), SHARE_BPS);
-        assertEq(splitter.minReferralFee(), MIN_FEE);
+        assertEq(splitter.fee(), FEE);
     }
 }
 
