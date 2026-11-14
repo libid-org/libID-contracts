@@ -167,7 +167,8 @@ contract ReferralSplitterTest is Test {
         }
     }
 
-    function test_aReferralToAnUnheldHandleIsHeldForIt() public {
+    /// @dev However long the node stays unheld, its holder claims the share once bound.
+    function test_aReferralToAnUnheldHandleIsHeldForItsHolder() public {
         bytes32 dave = _node("dave");
         bytes memory payload = _stage(WALLET, "alice");
         vm.expectEmit(true, true, true, false, address(escrow));
@@ -180,6 +181,7 @@ contract ReferralSplitterTest is Test {
         assertEq(booked, SHARE);
         assertEq(treasury.balance, FEE - SHARE);
 
+        vm.warp(vm.getBlockTimestamp() + 3650 days);
         _hold(REFERRER, "dave");
         address[] memory tokens = new address[](1);
         tokens[0] = NATIVE_TOKEN;
@@ -356,27 +358,24 @@ contract ReferralSplitterTest is Test {
 
     // ─── Reentrancy ─────────────────────────────────────────────────
 
-    /// A share already held for `dave` and past its expiry, the target of a holder's re-entry.
-    function _expiredHeldShare() private returns (bytes32 dave) {
+    /// A share already held for `dave` past the escrow's refund grace, the target of a holder's re-entry.
+    function _heldShare() private returns (bytes32 dave) {
         dave = _node("dave");
-        vm.prank(OWNER);
-        splitter.setExpiry(30 days);
         _referredBind("bob", FEE, _referral(dave));
-        vm.warp(vm.getBlockTimestamp() + 30 days);
+        vm.warp(vm.getBlockTimestamp() + escrow.REFUND_GRACE());
         vm.deal(treasury, 0);
     }
 
-    /// @dev The escrow is mid-deposit, so `expire` and every escrow entry refuse;
-    ///      the holder swallows the refusals and takes the share.
-    function test_aHolderReenteringExpireAndTheEscrowLeavesTheTreasuryWhole() public {
-        bytes32 dave = _expiredHeldShare();
-        ReenteringHolder holder = new ReenteringHolder(splitter, escrow, dave, false);
+    /// @dev The escrow is mid-deposit, so every escrow entry refuses; the holder
+    ///      swallows the refusals and takes the share.
+    function test_aHolderReenteringTheEscrowLeavesTheTreasuryWhole() public {
+        bytes32 dave = _heldShare();
+        ReenteringHolder holder = new ReenteringHolder(escrow, dave, false);
         _hold(address(holder), "carol");
 
         _referredBind("alice", FEE, _referral(_node("carol")));
 
         bytes memory guarded = abi.encodeWithSelector(ReentrancyGuard.ReentrancyGuardReentrantCall.selector);
-        assertEq(holder.expireRefusal(), guarded);
         assertEq(holder.refundRefusal(), guarded);
         assertEq(holder.depositRefusal(), guarded);
         assertEq(address(holder).balance, SHARE);
@@ -388,8 +387,8 @@ contract ReferralSplitterTest is Test {
 
     /// @dev The same holder passing a refusal on: the deposit fails and the treasury takes the fee.
     function test_aHolderFailingOnReentryLosesItsShareToTheTreasury() public {
-        bytes32 dave = _expiredHeldShare();
-        ReenteringHolder holder = new ReenteringHolder(splitter, escrow, dave, true);
+        bytes32 dave = _heldShare();
+        ReenteringHolder holder = new ReenteringHolder(escrow, dave, true);
         _hold(address(holder), "carol");
 
         _expectRefused(_referral(_node("carol")));
@@ -440,69 +439,6 @@ contract ReferralSplitterTest is Test {
         _sweep(_node("carol"), ReferralSplitter.Outcome.Paid);
     }
 
-    // ─── Expiry ─────────────────────────────────────────────────────
-
-    function test_expiryIsOffByDefault() public {
-        bytes32 dave = _node("dave");
-        _referredBind("alice", FEE, _referral(dave));
-        vm.warp(vm.getBlockTimestamp() + 3650 days);
-        vm.expectRevert(ReferralSplitter.ExpiryOff.selector);
-        splitter.expire(dave);
-    }
-
-    function test_anyoneReturnsAHeldShareToTheTreasuryOnceItExpired() public {
-        bytes32 dave = _node("dave");
-        vm.prank(OWNER);
-        splitter.setExpiry(60 days);
-        _referredBind("alice", FEE, _referral(dave));
-        uint256 expiresAt = vm.getBlockTimestamp() + 60 days;
-        vm.deal(treasury, 0);
-
-        vm.warp(expiresAt - 1);
-        vm.expectRevert(abi.encodeWithSelector(ReferralSplitter.NotExpired.selector, dave, expiresAt));
-        splitter.expire(dave);
-
-        vm.warp(expiresAt);
-        vm.expectEmit(true, false, false, true, address(splitter));
-        emit ReferralSplitter.Expired(dave, SHARE);
-        vm.prank(makeAddr("anyone"));
-        splitter.expire(dave);
-        assertEq(treasury.balance, SHARE);
-        assertEq(escrow.escrowed(dave, NATIVE_TOKEN), 0);
-
-        vm.expectRevert(abi.encodeWithSelector(ReferralSplitter.NothingToExpire.selector, dave));
-        splitter.expire(dave);
-    }
-
-    function test_expiryCountsFromTheLastReferral() public {
-        bytes32 dave = _node("dave");
-        vm.prank(OWNER);
-        splitter.setExpiry(60 days);
-        _referredBind("alice", FEE, _referral(dave));
-        uint256 first = vm.getBlockTimestamp();
-        vm.warp(first + 10 days);
-        _referredBind("bob", FEE, _referral(dave));
-
-        vm.warp(first + 60 days);
-        vm.expectRevert(abi.encodeWithSelector(ReferralSplitter.NotExpired.selector, dave, first + 70 days));
-        splitter.expire(dave);
-        vm.warp(first + 70 days);
-        splitter.expire(dave);
-        assertEq(escrow.escrowed(dave, NATIVE_TOKEN), 0);
-    }
-
-    function test_expiryIsZeroOrAtLeastTheRefundGrace() public {
-        vm.startPrank(OWNER);
-        vm.expectRevert(abi.encodeWithSelector(ReferralSplitter.ExpiryTooShort.selector, uint64(30 days - 1)));
-        splitter.setExpiry(30 days - 1);
-        vm.expectEmit(false, false, false, true, address(splitter));
-        emit ReferralSplitter.ExpirySet(30 days);
-        splitter.setExpiry(30 days);
-        splitter.setExpiry(0);
-        vm.stopPrank();
-        assertEq(splitter.expiry(), 0);
-    }
-
     // ─── Settings ───────────────────────────────────────────────────
 
     function test_onlyTheOwnerChangesTheSettings() public {
@@ -511,8 +447,6 @@ contract ReferralSplitterTest is Test {
         splitter.setShare(1);
         vm.expectRevert(notOwner);
         splitter.setTreasury(address(1));
-        vm.expectRevert(notOwner);
-        splitter.setExpiry(0);
         vm.expectRevert(notOwner);
         splitter.setMinReferralFee(0);
     }
@@ -581,7 +515,6 @@ contract ReferralSplitterTest is Test {
         assertEq(splitter.treasury(), treasury);
         assertEq(splitter.shareBps(), SHARE_BPS);
         assertEq(splitter.minReferralFee(), MIN_FEE);
-        assertEq(splitter.expiry(), 0);
     }
 }
 
@@ -620,34 +553,30 @@ contract RecordingTreasury {
     }
 }
 
-/// @notice Holds a handle; while its share is forwarded, calls `expire` on a held
-///         share, then the escrow's `refund` and `deposit`, keeping each refusal.
-///         `failing` passes the first refusal on, failing the forward.
+/// @notice Holds a handle; while its share is forwarded, calls the escrow's `refund`
+///         of a held share and `deposit`, keeping each refusal. `failing` passes the
+///         first refusal on, failing the forward.
 contract ReenteringHolder {
-    ReferralSplitter immutable SPLITTER;
     HandleEscrow immutable ESCROW;
     bytes32 immutable HELD;
     bool immutable FAILING;
-    bytes public expireRefusal;
     bytes public refundRefusal;
     bytes public depositRefusal;
 
-    constructor(ReferralSplitter splitter, HandleEscrow escrow, bytes32 held, bool failing) {
-        SPLITTER = splitter;
+    constructor(HandleEscrow escrow, bytes32 held, bool failing) {
         ESCROW = escrow;
         HELD = held;
         FAILING = failing;
     }
 
     receive() external payable {
-        (bool ok, bytes memory ret) = address(SPLITTER).call(abi.encodeCall(ReferralSplitter.expire, (HELD)));
+        (bool ok, bytes memory ret) =
+            address(ESCROW).call(abi.encodeCall(HandleEscrow.refund, (HELD, NATIVE_TOKEN, address(this))));
         if (!ok && FAILING) {
             assembly {
                 revert(add(ret, 32), mload(ret))
             }
         }
-        expireRefusal = ok ? bytes("") : ret;
-        (ok, ret) = address(ESCROW).call(abi.encodeCall(HandleEscrow.refund, (HELD, NATIVE_TOKEN, address(this))));
         refundRefusal = ok ? bytes("") : ret;
         (ok, ret) = address(ESCROW).call{value: msg.value}(
             abi.encodeCall(HandleEscrow.deposit, (bytes32(0), HELD, NATIVE_TOKEN, msg.value))
