@@ -19,7 +19,7 @@ interface IWalletFactoryOnboarding {
 ///         and initializes the genesis identity in the same call: one wallet per identity.
 ///         The owner (Ownable2Step, not renounceable) upgrades the factory, and so chooses the code of
 ///         wallets not yet created, funds already sent to their addresses included; wallets already
-///         created keep theirs. Before launch the owner belongs behind a Safe and a timelock.
+///         created keep theirs.
 ///         It cannot serve as ERC-4337 `initCode`: ERC-7562 [OP-031] lets deployment's one CREATE2 deploy
 ///         only the sender, and `Create3`'s deploys an intermediate proxy. Wallets are created by
 ///         plain transactions.

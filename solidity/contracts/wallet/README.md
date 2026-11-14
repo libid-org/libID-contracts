@@ -280,17 +280,29 @@ it.
 
 ## Trust
 
-- **The proof verifier's owner.** `WalletRegistry` trusts the
-  `CeremonyProofVerifier` proxy, whose `setVerifier` and upgrade are
-  owner-only. That owner can route a platform to a verifier that accepts any
-  proof: an active session on every wallet that never had one, and a session
-  live after the delay on every other. Before wallets hold funds, that owner
-  belongs behind a Safe and a timelock longer than `MIN_RECOVERY_DELAY`.
+A wallet trusts the parties below, with no timelock, until libID and the
+registry are decentralized. Each of the first three can make a login proof
+valid, and so give a wallet a session: an active one on a wallet that never
+had one, and one live after the recovery delay on any other.
+
+- **The proof verifiers' owners.** `WalletRegistry` trusts the
+  `CeremonyProofVerifier` proxy, whose owner can `setVerifier` and upgrade
+  it, and so route a platform to a verifier that accepts any proof. Each
+  Platform Verifier's owner can upgrade it or change its trust roots
+  (`setTrustRoots`, and `setJwtRoots` for Google and Telegram).
+- **The notary signing keys.** A notary signature makes a login proof valid
+  on X, GitHub, Google and Telegram alike: X and GitHub proofs carry
+  notarized sessions, and the Google and Telegram keys come from notarized
+  readings. `NotaryService`'s owner chooses the keys (`setNotary`) and can
+  upgrade it.
+- **The JWT-root owners.** The owners of `GoogleJwtRoots` and
+  `TelegramJwtRoots` choose which Notary Service their readings must come
+  from (`setNotaryService`), and can upgrade them.
 - **The factory's owner** upgrades `WalletFactory`, and so chooses the code
   of every wallet not yet created, funds already sent to its address
   included. Wallets already created keep theirs. The validator's genesis
   check asks the factory's `walletAddress`, so it is only as sound as that
-  owner. Before launch it belongs behind a Safe and a timelock.
+  owner.
 
 ## Accepted risks
 
