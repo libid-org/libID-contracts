@@ -38,15 +38,6 @@ contract IdentityRegistry is
         uint64 observedAt;
     }
 
-    /// @notice One identity a holder proved, as its list reports it.
-    /// @dev `handleCurrent` is false once another identity proved `handleNode`.
-    struct Identity {
-        bytes32 platformId;
-        bytes32 idNode;
-        bytes32 handleNode;
-        bool handleCurrent;
-    }
-
     /// @notice The one handle a holder shows as its name, and the platform it is on.
     struct PrimaryHandle {
         bytes32 platformId;

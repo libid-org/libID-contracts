@@ -3,10 +3,12 @@ import { describe, expect, it } from 'vitest'
 
 import { googleJwtRootsAbi } from './abis/googleJwtRoots.js'
 import { identityRegistryAbi } from './abis/identityRegistry.js'
+import { identityValidatorAbi } from './abis/identityValidator.js'
 import { calls } from './index.js'
 
 const REGISTRY = '0x00000000000000000000000000000000000000aa' as const
 const ROOTS = '0x00000000000000000000000000000000000000cc' as const
+const VALIDATOR = '0x00000000000000000000000000000000000000dd' as const
 const PLATFORM = `0x${'11'.repeat(32)}` as const
 // Opaque to the builder: the contract decodes the record and the Notary
 // Service checks the proof, so any bytes round-trip through the ABI here.
@@ -45,6 +47,27 @@ describe('generated call builders', () => {
       functionName: 'rotate',
       args: [ATTESTED, PROOF],
     })
+  })
+
+  it('builds the payloads of root-only functions', () => {
+    // setThreshold, unlink and setRecoveryFrozen revert when called: the account queues their calldata.
+    const op = calls.identityValidator.unlink(VALIDATOR, PLATFORM)
+    expect(decodeFunctionData({ abi: identityValidatorAbi, data: op.data })).toEqual({
+      functionName: 'unlink',
+      args: [PLATFORM],
+    })
+    const queue = calls.identityValidator.queueRoot(VALIDATOR, op.to, op.data)
+    expect(decodeFunctionData({ abi: identityValidatorAbi, data: queue.data }).args).toEqual([
+      VALIDATOR,
+      op.data,
+    ])
+    expect(calls.identityValidator.setThreshold(VALIDATOR, 2).data).toMatch(/^0x/)
+    expect(
+      decodeFunctionData({
+        abi: identityValidatorAbi,
+        data: calls.identityValidator.setRecoveryFrozen(VALIDATOR, PLATFORM, true).data,
+      }),
+    ).toEqual({ functionName: 'setRecoveryFrozen', args: [PLATFORM, true] })
   })
 
   it('namespaces by contract, so colliding names stay distinct', () => {

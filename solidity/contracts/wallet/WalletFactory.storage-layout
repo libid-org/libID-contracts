@@ -1,0 +1,2 @@
+# WalletFactory storage layout. Checked in CI by scripts/check-storage-layout.py.
+# Fields may only be APPENDED. Record an append with --update; see the script.

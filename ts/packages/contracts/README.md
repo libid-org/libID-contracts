@@ -2,7 +2,8 @@
 
 Typed, viem-ready ABIs for the libid identity stack (NotaryService,
 CeremonyProofVerifier, GoogleJwtRoots, IdentityRegistry, HandleEscrow,
-HandleResolver, LibidFactory, WTIA9), the errors a bind can revert with, a call
+HandleResolver, LibidFactory, WTIA9, and the WebWallet contracts: WebWallet,
+IdentityValidator, WalletRegistry, WalletFactory, ClaimExecutor), the errors a bind can revert with, a call
 builder for every state-changing function, and the identity helper layer:
 handle normalization, node derivation and resolution.
 

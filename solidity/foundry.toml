@@ -27,14 +27,18 @@ fs_permissions = [
     { access = "read", path = "contracts/circuits/test/fixtures" },
     # The shared handle vectors from the pinned circuits release (HandleNode.t.sol).
     { access = "read", path = "contracts/circuits/handles.json" },
+    # EntryPoint v0.9's runtime code from Base mainnet (WalletTestBase.sol).
+    { access = "read", path = "contracts/wallet/test/fixtures" },
 ]
 # Only the `gas` profile writes gas snapshots: they are measured under
 # eden-testnet's rules, which a default run would overwrite with cancun's.
 gas_snapshot_emit = false
 
 # What verifying a claim costs, recorded in snapshots/ by
-# ClaimVerificationGas.t.sol. CI fails when the committed numbers are stale:
-# update them with `FOUNDRY_PROFILE=gas forge test`.
+# ClaimVerificationGas.t.sol, and the one-transaction wallet claim, by
+# ClaimExecutor.t.sol (stub proof) and RealProofClaim.t.sol (the real X
+# verifier, NotaryService and Honk verifier). CI fails when the committed numbers are stale: update
+# them with `FOUNDRY_PROFILE=gas forge test`.
 #
 # Osaka because eden-testnet executes under it, and EIP-7883 reprices the
 # MODEXP the Honk verifiers call. `vm.setEvmVersion` cannot stand in: forge
@@ -48,7 +52,7 @@ gas_snapshot_emit = false
 evm_version = "osaka"
 isolate = false
 gas_snapshot_emit = true
-match_path = "contracts/ceremony/test/ClaimVerificationGas.t.sol"
+match_path = "contracts/{ceremony/test/ClaimVerificationGas,wallet/test/ClaimExecutor,wallet/test/RealProofClaim}.t.sol"
 
 # CI runs `forge lint -D notes`, which fails on any finding. `forge build`
 # runs the same linter but only prints.
