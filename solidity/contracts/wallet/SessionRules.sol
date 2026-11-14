@@ -4,23 +4,32 @@ pragma solidity ^0.8.24;
 import {PackedUserOperation} from "@openzeppelin/contracts/interfaces/IERC4337.sol";
 import {IERC7579Execution, IERC7579Module} from "@openzeppelin/contracts/interfaces/draft-IERC7579.sol";
 import {ERC4337Utils} from "@openzeppelin/contracts/account/utils/ERC4337Utils.sol";
-import {CallType, ERC7579Utils, Execution, Mode} from "@openzeppelin/contracts/account/utils/draft-ERC7579Utils.sol";
+import {
+    CallType,
+    ERC7579Utils,
+    Execution,
+    Mode,
+    ModeSelector
+} from "@openzeppelin/contracts/account/utils/draft-ERC7579Utils.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {MerkleProof} from "@openzeppelin/contracts/utils/cryptography/MerkleProof.sol";
 
 import {NATIVE_TOKEN} from "../NativeToken.sol";
+import {bytesAt} from "./AbiBytes.sol";
 import {IIdentityValidator} from "./IIdentityValidator.sol";
 import {IdentityValidatorState} from "./IdentityValidatorState.sol";
 
 /// @title SessionRules - what an operation may do, and the allowances it charges below quorum.
 /// @notice Deployed by IdentityValidator's constructor, which runs it through DELEGATECALL: it reads
 ///         and writes the validator's storage. Called directly, it reverts.
+///         In that frame `msg.sender` is the account and `address(this)` the validator.
 contract SessionRules is IdentityValidatorState {
     using ERC4337Utils for PackedUserOperation;
     using ERC7579Utils for bytes;
     using ERC7579Utils for Mode;
 
     address private immutable SELF = address(this);
+    address private immutable REGISTRY;
 
     /// Called other than through the validator's DELEGATECALL.
     error NotDelegated();
@@ -32,12 +41,9 @@ contract SessionRules is IdentityValidatorState {
         Refused
     }
 
-    /// What every execution of an operation is checked against: the account and its registry; below
-    /// quorum, the governing session's scope and rules hash, the signed `at`, and the native value and
-    /// gas charged so far.
+    /// What every execution of an operation is checked against below quorum: the governing session's
+    /// scope and rules hash, the signed `at`, and the native value and gas charged so far.
     struct Spend {
-        address account;
-        address registry;
         bytes32 keyHash;
         bytes32 scopeRoot;
         bytes32 rulesHash;
@@ -46,61 +52,100 @@ contract SessionRules is IdentityValidatorState {
         uint256 native;
     }
 
-    /// `_allowed`, and `v` with its window narrowed to the periods charged.
-    function allowed(
-        address account,
-        address registry,
+    /// @param walletRegistry The registry whose calls are admin operations.
+    constructor(address walletRegistry) {
+        REGISTRY = walletRegistry;
+    }
+
+    /// `_allowed` for a UserOperation's `execute(mode, executionCalldata)` under the default mode selector, and
+    /// `v` with its window narrowed to the periods charged.
+    function allowed(Verified memory v, PackedUserOperation calldata userOp, bool below)
+        external
+        returns (bool, Verified memory)
+    {
+        if (address(this) == SELF) revert NotDelegated();
+        bytes calldata callData = userOp.callData;
+        if (_selector(callData) != IERC7579Execution.execute.selector) return (false, v);
+        IIdentityValidator.Authorization memory auth = abi.decode(userOp.signature, (IIdentityValidator.Authorization));
+        (bytes32 mode, bytes calldata executions) = _executions(callData);
+        (,, ModeSelector modeSelector,) = Mode.wrap(mode).decodeMode();
+        if (ModeSelector.unwrap(modeSelector) != 0) return (false, v);
+        address paymaster;
+        if (userOp.paymasterAndData.length != 0) {
+            paymaster = userOp.paymaster();
+            // Refused at every threshold: `address(0)` stands for no paymaster below. EntryPoint v0.8 and
+            // later reject it before the account anyway.
+            if (paymaster == address(0)) return (false, v);
+        }
+        return (_allowed(v, auth, mode, executions, paymaster, _maxGasCost(userOp), below), v);
+    }
+
+    /// `_allowed` for a direct execution, with no paymaster and no gas charge, and `v` with its window narrowed
+    /// to the periods charged.
+    function allowedExecution(
         Verified memory v,
-        PackedUserOperation calldata userOp,
+        bytes32 mode,
+        bytes calldata executions,
+        IIdentityValidator.Authorization memory auth,
         bool below
     ) external returns (bool, Verified memory) {
         if (address(this) == SELF) revert NotDelegated();
-        IIdentityValidator.Authorization memory auth = abi.decode(userOp.signature, (IIdentityValidator.Authorization));
-        return (_allowed(account, registry, v, auth, userOp, below), v);
+        return (_allowed(v, auth, mode, executions, address(0), 0, below), v);
     }
 
-    /// `execute` of single or batch calls, each passing `_execution`. Below quorum, at least one
-    /// execution, and a paymaster must be one the session lists; with none, the operation's maximum gas
-    /// cost is charged to `NATIVE_TOKEN` with its value.
+    /// Single or batch calls, as `_calls` allows them. Below quorum, a
+    /// paymaster must be one the session lists; with none, `maxGasCost` is charged to `NATIVE_TOKEN` with
+    /// the value.
     /// @dev `paymastersRoot == 0` proves no leaf.
     function _allowed(
-        address account,
-        address registry,
         Verified memory v,
         IIdentityValidator.Authorization memory auth,
-        PackedUserOperation calldata userOp,
+        bytes32 mode,
+        bytes calldata executions,
+        address paymaster,
+        uint256 maxGasCost,
         bool below
     ) private returns (bool) {
-        bytes calldata callData = userOp.callData;
-        if (_selector(callData) != IERC7579Execution.execute.selector) return false;
-        (CallType callType, bytes calldata executions) = _executions(callData);
-        Spend memory sp = Spend(account, registry, v.keyHash, 0, 0, auth.at, below, 0);
+        (CallType callType,,,) = Mode.wrap(mode).decodeMode();
+        Spend memory sp = Spend(v.keyHash, 0, 0, auth.at, below, 0);
         if (below) {
-            IIdentityValidator.Session storage s = _sessions(account, v.keyHash)[account];
+            IIdentityValidator.Session storage s = _sessions(msg.sender, v.keyHash)[msg.sender];
             (sp.scopeRoot, sp.rulesHash) = (s.scopeRoot, s.rulesHash);
-            if (userOp.paymasterAndData.length == 0) {
-                sp.native = _maxGasCost(userOp);
-            } else if (!MerkleProof.verify(
-                    auth.paymasterProof, s.paymastersRoot, _leaf(abi.encode(userOp.paymaster()))
-                )) {
+            if (paymaster == address(0)) {
+                sp.native = maxGasCost;
+            } else if (!MerkleProof.verify(auth.paymasterProof, s.paymastersRoot, _leaf(abi.encode(paymaster)))) {
                 return false;
             }
         }
+        return _calls(v, sp, callType, executions, auth.calls);
+    }
+
+    /// Single or batch calls, each passing `_execution`. Below quorum, at least one execution, and
+    /// the native value charged to `NATIVE_TOKEN` with `sp.native`.
+    function _calls(
+        Verified memory v,
+        Spend memory sp,
+        CallType callType,
+        bytes calldata executions,
+        IIdentityValidator.CallProof[] memory calls
+    ) private returns (bool) {
+        bool below = sp.below;
         if (callType == ERC7579Utils.CALLTYPE_SINGLE) {
-            if (below && auth.calls.length != 1) return false;
+            if (below && calls.length != 1) return false;
             (address target, uint256 value, bytes calldata data) = executions.decodeSingle();
-            if (!_execution(v, sp, target, value, data, auth.calls, 0)) return false;
+            if (!_execution(v, sp, target, value, data, calls, 0)) return false;
         } else if (callType == ERC7579Utils.CALLTYPE_BATCH) {
             Execution[] calldata batch = executions.decodeBatch();
-            if (below && (batch.length == 0 || auth.calls.length != batch.length)) return false;
+            if (below && (batch.length == 0 || calls.length != batch.length)) return false;
             for (uint256 i; i < batch.length; ++i) {
                 Execution calldata x = batch[i];
-                if (!_execution(v, sp, x.target, x.value, x.callData, auth.calls, i)) return false;
+                if (!_execution(v, sp, x.target, x.value, x.callData, calls, i)) return false;
             }
         } else {
             return false;
         }
-        return sp.native == 0 || _charge(v, _counter(account, sp.keyHash, sp.rulesHash, NATIVE_TOKEN), sp.native, sp.at);
+        return
+            sp.native == 0 || _charge(v, _counter(msg.sender, sp.keyHash, sp.rulesHash, NATIVE_TOKEN), sp.native, sp.at);
     }
 
     /// One execution, never refused by `_targetScope`. Below quorum, an outside call proved by `calls[i]`
@@ -116,7 +161,7 @@ contract SessionRules is IdentityValidatorState {
         IIdentityValidator.CallProof[] memory calls,
         uint256 i
     ) private returns (bool) {
-        Scope scope = _targetScope(sp, target, data);
+        Scope scope = _targetScope(target, data);
         if (scope == Scope.Refused) return false;
         if (!sp.below) return true;
         IIdentityValidator.CallProof memory proof = calls[i];
@@ -126,7 +171,7 @@ contract SessionRules is IdentityValidatorState {
                 || !MerkleProof.verify(proof.proof, sp.scopeRoot, _leaf(abi.encode(target, selector, proof.maxValue)))
         ) return false;
         sp.native += value;
-        return _chargeToken(v, _counter(sp.account, sp.keyHash, sp.rulesHash, target), data, selector, sp.at);
+        return _chargeToken(v, _counter(msg.sender, sp.keyHash, sp.rulesHash, target), data, selector, sp.at);
     }
 
     /// Refuses a token call the allowances forbid, and charges a `transfer` or `approve` amount.
@@ -167,9 +212,9 @@ contract SessionRules is IdentityValidatorState {
     }
 
     /// A call to the account, the validator (`address(this)` under DELEGATECALL) or the registry is an
-    /// admin operation. Any other target is outside, the ClaimExecutor included: anyone may call its
-    /// entries. The validator's `onInstall`/`onUninstall` called directly is refused.
-    function _targetScope(Spend memory sp, address target, bytes calldata data) private view returns (Scope) {
+    /// admin operation. Any other target is outside. The validator's `onInstall`/`onUninstall` called
+    /// directly is refused.
+    function _targetScope(address target, bytes calldata data) private view returns (Scope) {
         if (target == address(this)) {
             bytes4 selector = _selector(data);
             bool module =
@@ -177,17 +222,14 @@ contract SessionRules is IdentityValidatorState {
             return module ? Scope.Refused : Scope.Admin;
         }
         // The account executes a call to address(0) on itself.
-        if (target == sp.account || target == address(0) || target == sp.registry) return Scope.Admin;
+        if (target == msg.sender || target == address(0) || target == REGISTRY) return Scope.Admin;
         return Scope.Call;
     }
 
-    /// The call type of `execute(bytes32 mode, bytes executionCalldata)`, and `executionCalldata` as the
-    /// account's ABI decoder reads it.
-    function _executions(bytes calldata callData) private pure returns (CallType callType, bytes calldata) {
-        (callType,,,) = Mode.wrap(bytes32(callData[4:36])).decodeMode();
+    /// The mode of `execute(bytes32 mode, bytes executionCalldata)`, and `executionCalldata` as the account's
+    /// ABI decoder reads it.
+    function _executions(bytes calldata callData) private pure returns (bytes32 mode, bytes calldata) {
         bytes calldata args = callData[4:];
-        uint256 offset = uint256(bytes32(args[32:64]));
-        uint256 length = uint256(bytes32(args[offset:offset + 32]));
-        return (callType, args[offset + 32:offset + 32 + length]);
+        return (bytes32(args[:32]), bytesAt(args, 32));
     }
 }

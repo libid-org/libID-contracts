@@ -15,6 +15,7 @@ import {ERC7739Utils} from "@openzeppelin/contracts/utils/cryptography/draft-ERC
 
 import {IIdentityValidator, identityOf, rulesHashOf} from "./IIdentityValidator.sol";
 import {IdentityValidatorState} from "./IdentityValidatorState.sol";
+import {IWalletFactory} from "./IWalletFactory.sol";
 import {SessionRules} from "./SessionRules.sol";
 
 /// @title IdentityValidator - the one ERC-7579 validator of every WebWallet.
@@ -31,10 +32,15 @@ contract IdentityValidator is IIdentityValidator, IdentityValidatorState {
     uint48 public constant MAX_RECOVERY_DELAY = 365 days;
 
     address private immutable REGISTRY;
+    address private immutable FACTORY;
     address private immutable RULES;
 
     /// The ERC-7739 detection hash: with an empty signature, it answers `0x77390001`.
     bytes32 private constant ERC7739_PROBE = 0x7739773977397739773977397739773977397739773977397739773977397739;
+
+    bytes32 private constant EXECUTE_TYPEHASH = keccak256(
+        "Execute(bytes32 mode,bytes executionCalldata,uint48 at,uint256 nonce,uint48 deadline,uint256 callGas)"
+    );
 
     /// What a root operation does: a call by the account to itself, or one of this validator's own.
     enum RootAction {
@@ -51,9 +57,10 @@ contract IdentityValidator is IIdentityValidator, IdentityValidatorState {
         _;
     }
 
-    constructor(address walletRegistry_) {
+    constructor(address walletRegistry_, address walletFactory_) {
         REGISTRY = walletRegistry_;
-        RULES = address(new SessionRules());
+        FACTORY = walletFactory_;
+        RULES = address(new SessionRules(walletRegistry_));
     }
 
     // ─── ERC-7579 module ────────────────────────────────────────────
@@ -62,12 +69,15 @@ contract IdentityValidator is IIdentityValidator, IdentityValidatorState {
         return moduleTypeId == MODULE_TYPE_VALIDATOR;
     }
 
-    /// @dev Starts a fresh install: nothing of an earlier one is visible.
+    /// @dev Starts a fresh install: nothing of an earlier one is visible. Only the factory's wallet of the
+    ///      genesis identity installs it, so a migration keeps the genesis.
     ///      `installs` is odd while an install is live.
     function onInstall(bytes calldata data) external {
         uint256 install = _install(msg.sender);
         if (install % 2 == 1) revert InstallLive(msg.sender);
         (bytes32 platformId, bytes32 idNode) = abi.decode(data[:64], (bytes32, bytes32));
+        address wallet = IWalletFactory(FACTORY).walletAddress(platformId, idNode);
+        if (wallet != msg.sender) revert NotFactoryWallet(msg.sender, wallet);
         _s().installs[msg.sender] = ++install;
         AccountState storage a = _s().accounts[install][msg.sender];
         a.platformId = platformId;
@@ -94,17 +104,9 @@ contract IdentityValidator is IIdentityValidator, IdentityValidatorState {
     function validateUserOp(PackedUserOperation calldata userOp, bytes32 userOpHash) external returns (uint256) {
         Authorization memory auth = _decode(userOp.signature);
         uint8 quorum = threshold(msg.sender);
-        Verified memory v = _verify(msg.sender, userOpHash, auth.signatures, quorum, auth.at);
-        if (!v.ok) return ERC4337Utils.SIG_VALIDATION_FAILED;
-        bool below = v.adminPlatforms < quorum;
-        if (below && !_cosigned(v, auth.signatures.length)) return ERC4337Utils.SIG_VALIDATION_FAILED;
-        bool ok;
-        (ok, v) = abi.decode(
-            Address.functionDelegateCall(
-                RULES, abi.encodeCall(SessionRules.allowed, (msg.sender, REGISTRY, v, userOp, below))
-            ),
-            (bool, Verified)
-        );
+        (bool ok, bool below, Verified memory v) = _signers(userOpHash, auth, quorum);
+        if (!ok) return ERC4337Utils.SIG_VALIDATION_FAILED;
+        (ok, v) = _rules(abi.encodeCall(SessionRules.allowed, (v, userOp, below)));
         if (!ok) return ERC4337Utils.SIG_VALIDATION_FAILED;
         return (uint256(v.validAfter) << 208) | (uint256(v.validUntil) << 160);
     }
@@ -131,10 +133,42 @@ contract IdentityValidator is IIdentityValidator, IdentityValidatorState {
         return v.ok && live && allowed ? IERC1271.isValidSignature.selector : bytes4(0xffffffff);
     }
 
+    // ─── Direct execution ─────────────────────────────────────────
+
+    /// @dev Signers and rules as `validateUserOp`'s at `quorum`, charging after the calls ran; the window
+    ///      is checked once the charges narrowed it.
+    function checkExecution(
+        bytes32 mode,
+        bytes calldata executionCalldata,
+        uint48 deadline,
+        uint256 callGas,
+        bytes calldata authorization,
+        uint256 nonce,
+        uint8 quorum,
+        bytes32 domainSeparator
+    ) external {
+        Authorization memory auth = abi.decode(authorization, (Authorization));
+        if (deadline == 0 || block.timestamp > deadline) revert ExecutionExpired(deadline);
+        bytes32 digest = domainSeparator.toTypedDataHash(
+            keccak256(
+                abi.encode(EXECUTE_TYPEHASH, mode, keccak256(executionCalldata), auth.at, nonce, deadline, callGas)
+            )
+        );
+        (bool ok, bool below, Verified memory v) = _signers(digest, auth, quorum);
+        if (!ok || !_inWindow(v)) revert ExecutionNotAuthorized();
+        (ok, v) = _rules(abi.encodeCall(SessionRules.allowedExecution, (v, mode, executionCalldata, auth, below)));
+        if (!ok) revert ExecutionNotAuthorized();
+        if (!_inWindow(v)) revert ExecutionOutsidePeriod(auth.at);
+    }
+
     // ─── Views ──────────────────────────────────────────────────────
 
     function walletRegistry() external view returns (address) {
         return REGISTRY;
+    }
+
+    function walletFactory() external view returns (address) {
+        return FACTORY;
     }
 
     function genesisIdentity(address account) external view returns (bytes32 platformId, bytes32 idNode) {
@@ -203,20 +237,25 @@ contract IdentityValidator is IIdentityValidator, IdentityValidatorState {
         returns (uint48 activeAt)
     {
         if (recoveryFrozen(account, identity)) revert RecoveryFrozen(identity);
-        bool byProof = _account(account).hadSession;
-        if (byProof) {
-            activeAt = _maturity(account);
-            _replacePending(account, identity, key);
-        }
-        _add(account, identity, key, policy, activeAt, byProof);
+        if (!_account(account).hadSession) revert FirstSessionRefused(account);
+        activeAt = _maturity(account);
+        _replacePending(account, identity, key);
+        _add(account, identity, key, policy, activeAt, true);
         emit SessionAddedByProof(account, identity, key, policy, activeAt);
     }
 
+    /// @dev The first session is the one add active at once.
     function addSessionByAccount(address account, bytes32 identity, bytes calldata key, Policy calldata policy)
         external
         onlyRegistry
     {
-        _addNow(account, identity, key, policy);
+        AccountState storage a = _account(account);
+        if (a.hadSession) return _addNow(account, identity, key, policy);
+        if (!policy.admin || identity != identityOf(a.platformId, a.idNode)) {
+            revert FirstSessionRefused(account);
+        }
+        _add(account, identity, key, policy, 0, false);
+        emit SessionAdded(account, identity, key, policy);
     }
 
     // ─── The account ────────────────────────────────────────────────
@@ -357,8 +396,10 @@ contract IdentityValidator is IIdentityValidator, IdentityValidatorState {
         }
     }
 
+    /// Adds a session that signs from the next second.
     function _addNow(address account, bytes32 identity, bytes memory key, Policy memory policy) private {
-        _add(account, identity, key, policy, 0, false);
+        // forge-lint: disable-next-line(unsafe-typecast)
+        _add(account, identity, key, policy, uint48(block.timestamp), false);
         emit SessionAdded(account, identity, key, policy);
     }
 
@@ -464,6 +505,11 @@ contract IdentityValidator is IIdentityValidator, IdentityValidatorState {
         }
     }
 
+    /// SessionRules' verdict on `call`, and the signers' window narrowed to the periods it charged.
+    function _rules(bytes memory call) private returns (bool, Verified memory) {
+        return abi.decode(Address.functionDelegateCall(RULES, call), (bool, Verified));
+    }
+
     /// The `Authorization` in `signature`, or one with no signatures when it is malformed.
     function _decode(bytes calldata signature) private view returns (Authorization memory auth) {
         try this.decodeAuthorization(signature) returns (Authorization memory decoded) {
@@ -502,6 +548,18 @@ contract IdentityValidator is IIdentityValidator, IdentityValidatorState {
         v.ok = true;
     }
 
+    /// `_verify` over `hash` at `auth.at`, whether the signers fall short of `quorum`, and whether
+    /// they sign: below it, `_cosigned`.
+    function _signers(bytes32 hash, Authorization memory auth, uint8 quorum)
+        private
+        view
+        returns (bool ok, bool below, Verified memory v)
+    {
+        v = _verify(msg.sender, hash, auth.signatures, quorum, auth.at);
+        below = v.adminPlatforms < quorum;
+        ok = v.ok && (!below || _cosigned(v, auth.signatures.length));
+    }
+
     /// Below quorum: `n` signatures, by sessions none by proof, of as many distinct platforms as the
     /// first session's `signers`.
     function _cosigned(Verified memory v, uint256 n) private pure returns (bool) {
@@ -514,10 +572,8 @@ contract IdentityValidator is IIdentityValidator, IdentityValidatorState {
     /// @dev Both forms use the account's `eip712Domain()`: `TypedDataSign` all five fields,
     ///      `PersonalSign` the fields it names. A domain with extensions reverts.
     function _unnest(bytes32 hash, bytes calldata signature) private view returns (bytes32, bytes calldata, bytes32) {
-        (bytes1 fields, string memory name, string memory version, uint256 chainId, address verifying, bytes32 salt,) =
-            IERC5267(msg.sender).eip712Domain();
-        bytes32 nameHash = keccak256(bytes(name));
-        bytes32 versionHash = keccak256(bytes(version));
+        (bytes1 fields, bytes32 nameHash, bytes32 versionHash, uint256 chainId, address verifying, bytes32 salt) =
+            _domain(msg.sender);
         (bytes calldata inner, bytes32 appSeparator, bytes32 contentsHash, string calldata descr) =
             signature.decodeTypedDataSig();
         bytes memory domain = abi.encode(nameHash, versionHash, chainId, verifying, salt);
@@ -528,6 +584,18 @@ contract IdentityValidator is IIdentityValidator, IdentityValidatorState {
         }
         bytes32 separator = MessageHashUtils.toDomainSeparator(fields, nameHash, versionHash, chainId, verifying, salt);
         return (separator.toTypedDataHash(hash.personalSignStructHash()), signature, 0);
+    }
+
+    /// The account's `eip712Domain()`, its name and version hashed.
+    function _domain(address account)
+        private
+        view
+        returns (bytes1 fields, bytes32 nameHash, bytes32 versionHash, uint256 chainId, address verifying, bytes32 salt)
+    {
+        string memory name;
+        string memory version;
+        (fields, name, version, chainId, verifying, salt,) = IERC5267(account).eip712Domain();
+        return (fields, keccak256(bytes(name)), keccak256(bytes(version)), chainId, verifying, salt);
     }
 
     /// The block's timestamp is inside `v`'s window.

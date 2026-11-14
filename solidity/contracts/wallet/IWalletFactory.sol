@@ -1,6 +1,16 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
+/// @title IWalletFactoryOnboarding - create a wallet and run its first direct batch in one call.
+interface IWalletFactoryOnboarding {
+    /// Anyone may call. Creates the wallet if needed, then calls its `execute(mode, data)`, forwarding
+    /// `msg.value`. No privilege: an `AUTHORIZED_MODE` batch gets the wallet's end check.
+    function createAndExecute(bytes32 platformId, bytes32 idNode, bytes32 mode, bytes calldata data)
+        external
+        payable
+        returns (address wallet);
+}
+
 /// @title IWalletFactory - deploys wallets at addresses fixed by identity.
 /// @notice Constructor: `WalletFactory(address walletImplementation)`, the implementation of a UUPS
 ///         proxy initialized with `initialize(owner)` and deployed under a `LibidFactory` name, so it
@@ -9,11 +19,11 @@ pragma solidity ^0.8.24;
 ///         and initializes the genesis identity in the same call: one wallet per identity.
 ///         The owner (Ownable2Step, not renounceable) upgrades the factory, and so chooses the code of
 ///         wallets not yet created, funds already sent to their addresses included; wallets already
-///         created keep theirs. Before launch the owner belongs behind a Safe and a timelock.
+///         created keep theirs.
 ///         It cannot serve as ERC-4337 `initCode`: ERC-7562 [OP-031] lets deployment's one CREATE2 deploy
 ///         only the sender, and `Create3`'s deploys an intermediate proxy. Wallets are created by
 ///         plain transactions.
-interface IWalletFactory {
+interface IWalletFactory is IWalletFactoryOnboarding {
     event WalletCreated(address indexed wallet, bytes32 indexed platformId, bytes32 indexed idNode);
 
     /// Ownership cannot be renounced.

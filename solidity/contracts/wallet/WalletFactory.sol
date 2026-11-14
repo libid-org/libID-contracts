@@ -34,7 +34,7 @@ contract WalletFactory is IWalletFactory, Initializable, UUPSUpgradeable, Ownabl
         return WALLET_IMPLEMENTATION;
     }
 
-    function createWallet(bytes32 platformId, bytes32 idNode) external returns (address wallet) {
+    function createWallet(bytes32 platformId, bytes32 idNode) public returns (address wallet) {
         bytes32 salt = identityOf(platformId, idNode);
         wallet = Create3.addressOf(salt, address(this));
         if (wallet.code.length != 0) return wallet;
@@ -43,6 +43,15 @@ contract WalletFactory is IWalletFactory, Initializable, UUPSUpgradeable, Ownabl
             salt, abi.encodePacked(type(ERC1967Proxy).creationCode, abi.encode(WALLET_IMPLEMENTATION, init))
         );
         emit WalletCreated(wallet, platformId, idNode);
+    }
+
+    function createAndExecute(bytes32 platformId, bytes32 idNode, bytes32 mode, bytes calldata data)
+        external
+        payable
+        returns (address wallet)
+    {
+        wallet = createWallet(platformId, idNode);
+        IWebWallet(wallet).execute{value: msg.value}(mode, data);
     }
 
     function walletAddress(bytes32 platformId, bytes32 idNode) external view returns (address) {

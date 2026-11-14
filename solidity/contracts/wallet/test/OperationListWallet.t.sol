@@ -4,8 +4,7 @@ pragma solidity ^0.8.24;
 import {OperationList} from "../../ceremony/OperationList.sol";
 import {IdentityRegistry} from "../../identity/IdentityRegistry.sol";
 import {IWalletRegistry} from "../IWalletRegistry.sol";
-import {operationList} from "./ClaimExecutor.t.sol";
-import {WalletTestBase} from "./WalletTestBase.sol";
+import {WalletTestBase, operationList} from "./WalletTestBase.sol";
 
 /// @notice WalletRegistry under `libid.operations`, and one list spent once at each of two Consumers.
 contract OperationListWalletTest is WalletTestBase {
@@ -25,7 +24,7 @@ contract OperationListWalletTest is WalletTestBase {
         address w = factory.createWallet(X, ALICE);
         bytes memory payload = _payload(X, ALICE, OPERATIONS, operationList(BIND, abi.encode(w), LINK, _linkData(w)));
 
-        vm.prank(relayer);
+        vm.prank(w);
         registry.linkIdentity(X, V1, payload, _admin());
         vm.prank(w);
         identities.bindPrivately(X, V1, payload, 0, address(0));
@@ -35,7 +34,7 @@ contract OperationListWalletTest is WalletTestBase {
         assertEq(identities.resolveId(ALICE), w, "not bound");
         assertTrue(registry.digestSpent(digest) && identities.digestSpent(digest), "not spent at both");
 
-        vm.prank(relayer);
+        vm.prank(w);
         vm.expectRevert(abi.encodeWithSelector(IWalletRegistry.DigestAlreadySpent.selector, digest));
         registry.linkIdentity(X, V1, payload, _admin());
         vm.prank(w);

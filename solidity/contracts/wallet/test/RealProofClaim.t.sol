@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
+import {Vm} from "forge-std/Vm.sol";
+import {Execution} from "@openzeppelin/contracts/interfaces/draft-IERC7579.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
 import {AttestationBuilder} from "../../ceremony/test/AttestationBuilder.sol";
@@ -14,19 +16,30 @@ import {IHonkVerifier} from "../../ceremony/PlatformVerifierBase.sol";
 import {TlsNotaryVerifierBase} from "../../ceremony/TlsNotaryVerifierBase.sol";
 import {XPlatformVerifier} from "../../ceremony/XPlatformVerifier.sol";
 import {NATIVE_TOKEN} from "../../escrow/HandleEscrow.sol";
+import {IHandleEscrow} from "../../escrow/IHandleEscrow.sol";
+import {IIdentityRegistry} from "../../identity/IIdentityRegistry.sol";
+import {StubPlatformVerifier} from "../../identity/test/StubPlatformVerifier.sol";
 import {IIdentityValidator} from "../IIdentityValidator.sol";
-import {Relay, operationList} from "./ClaimExecutor.t.sol";
-import {WalletTestBase} from "./WalletTestBase.sol";
+import {IWalletRegistry} from "../IWalletRegistry.sol";
+import {AUTHORIZED_MODE} from "../IWebWallet.sol";
+import {ExecuteBase} from "./DirectExecute.t.sol";
+import {operationList} from "./WalletTestBase.sol";
 
-/// The claim and a session by proof through the real X verifier, NotaryService and Honk verifier.
+/// Onboarding in one `createAndExecute` through the real X verifier, NotaryService and Honk verifier, and a
+/// session by proof after it.
 /// @dev The fixture's token session is re-signed by its own test notary key with the code_verifier
 ///      of each new digest; the identity session and the Honk proof are the fixture's.
-contract RealProofClaimTest is WalletTestBase {
+contract RealProofClaimTest is ExecuteBase {
     string constant SESSION = "contracts/ceremony/test/fixtures/x-ceremony-session.json";
     string constant PROOF = "contracts/ceremony/test/fixtures/x-ceremony-session-proof.json";
     uint256 constant NOTARY_KEY = 0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80;
     uint256 constant NOTARY_FEE = 0.001 ether;
+    uint256 constant CLAIMED = 0.01 ether;
+    uint256 constant BOT_PK = 0xB07;
     uint16 constant VX = 2;
+    uint16 constant VSTUB = 3;
+    /// The fixture's OAuth client.
+    bytes constant X_CLIENT = "myClient-1";
 
     string session;
     string proof;
@@ -56,8 +69,12 @@ contract RealProofClaimTest is WalletTestBase {
                 )
             )
         );
-        vm.prank(owner);
+        StubPlatformVerifier paid = new StubPlatformVerifier(X, NOTARY_FEE);
+        paid.setNodes(idNode, handleNode);
+        vm.startPrank(owner);
         proofVerifier.setVerifier(X, VX, IPlatformVerifier(x));
+        proofVerifier.setVerifier(X, VSTUB, IPlatformVerifier(address(paid)));
+        vm.stopPrank();
         vm.warp(vm.parseJsonUint(session, ".created_at") + 60);
         vm.deal(relayer, 1 ether);
     }
@@ -92,59 +109,88 @@ contract RealProofClaimTest is WalletTestBase {
         return abi.encode(p);
     }
 
-    /// The claim in one relayer transaction: create, bind with one real proof, claim to the wallet.
-    function _claimReal() internal returns (address w, uint256 gas) {
-        w = factory.walletAddress(X, idNode);
-        escrow.deposit{value: 0.01 ether}(X, handleNode, NATIVE_TOKEN, 0.01 ether);
-        bytes memory bind = _real(BIND, abi.encode(w));
-        uint256 fee = identities.quoteBind(X, VX);
-        Relay relay = new Relay();
-        vm.prank(relayer);
-        relay.claim{value: fee}(factory, executor, X, VX, idNode, handleNode, bind);
-        gas = vm.lastFrameGas().gasTotalUsed;
-        assertEq(identities.resolveId(idNode), w, "not bound");
-        assertEq(w.balance, 0.01 ether, "not claimed");
-    }
-
-    function test_aClaimWithARealProof() public {
-        (, uint256 gas) = _claimReal();
-        // The frame's gas, written only by `FOUNDRY_PROFILE=gas forge test`.
-        vm.snapshotValue("wallet-claim", "Relay.claim(real X proof)", gas);
-    }
-
-    /// The claim with its first session from one real proof of an Operation List.
-    function test_aClaimWithAFirstSessionFromOneRealListProof() public {
-        address w = factory.walletAddress(X, idNode);
-        escrow.deposit{value: 0.01 ether}(X, handleNode, NATIVE_TOKEN, 0.01 ether);
-        IIdentityValidator.Policy memory p = _admin();
-        bytes memory payload =
-            _real(OPERATIONS, operationList(BIND, abi.encode(w), LINK, _txData(w, _key(ALICE_PK), _ph(p))));
-        uint256 fee = identities.quoteBind(X, VX) + registry.quote(X, VX);
-        Relay relay = new Relay();
-        vm.prank(relayer);
-        relay.claimWithSession{value: fee}(factory, registry, executor, X, VX, idNode, handleNode, payload, p);
-        // The frame's gas, written only by `FOUNDRY_PROFILE=gas forge test`.
-        vm.snapshotValue(
-            "wallet-claim", "Relay.claimWithSession(real X proof, operation list)", vm.lastFrameGas().gasTotalUsed
+    /// A stub proof for `domain` and `data`.
+    function _stubbed(bytes32 domain, bytes memory data) internal pure returns (bytes memory) {
+        return abi.encode(
+            StubPlatformVerifier.StubPayload({
+                ceremonyVersion: 1,
+                operationDomain: domain,
+                authorizationNonce: bytes32(uint256(1)),
+                transactionData: data
+            })
         );
-
-        assertEq(identities.resolveId(idNode), w, "not bound");
-        assertEq(w.balance, 0.01 ether, "not claimed");
-        _handle(_signed(_op(w, 0, _hit()), _pks(ALICE_PK)));
-        assertEq(target.calls(), 1, "the first session could not act");
     }
 
-    /// The claimed wallet's first session, by a second real proof: active at once.
-    function test_aFirstSessionByARealProof() public {
-        (address w,) = _claimReal();
+    /// The Operation List a proof of `version` carries for Alice's new wallet: bind it, and link K.
+    function _list(uint16 version) internal view returns (bytes memory) {
+        address w = factory.walletAddress(X, idNode);
+        bytes memory data = operationList(BIND, abi.encode(w), LINK, _txData(w, _key(ALICE_PK), _ph(_admin())));
+        return version == VX ? _real(OPERATIONS, data) : _stubbed(OPERATIONS, data);
+    }
+
+    /// The relayer onboards Alice with one list proof in one `createAndExecute`: the batch K signs links K,
+    /// binds the handle, claims the escrow, repays the relayer and adds a bot's session.
+    function _onboard(uint16 version, bytes memory list) internal returns (address w, uint256 gas) {
+        w = factory.walletAddress(X, idNode);
+        escrow.deposit{value: CLAIMED}(X, handleNode, NATIVE_TOKEN, CLAIMED);
+        uint256 linkFee = registry.quote(X, version);
+        uint256 bindFee = identities.quoteBind(X, version);
+        address[] memory tokens = new address[](1);
+        tokens[0] = NATIVE_TOKEN;
+        Execution[] memory x = new Execution[](5);
+        x[0] =
+            _x(address(registry), linkFee, abi.encodeCall(IWalletRegistry.linkIdentity, (X, version, list, _admin())));
+        x[1] = _x(
+            address(identities),
+            bindFee,
+            abi.encodeCall(IIdentityRegistry.bindPrivately, (X, version, list, 0, address(0)))
+        );
+        x[2] = _x(address(escrow), 0, abi.encodeCall(IHandleEscrow.claim, (handleNode, tokens, w)));
+        x[3] = _x(relayer, linkFee + bindFee, "");
+        x[4] = _x(
+            address(validator),
+            0,
+            abi.encodeCall(IIdentityValidator.addSession, (_identity(X, idNode), _key(BOT_PK), _hitOnly()))
+        );
+        bytes memory calls = abi.encode(x);
+        uint256 n = uint256(uint160(address(validator))) << 96;
+        bytes memory auth = _aliceFor(w, calls, n);
+        vm.prank(relayer, relayer);
+        factory.createAndExecute{value: linkFee + bindFee}(X, idNode, AUTHORIZED_MODE, _data(calls, auth));
+        Vm.Gas memory used = vm.lastFrameGas();
+        // forge-lint: disable-next-line(unsafe-typecast)
+        gas = used.gasTotalUsed - uint64(used.gasRefunded);
+
+        assertEq(identities.resolveId(idNode), w, "not bound");
+        assertEq(w.balance, CLAIMED - linkFee - bindFee, "not claimed");
+        assertEq(relayer.balance, 1 ether, "the relayer is not repaid");
+        IIdentityValidator.Session memory k = validator.sessionOf(w, _key(ALICE_PK));
+        assertTrue(k.admin && k.activeAt == 0, "K is not the first session");
+        assertEq(validator.sessionOf(w, _key(BOT_PK)).activeAt, _now(), "no bot session");
+    }
+
+    /// forge-config: gas.isolate = true
+    function test_oneCreateAndExecuteOnboardsOnOneRealListProof() public {
+        (, uint256 gas) = _onboard(VX, _list(VX));
+        // The transaction's gas used, written only by `FOUNDRY_PROFILE=gas forge test`.
+        vm.snapshotValue("wallet-claim", "createAndExecute onboarding(real X proof, operation list)", gas);
+    }
+
+    /// forge-config: gas.isolate = true
+    function test_oneCreateAndExecuteOnboardsOnOneStubListProof() public {
+        (, uint256 gas) = _onboard(VSTUB, _list(VSTUB));
+        // The transaction's gas used, written only by `FOUNDRY_PROFILE=gas forge test`.
+        vm.snapshotValue("wallet-claim", "createAndExecute onboarding(stub proof, operation list)", gas);
+    }
+
+    /// Once the wallet had a session, a second real proof adds a session that waits the recovery delay.
+    function test_aSessionByARealProof() public {
+        (address w,) = _onboard(VX, _list(VX));
         IIdentityValidator.Policy memory p = _admin();
-        bytes memory add = _real(ADD, _txData(w, _key(ALICE_PK), _ph(p)));
+        bytes memory add = _real(ADD, _txData(w, _key(ALICE2_PK), _ph(p)));
         uint256 fee = registry.quote(X, VX);
         vm.prank(relayer);
         registry.addSessionByProof{value: fee}(X, VX, add, p);
-        emit log_named_uint("addSessionByProof frame gas", vm.lastFrameGas().gasTotalUsed);
-        assertLe(validator.sessionOf(w, _key(ALICE_PK)).activeAt, _now(), "the first session waits");
-        _handle(_signed(_op(w, 0, _hit()), _pks(ALICE_PK)));
-        assertEq(target.calls(), 1, "the session could not act");
+        assertEq(validator.sessionOf(w, _key(ALICE2_PK)).activeAt, _now() + validator.recoveryDelay(w), "not pending");
     }
 }

@@ -1,6 +1,4 @@
 {
-  "Relay.claim(real X proof)": "1938280",
-  "Relay.claim(stub proof)": "1050863",
-  "Relay.claimWithSession(real X proof, operation list)": "3269982",
-  "Relay.claimWithSession(stub proof, operation list)": "1612344"
+  "createAndExecute onboarding(real X proof, operation list)": "3825163",
+  "createAndExecute onboarding(stub proof, operation list)": "1767368"
 }

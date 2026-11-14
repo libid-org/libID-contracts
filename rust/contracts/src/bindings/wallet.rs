@@ -6,12 +6,22 @@
 
 use alloy::{
     primitives::{
-        aliases::U48,
+        aliases::{
+            U192,
+            U48,
+        },
+        b256,
         keccak256,
+        Address,
+        Bytes,
         B256,
         U256,
     },
-    sol_types::SolValue,
+    sol_types::{
+        eip712_domain,
+        SolStruct,
+        SolValue,
+    },
 };
 
 #[allow(
@@ -28,8 +38,8 @@ mod web_wallet {
     );
 }
 
-/// `wallet/WebWallet.sol`: the ERC-7579 account, whose only modules are the
-/// IdentityValidator and the ClaimExecutor.
+/// `wallet/WebWallet.sol`: the ERC-7579 account, whose only module is the
+/// IdentityValidator.
 pub use web_wallet::WebWallet;
 /// The ERC-4337 operation `WebWallet.validateUserOp` takes.
 pub use web_wallet::WebWallet::PackedUserOperation;
@@ -97,24 +107,6 @@ mod wallet_factory {
 /// `wallet/WalletFactory.sol`: deploys wallets at addresses fixed by identity.
 pub use wallet_factory::WalletFactory;
 
-#[allow(
-    clippy::too_many_arguments,
-    missing_docs,
-    non_camel_case_types,
-    unused_attributes
-)]
-mod claim_executor {
-    alloy::sol!(
-        #[sol(rpc, all_derives)]
-        ClaimExecutor,
-        "abi/ClaimExecutor.json"
-    );
-}
-
-/// `wallet/ClaimExecutor.sol`: the executor that binds a wallet's identity and
-/// claims what the escrow holds for it.
-pub use claim_executor::ClaimExecutor;
-
 /// `rulesHashOf` and `policyHashOf` of `IIdentityValidator.sol`, on both
 /// bindings of `Rules` and `Policy`.
 macro_rules! policy_hashes {
@@ -167,14 +159,115 @@ policy_hashes!(RegistryRules, RegistryPolicy);
 /// `keccak256(abi.encode(hash, at, keccak256(governingKey)))`, where the
 /// governing key is the first signature's. For an operation, `hash` is its
 /// `userOpHash` and `at` picks the allowance period, which the EntryPoint
-/// enforces as the operation's validity window. For ERC-1271, `hash` is the
-/// ERC-7739 nested hash and `at` is 0.
+/// enforces as the operation's validity window. For a direct `execute`, `hash`
+/// is its EIP-712 `Execute` digest and `at` the one it signs. For ERC-1271,
+/// `hash` is the ERC-7739 nested hash and `at` is 0.
 pub fn below_quorum_hash(hash: B256, at: U48, governing_key: &[u8]) -> B256 {
     keccak256((hash, at, keccak256(governing_key)).abi_encode_params())
 }
 
+/// `AUTHORIZED_MODE` of `wallet/IWebWallet.sol`, the direct path's mode: the
+/// batch call type, the default exec type, the selector
+/// `bytes4(keccak256("libid.webwallet.authorized"))` and a zero payload.
+pub const AUTHORIZED_MODE: B256 =
+    b256!("0x01000000000018f4a5a900000000000000000000000000000000000000000000");
+
+#[allow(missing_docs)]
+mod execute {
+    alloy::sol! {
+        #[derive(Debug, PartialEq, Eq)]
+        struct Execute {
+            bytes32 mode;
+            bytes executionCalldata;
+            uint48 at;
+            uint256 nonce;
+            uint48 deadline;
+            uint256 callGas;
+        }
+    }
+}
+
+/// What the signers of a direct `execute(AUTHORIZED_MODE, data)` sign, as
+/// `IdentityValidator.checkExecution` hashes it: `mode` is
+/// [`AUTHORIZED_MODE`], `at` is `Authorization.at`, and `nonce` is the
+/// wallet's full EntryPoint nonce under [`direct_nonce_key`] before the batch.
+/// Build it with [`Execute::authorized`].
+pub use execute::Execute;
+
+impl Execute {
+    /// The message of a direct `execute`, with `mode` [`AUTHORIZED_MODE`].
+    pub fn authorized(
+        execution_calldata: Bytes,
+        at: U48,
+        nonce: U256,
+        deadline: U48,
+        call_gas: U256,
+    ) -> Self {
+        Self {
+            mode: AUTHORIZED_MODE,
+            executionCalldata: execution_calldata,
+            at,
+            nonce,
+            deadline,
+            callGas: call_gas,
+        }
+    }
+
+    /// The EIP-712 hash the signers sign: under the wallet's domain, name
+    /// `WebWallet`, version `1`, `chain_id` and `wallet`. Below quorum each
+    /// signer signs [`below_quorum_hash`] of it.
+    pub fn digest(&self, chain_id: u64, wallet: Address) -> B256 {
+        self.eip712_signing_hash(&eip712_domain! {
+            name: "WebWallet",
+            version: "1",
+            chain_id: chain_id,
+            verifying_contract: wallet,
+        })
+    }
+
+    /// `data` of `execute(AUTHORIZED_MODE, data)` for this message:
+    /// `abi.encode(executionCalldata, deadline, callGas, abi.encode(authorization))`,
+    /// the authorization's `at` this message's.
+    ///
+    /// # Panics
+    ///
+    /// If `mode` is not [`AUTHORIZED_MODE`]: the wallet would refuse the batch.
+    pub fn authorized_data(
+        &self,
+        signatures: Vec<IIdentityValidator::SessionSignature>,
+        calls: Vec<IIdentityValidator::CallProof>,
+        domain_proof: Vec<B256>,
+        paymaster_proof: Vec<B256>,
+    ) -> Bytes {
+        assert_eq!(self.mode, AUTHORIZED_MODE, "a direct execute's mode");
+        let authorization = IIdentityValidator::Authorization {
+            signatures,
+            at: self.at,
+            calls,
+            domainProof: domain_proof,
+            paymasterProof: paymaster_proof,
+        };
+        (
+            self.executionCalldata.clone(),
+            self.deadline,
+            self.callGas,
+            Bytes::from(authorization.abi_encode()),
+        )
+            .abi_encode_params()
+            .into()
+    }
+}
+
+/// The EntryPoint nonce key of the direct path for a wallet whose validator is
+/// `validator`: `uint192(uint160(validator)) << 32`. UserOperations share it.
+pub fn direct_nonce_key(validator: Address) -> U192 {
+    U192::from_be_slice(validator.as_slice()) << 32
+}
+
 #[cfg(test)]
 mod tests {
+    use std::fs;
+
     use alloy::{
         primitives::{
             address,
@@ -185,6 +278,8 @@ mod tests {
             SolValue,
         },
     };
+
+    use serde::Deserialize;
 
     use super::*;
 
@@ -225,6 +320,86 @@ mod tests {
             ),
             b256!("0xf63e6147bfa910f2dab04a6910a61fbf42066f204e2344c197c154c1b5a6e8dc")
         );
+    }
+
+    /// `solidity/contracts/wallet/test/fixtures/direct-execute-vector.json`,
+    /// which `ExecuteVectorTest` checks too.
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct DirectExecuteVector {
+        authorized_mode: B256,
+        execute_typehash: B256,
+        validator: Address,
+        nonce_key: U256,
+        nonce: U256,
+        execution_calldata: Bytes,
+        at: u64,
+        deadline: u64,
+        call_gas: u64,
+        session_key: Bytes,
+        signature: Bytes,
+        data_hash: B256,
+        chain_id: u64,
+        wallet: Address,
+        digest: B256,
+    }
+
+    #[test]
+    fn the_direct_path_matches_the_solidity_vector() {
+        let path = format!(
+            "{}/../../solidity/contracts/wallet/test/fixtures/direct-execute-vector.json",
+            env!("CARGO_MANIFEST_DIR")
+        );
+        let v: DirectExecuteVector =
+            serde_json::from_str(&fs::read_to_string(&path).expect(&path)).expect(&path);
+
+        assert_eq!(AUTHORIZED_MODE, v.authorized_mode);
+        assert_eq!(AUTHORIZED_MODE[0], 0x01);
+        assert_eq!(
+            &AUTHORIZED_MODE[6..10],
+            &keccak256("libid.webwallet.authorized")[..4]
+        );
+        assert_eq!(
+            keccak256(Execute::eip712_encode_type().as_bytes()),
+            v.execute_typehash
+        );
+
+        let key = direct_nonce_key(v.validator);
+        assert_eq!(U256::from(key), v.nonce_key);
+        assert_eq!((U256::from(key) << 64) | U256::from(7), v.nonce);
+
+        let execute = Execute::authorized(
+            v.execution_calldata,
+            U48::from(v.at),
+            v.nonce,
+            U48::from(v.deadline),
+            U256::from(v.call_gas),
+        );
+        let data = execute.authorized_data(
+            vec![IIdentityValidator::SessionSignature {
+                key: v.session_key,
+                signature: v.signature,
+            }],
+            vec![],
+            vec![],
+            vec![],
+        );
+        assert_eq!(keccak256(&data), v.data_hash);
+        assert_eq!(execute.digest(v.chain_id, v.wallet), v.digest);
+    }
+
+    #[test]
+    #[should_panic(expected = "a direct execute's mode")]
+    fn authorized_data_refuses_another_mode() {
+        let mut execute = Execute::authorized(
+            Bytes::new(),
+            U48::ZERO,
+            U256::ZERO,
+            U48::ZERO,
+            U256::ZERO,
+        );
+        execute.mode = B256::ZERO;
+        execute.authorized_data(vec![], vec![], vec![], vec![]);
     }
 
     /// The two `Policy` bindings name one struct: either decodes the other, and

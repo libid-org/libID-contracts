@@ -70,7 +70,6 @@ pub const COVERED: &[(&str, &str)] = &[
     ("IdentityValidator", "IdentityValidator"),
     ("WalletRegistry", "WalletRegistry"),
     ("WalletFactory", "WalletFactory"),
-    ("ClaimExecutor", "ClaimExecutor"),
 ];
 
 /// The test stand-ins the `testing` feature embeds, as in [`COVERED`]. Keep

@@ -17,7 +17,7 @@ import {ERC1155} from "@openzeppelin/contracts/token/ERC1155/ERC1155.sol";
 import {IERC165} from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
 
 import {IIdentityValidator} from "../IIdentityValidator.sol";
-import {IWebWallet} from "../IWebWallet.sol";
+import {AUTHORIZED_MODE, IWebWallet} from "../IWebWallet.sol";
 import {CallTarget, SlotMarker, WalletTestBase} from "./WalletTestBase.sol";
 
 contract MockERC721 is ERC721("Mock", "M") {
@@ -55,11 +55,12 @@ contract WebWalletTest is WalletTestBase {
     }
 
     /// R9: a non-admin session may only `execute` single or batch calls to outside targets.
-    /// The account, the validator and the registry are not outside; the ClaimExecutor is.
+    /// The account, the validator and the registry are not outside.
     function test_nonAdminRefusedInValidation() public {
         address w = _claim();
         vm.prank(w);
         validator.addSession(_identity(X, ALICE), _key(APP_PK), _hitOnly());
+        vm.warp(_now() + 1);
         SlotMarker marker = new SlotMarker();
 
         Execution[] memory mixed = new Execution[](2);
@@ -152,7 +153,7 @@ contract WebWalletTest is WalletTestBase {
         bytes[3] memory reverted = [
             _exec(w, abi.encodeCall(IWebWallet.upgradeToAndCall, (impl2, ""))),
             _exec(w, abi.encodeCall(IERC7579ModuleConfig.uninstallModule, (1, address(validator), ""))),
-            _exec(w, abi.encodeCall(IERC7579ModuleConfig.uninstallModule, (2, address(executor), "")))
+            _exec(w, abi.encodeCall(IERC7579ModuleConfig.installModule, (1, address(target), "")))
         ];
         for (uint256 i; i < reverted.length; ++i) {
             vm.recordLogs();
@@ -162,7 +163,7 @@ contract WebWalletTest is WalletTestBase {
         assertEq(vm.load(w, bytes32(uint256(0x1234))), bytes32(0), "delegatecall ran");
         assertEq(address(uint160(uint256(vm.load(w, IMPL_SLOT)))), implBefore, "upgraded without timelock");
         assertTrue(IWebWallet(w).isModuleInstalled(1, address(validator), ""), "validator removed");
-        assertTrue(IWebWallet(w).isModuleInstalled(2, address(executor), ""), "executor removed");
+        assertFalse(IWebWallet(w).isModuleInstalled(1, address(target), ""), "module installed");
     }
 
     /// The `success` of the last recorded `UserOperationEvent`.
@@ -183,6 +184,12 @@ contract WebWalletTest is WalletTestBase {
         assertTrue(IWebWallet(w).supportsExecutionMode(MODE_SINGLE), "single");
         assertTrue(IWebWallet(w).supportsExecutionMode(MODE_BATCH), "batch");
         assertFalse(IWebWallet(w).supportsExecutionMode(MODE_DELEGATE), "delegatecall");
+        assertFalse(IWebWallet(w).supportsExecutionMode(MODE_BATCH | bytes32(uint256(0xdeadbeef) << 176)), "a selector");
+        assertTrue(IWebWallet(w).supportsExecutionMode(AUTHORIZED_MODE), "AUTHORIZED");
+        assertFalse(IWebWallet(w).supportsExecutionMode(AUTHORIZED_MODE | bytes32(uint256(1))), "AUTHORIZED, a payload");
+        assertFalse(
+            IWebWallet(w).supportsExecutionMode(AUTHORIZED_MODE ^ bytes32(uint256(0x01) << 248)), "AUTHORIZED, single"
+        );
         vm.prank(EP);
         vm.expectRevert(abi.encodeWithSelector(ERC7579Utils.ERC7579UnsupportedCallType.selector, bytes1(0xff)));
         IERC7579Execution(w).execute(MODE_DELEGATE, abi.encodePacked(address(target)));

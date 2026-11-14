@@ -4,15 +4,15 @@ pragma solidity ^0.8.24;
 import {IIdentityValidator} from "./IIdentityValidator.sol";
 
 /// @title IWalletRegistry - links proved identities to wallets.
-/// @notice Constructor: `WalletRegistry(address proofVerifier)`, which deploys its IdentityValidator.
-///         Immutable, no owner.
+/// @notice Constructor: `WalletRegistry(address proofVerifier, address walletFactory)`, which deploys its
+///         IdentityValidator for the wallets of `walletFactory`. Immutable, no owner.
 /// @dev Both domains carry `abi.encode(uint256 chainId, address wallet, bytes sessionKey, bytes32 policyHash)`,
 ///      canonically encoded, as the proof's operation or as its one entry of either domain in an
 ///      Operation List (`OperationList.sol`). An empty key with a zero policy hash links only, and
 ///      `policy` is then ignored.
 ///      The wallet's genesis identity (`IIdentityValidator.genesisIdentity`) is linked when the wallet
-///      is created. Anyone may submit a link proof of it while the wallet has never had a session, to
-///      add the first session; every other link only the wallet.
+///      is created. Only the wallet links, usually inside its own direct `execute`; the session a link adds
+///      is the wallet's own (`IIdentityValidator.addSessionByAccount`), from any OAuth client.
 ///      `msg.value` is exactly `quote`. Links are not exclusive.
 ///      Every proof goes through `proofVerifier`, whose owner this registry trusts (README.md).
 interface IWalletRegistry {
@@ -45,7 +45,7 @@ interface IWalletRegistry {
         IIdentityValidator.Policy calldata policy
     ) external payable;
 
-    /// Anyone may submit; the identity must already be linked to the wallet.
+    /// Anyone may submit; the identity must already be linked to the wallet, which must have had a session.
     function addSessionByProof(
         bytes32 platformId,
         uint16 verifierVersion,

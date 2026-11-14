@@ -46,9 +46,11 @@ contract PasskeyTest is WalletTestBase {
         validator.addSession(_identity(X, ALICE), passkey, _admin());
     }
 
-    /// A passkey-signed `addSession` is an ordinary admin operation: active at once, no proof.
+    /// A passkey-signed `addSession` is an ordinary admin operation: active from the next second, no proof.
     function test_passkeyAdminAddsASessionThroughTheEntryPoint() public {
         address w = _withPasskey();
+        uint48 passkeyAdded = uint48(_now());
+        vm.warp(_now() + 1);
         bytes memory callData = _exec(
             address(validator),
             abi.encodeCall(IIdentityValidator.addSession, (_identity(X, ALICE), _key(ALICE2_PK), _admin()))
@@ -58,7 +60,7 @@ contract PasskeyTest is WalletTestBase {
         _handle(op);
         IIdentityValidator.Session memory added = validator.sessionOf(w, _key(ALICE2_PK));
         assertEq(added.identity, _identity(X, ALICE), "no session added");
-        assertEq(added.activeAt, 0, "the new session waits");
+        assertEq(added.activeAt, _now(), "the new session waits past its second");
 
         // The validator's own answer, and its cost with OZ's Solidity P-256 (no precompile under cancun).
         bytes32 h = keccak256("user op");
@@ -67,7 +69,7 @@ contract PasskeyTest is WalletTestBase {
         uint256 before = gasleft();
         uint256 result = validator.validateUserOp(op, h);
         emit log_named_uint("validateUserOp gas, passkey", before - gasleft());
-        assertEq(result, 0, "passkey refused");
+        assertEq(result, _window(passkeyAdded, 0), "passkey refused");
         op.signature = _passkeySigs(keccak256("another op"));
         vm.prank(w);
         assertEq(validator.validateUserOp(op, h), 1, "a signature over another hash passed");

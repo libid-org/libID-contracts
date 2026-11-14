@@ -10,15 +10,24 @@ import {CeremonyProfile} from "../../ceremony/CeremonyProfile.sol";
 import {CeremonyProofVerifier} from "../../ceremony/CeremonyProofVerifier.sol";
 import {IPlatformVerifier} from "../../ceremony/IPlatformVerifier.sol";
 import {IProofVerifier} from "../../ceremony/IProofVerifier.sol";
+import {OperationList} from "../../ceremony/OperationList.sol";
 import {HandleEscrow} from "../../escrow/HandleEscrow.sol";
+import {LibidFactory} from "../../factory/LibidFactory.sol";
 import {NATIVE_TOKEN} from "../../NativeToken.sol";
 import {IdentityRegistry} from "../../identity/IdentityRegistry.sol";
 import {StubPlatformVerifier} from "../../identity/test/StubPlatformVerifier.sol";
-import {IClaimExecutor} from "../IClaimExecutor.sol";
 import {IIdentityValidator} from "../IIdentityValidator.sol";
 import {IWalletFactory} from "../IWalletFactory.sol";
 import {IWalletRegistry} from "../IWalletRegistry.sol";
 import {IWebWallet} from "../IWebWallet.sol";
+
+/// The Operation List of two entries, `abi.encode(Operation[])`.
+function operationList(bytes32 d0, bytes memory data0, bytes32 d1, bytes memory data1) pure returns (bytes memory) {
+    OperationList.Operation[] memory e = new OperationList.Operation[](2);
+    e[0] = OperationList.Operation({domain: d0, data: data0});
+    e[1] = OperationList.Operation({domain: d1, data: data1});
+    return abi.encode(e);
+}
 
 /// Records who called it.
 contract CallTarget {
@@ -129,6 +138,8 @@ abstract contract WalletTestBase is Test, Trees {
     bytes32 internal constant MALLORY = keccak256("mallory's X id node");
     bytes32 internal constant CAROL = keccak256("carol's Google id node");
     uint16 internal constant V1 = 1;
+    /// The factory proxy's `LibidFactory` name.
+    string internal constant FACTORY_NAME = "WalletFactory";
 
     uint256 internal constant ALICE_PK = 0xA11CE;
     uint256 internal constant ALICE2_PK = 0xA11CE2;
@@ -137,6 +148,7 @@ abstract contract WalletTestBase is Test, Trees {
     uint256 internal constant MALLORY_PK = 0xBAD;
     uint256 internal constant CAROL_PK = 0xCA401;
 
+    LibidFactory internal names;
     IIdentityValidator internal validator;
     IWalletRegistry internal registry;
     IWalletFactory internal factory;
@@ -148,7 +160,6 @@ abstract contract WalletTestBase is Test, Trees {
     CallTarget internal target;
     IdentityRegistry internal identities;
     HandleEscrow internal escrow;
-    IClaimExecutor internal executor;
 
     address internal owner = makeAddr("owner");
     address internal relayer = makeAddr("relayer");
@@ -188,25 +199,39 @@ abstract contract WalletTestBase is Test, Trees {
         identities.setProofVerifier(IProofVerifier(address(proofVerifier)));
         vm.stopPrank();
 
-        registry = IWalletRegistry(deployCode("WalletRegistry.sol:WalletRegistry", abi.encode(address(proofVerifier))));
+        // The deployment's order: the registry and its validator name the factory proxy before it exists.
+        names = LibidFactory(
+            address(new ERC1967Proxy(address(new LibidFactory()), abi.encodeCall(LibidFactory.initialize, (owner))))
+        );
+        registry = _newRegistry(names.predict(FACTORY_NAME));
         validator = IIdentityValidator(registry.identityValidator());
-        executor = IClaimExecutor(
-            deployCode(
-                "ClaimExecutor.sol:ClaimExecutor", abi.encode(address(identities), address(escrow), address(validator))
-            )
-        );
         walletImpl = _walletImpl();
-        factory = IWalletFactory(
-            address(new ERC1967Proxy(_factoryImpl(walletImpl), abi.encodeCall(IWalletFactory.initialize, (owner))))
-        );
+        bytes memory proxy = _factoryProxy(_factoryImpl(walletImpl));
+        vm.prank(owner);
+        factory = IWalletFactory(names.deploy(FACTORY_NAME, proxy));
         target = new CallTarget();
 
         // Stub observation times lie in the past.
         vm.warp(1_800_000_000);
     }
 
+    /// A WalletRegistry, and its validator, for the wallets of `walletFactory`.
+    function _newRegistry(address walletFactory) internal returns (IWalletRegistry) {
+        return IWalletRegistry(
+            deployCode("WalletRegistry.sol:WalletRegistry", abi.encode(address(proofVerifier), walletFactory))
+        );
+    }
+
+    /// The creation code of a WalletFactory proxy owned by `owner`.
+    function _factoryProxy(address implementation) internal view returns (bytes memory) {
+        return abi.encodePacked(
+            type(ERC1967Proxy).creationCode,
+            abi.encode(implementation, abi.encodeCall(IWalletFactory.initialize, (owner)))
+        );
+    }
+
     function _walletImpl() internal returns (address) {
-        return deployCode("WebWallet.sol:WebWallet", abi.encode(address(validator), address(executor)));
+        return deployCode("WebWallet.sol:WebWallet", abi.encode(address(validator)));
     }
 
     function _factoryImpl(address walletImplementation) internal returns (address) {
@@ -309,11 +334,11 @@ abstract contract WalletTestBase is Test, Trees {
         registry.addSessionByProof(platformId, V1, payload, p);
     }
 
-    /// Alice's canonical wallet, linked by the relayer with her first session.
+    /// Alice's canonical wallet, which linked her first session itself.
     function _claimWith(IIdentityValidator.Policy memory p) internal returns (address w) {
         vm.prank(relayer);
         w = factory.createWallet(X, ALICE);
-        _link(relayer, X, ALICE, w, _key(ALICE_PK), p);
+        _link(w, X, ALICE, w, _key(ALICE_PK), p);
     }
 
     function _claim() internal returns (address) {

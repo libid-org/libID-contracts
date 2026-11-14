@@ -3,7 +3,7 @@
 Typed, viem-ready ABIs for the libid identity stack (NotaryService,
 CeremonyProofVerifier, GoogleJwtRoots, IdentityRegistry, HandleEscrow,
 HandleResolver, LibidFactory, WTIA9, and the WebWallet contracts: WebWallet,
-IdentityValidator, WalletRegistry, WalletFactory, ClaimExecutor), the errors a bind can revert with, a call
+IdentityValidator, WalletRegistry, WalletFactory), the errors a bind can revert with, a call
 builder for every state-changing function, and the identity helper layer:
 handle normalization, node derivation and resolution.
 
@@ -198,6 +198,37 @@ token's `iat`, not an attestation.
 The Honk verifiers raise errors such as `SumcheckFailed()` that their own ABI
 omits. `honkVerifierErrorsAbi` declares them under bb's names, and
 `bindErrorsAbi` includes it.
+
+## Executing a wallet batch directly
+
+A web wallet's signers can sign a batch that anyone then sends as
+`execute(AUTHORIZED_MODE, data)`, with no UserOperation. `executeDigest` is
+the hash they sign, `directNonceKey` the EntryPoint nonce key the batch uses,
+and `authorizedData` builds `data` from the same message, so the two agree:
+
+```ts
+import { parseAbi } from 'viem'
+import { AUTHORIZED_MODE, authorizedData, directNonceKey, executeDigest } from '@libid/contracts'
+import { calls } from '@libid/contracts/calls'
+
+const nonce = await client.readContract({
+  address: ENTRY_POINT, // EntryPoint v0.9
+  abi: parseAbi(['function getNonce(address, uint192) view returns (uint256)']),
+  functionName: 'getNonce',
+  args: [wallet, directNonceKey(IDENTITY_VALIDATOR)],
+})
+// executionCalldata is an ERC-7579 batch: abi.encode(Execution[]).
+const message = { executionCalldata, at, nonce, deadline, callGas }
+// At quorum a session key signs the digest; below quorum, belowQuorumHash of it.
+const signature = await session.sign({ hash: executeDigest(message, chainId, wallet) })
+const data = authorizedData(message, {
+  signatures: [{ key: session.address, signature }],
+  calls: [],
+  domainProof: [],
+  paymasterProof: [],
+})
+const call = calls.webWallet.execute(wallet, 0n, AUTHORIZED_MODE, data)
+```
 
 ## Normalizing a handle locally
 

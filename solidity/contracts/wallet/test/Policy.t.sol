@@ -196,11 +196,19 @@ contract PolicyTest is WalletTestBase {
         return _rules(1 ether, 100 ether, DAY, 0);
     }
 
+    /// Adds the session a second ago, so that it signs now.
     function _add(address wallet, bytes32 identity, uint256 pk, bool admin, IIdentityValidator.Rules memory r)
         internal
     {
+        _addKey(wallet, identity, _key(pk), IIdentityValidator.Policy(0, 0, admin, 0, r));
+    }
+
+    function _addKey(address wallet, bytes32 identity, bytes memory key, IIdentityValidator.Policy memory p) internal {
+        uint256 t = _now();
+        vm.warp(t - 1);
         vm.prank(wallet);
-        validator.addSession(identity, _key(pk), IIdentityValidator.Policy(0, 0, admin, 0, r));
+        validator.addSession(identity, key, p);
+        vm.warp(t);
     }
 
     function _addApp(uint256 pk, IIdentityValidator.Rules memory r) internal {
@@ -486,8 +494,7 @@ contract PolicyTest is WalletTestBase {
     /// ERC-7562: every slot validation reads or writes is associated with the account, for a 64-byte key.
     function test_validationTouchesOnlyAccountAssociatedStorage() public {
         bytes memory key = abi.encodePacked(address(new AcceptingVerifier()), keccak256("x"), keccak256("y"));
-        vm.prank(w);
-        validator.addSession(_identity(X, ALICE), key, IIdentityValidator.Policy(0, 0, false, 0, _daily()));
+        _addKey(w, _identity(X, ALICE), key, IIdentityValidator.Policy(0, 0, false, 0, _daily()));
         Execution[] memory x = _two(_e(payee, 0.1 ether, ""), _send(token, 1 ether));
         IIdentityValidator.SessionSignature[] memory s = new IIdentityValidator.SessionSignature[](1);
         s[0] = IIdentityValidator.SessionSignature({key: key, signature: hex"1234"});
@@ -537,7 +544,8 @@ contract PolicyTest is WalletTestBase {
         PackedUserOperation memory first = _opFor(APP_PK, _pay(0.1 ether), 100);
         bytes32 firstHash = IUserOpHash(EP).getUserOpHash(first);
         vm.prank(w);
-        assertEq(validator.validateUserOp(first, firstHash), _window(0, DAY - 1), "the period starting at 0");
+        // The window opens no earlier than the session's start.
+        assertEq(validator.validateUserOp(first, firstHash), _window(day0 - 1, DAY - 1), "the period starting at 0");
 
         _addApp(BOB_PK, _rules(1 ether, 0, uint48(1 << 20), 0));
         PackedUserOperation memory last = _opFor(BOB_PK, _pay(0.1 ether), uint48(1 << 47) - 1);
@@ -567,7 +575,7 @@ contract PolicyTest is WalletTestBase {
     function test_atZeroIsRefused() public {
         _addApp(APP_PK, _rules(1 ether, 0, 1, 0));
         assertEq(_answer(_opFor(APP_PK, _pay(0.1 ether), 0)), 1, "at 0");
-        assertEq(_answer(_opFor(APP_PK, _pay(0.1 ether), 1)), _window(0, 1), "at 1");
+        assertEq(_answer(_opFor(APP_PK, _pay(0.1 ether), 1)), _window(day0 - 1, 1), "at 1");
     }
 
     /// Without a paymaster the operation's maximum gas cost is charged to NATIVE with its value, so a
@@ -648,6 +656,10 @@ contract PolicyTest is WalletTestBase {
         _refused(op, "an unlisted paymaster");
         assertEq(token.balanceOf(address(drain)), 0, "the paymaster took its fee");
         _refusedFor(_opNow(BOB_PK, hit), control, "a listed paymaster without its proof");
+        PackedUserOperation memory zero = _nextOp(_callData(hit));
+        zero.paymasterAndData = abi.encodePacked(address(0), uint128(100_000), uint128(0));
+        _sign(zero, _pks(BOB_PK), _proofs(hit), uint48(_now()));
+        _refusedFor(zero, control, "a zero paymaster");
 
         _handle(control);
         assertEq(_spent(BOB_PK, NATIVE_TOKEN), 0, "a listed paymaster was charged");
@@ -815,7 +827,7 @@ contract PolicyTest is WalletTestBase {
         _addApp(APP_PK, _rules(0, 0, DAY, domains));
         _addApp(MALLORY_PK, _daily());
         address w2 = factory.createWallet(GITHUB, BOB);
-        _link(relayer, GITHUB, BOB, w2, _key(BOB_PK), _admin());
+        _link(w2, GITHUB, BOB, w2, _key(BOB_PK), _admin());
         _add(w2, _identity(GITHUB, BOB), APP_PK, false, _rules(0, 0, DAY, domains));
         vm.warp(_now() + 1);
 

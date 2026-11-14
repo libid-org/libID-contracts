@@ -13,6 +13,8 @@ contract ScopeEdgesTest is WalletTestBase {
     address internal w;
     address internal nft = makeAddr("nft");
     address internal payee = makeAddr("payee");
+    /// What the app session's accepted operations answer: its window opens at its add.
+    uint256 internal accepted;
     bytes4[6] internal selectors = [
         bytes4(0x42842e0e), // safeTransferFrom(address,address,uint256)
         bytes4(0xb88d4fde), // safeTransferFrom(address,address,uint256,bytes)
@@ -30,6 +32,7 @@ contract ScopeEdgesTest is WalletTestBase {
         p.rules.paymastersRoot = _paymasterLeaf(makeAddr("paymaster"));
         vm.prank(w);
         validator.addSession(_identity(X, ALICE), _key(APP_PK), p);
+        accepted = _window(uint48(_now()), 0);
     }
 
     /// Each selector on `nft`, `hit()` on the target, and selector 0 on `payee`.
@@ -75,7 +78,7 @@ contract ScopeEdgesTest is WalletTestBase {
             abi.encodeCall(IERC721.transferFrom, (w, payee, 1))
         ];
         for (uint256 i; i < 3; ++i) {
-            assertEq(_answer(_opOn(nft, data[i], i)), 0, vm.toString(i));
+            assertEq(_answer(_opOn(nft, data[i], i)), accepted, vm.toString(i));
         }
         assertEq(_answer(_opOn(nft, data[3], 3)), 1, "approve");
         assertEq(_answer(_opOn(nft, data[4], 4)), 1, "transferFrom");
@@ -87,7 +90,7 @@ contract ScopeEdgesTest is WalletTestBase {
         uint256 leaf = selectors.length;
         bytes[6] memory data = [bytes(""), hex"ab", hex"abcd", hex"abcdef", hex"00000000", hex"00000000ffff"];
         for (uint256 i; i < data.length; ++i) {
-            assertEq(_answer(_opOn(payee, data[i], leaf)), 0, vm.toString(i));
+            assertEq(_answer(_opOn(payee, data[i], leaf)), accepted, vm.toString(i));
         }
         assertEq(_answer(_opOn(payee, hex"00000001", leaf)), 1, "a nonzero selector");
     }
@@ -105,14 +108,14 @@ contract ScopeEdgesTest is WalletTestBase {
             abi.decode(op.signature, (IIdentityValidator.Authorization)).calls,
             new bytes32[](0)
         );
-        assertEq(_answer(op), 0, "nothing charged at 0");
+        assertEq(_answer(op), accepted, "nothing charged at 0");
     }
 
     /// Under a lifetime allowance, `at` at or past 2^47 still charges: its bound applies only to a nonzero period.
     function test_aLifetimeChargeTakesAnyNonzeroAt() public {
         uint256 hit = selectors.length - 1;
         PackedUserOperation memory op = _opAt(address(target), abi.encodeCall(CallTarget.hit, ()), hit, uint48(1 << 47));
-        assertEq(_answer(op), 0, "at 2^47");
+        assertEq(_answer(op), accepted, "at 2^47");
         assertGt(validator.allowanceOf(w, _key(APP_PK), NATIVE_TOKEN).spent, 0, "nothing charged");
     }
 }

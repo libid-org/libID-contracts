@@ -59,7 +59,7 @@ contract WalletFactoryTest is WalletTestBase {
         vm.expectRevert(abi.encodeWithSelector(IWalletRegistry.NotWallet.selector, w, mallory));
         registry.linkIdentity(X, V1, payload, _admin());
 
-        _link(relayer, X, ALICE, w, _key(ALICE_PK), _admin());
+        _link(w, X, ALICE, w, _key(ALICE_PK), _admin());
         assertTrue(validator.isLinked(w, _identity(X, ALICE)), "alice could not link");
         assertFalse(validator.isLinked(w, _identity(X, MALLORY)), "mallory linked");
     }

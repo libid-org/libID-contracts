@@ -67,7 +67,6 @@ const contracts = [
   },
   { file: 'WalletRegistry.sol', name: 'WalletRegistry', exportName: 'walletRegistryAbi' },
   { file: 'WalletFactory.sol', name: 'WalletFactory', exportName: 'walletFactoryAbi' },
-  { file: 'ClaimExecutor.sol', name: 'ClaimExecutor', exportName: 'claimExecutorAbi' },
 ]
 
 /**

@@ -165,6 +165,75 @@ Other entry points:
 - `bindings::ceremony::{TlsNotaryProof, OidcProof}` — the payload a Platform
   Verifier decodes; its `SolValue::abi_encode` is the `payload` `bind` takes.
 
+## Example: sign and send a wallet batch directly
+
+A web wallet's signers can sign a batch that anyone then sends as
+`execute(AUTHORIZED_MODE, data)`, with no UserOperation.
+`Execute::authorized` builds the message with its mode set, `digest` is the
+hash the signers sign, `direct_nonce_key` the EntryPoint nonce key the batch
+uses, and `authorized_data` builds `data` from the same message, so the two
+agree:
+
+```rust,no_run
+use alloy::{
+    primitives::{aliases::U48, Address, Bytes, U256},
+    providers::ProviderBuilder,
+    signers::{local::PrivateKeySigner, SignerSync},
+};
+use libid_contracts::bindings::wallet::{
+    direct_nonce_key, Execute, IIdentityValidator::SessionSignature, WebWallet, AUTHORIZED_MODE,
+};
+
+alloy::sol! {
+    #[sol(rpc)]
+    interface IEntryPoint {
+        function getNonce(address sender, uint192 key) external view returns (uint256);
+    }
+}
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let provider = ProviderBuilder::new()
+        .wallet(/* the relayer's signer */ todo!())
+        .connect_http("https://rpc.example.org".parse()?);
+    let (wallet, validator, entry_point, chain_id): (Address, Address, Address, u64) = todo!();
+    let session: PrivateKeySigner = todo!();
+    // An ERC-7579 batch: `abi.encode(Execution[])`.
+    let execution_calldata: Bytes = todo!();
+
+    let nonce = IEntryPoint::new(entry_point, &provider)
+        .getNonce(wallet, direct_nonce_key(validator))
+        .call()
+        .await?;
+    let execute = Execute::authorized(
+        execution_calldata,
+        U48::ZERO,
+        nonce,
+        U48::from(2_000_000_000),
+        U256::from(500_000),
+    );
+    // At quorum a session key signs the digest; below quorum,
+    // `below_quorum_hash` of it.
+    let signature = session.sign_hash_sync(&execute.digest(chain_id, wallet))?;
+    let data = execute.authorized_data(
+        vec![SessionSignature {
+            key: session.address().to_vec().into(),
+            signature: signature.as_bytes().to_vec().into(),
+        }],
+        vec![],
+        vec![],
+        vec![],
+    );
+    WebWallet::new(wallet, &provider)
+        .execute(AUTHORIZED_MODE, data)
+        .send()
+        .await?
+        .get_receipt()
+        .await?;
+    Ok(())
+}
+```
+
 ## Feature `testing`
 
 Off by default. It embeds `StubPlatformVerifier`, a Platform Verifier that

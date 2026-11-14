@@ -12,28 +12,112 @@ interfaces beside this file.
 | `IdentityValidator` | Identities, sessions, threshold and root operations of every wallet | none |
 | `SessionRules` | What an operation may do, and the allowances it charges; deployed by `IdentityValidator`'s constructor and run through DELEGATECALL on its storage | none |
 | `WalletRegistry` | Turns a `libid.webwallet.*` proof into a link or a session | none |
-| `ClaimExecutor` | Binds a wallet's identity and claims its escrow, for anyone | none |
 
-## The claim
+## Onboarding
 
-The wallet links its genesis identity when it is created, so a claim takes one
-proof, a `bind-identity` proof naming the wallet:
+One relayer transaction creates the wallet and runs its first batch:
 
 ```solidity
-address w = factory.createWallet(platformId, idNode);               // anyone; returns w if it exists
-executor.bind{value: identities.quoteBind(platformId, v)}(w, platformId, v, bindPayload);
-executor.claimToSelf(w, handleNode, tokens);                         // pays the wallet, whoever sends it
+// K, Alice's new session key, signs the batch for the wallet's address before it exists.
+factory.createAndExecute{value: linkFee + bindFee}(
+    platformId, idNode, AUTHORIZED_MODE, abi.encode(calls, deadline, callGas, abi.encode(authorization))
+);
+// calls: registry.linkIdentity{value: linkFee}(platformId, v, listPayload, policy),   // K, the first session
+//        identities.bindPrivately{value: bindFee}(platformId, v, listPayload, 0, address(0)),
+//        escrow.claim(handleNode, tokens, w),
+//        relayer.call{value: linkFee + bindFee}(""),                                  // the relayer's refund
+//        validator.addSession(identity, botKey, botPolicy)                            // optional
 ```
 
-- `createWallet` returns the existing wallet when called again, so a wallet
-  created first by someone else does not stop a claim.
-- `bind` and `claimToSelf` are not idempotent: a bind proof or an escrow
-  claim applied first by someone else reverts the relayer's transaction.
-  Either way the outcome is the same wallet bound and paid. A relayer that
-  batches the three calls should let each fail on its own.
-- The claim adds no session. The first session comes from a
-  `link-identity` proof of the genesis identity, or an `add-session` proof:
-  while the wallet never had a session, either is active at once.
+`listPayload` is one sign-in proving an operation list of `bind-identity(w)`
+and `link-identity(w, K, policy)`, so the same payload serves both calls.
+`createAndExecute` creates the wallet if it has no code, then calls its
+`execute(mode, data)` with `msg.value`. It grants nothing: the batch passes the same end
+check as any direct batch. Any failure reverts the whole transaction, the
+deploy included, and leaves the nonce unused, so the same signature can be
+sent again until its deadline.
+
+## First session
+
+The factory links the genesis identity when it creates the wallet; it adds no
+session. The first session comes from the wallet's own `linkIdentity` of the
+genesis identity, with an admin policy, from a proof of any OAuth client. It
+is active at once
+(`activeAt` 0), so it can sign the batch that adds it. While the wallet never
+had a session, any other session a link would add reverts
+`FirstSessionRefused`, and so does `addSessionByProof`. Only the wallet calls
+`linkIdentity`.
+
+`Session.activeAt` is when the session starts signing: it signs only after
+that second.
+
+- `addSession`, a link by the wallet, and a migration's install session:
+  `block.timestamp`, so the session signs from the next second.
+- A session by proof: the end of `recoveryDelay`.
+- The first session: 0.
+
+So no session a batch adds can sign that batch.
+
+## Execution
+
+One `execute(bytes32 mode, bytes data)`, ERC-7579's, takes two kinds of mode:
+
+- A default mode (selector 0, single or batch, no delegatecall): from the
+  EntryPoint only, whose validation already checked the operation. Not from
+  the wallet itself either.
+- `AUTHORIZED_MODE`, exactly the word of batch call type, default exec type,
+  selector `bytes4(keccak256("libid.webwallet.authorized"))` and zero
+  payload: from anyone. `data` is
+  `abi.encode(bytes executionCalldata, uint48 deadline, uint256 callGas, bytes authorization)`,
+  with `authorization = abi.encode(Authorization)`. The wallet:
+  1. consumes the EntryPoint nonce under key
+     `uint192(uint160(validator)) << 32`, which UserOperations share;
+  2. reads `threshold(wallet)` and its own EIP-712 domain separator;
+  3. requires `gasleft() * 63 / 64` of at least `callGas` plus a fixed
+     20,000 for the calls' own start, so the first call gets at least
+     `callGas` (EIP-150 forwards at most 63/64 of the gas left). The 20,000
+     covers a first call of up to about 16 KiB of call data in a batch of up
+     to 64; a larger first call may get a little less;
+  4. runs the batch;
+  5. calls the validator's
+     `checkExecution(mode, executionCalldata, deadline, callGas, authorization, nonce, threshold, domainSeparator)`,
+     with the domain separator it read before the batch.
+
+  Any failure reverts everything, the nonce included. So a failed batch
+  stays valid until its deadline. Signing another batch at the same nonce
+  does not cancel it: only a batch or UserOperation that uses the nonce, or
+  the deadline passing, does.
+
+Any other mode reverts: `UnsupportedModeSelector` from the EntryPoint,
+`AccountUnauthorized` from anyone else. EntryPoint validation refuses every
+non-zero selector, `AUTHORIZED_MODE` included. One reentrancy lock covers
+both modes, so a batch cannot call the wallet's `execute`.
+`supportsExecutionMode` is true for the default single and batch modes and
+for `AUTHORIZED_MODE`.
+
+Signers sign the EIP-712 hash of
+`Execute(bytes32 mode,bytes executionCalldata,uint48 at,uint256 nonce,uint48 deadline,uint256 callGas)`
+under the wallet's EIP-712 domain before the batch (name `WebWallet`,
+version `1`, the chain id and the wallet's address), with `mode = AUTHORIZED_MODE`,
+`at = Authorization.at` and `nonce` the full EntryPoint nonce before it was
+consumed. Below quorum each signs
+`keccak256(abi.encode(hash, at, keccak256(governingKey)))`, as for a
+UserOperation. `checkExecution` requires `deadline` nonzero and not passed,
+runs the signer and rule checks of `validateUserOp` at the threshold read on
+entry, charges value to `NATIVE_TOKEN` below quorum (no gas charge, no
+paymaster), then requires the block time inside the signers' window narrowed
+to the periods charged. Its errors are `ExecutionExpired`,
+`ExecutionNotAuthorized` and `ExecutionOutsidePeriod`.
+
+The check reads the threshold, the nonce and the domain from before the
+calls, and the sessions as the calls left them. A batch that executes
+`setThreshold`, revokes a signer or migrates the validator does not help its
+own check; one that revokes or unlinks its own signer cannot pass it. One
+that upgrades the wallet is checked under the domain its signers signed.
+
+The direct path needs EntryPoint v0.9 deployed at its canonical address:
+the nonce lives there. Without it the direct path reverts
+`EntryPointMissing(entryPoint)`.
 
 ## Signatures
 
@@ -137,27 +221,53 @@ is charged to `NATIVE_TOKEN` with its value.
 ## Install data and validator migration
 
 - The factory installs the validator with `abi.encode(platformId, idNode)`:
-  the genesis identity, linked by the install. It cannot be unlinked.
+  the genesis identity, linked by the install, and no session. It cannot be
+  unlinked. The validator installs only on the factory's wallet of that
+  genesis.
 - The validator cannot be uninstalled, and a wallet installs only the
   validator its implementation names. A fix to the validator therefore
   arrives as one root operation of the old validator,
   `upgradeToAndCall(newImplementation, abi.encodeCall(IWebWallet.migrate, (data)))`
   with `data = abi.encode(platformId, idNode, key, policy)`: the wallet's
-  admin session, added by the install. That sets `hadSession`, so nobody can
-  take the new install with a first proof. The carried session must be admin.
-- `migrate` installs the new implementation's validator, and its executor
-  unless installed. It is a `reinitializer` that only an installed validator
-  may call, so it runs once, inside the upgrade; an implementation that
-  migrates again raises its version.
-- `platformId` and `idNode` in that data must be the wallet's current
-  genesis identity, `genesisIdentity(wallet)` on the old validator. The new
-  validator cannot check it: it knows neither the old validator nor the
-  factory. Getting it right is the migrating owner's responsibility.
+  admin session, added by the install and signing from the next second. That
+  sets `hadSession`, so the new install never takes a first session.
+  `migrate` reverts `MigrationWithoutSession` when the data adds none. The
+  carried session must be admin.
+- `migrate` installs the new implementation's validator. It is a
+  `reinitializer` that only an installed validator may call, so it runs
+  once, inside the upgrade; an implementation that migrates again raises its
+  version.
+- `platformId` and `idNode` in that data must be the wallet's genesis
+  identity: every install reverts `NotFactoryWallet` unless the wallet is
+  `walletFactory().walletAddress(platformId, idNode)`, so a migration cannot
+  rename the genesis.
 - After the upgrade the old validator stays installed but keeps no power:
   the wallet accepts UserOperations, ERC-1271 signatures, module changes and
   upgrades only from the validator its implementation names. Root operations
-  queued on the old validator, before or after the migration, revert
-  `NotValidator`.
+  queued on the old validator, before or after the migration, and executed
+  after it gain nothing:
+  - `installModule`, `uninstallModule` and `upgradeToAndCall` revert
+    `NotValidator`;
+  - `migrate` reverts `InvalidInitialization`: the wallet already ran it;
+  - the old validator's own operations, such as `setThreshold` or
+    `revokeSession`, run, but change only that validator's records.
+
+## Deployment
+
+`IdentityValidator` learns the factory without an owner. Its constructor
+takes the address of the `WalletFactory` proxy, which does not exist yet:
+the proxy is deployed later under a `LibidFactory` name, whose address
+`LibidFactory.predict(name)` gives in advance. The order is:
+
+1. `WalletRegistry(proofVerifier, libidFactory.predict("WalletFactory"))`,
+   which deploys the `IdentityValidator`;
+2. `WebWallet(registry.identityValidator())`;
+3. `WalletFactory(walletImplementation)`;
+4. `libidFactory.deploy("WalletFactory", proxyCreationCode)`, the proxy
+   initialized with its owner.
+
+Check `validator.walletFactory() == factory` after step 4: with any other
+address, every wallet creation reverts.
 
 ## Root operations
 
@@ -170,22 +280,35 @@ it.
 
 ## Trust
 
-- **The proof verifier's owner.** `WalletRegistry` trusts the
-  `CeremonyProofVerifier` proxy, whose `setVerifier` and upgrade are
-  owner-only. That owner can route a platform to a verifier that accepts any
-  proof: an active session on every wallet that never had one, and a session
-  live after the delay on every other. Before wallets hold funds, that owner
-  belongs behind a Safe and a timelock longer than `MIN_RECOVERY_DELAY`.
+A wallet trusts the parties below, with no timelock, until libID and the
+registry are decentralized. Each of the first three can make a login proof
+valid, and so give a wallet a session: an active one on a wallet that never
+had one, and one live after the recovery delay on any other.
+
+- **The proof verifiers' owners.** `WalletRegistry` trusts the
+  `CeremonyProofVerifier` proxy, whose owner can `setVerifier` and upgrade
+  it, and so route a platform to a verifier that accepts any proof. Each
+  Platform Verifier's owner can upgrade it or change its trust roots
+  (`setTrustRoots`, and `setJwtRoots` for Google and Telegram).
+- **The notary signing keys.** A notary signature makes a login proof valid
+  on X, GitHub, Google and Telegram alike: X and GitHub proofs carry
+  notarized sessions, and the Google and Telegram keys come from notarized
+  readings. `NotaryService`'s owner chooses the keys (`setNotary`) and can
+  upgrade it.
+- **The JWT-root owners.** The owners of `GoogleJwtRoots` and
+  `TelegramJwtRoots` choose which Notary Service their readings must come
+  from (`setNotaryService`), and can upgrade them.
 - **The factory's owner** upgrades `WalletFactory`, and so chooses the code
   of every wallet not yet created, funds already sent to its address
-  included. Wallets already created keep theirs. Before launch it belongs
-  behind a Safe and a timelock.
-- **A first proof.** While a wallet never had a session, a genesis link proof
-  from any OAuth client adds an active session. An app that ran "Sign in"
-  for the identity holds such a proof.
+  included. Wallets already created keep theirs. The validator's genesis
+  check asks the factory's `walletAddress`, so it is only as sound as that
+  owner.
 
 ## Accepted risks
 
+- Any app that receives a proof of the genesis identity naming its own key,
+  from any OAuth client, can give a wallet that never had a session its first
+  session, and so control it.
 - Below quorum, a listed app domain whose typed data moves value (EIP-2612
   `permit`, Permit2, Seaport, CoW, 1inch orders) lets the session sign it
   past its allowances.
@@ -203,6 +326,18 @@ it.
   a linked identity on that platform (not exercised: it needs a leaked key).
 - `entryPoint()` is fixed to v0.9: a later EntryPoint costs one root upgrade
   per wallet.
+- Direct batches of every signer share one nonce sequence, under key
+  `uint192(uint160(validator)) << 32`. A limited session can submit its own
+  in-scope batch at the current nonce and so void an admin's signed direct
+  batch, again and again, at almost no cost: the direct path charges no gas.
+  No funds or control are at risk. The admin can send a UserOperation under
+  another nonce key of the validator, or revoke the session.
+- An ERC-7913 verifier used for a session key must not read state the
+  wallet can write: the direct path asks the verifier after the batch ran.
+  OpenZeppelin's `ERC7913WebAuthnVerifier` is stateless.
+- A token paymaster the session lists takes its fee outside the
+  allowances.
+- Approvals a session made outlive its revocation.
 - Sessions cannot be listed from storage. Watch `SessionAddedByProof` and
   `RootQueued` to alert the owner: every wait protects only an owner who is
   told.
