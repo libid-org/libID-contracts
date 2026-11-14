@@ -195,18 +195,12 @@ mod tests {
     /// A splitter's refusal reaches the sender of a referred bind unchanged.
     #[test]
     fn names_a_referral_splitter_refusal() {
-        let data = revert(
-            "InsufficientGas(uint256,uint256)",
-            (U256::from(100_000), U256::from(192_381)).abi_encode_params(),
-        );
+        let data = revert("BadFeeData(uint256)", (U256::from(33),).abi_encode_params());
         let error = BindError::decode(&data).expect("decodes");
         assert_eq!(error.contracts(), ["ReferralSplitter"]);
         match error {
-            BindError::Referral(ReferralSplitterErrors::InsufficientGas(e)) => {
-                assert_eq!(
-                    (e.left, e.needed),
-                    (U256::from(100_000), U256::from(192_381))
-                );
+            BindError::Referral(ReferralSplitterErrors::BadFeeData(e)) => {
+                assert_eq!(e.length, U256::from(33));
             }
             other => panic!("decoded as {other}"),
         }
