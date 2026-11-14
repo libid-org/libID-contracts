@@ -4,8 +4,8 @@ Smart contracts for libID, laid out per chain. `solidity/` is a self-contained
 Foundry project holding the EVM contracts: the ceremony verification path
 (Notary Service, Proof Verifier, Platform Verifiers, and the Google JWT root
 list the Google verifier reads), the identity registry, the handle escrow, the
-ENS resolver and the deterministic deployment factory. `rust/` and `ts/` hold
-the bindings and the off-chain identity helpers.
+referral splitter, the ENS resolver and the deterministic deployment factory.
+`rust/` and `ts/` hold the bindings and the off-chain identity helpers.
 
 ## Layout
 
@@ -21,6 +21,8 @@ solidity/            # Foundry project root
     handles/         # HandleNode: the A-Z fold and the node hash
     identity/        # IdentityRegistry
     escrow/          # HandleEscrow: value sent to a handle before it is proved
+    referral/        # ReferralSplitter: a referred bind's fee, split between
+                     # the referrer's handle and the treasury
     ens/             # HandleResolver
     factory/         # LibidFactory: deterministic CREATE3 deployment
     WTIA9.sol        # wrapped TIA

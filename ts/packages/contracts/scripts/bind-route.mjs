@@ -14,4 +14,5 @@ export const bindRoute = [
   ['TelegramPlatformVerifier.sol', 'TelegramPlatformVerifier'],
   ['NotaryService.sol', 'NotaryService'],
   ['IHonkVerifierErrors.sol', 'IHonkVerifierErrors'],
+  ['ReferralSplitter.sol', 'ReferralSplitter'],
 ]

@@ -6,7 +6,8 @@ ceremony verification path (`NotaryService`, `CeremonyProofVerifier`, the
 four launch Platform Verifiers it routes to, the three UltraHonk verifiers
 they pin, and `GoogleJwtRoots` and `TelegramJwtRoots`, the signing keys the
 `google/v1` and `telegram/v1` verifiers trust), the identity registry
-(`IdentityRegistry`), and the deterministic deployment factory (`LibidFactory`).
+(`IdentityRegistry`), the handle escrow (`HandleEscrow`), the referral splitter
+(`ReferralSplitter`), and the deterministic deployment factory (`LibidFactory`).
 
 The compiled artifacts are embedded in the crate, so a consumer deploys or
 upgrades the stack with no filesystem access at runtime. The bindings are
