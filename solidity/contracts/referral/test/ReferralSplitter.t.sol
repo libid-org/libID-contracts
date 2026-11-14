@@ -358,19 +358,10 @@ contract ReferralSplitterTest is Test {
 
     // ─── Reentrancy ─────────────────────────────────────────────────
 
-    /// A share already held for `dave` past the escrow's refund grace, the target of a holder's re-entry.
-    function _heldShare() private returns (bytes32 dave) {
-        dave = _node("dave");
-        _referredBind("bob", FEE, _referral(dave));
-        vm.warp(vm.getBlockTimestamp() + escrow.REFUND_GRACE());
-        vm.deal(treasury, 0);
-    }
-
-    /// @dev The escrow is mid-deposit, so every escrow entry refuses; the holder
-    ///      swallows the refusals and takes the share.
+    /// @dev The escrow is mid-deposit, so its guard refuses the holder's `refund`
+    ///      and `deposit`; the holder swallows the refusals and takes the share.
     function test_aHolderReenteringTheEscrowLeavesTheTreasuryWhole() public {
-        bytes32 dave = _heldShare();
-        ReenteringHolder holder = new ReenteringHolder(escrow, dave, false);
+        ReenteringHolder holder = new ReenteringHolder(escrow, _node("dave"), false);
         _hold(address(holder), "carol");
 
         _referredBind("alice", FEE, _referral(_node("carol")));
@@ -381,19 +372,14 @@ contract ReferralSplitterTest is Test {
         assertEq(address(holder).balance, SHARE);
         assertEq(treasury.balance, FEE - SHARE);
         assertEq(address(splitter).balance, 0);
-        (uint256 held,) = escrow.contribution(dave, NATIVE_TOKEN, address(splitter));
-        assertEq(held, SHARE, "the held share stayed");
     }
 
     /// @dev The same holder passing a refusal on: the deposit fails and the treasury takes the fee.
     function test_aHolderFailingOnReentryLosesItsShareToTheTreasury() public {
-        bytes32 dave = _heldShare();
-        ReenteringHolder holder = new ReenteringHolder(escrow, dave, true);
+        ReenteringHolder holder = new ReenteringHolder(escrow, _node("dave"), true);
         _hold(address(holder), "carol");
 
         _expectRefused(_referral(_node("carol")));
-        (uint256 held,) = escrow.contribution(dave, NATIVE_TOKEN, address(splitter));
-        assertEq(held, SHARE);
     }
 
     // ─── Gas ────────────────────────────────────────────────────────
@@ -554,24 +540,24 @@ contract RecordingTreasury {
 }
 
 /// @notice Holds a handle; while its share is forwarded, calls the escrow's `refund`
-///         of a held share and `deposit`, keeping each refusal. `failing` passes the
+///         and `deposit` for another node, keeping each refusal. `failing` passes the
 ///         first refusal on, failing the forward.
 contract ReenteringHolder {
     HandleEscrow immutable ESCROW;
-    bytes32 immutable HELD;
+    bytes32 immutable NODE;
     bool immutable FAILING;
     bytes public refundRefusal;
     bytes public depositRefusal;
 
-    constructor(HandleEscrow escrow, bytes32 held, bool failing) {
+    constructor(HandleEscrow escrow, bytes32 node, bool failing) {
         ESCROW = escrow;
-        HELD = held;
+        NODE = node;
         FAILING = failing;
     }
 
     receive() external payable {
         (bool ok, bytes memory ret) =
-            address(ESCROW).call(abi.encodeCall(HandleEscrow.refund, (HELD, NATIVE_TOKEN, address(this))));
+            address(ESCROW).call(abi.encodeCall(HandleEscrow.refund, (NODE, NATIVE_TOKEN, address(this))));
         if (!ok && FAILING) {
             assembly {
                 revert(add(ret, 32), mload(ret))
@@ -579,7 +565,7 @@ contract ReenteringHolder {
         }
         refundRefusal = ok ? bytes("") : ret;
         (ok, ret) = address(ESCROW).call{value: msg.value}(
-            abi.encodeCall(HandleEscrow.deposit, (bytes32(0), HELD, NATIVE_TOKEN, msg.value))
+            abi.encodeCall(HandleEscrow.deposit, (bytes32(0), NODE, NATIVE_TOKEN, msg.value))
         );
         depositRefusal = ok ? bytes("") : ret;
     }

@@ -170,10 +170,13 @@ contract ReferralSplitter is IBindFeeReceiver, Ownable2Step {
 
     /// @dev Deposits the share unless the binder holds the referrer's node. A
     ///      reverted deposit loses the share to the treasury and the bind goes on.
-    ///      The deposit gets all the gas left but 1/64. When it runs out of gas
-    ///      with less than about a million, that 1/64 cannot pay for the log and
-    ///      the treasury, and the bind reverts: the lowest gas limit a bind
-    ///      succeeds at pays a holder that accepts the share.
+    ///      The deposit gets all the gas left but 1/64. When it runs out of gas,
+    ///      that 1/64 pays for the log and the treasury only if the deposit had
+    ///      about 383,000 gas with a Safe treasury, 297,000 with a funded EOA, or
+    ///      814,000 with an account never paid; with less, the bind reverts. At
+    ///      the lowest gas limit a bind succeeds at, which a dry run returns, a
+    ///      holder that needs less than that bound to accept the share is paid,
+    ///      and one that needs more ends `Refused`.
     function _deliver(address binder, bytes32 referrerPlatformId, bytes32 referrerNode, uint256 share)
         private
         returns (Outcome)
