@@ -14,8 +14,7 @@ import {IIdentityRegistry} from "../identity/IIdentityRegistry.sol";
 ///         through the escrow: to its holder, or held until somebody binds it. The
 ///         rest, and any share that cannot be delivered, goes to `treasury`.
 /// @dev Holds no balance between transactions. Its escrow contributions are the
-///      shares of nodes nobody held yet; with `expiry` set, `expire` returns one to
-///      the treasury that long after its last deposit.
+///      shares of nodes nobody held yet, held until each node's holder claims them.
 contract ReferralSplitter is IBindFeeReceiver, Ownable2Step {
     /// @notice What happened to a referral's share.
     enum Outcome {
@@ -41,10 +40,6 @@ contract ReferralSplitter is IBindFeeReceiver, Ownable2Step {
     /// @notice The referrer's part of a fee, in basis points.
     uint16 public shareBps;
 
-    /// @notice How long after its last deposit a held share may be returned to the
-    ///         treasury; 0 keeps it for the referrer, however long it takes.
-    uint64 public expiry;
-
     /// @notice A fee below this pays the treasury alone, referral or not, so a
     ///         one-wei bind cannot add to a referrer's history.
     uint256 public minReferralFee;
@@ -67,11 +62,7 @@ contract ReferralSplitter is IBindFeeReceiver, Ownable2Step {
 
     event ShareSet(uint16 shareBps);
     event TreasurySet(address treasury);
-    event ExpirySet(uint64 expiry);
     event MinReferralFeeSet(uint256 minReferralFee);
-
-    /// @notice A held share went back to the treasury.
-    event Expired(bytes32 indexed handleNode, uint256 amount);
 
     // ─── Errors ─────────────────────────────────────────────────────
 
@@ -86,11 +77,6 @@ contract ReferralSplitter is IBindFeeReceiver, Ownable2Step {
     error TreasuryRefused(address treasury, uint256 amount);
     error BadTreasury(address treasury);
     error ShareAboveWhole(uint16 shareBps);
-    /// A nonzero expiry shorter than the escrow's `REFUND_GRACE`.
-    error ExpiryTooShort(uint64 expiry);
-    error ExpiryOff();
-    error NothingToExpire(bytes32 handleNode);
-    error NotExpired(bytes32 handleNode, uint256 expiresAt);
     error RenounceDisabled();
 
     // ─── Setup ──────────────────────────────────────────────────────
@@ -124,13 +110,6 @@ contract ReferralSplitter is IBindFeeReceiver, Ownable2Step {
     /// @notice Up to 10,000, the whole fee.
     function setShare(uint16 shareBps_) external onlyOwner {
         _setShare(shareBps_);
-    }
-
-    /// @notice 0, or at least the escrow's `REFUND_GRACE`.
-    function setExpiry(uint64 expiry_) external onlyOwner {
-        if (expiry_ != 0 && expiry_ < ESCROW.REFUND_GRACE()) revert ExpiryTooShort(expiry_);
-        expiry = expiry_;
-        emit ExpirySet(expiry_);
     }
 
     function setMinReferralFee(uint256 minReferralFee_) external onlyOwner {
@@ -213,20 +192,5 @@ contract ReferralSplitter is IBindFeeReceiver, Ownable2Step {
         if (amount == 0) return;
         (bool paid,) = treasury.call{value: amount}("");
         if (!paid) revert TreasuryRefused(treasury, amount);
-    }
-
-    // ─── Expiry ─────────────────────────────────────────────────────
-
-    /// @notice Return this contract's held share for a node to the treasury, once
-    ///         `expiry` has passed since its last deposit. Anyone may call it.
-    function expire(bytes32 handleNode) external {
-        uint64 expiry_ = expiry;
-        if (expiry_ == 0) revert ExpiryOff();
-        (uint256 amount, uint64 refundableAt) = ESCROW.contribution(handleNode, NATIVE_TOKEN, address(this));
-        if (amount == 0) revert NothingToExpire(handleNode);
-        uint256 expiresAt = refundableAt - ESCROW.REFUND_GRACE() + expiry_;
-        if (block.timestamp < expiresAt) revert NotExpired(handleNode, expiresAt);
-        ESCROW.refund(handleNode, NATIVE_TOKEN, treasury);
-        emit Expired(handleNode, amount);
     }
 }
