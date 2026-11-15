@@ -2,10 +2,11 @@
 
 Typed, viem-ready ABIs for the libid identity stack (NotaryService,
 CeremonyProofVerifier, GoogleJwtRoots, IdentityRegistry, HandleEscrow,
-HandleResolver, LibidFactory, WTIA9, and the WebWallet contracts: WebWallet,
-IdentityValidator, WalletRegistry, WalletFactory), the errors a bind can revert with, a call
-builder for every state-changing function, and the identity helper layer:
-handle normalization, node derivation and resolution.
+ReferralSplitter, HandleResolver, LibidFactory, WTIA9, and the WebWallet
+contracts: WebWallet, IdentityValidator, WalletRegistry, WalletFactory), the
+errors a bind can revert with, a call builder for every state-changing
+function, and the identity helper layer: handle normalization, node derivation
+and resolution.
 
 `src/abis/` and `src/calls/` are generated from the forge artifacts
 (`solidity/out`) by `scripts/codegen.mjs` and are not committed. Each ABI is
@@ -145,6 +146,9 @@ const call = calls.identityRegistry.bind(
 // primary handle on any platform, `false` only reveals it.
 // calls.identityRegistry.bindPrivately(IDENTITY_REGISTRY, fee + serviceFee, github, 1, payload, serviceFee, feeReceiver)
 // is the same with no handle.
+// calls.identityRegistry.bindWithFeeCall(IDENTITY_REGISTRY, fee + serviceFee, github, 1, payload, 'octocat', true, serviceFee, feeReceiver, feeData)
+// pays a nonzero fee to a contract through its IBindFeeReceiver.onBindFee, which
+// learns the binder, the platform, the handle node and the digest, with feeData as given.
 // calls.identityRegistry.reveal(IDENTITY_REGISTRY, github, 'octocat') reveals a held handle later.
 ```
 
@@ -182,7 +186,8 @@ once each.
 
 A refused bind reverts with the error of whichever contract on its route
 refused it: the registry, the Proof Verifier, a Platform Verifier, the Notary
-Service or a Honk verifier. `bindErrorsAbi` carries all of them:
+Service, a Honk verifier or, for a bind that pays it, the referral splitter.
+`bindErrorsAbi` carries all of them:
 
 ```ts
 import { decodeErrorResult } from 'viem'

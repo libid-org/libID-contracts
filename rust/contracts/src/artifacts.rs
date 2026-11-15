@@ -62,6 +62,8 @@ pub const COVERED: &[(&str, &str)] = &[
     ("HandleResolver", "HandleResolver"),
     // escrow
     ("HandleEscrow", "HandleEscrow"),
+    // referral
+    ("ReferralSplitter", "ReferralSplitter"),
     // factory
     ("LibidFactory", "LibidFactory"),
     ("WTIA9", "WTIA9"),
