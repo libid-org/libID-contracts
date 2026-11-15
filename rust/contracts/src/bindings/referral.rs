@@ -1,7 +1,7 @@
 //! Bindings for the referral splitter (`solidity/contracts/referral/`), read
-//! from the compiled artifact: the fee receiver a referred bind pays, which
-//! sends a share of the fee to the referrer's handle through the escrow and the
-//! rest to the treasury.
+//! from the compiled artifact: the fee receiver of every bind through it, which
+//! takes exactly its fee and sends a referral's share to the referrer's handle
+//! through the escrow and the rest to the treasury.
 
 #[allow(
     clippy::too_many_arguments,

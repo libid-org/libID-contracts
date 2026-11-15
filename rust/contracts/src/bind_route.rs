@@ -44,7 +44,7 @@ pub enum BindError {
     NotaryService(NotaryServiceErrors),
     /// `HonkVerifier`.
     HonkVerifier(IHonkVerifierErrorsErrors),
-    /// `ReferralSplitter`, the fee receiver of a referred `bindWithFeeCall`.
+    /// `ReferralSplitter`, the fee receiver of every `bindWithFeeCall` through it.
     Referral(ReferralSplitterErrors),
     /// A Solidity `Panic(uint256)`, with its code: a failed `assert`, an
     /// overflow, an index out of bounds, in any contract on the route.
