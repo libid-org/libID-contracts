@@ -71,7 +71,7 @@ ROUTE = (
         "Referral",
         "ReferralSplitter",
         "referral",
-        "`ReferralSplitter`, the fee receiver of a referred `bindWithFeeCall`.",
+        "`ReferralSplitter`, the fee receiver of every `bindWithFeeCall` through it.",
     ),
 )
 
