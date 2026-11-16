@@ -58,7 +58,7 @@ that second.
 - A session by proof: the end of `recoveryDelay`.
 - The first session: 0.
 
-So no session a batch adds can sign that batch.
+So the first session is the only one that can sign the batch that adds it.
 
 ## Execution
 
