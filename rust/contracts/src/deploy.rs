@@ -279,29 +279,28 @@ pub async fn upgrade_uups<P: Provider>(
     )
     .await?;
     let proxied = IUUPSUpgradeable::new(proxy, provider);
-    let call = proxied.upgradeToAndCall(new_impl, data);
-    let pending =
-        match sender {
-            Some(addr) => {
-                let nonce = provider.get_transaction_count(addr).await.map_err(|e| {
-                    Error::Rpc {
-                        detail: format!("{contract} upgrade failed to fetch nonce: {e}"),
-                    }
-                })?;
-                call.nonce(nonce).send().await
-            }
-            None => call.send().await,
-        }
-        .map_err(|e| Error::Rpc {
-            detail: format!("{contract} upgradeToAndCall send failed: {e}"),
-        })?;
-    let receipt = pending
-        .get_receipt()
-        .await
-        .map_err(|e| Error::Rpc {
-            detail: format!("{contract} upgradeToAndCall confirmation failed: {e}"),
-        })?
-        .succeeded(&format!("{contract}.upgradeToAndCall"))?;
+    let label = format!("{contract}.upgradeToAndCall");
+    let receipt = match sender {
+        Some(addr) => crate::send_with_nonce_retry!(
+            proxied.upgradeToAndCall(new_impl, data.clone()),
+            label,
+            provider,
+            addr
+        )?,
+        None => proxied
+            .upgradeToAndCall(new_impl, data)
+            .send()
+            .await
+            .map_err(|e| Error::Rpc {
+                detail: format!("{label} send failed: {e}"),
+            })?
+            .get_receipt()
+            .await
+            .map_err(|e| Error::Rpc {
+                detail: format!("{label} confirmation failed: {e}"),
+            })?
+            .succeeded(&label)?,
+    };
     let found = provider.implementation_of(proxy, receipt.block()).await?;
     if found != new_impl {
         return Err(Error::NotUpgraded {

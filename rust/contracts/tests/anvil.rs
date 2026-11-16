@@ -307,14 +307,15 @@ async fn rotates_and_upgrades_the_notary_service() {
     assert!(notary.isTrustedNotary(incoming).call().await.unwrap());
     assert_eq!(notary.fee().call().await.unwrap(), U256::from(7));
 
-    // Upgrade the proxy to a re-deployed implementation; state survives.
+    // Upgrade the proxy to a re-deployed implementation, with explicit
+    // nonces; state survives.
     let new_impl = upgrade_uups(
         &provider,
         &artifacts,
         notary_proxy,
         "NotaryService",
         Default::default(),
-        None,
+        Some(deployer),
     )
     .await
     .unwrap();
