@@ -4,6 +4,7 @@ pragma solidity ^0.8.24;
 import {Execution} from "@openzeppelin/contracts/interfaces/draft-IERC7579.sol";
 
 import {IPlatformVerifier} from "../../ceremony/IPlatformVerifier.sol";
+import {operationList} from "../../ceremony/test/OperationListVector.sol";
 import {NATIVE_TOKEN} from "../../NativeToken.sol";
 import {IHandleEscrow} from "../../escrow/IHandleEscrow.sol";
 import {TestERC20} from "../../escrow/test/EscrowMocks.sol";
@@ -13,7 +14,6 @@ import {IIdentityValidator} from "../IIdentityValidator.sol";
 import {IWalletFactoryOnboarding} from "../IWalletFactory.sol";
 import {IWalletRegistry} from "../IWalletRegistry.sol";
 import {AUTHORIZED_MODE} from "../IWebWallet.sol";
-import {operationList} from "./WalletTestBase.sol";
 import {ExecuteBase} from "./DirectExecute.t.sol";
 
 /// @notice Onboarding in one `createAndExecute`: the batch Alice's first session K signs links K from a genesis
@@ -31,6 +31,7 @@ contract CreateAndExecuteTest is ExecuteBase {
     address internal bob = makeAddr("bob");
     address internal w;
     bytes internal list;
+    bytes internal linkData;
     uint256 internal linkFee;
 
     function setUp() public override {
@@ -40,15 +41,17 @@ contract CreateAndExecuteTest is ExecuteBase {
         vm.prank(owner);
         proofVerifier.setVerifier(X, V2, IPlatformVerifier(address(paid)));
         w = factory.walletAddress(X, ALICE);
+        linkData = _txData(w, _key(ALICE_PK), _ph(_admin()));
         list = abi.encode(
             StubPlatformVerifier.StubPayload({
                 ceremonyVersion: 1,
                 operationDomain: OPERATIONS,
                 authorizationNonce: bytes32(uint256(1)),
-                transactionData: operationList(BIND, abi.encode(w), LINK, _txData(w, _key(ALICE_PK), _ph(_admin())))
+                transactionData: operationList(BIND, abi.encode(w), LINK, linkData)
             })
         );
         linkFee = registry.quote(X, V2);
+        signedValue = linkFee;
         token = new TestERC20();
         vm.deal(bob, CLAIMED);
         token.mint(bob, CLAIMED);
@@ -70,7 +73,9 @@ contract CreateAndExecuteTest is ExecuteBase {
         address[] memory tokens = new address[](2);
         (tokens[0], tokens[1]) = (NATIVE_TOKEN, address(token));
         Execution[] memory x = new Execution[](5);
-        x[0] = _x(address(registry), linkFee, abi.encodeCall(IWalletRegistry.linkIdentity, (X, V2, list, _admin())));
+        x[0] = _x(
+            address(registry), linkFee, abi.encodeCall(IWalletRegistry.linkIdentity, (X, V2, list, linkData, _admin()))
+        );
         x[1] = _x(
             address(identities), bindFee, abi.encodeCall(IIdentityRegistry.bindPrivately, (X, V2, list, 0, address(0)))
         );
@@ -90,13 +95,10 @@ contract CreateAndExecuteTest is ExecuteBase {
         return _directAt(w, _pks(pk), calls, n, uint48(_now()), false, _hitProofs(0));
     }
 
+    /// Sends `calls` with the value Alice signed.
     function _send(bytes memory calls, bytes memory auth) internal {
-        _send(calls, auth, linkFee);
-    }
-
-    function _send(bytes memory calls, bytes memory auth, uint256 value) internal {
         vm.prank(relayer, relayer);
-        IWalletFactoryOnboarding(address(factory)).createAndExecute{value: value}(
+        IWalletFactoryOnboarding(address(factory)).createAndExecute{value: signedValue}(
             X, ALICE, AUTHORIZED_MODE, _data(calls, auth)
         );
     }
@@ -125,8 +127,9 @@ contract CreateAndExecuteTest is ExecuteBase {
         assertEq(bot.activeAt, _now(), "the bot session's start");
 
         // The bot acts alone within its rules, from the next second.
+        signedValue = 0;
         bytes memory hit = _one(_hitX());
-        _refuses(w, hit, _direct(w, address(validator), _pks(BOT_PK), hit, true), NOT_AUTHORIZED);
+        _refuses(w, hit, _direct(w, address(validator), _pks(BOT_PK), hit, true), OUTSIDE_WINDOW);
         vm.warp(_now() + 1);
         _runs(w, hit, _direct(w, address(validator), _pks(BOT_PK), hit, true));
     }
@@ -134,7 +137,7 @@ contract CreateAndExecuteTest is ExecuteBase {
     /// Someone else signing for Alice's new wallet is refused, though the batch would link K.
     function test_onlyTheLinkedKeySignsTheOnboarding() public {
         bytes memory calls = _onboarding();
-        vm.expectRevert(NOT_AUTHORIZED);
+        vm.expectRevert(NOT_SIGNED);
         _send(calls, _signedBy(MALLORY_PK, calls));
         assertEq(w.code.length, 0, "the wallet was created");
         _send(calls, _signedBy(ALICE_PK, calls));
@@ -153,7 +156,8 @@ contract CreateAndExecuteTest is ExecuteBase {
 
     function verifyThenOnboard() external {
         proofVerifier.verify{value: FEE}(X, V2, list);
+        signedValue = linkFee + FEE;
         bytes memory calls = _onboarding(FEE);
-        _send(calls, _signedBy(ALICE_PK, calls), linkFee + FEE);
+        _send(calls, _signedBy(ALICE_PK, calls));
     }
 }

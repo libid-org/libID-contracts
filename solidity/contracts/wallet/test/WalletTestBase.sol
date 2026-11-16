@@ -10,7 +10,6 @@ import {CeremonyProfile} from "../../ceremony/CeremonyProfile.sol";
 import {CeremonyProofVerifier} from "../../ceremony/CeremonyProofVerifier.sol";
 import {IPlatformVerifier} from "../../ceremony/IPlatformVerifier.sol";
 import {IProofVerifier} from "../../ceremony/IProofVerifier.sol";
-import {OperationList} from "../../ceremony/OperationList.sol";
 import {HandleEscrow} from "../../escrow/HandleEscrow.sol";
 import {LibidFactory} from "../../factory/LibidFactory.sol";
 import {NATIVE_TOKEN} from "../../NativeToken.sol";
@@ -20,14 +19,6 @@ import {IIdentityValidator} from "../IIdentityValidator.sol";
 import {IWalletFactory} from "../IWalletFactory.sol";
 import {IWalletRegistry} from "../IWalletRegistry.sol";
 import {IWebWallet} from "../IWebWallet.sol";
-
-/// The Operation List of two entries, `abi.encode(Operation[])`.
-function operationList(bytes32 d0, bytes memory data0, bytes32 d1, bytes memory data1) pure returns (bytes memory) {
-    OperationList.Operation[] memory e = new OperationList.Operation[](2);
-    e[0] = OperationList.Operation({domain: d0, data: data0});
-    e[1] = OperationList.Operation({domain: d1, data: data1});
-    return abi.encode(e);
-}
 
 /// Records who called it.
 contract CallTarget {
@@ -317,7 +308,7 @@ abstract contract WalletTestBase is Test, Trees {
             platformId, idNode, LINK, _txData(wallet, key, key.length == 0 ? bytes32(0) : _ph(p))
         );
         vm.prank(submitter);
-        registry.linkIdentity(platformId, V1, payload, p);
+        registry.linkIdentity(platformId, V1, payload, "", p);
         return _stub(platformId).lastDigest();
     }
 
@@ -331,7 +322,7 @@ abstract contract WalletTestBase is Test, Trees {
     ) internal {
         bytes memory payload = _payload(platformId, idNode, ADD, _txData(wallet, key, _ph(p)));
         vm.prank(submitter);
-        registry.addSessionByProof(platformId, V1, payload, p);
+        registry.addSessionByProof(platformId, V1, payload, "", p);
     }
 
     /// Alice's canonical wallet, which linked her first session itself.
@@ -493,10 +484,7 @@ abstract contract WalletTestBase is Test, Trees {
             // The revert selector is the first four bytes.
             // forge-lint: disable-next-line(unsafe-typecast)
             bytes4 s = bytes4(err);
-            assertTrue(
-                s == IEntryPoint.FailedOp.selector || s == IEntryPoint.FailedOpWithRevert.selector,
-                string.concat("not a validation failure: ", why)
-            );
+            assertEq(s, IEntryPoint.FailedOp.selector, string.concat("not a validation failure: ", why));
         }
     }
 

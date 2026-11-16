@@ -106,6 +106,7 @@ export const EXECUTE_TYPES = {
   Execute: [
     { name: 'mode', type: 'bytes32' },
     { name: 'executionCalldata', type: 'bytes' },
+    { name: 'value', type: 'uint256' },
     { name: 'at', type: 'uint48' },
     { name: 'nonce', type: 'uint256' },
     { name: 'deadline', type: 'uint48' },
@@ -113,16 +114,18 @@ export const EXECUTE_TYPES = {
   ],
 } as const
 
-/// `Execute(bytes32 mode,bytes executionCalldata,uint48 at,uint256 nonce,uint48 deadline,uint256 callGas)`.
+/// `Execute(bytes32 mode,bytes executionCalldata,uint256 value,uint48 at,uint256 nonce,uint48 deadline,uint256 callGas)`.
 export const EXECUTE_TYPE = `Execute(${EXECUTE_TYPES.Execute.map((f) => `${f.type} ${f.name}`).join(',')})`
 
 export const EXECUTE_TYPEHASH: Hex = keccak256(toHex(EXECUTE_TYPE))
 
 /// What a direct `execute` signs, besides `mode`, which is always
-/// `AUTHORIZED_MODE`: `at` is `Authorization.at`, and `nonce` is the wallet's
+/// `AUTHORIZED_MODE`: `value` is the `msg.value` the batch must be sent with,
+/// `at` is `Authorization.at`, and `nonce` is the wallet's
 /// full EntryPoint nonce under `directNonceKey` before the batch.
 export type ExecuteMessage = {
   executionCalldata: Hex
+  value: bigint
   at: number
   nonce: bigint
   deadline: number
@@ -152,14 +155,15 @@ export function directNonceKey(validator: Address): bigint {
 }
 
 /// `data` of `execute(AUTHORIZED_MODE, data)` for `message`:
-/// `abi.encode(executionCalldata, deadline, callGas, abi.encode(authorization))`,
+/// `abi.encode(executionCalldata, value, deadline, callGas, abi.encode(authorization))`,
 /// the authorization's `at` the message's.
 export function authorizedData(
   message: ExecuteMessage,
   authorization: Omit<SessionAuthorization, 'at'>,
 ): Hex {
-  return encodeAbiParameters(parseAbiParameters('bytes, uint48, uint256, bytes'), [
+  return encodeAbiParameters(parseAbiParameters('bytes, uint256, uint48, uint256, bytes'), [
     message.executionCalldata,
+    message.value,
     message.deadline,
     message.callGas,
     encodeAbiParameters([AUTHORIZATION], [{ ...authorization, at: message.at }]),

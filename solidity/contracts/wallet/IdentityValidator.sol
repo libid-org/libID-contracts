@@ -20,7 +20,8 @@ import {SessionRules} from "./SessionRules.sol";
 
 /// @title IdentityValidator - the one ERC-7579 validator of every WebWallet.
 /// @notice Holds each account's linked identities, sessions, threshold and root operations.
-///         The threshold counts distinct admin platforms.
+///         The threshold counts distinct admin platforms, and never exceeds the platforms holding an
+///         admin session unless none does.
 /// @dev Every slot validation reads or writes has the account as its innermost mapping key (ERC-7562),
 ///      and validation reads no clock: windows go back to the EntryPoint packed. What an operation may
 ///      do runs in SessionRules, deployed by the constructor and called through DELEGATECALL.
@@ -39,7 +40,7 @@ contract IdentityValidator is IIdentityValidator, IdentityValidatorState {
     bytes32 private constant ERC7739_PROBE = 0x7739773977397739773977397739773977397739773977397739773977397739;
 
     bytes32 private constant EXECUTE_TYPEHASH = keccak256(
-        "Execute(bytes32 mode,bytes executionCalldata,uint48 at,uint256 nonce,uint48 deadline,uint256 callGas)"
+        "Execute(bytes32 mode,bytes executionCalldata,uint256 value,uint48 at,uint256 nonce,uint48 deadline,uint256 callGas)"
     );
 
     /// What a root operation does: a call by the account to itself, or one of this validator's own.
@@ -140,6 +141,7 @@ contract IdentityValidator is IIdentityValidator, IdentityValidatorState {
     function checkExecution(
         bytes32 mode,
         bytes calldata executionCalldata,
+        uint256 value,
         uint48 deadline,
         uint256 callGas,
         bytes calldata authorization,
@@ -151,14 +153,16 @@ contract IdentityValidator is IIdentityValidator, IdentityValidatorState {
         if (deadline == 0 || block.timestamp > deadline) revert ExecutionExpired(deadline);
         bytes32 digest = domainSeparator.toTypedDataHash(
             keccak256(
-                abi.encode(EXECUTE_TYPEHASH, mode, keccak256(executionCalldata), auth.at, nonce, deadline, callGas)
+                abi.encode(
+                    EXECUTE_TYPEHASH, mode, keccak256(executionCalldata), value, auth.at, nonce, deadline, callGas
+                )
             )
         );
         (bool ok, bool below, Verified memory v) = _signers(digest, auth, quorum);
-        if (!ok || !_inWindow(v)) revert ExecutionNotAuthorized();
+        if (!ok) revert ExecutionNotSigned();
         (ok, v) = _rules(abi.encodeCall(SessionRules.allowedExecution, (v, mode, executionCalldata, auth, below)));
-        if (!ok) revert ExecutionNotAuthorized();
-        if (!_inWindow(v)) revert ExecutionOutsidePeriod(auth.at);
+        if (!ok) revert ExecutionNotAllowed();
+        if (!_inWindow(v)) revert ExecutionOutsideWindow(auth.at);
     }
 
     // ─── Views ──────────────────────────────────────────────────────
@@ -241,6 +245,7 @@ contract IdentityValidator is IIdentityValidator, IdentityValidatorState {
         activeAt = _maturity(account);
         _replacePending(account, identity, key);
         _add(account, identity, key, policy, activeAt, true);
+        _keepQuorum(account);
         emit SessionAddedByProof(account, identity, key, policy, activeAt);
     }
 
@@ -266,6 +271,7 @@ contract IdentityValidator is IIdentityValidator, IdentityValidatorState {
 
     function revokeSession(bytes calldata key) external {
         _revoke(msg.sender, key, false);
+        _keepQuorum(msg.sender);
     }
 
     function setRecoveryDelay(uint48 delay) external {
@@ -330,6 +336,7 @@ contract IdentityValidator is IIdentityValidator, IdentityValidatorState {
             _s().recoveryFrozen[_install(account)][identity][account] = frozen;
             if (frozen) _revokePending(account, identity);
         }
+        if (action != RootAction.AccountCall) _keepQuorum(account);
     }
 
     // ─── Internals ──────────────────────────────────────────────────
@@ -358,6 +365,7 @@ contract IdentityValidator is IIdentityValidator, IdentityValidatorState {
         if ((policy.validAfter | policy.validUntil | activeAt) >= 1 << 47) {
             revert PolicyOutOfRange(policy.validAfter, policy.validUntil);
         }
+        if (policy.admin && policy.validUntil != 0) revert AdminSessionExpires(policy.validUntil);
         bytes32 keyHash = keccak256(key);
         mapping(address => Session) storage sessions = _sessions(account, keyHash);
         if (_live(account, sessions[account])) revert SessionExists(key);
@@ -378,12 +386,13 @@ contract IdentityValidator is IIdentityValidator, IdentityValidatorState {
             rulesHash: rulesHash
         });
         // A counter of the same key and rules keeps its spend.
+        address last;
         for (uint256 i; i < r.allowances.length; ++i) {
             Allowance memory allowance = r.allowances[i];
-            if (allowance.period >= 1 << 47) revert BadAllowance(allowance.token);
-            for (uint256 j; j < i; ++j) {
-                if (r.allowances[j].token == allowance.token) revert BadAllowance(allowance.token);
+            if (allowance.period >= 1 << 47 || (i != 0 && allowance.token <= last)) {
+                revert BadAllowance(allowance.token);
             }
+            last = allowance.token;
             Counter storage c = _counter(account, keyHash, rulesHash, allowance.token);
             (c.amount, c.period, c.listed) = (allowance.amount, allowance.period, true);
         }
@@ -393,6 +402,7 @@ contract IdentityValidator is IIdentityValidator, IdentityValidatorState {
         if (policy.admin) {
             ++a.adminSessions;
             ++_identityAdmins(account, identity)[account];
+            if (++_platformAdmins(account, _platformOf(account, identity))[account] == 1) ++a.adminPlatforms;
         }
     }
 
@@ -411,8 +421,7 @@ contract IdentityValidator is IIdentityValidator, IdentityValidatorState {
         if (s.admin && _live(account, s)) {
             AccountState storage a = _account(account);
             if (a.adminSessions == 1 && !root) revert RootOperationRequired();
-            --a.adminSessions;
-            --_identityAdmins(account, identity)[account];
+            _dropAdmins(account, identity, 1);
             // A pending session has signed nothing; one that was active may have queued roots.
             if (s.activeAt < block.timestamp) ++a.rootEpoch;
         }
@@ -422,7 +431,7 @@ contract IdentityValidator is IIdentityValidator, IdentityValidatorState {
 
     function _setThreshold(address account, uint8 t) private {
         AccountState storage a = _account(account);
-        if (t > a.platforms) revert ThresholdTooHigh(t, a.platforms);
+        if (t > a.adminPlatforms) revert ThresholdTooHigh(t, a.adminPlatforms);
         a.threshold = t;
     }
 
@@ -439,20 +448,32 @@ contract IdentityValidator is IIdentityValidator, IdentityValidatorState {
         uint32 left = a.identities - 1;
         if (left == 0) revert LastIdentity(identity);
         mapping(address => uint32) storage platformLinks = _platformLinks(account, _platformOf(account, identity));
-        uint32 platformsLeft = platformLinks[account] == 1 ? a.platforms - 1 : a.platforms;
-        if (a.threshold > platformsLeft) revert ThresholdTooHigh(a.threshold, platformsLeft);
-        mapping(address => uint32) storage admins = _identityAdmins(account, identity);
-        if (admins[account] == a.adminSessions) revert LastAdmin(identity);
+        uint32 admins = _identityAdmins(account, identity)[account];
+        if (admins == a.adminSessions) revert LastAdmin(identity);
         if (identity == identityOf(a.platformId, a.idNode)) revert GenesisIdentity(identity);
-        a.adminSessions -= admins[account];
-        delete admins[account];
+        _dropAdmins(account, identity, admins);
         delete linked[account];
         ++_generations(account, identity)[account];
-        --platformLinks[account];
+        if (--platformLinks[account] == 0) --a.platforms;
         a.identities = left;
-        a.platforms = platformsLeft;
         ++a.rootEpoch;
         emit IdentityUnlinked(account, identity);
+    }
+
+    /// Takes `n` admin sessions off the identity, its platform and the account.
+    function _dropAdmins(address account, bytes32 identity, uint32 n) private {
+        AccountState storage a = _account(account);
+        a.adminSessions -= n;
+        _identityAdmins(account, identity)[account] -= n;
+        mapping(address => uint32) storage p = _platformAdmins(account, _platformOf(account, identity));
+        if (n != 0 && (p[account] -= n) == 0) --a.adminPlatforms;
+    }
+
+    /// Refuses leaving admin sessions on fewer platforms than the threshold; none at all is allowed.
+    function _keepQuorum(address account) private view {
+        AccountState storage a = _account(account);
+        uint32 left = a.adminPlatforms;
+        if (left != 0 && left < a.threshold) revert ThresholdTooHigh(a.threshold, left);
     }
 
     /// The root operation's action; reverts `BadRootOperation` for any other target or selector.

@@ -4,21 +4,22 @@ pragma solidity ^0.8.24;
 import {Test} from "forge-std/Test.sol";
 
 import {CeremonyAuthorization} from "../CeremonyAuthorization.sol";
+import {IOperationLists} from "../IOperationLists.sol";
 import {OperationList} from "../OperationList.sol";
-import {OperationListVector as V} from "./OperationListVector.sol";
+import {OperationListVector as V, operationList} from "./OperationListVector.sol";
 
 /// Calls the library externally, so a test can expect its reverts.
 contract OperationListHarness {
-    function select(bytes32 domain, bytes calldata data, bytes32[] calldata own)
+    function select(bytes calldata list, bytes calldata data, bytes32[] calldata own, bool chainBound)
         external
         pure
-        returns (bytes32, bytes memory)
+        returns (bytes32)
     {
-        return OperationList.select(domain, data, own);
+        return OperationList.select(list, data, own, chainBound);
     }
 }
 
-/// @notice TEST-COMMON-02B/02C and TEST-CHAIN-05 on the list encoding itself.
+/// @notice The chain profiles §3.3 vector and the list encoding itself (TEST-CHAIN-05).
 ///         `OperationListBind.t.sol` runs the bind Consumer's cases.
 contract OperationListTest is Test {
     OperationListHarness internal h = new OperationListHarness();
@@ -40,50 +41,49 @@ contract OperationListTest is Test {
         assertEq(keccak256("libid.test.a"), V.TEST_A, "libid.test.a");
         assertEq(keccak256("libid.test.b"), V.TEST_B, "libid.test.b");
         bytes memory data = V.transactionData();
-        assertEq(data.length, 384, "length");
+        assertEq(data.length, 192, "length");
         assertEq(CeremonyAuthorization.digest(V.OPERATIONS, 1, V.NONCE, data), V.DIGEST, "digest");
-    }
-
-    function test_theEntriesEncodeToTheVector() public pure {
-        OperationList.Operation[] memory entries = new OperationList.Operation[](2);
-        entries[0] = OperationList.Operation({domain: V.BIND, data: abi.encode(V.TARGET)});
-        entries[1] = OperationList.Operation({domain: V.TEST_A, data: hex"ff"});
-        assertEq(abi.encode(entries), V.transactionData());
+        assertEq(operationList(V.BIND, abi.encode(V.TARGET), V.TEST_A, hex"ff"), data, "entries");
     }
 
     function test_eachConsumerTakesItsOwnEntry() public view {
-        (bytes32 domain, bytes memory data) = h.select(V.OPERATIONS, V.transactionData(), _own(V.BIND));
-        assertEq(domain, V.BIND);
-        assertEq(data, abi.encode(V.TARGET));
-
-        (domain, data) = h.select(V.OPERATIONS, V.transactionData(), _own(V.TEST_A));
-        assertEq(domain, V.TEST_A);
-        assertEq(data, hex"ff");
+        assertEq(h.select(V.transactionData(), abi.encode(V.TARGET), _own(V.BIND), false), V.BIND);
+        assertEq(h.select(V.transactionData(), hex"ff", _own(V.TEST_A), false), V.TEST_A);
     }
 
-    function test_aSingleOperationPassesThrough() public view {
-        (bytes32 domain, bytes memory data) = h.select(V.BIND, hex"ff", _own(V.BIND));
-        assertEq(domain, V.BIND);
-        assertEq(data, hex"ff");
+    function test_theDerivedListsAreRefused() public {
+        vm.expectRevert(IOperationLists.SeveralOwnOperations.selector);
+        h.select(V.twoOwnDomains(), hex"ff", _own(V.TEST_A, V.TEST_B), false);
+        vm.expectRevert(IOperationLists.NestedOperationList.selector);
+        h.select(V.nestedEntry(), abi.encode(V.TARGET), _own(V.BIND), false);
     }
 
-    function test_twoOwnDomainsAreRefused() public {
-        vm.expectRevert(OperationList.SeveralOwnOperations.selector);
-        h.select(V.OPERATIONS, V.twoOwnDomains(), _own(V.TEST_A, V.TEST_B));
+    /// Chain-bound domains may hold several entries; the data selects one of them.
+    function test_chainBoundDomainsSelectByData() public view {
+        bytes memory list = operationList(V.TEST_A, hex"01", V.TEST_A, hex"02");
+        assertEq(h.select(list, hex"02", _own(V.TEST_A), true), V.TEST_A);
+        assertEq(h.select(V.twoOwnDomains(), hex"ff", _own(V.TEST_A, V.TEST_B), true), V.TEST_A);
     }
 
-    /// Each decodes under `abi.decode` to the vector's entries; only the re-encoding tells them apart.
+    function test_twoEntriesCommittingTheDataAreRefused() public {
+        vm.expectRevert(IOperationLists.SeveralOwnOperations.selector);
+        h.select(operationList(V.TEST_A, hex"ff", V.TEST_B, hex"ff"), hex"ff", _own(V.TEST_A, V.TEST_B), true);
+    }
+
+    function test_noEntryCommittingTheDataIsRefused() public {
+        vm.expectRevert(IOperationLists.NoOwnOperation.selector);
+        h.select(V.transactionData(), hex"00", _own(V.BIND), false);
+    }
+
+    /// The vector's trailing byte and gap, a wrong count, and bytes that are no list.
     function test_noncanonicalListsAreRefused() public {
-        bytes[4] memory lists = [V.trailingByte(), V.gap(), V.swappedBodies(), V.outerPadding()];
+        bytes32[] memory miscounted = V.words();
+        miscounted[1] = bytes32(uint256(3));
+        bytes[6] memory lists =
+            [V.trailingByte(), V.gap(), V.join(miscounted), bytes(hex"ff"), abi.encode(V.TARGET), new bytes(0)];
         for (uint256 i; i < lists.length; ++i) {
-            assertEq(abi.encode(abi.decode(lists[i], (OperationList.Operation[]))), V.transactionData(), "decodes");
-            vm.expectRevert(OperationList.NoncanonicalOperationList.selector);
-            h.select(V.OPERATIONS, lists[i], _own(V.BIND));
+            vm.expectRevert(IOperationLists.NoncanonicalOperationList.selector);
+            h.select(lists[i], abi.encode(V.TARGET), _own(V.BIND), false);
         }
-    }
-
-    function test_bytesThatAreNoListAreRefused() public {
-        vm.expectRevert();
-        h.select(V.OPERATIONS, hex"ff", _own(V.BIND));
     }
 }

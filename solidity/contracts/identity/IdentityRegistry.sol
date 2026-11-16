@@ -145,7 +145,7 @@ contract IdentityRegistry is
     error ForeignOperationDomain(bytes32 operationDomain);
     /// @dev A digest is spendable once here (REQ-COMMON-03A).
     error DigestAlreadySpent(bytes32 digest);
-    /// @dev Transaction data is not exactly `abi.encode(target)` (REQ-COMMON-01F).
+    /// @dev A single operation's transaction data is not exactly `abi.encode(target)` (REQ-COMMON-01F).
     error BadTransactionData(uint256 length);
     /// @dev Less value was delivered than `feeAmount`.
     error WrongFeeValue(uint256 required, uint256 provided);
@@ -278,9 +278,17 @@ contract IdentityRegistry is
         if (msg.value < feeAmount) revert WrongFeeValue(feeAmount, msg.value);
         claimed = _s().proofVerifier.verify{value: msg.value - feeAmount}(platformId, verifierVersion, payload);
 
-        (bytes32 domain, bytes memory data) =
-            OperationList.select(claimed.operationDomain, claimed.transactionData, OPERATION_DOMAIN);
-        if (domain != OPERATION_DOMAIN) revert ForeignOperationDomain(domain);
+        bytes memory data = claimed.transactionData;
+        if (claimed.operationDomain != OPERATION_DOMAIN) {
+            if (claimed.operationDomain != OperationList.DOMAIN) {
+                revert ForeignOperationDomain(claimed.operationDomain);
+            }
+            // The entry's data is the caller as target (REQ-PLAT-08P).
+            data = abi.encode(msg.sender);
+            bytes32[] memory own = new bytes32[](1);
+            own[0] = OPERATION_DOMAIN;
+            OperationList.select(claimed.transactionData, data, own, false);
+        }
 
         if (_s().spentDigests[claimed.sessionId]) {
             revert DigestAlreadySpent(claimed.sessionId);

@@ -21,9 +21,9 @@ function policyHashOf(IIdentityValidator.Policy memory policy) pure returns (byt
 }
 
 /// @title IExecutionCheck - the validator's end check of an `AUTHORIZED_MODE` `execute`.
-/// @dev `authorization` is `abi.encode(Authorization)`; `deadline` and `callGas` come from the account's `data`.
-///      The digest is EIP-712 under `domainSeparator` of
-///      `Execute(bytes32 mode,bytes executionCalldata,uint48 at,uint256 nonce,uint48 deadline,uint256 callGas)`,
+/// @dev `authorization` is `abi.encode(Authorization)`; `value`, `deadline` and `callGas` come from the account's
+///      `data`, and `value` is the call's `msg.value`. The digest is EIP-712 under `domainSeparator` of
+///      `Execute(bytes32 mode,bytes executionCalldata,uint256 value,uint48 at,uint256 nonce,uint48 deadline,uint256 callGas)`,
 ///      with `at = Authorization.at`, signed as `validateUserOp` signs its hash. The account (`msg.sender`)
 ///      passes `EntryPoint.getNonce(account, uint192(uint160(validator)) << 32)` as it was before it consumed it,
 ///      and the threshold and its own EIP-712 domain separator as they were before its calls. The signers and the rules are those of `validateUserOp`
@@ -32,14 +32,19 @@ function policyHashOf(IIdentityValidator.Policy memory policy) pure returns (byt
 interface IExecutionCheck {
     /// `deadline` is zero or has passed.
     error ExecutionExpired(uint48 deadline);
-    /// The signatures over the `Execute` digest do not authorize the batch at the threshold.
-    error ExecutionNotAuthorized();
-    /// The period `at` picks does not contain the block time.
-    error ExecutionOutsidePeriod(uint48 at);
+    /// The signatures over the `Execute` digest are not by live sessions, or below the threshold not by
+    /// the sessions a co-signed batch needs.
+    error ExecutionNotSigned();
+    /// A call is refused: below the threshold, outside the governing session's rules or allowances; at any
+    /// threshold, the validator's `onInstall` or `onUninstall`.
+    error ExecutionNotAllowed();
+    /// The block time is outside the signers' window, narrowed to the periods `at` picks.
+    error ExecutionOutsideWindow(uint48 at);
 
     function checkExecution(
         bytes32 mode,
         bytes calldata executionCalldata,
+        uint256 value,
         uint48 deadline,
         uint256 callGas,
         bytes calldata authorization,
@@ -75,7 +80,7 @@ interface IIdentityValidator is IERC7579Validator, IExecutionCheck {
     }
 
     /// @dev What a session may do below quorum: Merkle roots of call leaves, app separators and paymasters
-    ///      that pay its gas, and allowances.
+    ///      that pay its gas, and allowances by strictly ascending token.
     struct Rules {
         bytes32 scopeRoot;
         bytes32 domainsRoot;
@@ -83,7 +88,8 @@ interface IIdentityValidator is IERC7579Validator, IExecutionCheck {
         Allowance[] allowances;
     }
 
-    /// @dev `validUntil == 0` never expires. Only admin sessions may change the account.
+    /// @dev `validUntil == 0` never expires, and an admin session's is 0. Only admin sessions may change
+    ///      the account.
     ///      `signers`: below quorum, the distinct platforms whose sessions sign with this one; 0 is 1.
     struct Policy {
         uint48 validAfter;
@@ -178,8 +184,8 @@ interface IIdentityValidator is IERC7579Validator, IExecutionCheck {
     error RecoveryDelayTooShort(uint48 delay);
     /// The recovery delay may not exceed `MAX_RECOVERY_DELAY`.
     error RecoveryDelayTooLong(uint48 delay);
-    /// The threshold may not exceed the number of platforms with a linked identity.
-    error ThresholdTooHigh(uint8 threshold, uint32 platforms);
+    /// The threshold may not exceed the number of platforms with an admin session, unless none has one.
+    error ThresholdTooHigh(uint8 threshold, uint32 adminPlatforms);
     /// An account keeps at least one linked identity.
     error LastIdentity(bytes32 identity);
     /// The unlink would leave the account no admin session.
@@ -194,9 +200,11 @@ interface IIdentityValidator is IERC7579Validator, IExecutionCheck {
     error NoSession(bytes key);
     /// A policy bound reaches bit 47, which EntryPoint v0.9 reads as a block-number flag.
     error PolicyOutOfRange(uint48 validAfter, uint48 validUntil);
+    /// An admin session never expires: its `validUntil` is 0.
+    error AdminSessionExpires(uint48 validUntil);
     /// The session carried by install data is not an admin session.
     error InstallSessionNotAdmin();
-    /// An allowance repeats an earlier one's token, or its period reaches bit 47.
+    /// An allowance's token does not sort after the one before it, or its period reaches bit 47.
     error BadAllowance(address token);
     /// A root operation targets the account, or this validator's `setThreshold`, `revokeSession`,
     /// `unlink`, `setRecoveryDelay` or `setRecoveryFrozen`.
@@ -226,7 +234,7 @@ interface IIdentityValidator is IERC7579Validator, IExecutionCheck {
         returns (AllowanceState memory);
     /// The identity's current generation: a session of any other is dead.
     function generationOf(address account, bytes32 identity) external view returns (uint32);
-    /// Distinct platforms with at least one linked identity: the most `threshold` can be.
+    /// Distinct platforms with at least one linked identity.
     function linkedPlatforms(address account) external view returns (uint32);
     /// Distinct platforms an admin operation's admin sessions need: two identities on one platform count once.
     /// Defaults to 1.
@@ -244,7 +252,8 @@ interface IIdentityValidator is IERC7579Validator, IExecutionCheck {
     // Registry only.
     function link(address account, bytes32 platformId, bytes32 idNode) external;
     /// Pending for `recoveryDelay`, and `byProof`. A newer pending session of the same identity replaces the older
-    /// one. Refused while the identity's recovery is frozen, and for an account that never had a session.
+    /// one. Refused while the identity's recovery is frozen, for an account that never had a session, or when the
+    /// replacement leaves fewer admin platforms than the threshold (see `ThresholdTooHigh`).
     function addSessionByProof(address account, bytes32 identity, bytes calldata key, Policy calldata policy)
         external
         returns (uint48 activeAt);
@@ -255,8 +264,9 @@ interface IIdentityValidator is IERC7579Validator, IExecutionCheck {
     // The account itself (an admin operation, under the threshold).
     /// Active from the next second. The identity must be linked. A dead session's key may be reused.
     function addSession(bytes32 identity, bytes calldata key, Policy calldata policy) external;
-    /// Revokes an active or pending session. Removing the last admin session, counting pending and expired ones, is a root operation.
+    /// Revokes an active or pending session. Removing the last admin session, counting pending ones, is a root operation.
     /// Revoking an active admin session voids every root operation queued before it.
+    /// Refused when it leaves fewer admin platforms than the threshold, but some (see `ThresholdTooHigh`).
     function revokeSession(bytes calldata key) external;
     /// Raises the delay at once. Lowering it, never below `MIN_RECOVERY_DELAY`, is a root operation:
     /// the account reverts `RootOperationRequired`.
@@ -265,11 +275,12 @@ interface IIdentityValidator is IERC7579Validator, IExecutionCheck {
     function setThreshold(uint8 threshold_) external;
     /// Root operation only. Every session of the identity, active or pending, stops validating for good,
     /// and every root operation queued before it stops executing.
-    /// Refused for an identity not linked, the last one, the last of a platform the threshold still needs,
-    /// the genesis identity, or when the account would be left with no admin session.
+    /// Refused for an identity not linked, the last one, the last admin sessions of a platform the threshold
+    /// still needs, the genesis identity, or when the account would be left with no admin session.
     function unlink(bytes32 identity) external;
     /// Root operation only. While frozen, `addSessionByProof` refuses the identity; its active sessions
-    /// keep working. Freezing revokes the identity's latest session by proof while it is still pending.
+    /// keep working. Freezing revokes the identity's latest session by proof while it is still pending,
+    /// refused when that leaves fewer admin platforms than the threshold, but some.
     function setRecoveryFrozen(bytes32 identity, bool frozen) external;
     /// `target` is the account (install, uninstall, upgrade) or this validator
     /// (`setThreshold`, `unlink`, `setRecoveryFrozen`, `revokeSession` of the last admin, a lower

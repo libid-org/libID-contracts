@@ -206,8 +206,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .getNonce(wallet, direct_nonce_key(validator))
         .call()
         .await?;
+    // `value` is the `msg.value` the batch is sent with.
     let execute = Execute::authorized(
         execution_calldata,
+        U256::ZERO,
         U48::ZERO,
         nonce,
         U48::from(2_000_000_000),
@@ -227,6 +229,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
     WebWallet::new(wallet, &provider)
         .execute(AUTHORIZED_MODE, data)
+        .value(execute.value)
         .send()
         .await?
         .get_receipt()

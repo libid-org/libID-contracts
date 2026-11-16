@@ -151,6 +151,7 @@ mod tests {
                 revert("UntrustedModulus(bytes32)", BOUND.abi_encode()),
             ),
             ("MalformedSignature", revert("MalformedSignature()", vec![])),
+            ("NoOwnOperation", revert("NoOwnOperation()", vec![])),
             (
                 "UnknownPlatform",
                 revert("UnknownPlatform(bytes32)", BOUND.abi_encode()),

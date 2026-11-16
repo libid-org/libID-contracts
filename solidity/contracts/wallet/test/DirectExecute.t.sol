@@ -86,12 +86,17 @@ contract Reenter {
 /// @notice The direct path's builders: the `Execute` digest by hand, the authorization envelope, and wallets
 ///         whose genesis link added their first session.
 abstract contract ExecuteBase is WalletTestBase {
-    // cast keccak "Execute(bytes32 mode,bytes executionCalldata,uint48 at,uint256 nonce,uint48 deadline,uint256 callGas)"
-    bytes32 internal constant EXECUTE_V2_TYPEHASH = 0x760f5de560082c6a0b40515f572ed0ff64b687ebb82b54045a3a595299961f27;
+    // cast keccak "Execute(bytes32 mode,bytes executionCalldata,uint256 value,uint48 at,uint256 nonce,uint48 deadline,uint256 callGas)"
+    bytes32 internal constant EXECUTE_V2_TYPEHASH = 0x6158eac44095e4b05d0f638c3e232c7f3a2dc8872b50069fc5cfe697b4fb8cf2;
     /// The gas the helpers' batches sign for.
     uint256 internal constant CALL_GAS = 200_000;
     uint256 internal constant NEW_PK = 0x4E3;
-    bytes4 internal constant NOT_AUTHORIZED = IExecutionCheck.ExecutionNotAuthorized.selector;
+    bytes4 internal constant NOT_SIGNED = IExecutionCheck.ExecutionNotSigned.selector;
+    bytes4 internal constant NOT_ALLOWED = IExecutionCheck.ExecutionNotAllowed.selector;
+    bytes4 internal constant OUTSIDE_WINDOW = IExecutionCheck.ExecutionOutsideWindow.selector;
+
+    /// The `msg.value` the helpers' batches sign for, and are sent with.
+    uint256 internal signedValue;
 
     /// Alice's wallet, holding 1 ether, whose genesis link added her admin session.
     function _fresh() internal returns (address w) {
@@ -139,7 +144,9 @@ abstract contract ExecuteBase is WalletTestBase {
         uint48 deadline,
         uint256 callGas
     ) internal view returns (bytes32) {
-        bytes32 s = keccak256(abi.encode(EXECUTE_V2_TYPEHASH, mode, keccak256(calls), at, n, deadline, callGas));
+        bytes32 s = keccak256(
+            abi.encode(EXECUTE_V2_TYPEHASH, mode, keccak256(calls), signedValue, at, n, deadline, callGas)
+        );
         return keccak256(abi.encodePacked(hex"1901", _domain(w), s));
     }
 
@@ -149,11 +156,11 @@ abstract contract ExecuteBase is WalletTestBase {
     }
 
     /// `AUTHORIZED_MODE`'s `data` for `calls` and the envelope `env`:
-    /// `abi.encode(bytes executionCalldata, uint48 deadline, uint256 callGas, bytes authorization)`.
-    function _data(bytes memory calls, bytes memory env) internal pure returns (bytes memory) {
+    /// `abi.encode(bytes executionCalldata, uint256 value, uint48 deadline, uint256 callGas, bytes authorization)`.
+    function _data(bytes memory calls, bytes memory env) internal view returns (bytes memory) {
         (IIdentityValidator.Authorization memory a, uint48 deadline, uint256 callGas) =
             abi.decode(env, (IIdentityValidator.Authorization, uint48, uint256));
-        return abi.encode(calls, deadline, callGas, abi.encode(a));
+        return abi.encode(calls, signedValue, deadline, callGas, abi.encode(a));
     }
 
     /// `pks` sign `h` (below quorum, bound to `at` and the first key), as an `Authorization`.
@@ -309,12 +316,12 @@ contract DirectExecuteTest is ExecuteBase {
         address w = _twoOfTwo();
         bytes32 bob = _identity(GITHUB, BOB);
         bytes memory add = abi.encodeCall(IIdentityValidator.addSession, (bob, _key(NEW_PK), _admin()));
-        _refusesBy(w, _onValidator(add), _pks(ALICE_PK, NEW_PK), NOT_AUTHORIZED);
+        _refusesBy(w, _onValidator(add), _pks(ALICE_PK, NEW_PK), OUTSIDE_WINDOW);
 
         vm.prank(w);
         validator.addSession(bob, _key(NEW_PK), _admin());
         assertEq(validator.sessionOf(w, _key(NEW_PK)).activeAt, _now(), "activeAt is not the block time");
-        _refusesBy(w, _one(_hitX()), _pks(ALICE_PK, NEW_PK), NOT_AUTHORIZED);
+        _refusesBy(w, _one(_hitX()), _pks(ALICE_PK, NEW_PK), OUTSIDE_WINDOW);
         vm.warp(_now() + 1);
         _runsBy(w, _one(_hitX()), _pks(ALICE_PK, NEW_PK));
     }
@@ -322,9 +329,9 @@ contract DirectExecuteTest is ExecuteBase {
     function test_anIdentityLinkedInTheBatchCannotSignIt() public {
         address w = _twoOfTwo();
         bytes memory payload = _payload(GOOGLE, CAROL, LINK, _txData(w, _key(CAROL_PK), _ph(_admin())));
-        bytes memory link = abi.encodeCall(IWalletRegistry.linkIdentity, (GOOGLE, V1, payload, _admin()));
+        bytes memory link = abi.encodeCall(IWalletRegistry.linkIdentity, (GOOGLE, V1, payload, "", _admin()));
         bytes memory calls = _then(_x(address(registry), 0, link));
-        _refusesBy(w, calls, _pks(ALICE_PK, CAROL_PK), NOT_AUTHORIZED);
+        _refusesBy(w, calls, _pks(ALICE_PK, CAROL_PK), OUTSIDE_WINDOW);
         assertFalse(validator.isLinked(w, _identity(GOOGLE, CAROL)), "the link stayed");
 
         _link(w, GOOGLE, CAROL, w, _key(CAROL_PK), _admin());
@@ -339,7 +346,7 @@ contract DirectExecuteTest is ExecuteBase {
         bytes memory one = abi.encodeCall(IIdentityValidator.setThreshold, (1));
         _queue(w, address(validator), one);
         bytes memory exec = abi.encodeCall(IIdentityValidator.executeRoot, (w, address(validator), one));
-        _refusesBy(w, _onValidator(exec), _pks(ALICE_PK), NOT_AUTHORIZED);
+        _refusesBy(w, _onValidator(exec), _pks(ALICE_PK), NOT_SIGNED);
         assertEq(validator.threshold(w), 2, "the threshold changed");
 
         validator.executeRoot(w, address(validator), one);
@@ -353,8 +360,8 @@ contract DirectExecuteTest is ExecuteBase {
         (IIdentityValidator v2, bytes memory up) = _upgrade(abi.encode(X, ALICE, _key(NEW_PK), _admin()));
         _queue(w, w, up);
         bytes memory calls = _onValidator(abi.encodeCall(IIdentityValidator.executeRoot, (w, w, up)));
-        _refusesBy(w, calls, _pks(NEW_PK), NOT_AUTHORIZED);
-        _refuses(w, calls, _direct(w, address(v2), _pks(NEW_PK), calls, false), NOT_AUTHORIZED);
+        _refusesBy(w, calls, _pks(NEW_PK), NOT_SIGNED);
+        _refuses(w, calls, _direct(w, address(v2), _pks(NEW_PK), calls, false), NOT_SIGNED);
         assertFalse(IWebWallet(w).isModuleInstalled(1, address(v2), ""), "migrated");
 
         _runsBy(w, calls, _pks(ALICE_PK));
@@ -377,7 +384,7 @@ contract DirectExecuteTest is ExecuteBase {
         validator.executeRoot(w, w, up);
         vm.warp(_now() + 1);
         assertEq(_nonce(w, address(v2)), uint256(uint160(address(v2))) << 96, "V2's sequence");
-        _refuses(w, hit, used, NOT_AUTHORIZED);
+        _refuses(w, hit, used, NOT_SIGNED);
         _runs(w, hit, _direct(w, address(v2), _pks(ALICE_PK), hit, false));
     }
 
@@ -396,12 +403,12 @@ contract DirectExecuteTest is ExecuteBase {
         _runsBy(w, _one(_hitX()), _pks(ALICE_PK, BOB_PK));
     }
 
-    /// Below quorum, revoking the other admin does not help; at quorum, a batch revokes a session that does not
-    /// sign it.
+    /// Below quorum, revoking the other admin platform is refused; at quorum, a batch revokes a session that does
+    /// not sign it.
     function test_revokingAnAdminInTheBatchDoesNotHelpIt() public {
         address w = _twoOfTwo();
         bytes memory revokeBob = abi.encodeCall(IIdentityValidator.revokeSession, (_key(BOB_PK)));
-        _refusesBy(w, _onValidator(revokeBob), _pks(ALICE_PK), NOT_AUTHORIZED);
+        _refusesBy(w, _onValidator(revokeBob), _pks(ALICE_PK), IIdentityValidator.ThresholdTooHigh.selector);
         assertEq(validator.sessionOf(w, _key(BOB_PK)).identity, _identity(GITHUB, BOB), "Bob's session revoked");
 
         vm.prank(w);
@@ -433,15 +440,15 @@ contract DirectExecuteTest is ExecuteBase {
         _linkRefused(w, GITHUB, BOB, BOB_PK, _admin());
         _linkRefused(w, X, ALICE, APP_PK, _hitOnly());
         bytes memory hit = _one(_hitX());
-        _refusesBy(w, hit, _pks(BOB_PK), NOT_AUTHORIZED);
-        _refuses(w, hit, _direct(w, address(validator), _pks(APP_PK), hit, true), NOT_AUTHORIZED);
+        _refusesBy(w, hit, _pks(BOB_PK), NOT_SIGNED);
+        _refuses(w, hit, _direct(w, address(validator), _pks(APP_PK), hit, true), NOT_SIGNED);
     }
 
     function test_theExceptionNeedsAWalletThatNeverHadASession() public {
         address w = _fresh();
         _link(w, X, ALICE, w, _key(NEW_PK), _admin());
         assertEq(validator.sessionOf(w, _key(NEW_PK)).activeAt, _now(), "activeAt is not the block time");
-        _refusesBy(w, _one(_hitX()), _pks(NEW_PK), NOT_AUTHORIZED);
+        _refusesBy(w, _one(_hitX()), _pks(NEW_PK), OUTSIDE_WINDOW);
     }
 
     function _linkRefused(address w, bytes32 platformId, bytes32 idNode, uint256 pk, IIdentityValidator.Policy memory p)
@@ -450,7 +457,7 @@ contract DirectExecuteTest is ExecuteBase {
         bytes memory payload = _payload(platformId, idNode, LINK, _txData(w, _key(pk), _ph(p)));
         vm.prank(w);
         vm.expectRevert(abi.encodeWithSelector(IIdentityValidator.FirstSessionRefused.selector, w));
-        registry.linkIdentity(platformId, V1, payload, p);
+        registry.linkIdentity(platformId, V1, payload, "", p);
     }
 
     /// A stranger's proof of the genesis identity, naming her own key, does not link it to a fresh wallet.
@@ -459,7 +466,7 @@ contract DirectExecuteTest is ExecuteBase {
         bytes memory link = _payload(X, ALICE, LINK, _txData(w, _key(MALLORY_PK), _ph(_admin())));
         vm.prank(mallory);
         vm.expectRevert(abi.encodeWithSelector(IWalletRegistry.NotWallet.selector, w, mallory));
-        registry.linkIdentity(X, V1, link, _admin());
+        registry.linkIdentity(X, V1, link, "", _admin());
         assertFalse(validator.hadSession(w), "a stranger gave the wallet a session");
     }
 
@@ -486,7 +493,7 @@ contract DirectExecuteTest is ExecuteBase {
         assertEq(target.calls(), 2, "the next UserOperation did not run");
 
         uint256 n1 = (uint256(uint160(address(validator))) << 96) | 1;
-        _refuses(w, hit, _aliceFor(w, hit, n1), NOT_AUTHORIZED);
+        _refuses(w, hit, _aliceFor(w, hit, n1), NOT_SIGNED);
         _runsBy(w, hit, _pks(ALICE_PK));
     }
 
@@ -510,7 +517,7 @@ contract DirectExecuteTest is ExecuteBase {
         uint256 n = _nonce(w, address(validator));
         bytes memory calls =
             _then(_x(EP, 0, abi.encodeCall(INonceIncrement.incrementNonce, (_nonceKey(address(validator))))));
-        _refuses(w, calls, _aliceFor(w, calls, n + 1), NOT_AUTHORIZED);
+        _refuses(w, calls, _aliceFor(w, calls, n + 1), NOT_SIGNED);
         _runs(w, calls, _aliceFor(w, calls, n));
         assertEq(_nonce(w, address(validator)), n + 2, "nonce");
     }
@@ -533,9 +540,8 @@ contract DirectExecuteTest is ExecuteBase {
         bytes memory calls = _one(_hitX());
         uint256 n = _nonce(w, address(validator));
         bytes32 h = _execDigestGas(w, AUTHORIZED_MODE, calls, at, n, deadline, 5_000_000);
-        bytes memory data = abi.encode(
-            calls, deadline, uint256(5_000_000), abi.encode(_authOf(_pks(ALICE_PK), h, at, false, _hitProofs(0)))
-        );
+        bytes memory data =
+            _data(calls, abi.encode(_authOf(_pks(ALICE_PK), h, at, false, _hitProofs(0)), deadline, 5_000_000));
         vm.prank(relayer);
         vm.expectPartialRevert(IWebWallet.InsufficientCallGas.selector);
         IWebWallet(w).execute{gas: 1_000_000}(AUTHORIZED_MODE, data);
@@ -546,33 +552,60 @@ contract DirectExecuteTest is ExecuteBase {
         assertEq(target.calls(), 1, "control");
     }
 
-    /// Any gas that passes the check gives the first call, cold and with value, at least `callGas`.
-    function test_theFirstCallGetsTheSignedCallGas() public {
-        address w = _fresh();
-        GasProbe probe = new GasProbe();
-        uint256 callGas = 10_000_000;
+    /// `GasProbe.run` with `size` bytes of call data after its selector, sent 1 wei.
+    function _probeX(GasProbe probe, uint256 size) internal pure returns (Execution memory) {
+        return _x(address(probe), 1, bytes.concat(abi.encodeCall(GasProbe.run, ()), new bytes(size)));
+    }
+
+    /// Runs `calls`, signed for `callGas`, with each gas from `from` below `to`, and requires every probe of a run
+    /// that passed to have got at least `callGas`. Returns the runs that passed.
+    function _sweep(address w, bytes memory calls, GasProbe[] memory probes, uint256 callGas, uint256 from, uint256 to)
+        internal
+        returns (uint256 runs)
+    {
         uint48 at = uint48(_now());
         uint48 deadline = at + 1 hours;
-        bytes memory calls = _one(_x(address(probe), 1, abi.encodeCall(GasProbe.run, ())));
         bytes32 h = _execDigestGas(w, AUTHORIZED_MODE, calls, at, _nonce(w, address(validator)), deadline, callGas);
         bytes memory data =
-            abi.encode(calls, deadline, callGas, abi.encode(_authOf(_pks(ALICE_PK), h, at, false, _hitProofs(0))));
+            _data(calls, abi.encode(_authOf(_pks(ALICE_PK), h, at, false, _hitProofs(0)), deadline, callGas));
         bytes memory exec = abi.encodeCall(IERC7579Execution.execute, (AUTHORIZED_MODE, data));
-        uint256 runs;
-        // The proxy keeps 1/64 too: the check passes from about `callGas * (64/63)^2`.
-        for (uint256 g = callGas; g < callGas * 33 / 32 + 300_000; g += 2_000) {
+        for (uint256 g = from; g < to; g += 2_000) {
             uint256 snap = vm.snapshotState();
-            vm.cool(address(probe));
+            for (uint256 i; i < probes.length; ++i) {
+                vm.cool(address(probes[i]));
+            }
             vm.prank(relayer);
             (bool ok,) = w.call{gas: g}(exec);
             if (ok) {
                 ++runs;
-                // The probe's dispatch runs before it reads `gasleft()`.
-                assertGe(probe.got() + 1_000, callGas, "the first call got less than callGas");
+                for (uint256 i; i < probes.length; ++i) {
+                    // The probe's dispatch runs before it reads `gasleft()`.
+                    assertGe(probes[i].got() + 1_000, callGas, "a call got less than callGas");
+                }
             }
             vm.revertToState(snap);
         }
-        assertGt(runs, 0, "control: no gas ran the batch");
+    }
+
+    /// Any gas that passes the checks gives every call, cold, with value and 64 KiB of call data, at least
+    /// `callGas`: the first call's check binds, then the second's, which follows a call that kept half its gas.
+    function test_everyCallGetsTheSignedCallGas() public {
+        address w = _fresh();
+        GasProbe[] memory probes = new GasProbe[](2);
+        (probes[0], probes[1]) = (new GasProbe(), new GasProbe());
+        bytes memory one = _one(_probeX(probes[0], 64 << 10));
+        bytes memory two = _then(_probeX(probes[0], 64 << 10));
+        Execution[] memory x = abi.decode(two, (Execution[]));
+        x[1] = _probeX(probes[1], 64 << 10);
+        two = abi.encode(x);
+        GasProbe[] memory first = new GasProbe[](1);
+        first[0] = probes[0];
+
+        uint256 callGas = 10_000_000;
+        // The proxy keeps 1/64 too: the check passes from about `callGas * (64/63)^2`.
+        assertGt(_sweep(w, one, first, callGas, callGas, callGas * 33 / 32 + 300_000), 0, "control: one call");
+        callGas = 1_000_000;
+        assertGt(_sweep(w, two, probes, callGas, 2 * callGas, 2 * callGas * 33 / 32 + 600_000), 0, "control: two");
     }
 
     // ─── The domain ─────────────────────────────────────────────────
@@ -627,9 +660,8 @@ contract DirectExecuteTest is ExecuteBase {
         proofs[0].maxValue = 1 ether;
         uint256 n = _nonce(w, address(validator));
         uint48 t = uint48(_now());
-        bytes4 outOfPeriod = IExecutionCheck.ExecutionOutsidePeriod.selector;
-        _refuses(w, calls, _directAt(w, _pks(APP_PK), calls, n, t + 1 days, true, proofs), outOfPeriod);
-        _refuses(w, calls, _directAt(w, _pks(APP_PK), calls, n, t - 1 days, true, proofs), outOfPeriod);
+        _refuses(w, calls, _directAt(w, _pks(APP_PK), calls, n, t + 1 days, true, proofs), OUTSIDE_WINDOW);
+        _refuses(w, calls, _directAt(w, _pks(APP_PK), calls, n, t - 1 days, true, proofs), OUTSIDE_WINDOW);
         _runs(w, calls, _directAt(w, _pks(APP_PK), calls, n, t, true, proofs));
         assertEq(address(target).balance, 0.1 ether, "value");
         assertEq(validator.allowanceOf(w, _key(APP_PK), NATIVE_TOKEN).spent, 0.1 ether, "NATIVE charge");
@@ -647,8 +679,8 @@ contract DirectExecuteTest is ExecuteBase {
         bytes memory execute = abi.encodeCall(IERC7579Execution.execute, (MODE_BATCH, calls));
         PackedUserOperation memory op = _op(w, 0, execute);
 
-        _refuses(w, calls, _alice(IUserOpHash(EP).getUserOpHash(op), at, deadline), NOT_AUTHORIZED, "userOpHash");
-        _refuses(w, calls, _alice(_wrapped(w, d), at, deadline), NOT_AUTHORIZED, "ERC-1271 hash");
+        _refuses(w, calls, _alice(IUserOpHash(EP).getUserOpHash(op), at, deadline), NOT_SIGNED, "userOpHash");
+        _refuses(w, calls, _alice(_wrapped(w, d), at, deadline), NOT_SIGNED, "ERC-1271 hash");
         op.signature = abi.encode(_authOf(_pks(ALICE_PK), d, at, false, _hitProofs(0)));
         _refused(op, "a direct signature as a UserOperation");
         op.signature = _alice(d, at, deadline);
@@ -664,7 +696,7 @@ contract DirectExecuteTest is ExecuteBase {
 
 /// @notice The direct path's client vector in `fixtures/direct-execute-vector.json`, which the Rust and TypeScript
 ///         helper tests read too. Its outputs are `cast`'s: `cast keccak` of `cast abi-encode` of the spec's
-///         encodings, `data` as `"f(bytes,uint48,uint256,bytes)"` with the authorization
+///         encodings, `data` as `"f(bytes,uint256,uint48,uint256,bytes)"` with the authorization
 ///         `"f(((bytes,bytes)[],uint48,(uint256,bytes32[])[],bytes32[],bytes32[]))"`.
 contract ExecuteVectorTest is ExecuteBase {
     function setUp() public override {}
@@ -682,6 +714,7 @@ contract ExecuteVectorTest is ExecuteBase {
         uint48 at = uint48(vm.parseJsonUint(j, ".at"));
         uint48 deadline = uint48(vm.parseJsonUint(j, ".deadline"));
         uint256 callGas = vm.parseJsonUint(j, ".callGas");
+        signedValue = vm.parseJsonUint(j, ".value");
         IIdentityValidator.SessionSignature[] memory sigs = new IIdentityValidator.SessionSignature[](1);
         sigs[0] = IIdentityValidator.SessionSignature({
             key: vm.parseJsonBytes(j, ".sessionKey"), signature: vm.parseJsonBytes(j, ".signature")
@@ -694,7 +727,9 @@ contract ExecuteVectorTest is ExecuteBase {
             paymasterProof: new bytes32[](0)
         });
         assertEq(
-            keccak256(abi.encode(calls, deadline, callGas, abi.encode(a))), vm.parseJsonBytes32(j, ".dataHash"), "data"
+            keccak256(abi.encode(calls, signedValue, deadline, callGas, abi.encode(a))),
+            vm.parseJsonBytes32(j, ".dataHash"),
+            "data"
         );
 
         vm.chainId(vm.parseJsonUint(j, ".chainId"));

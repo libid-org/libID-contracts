@@ -16,6 +16,10 @@ import {
 bytes4 constant AUTHORIZED_SELECTOR = bytes4(keccak256("libid.webwallet.authorized"));
 // The one `AUTHORIZED` mode word: batch call type, default exec type, `AUTHORIZED_SELECTOR`, zero payload.
 bytes32 constant AUTHORIZED_MODE = bytes32((uint256(0x01) << 248) | (uint256(uint32(AUTHORIZED_SELECTOR)) << 176));
+// The gas between the wallet's `callGas` check before each `AUTHORIZED_MODE` call and the call, which gets 63/64 of
+// what is left. Measured for a cold target with value: 9.8k with no call data, 15.8k with 64 KiB, the most
+// `test_everyCallGetsTheSignedCallGas` checks.
+uint256 constant CALL_OVERHEAD = 20_000;
 
 /// EntryPoint v0.9's `incrementNonce`, which OpenZeppelin's interface leaves out.
 interface INonceIncrement {
@@ -30,12 +34,13 @@ interface INonceIncrement {
 ///      has no power. The validator cannot be uninstalled. No executor module is supported.
 ///      `execute(mode, data)` takes a default-selector mode from the EntryPoint only, and `AUTHORIZED_MODE`
 ///      from anyone, checked at the end: `data` is then
-///      `abi.encode(bytes executionCalldata, uint48 deadline, uint256 callGas, bytes authorization)`.
-///      For it the wallet consumes the EntryPoint nonce under key `uint192(uint160(validator)) << 32`,
-///      reads the threshold and its EIP-712 domain separator, requires
-///      `gasleft() * 63 / 64 >= callGas + 20_000`, so that the first call gets at least `callGas` when it
-///      carries up to about 16 KiB of call data in a batch of up to 64, runs the batch, then calls the
-///      validator's `checkExecution`; any failure reverts everything, the nonce included. One reentrancy lock covers both modes. Any other mode
+///      `abi.encode(bytes executionCalldata, uint256 value, uint48 deadline, uint256 callGas, bytes authorization)`,
+///      sent with exactly `value`.
+///      For it the wallet requires `executionCalldata` to be the canonical `abi.encode(Execution[])` of its
+///      calls, consumes the EntryPoint nonce under key `uint192(uint160(validator)) << 32`,
+///      reads the threshold and its EIP-712 domain separator, runs the batch, requiring
+///      `gasleft() * 63 / 64 >= callGas + CALL_OVERHEAD` before each call so that every call gets at least
+///      `callGas`, then calls the validator's `checkExecution`; any failure reverts everything, the nonce included. One reentrancy lock covers both modes. Any other mode
 ///      selector, and delegatecall execution, are refused. Only the constructor's validator validates
 ///      UserOperations and signs: another validator still installed, such as the one a migration
 ///      replaced, is refused.
@@ -61,7 +66,13 @@ interface IWebWallet is
     /// A mode selector other than zero, outside `AUTHORIZED_MODE`.
     error UnsupportedModeSelector(bytes4 selector);
 
-    /// The gas left before the calls would give the first call less than the signed `callGas`.
+    /// The batch is not `abi.encode(Execution[])` of the calls it decodes to.
+    error NoncanonicalBatch();
+
+    /// `msg.value` is not the signed `value`.
+    error WrongValue(uint256 value, uint256 sent);
+
+    /// The gas left before a call would give it less than the signed `callGas`.
     error InsufficientCallGas(uint256 callGas, uint256 left);
 
     /// `entryPoint` has no code: EntryPoint v0.9 must be deployed at its canonical address, which holds the

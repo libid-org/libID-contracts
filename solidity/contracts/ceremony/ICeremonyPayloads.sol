@@ -2,7 +2,6 @@
 pragma solidity ^0.8.24;
 
 import {OidcPlatformVerifierBase} from "./OidcPlatformVerifierBase.sol";
-import {OperationList} from "./OperationList.sol";
 import {TlsNotaryVerifierBase} from "./TlsNotaryVerifierBase.sol";
 
 /// @title ICeremonyPayloads
@@ -16,7 +15,4 @@ interface ICeremonyPayloads {
 
     /// @notice The `google/v1` and `telegram/v1` payload.
     function oidcProof(OidcPlatformVerifierBase.OidcProof calldata payload) external pure;
-
-    /// @notice The Authorized Transaction Data under `libid.operations`, `abi.encode(entries)`.
-    function operationList(OperationList.Operation[] calldata entries) external pure;
 }

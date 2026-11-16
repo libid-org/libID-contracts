@@ -169,20 +169,28 @@ const payload = encodeTlsNotaryProof({
 ```
 
 One ceremony can authorize a bind and other operations together. Its
-transaction data is then an Operation List under the operation domain
-`keccak256("libid.operations")`, and each Consumer applies only its own entry:
+operation domain is then `OPERATIONS_DOMAIN` (`keccak256("libid.operations")`)
+and its transaction data an Operation List, which commits each entry's domain
+and the hash of its data:
 
 ```ts
-import { encodeOperationList } from '@libid/contracts'
+import { encodeOperationList, OPERATIONS_DOMAIN, policyHashOf } from '@libid/contracts'
+import { encodeAbiParameters, keccak256, parseAbiParameters, toHex } from 'viem'
 
+const linkData = encodeAbiParameters(parseAbiParameters('uint256, address, bytes, bytes32'), [
+  chainId, wallet, sessionKey, policyHashOf(policy),
+])
 const transactionData = encodeOperationList([
-  { domain: keccak256(toHex('libid.bind-identity')), data: encodeAbiParameters([{ type: 'address' }], [wallet]) },
+  { domain: keccak256(toHex('libid.bind-identity')), data: encodeAbiParameters(parseAbiParameters('address'), [wallet]) },
   { domain: keccak256(toHex('libid.webwallet.link-identity')), data: linkData },
 ])
+// The ceremony runs under OPERATIONS_DOMAIN with this transactionData.
 ```
 
-The same payload then goes to `bind` and to `WalletRegistry.linkIdentity`,
-once each.
+The same payload then goes to `bind`, called by `wallet`, which rebuilds its
+entry's data from the caller, and to
+`WalletRegistry.linkIdentity(platformId, verifierVersion, payload, linkData, policy)`,
+once each. A proof of one operation passes empty `data` to `linkIdentity`.
 
 A refused bind reverts with the error of whichever contract on its route
 refused it: the registry, the Proof Verifier, a Platform Verifier, the Notary
@@ -223,7 +231,8 @@ const nonce = await client.readContract({
   args: [wallet, directNonceKey(IDENTITY_VALIDATOR)],
 })
 // executionCalldata is an ERC-7579 batch: abi.encode(Execution[]).
-const message = { executionCalldata, at, nonce, deadline, callGas }
+// `value` is the msg.value the batch is sent with.
+const message = { executionCalldata, value, at, nonce, deadline, callGas }
 // At quorum a session key signs the digest; below quorum, belowQuorumHash of it.
 const signature = await session.sign({ hash: executeDigest(message, chainId, wallet) })
 const data = authorizedData(message, {
@@ -232,7 +241,7 @@ const data = authorizedData(message, {
   domainProof: [],
   paymasterProof: [],
 })
-const call = calls.webWallet.execute(wallet, 0n, AUTHORIZED_MODE, data)
+const call = calls.webWallet.execute(wallet, value, AUTHORIZED_MODE, data)
 ```
 
 ## Normalizing a handle locally

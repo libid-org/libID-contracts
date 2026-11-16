@@ -20,18 +20,19 @@ One relayer transaction creates the wallet and runs its first batch:
 ```solidity
 // K, Alice's new session key, signs the batch for the wallet's address before it exists.
 factory.createAndExecute{value: linkFee}(
-    platformId, idNode, AUTHORIZED_MODE, abi.encode(calls, deadline, callGas, abi.encode(authorization))
+    platformId, idNode, AUTHORIZED_MODE, abi.encode(calls, linkFee, deadline, callGas, abi.encode(authorization))
 );
-// calls: registry.linkIdentity{value: linkFee}(platformId, v, listPayload, policy),   // K, the first session
-//        identities.bindPrivately(platformId, v, listPayload, 0, address(0)),         // free: verified above
+// calls: registry.linkIdentity{value: linkFee}(platformId, v, listPayload, linkData, policy), // K, the first session
+//        identities.bindPrivately(platformId, v, listPayload, 0, address(0)),                // free: verified above
 //        escrow.claim(handleNode, tokens, w),
-//        relayer.call{value: linkFee}(""),                                            // the relayer's refund
-//        validator.addSession(identity, botKey, botPolicy)                            // optional
+//        relayer.call{value: linkFee}(""),                                                    // the relayer's refund
+//        validator.addSession(identity, botKey, botPolicy)                                    // optional
 ```
 
-`listPayload` is one sign-in proving an operation list of `bind-identity(w)`
-and `link-identity(w, K, policy)`, so the same payload serves both calls.
-The link pays the Notary Fee. The bind attaches no value, so
+`listPayload` is one sign-in proving an Operation List of the `bind-identity`
+entry for `w` and the `link-identity` entry for `linkData`, the
+`abi.encode(chainId, w, K, policyHash)` it hashes, so the same payload serves
+both calls. The link pays the Notary Fee. The bind attaches no value, so
 `CeremonyProofVerifier` returns the claim the link verified in this
 transaction; with `quoteBind` attached it would verify again.
 `createAndExecute` creates the wallet if it has no code, then calls its
@@ -59,7 +60,7 @@ that second.
 - A session by proof: the end of `recoveryDelay`.
 - The first session: 0.
 
-So no session a batch adds can sign that batch.
+So the first session is the only one that can sign the batch that adds it.
 
 ## Execution
 
@@ -71,19 +72,22 @@ One `execute(bytes32 mode, bytes data)`, ERC-7579's, takes two kinds of mode:
 - `AUTHORIZED_MODE`, exactly the word of batch call type, default exec type,
   selector `bytes4(keccak256("libid.webwallet.authorized"))` and zero
   payload: from anyone. `data` is
-  `abi.encode(bytes executionCalldata, uint48 deadline, uint256 callGas, bytes authorization)`,
+  `abi.encode(bytes executionCalldata, uint256 value, uint48 deadline, uint256 callGas, bytes authorization)`,
   with `authorization = abi.encode(Authorization)`. The wallet:
-  1. consumes the EntryPoint nonce under key
+  1. requires `executionCalldata` to be exactly `abi.encode(Execution[])`
+     of the calls it decodes to, else `NoncanonicalBatch`: the signers sign
+     those bytes alone, so no call may be read from outside them;
+  2. requires `msg.value == value`, else `WrongValue`;
+  3. consumes the EntryPoint nonce under key
      `uint192(uint160(validator)) << 32`, which UserOperations share;
-  2. reads `threshold(wallet)` and its own EIP-712 domain separator;
-  3. requires `gasleft() * 63 / 64` of at least `callGas` plus a fixed
-     20,000 for the calls' own start, so the first call gets at least
-     `callGas` (EIP-150 forwards at most 63/64 of the gas left). The 20,000
-     covers a first call of up to about 16 KiB of call data in a batch of up
-     to 64; a larger first call may get a little less;
-  4. runs the batch;
-  5. calls the validator's
-     `checkExecution(mode, executionCalldata, deadline, callGas, authorization, nonce, threshold, domainSeparator)`,
+  4. reads `threshold(wallet)` and its own EIP-712 domain separator;
+  5. runs the batch, requiring before each call `gasleft() * 63 / 64` of at
+     least `callGas` plus `CALL_OVERHEAD` (`IWebWallet.sol`), so every call
+     gets at least `callGas` (EIP-150 forwards at most 63/64 of the gas
+     left), else `InsufficientCallGas`. `CALL_OVERHEAD` is checked for
+     calls of up to 64 KiB of call data; a larger call may get a little less;
+  6. calls the validator's
+     `checkExecution(mode, executionCalldata, value, deadline, callGas, authorization, nonce, threshold, domainSeparator)`,
      with the domain separator it read before the batch.
 
   Any failure reverts everything, the nonce included. So a failed batch
@@ -99,7 +103,7 @@ both modes, so a batch cannot call the wallet's `execute`.
 for `AUTHORIZED_MODE`.
 
 Signers sign the EIP-712 hash of
-`Execute(bytes32 mode,bytes executionCalldata,uint48 at,uint256 nonce,uint48 deadline,uint256 callGas)`
+`Execute(bytes32 mode,bytes executionCalldata,uint256 value,uint48 at,uint256 nonce,uint48 deadline,uint256 callGas)`
 under the wallet's EIP-712 domain before the batch (name `WebWallet`,
 version `1`, the chain id and the wallet's address), with `mode = AUTHORIZED_MODE`,
 `at = Authorization.at` and `nonce` the full EntryPoint nonce before it was
@@ -110,7 +114,7 @@ runs the signer and rule checks of `validateUserOp` at the threshold read on
 entry, charges value to `NATIVE_TOKEN` below quorum (no gas charge, no
 paymaster), then requires the block time inside the signers' window narrowed
 to the periods charged. Its errors are `ExecutionExpired`,
-`ExecutionNotAuthorized` and `ExecutionOutsidePeriod`.
+`ExecutionNotSigned`, `ExecutionNotAllowed` and `ExecutionOutsideWindow`.
 
 The check reads the threshold, the nonce and the domain from before the
 calls, and the sessions as the calls left them. A batch that executes
@@ -142,7 +146,10 @@ the nonce lives there. Without it the direct path reverts
 - A proof's transaction data, for both `libid.webwallet.*` domains, is
   `abi.encode(uint256 chainId, address wallet, bytes sessionKey, bytes32 policyHash)`,
   canonically encoded, with `policyHash = policyHashOf(policy)`. An empty key
-  with a zero policy hash links only.
+  with a zero policy hash links only. Under `libid.operations` the proof's
+  Operation List commits `keccak256` of these bytes in a `libid.webwallet.*`
+  entry, and the call passes them as `data`; a proof of one operation passes
+  empty `data`.
 
 ## Sessions below quorum
 
@@ -196,6 +203,7 @@ is charged to `NATIVE_TOKEN` with its value.
 
 ### Allowances and `at`
 
+- Allowances are listed by strictly ascending token address.
 - Allowances are charged in validation, even when the execution reverts.
 - The period is `at - at % period`, or the session's whole life when
   `period == 0`. A charging operation's validity window is that period
@@ -281,6 +289,12 @@ with `queueRoot` and executed by anyone with `executeRoot` once
 session, or unlinking an identity, voids every root operation queued before
 it.
 
+The threshold never exceeds the platforms holding an admin session:
+`setThreshold`, a revoke, an unlink or a freeze that would leave fewer
+reverts `ThresholdTooHigh`, unless it leaves none. An admin session never
+expires: a policy with `admin` and a non-zero `validUntil` reverts
+`AdminSessionExpires`.
+
 ## Trust
 
 A wallet trusts the parties below, with no timelock, until libID and the
@@ -327,6 +341,8 @@ had one, and one live after the recovery delay on any other.
 - The JWT roots cannot drop a leaked key at once, and `WalletRegistry` has no
   pause: during a leak anyone could add pending sessions to every wallet with
   a linked identity on that platform (not exercised: it needs a leaked key).
+- After a root revoke to zero admin sessions, recovery needs proofs on
+  `threshold` distinct, unfrozen platforms, each waiting the recovery delay.
 - `entryPoint()` is fixed to v0.9: a later EntryPoint costs one root upgrade
   per wallet.
 - Direct batches of every signer share one nonce sequence, under key

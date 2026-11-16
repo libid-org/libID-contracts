@@ -13,6 +13,7 @@ import {INotaryService} from "../../ceremony/INotaryService.sol";
 import {IPlatformVerifier} from "../../ceremony/IPlatformVerifier.sol";
 import {NotaryService} from "../../ceremony/NotaryService.sol";
 import {IHonkVerifier} from "../../ceremony/PlatformVerifierBase.sol";
+import {operationList} from "../../ceremony/test/OperationListVector.sol";
 import {TlsNotaryVerifierBase} from "../../ceremony/TlsNotaryVerifierBase.sol";
 import {XPlatformVerifier} from "../../ceremony/XPlatformVerifier.sol";
 import {NATIVE_TOKEN} from "../../escrow/HandleEscrow.sol";
@@ -23,7 +24,6 @@ import {IIdentityValidator} from "../IIdentityValidator.sol";
 import {IWalletRegistry} from "../IWalletRegistry.sol";
 import {AUTHORIZED_MODE} from "../IWebWallet.sol";
 import {ExecuteBase} from "./DirectExecute.t.sol";
-import {operationList} from "./WalletTestBase.sol";
 
 /// Onboarding in one `createAndExecute` through the real X verifier, NotaryService and Honk verifier, and a
 /// session by proof after it.
@@ -121,10 +121,15 @@ contract RealProofClaimTest is ExecuteBase {
         );
     }
 
+    /// The link entry's data for Alice's new wallet: K, the first session.
+    function _linkData() internal view returns (bytes memory) {
+        return _txData(factory.walletAddress(X, idNode), _key(ALICE_PK), _ph(_admin()));
+    }
+
     /// The Operation List a proof of `version` carries for Alice's new wallet: bind it, and link K.
     function _list(uint16 version) internal view returns (bytes memory) {
         address w = factory.walletAddress(X, idNode);
-        bytes memory data = operationList(BIND, abi.encode(w), LINK, _txData(w, _key(ALICE_PK), _ph(_admin())));
+        bytes memory data = operationList(BIND, abi.encode(w), LINK, _linkData());
         return version == VX ? _real(OPERATIONS, data) : _stubbed(OPERATIONS, data);
     }
 
@@ -137,8 +142,11 @@ contract RealProofClaimTest is ExecuteBase {
         address[] memory tokens = new address[](1);
         tokens[0] = NATIVE_TOKEN;
         Execution[] memory x = new Execution[](5);
-        x[0] =
-            _x(address(registry), linkFee, abi.encodeCall(IWalletRegistry.linkIdentity, (X, version, list, _admin())));
+        x[0] = _x(
+            address(registry),
+            linkFee,
+            abi.encodeCall(IWalletRegistry.linkIdentity, (X, version, list, _linkData(), _admin()))
+        );
         // The link verified this proof, so the bind's Notary Fee is already paid.
         x[1] = _x(
             address(identities), 0, abi.encodeCall(IIdentityRegistry.bindPrivately, (X, version, list, 0, address(0)))
@@ -152,9 +160,11 @@ contract RealProofClaimTest is ExecuteBase {
         );
         bytes memory calls = abi.encode(x);
         uint256 n = uint256(uint160(address(validator))) << 96;
+        signedValue = linkFee;
         bytes memory auth = _aliceFor(w, calls, n);
         vm.prank(relayer, relayer);
         factory.createAndExecute{value: linkFee}(X, idNode, AUTHORIZED_MODE, _data(calls, auth));
+        signedValue = 0;
         Vm.Gas memory used = vm.lastFrameGas();
         // forge-lint: disable-next-line(unsafe-typecast)
         gas = used.gasTotalUsed - uint64(used.gasRefunded);
@@ -188,7 +198,7 @@ contract RealProofClaimTest is ExecuteBase {
         bytes memory add = _real(ADD, _txData(w, _key(ALICE2_PK), _ph(p)));
         uint256 fee = registry.quote(X, VX);
         vm.prank(relayer);
-        registry.addSessionByProof{value: fee}(X, VX, add, p);
+        registry.addSessionByProof{value: fee}(X, VX, add, "", p);
         assertEq(validator.sessionOf(w, _key(ALICE2_PK)).activeAt, _now() + validator.recoveryDelay(w), "not pending");
     }
 }

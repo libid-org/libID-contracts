@@ -26,7 +26,7 @@ contract RecoveryFrozenTest is WalletTestBase {
 
         bytes memory payload = _payload(GITHUB, BOB, ADD, _txData(w, _key(MALLORY_PK), _ph(_admin())));
         vm.expectRevert(abi.encodeWithSelector(IIdentityValidator.RecoveryFrozen.selector, bob));
-        registry.addSessionByProof(GITHUB, V1, payload, _admin());
+        registry.addSessionByProof(GITHUB, V1, payload, "", _admin());
         _addByProof(mallory, X, ALICE, w, _key(ALICE2_PK), _admin());
 
         _handle(_signedWith(_op(w, 0, _hit()), _pks(BOB_PK), _hitProofs(1)));
