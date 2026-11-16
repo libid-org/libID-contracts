@@ -97,6 +97,7 @@ use alloy::{primitives::Address, providers::ProviderBuilder};
 use libid_contracts::{
     bindings::ceremony::{CeremonyProofVerifier, XPlatformVerifier},
     circuits::deploy_honk_verifier,
+    deploy::Mined,
     platform_verifier::{deploy_platform_verifier, Initializer, PlatformVerifier, TlsNotaryRoots},
     Artifacts,
 };
@@ -130,12 +131,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Register it for the platform's launch slot.
     let platform_id = XPlatformVerifier::new(verifier, &provider).platformId().call().await?;
+    // A reverted transaction is mined too: `succeeded` refuses its receipt.
     CeremonyProofVerifier::new(proof_verifier, &provider)
         .setVerifier(platform_id, 1, verifier)
         .send()
         .await?
         .get_receipt()
-        .await?;
+        .await?
+        .succeeded("CeremonyProofVerifier.setVerifier")?;
     Ok(())
 }
 ```
@@ -147,7 +150,13 @@ For a factory (CREATE3) deploy, `Initializer::call()` returns the typed
 Other entry points:
 
 - `deploy::upgrade_uups` — deploy a fresh implementation and
-  `upgradeToAndCall` a UUPS proxy onto it.
+  `upgradeToAndCall` a UUPS proxy onto it, then read the proxy's EIP-1967
+  slot at the receipt's block: `Error::NotUpgraded` unless it names the new
+  implementation. With a `sender`, it sends through `send_with_nonce_retry!`.
+- `deploy::ProxyReads::implementation_of` — the implementation a proxy runs
+  at a block, from its EIP-1967 slot (`IMPLEMENTATION_SLOT`).
+- `deploy::Mined` — `succeeded` turns a reverted receipt into
+  `Error::Reverted`; `block` names the block it was mined in.
 - `factory::FactoryGenesis::ensure` / `factory::factory_deploy` — install the
   canonical cross-network factory where missing and deploy protocol proxies
   through it at name-derived CREATE3 addresses.
