@@ -92,8 +92,8 @@ contract ValidatorMigrationTest is WalletTestBase {
         _rootReverts(w, w, upgrade, abi.encodeWithSelector(IIdentityValidator.InstallSessionNotAdmin.selector));
     }
 
-    /// Found in review: a v2 app session queued an upgrade on the old validator, which stayed
-    /// installed, and anyone executed it after the delay. The session's scope lists that call.
+    /// After a migration, an upgrade queued on the old validator by a v2 app session whose scope
+    /// lists that call never executes.
     function test_theOldValidatorCannotUpgradeAfterMigration() public {
         address w = _migrated();
         IIdentityValidator.Policy memory p = _hitOnly();

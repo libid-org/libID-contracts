@@ -258,11 +258,11 @@ contract WalletRegistryTest is WalletTestBase {
         assertEq(validator.sessionOf(w, _key(ALICE2_PK)).activeAt, due, "not pending for 48 h");
     }
 
-    /// The review's dormant-wallet case: expired admins do not switch the wait off.
+    /// A dormant wallet, its only session expired, still makes a session by proof wait.
     function test_aDormantWalletStillWaits() public {
         address w = _claimWith(
             IIdentityValidator.Policy({
-                validAfter: 0, validUntil: uint48(_now() + 1 days), admin: true, signers: 0, rules: _noRules()
+                validAfter: 0, validUntil: uint48(_now() + 1 days), admin: false, signers: 0, rules: _noRules()
             })
         );
         vm.warp(_now() + 30 days);

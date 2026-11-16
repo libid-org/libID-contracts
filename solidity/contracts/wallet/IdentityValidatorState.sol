@@ -18,6 +18,7 @@ abstract contract IdentityValidatorState {
         uint32 identities;
         uint32 rootEpoch;
         uint32 platforms;
+        uint32 adminPlatforms;
     }
 
     /// What `_verify` found: whether every signature holds, the distinct platforms of its signers and
@@ -66,6 +67,7 @@ abstract contract IdentityValidatorState {
         mapping(uint256 install => mapping(bytes32 platformId => mapping(address account => uint32))) platformLinks;
         mapping(uint256 install => mapping(bytes32 identity => mapping(address account => bool))) recoveryFrozen;
         mapping(uint256 install => mapping(bytes32 counterId => mapping(address account => Counter))) counters;
+        mapping(uint256 install => mapping(bytes32 platformId => mapping(address account => uint32))) platformAdmins;
     }
 
     // cast index-erc7201 libid.storage.IdentityValidator
@@ -139,6 +141,15 @@ abstract contract IdentityValidatorState {
         returns (mapping(address => uint32) storage)
     {
         return _s().platformLinks[_install(account)][platformId];
+    }
+
+    /// The platform's admin sessions; `AccountState.adminPlatforms` counts the platforms with any.
+    function _platformAdmins(address account, bytes32 platformId)
+        internal
+        view
+        returns (mapping(address => uint32) storage)
+    {
+        return _s().platformAdmins[_install(account)][platformId];
     }
 
     /// Narrows `v`'s window to `(validAfter, validUntil]`; `validUntil == 0` is unbounded.

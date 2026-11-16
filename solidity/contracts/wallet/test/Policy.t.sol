@@ -196,11 +196,22 @@ contract PolicyTest is WalletTestBase {
         return _rules(1 ether, 100 ether, DAY, 0);
     }
 
+    /// `r` with its allowances in ascending token order, as the validator takes them.
+    function _sorted(IIdentityValidator.Rules memory r) internal pure returns (IIdentityValidator.Rules memory) {
+        IIdentityValidator.Allowance[] memory a = r.allowances;
+        for (uint256 i = 1; i < a.length; ++i) {
+            for (uint256 j = i; j > 0 && a[j - 1].token > a[j].token; --j) {
+                (a[j - 1], a[j]) = (a[j], a[j - 1]);
+            }
+        }
+        return r;
+    }
+
     function _add(address wallet, bytes32 identity, uint256 pk, bool admin, IIdentityValidator.Rules memory r)
         internal
     {
         vm.prank(wallet);
-        validator.addSession(identity, _key(pk), IIdentityValidator.Policy(0, 0, admin, 0, r));
+        validator.addSession(identity, _key(pk), IIdentityValidator.Policy(0, 0, admin, 0, _sorted(r)));
     }
 
     function _addApp(uint256 pk, IIdentityValidator.Rules memory r) internal {
@@ -471,7 +482,7 @@ contract PolicyTest is WalletTestBase {
         _addApp(APP_PK, _daily());
         assertEq(_spent(APP_PK, NATIVE_TOKEN), 0.6 ether, "the same rules lost the spend");
         _refused(_opNow(APP_PK, _pay(0.5 ether)), "the same rules, over the limit");
-        assertEq(validator.sessionOf(w, _key(APP_PK)).rulesHash, _rh(_daily()), "rulesHash");
+        assertEq(validator.sessionOf(w, _key(APP_PK)).rulesHash, _rh(_sorted(_daily())), "rulesHash");
 
         vm.prank(w);
         validator.revokeSession(_key(APP_PK));
@@ -487,7 +498,7 @@ contract PolicyTest is WalletTestBase {
     function test_validationTouchesOnlyAccountAssociatedStorage() public {
         bytes memory key = abi.encodePacked(address(new AcceptingVerifier()), keccak256("x"), keccak256("y"));
         vm.prank(w);
-        validator.addSession(_identity(X, ALICE), key, IIdentityValidator.Policy(0, 0, false, 0, _daily()));
+        validator.addSession(_identity(X, ALICE), key, IIdentityValidator.Policy(0, 0, false, 0, _sorted(_daily())));
         Execution[] memory x = _two(_e(payee, 0.1 ether, ""), _send(token, 1 ether));
         IIdentityValidator.SessionSignature[] memory s = new IIdentityValidator.SessionSignature[](1);
         s[0] = IIdentityValidator.SessionSignature({key: key, signature: hex"1234"});
@@ -547,15 +558,20 @@ contract PolicyTest is WalletTestBase {
         assertEq(window, _window(uint48(1 << 47) - (1 << 20) - 1, uint48(1 << 47) - 1), "the period ending at bit 47");
     }
 
-    /// A repeated token, or a period reaching bit 47, is refused when the session is added, by proof too.
+    /// A repeated or descending token, or a period reaching bit 47, is refused when the session is added,
+    /// by proof too.
     function test_badAllowancesRefused() public {
         IIdentityValidator.Rules memory twice = _daily();
         twice.allowances[1].token = NATIVE_TOKEN;
         IIdentityValidator.Rules memory far = _daily();
         far.allowances[1].period = uint48(1 << 47);
+        _sorted(far);
         vm.prank(w);
         vm.expectRevert(abi.encodeWithSelector(IIdentityValidator.BadAllowance.selector, NATIVE_TOKEN));
         validator.addSession(_identity(X, ALICE), _key(APP_PK), IIdentityValidator.Policy(0, 0, false, 0, twice));
+        vm.prank(w);
+        vm.expectRevert(abi.encodeWithSelector(IIdentityValidator.BadAllowance.selector, address(token)));
+        validator.addSession(_identity(X, ALICE), _key(APP_PK), IIdentityValidator.Policy(0, 0, false, 0, _daily()));
 
         IIdentityValidator.Policy memory p = IIdentityValidator.Policy(0, 0, false, 0, far);
         bytes memory payload = _payload(X, ALICE, ADD, _txData(w, _key(APP_PK), _ph(p)));
@@ -874,12 +890,12 @@ contract PolicyTest is WalletTestBase {
 
     /// The proof of a session commits its rules, which the session record keeps.
     function test_aProofCommitsTheRules() public {
-        IIdentityValidator.Policy memory p = IIdentityValidator.Policy(0, 0, false, 0, _daily());
+        IIdentityValidator.Policy memory p = IIdentityValidator.Policy(0, 0, false, 0, _sorted(_daily()));
         _addByProof(relayer, X, ALICE, w, _key(APP_PK), p);
         IIdentityValidator.Session memory s = validator.sessionOf(w, _key(APP_PK));
         assertEq(s.scopeRoot, _scopeRoot(), "scopeRoot");
         assertEq(s.domainsRoot, 0, "domainsRoot");
-        assertEq(s.rulesHash, _rh(_daily()), "rulesHash");
+        assertEq(s.rulesHash, _rh(_sorted(_daily())), "rulesHash");
 
         bytes32 committed = _ph(p);
         bytes memory payload = _payload(X, ALICE, ADD, _txData(w, _key(APP_PK), committed));

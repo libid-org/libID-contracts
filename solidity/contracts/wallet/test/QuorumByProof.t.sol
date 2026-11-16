@@ -14,10 +14,10 @@ contract QuorumByProofTest is WalletTestBase {
     }
 
     /// Alice's wallet, her session allowed `hit()` below quorum, with Bob's GitHub identity linked
-    /// and a threshold of 2.
+    /// with an admin session and a threshold of 2.
     function _twoPlatforms() internal returns (address w) {
         w = _claimWith(_adminHitOnly());
-        _link(w, GITHUB, BOB, w, "", _admin());
+        _link(w, GITHUB, BOB, w, _key(CAROL_PK), _admin());
         _root(w, address(validator), abi.encodeCall(IIdentityValidator.setThreshold, (2)));
     }
 

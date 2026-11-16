@@ -468,10 +468,7 @@ abstract contract WalletTestBase is Test, Trees {
             // The revert selector is the first four bytes.
             // forge-lint: disable-next-line(unsafe-typecast)
             bytes4 s = bytes4(err);
-            assertTrue(
-                s == IEntryPoint.FailedOp.selector || s == IEntryPoint.FailedOpWithRevert.selector,
-                string.concat("not a validation failure: ", why)
-            );
+            assertEq(s, IEntryPoint.FailedOp.selector, string.concat("not a validation failure: ", why));
         }
     }
 
