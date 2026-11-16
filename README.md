@@ -164,10 +164,9 @@ Publishing the release triggers CI's release jobs:
    crates.io at this version is skipped, so a re-run finishes a partial
    release.
 3. `publish-npm`: after `publish-crates`, builds and publishes
-   `@libid/contracts` with provenance, authenticated by `NPM_TOKEN` when set,
-   else by npm OIDC trusted publishing. A prerelease publishes under its first
-   prerelease identifier as the dist-tag (`1.2.0-rc.1` → `rc`); a plain
-   version under `latest`.
+   `@libid/contracts` with provenance, authenticated by npm OIDC trusted
+   publishing. A prerelease publishes under its first prerelease identifier
+   as the dist-tag (`1.2.0-rc.1` → `rc`); a plain version under `latest`.
 
 ## License
 
