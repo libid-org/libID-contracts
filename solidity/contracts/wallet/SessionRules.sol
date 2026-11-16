@@ -71,13 +71,19 @@ contract SessionRules is IdentityValidatorState {
         (,, ModeSelector modeSelector,) = Mode.wrap(mode).decodeMode();
         if (ModeSelector.unwrap(modeSelector) != 0) return (false, v);
         address paymaster;
-        if (userOp.paymasterAndData.length != 0) {
-            paymaster = userOp.paymaster();
-            // Refused at every threshold: `address(0)` stands for no paymaster below. EntryPoint v0.8 and
-            // later reject it before the account anyway.
-            if (paymaster == address(0)) return (false, v);
+        uint256 maxGasCost;
+        // At quorum neither is read.
+        if (below) {
+            if (userOp.paymasterAndData.length != 0) {
+                paymaster = userOp.paymaster();
+                // `address(0)` stands for no paymaster. EntryPoint v0.8 and later reject it before the account
+                // anyway.
+                if (paymaster == address(0)) return (false, v);
+            } else {
+                maxGasCost = _maxGasCost(userOp);
+            }
         }
-        return (_allowed(v, auth, mode, executions, paymaster, _maxGasCost(userOp), below), v);
+        return (_allowed(v, auth, mode, executions, paymaster, maxGasCost, below), v);
     }
 
     /// `_allowed` for a direct execution, with no paymaster and no gas charge, and `v` with its window narrowed
