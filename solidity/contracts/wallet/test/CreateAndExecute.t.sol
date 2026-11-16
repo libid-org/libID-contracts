@@ -66,10 +66,10 @@ contract CreateAndExecuteTest is ExecuteBase {
         (tokens[0], tokens[1]) = (NATIVE_TOKEN, address(token));
         Execution[] memory x = new Execution[](5);
         x[0] = _x(address(registry), linkFee, abi.encodeCall(IWalletRegistry.linkIdentity, (X, V2, list, _admin())));
-        x[1] =
-            _x(address(identities), FEE, abi.encodeCall(IIdentityRegistry.bindPrivately, (X, V2, list, 0, address(0))));
+        // The link verified this proof, so the bind's Notary Fee is already paid.
+        x[1] = _x(address(identities), 0, abi.encodeCall(IIdentityRegistry.bindPrivately, (X, V2, list, 0, address(0))));
         x[2] = _x(address(escrow), 0, abi.encodeCall(IHandleEscrow.claim, (HANDLE, tokens, w)));
-        x[3] = _x(relayer, linkFee + FEE, "");
+        x[3] = _x(relayer, linkFee, "");
         x[4] = _x(
             address(validator),
             0,
@@ -86,7 +86,7 @@ contract CreateAndExecuteTest is ExecuteBase {
 
     function _send(bytes memory calls, bytes memory auth) internal {
         vm.prank(relayer, relayer);
-        IWalletFactoryOnboarding(address(factory)).createAndExecute{value: linkFee + FEE}(
+        IWalletFactoryOnboarding(address(factory)).createAndExecute{value: linkFee}(
             X, ALICE, AUTHORIZED_MODE, _data(calls, auth)
         );
     }
@@ -101,7 +101,7 @@ contract CreateAndExecuteTest is ExecuteBase {
         assertEq(holder, w, "handle not bound to the wallet");
         assertEq(escrow.escrowed(HANDLE, NATIVE_TOKEN), 0, "native left in the escrow");
         assertEq(escrow.escrowed(HANDLE, address(token)), 0, "token left in the escrow");
-        assertEq(w.balance, CLAIMED - linkFee - FEE, "wallet native");
+        assertEq(w.balance, CLAIMED - linkFee, "wallet native");
         assertEq(token.balanceOf(w), CLAIMED, "wallet token");
         assertEq(relayer.balance, 1 ether, "the relayer is not even");
         assertEq(address(factory).balance, 0, "value left in the factory");

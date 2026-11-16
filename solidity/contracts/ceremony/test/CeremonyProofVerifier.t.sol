@@ -94,6 +94,48 @@ contract CeremonyProofVerifierTest is Test {
         assertTrue(platform.lastDigest() != second.lastDigest(), "another ceremony version is another digest");
     }
 
+    // ─── One verification per transaction ──────────────────────────
+
+    function test_aRepeatInOneTransactionIsFreeAndNotVerifiedAgain() public {
+        this.verifyTwice{value: FEE}(0);
+    }
+
+    function test_aRepeatRefusesAFee() public {
+        vm.expectRevert(abi.encodeWithSelector(CeremonyProofVerifier.WrongValue.selector, 0, FEE));
+        this.verifyTwice{value: 2 * FEE}(FEE);
+    }
+
+    /// Verifies `_payload(1)` twice in one transaction, the second time with `again`.
+    function verifyTwice(uint256 again) external payable {
+        assertEq(pv.quoteProof(PLATFORM_ID, 1, _payload(1)), FEE);
+        ICeremony.VerifiedClaim memory first = pv.verify{value: FEE}(PLATFORM_ID, 1, _payload(1));
+        assertEq(pv.quoteProof(PLATFORM_ID, 1, _payload(1)), 0, "a repeat is free");
+        assertEq(pv.quoteProof(PLATFORM_ID, 1, _payload(2)), FEE, "another payload is not");
+
+        vm.expectCall(address(platform), abi.encodeWithSelector(IPlatformVerifier.verify.selector), 0);
+        ICeremony.VerifiedClaim memory second = pv.verify{value: again}(PLATFORM_ID, 1, _payload(1));
+        assertEq(keccak256(abi.encode(second)), keccak256(abi.encode(first)), "not the same claim");
+    }
+
+    function test_anotherSlotsVerifierVerifiesAgain() public {
+        StubPlatformVerifier second = new StubPlatformVerifier(PLATFORM_ID, FEE);
+        vm.prank(OWNER);
+        pv.setVerifier(PLATFORM_ID, 2, IPlatformVerifier(address(second)));
+        this.verifyThenQuote{value: FEE}();
+    }
+
+    function verifyThenQuote() external payable {
+        pv.verify{value: FEE}(PLATFORM_ID, 1, _payload(1));
+        assertEq(pv.quoteProof(PLATFORM_ID, 2, _payload(1)), FEE);
+    }
+
+    function test_aLaterTransactionPaysAgain() public {
+        pv.verify{value: FEE}(PLATFORM_ID, 1, _payload(1));
+        assertEq(pv.quoteProof(PLATFORM_ID, 1, _payload(1)), FEE);
+        vm.expectCall(address(platform), abi.encodeWithSelector(IPlatformVerifier.verify.selector), 1);
+        pv.verify{value: FEE}(PLATFORM_ID, 1, _payload(1));
+    }
+
     // ─── Dispatch ───────────────────────────────────────────────────
 
     function test_rejectsAPairOutsideTheSupportedVersionSet() public {

@@ -89,7 +89,7 @@ contract WalletRegistry is IWalletRegistry {
         bytes calldata payload,
         IIdentityValidator.Policy calldata policy
     ) private returns (bytes32 idNode, bytes32 digest, address wallet, bytes memory key) {
-        uint256 required = PROOF_VERIFIER.quote(platformId, verifierVersion);
+        uint256 required = PROOF_VERIFIER.quoteProof(platformId, verifierVersion, payload);
         if (msg.value != required) revert WrongValue(required, msg.value);
         ICeremony.VerifiedClaim memory claimed =
             PROOF_VERIFIER.verify{value: required}(platformId, verifierVersion, payload);

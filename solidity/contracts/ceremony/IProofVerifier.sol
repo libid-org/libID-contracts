@@ -23,6 +23,13 @@ interface IProofVerifier {
     ///      (REQ-COMMON-06E).
     function quote(bytes32 platformId, uint16 verifierVersion) external view returns (uint256);
 
+    /// @notice What `verify` charges for this payload now: zero when this
+    ///         transaction already verified it, otherwise `quote`.
+    function quoteProof(bytes32 platformId, uint16 verifierVersion, bytes calldata payload)
+        external
+        view
+        returns (uint256);
+
     /// @notice Whether any version of this platform can be verified here.
     ///
     /// @dev So a Consumer can tell "no holder" from "not wired yet" without
@@ -35,7 +42,8 @@ interface IProofVerifier {
     /// @dev `verifierVersion` selects which registered verifier answers; it is
     ///      this chain's slot number, chosen by governance here, and unrelated
     ///      to the ceremony version the verifier itself supports. `payload` is
-    ///      opaque at this hop.
+    ///      opaque at this hop. A payload verified earlier in the same
+    ///      transaction returns that claim again, for no fee.
     function verify(bytes32 platformId, uint16 verifierVersion, bytes calldata payload)
         external
         payable

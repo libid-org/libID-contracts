@@ -63,6 +63,8 @@ contract CeremonyProofVerifier is IProofVerifier, Initializable, UUPSUpgradeable
 
     event VerifierConfigured(bytes32 indexed platformId, uint16 indexed verifierVersion, address verifier);
 
+    bytes32 private constant VERIFIED_NAMESPACE = keccak256("libid.proof-verifier.verified");
+
     error UnknownVersion(bytes32 platformId, uint16 verifierVersion);
     error WrongValue(uint256 required, uint256 provided);
     error VerifierPlatformMismatch(bytes32 expected, bytes32 found);
@@ -93,12 +95,31 @@ contract CeremonyProofVerifier is IProofVerifier, Initializable, UUPSUpgradeable
     }
 
     /// @inheritdoc IProofVerifier
+    function quoteProof(bytes32 platformId, uint16 verifierVersion, bytes calldata payload)
+        external
+        view
+        returns (uint256)
+    {
+        IPlatformVerifier verifier = _requireVerifier(platformId, verifierVersion);
+        return _verified(_slot(verifier, payload)).length != 0 ? 0 : verifier.quote();
+    }
+
+    /// @inheritdoc IProofVerifier
     function verify(bytes32 platformId, uint16 verifierVersion, bytes calldata payload)
         external
         payable
-        returns (ICeremony.VerifiedClaim memory)
+        returns (ICeremony.VerifiedClaim memory claim)
     {
         IPlatformVerifier verifier = _requireVerifier(platformId, verifierVersion);
+        bytes32 slot = _slot(verifier, payload);
+
+        // A claim depends only on the payload and the verifier, so a repeat in
+        // this transaction gets the same claim, its one Notary Fee already paid.
+        bytes memory verified = _verified(slot);
+        if (verified.length != 0) {
+            if (msg.value != 0) revert WrongValue(0, msg.value);
+            return abi.decode(verified, (ICeremony.VerifiedClaim));
+        }
 
         // Exact value at every hop: no refund path, so no partial-failure rule
         // is needed and nothing can be captured in transit (REQ-COMMON-06D).
@@ -108,7 +129,8 @@ contract CeremonyProofVerifier is IProofVerifier, Initializable, UUPSUpgradeable
         // Forwarded whole and returned whole. The payload is the verifier's to
         // decode and the claim is the Consumer's to act on; this hop reads
         // neither (REQ-COMMON-06B).
-        return verifier.verify{value: required}(payload);
+        claim = verifier.verify{value: required}(payload);
+        _remember(slot, abi.encode(claim));
     }
 
     /// @notice Add or remove a Platform Verifier from the Supported Version Set.
@@ -142,6 +164,40 @@ contract CeremonyProofVerifier is IProofVerifier, Initializable, UUPSUpgradeable
         // nothing (REQ-COMMON-05A).
         if (address(verifier) == address(0)) revert UnknownVersion(platformId, verifierVersion);
         return verifier;
+    }
+
+    /// Transient slot of a payload's claim under `verifier`.
+    function _slot(IPlatformVerifier verifier, bytes calldata payload) private pure returns (bytes32) {
+        return keccak256(abi.encode(VERIFIED_NAMESPACE, verifier, keccak256(payload)));
+    }
+
+    /// The claim this transaction verified at `slot`, or empty: its length
+    /// plus one at `slot`, its words from `slot + 1`.
+    function _verified(bytes32 slot) private view returns (bytes memory data) {
+        assembly ("memory-safe") {
+            let stored := tload(slot)
+            if stored {
+                let length := sub(stored, 1)
+                data := mload(0x40)
+                mstore(data, length)
+                let words := shr(5, add(length, 31))
+                for { let i := 0 } lt(i, words) { i := add(i, 1) } {
+                    mstore(add(data, add(32, shl(5, i))), tload(add(slot, add(i, 1))))
+                }
+                mstore(0x40, add(data, add(32, shl(5, words))))
+            }
+        }
+    }
+
+    function _remember(bytes32 slot, bytes memory data) private {
+        assembly ("memory-safe") {
+            let length := mload(data)
+            tstore(slot, add(length, 1))
+            let words := shr(5, add(length, 31))
+            for { let i := 0 } lt(i, words) { i := add(i, 1) } {
+                tstore(add(slot, add(i, 1)), mload(add(data, add(32, shl(5, i)))))
+            }
+        }
     }
 
     /// @dev Required by UUPS -- only the owner can upgrade.

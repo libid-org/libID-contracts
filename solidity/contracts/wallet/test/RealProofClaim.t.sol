@@ -134,19 +134,17 @@ contract RealProofClaimTest is ExecuteBase {
         w = factory.walletAddress(X, idNode);
         escrow.deposit{value: CLAIMED}(X, handleNode, NATIVE_TOKEN, CLAIMED);
         uint256 linkFee = registry.quote(X, version);
-        uint256 bindFee = identities.quoteBind(X, version);
         address[] memory tokens = new address[](1);
         tokens[0] = NATIVE_TOKEN;
         Execution[] memory x = new Execution[](5);
         x[0] =
             _x(address(registry), linkFee, abi.encodeCall(IWalletRegistry.linkIdentity, (X, version, list, _admin())));
+        // The link verified this proof, so the bind's Notary Fee is already paid.
         x[1] = _x(
-            address(identities),
-            bindFee,
-            abi.encodeCall(IIdentityRegistry.bindPrivately, (X, version, list, 0, address(0)))
+            address(identities), 0, abi.encodeCall(IIdentityRegistry.bindPrivately, (X, version, list, 0, address(0)))
         );
         x[2] = _x(address(escrow), 0, abi.encodeCall(IHandleEscrow.claim, (handleNode, tokens, w)));
-        x[3] = _x(relayer, linkFee + bindFee, "");
+        x[3] = _x(relayer, linkFee, "");
         x[4] = _x(
             address(validator),
             0,
@@ -156,13 +154,13 @@ contract RealProofClaimTest is ExecuteBase {
         uint256 n = uint256(uint160(address(validator))) << 96;
         bytes memory auth = _aliceFor(w, calls, n);
         vm.prank(relayer, relayer);
-        factory.createAndExecute{value: linkFee + bindFee}(X, idNode, AUTHORIZED_MODE, _data(calls, auth));
+        factory.createAndExecute{value: linkFee}(X, idNode, AUTHORIZED_MODE, _data(calls, auth));
         Vm.Gas memory used = vm.lastFrameGas();
         // forge-lint: disable-next-line(unsafe-typecast)
         gas = used.gasTotalUsed - uint64(used.gasRefunded);
 
         assertEq(identities.resolveId(idNode), w, "not bound");
-        assertEq(w.balance, CLAIMED - linkFee - bindFee, "not claimed");
+        assertEq(w.balance, CLAIMED - linkFee, "not claimed");
         assertEq(relayer.balance, 1 ether, "the relayer is not repaid");
         IIdentityValidator.Session memory k = validator.sessionOf(w, _key(ALICE_PK));
         assertTrue(k.admin && k.activeAt == 0, "K is not the first session");

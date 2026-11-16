@@ -275,7 +275,7 @@ contract IdentityRegistry is
         if (primary && bytes(handle).length == 0) revert PrimaryWithoutHandle();
 
         IProofVerifier pv = _s().proofVerifier;
-        uint256 required = pv.quote(platformId, verifierVersion);
+        uint256 required = pv.quoteProof(platformId, verifierVersion, payload);
         if (msg.value < required) revert WrongBindValue(required, msg.value);
 
         claimed = pv.verify{value: required}(platformId, verifierVersion, payload);

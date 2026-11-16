@@ -19,18 +19,20 @@ One relayer transaction creates the wallet and runs its first batch:
 
 ```solidity
 // K, Alice's new session key, signs the batch for the wallet's address before it exists.
-factory.createAndExecute{value: linkFee + bindFee}(
+factory.createAndExecute{value: linkFee}(
     platformId, idNode, AUTHORIZED_MODE, abi.encode(calls, deadline, callGas, abi.encode(authorization))
 );
 // calls: registry.linkIdentity{value: linkFee}(platformId, v, listPayload, policy),   // K, the first session
-//        identities.bindPrivately{value: bindFee}(platformId, v, listPayload, 0, address(0)),
+//        identities.bindPrivately(platformId, v, listPayload, 0, address(0)),         // free: verified above
 //        escrow.claim(handleNode, tokens, w),
-//        relayer.call{value: linkFee + bindFee}(""),                                  // the relayer's refund
+//        relayer.call{value: linkFee}(""),                                            // the relayer's refund
 //        validator.addSession(identity, botKey, botPolicy)                            // optional
 ```
 
 `listPayload` is one sign-in proving an operation list of `bind-identity(w)`
 and `link-identity(w, K, policy)`, so the same payload serves both calls.
+`CeremonyProofVerifier` verifies it once per transaction: the link pays its
+Notary Fee, and the bind gets the same claim for no fee (`quoteProof` is 0).
 `createAndExecute` creates the wallet if it has no code, then calls its
 `execute(mode, data)` with `msg.value`. It grants nothing: the batch passes the same end
 check as any direct batch. Any failure reverts the whole transaction, the
