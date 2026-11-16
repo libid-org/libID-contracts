@@ -344,12 +344,13 @@ contract IdentityValidator is IIdentityValidator, IdentityValidatorState {
             rulesHash: rulesHash
         });
         // A counter of the same key and rules keeps its spend.
+        address last;
         for (uint256 i; i < r.allowances.length; ++i) {
             Allowance memory allowance = r.allowances[i];
-            if (allowance.period >= 1 << 47) revert BadAllowance(allowance.token);
-            for (uint256 j; j < i; ++j) {
-                if (r.allowances[j].token == allowance.token) revert BadAllowance(allowance.token);
+            if (allowance.period >= 1 << 47 || (i != 0 && allowance.token <= last)) {
+                revert BadAllowance(allowance.token);
             }
+            last = allowance.token;
             Counter storage c = _counter(account, keyHash, rulesHash, allowance.token);
             (c.amount, c.period, c.listed) = (allowance.amount, allowance.period, true);
         }

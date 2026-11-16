@@ -109,6 +109,7 @@ is charged to `NATIVE_TOKEN` with its value.
 
 ### Allowances and `at`
 
+- Allowances are listed by strictly ascending token address.
 - Allowances are charged in validation, even when the execution reverts.
 - The period is `at - at % period`, or the session's whole life when
   `period == 0`. A charging operation's validity window is that period

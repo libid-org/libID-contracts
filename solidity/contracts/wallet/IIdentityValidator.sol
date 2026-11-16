@@ -45,7 +45,7 @@ interface IIdentityValidator is IERC7579Validator {
     }
 
     /// @dev What a session may do below quorum: Merkle roots of call leaves, app separators and paymasters
-    ///      that pay its gas, and allowances.
+    ///      that pay its gas, and allowances by strictly ascending token.
     struct Rules {
         bytes32 scopeRoot;
         bytes32 domainsRoot;
@@ -165,7 +165,7 @@ interface IIdentityValidator is IERC7579Validator {
     error AdminSessionExpires(uint48 validUntil);
     /// The session carried by install data is not an admin session.
     error InstallSessionNotAdmin();
-    /// An allowance repeats an earlier one's token, or its period reaches bit 47.
+    /// An allowance's token does not sort after the one before it, or its period reaches bit 47.
     error BadAllowance(address token);
     /// A root operation targets the account, or this validator's `setThreshold`, `revokeSession`,
     /// `unlink`, `setRecoveryDelay` or `setRecoveryFrozen`.
