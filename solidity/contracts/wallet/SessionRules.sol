@@ -15,7 +15,7 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {MerkleProof} from "@openzeppelin/contracts/utils/cryptography/MerkleProof.sol";
 
 import {NATIVE_TOKEN} from "../NativeToken.sol";
-import {bytesAt} from "./AbiBytes.sol";
+import {bytesAt, canonicalBatch} from "./AbiBytes.sol";
 import {IIdentityValidator} from "./IIdentityValidator.sol";
 import {IdentityValidatorState} from "./IdentityValidatorState.sol";
 
@@ -57,8 +57,8 @@ contract SessionRules is IdentityValidatorState {
         REGISTRY = walletRegistry;
     }
 
-    /// `_allowed` for a UserOperation's `execute(mode, executionCalldata)` under the default mode selector, and
-    /// `v` with its window narrowed to the periods charged.
+    /// `_allowed` for a UserOperation's `execute(mode, executionCalldata)` under the default mode selector, a
+    /// batch encoded canonically, and `v` with its window narrowed to the periods charged.
     function allowed(Verified memory v, PackedUserOperation calldata userOp, bool below)
         external
         returns (bool, Verified memory)
@@ -68,8 +68,14 @@ contract SessionRules is IdentityValidatorState {
         if (_selector(callData) != IERC7579Execution.execute.selector) return (false, v);
         IIdentityValidator.Authorization memory auth = abi.decode(userOp.signature, (IIdentityValidator.Authorization));
         (bytes32 mode, bytes calldata executions) = _executions(callData);
-        (,, ModeSelector modeSelector,) = Mode.wrap(mode).decodeMode();
+        (CallType callType,, ModeSelector modeSelector,) = Mode.wrap(mode).decodeMode();
         if (ModeSelector.unwrap(modeSelector) != 0) return (false, v);
+        // The rules read the batch from their own calldata, the account from its own: only a canonical one
+        // reads the same calls in both.
+        if (callType == ERC7579Utils.CALLTYPE_BATCH) {
+            (, bool canonical) = canonicalBatch(executions);
+            if (!canonical) return (false, v);
+        }
         address paymaster;
         uint256 maxGasCost;
         // At quorum neither is read.

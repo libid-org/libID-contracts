@@ -69,6 +69,8 @@ One `execute(bytes32 mode, bytes data)`, ERC-7579's, takes two kinds of mode:
 - A default mode (selector 0, single or batch, no delegatecall): from the
   EntryPoint only, whose validation already checked the operation. Not from
   the wallet itself either.
+  Validation refuses a batch that is not exactly `abi.encode(Execution[])`
+  of the calls it decodes to.
 - `AUTHORIZED_MODE`, exactly the word of batch call type, default exec type,
   selector `bytes4(keccak256("libid.webwallet.authorized"))` and zero
   payload: from anyone. `data` is

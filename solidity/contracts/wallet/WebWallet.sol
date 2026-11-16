@@ -32,7 +32,7 @@ import {
     AccountERC7579Upgradeable
 } from "@openzeppelin/contracts-upgradeable/account/extensions/draft-AccountERC7579Upgradeable.sol";
 
-import {bytesAt} from "./AbiBytes.sol";
+import {bytesAt, canonicalBatch} from "./AbiBytes.sol";
 import {IIdentityValidator} from "./IIdentityValidator.sol";
 import {AUTHORIZED_MODE, CALL_OVERHEAD, INonceIncrement, IWebWallet} from "./IWebWallet.sol";
 
@@ -48,7 +48,6 @@ contract WebWallet is
     IWebWallet
 {
     using ERC7579Utils for Mode;
-    using ERC7579Utils for bytes;
 
     /// The `reinitializer` version of `migrate`: each implementation that migrates raises it.
     uint64 private constant MIGRATION = 2;
@@ -201,17 +200,9 @@ contract WebWallet is
     /// The validator checks the batch once it ran, against the nonce, threshold and domain of entry.
     function _executeAuthorized(bytes calldata data) private {
         bytes calldata executionCalldata = bytesAt(data, 0);
-        Execution[] calldata batch = executionCalldata.decodeBatch();
-        uint256 free;
-        assembly ("memory-safe") {
-            free := mload(0x40)
-        }
+        (Execution[] calldata batch, bool canonical) = canonicalBatch(executionCalldata);
         // The signers sign these bytes alone, so no call may be read from outside them.
-        if (keccak256(abi.encode(batch)) != keccak256(executionCalldata)) revert NoncanonicalBatch();
-        // The calls reuse the encoding's memory, already paid for.
-        assembly ("memory-safe") {
-            mstore(0x40, free)
-        }
+        if (!canonical) revert NoncanonicalBatch();
         (uint256 value, uint48 deadline, uint256 callGas) = abi.decode(data[32:128], (uint256, uint48, uint256));
         if (msg.value != value) revert WrongValue(value, msg.value);
         uint192 key = uint192(uint160(VALIDATOR)) << 32;
