@@ -107,7 +107,7 @@ contract DirectExecuteEdgesTest is ExecuteBase {
 
         bytes32 h = _execDigest(w, AUTHORIZED_MODE | bytes32(uint256(1)), calls, at, n, deadline);
         _refuses(w, calls, _alice(h, at, deadline), NOT_AUTHORIZED, "mode");
-        _refuses(w, bytes.concat(calls, hex"00"), auth, NOT_AUTHORIZED, "a trailing byte");
+        _refuses(w, bytes.concat(calls, hex"00"), auth, IWebWallet.NoncanonicalBatch.selector, "a trailing byte");
         _refuses(w, calls, abi.encode(a, deadline + 1, CALL_GAS), NOT_AUTHORIZED, "deadline");
         _refuses(w, calls, abi.encode(a, deadline, CALL_GAS - 1), NOT_AUTHORIZED, "callGas");
         h = _execDigest(w, AUTHORIZED_MODE, calls, at, n, at - 1);

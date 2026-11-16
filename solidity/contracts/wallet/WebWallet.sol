@@ -41,6 +41,7 @@ contract WebWallet is
     IWebWallet
 {
     using ERC7579Utils for Mode;
+    using ERC7579Utils for bytes;
 
     /// The `reinitializer` version of `migrate`: each implementation that migrates raises it.
     uint64 private constant MIGRATION = 2;
@@ -198,6 +199,10 @@ contract WebWallet is
     /// The validator checks the batch once it ran, against the nonce, threshold and domain of entry.
     function _executeAuthorized(bytes calldata data) private {
         bytes calldata executionCalldata = bytesAt(data, 0);
+        // The signers sign these bytes alone, so no call may be read from outside them.
+        if (keccak256(abi.encode(executionCalldata.decodeBatch())) != keccak256(executionCalldata)) {
+            revert NoncanonicalBatch();
+        }
         (uint48 deadline, uint256 callGas) = abi.decode(data[32:96], (uint48, uint256));
         uint192 key = uint192(uint160(VALIDATOR)) << 32;
         IEntryPoint ep = entryPoint();

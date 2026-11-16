@@ -72,16 +72,19 @@ One `execute(bytes32 mode, bytes data)`, ERC-7579's, takes two kinds of mode:
   payload: from anyone. `data` is
   `abi.encode(bytes executionCalldata, uint48 deadline, uint256 callGas, bytes authorization)`,
   with `authorization = abi.encode(Authorization)`. The wallet:
-  1. consumes the EntryPoint nonce under key
+  1. requires `executionCalldata` to be exactly `abi.encode(Execution[])`
+     of the calls it decodes to, else `NoncanonicalBatch`: the signers sign
+     those bytes alone, so no call may be read from outside them;
+  2. consumes the EntryPoint nonce under key
      `uint192(uint160(validator)) << 32`, which UserOperations share;
-  2. reads `threshold(wallet)` and its own EIP-712 domain separator;
-  3. requires `gasleft() * 63 / 64` of at least `callGas` plus a fixed
+  3. reads `threshold(wallet)` and its own EIP-712 domain separator;
+  4. requires `gasleft() * 63 / 64` of at least `callGas` plus a fixed
      20,000 for the calls' own start, so the first call gets at least
      `callGas` (EIP-150 forwards at most 63/64 of the gas left). The 20,000
      covers a first call of up to about 16 KiB of call data in a batch of up
      to 64; a larger first call may get a little less;
-  4. runs the batch;
-  5. calls the validator's
+  5. runs the batch;
+  6. calls the validator's
      `checkExecution(mode, executionCalldata, deadline, callGas, authorization, nonce, threshold, domainSeparator)`,
      with the domain separator it read before the batch.
 

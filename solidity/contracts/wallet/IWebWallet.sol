@@ -31,7 +31,8 @@ interface INonceIncrement {
 ///      `execute(mode, data)` takes a default-selector mode from the EntryPoint only, and `AUTHORIZED_MODE`
 ///      from anyone, checked at the end: `data` is then
 ///      `abi.encode(bytes executionCalldata, uint48 deadline, uint256 callGas, bytes authorization)`.
-///      For it the wallet consumes the EntryPoint nonce under key `uint192(uint160(validator)) << 32`,
+///      For it the wallet requires `executionCalldata` to be the canonical `abi.encode(Execution[])` of its
+///      calls, consumes the EntryPoint nonce under key `uint192(uint160(validator)) << 32`,
 ///      reads the threshold and its EIP-712 domain separator, requires
 ///      `gasleft() * 63 / 64 >= callGas + 20_000`, so that the first call gets at least `callGas` when it
 ///      carries up to about 16 KiB of call data in a batch of up to 64, runs the batch, then calls the
@@ -60,6 +61,9 @@ interface IWebWallet is
 
     /// A mode selector other than zero, outside `AUTHORIZED_MODE`.
     error UnsupportedModeSelector(bytes4 selector);
+
+    /// The batch is not `abi.encode(Execution[])` of the calls it decodes to.
+    error NoncanonicalBatch();
 
     /// The gas left before the calls would give the first call less than the signed `callGas`.
     error InsufficientCallGas(uint256 callGas, uint256 left);
