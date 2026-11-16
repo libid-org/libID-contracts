@@ -2,7 +2,10 @@
 //! [`Provider`] that has a wallet wired in. Signing is the consumer's
 //! concern; nothing here constructs or holds keys.
 
+use std::future::Future;
+
 use alloy::{
+    eips::BlockId,
     network::TransactionBuilder,
     primitives::{
         b256,
@@ -95,6 +98,11 @@ pub trait Mined: Sized {
     /// node mines a reverting transaction and hands back its receipt, so a
     /// receipt alone says nothing landed.
     fn succeeded(self, label: &str) -> Result<Self>;
+
+    /// The block the transaction was mined in. A read of its effects at
+    /// this block, not at `latest`, cannot land on a load-balanced
+    /// backend that is a block behind: such a backend answers an error.
+    fn block(&self) -> BlockId;
 }
 
 impl Mined for TransactionReceipt {
@@ -108,21 +116,36 @@ impl Mined for TransactionReceipt {
             })
         }
     }
+
+    fn block(&self) -> BlockId {
+        self.block_hash.map_or(BlockId::latest(), BlockId::hash)
+    }
 }
 
-/// The implementation the ERC1967 proxy at `proxy` runs, from its EIP-1967
-/// slot. Zero for an account that is no such proxy.
-pub async fn implementation_of<P: Provider>(
-    provider: &P,
-    proxy: Address,
-) -> Result<Address> {
-    let slot = provider
-        .get_storage_at(proxy, IMPLEMENTATION_SLOT.into())
-        .await
-        .map_err(|e| Error::Rpc {
-            detail: format!("failed to read the implementation slot of {proxy}: {e}"),
-        })?;
-    Ok(Address::from_word(slot.into()))
+/// Reads of an ERC1967 proxy through a provider.
+pub trait ProxyReads {
+    /// The implementation the ERC1967 proxy at `proxy` runs at `block`,
+    /// from its EIP-1967 slot. Zero for an account that is no such proxy.
+    fn implementation_of(
+        &self,
+        proxy: Address,
+        block: BlockId,
+    ) -> impl Future<Output = Result<Address>> + Send;
+}
+
+impl<P: Provider> ProxyReads for P {
+    async fn implementation_of(&self, proxy: Address, block: BlockId) -> Result<Address> {
+        let slot = self
+            .get_storage_at(proxy, IMPLEMENTATION_SLOT.into())
+            .block_id(block)
+            .await
+            .map_err(|e| Error::Rpc {
+                detail: format!(
+                    "failed to read the implementation slot of {proxy} at {block}: {e}"
+                ),
+            })?;
+        Ok(Address::from_word(slot.into()))
+    }
 }
 
 /// Deploy a contract and return its address.
@@ -272,14 +295,14 @@ pub async fn upgrade_uups<P: Provider>(
         .map_err(|e| Error::Rpc {
             detail: format!("{contract} upgradeToAndCall send failed: {e}"),
         })?;
-    pending
+    let receipt = pending
         .get_receipt()
         .await
         .map_err(|e| Error::Rpc {
             detail: format!("{contract} upgradeToAndCall confirmation failed: {e}"),
         })?
         .succeeded(&format!("{contract}.upgradeToAndCall"))?;
-    let found = implementation_of(provider, proxy).await?;
+    let found = provider.implementation_of(proxy, receipt.block()).await?;
     if found != new_impl {
         return Err(Error::NotUpgraded {
             contract: contract.to_string(),
