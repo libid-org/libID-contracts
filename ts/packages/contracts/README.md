@@ -4,9 +4,9 @@ Typed, viem-ready ABIs for the libid identity stack (NotaryService,
 CeremonyProofVerifier, GoogleJwtRoots, IdentityRegistry, HandleEscrow,
 ReferralSplitter, HandleResolver, LibidFactory, WTIA9, and the WebWallet
 contracts: WebWallet, IdentityValidator, WalletRegistry, WalletFactory), the
-errors a bind can revert with, a call builder for every state-changing
-function, and the identity helper layer: handle normalization, node derivation
-and resolution.
+errors a bind or a WalletRegistry proof can revert with, a call builder for
+every state-changing function, and the identity helper layer: handle
+normalization, node derivation and resolution.
 
 `src/abis/` and `src/calls/` are generated from the forge artifacts
 (`solidity/out`) by `scripts/codegen.mjs` and are not committed. Each ABI is
@@ -214,6 +214,11 @@ token's `iat`, not an attestation.
 The Honk verifiers raise errors such as `SumcheckFailed()` that their own ABI
 omits. `honkVerifierErrorsAbi` declares them under bb's names, and
 `bindErrorsAbi` includes it.
+
+`walletRegistryErrorsAbi` does the same for `linkIdentity` and
+`addSessionByProof`: the registry, the same proof route, and the
+IdentityValidator. A wrong value is the Proof Verifier's
+`WrongValue(quote, value)`.
 
 ## Executing a wallet batch directly
 

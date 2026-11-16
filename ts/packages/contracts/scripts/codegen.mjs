@@ -90,11 +90,28 @@ function readArtifact(file, name) {
   }
 }
 
-/// The errors of every contract on the bind route, each signature once.
-function bindErrors() {
+// A WalletRegistry call verifies its proof on the bind route's proof hops,
+// those between the IdentityRegistry and the fee receiver, then calls the
+// IdentityValidator.
+const walletRegistryRoute = (() => {
+  const [first, ...rest] = bindRoute
+  const last = rest.pop()
+  if (first?.[1] !== 'IdentityRegistry' || last?.[1] !== 'ReferralSplitter') {
+    throw new Error('bindRoute no longer starts at IdentityRegistry and ends at ReferralSplitter')
+  }
+  return [
+    ['WalletRegistry.sol', 'WalletRegistry'],
+    ...rest,
+    ['IdentityValidator.sol', 'IdentityValidator'],
+  ]
+})()
+
+/// The errors of every contract on `route`, each signature once.
+/// @param {readonly (readonly [string, string])[]} route
+function routeErrors(route) {
   /** @type {Map<string, AbiError>} */
   const bySignature = new Map()
-  for (const [file, name] of bindRoute) {
+  for (const [file, name] of route) {
     for (const entry of readArtifact(file, name).abi) {
       if (entry.type !== 'error') continue
       const signature = `${entry.name}(${entry.inputs.map((i) => i.type).join(',')})`
@@ -143,17 +160,22 @@ export const ${exportName} = ${body} as const satisfies Abi
     }
   }
 
-  const route = bindRoute.map(([file, name]) => `${file}/${name}.json`).join(', ')
-  writeFileSync(
-    join(abisTarget, 'bindErrors.ts'),
-    `${banner(route)}
+  for (const [moduleName, route, what] of /** @type {const} */ ([
+    ['bindErrors', bindRoute, 'a `bind`'],
+    ['walletRegistryErrors', walletRegistryRoute, 'a `WalletRegistry` link or session by proof'],
+  ])) {
+    const exportName = `${moduleName}Abi`
+    writeFileSync(
+      join(abisTarget, `${moduleName}.ts`),
+      `${banner(route.map(([file, name]) => `${file}/${name}.json`).join(', '))}
 import type { Abi } from 'viem'
 
-/// Every error a \`bind\` can revert with, each signature once.
-export const bindErrorsAbi = ${JSON.stringify(bindErrors(), null, 2)} as const satisfies Abi
+/// Every error ${what} can revert with, each signature once.
+export const ${exportName} = ${JSON.stringify(routeErrors(route), null, 2)} as const satisfies Abi
 `,
-  )
-  moduleNames.push({ moduleName: 'bindErrors', exportName: 'bindErrorsAbi' })
+    )
+    moduleNames.push({ moduleName, exportName })
+  }
 
   const index = `${banner('*')}${moduleNames
     .map(({ moduleName, exportName }) => `export { ${exportName} } from './${moduleName}.js'`)
