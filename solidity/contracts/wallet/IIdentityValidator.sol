@@ -190,7 +190,7 @@ interface IIdentityValidator is IERC7579Validator {
         returns (AllowanceState memory);
     /// The identity's current generation: a session of any other is dead.
     function generationOf(address account, bytes32 identity) external view returns (uint32);
-    /// Distinct platforms with at least one linked identity: the most `threshold` can be.
+    /// Distinct platforms with at least one linked identity.
     function linkedPlatforms(address account) external view returns (uint32);
     /// Distinct platforms an admin operation's admin sessions need: two identities on one platform count once.
     /// Defaults to 1.
@@ -209,7 +209,8 @@ interface IIdentityValidator is IERC7579Validator {
     function link(address account, bytes32 platformId, bytes32 idNode) external;
     /// Active at once while the account never had a session, else pending for `recoveryDelay` and `byProof`.
     /// A newer pending session of the same identity replaces the older one.
-    /// Refused while the identity's recovery is frozen.
+    /// Refused while the identity's recovery is frozen, or when the replacement leaves fewer admin
+    /// platforms than the threshold (see `ThresholdTooHigh`).
     function addSessionByProof(address account, bytes32 identity, bytes calldata key, Policy calldata policy)
         external
         returns (uint48 activeAt);
@@ -219,8 +220,9 @@ interface IIdentityValidator is IERC7579Validator {
     // The account itself (an admin operation, under the threshold).
     /// Active at once. The identity must be linked. A dead session's key may be reused.
     function addSession(bytes32 identity, bytes calldata key, Policy calldata policy) external;
-    /// Revokes an active or pending session. Removing the last admin session, counting pending and expired ones, is a root operation.
+    /// Revokes an active or pending session. Removing the last admin session, counting pending ones, is a root operation.
     /// Revoking an active admin session voids every root operation queued before it.
+    /// Refused when it leaves fewer admin platforms than the threshold, but some (see `ThresholdTooHigh`).
     function revokeSession(bytes calldata key) external;
     /// Raises the delay at once. Lowering it, never below `MIN_RECOVERY_DELAY`, is a root operation:
     /// the account reverts `RootOperationRequired`.
@@ -229,11 +231,12 @@ interface IIdentityValidator is IERC7579Validator {
     function setThreshold(uint8 threshold_) external;
     /// Root operation only. Every session of the identity, active or pending, stops validating for good,
     /// and every root operation queued before it stops executing.
-    /// Refused for an identity not linked, the last one, the last of a platform the threshold still needs,
-    /// the genesis identity, or when the account would be left with no admin session.
+    /// Refused for an identity not linked, the last one, the last admin sessions of a platform the threshold
+    /// still needs, the genesis identity, or when the account would be left with no admin session.
     function unlink(bytes32 identity) external;
     /// Root operation only. While frozen, `addSessionByProof` refuses the identity; its active sessions
-    /// keep working. Freezing revokes the identity's latest session by proof while it is still pending.
+    /// keep working. Freezing revokes the identity's latest session by proof while it is still pending,
+    /// refused when that leaves fewer admin platforms than the threshold, but some.
     function setRecoveryFrozen(bytes32 identity, bool frozen) external;
     /// `target` is the account (install, uninstall, upgrade) or this validator
     /// (`setThreshold`, `unlink`, `setRecoveryFrozen`, `revokeSession` of the last admin, a lower

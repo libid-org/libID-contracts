@@ -303,6 +303,40 @@ contract IdentityValidatorTest is WalletTestBase {
         assertEq(validator.sessionOf(w, _key(BOB_PK)).identity, _identity(GITHUB, BOB), "revoked anyway");
     }
 
+    /// An unlink may not take a platform's last admin session the threshold needs, though the platform
+    /// stays linked.
+    function test_unlinkKeepsTheAdminPlatformsTheThresholdNeeds() public {
+        address w = _claim();
+        _link(w, GITHUB, BOB, w, _key(BOB_PK), _admin());
+        _link(w, GITHUB, CAROL, w, "", _admin());
+        _root(w, address(validator), abi.encodeCall(IIdentityValidator.setThreshold, (2)));
+        _unlinkReverts(
+            w,
+            _identity(GITHUB, BOB),
+            abi.encodeWithSelector(IIdentityValidator.ThresholdTooHigh.selector, uint8(2), uint32(1))
+        );
+    }
+
+    /// A pending admin session by proof counts for its platform: replacing it with a non-admin session,
+    /// or freezing its identity, may not leave the threshold short; an admin replacement may.
+    function test_pendingAdminReplacementKeepsTheThreshold() public {
+        address w = _claim();
+        bytes32 bob = _identity(GITHUB, BOB);
+        _link(w, GITHUB, BOB, w, _key(BOB_PK), _admin());
+        _root(w, address(validator), abi.encodeCall(IIdentityValidator.setThreshold, (2)));
+        _addByProof(relayer, GITHUB, BOB, w, _key(APP_PK), _admin());
+        vm.prank(w);
+        validator.revokeSession(_key(BOB_PK));
+        bytes memory tooHigh = abi.encodeWithSelector(IIdentityValidator.ThresholdTooHigh.selector, uint8(2), uint32(1));
+
+        bytes memory payload = _payload(GITHUB, BOB, ADD, _txData(w, _key(CAROL_PK), _ph(_app())));
+        vm.expectRevert(tooHigh);
+        registry.addSessionByProof(GITHUB, V1, payload, _app());
+        _addByProof(relayer, GITHUB, BOB, w, _key(MALLORY_PK), _admin());
+        assertEq(validator.sessionOf(w, _key(APP_PK)).identity, bytes32(0), "not replaced");
+        _rootReverts(w, address(validator), abi.encodeCall(IIdentityValidator.setRecoveryFrozen, (bob, true)), tooHigh);
+    }
+
     /// An admin session never expires on its own, so time cannot take a platform off the quorum.
     function test_anExpiringAdminSessionIsRefused() public {
         address w = _claim();
@@ -477,8 +511,8 @@ contract IdentityValidatorTest is WalletTestBase {
         assertEq(validator.sessionOf(w, _key(ALICE2_PK)).activeAt, _now() + 72 hours, "raised delay ignored");
     }
 
-    /// The threshold may not exceed the linked platforms, or no admin operation could pass again.
-    function test_thresholdAboveTheLinkedPlatformsIsRefused() public {
+    /// The threshold may not exceed the admin platforms, or no admin operation could pass again.
+    function test_thresholdAboveTheAdminPlatformsIsRefused() public {
         address w = _claim();
         _rootReverts(
             w,
