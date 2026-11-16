@@ -229,6 +229,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
     WebWallet::new(wallet, &provider)
         .execute(AUTHORIZED_MODE, data)
+        .value(execute.value)
         .send()
         .await?
         .get_receipt()

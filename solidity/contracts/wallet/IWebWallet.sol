@@ -17,8 +17,8 @@ bytes4 constant AUTHORIZED_SELECTOR = bytes4(keccak256("libid.webwallet.authoriz
 // The one `AUTHORIZED` mode word: batch call type, default exec type, `AUTHORIZED_SELECTOR`, zero payload.
 bytes32 constant AUTHORIZED_MODE = bytes32((uint256(0x01) << 248) | (uint256(uint32(AUTHORIZED_SELECTOR)) << 176));
 // The gas between the wallet's `callGas` check before each `AUTHORIZED_MODE` call and the call, which gets 63/64 of
-// what is left. Measured for a cold target with value: 9.8k with no call data, 15.8k with 64 KiB; it covers up to
-// about 96 KiB.
+// what is left. Measured for a cold target with value: 9.8k with no call data, 15.8k with 64 KiB, the most
+// `test_everyCallGetsTheSignedCallGas` checks.
 uint256 constant CALL_OVERHEAD = 20_000;
 
 /// EntryPoint v0.9's `incrementNonce`, which OpenZeppelin's interface leaves out.

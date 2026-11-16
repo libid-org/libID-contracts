@@ -35,7 +35,8 @@ interface IExecutionCheck {
     /// The signatures over the `Execute` digest are not by live sessions, or below the threshold not by
     /// the sessions a co-signed batch needs.
     error ExecutionNotSigned();
-    /// Below the threshold, a call is outside the governing session's rules or allowances.
+    /// A call is refused: below the threshold, outside the governing session's rules or allowances; at any
+    /// threshold, the validator's `onInstall` or `onUninstall`.
     error ExecutionNotAllowed();
     /// The block time is outside the signers' window, narrowed to the periods `at` picks.
     error ExecutionOutsideWindow(uint48 at);

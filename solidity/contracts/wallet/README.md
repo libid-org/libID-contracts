@@ -82,8 +82,8 @@ One `execute(bytes32 mode, bytes data)`, ERC-7579's, takes two kinds of mode:
   5. runs the batch, requiring before each call `gasleft() * 63 / 64` of at
      least `callGas` plus `CALL_OVERHEAD` (`IWebWallet.sol`), so every call
      gets at least `callGas` (EIP-150 forwards at most 63/64 of the gas
-     left), else `InsufficientCallGas`. A call with more call data than
-     `CALL_OVERHEAD`'s comment names may get a little less;
+     left), else `InsufficientCallGas`. `CALL_OVERHEAD` is checked for
+     calls of up to 64 KiB of call data; a larger call may get a little less;
   6. calls the validator's
      `checkExecution(mode, executionCalldata, value, deadline, callGas, authorization, nonce, threshold, domainSeparator)`,
      with the domain separator it read before the batch.

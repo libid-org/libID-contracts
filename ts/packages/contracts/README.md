@@ -241,7 +241,7 @@ const data = authorizedData(message, {
   domainProof: [],
   paymasterProof: [],
 })
-const call = calls.webWallet.execute(wallet, 0n, AUTHORIZED_MODE, data)
+const call = calls.webWallet.execute(wallet, value, AUTHORIZED_MODE, data)
 ```
 
 ## Normalizing a handle locally
