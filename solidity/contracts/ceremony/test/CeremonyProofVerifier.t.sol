@@ -218,7 +218,7 @@ contract CeremonyProofVerifierTest is Test {
         assertEq(pv.quote(PLATFORM_ID, 1), FEE);
     }
 
-    /// @dev Every hop takes the exact quote; there is no refund path.
+    /// @dev A paid verification takes the exact quote; there is no refund path.
     function test_rejectsAValueOtherThanTheQuote() public {
         bytes memory payload = _payload(1);
         vm.expectRevert(abi.encodeWithSelector(CeremonyProofVerifier.WrongValue.selector, FEE, FEE - 1));

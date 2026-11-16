@@ -123,7 +123,8 @@ the wallet's primary handle, and the service fee with its receiver. The
 registry checks a disclosed handle against the node the proof bound and logs
 it in `HandleRevealed`. The value is what `quoteBind` returns for the same pair
 plus the fee, which goes to the receiver; a bind with no fee passes `0n` and
-the zero address. The payload's transaction data is `abi.encode(target)` under
+the zero address. For a payload verified earlier in the same transaction the
+`quoteBind` part may be zero. The payload's transaction data is `abi.encode(target)` under
 the operation domain `keccak256("libid.bind-identity")`, so one payload binds
 on every chain. An EOA sends the call directly, a smart wallet wraps it in its
 own execute:
@@ -190,7 +191,9 @@ const transactionData = encodeOperationList([
 The same payload then goes to `bind`, called by `wallet`, which rebuilds its
 entry's data from the caller, and to
 `WalletRegistry.linkIdentity(platformId, verifierVersion, payload, linkData, policy)`,
-once each. A proof of one operation passes empty `data` to `linkIdentity`.
+once each. The first call pays the Notary Fee; the second may attach no value
+for it, and the Proof Verifier returns the claim the first verified. A proof
+of one operation passes empty `data` to `linkIdentity`.
 
 A refused bind reverts with the error of whichever contract on its route
 refused it: the registry, the Proof Verifier, a Platform Verifier, the Notary
