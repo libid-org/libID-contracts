@@ -5,6 +5,7 @@ use alloy::{
     primitives::{
         keccak256,
         Address,
+        Bytes,
         U256,
     },
     providers::{
@@ -21,13 +22,17 @@ use libid_contracts::{
             NotaryService,
         },
         identity::IdentityRegistry,
+        proxy::IUUPSUpgradeable,
     },
     deploy::{
         deploy_behind_proxy,
         deploy_contract,
+        implementation_of,
         upgrade_uups,
     },
+    send_with_nonce_retry,
     Artifacts,
+    Error,
 };
 use libid_identity::platforms::PLATFORM_GITHUB;
 
@@ -228,6 +233,10 @@ async fn deploys_and_upgrades_the_jwt_roots_lists() {
     .await
     .unwrap();
     assert_ne!(new_impl, google_proxy);
+    assert_eq!(
+        implementation_of(&provider, google_proxy).await.unwrap(),
+        new_impl
+    );
     assert_eq!(google.AUTHORITY().call().await.unwrap(), authority);
     assert_eq!(google.notaryService().call().await.unwrap(), notary_proxy);
     assert_eq!(google.quoteRotation().call().await.unwrap(), U256::from(7));
@@ -310,6 +319,86 @@ async fn rotates_and_upgrades_the_notary_service() {
     assert!(notary.isTrustedNotary(incoming).call().await.unwrap());
     assert_eq!(notary.fee().call().await.unwrap(), U256::from(7));
     assert_eq!(notary.owner().call().await.unwrap(), deployer);
+}
+
+/// A Notary Service behind a proxy the default signer owns.
+async fn deploy_notary_service(
+    provider: &impl Provider,
+    artifacts: &Artifacts,
+) -> Address {
+    let init = NotaryService::initializeCall {
+        owner_: default_signer(provider).await,
+        notary_: Address::repeat_byte(0x11),
+        fee_: U256::ZERO,
+    };
+    deploy_behind_proxy(provider, artifacts, "NotaryService", &init, None)
+        .await
+        .unwrap()
+}
+
+/// A transaction mined as reverted is an error, not a receipt: an upgrade
+/// sent with too little gas runs out of it on chain, and the proxy keeps
+/// its implementation.
+#[tokio::test]
+async fn a_mined_revert_is_an_error() {
+    let provider = test_provider();
+    let artifacts = Artifacts::embedded();
+    let deployer = default_signer(&provider).await;
+    let proxy = deploy_notary_service(&provider, &artifacts).await;
+    let before = implementation_of(&provider, proxy).await.unwrap();
+    let new_impl = deploy_contract(
+        &provider,
+        artifacts.bytecode("NotaryService").unwrap(),
+        "NotaryService (new impl)",
+    )
+    .await
+    .unwrap();
+
+    // A gas limit skips the estimate that would refuse the call before
+    // sending: 30k pays for the calldata, not for the upgrade. The macro
+    // returns early on a failed nonce read, so it runs in a block of its
+    // own.
+    let sent = async {
+        send_with_nonce_retry!(
+            IUUPSUpgradeable::new(proxy, &provider)
+                .upgradeToAndCall(new_impl, Bytes::new())
+                .gas(30_000),
+            "NotaryService.upgradeToAndCall",
+            &provider,
+            deployer
+        )
+    }
+    .await;
+    assert!(matches!(sent, Err(Error::Reverted { .. })), "{sent:?}");
+    assert_eq!(implementation_of(&provider, proxy).await.unwrap(), before);
+}
+
+/// An upgrade the proxy does not take is an error: an address with no code
+/// accepts the `upgradeToAndCall` and keeps nothing, so the slot never
+/// names the new implementation.
+#[tokio::test]
+async fn an_upgrade_the_proxy_does_not_take_is_an_error() {
+    let provider = test_provider();
+    let artifacts = Artifacts::embedded();
+    let not_a_proxy = Address::repeat_byte(0x42);
+
+    let upgraded = upgrade_uups(
+        &provider,
+        &artifacts,
+        not_a_proxy,
+        "NotaryService",
+        Default::default(),
+        None,
+    )
+    .await;
+    assert!(
+        matches!(
+            upgraded,
+            Err(Error::NotUpgraded { proxy, found, .. })
+                if proxy == not_a_proxy && found == Address::ZERO
+        ),
+        "{upgraded:?}"
+    );
 }
 
 /// The deterministic factory on a chain without the CREATE2 deployer:

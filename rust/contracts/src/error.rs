@@ -20,6 +20,32 @@ pub enum Error {
         /// What went wrong.
         detail: String,
     },
+    /// A transaction that was mined and reverted: it spent gas and changed
+    /// nothing.
+    #[error("reverted: {label} in transaction {tx_hash}")]
+    Reverted {
+        /// What was sent.
+        label: String,
+        /// The mined transaction.
+        tx_hash: B256,
+    },
+    /// An upgrade the proxy did not take: after it, the proxy's EIP-1967
+    /// implementation slot names another contract than the one deployed for
+    /// it.
+    #[error(
+        "upgrade error: {contract}: the proxy at {proxy} runs {found} after its \
+         upgrade, not the new implementation {wanted}"
+    )]
+    NotUpgraded {
+        /// The contract upgraded.
+        contract: String,
+        /// The proxy upgraded.
+        proxy: Address,
+        /// The implementation deployed for it.
+        wanted: Address,
+        /// The implementation its slot names.
+        found: Address,
+    },
     /// A Platform Verifier initializer the contract would refuse, caught
     /// before any transaction is sent.
     #[error("initializer error: {detail}")]

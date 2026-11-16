@@ -5,12 +5,16 @@
 use alloy::{
     network::TransactionBuilder,
     primitives::{
+        b256,
         Address,
         Bytes,
         B256,
     },
     providers::Provider,
-    rpc::types::TransactionRequest,
+    rpc::types::{
+        TransactionReceipt,
+        TransactionRequest,
+    },
     sol_types::SolCall,
 };
 
@@ -50,9 +54,14 @@ macro_rules! send_with_nonce_retry {
                     })?;
             match ($call_expr).nonce(nonce).send().await {
                 Ok(pending) => {
-                    result =
-                        pending.get_receipt().await.map_err(|e| $crate::Error::Rpc {
+                    result = pending
+                        .get_receipt()
+                        .await
+                        .map_err(|e| $crate::Error::Rpc {
                             detail: format!("{} confirmation failed: {e}", $label),
+                        })
+                        .and_then(|receipt| {
+                            $crate::deploy::Mined::succeeded(receipt, &$label)
                         });
                     break;
                 }
@@ -72,6 +81,48 @@ macro_rules! send_with_nonce_retry {
         }
         result
     }};
+}
+
+/// The EIP-1967 implementation slot, one less than
+/// `keccak256("eip1967.proxy.implementation")`: where an ERC1967 proxy keeps
+/// the address of the code it runs.
+pub const IMPLEMENTATION_SLOT: B256 =
+    b256!("360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc");
+
+/// A mined transaction's receipt.
+pub trait Mined: Sized {
+    /// The receipt, or [`Error::Reverted`] when the transaction reverted: a
+    /// node mines a reverting transaction and hands back its receipt, so a
+    /// receipt alone says nothing landed.
+    fn succeeded(self, label: &str) -> Result<Self>;
+}
+
+impl Mined for TransactionReceipt {
+    fn succeeded(self, label: &str) -> Result<Self> {
+        if self.status() {
+            Ok(self)
+        } else {
+            Err(Error::Reverted {
+                label: label.to_string(),
+                tx_hash: self.transaction_hash,
+            })
+        }
+    }
+}
+
+/// The implementation the ERC1967 proxy at `proxy` runs, from its EIP-1967
+/// slot. Zero for an account that is no such proxy.
+pub async fn implementation_of<P: Provider>(
+    provider: &P,
+    proxy: Address,
+) -> Result<Address> {
+    let slot = provider
+        .get_storage_at(proxy, IMPLEMENTATION_SLOT.into())
+        .await
+        .map_err(|e| Error::Rpc {
+            detail: format!("failed to read the implementation slot of {proxy}: {e}"),
+        })?;
+    Ok(Address::from_word(slot.into()))
 }
 
 /// Deploy a contract and return its address.
@@ -113,9 +164,13 @@ pub async fn deploy_contract_from<P: Provider>(
             detail: format!("failed to send {label} deploy tx: {e}"),
         })?;
 
-    let receipt = pending.get_receipt().await.map_err(|e| Error::Rpc {
-        detail: format!("failed to get {label} deploy receipt: {e}"),
-    })?;
+    let receipt = pending
+        .get_receipt()
+        .await
+        .map_err(|e| Error::Rpc {
+            detail: format!("failed to get {label} deploy receipt: {e}"),
+        })?
+        .succeeded(&format!("{label} deploy"))?;
 
     receipt.contract_address.ok_or_else(|| Error::Rpc {
         detail: format!("{label} deploy did not return contract address"),
@@ -217,9 +272,22 @@ pub async fn upgrade_uups<P: Provider>(
         .map_err(|e| Error::Rpc {
             detail: format!("{contract} upgradeToAndCall send failed: {e}"),
         })?;
-    pending.get_receipt().await.map_err(|e| Error::Rpc {
-        detail: format!("{contract} upgradeToAndCall confirmation failed: {e}"),
-    })?;
+    pending
+        .get_receipt()
+        .await
+        .map_err(|e| Error::Rpc {
+            detail: format!("{contract} upgradeToAndCall confirmation failed: {e}"),
+        })?
+        .succeeded(&format!("{contract}.upgradeToAndCall"))?;
+    let found = implementation_of(provider, proxy).await?;
+    if found != new_impl {
+        return Err(Error::NotUpgraded {
+            contract: contract.to_string(),
+            proxy,
+            wanted: new_impl,
+            found,
+        });
+    }
     Ok(new_impl)
 }
 
@@ -257,9 +325,13 @@ pub(crate) async fn deploy_via_create2<P: Provider>(
         .map_err(|e| Error::Rpc {
             detail: format!("{label}: CREATE2 deploy send failed: {e}"),
         })?;
-    pending.get_receipt().await.map_err(|e| Error::Rpc {
-        detail: format!("{label}: CREATE2 deploy confirmation failed: {e}"),
-    })?;
+    pending
+        .get_receipt()
+        .await
+        .map_err(|e| Error::Rpc {
+            detail: format!("{label}: CREATE2 deploy confirmation failed: {e}"),
+        })?
+        .succeeded(&format!("{label}: CREATE2 deploy"))?;
     if !code_present(provider, predicted, label).await? {
         return Err(Error::Rpc {
             detail: format!("{label}: no code at the predicted address {predicted}"),
@@ -280,4 +352,22 @@ async fn code_present<P: Provider>(
             detail: format!("{label}: failed to read code at {address}: {e}"),
         })?;
     Ok(!code.is_empty())
+}
+
+#[cfg(test)]
+mod tests {
+    use alloy::primitives::{
+        keccak256,
+        U256,
+    };
+
+    use super::*;
+
+    /// The slot is the one EIP-1967 derives, not a mistyped copy.
+    #[test]
+    fn the_implementation_slot_is_eip_1967s() {
+        let derived = U256::from_be_bytes(keccak256("eip1967.proxy.implementation").0)
+            - U256::from(1);
+        assert_eq!(IMPLEMENTATION_SLOT, B256::from(derived));
+    }
 }
