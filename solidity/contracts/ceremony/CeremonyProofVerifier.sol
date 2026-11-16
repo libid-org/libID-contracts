@@ -10,7 +10,7 @@ import {IPlatformVerifier} from "./IPlatformVerifier.sol";
 import {IProofVerifier} from "./IProofVerifier.sol";
 
 /// @title CeremonyProofVerifier
-/// @notice Dispatch, and only dispatch.
+/// @notice Dispatch, and a memory of the claims this transaction verified.
 ///
 /// @dev This is deliberately a contract of its own rather than something each
 ///      Consumer carries. The Supported Version Set decides which proof
@@ -22,8 +22,9 @@ import {IProofVerifier} from "./IProofVerifier.sol";
 ///      compromise here authorises arbitrary transactions at every Consumer at
 ///      once. That is the price of one entry point, and it is why this contract
 ///      holds no platform constant, decodes nothing -- not the payload, not the
-///      transaction data inside it -- and applies no effect. There is nothing
-///      here to compromise except dispatch itself.
+///      transaction data inside it -- and applies no effect. Its one state
+///      besides the Supported Version Set is transient: the claims verified
+///      in the current transaction, so a payload consumed twice pays once.
 ///
 ///      Two versions, and this contract knows only one of them. The VERIFIER
 ///      version is the key a payload is routed on: this chain's slot number,
@@ -95,16 +96,6 @@ contract CeremonyProofVerifier is IProofVerifier, Initializable, UUPSUpgradeable
     }
 
     /// @inheritdoc IProofVerifier
-    function quoteProof(bytes32 platformId, uint16 verifierVersion, bytes calldata payload)
-        external
-        view
-        returns (uint256)
-    {
-        IPlatformVerifier verifier = _requireVerifier(platformId, verifierVersion);
-        return _verified(_slot(verifier, payload)).length != 0 ? 0 : verifier.quote();
-    }
-
-    /// @inheritdoc IProofVerifier
     function verify(bytes32 platformId, uint16 verifierVersion, bytes calldata payload)
         external
         payable
@@ -113,24 +104,23 @@ contract CeremonyProofVerifier is IProofVerifier, Initializable, UUPSUpgradeable
         IPlatformVerifier verifier = _requireVerifier(platformId, verifierVersion);
         bytes32 slot = _slot(verifier, payload);
 
-        // A claim depends only on the payload and the verifier, so a repeat in
-        // this transaction gets the same claim, its one Notary Fee already paid.
-        bytes memory verified = _verified(slot);
-        if (verified.length != 0) {
-            if (msg.value != 0) revert WrongValue(0, msg.value);
-            return abi.decode(verified, (ICeremony.VerifiedClaim));
-        }
-
         // Exact value at every hop: no refund path, so no partial-failure rule
         // is needed and nothing can be captured in transit (REQ-COMMON-06D).
         uint256 required = verifier.quote();
-        if (msg.value != required) revert WrongValue(required, msg.value);
+        if (msg.value == required) {
+            // Forwarded whole and returned whole. The payload is the verifier's
+            // to decode and the claim is the Consumer's to act on; this hop
+            // reads neither (REQ-COMMON-06B).
+            claim = verifier.verify{value: required}(payload);
+            _remember(slot, abi.encode(claim));
+            return claim;
+        }
 
-        // Forwarded whole and returned whole. The payload is the verifier's to
-        // decode and the claim is the Consumer's to act on; this hop reads
-        // neither (REQ-COMMON-06B).
-        claim = verifier.verify{value: required}(payload);
-        _remember(slot, abi.encode(claim));
+        // No value: the claim this transaction already verified, its Notary
+        // Fee paid. It is the claim as of that verification.
+        bytes memory verified = msg.value == 0 ? _verified(slot) : bytes("");
+        if (verified.length == 0) revert WrongValue(required, msg.value);
+        return abi.decode(verified, (ICeremony.VerifiedClaim));
     }
 
     /// @notice Add or remove a Platform Verifier from the Supported Version Set.

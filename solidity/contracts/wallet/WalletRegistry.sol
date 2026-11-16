@@ -89,10 +89,9 @@ contract WalletRegistry is IWalletRegistry {
         bytes calldata payload,
         IIdentityValidator.Policy calldata policy
     ) private returns (bytes32 idNode, bytes32 digest, address wallet, bytes memory key) {
-        uint256 required = PROOF_VERIFIER.quoteProof(platformId, verifierVersion, payload);
-        if (msg.value != required) revert WrongValue(required, msg.value);
+        // The Proof Verifier checks the value.
         ICeremony.VerifiedClaim memory claimed =
-            PROOF_VERIFIER.verify{value: required}(platformId, verifierVersion, payload);
+            PROOF_VERIFIER.verify{value: msg.value}(platformId, verifierVersion, payload);
 
         // Both domains are this Consumer's, so a list may carry only one of them (REQ-COMMON-01I).
         (bytes32 entryDomain, bytes memory data) = OperationList.select(

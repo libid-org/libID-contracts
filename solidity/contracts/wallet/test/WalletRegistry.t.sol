@@ -3,6 +3,7 @@ pragma solidity ^0.8.24;
 
 import {Vm} from "forge-std/Vm.sol";
 
+import {CeremonyProofVerifier} from "../../ceremony/CeremonyProofVerifier.sol";
 import {IPlatformVerifier} from "../../ceremony/IPlatformVerifier.sol";
 import {StubPlatformVerifier} from "../../identity/test/StubPlatformVerifier.sol";
 import {IIdentityValidator} from "../IIdentityValidator.sol";
@@ -222,7 +223,7 @@ contract WalletRegistryTest is WalletTestBase {
         );
         for (uint256 v = 4; v <= 6; v += 2) {
             vm.prank(w);
-            vm.expectRevert(abi.encodeWithSelector(IWalletRegistry.WrongValue.selector, 5, v));
+            vm.expectRevert(abi.encodeWithSelector(CeremonyProofVerifier.WrongValue.selector, 5, v));
             registry.linkIdentity{value: v}(GITHUB, 2, payload, _admin());
         }
         vm.prank(w);

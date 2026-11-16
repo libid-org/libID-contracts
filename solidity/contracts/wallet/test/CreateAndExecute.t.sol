@@ -62,14 +62,20 @@ contract CreateAndExecuteTest is ExecuteBase {
 
     /// The batch, for a wallet that does not exist yet.
     function _onboarding() internal view returns (bytes memory) {
+        // The link verified this proof, so the bind's Notary Fee is already paid.
+        return _onboarding(0);
+    }
+
+    function _onboarding(uint256 bindFee) internal view returns (bytes memory) {
         address[] memory tokens = new address[](2);
         (tokens[0], tokens[1]) = (NATIVE_TOKEN, address(token));
         Execution[] memory x = new Execution[](5);
         x[0] = _x(address(registry), linkFee, abi.encodeCall(IWalletRegistry.linkIdentity, (X, V2, list, _admin())));
-        // The link verified this proof, so the bind's Notary Fee is already paid.
-        x[1] = _x(address(identities), 0, abi.encodeCall(IIdentityRegistry.bindPrivately, (X, V2, list, 0, address(0))));
+        x[1] = _x(
+            address(identities), bindFee, abi.encodeCall(IIdentityRegistry.bindPrivately, (X, V2, list, 0, address(0)))
+        );
         x[2] = _x(address(escrow), 0, abi.encodeCall(IHandleEscrow.claim, (HANDLE, tokens, w)));
-        x[3] = _x(relayer, linkFee, "");
+        x[3] = _x(relayer, linkFee + bindFee, "");
         x[4] = _x(
             address(validator),
             0,
@@ -85,8 +91,12 @@ contract CreateAndExecuteTest is ExecuteBase {
     }
 
     function _send(bytes memory calls, bytes memory auth) internal {
+        _send(calls, auth, linkFee);
+    }
+
+    function _send(bytes memory calls, bytes memory auth, uint256 value) internal {
         vm.prank(relayer, relayer);
-        IWalletFactoryOnboarding(address(factory)).createAndExecute{value: linkFee}(
+        IWalletFactoryOnboarding(address(factory)).createAndExecute{value: value}(
             X, ALICE, AUTHORIZED_MODE, _data(calls, auth)
         );
     }
@@ -129,5 +139,21 @@ contract CreateAndExecuteTest is ExecuteBase {
         assertEq(w.code.length, 0, "the wallet was created");
         _send(calls, _signedBy(ALICE_PK, calls));
         assertEq(token.balanceOf(w), CLAIMED, "control");
+    }
+
+    /// A bind priced in full verifies again, even after someone else verified the proof earlier in the transaction.
+    function test_aFullPricedBindSurvivesAnEarlierVerification() public {
+        vm.deal(address(this), FEE);
+        this.verifyThenOnboard();
+        (address holder,) = identities.handleBinding(HANDLE);
+        assertEq(holder, w, "handle not bound to the wallet");
+        assertEq(w.balance, CLAIMED - linkFee - FEE, "wallet native");
+        assertEq(relayer.balance, 1 ether, "the relayer is not even");
+    }
+
+    function verifyThenOnboard() external {
+        proofVerifier.verify{value: FEE}(X, V2, list);
+        bytes memory calls = _onboarding(FEE);
+        _send(calls, _signedBy(ALICE_PK, calls), linkFee + FEE);
     }
 }

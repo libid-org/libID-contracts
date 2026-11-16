@@ -7,7 +7,7 @@ import {ICeremony} from "./ICeremony.sol";
 /// @notice The one component every Consumer calls to verify a libID proof.
 ///
 /// @dev Third of the four roles of ceremony-common section 5.1, counting down
-///      from the Consumer. It is dispatch and nothing else: it selects the
+///      from the Consumer. It is dispatch: it selects the
 ///      Platform Verifier registered for the pair a Consumer names, forwards
 ///      the payload and the value to it, and forwards what comes back. It does
 ///      not decode the payload, holds no platform constant, and applies no
@@ -23,13 +23,6 @@ interface IProofVerifier {
     ///      (REQ-COMMON-06E).
     function quote(bytes32 platformId, uint16 verifierVersion) external view returns (uint256);
 
-    /// @notice What `verify` charges for this payload now: zero when this
-    ///         transaction already verified it, otherwise `quote`.
-    function quoteProof(bytes32 platformId, uint16 verifierVersion, bytes calldata payload)
-        external
-        view
-        returns (uint256);
-
     /// @notice Whether any version of this platform can be verified here.
     ///
     /// @dev So a Consumer can tell "no holder" from "not wired yet" without
@@ -42,8 +35,9 @@ interface IProofVerifier {
     /// @dev `verifierVersion` selects which registered verifier answers; it is
     ///      this chain's slot number, chosen by governance here, and unrelated
     ///      to the ceremony version the verifier itself supports. `payload` is
-    ///      opaque at this hop. A payload verified earlier in the same
-    ///      transaction returns that claim again, for no fee.
+    ///      opaque at this hop. The value is `quote`, which always verifies;
+    ///      or zero, for a payload this verifier already verified in the
+    ///      same transaction, which returns that claim again.
     function verify(bytes32 platformId, uint16 verifierVersion, bytes calldata payload)
         external
         payable

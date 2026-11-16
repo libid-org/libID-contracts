@@ -31,7 +31,6 @@ interface IWalletRegistry {
     /// The policy given does not hash to the one the proof commits.
     error PolicyMismatch(bytes32 committed, bytes32 given);
     error NoId();
-    error WrongValue(uint256 required, uint256 provided);
 
     /// keccak256("libid.webwallet.link-identity")
     function LINK_IDENTITY_DOMAIN() external view returns (bytes32);

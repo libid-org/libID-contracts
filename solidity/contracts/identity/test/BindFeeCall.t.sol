@@ -176,7 +176,7 @@ contract BindFeeCallTest is Test {
             QUOTE + SERVICE_FEE - 1,
             SERVICE_FEE,
             address(receiver),
-            abi.encodeWithSelector(IdentityRegistry.WrongFeeValue.selector, SERVICE_FEE, SERVICE_FEE - 1)
+            abi.encodeWithSelector(CeremonyProofVerifier.WrongValue.selector, QUOTE, QUOTE - 1)
         );
     }
 
@@ -186,7 +186,7 @@ contract BindFeeCallTest is Test {
             QUOTE + SERVICE_FEE + 1,
             SERVICE_FEE,
             address(receiver),
-            abi.encodeWithSelector(IdentityRegistry.WrongFeeValue.selector, SERVICE_FEE, SERVICE_FEE + 1)
+            abi.encodeWithSelector(CeremonyProofVerifier.WrongValue.selector, QUOTE, QUOTE + 1)
         );
     }
 

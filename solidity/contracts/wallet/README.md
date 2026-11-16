@@ -31,8 +31,9 @@ factory.createAndExecute{value: linkFee}(
 
 `listPayload` is one sign-in proving an operation list of `bind-identity(w)`
 and `link-identity(w, K, policy)`, so the same payload serves both calls.
-`CeremonyProofVerifier` verifies it once per transaction: the link pays its
-Notary Fee, and the bind gets the same claim for no fee (`quoteProof` is 0).
+The link pays the Notary Fee. The bind attaches no value, so
+`CeremonyProofVerifier` returns the claim the link verified in this
+transaction; with `quoteBind` attached it would verify again.
 `createAndExecute` creates the wallet if it has no code, then calls its
 `execute(mode, data)` with `msg.value`. It grants nothing: the batch passes the same end
 check as any direct batch. Any failure reverts the whole transaction, the
