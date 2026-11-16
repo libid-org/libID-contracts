@@ -19,5 +19,21 @@ mod inner {
 /// `identity/IIdentityRegistry.sol`'s types: `Identity`, as `identitiesOf`
 /// returns it.
 pub use inner::IIdentityRegistry;
-/// `identity/IdentityRegistry.sol`.
-pub use inner::IdentityRegistry;
+/// `identity/IdentityRegistry.sol`, with `Identity` still at its old path.
+#[allow(non_snake_case)]
+pub mod IdentityRegistry {
+    pub use super::inner::{
+        IIdentityRegistry::Identity,
+        IdentityRegistry::*,
+    };
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn identity_keeps_its_registry_path() {
+        let id: super::IdentityRegistry::Identity =
+            super::IIdentityRegistry::Identity::default();
+        assert_eq!(id, super::IdentityRegistry::Identity::default());
+    }
+}
