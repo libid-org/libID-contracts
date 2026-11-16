@@ -154,7 +154,9 @@ contract CreateAndExecuteTest is ExecuteBase {
         assertEq(relayer.balance, 1 ether, "the relayer is not even");
     }
 
+    /// The earlier verification, the full-priced link and the full-priced bind each verify.
     function verifyThenOnboard() external {
+        vm.expectCall(address(paid), abi.encodeWithSelector(IPlatformVerifier.verify.selector), 3);
         proofVerifier.verify{value: FEE}(X, V2, list);
         signedValue = linkFee + FEE;
         bytes memory calls = _onboarding(FEE);
