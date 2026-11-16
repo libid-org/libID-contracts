@@ -81,14 +81,29 @@ contract IdentityValidatorTest is WalletTestBase {
 
     // ─── Validation data (R2) ───────────────────────────────────────
 
+    /// A `_hitOnly` session of `pk` on Alice's identity, live in `(validAfter, validUntil]`.
+    function _addHitOnly(address w, uint256 pk, uint48 validAfter, uint48 validUntil) internal {
+        IIdentityValidator.Policy memory p = _hitOnly();
+        (p.validAfter, p.validUntil) = (validAfter, validUntil);
+        vm.prank(w);
+        validator.addSession(_identity(X, ALICE), _key(pk), p);
+    }
+
+    /// The validator's answer for one `hit()` signed by `pk` below quorum.
+    function _validateHit(address w, uint256 pk) internal returns (uint256) {
+        PackedUserOperation memory op = _signedWith(_op(w, 0, _hit()), _pks(pk), _hitProofs(1));
+        bytes32 h = IUserOpHash(EP).getUserOpHash(op);
+        vm.prank(w);
+        return validator.validateUserOp(op, h);
+    }
+
     /// The window comes back packed; `activeAt` folds into `validAfter`.
     function test_validationReturnsThePackedWindow() public {
         uint48 start = uint48(_now() + 10);
         uint48 end = uint48(_now() + 1000);
-        address w = _claimWith(
-            IIdentityValidator.Policy({validAfter: start, validUntil: end, admin: true, signers: 0, rules: _noRules()})
-        );
-        assertEq(_validate(w, _hit(), _pks(ALICE_PK)), _window(start, end), "policy window");
+        address w = _claim();
+        _addHitOnly(w, APP_PK, start, end);
+        assertEq(_validateHit(w, APP_PK), _window(start, end), "policy window");
 
         _addByProof(relayer, X, ALICE, w, _key(ALICE2_PK), _admin());
         assertEq(_validate(w, _hit(), _pks(ALICE2_PK)), _window(uint48(_now() + 48 hours), 0), "pending window");
@@ -96,14 +111,13 @@ contract IdentityValidatorTest is WalletTestBase {
 
     /// Validation reads no TIMESTAMP: the answer is the same at any time.
     function test_validationDoesNotReadTheClock() public {
-        address w = _claimWith(
-            IIdentityValidator.Policy({
-                validAfter: 0, validUntil: uint48(_now() + 1 hours), admin: true, signers: 0, rules: _noRules()
-            })
-        );
-        uint256 early = _validate(w, _hit(), _pks(ALICE_PK));
+        address w = _claim();
+        uint48 end = uint48(_now() + 1 hours);
+        _addHitOnly(w, APP_PK, 0, end);
+        uint256 early = _validateHit(w, APP_PK);
+        assertEq(early, _window(uint48(_now()), end), "window");
         vm.warp(_now() + 3650 days);
-        assertEq(_validate(w, _hit(), _pks(ALICE_PK)), early, "expired session answered differently");
+        assertEq(_validateHit(w, APP_PK), early, "expired session answered differently");
     }
 
     /// Co-signers' windows intersect, whatever their order.
@@ -112,15 +126,15 @@ contract IdentityValidatorTest is WalletTestBase {
         uint48 t = uint48(_now());
         vm.startPrank(w);
         validator.addSession(
-            _identity(X, ALICE), _key(ALICE2_PK), IIdentityValidator.Policy(t + 10, t + 2000, true, 0, _noRules())
+            _identity(X, ALICE), _key(ALICE2_PK), IIdentityValidator.Policy(t + 10, 0, true, 0, _noRules())
         );
         validator.addSession(
-            _identity(X, ALICE), _key(BOB_PK), IIdentityValidator.Policy(t + 20, t + 1000, true, 0, _noRules())
+            _identity(X, ALICE), _key(BOB_PK), IIdentityValidator.Policy(t + 20, 0, true, 0, _noRules())
         );
         vm.stopPrank();
-        assertEq(_validate(w, _hit(), _pks(ALICE2_PK, BOB_PK)), _window(t + 20, t + 1000), "wide first");
-        assertEq(_validate(w, _hit(), _pks(BOB_PK, ALICE2_PK)), _window(t + 20, t + 1000), "narrow first");
-        assertEq(_validate(w, _hit(), _pks(BOB_PK, ALICE_PK)), _window(t + 20, t + 1000), "unbounded last");
+        assertEq(_validate(w, _hit(), _pks(ALICE2_PK, BOB_PK)), _window(t + 20, 0), "early first");
+        assertEq(_validate(w, _hit(), _pks(BOB_PK, ALICE2_PK)), _window(t + 20, 0), "late first");
+        assertEq(_validate(w, _hit(), _pks(BOB_PK, ALICE_PK)), _window(t + 20, 0), "unbounded last");
     }
 
     /// A 20-byte key is an ECDSA address: never asked through ERC-1271, and no signature recovers to zero.
@@ -259,10 +273,11 @@ contract IdentityValidatorTest is WalletTestBase {
         );
     }
 
-    /// The threshold may not exceed the platforms with a linked identity, however many identities there are.
-    function test_thresholdIsBoundedByLinkedPlatforms() public {
+    /// The threshold may not exceed the platforms with an admin session, however many identities there are.
+    function test_thresholdIsBoundedByAdminPlatforms() public {
         address w = _claim();
-        _link(w, X, MALLORY, w, "", _admin());
+        _link(w, X, MALLORY, w, _key(MALLORY_PK), _admin());
+        _link(w, GOOGLE, CAROL, w, _key(CAROL_PK), _app());
         bytes memory threshold2 = abi.encodeCall(IIdentityValidator.setThreshold, (2));
         _rootReverts(
             w,
@@ -270,12 +285,79 @@ contract IdentityValidatorTest is WalletTestBase {
             threshold2,
             abi.encodeWithSelector(IIdentityValidator.ThresholdTooHigh.selector, uint8(2), uint32(1))
         );
-        _link(w, GOOGLE, CAROL, w, "", _admin());
+        vm.prank(w);
+        validator.addSession(_identity(GOOGLE, CAROL), _key(APP_PK), _admin());
         _root(w, address(validator), threshold2);
         assertEq(validator.threshold(w), 2, "threshold");
     }
 
-    /// An unlink may not drop the last identity of a platform the threshold needs; a re-link counts it again.
+    /// A revoke may not leave admin sessions on fewer platforms than the threshold, root or not.
+    function test_revokeKeepsTheAdminPlatformsTheThresholdNeeds() public {
+        address w = _claim();
+        _link(w, GITHUB, BOB, w, _key(BOB_PK), _admin());
+        vm.prank(w);
+        validator.addSession(_identity(GITHUB, BOB), _key(APP_PK), _admin());
+        _root(w, address(validator), abi.encodeCall(IIdentityValidator.setThreshold, (2)));
+        bytes memory tooHigh = abi.encodeWithSelector(IIdentityValidator.ThresholdTooHigh.selector, uint8(2), uint32(1));
+
+        vm.startPrank(w);
+        validator.revokeSession(_key(APP_PK));
+        vm.expectRevert(tooHigh);
+        validator.revokeSession(_key(BOB_PK));
+        vm.stopPrank();
+        _rootReverts(w, address(validator), abi.encodeCall(IIdentityValidator.revokeSession, (_key(BOB_PK))), tooHigh);
+        assertEq(validator.sessionOf(w, _key(BOB_PK)).identity, _identity(GITHUB, BOB), "revoked anyway");
+    }
+
+    /// An unlink may not take a platform's last admin session the threshold needs, though the platform
+    /// stays linked.
+    function test_unlinkKeepsTheAdminPlatformsTheThresholdNeeds() public {
+        address w = _claim();
+        _link(w, GITHUB, BOB, w, _key(BOB_PK), _admin());
+        _link(w, GITHUB, CAROL, w, "", _admin());
+        _root(w, address(validator), abi.encodeCall(IIdentityValidator.setThreshold, (2)));
+        _unlinkReverts(
+            w,
+            _identity(GITHUB, BOB),
+            abi.encodeWithSelector(IIdentityValidator.ThresholdTooHigh.selector, uint8(2), uint32(1))
+        );
+    }
+
+    /// A pending admin session by proof counts for its platform: replacing it with a non-admin session,
+    /// or freezing its identity, may not leave the threshold short; an admin replacement may.
+    function test_pendingAdminReplacementKeepsTheThreshold() public {
+        address w = _claim();
+        bytes32 bob = _identity(GITHUB, BOB);
+        _link(w, GITHUB, BOB, w, _key(BOB_PK), _admin());
+        _root(w, address(validator), abi.encodeCall(IIdentityValidator.setThreshold, (2)));
+        _addByProof(relayer, GITHUB, BOB, w, _key(APP_PK), _admin());
+        vm.prank(w);
+        validator.revokeSession(_key(BOB_PK));
+        bytes memory tooHigh = abi.encodeWithSelector(IIdentityValidator.ThresholdTooHigh.selector, uint8(2), uint32(1));
+
+        bytes memory payload = _payload(GITHUB, BOB, ADD, _txData(w, _key(CAROL_PK), _ph(_app())));
+        vm.expectRevert(tooHigh);
+        registry.addSessionByProof(GITHUB, V1, payload, "", _app());
+        _addByProof(relayer, GITHUB, BOB, w, _key(MALLORY_PK), _admin());
+        assertEq(validator.sessionOf(w, _key(APP_PK)).identity, bytes32(0), "not replaced");
+        _rootReverts(w, address(validator), abi.encodeCall(IIdentityValidator.setRecoveryFrozen, (bob, true)), tooHigh);
+    }
+
+    /// An admin session never expires on its own, so time cannot take a platform off the quorum.
+    function test_anExpiringAdminSessionIsRefused() public {
+        address w = _claim();
+        IIdentityValidator.Policy memory p = _admin();
+        p.validUntil = uint48(_now() + 7 days);
+        bytes memory expires = abi.encodeWithSelector(IIdentityValidator.AdminSessionExpires.selector, p.validUntil);
+        vm.prank(w);
+        vm.expectRevert(expires);
+        validator.addSession(_identity(X, ALICE), _key(ALICE2_PK), p);
+        bytes memory payload = _payload(X, ALICE, ADD, _txData(w, _key(ALICE2_PK), _ph(p)));
+        vm.expectRevert(expires);
+        registry.addSessionByProof(X, V1, payload, "", p);
+    }
+
+    /// An unlink may not drop the last admin session of a platform the threshold needs; a re-link counts it again.
     function test_unlinkKeepsThePlatformsTheThresholdNeeds() public {
         address w = _claim();
         bytes32 mallory_ = _identity(X, MALLORY);
@@ -283,7 +365,7 @@ contract IdentityValidatorTest is WalletTestBase {
         bytes memory threshold2 = abi.encodeCall(IIdentityValidator.setThreshold, (2));
         bytes memory tooHigh = abi.encodeWithSelector(IIdentityValidator.ThresholdTooHigh.selector, uint8(2), uint32(1));
         _link(w, X, MALLORY, w, "", _admin());
-        _link(w, GOOGLE, CAROL, w, "", _admin());
+        _link(w, GOOGLE, CAROL, w, _key(CAROL_PK), _admin());
         _root(w, address(validator), threshold2);
 
         _unlinkReverts(w, carol, tooHigh);
@@ -292,7 +374,7 @@ contract IdentityValidatorTest is WalletTestBase {
         _root(w, address(validator), abi.encodeCall(IIdentityValidator.setThreshold, (1)));
         _root(w, address(validator), abi.encodeCall(IIdentityValidator.unlink, (carol)));
         _rootReverts(w, address(validator), threshold2, tooHigh);
-        _link(w, GOOGLE, CAROL, w, "", _admin());
+        _link(w, GOOGLE, CAROL, w, _key(CAROL_PK), _admin());
         _root(w, address(validator), threshold2);
         assertEq(validator.threshold(w), 2, "a re-link did not count its platform again");
     }
@@ -428,8 +510,8 @@ contract IdentityValidatorTest is WalletTestBase {
         assertEq(validator.sessionOf(w, _key(ALICE2_PK)).activeAt, _now() + 72 hours, "raised delay ignored");
     }
 
-    /// The threshold may not exceed the linked platforms, or no admin operation could pass again.
-    function test_thresholdAboveTheLinkedPlatformsIsRefused() public {
+    /// The threshold may not exceed the admin platforms, or no admin operation could pass again.
+    function test_thresholdAboveTheAdminPlatformsIsRefused() public {
         address w = _claim();
         _rootReverts(
             w,
@@ -472,7 +554,7 @@ contract IdentityValidatorTest is WalletTestBase {
 
         bytes memory payload = _payload(GITHUB, BOB, ADD, _txData(w, _key(MALLORY_PK), _ph(_admin())));
         vm.expectRevert(abi.encodeWithSelector(IIdentityValidator.NotLinked.selector, w, bob));
-        registry.addSessionByProof(GITHUB, V1, payload, _admin());
+        registry.addSessionByProof(GITHUB, V1, payload, "", _admin());
     }
 
     /// A re-link starts a new generation: sessions of the earlier link stay dead.
@@ -505,7 +587,7 @@ contract IdentityValidatorTest is WalletTestBase {
         bytes32 alice = _identity(X, ALICE);
         _unlinkReverts(w, alice, abi.encodeWithSelector(IIdentityValidator.LastIdentity.selector, alice));
 
-        _link(w, GITHUB, BOB, w, "", _admin());
+        _link(w, GITHUB, BOB, w, _key(BOB_PK), _admin());
         _root(w, address(validator), abi.encodeCall(IIdentityValidator.setThreshold, (2)));
         _unlinkReverts(
             w, bob, abi.encodeWithSelector(IIdentityValidator.ThresholdTooHigh.selector, uint8(2), uint32(1))
@@ -623,13 +705,7 @@ contract IdentityValidatorTest is WalletTestBase {
 
         vm.startPrank(w);
         validator.addSession(_identity(X, ALICE), _key(APP_PK), _app());
-        validator.addSession(
-            _identity(X, ALICE),
-            _key(BOB_PK),
-            IIdentityValidator.Policy({
-                validAfter: 0, validUntil: uint48(_now() + 1 hours), admin: true, signers: 0, rules: _noRules()
-            })
-        );
+        validator.addSession(_identity(X, ALICE), _key(BOB_PK), _admin());
         validator.addSession(
             _identity(X, ALICE),
             _key(MALLORY_PK),
@@ -645,25 +721,25 @@ contract IdentityValidatorTest is WalletTestBase {
         assertFalse(_isValid1271(w, h, MALLORY_PK, _wrapped(w, h)), "before validAfter");
         assertFalse(_isValid1271(w, h, ALICE2_PK, _wrapped(w, h)), "pending");
         assertTrue(_isValid1271(w, h, BOB_PK, _wrapped(w, h)), "in window");
-        vm.warp(_now() + 2 hours);
-        assertFalse(_isValid1271(w, h, BOB_PK, _wrapped(w, h)), "expired");
     }
 
     /// `validUntil` is the last valid second, as the EntryPoint reads it.
     function test_erc1271WindowEndsWithTheEntryPoints() public {
-        bytes32 h = keccak256("a message");
         address w = _claim();
         uint48 t = uint48(_now());
+        IIdentityValidator.Policy memory p = _hitOnly();
+        p.validUntil = t + 20;
+        bytes32 app = keccak256("an app's domain separator");
+        p.rules.domainsRoot = _domainLeaf(app);
         vm.prank(w);
-        validator.addSession(
-            _identity(X, ALICE), _key(BOB_PK), IIdentityValidator.Policy(0, t + 20, true, 0, _noRules())
-        );
+        validator.addSession(_identity(X, ALICE), _key(BOB_PK), p);
         vm.warp(t + 20);
-        assertTrue(_isValid1271(w, h, BOB_PK, _wrapped(w, h)), "at validUntil");
-        _handle(_signed(_op(w, 0, _hit()), _pks(BOB_PK)));
+        (bytes32 h, bytes memory sig) = _typedSigBy(w, _pks(BOB_PK), app, new bytes32[](0));
+        assertEq(IWebWallet(w).isValidSignature(h, sig), bytes4(0x1626ba7e), "at validUntil");
+        _handle(_signedWith(_op(w, 0, _hit()), _pks(BOB_PK), _hitProofs(1)));
         vm.warp(t + 21);
-        assertFalse(_isValid1271(w, h, BOB_PK, _wrapped(w, h)), "after validUntil");
-        _refused(_signed(_op(w, 1, _hit()), _pks(BOB_PK)), "after validUntil");
+        assertEq(IWebWallet(w).isValidSignature(h, sig), bytes4(0xffffffff), "after validUntil");
+        _refused(_signedWith(_op(w, 1, _hit()), _pks(BOB_PK), _hitProofs(1)), "after validUntil");
     }
 
     /// `validAfter` is the last second before the window, as the EntryPoint reads it.
@@ -699,19 +775,19 @@ contract IdentityValidatorTest is WalletTestBase {
 
             bytes memory payload = _payload(X, ALICE, ADD, _txData(w, _key(APP_PK), _ph(ps[i])));
             vm.expectRevert();
-            registry.addSessionByProof(X, V1, payload, ps[i]);
+            registry.addSessionByProof(X, V1, payload, "", ps[i]);
 
             payload = _payload(X, ALICE, LINK, _txData(w, _key(APP_PK), _ph(ps[i])));
             vm.prank(w);
             vm.expectRevert();
-            registry.linkIdentity(X, V1, payload, ps[i]);
+            registry.linkIdentity(X, V1, payload, "", ps[i]);
         }
 
         vm.warp(flag - 1 hours);
         IIdentityValidator.Policy memory app = _app();
         bytes memory late = _payload(X, ALICE, ADD, _txData(w, _key(APP_PK), _ph(app)));
         vm.expectRevert(abi.encodeWithSelector(IIdentityValidator.PolicyOutOfRange.selector, 0, 0));
-        registry.addSessionByProof(X, V1, late, app);
+        registry.addSessionByProof(X, V1, late, "", app);
     }
 
     /// ERC-7739 `TypedDataSign`: the app's hash, nested under the account's domain, signed by an admin.

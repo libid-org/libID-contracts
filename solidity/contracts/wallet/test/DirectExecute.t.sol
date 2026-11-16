@@ -322,7 +322,7 @@ contract DirectExecuteTest is ExecuteBase {
     function test_anIdentityLinkedInTheBatchCannotSignIt() public {
         address w = _twoOfTwo();
         bytes memory payload = _payload(GOOGLE, CAROL, LINK, _txData(w, _key(CAROL_PK), _ph(_admin())));
-        bytes memory link = abi.encodeCall(IWalletRegistry.linkIdentity, (GOOGLE, V1, payload, _admin()));
+        bytes memory link = abi.encodeCall(IWalletRegistry.linkIdentity, (GOOGLE, V1, payload, "", _admin()));
         bytes memory calls = _then(_x(address(registry), 0, link));
         _refusesBy(w, calls, _pks(ALICE_PK, CAROL_PK), NOT_AUTHORIZED);
         assertFalse(validator.isLinked(w, _identity(GOOGLE, CAROL)), "the link stayed");
@@ -396,12 +396,12 @@ contract DirectExecuteTest is ExecuteBase {
         _runsBy(w, _one(_hitX()), _pks(ALICE_PK, BOB_PK));
     }
 
-    /// Below quorum, revoking the other admin does not help; at quorum, a batch revokes a session that does not
-    /// sign it.
+    /// Below quorum, revoking the other admin platform is refused; at quorum, a batch revokes a session that does
+    /// not sign it.
     function test_revokingAnAdminInTheBatchDoesNotHelpIt() public {
         address w = _twoOfTwo();
         bytes memory revokeBob = abi.encodeCall(IIdentityValidator.revokeSession, (_key(BOB_PK)));
-        _refusesBy(w, _onValidator(revokeBob), _pks(ALICE_PK), NOT_AUTHORIZED);
+        _refusesBy(w, _onValidator(revokeBob), _pks(ALICE_PK), IIdentityValidator.ThresholdTooHigh.selector);
         assertEq(validator.sessionOf(w, _key(BOB_PK)).identity, _identity(GITHUB, BOB), "Bob's session revoked");
 
         vm.prank(w);
@@ -450,7 +450,7 @@ contract DirectExecuteTest is ExecuteBase {
         bytes memory payload = _payload(platformId, idNode, LINK, _txData(w, _key(pk), _ph(p)));
         vm.prank(w);
         vm.expectRevert(abi.encodeWithSelector(IIdentityValidator.FirstSessionRefused.selector, w));
-        registry.linkIdentity(platformId, V1, payload, p);
+        registry.linkIdentity(platformId, V1, payload, "", p);
     }
 
     /// A stranger's proof of the genesis identity, naming her own key, does not link it to a fresh wallet.
@@ -459,7 +459,7 @@ contract DirectExecuteTest is ExecuteBase {
         bytes memory link = _payload(X, ALICE, LINK, _txData(w, _key(MALLORY_PK), _ph(_admin())));
         vm.prank(mallory);
         vm.expectRevert(abi.encodeWithSelector(IWalletRegistry.NotWallet.selector, w, mallory));
-        registry.linkIdentity(X, V1, link, _admin());
+        registry.linkIdentity(X, V1, link, "", _admin());
         assertFalse(validator.hadSession(w), "a stranger gave the wallet a session");
     }
 

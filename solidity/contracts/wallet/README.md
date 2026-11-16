@@ -22,15 +22,17 @@ One relayer transaction creates the wallet and runs its first batch:
 factory.createAndExecute{value: linkFee + bindFee}(
     platformId, idNode, AUTHORIZED_MODE, abi.encode(calls, deadline, callGas, abi.encode(authorization))
 );
-// calls: registry.linkIdentity{value: linkFee}(platformId, v, listPayload, policy),   // K, the first session
+// calls: registry.linkIdentity{value: linkFee}(platformId, v, listPayload, linkData, policy), // K, the first session
 //        identities.bindPrivately{value: bindFee}(platformId, v, listPayload, 0, address(0)),
 //        escrow.claim(handleNode, tokens, w),
-//        relayer.call{value: linkFee + bindFee}(""),                                  // the relayer's refund
-//        validator.addSession(identity, botKey, botPolicy)                            // optional
+//        relayer.call{value: linkFee + bindFee}(""),                                          // the relayer's refund
+//        validator.addSession(identity, botKey, botPolicy)                                    // optional
 ```
 
-`listPayload` is one sign-in proving an operation list of `bind-identity(w)`
-and `link-identity(w, K, policy)`, so the same payload serves both calls.
+`listPayload` is one sign-in proving an Operation List of the `bind-identity`
+entry for `w` and the `link-identity` entry for `linkData`, the
+`abi.encode(chainId, w, K, policyHash)` it hashes, so the same payload serves
+both calls.
 `createAndExecute` creates the wallet if it has no code, then calls its
 `execute(mode, data)` with `msg.value`. It grants nothing: the batch passes the same end
 check as any direct batch. Any failure reverts the whole transaction, the
@@ -139,7 +141,10 @@ the nonce lives there. Without it the direct path reverts
 - A proof's transaction data, for both `libid.webwallet.*` domains, is
   `abi.encode(uint256 chainId, address wallet, bytes sessionKey, bytes32 policyHash)`,
   canonically encoded, with `policyHash = policyHashOf(policy)`. An empty key
-  with a zero policy hash links only.
+  with a zero policy hash links only. Under `libid.operations` the proof's
+  Operation List commits `keccak256` of these bytes in a `libid.webwallet.*`
+  entry, and the call passes them as `data`; a proof of one operation passes
+  empty `data`.
 
 ## Sessions below quorum
 
@@ -193,6 +198,7 @@ is charged to `NATIVE_TOKEN` with its value.
 
 ### Allowances and `at`
 
+- Allowances are listed by strictly ascending token address.
 - Allowances are charged in validation, even when the execution reverts.
 - The period is `at - at % period`, or the session's whole life when
   `period == 0`. A charging operation's validity window is that period
@@ -278,6 +284,12 @@ with `queueRoot` and executed by anyone with `executeRoot` once
 session, or unlinking an identity, voids every root operation queued before
 it.
 
+The threshold never exceeds the platforms holding an admin session:
+`setThreshold`, a revoke, an unlink or a freeze that would leave fewer
+reverts `ThresholdTooHigh`, unless it leaves none. An admin session never
+expires: a policy with `admin` and a non-zero `validUntil` reverts
+`AdminSessionExpires`.
+
 ## Trust
 
 A wallet trusts the parties below, with no timelock, until libID and the
@@ -324,6 +336,8 @@ had one, and one live after the recovery delay on any other.
 - The JWT roots cannot drop a leaked key at once, and `WalletRegistry` has no
   pause: during a leak anyone could add pending sessions to every wallet with
   a linked identity on that platform (not exercised: it needs a leaked key).
+- After a root revoke to zero admin sessions, recovery needs proofs on
+  `threshold` distinct, unfrozen platforms, each waiting the recovery delay.
 - `entryPoint()` is fixed to v0.9: a later EntryPoint costs one root upgrade
   per wallet.
 - Direct batches of every signer share one nonce sequence, under key

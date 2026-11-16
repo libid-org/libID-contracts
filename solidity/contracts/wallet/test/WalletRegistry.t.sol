@@ -26,7 +26,7 @@ contract WalletRegistryTest is WalletTestBase {
         vm.expectEmit(true, true, true, false, address(registry));
         emit IWalletRegistry.IdentityLinked(w, X, ALICE, bytes32(0));
         vm.prank(w);
-        registry.linkIdentity(X, V1, payload, _admin());
+        registry.linkIdentity(X, V1, payload, "", _admin());
 
         bytes32 alice = _identity(X, ALICE);
         assertTrue(validator.isLinked(w, alice), "not linked");
@@ -50,17 +50,17 @@ contract WalletRegistryTest is WalletTestBase {
         bytes memory payload = _payload(GITHUB, BOB, LINK, _txData(w, "", bytes32(0)));
         vm.prank(mallory);
         vm.expectRevert(abi.encodeWithSelector(IWalletRegistry.NotWallet.selector, w, mallory));
-        registry.linkIdentity(GITHUB, V1, payload, _admin());
+        registry.linkIdentity(GITHUB, V1, payload, "", _admin());
 
         vm.prank(w);
-        registry.linkIdentity(GITHUB, V1, payload, _admin());
+        registry.linkIdentity(GITHUB, V1, payload, "", _admin());
         assertTrue(validator.isLinked(w, _identity(GITHUB, BOB)), "bob not linked");
 
         // The genesis id node on another platform is another identity.
         bytes memory sameNode = _payload(GITHUB, ALICE, LINK, _txData(w, "", bytes32(0)));
         vm.prank(mallory);
         vm.expectRevert(abi.encodeWithSelector(IWalletRegistry.NotWallet.selector, w, mallory));
-        registry.linkIdentity(GITHUB, V1, sameNode, _admin());
+        registry.linkIdentity(GITHUB, V1, sameNode, "", _admin());
     }
 
     /// Once the wallet had a session, only the wallet links its genesis identity.
@@ -71,10 +71,10 @@ contract WalletRegistryTest is WalletTestBase {
         bytes memory payload = _payload(X, ALICE, LINK, _txData(w, "", bytes32(0)));
         vm.prank(mallory);
         vm.expectRevert(abi.encodeWithSelector(IWalletRegistry.NotWallet.selector, w, mallory));
-        registry.linkIdentity(X, V1, payload, _admin());
+        registry.linkIdentity(X, V1, payload, "", _admin());
 
         vm.prank(w);
-        registry.linkIdentity(X, V1, payload, _admin());
+        registry.linkIdentity(X, V1, payload, "", _admin());
         assertTrue(validator.isLinked(w, alice), "the wallet could not re-link");
     }
 
@@ -84,7 +84,7 @@ contract WalletRegistryTest is WalletTestBase {
         vm.expectEmit(true, true, false, true, address(validator));
         emit IIdentityValidator.SessionAdded(w, _identity(GITHUB, BOB), _key(BOB_PK), _admin());
         vm.prank(w);
-        registry.linkIdentity(GITHUB, V1, payload, _admin());
+        registry.linkIdentity(GITHUB, V1, payload, "", _admin());
         IIdentityValidator.Session memory s = validator.sessionOf(w, _key(BOB_PK));
         assertEq(s.identity, _identity(GITHUB, BOB), "no session");
         assertEq(s.activeAt, _now(), "the wallet's own session does not start now");
@@ -107,13 +107,13 @@ contract WalletRegistryTest is WalletTestBase {
         bytes memory payload = _payload(X, ALICE, LINK, _txData(w, "", bytes32(0)));
         vm.recordLogs();
         vm.prank(w);
-        registry.linkIdentity(X, V1, payload, _admin());
+        registry.linkIdentity(X, V1, payload, "", _admin());
         bytes32 digest = xStub.lastDigest();
         Vm.Log[] memory logs = vm.getRecordedLogs();
         assertEq(abi.decode(logs[logs.length - 1].data, (bytes32)), digest, "IdentityLinked digest");
         vm.expectRevert(abi.encodeWithSelector(IWalletRegistry.DigestAlreadySpent.selector, digest));
         vm.prank(w);
-        registry.linkIdentity(X, V1, payload, _admin());
+        registry.linkIdentity(X, V1, payload, "", _admin());
     }
 
     function test_foreignDomainsAreRefused() public {
@@ -123,11 +123,11 @@ contract WalletRegistryTest is WalletTestBase {
         for (uint256 i; i < domains.length; ++i) {
             bytes memory payload = _payload(X, ALICE, domains[i], data);
             vm.expectRevert(abi.encodeWithSelector(IWalletRegistry.ForeignOperationDomain.selector, domains[i]));
-            registry.linkIdentity(X, V1, payload, _admin());
+            registry.linkIdentity(X, V1, payload, "", _admin());
         }
         bytes memory linkPayload = _payload(X, ALICE, LINK, data);
         vm.expectRevert(abi.encodeWithSelector(IWalletRegistry.ForeignOperationDomain.selector, LINK));
-        registry.addSessionByProof(X, V1, linkPayload, _admin());
+        registry.addSessionByProof(X, V1, linkPayload, "", _admin());
     }
 
     function test_crossChainReplayIsRefused() public {
@@ -135,13 +135,13 @@ contract WalletRegistryTest is WalletTestBase {
         bytes memory base = abi.encode(uint256(8453), w, bytes(""), bytes32(0));
         bytes memory payload = _payload(X, ALICE, LINK, base);
         vm.expectRevert(abi.encodeWithSelector(IWalletRegistry.WrongChain.selector, 8453));
-        registry.linkIdentity(X, V1, payload, _admin());
+        registry.linkIdentity(X, V1, payload, "", _admin());
 
         payload = _payload(X, ALICE, LINK, _txData(w, "", bytes32(0)));
         uint256 here = vm.getChainId();
         vm.chainId(8453);
         vm.expectRevert(abi.encodeWithSelector(IWalletRegistry.WrongChain.selector, here));
-        registry.linkIdentity(X, V1, payload, _admin());
+        registry.linkIdentity(X, V1, payload, "", _admin());
     }
 
     /// REQ-COMMON-01F: exactly the canonical `abi.encode(chainId, wallet, key, policyHash)`.
@@ -163,7 +163,7 @@ contract WalletRegistryTest is WalletTestBase {
         for (uint256 i; i < bad.length; ++i) {
             bytes memory payload = _payload(X, ALICE, LINK, bad[i]);
             vm.expectPartialRevert(IWalletRegistry.BadTransactionData.selector);
-            registry.linkIdentity(X, V1, payload, _admin());
+            registry.linkIdentity(X, V1, payload, "", _admin());
         }
         // Rows abi.decode itself rejects: any revert.
         bytes[] memory undecodable = new bytes[](2);
@@ -174,7 +174,7 @@ contract WalletRegistryTest is WalletTestBase {
         for (uint256 i; i < undecodable.length; ++i) {
             bytes memory payload = _payload(X, ALICE, LINK, undecodable[i]);
             vm.expectRevert();
-            registry.linkIdentity(X, V1, payload, _admin());
+            registry.linkIdentity(X, V1, payload, "", _admin());
         }
 
         // The validator owns the key format.
@@ -182,18 +182,18 @@ contract WalletRegistryTest is WalletTestBase {
         bytes memory shortKey = _payload(X, ALICE, LINK, abi.encode(block.chainid, w, key19, ph));
         vm.expectRevert(abi.encodeWithSelector(IIdentityValidator.InvalidKey.selector, key19));
         vm.prank(w);
-        registry.linkIdentity(X, V1, shortKey, _admin());
+        registry.linkIdentity(X, V1, shortKey, "", _admin());
 
         bytes memory addPayload = _payload(X, ALICE, ADD, abi.encodePacked(good, bytes1(0)));
         vm.expectPartialRevert(IWalletRegistry.BadTransactionData.selector);
-        registry.addSessionByProof(X, V1, addPayload, _admin());
+        registry.addSessionByProof(X, V1, addPayload, "", _admin());
     }
 
     function test_policyMustMatchTheCommitment() public {
         address w = factory.createWallet(X, ALICE);
         bytes memory payload = _payload(X, ALICE, LINK, _txData(w, _key(ALICE_PK), _ph(_admin())));
         vm.expectRevert(abi.encodeWithSelector(IWalletRegistry.PolicyMismatch.selector, _ph(_admin()), _ph(_app())));
-        registry.linkIdentity(X, V1, payload, _app());
+        registry.linkIdentity(X, V1, payload, "", _app());
     }
 
     function test_aProofWithoutAnIdIsRefused() public {
@@ -201,7 +201,7 @@ contract WalletRegistryTest is WalletTestBase {
         bytes memory payload = _payload(X, bytes32(0), LINK, _txData(w, "", bytes32(0)));
         vm.prank(w);
         vm.expectRevert(IWalletRegistry.NoId.selector);
-        registry.linkIdentity(X, V1, payload, _admin());
+        registry.linkIdentity(X, V1, payload, "", _admin());
     }
 
     function test_valueIsExactlyTheQuote() public {
@@ -223,10 +223,10 @@ contract WalletRegistryTest is WalletTestBase {
         for (uint256 v = 4; v <= 6; v += 2) {
             vm.prank(w);
             vm.expectRevert(abi.encodeWithSelector(IWalletRegistry.WrongValue.selector, 5, v));
-            registry.linkIdentity{value: v}(GITHUB, 2, payload, _admin());
+            registry.linkIdentity{value: v}(GITHUB, 2, payload, "", _admin());
         }
         vm.prank(w);
-        registry.linkIdentity{value: 5}(GITHUB, 2, payload, _admin());
+        registry.linkIdentity{value: 5}(GITHUB, 2, payload, "", _admin());
         assertEq(paid.lastValue(), 5, "the verifier was not paid");
     }
 
@@ -236,11 +236,11 @@ contract WalletRegistryTest is WalletTestBase {
         address w = _claim();
         bytes memory payload = _payload(GITHUB, BOB, ADD, _txData(w, _key(BOB_PK), _ph(_admin())));
         vm.expectRevert(abi.encodeWithSelector(IIdentityValidator.NotLinked.selector, w, _identity(GITHUB, BOB)));
-        registry.addSessionByProof(GITHUB, V1, payload, _admin());
+        registry.addSessionByProof(GITHUB, V1, payload, "", _admin());
 
         payload = _payload(X, ALICE, ADD, _txData(w, "", bytes32(0)));
         vm.expectRevert(abi.encodeWithSelector(IIdentityValidator.InvalidKey.selector, ""));
-        registry.addSessionByProof(X, V1, payload, _admin());
+        registry.addSessionByProof(X, V1, payload, "", _admin());
     }
 
     function test_aWalletThatNeverHadASessionTakesNoSessionByProof() public {
@@ -249,7 +249,7 @@ contract WalletRegistryTest is WalletTestBase {
         bytes memory payload = _payload(X, ALICE, ADD, _txData(w, _key(ALICE_PK), _ph(_admin())));
         vm.prank(mallory);
         vm.expectRevert(abi.encodeWithSelector(IIdentityValidator.FirstSessionRefused.selector, w));
-        registry.addSessionByProof(X, V1, payload, _admin());
+        registry.addSessionByProof(X, V1, payload, "", _admin());
         assertFalse(validator.hadSession(w), "flag set");
     }
 
@@ -260,17 +260,13 @@ contract WalletRegistryTest is WalletTestBase {
         vm.expectEmit(true, true, false, true, address(validator));
         emit IIdentityValidator.SessionAddedByProof(w, _identity(X, ALICE), _key(ALICE2_PK), _admin(), due);
         vm.prank(mallory);
-        registry.addSessionByProof(X, V1, payload, _admin());
+        registry.addSessionByProof(X, V1, payload, "", _admin());
         assertEq(validator.sessionOf(w, _key(ALICE2_PK)).activeAt, due, "not pending for 48 h");
     }
 
-    /// The review's dormant-wallet case: expired admins do not switch the wait off.
-    function test_aDormantWalletStillWaits() public {
-        address w = _claimWith(
-            IIdentityValidator.Policy({
-                validAfter: 0, validUntil: uint48(_now() + 1 days), admin: true, signers: 0, rules: _noRules()
-            })
-        );
+    /// A wallet idle for 30 days still makes a session by proof wait.
+    function test_anIdleWalletStillWaits() public {
+        address w = _claim();
         vm.warp(_now() + 30 days);
         _addByProof(mallory, X, ALICE, w, _key(MALLORY_PK), _admin());
         assertEq(validator.sessionOf(w, _key(MALLORY_PK)).activeAt, _now() + 48 hours, "dormant wallet skipped wait");

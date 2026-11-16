@@ -4,7 +4,8 @@ pragma solidity ^0.8.24;
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {Ownable2Step} from "@openzeppelin/contracts/access/Ownable2Step.sol";
 
-import {HandleEscrow, NATIVE_TOKEN} from "../escrow/HandleEscrow.sol";
+import {HandleEscrow} from "../escrow/HandleEscrow.sol";
+import {NATIVE_TOKEN} from "../NativeToken.sol";
 import {IBindFeeReceiver} from "../identity/IBindFeeReceiver.sol";
 import {IIdentityRegistry} from "../identity/IIdentityRegistry.sol";
 

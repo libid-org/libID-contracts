@@ -128,11 +128,11 @@ contract DirectExecuteEdgesTest is ExecuteBase {
         _root(w, address(validator), abi.encodeCall(IIdentityValidator.unlink, (_identity(GITHUB, BOB))));
 
         _addByProof(relayer, X, ALICE, w, _key(ALICE2_PK), _admin());
-        IIdentityValidator.Policy memory p = _admin();
+        IIdentityValidator.Policy memory p = _app();
         p.validUntil = uint48(_now() + 1 hours);
         vm.startPrank(w);
         validator.addSession(alice, _key(CAROL_PK), p);
-        p.validUntil = 0;
+        p = _admin();
         p.validAfter = uint48(_now() + 3 hours);
         validator.addSession(alice, _key(MALLORY_PK), p);
         validator.addSession(alice, _key(OTHER_PK), _admin());

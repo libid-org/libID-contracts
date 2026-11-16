@@ -16,6 +16,8 @@
 //! - [`platform_verifier`] — the Platform Verifier initializer, checked
 //!   against its platform's circuit and `PlatformVerifierBase`'s rules.
 //! - [`bind_error`] — a refused `bind`, decoded by name.
+//! - [`operation_list`] — the transaction data of one ceremony authorizing
+//!   several Consumers' operations.
 //! - [`circuits`] — the ceremony circuits' vendored UltraHonk verifiers:
 //!   which circuit a platform proves under, and the deploy of its verifier.
 //! - `testing` (feature `testing`) — a stand-in Platform Verifier for a
@@ -33,6 +35,7 @@ pub mod circuits;
 pub mod deploy;
 mod error;
 pub mod factory;
+pub mod operation_list;
 pub mod platform_verifier;
 #[cfg(feature = "testing")]
 pub mod testing;

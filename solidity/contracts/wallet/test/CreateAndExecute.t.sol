@@ -4,6 +4,7 @@ pragma solidity ^0.8.24;
 import {Execution} from "@openzeppelin/contracts/interfaces/draft-IERC7579.sol";
 
 import {IPlatformVerifier} from "../../ceremony/IPlatformVerifier.sol";
+import {operationList} from "../../ceremony/test/OperationListVector.sol";
 import {NATIVE_TOKEN} from "../../NativeToken.sol";
 import {IHandleEscrow} from "../../escrow/IHandleEscrow.sol";
 import {TestERC20} from "../../escrow/test/EscrowMocks.sol";
@@ -13,7 +14,6 @@ import {IIdentityValidator} from "../IIdentityValidator.sol";
 import {IWalletFactoryOnboarding} from "../IWalletFactory.sol";
 import {IWalletRegistry} from "../IWalletRegistry.sol";
 import {AUTHORIZED_MODE} from "../IWebWallet.sol";
-import {operationList} from "./WalletTestBase.sol";
 import {ExecuteBase} from "./DirectExecute.t.sol";
 
 /// @notice Onboarding in one `createAndExecute`: the batch Alice's first session K signs links K from a genesis
@@ -31,6 +31,7 @@ contract CreateAndExecuteTest is ExecuteBase {
     address internal bob = makeAddr("bob");
     address internal w;
     bytes internal list;
+    bytes internal linkData;
     uint256 internal linkFee;
 
     function setUp() public override {
@@ -40,12 +41,13 @@ contract CreateAndExecuteTest is ExecuteBase {
         vm.prank(owner);
         proofVerifier.setVerifier(X, V2, IPlatformVerifier(address(paid)));
         w = factory.walletAddress(X, ALICE);
+        linkData = _txData(w, _key(ALICE_PK), _ph(_admin()));
         list = abi.encode(
             StubPlatformVerifier.StubPayload({
                 ceremonyVersion: 1,
                 operationDomain: OPERATIONS,
                 authorizationNonce: bytes32(uint256(1)),
-                transactionData: operationList(BIND, abi.encode(w), LINK, _txData(w, _key(ALICE_PK), _ph(_admin())))
+                transactionData: operationList(BIND, abi.encode(w), LINK, linkData)
             })
         );
         linkFee = registry.quote(X, V2);
@@ -65,7 +67,9 @@ contract CreateAndExecuteTest is ExecuteBase {
         address[] memory tokens = new address[](2);
         (tokens[0], tokens[1]) = (NATIVE_TOKEN, address(token));
         Execution[] memory x = new Execution[](5);
-        x[0] = _x(address(registry), linkFee, abi.encodeCall(IWalletRegistry.linkIdentity, (X, V2, list, _admin())));
+        x[0] = _x(
+            address(registry), linkFee, abi.encodeCall(IWalletRegistry.linkIdentity, (X, V2, list, linkData, _admin()))
+        );
         x[1] =
             _x(address(identities), FEE, abi.encodeCall(IIdentityRegistry.bindPrivately, (X, V2, list, 0, address(0))));
         x[2] = _x(address(escrow), 0, abi.encodeCall(IHandleEscrow.claim, (HANDLE, tokens, w)));
