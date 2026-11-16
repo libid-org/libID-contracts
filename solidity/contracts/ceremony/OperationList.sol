@@ -1,60 +1,56 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
+import {IOperationLists} from "./IOperationLists.sol";
+
 /// @title OperationList
 /// @notice The Operation List of ceremony-common section 5: one ceremony's
-///         Authorized Transaction Data carrying an entry for each of several
-///         Consumers, `abi.encode(Operation[])` (chain profiles REQ-CHAIN-07B).
-/// @dev A Consumer passes the verified domain and data through `select` and
-///      handles what comes back as it handles a single operation. Only the
-///      entry domains are read; other entries' `data` is never decoded
-///      (REQ-COMMON-01J).
+///         Authorized Transaction Data committing an entry for each of several
+///         Consumers, as its domain and `keccak256(data)` (chain profiles §3.3).
+/// @dev A Consumer whose verified domain is `DOMAIN` passes the list and its
+///      own `data` to `select`, then handles the returned domain and `data` as
+///      a single operation. Other entries are read only for their domain and
+///      data hash (REQ-COMMON-01J).
 library OperationList {
-    struct Operation {
-        bytes32 domain;
-        bytes data;
-    }
-
     /// @notice keccak256("libid.operations")
     bytes32 internal constant DOMAIN = keccak256("libid.operations");
 
-    /// The list is not the one `abi.encode` of the entries it decodes to (REQ-CHAIN-07B).
-    error NoncanonicalOperationList();
-    /// An entry is itself under `libid.operations` (REQ-COMMON-01I).
-    error NestedOperationList();
-    /// No entry is under a domain this Consumer owns (REQ-COMMON-01I).
-    error NoOwnOperation();
-    /// More than one entry is under a domain this Consumer owns (REQ-COMMON-01I).
-    error SeveralOwnOperations();
-
-    /// @notice `(domain, data)` as given, or under `libid.operations` the one
-    ///         entry among `own` (REQ-COMMON-01G).
-    function select(bytes32 domain, bytes memory data, bytes32[] memory own)
+    /// @notice The domain of the one entry among `own` whose data hash is `keccak256(data)` (REQ-COMMON-01I).
+    /// @param chainBound Every domain in `own` fixes data committing a chain id the Consumer checks,
+    ///        so the list may hold one entry of them per chain.
+    function select(bytes memory list, bytes memory data, bytes32[] memory own, bool chainBound)
         internal
         pure
-        returns (bytes32, bytes memory)
+        returns (bytes32 domain)
     {
-        if (domain != DOMAIN) return (domain, data);
-        Operation[] memory entries = abi.decode(data, (Operation[]));
-        if (keccak256(abi.encode(entries)) != keccak256(data)) revert NoncanonicalOperationList();
-
-        uint256 found = type(uint256).max;
-        for (uint256 i; i < entries.length; ++i) {
-            bytes32 d = entries[i].domain;
-            if (d == DOMAIN) revert NestedOperationList();
-            if (!_contains(own, d)) continue;
-            if (found != type(uint256).max) revert SeveralOwnOperations();
-            found = i;
+        uint256 len = list.length;
+        if (len < 64 || (len - 64) % 64 != 0 || _word(list, 0) != bytes32(uint256(0x20))) {
+            revert IOperationLists.NoncanonicalOperationList();
         }
-        if (found == type(uint256).max) revert NoOwnOperation();
-        return (entries[found].domain, entries[found].data);
+        uint256 n = (len - 64) / 64;
+        if (_word(list, 1) != bytes32(n)) revert IOperationLists.NoncanonicalOperationList();
+
+        bytes32 hash = keccak256(data);
+        uint256 candidates;
+        uint256 matches;
+        for (uint256 i; i < n; ++i) {
+            bytes32 d = _word(list, 2 + 2 * i);
+            if (d == DOMAIN) revert IOperationLists.NestedOperationList();
+            if (!_contains(own, d)) continue;
+            ++candidates;
+            if (_word(list, 3 + 2 * i) == hash) {
+                ++matches;
+                domain = d;
+            }
+        }
+        if (matches > 1 || (candidates > 1 && !chainBound)) revert IOperationLists.SeveralOwnOperations();
+        if (matches == 0) revert IOperationLists.NoOwnOperation();
     }
 
-    /// @notice `select` for a Consumer that owns one domain besides `libid.operations`.
-    function select(bytes32 domain, bytes memory data, bytes32 own) internal pure returns (bytes32, bytes memory) {
-        bytes32[] memory owned = new bytes32[](1);
-        owned[0] = own;
-        return select(domain, data, owned);
+    function _word(bytes memory b, uint256 i) private pure returns (bytes32 w) {
+        assembly ("memory-safe") {
+            w := mload(add(b, mul(add(i, 1), 32)))
+        }
     }
 
     function _contains(bytes32[] memory set, bytes32 d) private pure returns (bool) {

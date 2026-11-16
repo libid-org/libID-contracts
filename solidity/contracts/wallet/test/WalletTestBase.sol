@@ -292,7 +292,7 @@ abstract contract WalletTestBase is Test, Trees {
             platformId, idNode, LINK, _txData(wallet, key, key.length == 0 ? bytes32(0) : _ph(p))
         );
         vm.prank(submitter);
-        registry.linkIdentity(platformId, V1, payload, p);
+        registry.linkIdentity(platformId, V1, payload, "", p);
         return _stub(platformId).lastDigest();
     }
 
@@ -306,7 +306,7 @@ abstract contract WalletTestBase is Test, Trees {
     ) internal {
         bytes memory payload = _payload(platformId, idNode, ADD, _txData(wallet, key, _ph(p)));
         vm.prank(submitter);
-        registry.addSessionByProof(platformId, V1, payload, p);
+        registry.addSessionByProof(platformId, V1, payload, "", p);
     }
 
     /// Alice's canonical wallet, linked by the relayer with her first session.

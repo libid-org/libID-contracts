@@ -1,8 +1,10 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
+import {IOperationLists} from "../ceremony/IOperationLists.sol";
+
 /// @notice What other contracts ask the identity registry.
-interface IIdentityRegistry {
+interface IIdentityRegistry is IOperationLists {
     /// @notice One identity a holder proved, as its list reports it.
     /// @dev `handleCurrent` is false once another identity proved `handleNode`.
     struct Identity {

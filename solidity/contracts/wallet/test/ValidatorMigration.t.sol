@@ -46,7 +46,7 @@ contract ValidatorMigrationTest is WalletTestBase {
         bytes memory payload = _payload(X, ALICE, LINK, _txData(w, _key(MALLORY_PK), _ph(_admin())));
         vm.prank(mallory);
         vm.expectRevert(abi.encodeWithSelector(IWalletRegistry.NotWallet.selector, w, mallory));
-        registry2.linkIdentity(X, V1, payload, _admin());
+        registry2.linkIdentity(X, V1, payload, "", _admin());
         assertEq(v2.sessionOf(w, _key(MALLORY_PK)).identity, bytes32(0), "mallory has a session");
     }
 

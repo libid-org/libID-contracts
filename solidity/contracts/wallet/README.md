@@ -31,9 +31,14 @@ executor.claimToSelf(w, handleNode, tokens);                         // pays the
   claim applied first by someone else reverts the relayer's transaction.
   Either way the outcome is the same wallet bound and paid. A relayer that
   batches the three calls should let each fail on its own.
-- The claim adds no session. The first session comes from a
-  `link-identity` proof of the genesis identity, or an `add-session` proof:
-  while the wallet never had a session, either is active at once.
+- One sign-in also adds the first session. Its proof commits an Operation
+  List of the `bind-identity` entry and a `link-identity` entry of the
+  genesis identity with the session key, and the relayer calls
+  `registry.linkIdentity{value: registry.quote(platformId, v)}(platformId, v, payload, linkData, policy)`
+  before `bind` with the same payload (`SessionRelay.claimWithSession` in
+  `test/ClaimExecutor.t.sol`). A claim without one gets its first session
+  from a later `link-identity` or `add-session` proof: while the wallet never
+  had a session, either is active at once.
 
 ## Signatures
 
@@ -55,7 +60,10 @@ executor.claimToSelf(w, handleNode, tokens);                         // pays the
 - A proof's transaction data, for both `libid.webwallet.*` domains, is
   `abi.encode(uint256 chainId, address wallet, bytes sessionKey, bytes32 policyHash)`,
   canonically encoded, with `policyHash = policyHashOf(policy)`. An empty key
-  with a zero policy hash links only.
+  with a zero policy hash links only. Under `libid.operations` the proof's
+  Operation List commits `keccak256` of these bytes in a `libid.webwallet.*`
+  entry, and the call passes them as `data`; a proof of one operation passes
+  empty `data`.
 
 ## Sessions below quorum
 

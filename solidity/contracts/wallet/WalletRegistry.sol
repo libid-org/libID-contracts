@@ -58,9 +58,10 @@ contract WalletRegistry is IWalletRegistry {
         bytes32 platformId,
         uint16 verifierVersion,
         bytes calldata payload,
+        bytes calldata data,
         IIdentityValidator.Policy calldata policy
     ) external payable {
-        Accepted memory a = _accept(LINK_IDENTITY_DOMAIN, platformId, verifierVersion, payload, policy);
+        Accepted memory a = _accept(LINK_IDENTITY_DOMAIN, platformId, verifierVersion, payload, data, policy);
         bool byWallet = msg.sender == a.wallet;
         if (!byWallet) {
             (bytes32 genesisPlatform, bytes32 genesisId) = VALIDATOR.genesisIdentity(a.wallet);
@@ -80,9 +81,10 @@ contract WalletRegistry is IWalletRegistry {
         bytes32 platformId,
         uint16 verifierVersion,
         bytes calldata payload,
+        bytes calldata data,
         IIdentityValidator.Policy calldata policy
     ) external payable {
-        Accepted memory a = _accept(ADD_SESSION_DOMAIN, platformId, verifierVersion, payload, policy);
+        Accepted memory a = _accept(ADD_SESSION_DOMAIN, platformId, verifierVersion, payload, data, policy);
         VALIDATOR.addSessionByProof(a.wallet, identityOf(platformId, a.idNode), a.key, policy);
     }
 
@@ -100,6 +102,7 @@ contract WalletRegistry is IWalletRegistry {
         bytes32 platformId,
         uint16 verifierVersion,
         bytes calldata payload,
+        bytes calldata data,
         IIdentityValidator.Policy calldata policy
     ) private returns (Accepted memory a) {
         uint256 required = PROOF_VERIFIER.quote(platformId, verifierVersion);
@@ -107,18 +110,26 @@ contract WalletRegistry is IWalletRegistry {
         ICeremony.VerifiedClaim memory claimed =
             PROOF_VERIFIER.verify{value: required}(platformId, verifierVersion, payload);
 
-        // Both domains are this Consumer's, so a list may carry only one of them (REQ-COMMON-01I).
-        bytes32[] memory own = new bytes32[](2);
-        own[0] = LINK_IDENTITY_DOMAIN;
-        own[1] = ADD_SESSION_DOMAIN;
-        (bytes32 entryDomain, bytes memory data) =
-            OperationList.select(claimed.operationDomain, claimed.transactionData, own);
-        if (entryDomain != domain) revert ForeignOperationDomain(entryDomain);
+        bytes memory txData = claimed.transactionData;
+        if (claimed.operationDomain != domain) {
+            if (claimed.operationDomain != OperationList.DOMAIN) {
+                revert ForeignOperationDomain(claimed.operationDomain);
+            }
+            // Both domains commit the chain id, which `_transactionData` checks (REQ-COMMON-01I).
+            bytes32[] memory own = new bytes32[](2);
+            own[0] = LINK_IDENTITY_DOMAIN;
+            own[1] = ADD_SESSION_DOMAIN;
+            bytes32 entryDomain = OperationList.select(txData, data, own, true);
+            if (entryDomain != domain) revert ForeignOperationDomain(entryDomain);
+            txData = data;
+        } else if (data.length != 0) {
+            revert DataWithoutList();
+        }
         if (claimed.idNode == bytes32(0)) revert NoId();
         if (_s().spentDigests[claimed.sessionId]) revert DigestAlreadySpent(claimed.sessionId);
         _s().spentDigests[claimed.sessionId] = true;
 
-        (address wallet, bytes memory key) = _transactionData(data, policy);
+        (address wallet, bytes memory key) = _transactionData(txData, policy);
         return Accepted({idNode: claimed.idNode, digest: claimed.sessionId, wallet: wallet, key: key});
     }
 

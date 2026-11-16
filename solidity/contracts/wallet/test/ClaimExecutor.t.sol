@@ -5,7 +5,7 @@ import {IERC7579Execution} from "@openzeppelin/contracts/interfaces/draft-IERC75
 import {ERC7579Utils} from "@openzeppelin/contracts/account/utils/draft-ERC7579Utils.sol";
 
 import {IPlatformVerifier} from "../../ceremony/IPlatformVerifier.sol";
-import {OperationList} from "../../ceremony/OperationList.sol";
+import {operationList} from "../../ceremony/test/OperationListVector.sol";
 import {NATIVE_TOKEN} from "../../escrow/HandleEscrow.sol";
 import {IdentityRegistry} from "../../identity/IdentityRegistry.sol";
 import {StubPlatformVerifier} from "../../identity/test/StubPlatformVerifier.sol";
@@ -19,14 +19,6 @@ import {WalletTestBase} from "./WalletTestBase.sol";
 function nativeOnly() pure returns (address[] memory tokens) {
     tokens = new address[](1);
     tokens[0] = NATIVE_TOKEN;
-}
-
-/// The Operation List of two entries, `abi.encode(Operation[])`.
-function operationList(bytes32 d0, bytes memory data0, bytes32 d1, bytes memory data1) pure returns (bytes memory) {
-    OperationList.Operation[] memory e = new OperationList.Operation[](2);
-    e[0] = OperationList.Operation({domain: d0, data: data0});
-    e[1] = OperationList.Operation({domain: d1, data: data1});
-    return abi.encode(e);
 }
 
 /// Sends the whole claim as one transaction, as a relayer's multicall does.
@@ -44,8 +36,10 @@ contract Relay {
         executor.bind{value: msg.value}(w, platformId, verifierVersion, bindPayload);
         executor.claimToSelf(w, handleNode, nativeOnly());
     }
+}
 
-    /// The claim with the wallet's first session, from one proof of a bind and a link entry.
+/// The claim with the wallet's first session, from one proof of a bind and a link entry.
+contract SessionRelay {
     function claimWithSession(
         IWalletFactory factory,
         IWalletRegistry registry,
@@ -55,11 +49,12 @@ contract Relay {
         bytes32 idNode,
         bytes32 handleNode,
         bytes calldata payload,
+        bytes calldata linkData,
         IIdentityValidator.Policy calldata policy
     ) external payable {
         address w = factory.createWallet(platformId, idNode);
         uint256 linkFee = registry.quote(platformId, verifierVersion);
-        registry.linkIdentity{value: linkFee}(platformId, verifierVersion, payload, policy);
+        registry.linkIdentity{value: linkFee}(platformId, verifierVersion, payload, linkData, policy);
         executor.bind{value: msg.value - linkFee}(w, platformId, verifierVersion, payload);
         executor.claimToSelf(w, handleNode, nativeOnly());
     }
@@ -114,14 +109,16 @@ contract ClaimExecutorTest is WalletTestBase {
     /// first session, bound and paid, in one transaction.
     function test_relayerClaimsWithAFirstSessionFromOneList() public {
         address w = factory.walletAddress(X, ALICE);
-        bytes memory list = operationList(BIND, abi.encode(w), LINK, _txData(w, _key(ALICE_PK), _ph(_admin())));
-        bytes memory payload = _paidPayload(ALICE, OPERATIONS, list);
-        Relay relay = new Relay();
+        bytes memory linkData = _txData(w, _key(ALICE_PK), _ph(_admin()));
+        bytes memory payload = _paidPayload(ALICE, OPERATIONS, operationList(BIND, abi.encode(w), LINK, linkData));
+        SessionRelay relay = new SessionRelay();
         vm.deal(relayer, 1 ether);
         vm.prank(relayer);
-        relay.claimWithSession{value: 2 * FEE}(factory, registry, executor, X, 2, ALICE, HANDLE, payload, _admin());
+        relay.claimWithSession{value: 2 * FEE}(
+            factory, registry, executor, X, 2, ALICE, HANDLE, payload, linkData, _admin()
+        );
         vm.snapshotValue(
-            "wallet-claim", "Relay.claimWithSession(stub proof, operation list)", vm.lastFrameGas().gasTotalUsed
+            "wallet-claim", "SessionRelay.claimWithSession(stub proof, operation list)", vm.lastFrameGas().gasTotalUsed
         );
 
         assertEq(identities.resolveId(ALICE), w, "not bound to the wallet");

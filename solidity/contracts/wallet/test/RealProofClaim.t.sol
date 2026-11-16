@@ -15,7 +15,8 @@ import {TlsNotaryVerifierBase} from "../../ceremony/TlsNotaryVerifierBase.sol";
 import {XPlatformVerifier} from "../../ceremony/XPlatformVerifier.sol";
 import {NATIVE_TOKEN} from "../../escrow/HandleEscrow.sol";
 import {IIdentityValidator} from "../IIdentityValidator.sol";
-import {Relay, operationList} from "./ClaimExecutor.t.sol";
+import {operationList} from "../../ceremony/test/OperationListVector.sol";
+import {Relay, SessionRelay} from "./ClaimExecutor.t.sol";
 import {WalletTestBase} from "./WalletTestBase.sol";
 
 /// The claim and a session by proof through the real X verifier, NotaryService and Honk verifier.
@@ -117,15 +118,17 @@ contract RealProofClaimTest is WalletTestBase {
         address w = factory.walletAddress(X, idNode);
         escrow.deposit{value: 0.01 ether}(X, handleNode, NATIVE_TOKEN, 0.01 ether);
         IIdentityValidator.Policy memory p = _admin();
-        bytes memory payload =
-            _real(OPERATIONS, operationList(BIND, abi.encode(w), LINK, _txData(w, _key(ALICE_PK), _ph(p))));
+        bytes memory linkData = _txData(w, _key(ALICE_PK), _ph(p));
+        bytes memory payload = _real(OPERATIONS, operationList(BIND, abi.encode(w), LINK, linkData));
         uint256 fee = identities.quoteBind(X, VX) + registry.quote(X, VX);
-        Relay relay = new Relay();
+        SessionRelay relay = new SessionRelay();
         vm.prank(relayer);
-        relay.claimWithSession{value: fee}(factory, registry, executor, X, VX, idNode, handleNode, payload, p);
+        relay.claimWithSession{value: fee}(factory, registry, executor, X, VX, idNode, handleNode, payload, linkData, p);
         // The frame's gas, written only by `FOUNDRY_PROFILE=gas forge test`.
         vm.snapshotValue(
-            "wallet-claim", "Relay.claimWithSession(real X proof, operation list)", vm.lastFrameGas().gasTotalUsed
+            "wallet-claim",
+            "SessionRelay.claimWithSession(real X proof, operation list)",
+            vm.lastFrameGas().gasTotalUsed
         );
 
         assertEq(identities.resolveId(idNode), w, "not bound");
@@ -141,7 +144,7 @@ contract RealProofClaimTest is WalletTestBase {
         bytes memory add = _real(ADD, _txData(w, _key(ALICE_PK), _ph(p)));
         uint256 fee = registry.quote(X, VX);
         vm.prank(relayer);
-        registry.addSessionByProof{value: fee}(X, VX, add, p);
+        registry.addSessionByProof{value: fee}(X, VX, add, "", p);
         emit log_named_uint("addSessionByProof frame gas", vm.lastFrameGas().gasTotalUsed);
         assertLe(validator.sessionOf(w, _key(ALICE_PK)).activeAt, _now(), "the first session waits");
         _handle(_signed(_op(w, 0, _hit()), _pks(ALICE_PK)));

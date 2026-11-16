@@ -57,7 +57,7 @@ contract WalletFactoryTest is WalletTestBase {
         bytes memory payload = _payload(X, MALLORY, LINK, _txData(w, _key(MALLORY_PK), _ph(_admin())));
         vm.prank(mallory);
         vm.expectRevert(abi.encodeWithSelector(IWalletRegistry.NotWallet.selector, w, mallory));
-        registry.linkIdentity(X, V1, payload, _admin());
+        registry.linkIdentity(X, V1, payload, "", _admin());
 
         _link(relayer, X, ALICE, w, _key(ALICE_PK), _admin());
         assertTrue(validator.isLinked(w, _identity(X, ALICE)), "alice could not link");

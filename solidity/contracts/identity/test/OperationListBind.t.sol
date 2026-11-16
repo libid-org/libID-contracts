@@ -8,13 +8,13 @@ import {CeremonyProfile} from "../../ceremony/CeremonyProfile.sol";
 import {CeremonyProofVerifier} from "../../ceremony/CeremonyProofVerifier.sol";
 import {IPlatformVerifier} from "../../ceremony/IPlatformVerifier.sol";
 import {IProofVerifier} from "../../ceremony/IProofVerifier.sol";
-import {OperationList} from "../../ceremony/OperationList.sol";
+import {IOperationLists} from "../../ceremony/IOperationLists.sol";
 import {OperationListVector as V} from "../../ceremony/test/OperationListVector.sol";
 import {IdentityRegistry} from "../IdentityRegistry.sol";
 import {StubPlatformVerifier} from "./StubPlatformVerifier.sol";
 import {TestNodes} from "./TestNodes.sol";
 
-/// @notice The bind Consumer under `libid.operations`: TEST-COMMON-02B/02C, TEST-CHAIN-05, TEST-PLAT-20E.
+/// @notice The bind Consumer under `libid.operations`: the list cases of TEST-CHAIN-05 and TEST-PLAT-20E.
 contract OperationListBindTest is Test {
     bytes32 constant PLATFORM = CeremonyProfile.PLATFORM_X;
     address constant OWNER = address(0xA11CE);
@@ -68,7 +68,7 @@ contract OperationListBindTest is Test {
         registry.bindPrivately(PLATFORM, 1, payload, 0, address(0));
     }
 
-    /// The `libid.test.a` entry's `0xff` is no target, and is never decoded.
+    /// The bind Consumer finds its entry by the caller's hash; the `libid.test.a` entry is not its.
     function test_theVectorBindsItsTargetOnce() public {
         _bind(V.TARGET, V.transactionData());
         assertEq(verifier.lastDigest(), V.DIGEST, "digest");
@@ -78,33 +78,26 @@ contract OperationListBindTest is Test {
         _refused(V.transactionData(), abi.encodeWithSelector(IdentityRegistry.DigestAlreadySpent.selector, V.DIGEST));
     }
 
+    /// Another caller's rebuilt data matches no entry.
     function test_theEntryTargetMustBeTheCaller() public {
         bytes memory payload = _payload(V.transactionData());
         vm.prank(address(0xBEEF));
-        vm.expectRevert(abi.encodeWithSelector(IdentityRegistry.NotProofTarget.selector, V.TARGET, address(0xBEEF)));
+        vm.expectRevert(IOperationLists.NoOwnOperation.selector);
         registry.bindPrivately(PLATFORM, 1, payload, 0, address(0));
     }
 
     function test_theDerivedListsAreRefused() public {
-        _refused(V.duplicateEntry(), abi.encodeWithSelector(OperationList.SeveralOwnOperations.selector));
-        _refused(V.nestedEntry(), abi.encodeWithSelector(OperationList.NestedOperationList.selector));
-        _refused(V.noEntry(), abi.encodeWithSelector(OperationList.NoOwnOperation.selector));
-        // Entries only under libid.test.b and libid.test.a: none of them the bind Consumer's.
-        _refused(V.twoOwnDomains(), abi.encodeWithSelector(OperationList.NoOwnOperation.selector));
+        _refused(V.duplicateEntry(), abi.encodeWithSelector(IOperationLists.SeveralOwnOperations.selector));
+        _refused(V.nestedEntry(), abi.encodeWithSelector(IOperationLists.NestedOperationList.selector));
+        _refused(V.noEntry(), abi.encodeWithSelector(IOperationLists.NoOwnOperation.selector));
+        // Entries only under libid.test.b and libid.test.a.
+        _refused(V.twoOwnDomains(), abi.encodeWithSelector(IOperationLists.NoOwnOperation.selector));
     }
 
     function test_theNoncanonicalListsAreRefused() public {
-        bytes memory err = abi.encodeWithSelector(OperationList.NoncanonicalOperationList.selector);
+        bytes memory err = abi.encodeWithSelector(IOperationLists.NoncanonicalOperationList.selector);
         _refused(V.trailingByte(), err);
         _refused(V.gap(), err);
-        _refused(V.swappedBodies(), err);
-        _refused(V.outerPadding(), err);
-    }
-
-    /// The entry's `data` is exactly one target: a chain id after it is refused.
-    function test_anEntryWithTrailingBytesIsRefused() public {
-        OperationList.Operation[] memory entries = new OperationList.Operation[](1);
-        entries[0] = OperationList.Operation({domain: V.BIND, data: abi.encode(V.TARGET, block.chainid)});
-        _refused(abi.encode(entries), abi.encodeWithSelector(IdentityRegistry.BadTransactionData.selector, 64));
+        _refused(abi.encode(V.TARGET), err);
     }
 }

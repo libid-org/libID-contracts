@@ -331,7 +331,7 @@ contract IdentityValidatorTest is WalletTestBase {
 
         bytes memory payload = _payload(GITHUB, BOB, ADD, _txData(w, _key(CAROL_PK), _ph(_app())));
         vm.expectRevert(tooHigh);
-        registry.addSessionByProof(GITHUB, V1, payload, _app());
+        registry.addSessionByProof(GITHUB, V1, payload, "", _app());
         _addByProof(relayer, GITHUB, BOB, w, _key(MALLORY_PK), _admin());
         assertEq(validator.sessionOf(w, _key(APP_PK)).identity, bytes32(0), "not replaced");
         _rootReverts(w, address(validator), abi.encodeCall(IIdentityValidator.setRecoveryFrozen, (bob, true)), tooHigh);
@@ -348,7 +348,7 @@ contract IdentityValidatorTest is WalletTestBase {
         validator.addSession(_identity(X, ALICE), _key(ALICE2_PK), p);
         bytes memory payload = _payload(X, ALICE, ADD, _txData(w, _key(ALICE2_PK), _ph(p)));
         vm.expectRevert(expires);
-        registry.addSessionByProof(X, V1, payload, p);
+        registry.addSessionByProof(X, V1, payload, "", p);
     }
 
     /// An unlink may not drop the last admin session of a platform the threshold needs; a re-link counts it again.
@@ -555,7 +555,7 @@ contract IdentityValidatorTest is WalletTestBase {
 
         bytes memory payload = _payload(GITHUB, BOB, ADD, _txData(w, _key(MALLORY_PK), _ph(_admin())));
         vm.expectRevert(abi.encodeWithSelector(IIdentityValidator.NotLinked.selector, w, bob));
-        registry.addSessionByProof(GITHUB, V1, payload, _admin());
+        registry.addSessionByProof(GITHUB, V1, payload, "", _admin());
     }
 
     /// A re-link starts a new generation: sessions of the earlier link stay dead.
@@ -773,19 +773,19 @@ contract IdentityValidatorTest is WalletTestBase {
 
             bytes memory payload = _payload(X, ALICE, ADD, _txData(w, _key(APP_PK), _ph(ps[i])));
             vm.expectRevert();
-            registry.addSessionByProof(X, V1, payload, ps[i]);
+            registry.addSessionByProof(X, V1, payload, "", ps[i]);
 
             payload = _payload(X, ALICE, LINK, _txData(w, _key(APP_PK), _ph(ps[i])));
             vm.prank(w);
             vm.expectRevert();
-            registry.linkIdentity(X, V1, payload, ps[i]);
+            registry.linkIdentity(X, V1, payload, "", ps[i]);
         }
 
         vm.warp(flag - 1 hours);
         IIdentityValidator.Policy memory app = _app();
         bytes memory late = _payload(X, ALICE, ADD, _txData(w, _key(APP_PK), _ph(app)));
         vm.expectRevert(abi.encodeWithSelector(IIdentityValidator.PolicyOutOfRange.selector, 0, 0));
-        registry.addSessionByProof(X, V1, late, app);
+        registry.addSessionByProof(X, V1, late, "", app);
     }
 
     /// ERC-7739 `TypedDataSign`: the app's hash, nested under the account's domain, signed by an admin.
