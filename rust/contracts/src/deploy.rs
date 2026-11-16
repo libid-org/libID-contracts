@@ -348,14 +348,14 @@ pub(crate) async fn deploy_via_create2<P: Provider>(
         .map_err(|e| Error::Rpc {
             detail: format!("{label}: CREATE2 deploy send failed: {e}"),
         })?;
-    pending
+    let receipt = pending
         .get_receipt()
         .await
         .map_err(|e| Error::Rpc {
             detail: format!("{label}: CREATE2 deploy confirmation failed: {e}"),
         })?
         .succeeded(&format!("{label}: CREATE2 deploy"))?;
-    if !code_present(provider, predicted, label).await? {
+    if !code_present(provider, predicted, receipt.block(), label).await? {
         return Err(Error::Rpc {
             detail: format!("{label}: no code at the predicted address {predicted}"),
         });
@@ -366,10 +366,12 @@ pub(crate) async fn deploy_via_create2<P: Provider>(
 async fn code_present<P: Provider>(
     provider: &P,
     address: Address,
+    block: BlockId,
     label: &str,
 ) -> Result<bool> {
     let code = provider
         .get_code_at(address)
+        .block_id(block)
         .await
         .map_err(|e| Error::Rpc {
             detail: format!("{label}: failed to read code at {address}: {e}"),
