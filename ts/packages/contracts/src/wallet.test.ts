@@ -52,6 +52,7 @@ interface DirectExecuteVector {
   nonceKey: Hex
   nonce: Hex
   executionCalldata: Hex
+  value: Hex
   at: number
   deadline: number
   callGas: number
@@ -90,6 +91,7 @@ describe('the direct execute', () => {
 
     const message = {
       executionCalldata: v.executionCalldata,
+      value: BigInt(v.value),
       at: v.at,
       nonce,
       deadline: v.deadline,

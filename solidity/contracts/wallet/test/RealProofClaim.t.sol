@@ -162,9 +162,11 @@ contract RealProofClaimTest is ExecuteBase {
         );
         bytes memory calls = abi.encode(x);
         uint256 n = uint256(uint160(address(validator))) << 96;
+        signedValue = linkFee + bindFee;
         bytes memory auth = _aliceFor(w, calls, n);
         vm.prank(relayer, relayer);
         factory.createAndExecute{value: linkFee + bindFee}(X, idNode, AUTHORIZED_MODE, _data(calls, auth));
+        signedValue = 0;
         Vm.Gas memory used = vm.lastFrameGas();
         // forge-lint: disable-next-line(unsafe-typecast)
         gas = used.gasTotalUsed - uint64(used.gasRefunded);

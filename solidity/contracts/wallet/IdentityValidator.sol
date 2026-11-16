@@ -40,7 +40,7 @@ contract IdentityValidator is IIdentityValidator, IdentityValidatorState {
     bytes32 private constant ERC7739_PROBE = 0x7739773977397739773977397739773977397739773977397739773977397739;
 
     bytes32 private constant EXECUTE_TYPEHASH = keccak256(
-        "Execute(bytes32 mode,bytes executionCalldata,uint48 at,uint256 nonce,uint48 deadline,uint256 callGas)"
+        "Execute(bytes32 mode,bytes executionCalldata,uint256 value,uint48 at,uint256 nonce,uint48 deadline,uint256 callGas)"
     );
 
     /// What a root operation does: a call by the account to itself, or one of this validator's own.
@@ -141,6 +141,7 @@ contract IdentityValidator is IIdentityValidator, IdentityValidatorState {
     function checkExecution(
         bytes32 mode,
         bytes calldata executionCalldata,
+        uint256 value,
         uint48 deadline,
         uint256 callGas,
         bytes calldata authorization,
@@ -152,7 +153,9 @@ contract IdentityValidator is IIdentityValidator, IdentityValidatorState {
         if (deadline == 0 || block.timestamp > deadline) revert ExecutionExpired(deadline);
         bytes32 digest = domainSeparator.toTypedDataHash(
             keccak256(
-                abi.encode(EXECUTE_TYPEHASH, mode, keccak256(executionCalldata), auth.at, nonce, deadline, callGas)
+                abi.encode(
+                    EXECUTE_TYPEHASH, mode, keccak256(executionCalldata), value, auth.at, nonce, deadline, callGas
+                )
             )
         );
         (bool ok, bool below, Verified memory v) = _signers(digest, auth, quorum);

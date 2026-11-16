@@ -12,11 +12,18 @@ import {
 } from "@openzeppelin/contracts/interfaces/draft-IERC7579.sol";
 import {Account} from "@openzeppelin/contracts/account/Account.sol";
 import {ERC4337Utils} from "@openzeppelin/contracts/account/utils/ERC4337Utils.sol";
-import {CallType, ERC7579Utils, Mode, ModeSelector} from "@openzeppelin/contracts/account/utils/draft-ERC7579Utils.sol";
+import {
+    CallType,
+    ERC7579Utils,
+    Execution,
+    Mode,
+    ModeSelector
+} from "@openzeppelin/contracts/account/utils/draft-ERC7579Utils.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts/proxy/utils/UUPSUpgradeable.sol";
 import {IERC721Receiver} from "@openzeppelin/contracts/token/ERC721/IERC721Receiver.sol";
 import {ERC721Holder} from "@openzeppelin/contracts/token/ERC721/utils/ERC721Holder.sol";
 import {ERC1155Holder} from "@openzeppelin/contracts/token/ERC1155/utils/ERC1155Holder.sol";
+import {Address} from "@openzeppelin/contracts/utils/Address.sol";
 import {Calldata} from "@openzeppelin/contracts/utils/Calldata.sol";
 import {ReentrancyGuardTransient} from "@openzeppelin/contracts/utils/ReentrancyGuardTransient.sol";
 import {EIP712} from "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
@@ -27,7 +34,7 @@ import {
 
 import {bytesAt} from "./AbiBytes.sol";
 import {IIdentityValidator} from "./IIdentityValidator.sol";
-import {AUTHORIZED_MODE, INonceIncrement, IWebWallet} from "./IWebWallet.sol";
+import {AUTHORIZED_MODE, CALL_OVERHEAD, INonceIncrement, IWebWallet} from "./IWebWallet.sol";
 
 /// @title WebWallet - an ERC-7579 account whose one module is the IdentityValidator.
 /// @notice Module changes and upgrades come only from that validator, for a matured root operation.
@@ -45,11 +52,6 @@ contract WebWallet is
 
     /// The `reinitializer` version of `migrate`: each implementation that migrates raises it.
     uint64 private constant MIGRATION = 2;
-
-    /// The gas between the `callGas` check and the first call, which gets 63/64 of what is left: measured
-    /// 11.2k for one empty call to a cold target with value, 14.8k with 16 KiB of call data, 15.5k for a
-    /// batch of 64, 31.5k with 64 KiB. It covers a first call of up to about 16 KiB in a batch of up to 64.
-    uint256 private constant EXEC_OVERHEAD = 20_000;
 
     address private immutable VALIDATOR;
 
@@ -199,11 +201,19 @@ contract WebWallet is
     /// The validator checks the batch once it ran, against the nonce, threshold and domain of entry.
     function _executeAuthorized(bytes calldata data) private {
         bytes calldata executionCalldata = bytesAt(data, 0);
-        // The signers sign these bytes alone, so no call may be read from outside them.
-        if (keccak256(abi.encode(executionCalldata.decodeBatch())) != keccak256(executionCalldata)) {
-            revert NoncanonicalBatch();
+        Execution[] calldata batch = executionCalldata.decodeBatch();
+        uint256 free;
+        assembly ("memory-safe") {
+            free := mload(0x40)
         }
-        (uint48 deadline, uint256 callGas) = abi.decode(data[32:96], (uint48, uint256));
+        // The signers sign these bytes alone, so no call may be read from outside them.
+        if (keccak256(abi.encode(batch)) != keccak256(executionCalldata)) revert NoncanonicalBatch();
+        // The calls reuse the encoding's memory, already paid for.
+        assembly ("memory-safe") {
+            mstore(0x40, free)
+        }
+        (uint256 value, uint48 deadline, uint256 callGas) = abi.decode(data[32:128], (uint256, uint48, uint256));
+        if (msg.value != value) revert WrongValue(value, msg.value);
         uint192 key = uint192(uint160(VALIDATOR)) << 32;
         IEntryPoint ep = entryPoint();
         if (address(ep).code.length == 0) revert EntryPointMissing(address(ep));
@@ -211,12 +221,36 @@ contract WebWallet is
         INonceIncrement(address(ep)).incrementNonce(key);
         uint8 threshold = IIdentityValidator(VALIDATOR).threshold(address(this));
         bytes32 domain = _domainSeparatorV4();
-        if (gasleft() * 63 / 64 < callGas + EXEC_OVERHEAD) revert InsufficientCallGas(callGas, gasleft());
-        _execute(Mode.wrap(AUTHORIZED_MODE), executionCalldata);
+        for (uint256 i; i < batch.length; ++i) {
+            _call(batch[i], callGas);
+        }
         IIdentityValidator(VALIDATOR)
             .checkExecution(
-                AUTHORIZED_MODE, executionCalldata, deadline, callGas, bytesAt(data, 96), nonce, threshold, domain
+                AUTHORIZED_MODE,
+                executionCalldata,
+                value,
+                deadline,
+                callGas,
+                bytesAt(data, 128),
+                nonce,
+                threshold,
+                domain
             );
+    }
+
+    /// One call of a default-exec-type batch, which bubbles its revert, given at least `callGas`.
+    function _call(Execution calldata x, uint256 callGas) private {
+        uint256 free;
+        assembly ("memory-safe") {
+            free := mload(0x40)
+        }
+        if (gasleft() * 63 / 64 < callGas + CALL_OVERHEAD) revert InsufficientCallGas(callGas, gasleft());
+        (bool ok, bytes memory returned) =
+            (x.target == address(0) ? address(this) : x.target).call{value: x.value}(x.callData);
+        Address.verifyCallResult(ok, returned);
+        assembly ("memory-safe") {
+            mstore(0x40, free)
+        }
     }
 
     function _authorizeUpgrade(address) internal view override onlyValidator {}

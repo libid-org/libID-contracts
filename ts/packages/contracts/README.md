@@ -231,7 +231,8 @@ const nonce = await client.readContract({
   args: [wallet, directNonceKey(IDENTITY_VALIDATOR)],
 })
 // executionCalldata is an ERC-7579 batch: abi.encode(Execution[]).
-const message = { executionCalldata, at, nonce, deadline, callGas }
+// `value` is the msg.value the batch is sent with.
+const message = { executionCalldata, value, at, nonce, deadline, callGas }
 // At quorum a session key signs the digest; below quorum, belowQuorumHash of it.
 const signature = await session.sign({ hash: executeDigest(message, chainId, wallet) })
 const data = authorizedData(message, {

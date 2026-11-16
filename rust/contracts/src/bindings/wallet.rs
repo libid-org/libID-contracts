@@ -179,6 +179,7 @@ mod execute {
         struct Execute {
             bytes32 mode;
             bytes executionCalldata;
+            uint256 value;
             uint48 at;
             uint256 nonce;
             uint48 deadline;
@@ -189,7 +190,8 @@ mod execute {
 
 /// What the signers of a direct `execute(AUTHORIZED_MODE, data)` sign, as
 /// `IdentityValidator.checkExecution` hashes it: `mode` is
-/// [`AUTHORIZED_MODE`], `at` is `Authorization.at`, and `nonce` is the
+/// [`AUTHORIZED_MODE`], `value` is the `msg.value` the batch must be sent
+/// with, `at` is `Authorization.at`, and `nonce` is the
 /// wallet's full EntryPoint nonce under [`direct_nonce_key`] before the batch.
 /// Build it with [`Execute::authorized`].
 pub use execute::Execute;
@@ -198,6 +200,7 @@ impl Execute {
     /// The message of a direct `execute`, with `mode` [`AUTHORIZED_MODE`].
     pub fn authorized(
         execution_calldata: Bytes,
+        value: U256,
         at: U48,
         nonce: U256,
         deadline: U48,
@@ -206,6 +209,7 @@ impl Execute {
         Self {
             mode: AUTHORIZED_MODE,
             executionCalldata: execution_calldata,
+            value,
             at,
             nonce,
             deadline,
@@ -226,7 +230,7 @@ impl Execute {
     }
 
     /// `data` of `execute(AUTHORIZED_MODE, data)` for this message:
-    /// `abi.encode(executionCalldata, deadline, callGas, abi.encode(authorization))`,
+    /// `abi.encode(executionCalldata, value, deadline, callGas, abi.encode(authorization))`,
     /// the authorization's `at` this message's.
     ///
     /// # Panics
@@ -249,6 +253,7 @@ impl Execute {
         };
         (
             self.executionCalldata.clone(),
+            self.value,
             self.deadline,
             self.callGas,
             Bytes::from(authorization.abi_encode()),
@@ -333,6 +338,7 @@ mod tests {
         nonce_key: U256,
         nonce: U256,
         execution_calldata: Bytes,
+        value: U256,
         at: u64,
         deadline: u64,
         call_gas: u64,
@@ -370,6 +376,7 @@ mod tests {
 
         let execute = Execute::authorized(
             v.execution_calldata,
+            v.value,
             U48::from(v.at),
             v.nonce,
             U48::from(v.deadline),
@@ -393,6 +400,7 @@ mod tests {
     fn authorized_data_refuses_another_mode() {
         let mut execute = Execute::authorized(
             Bytes::new(),
+            U256::ZERO,
             U48::ZERO,
             U256::ZERO,
             U48::ZERO,

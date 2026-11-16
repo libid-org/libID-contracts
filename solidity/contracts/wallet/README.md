@@ -20,7 +20,7 @@ One relayer transaction creates the wallet and runs its first batch:
 ```solidity
 // K, Alice's new session key, signs the batch for the wallet's address before it exists.
 factory.createAndExecute{value: linkFee + bindFee}(
-    platformId, idNode, AUTHORIZED_MODE, abi.encode(calls, deadline, callGas, abi.encode(authorization))
+    platformId, idNode, AUTHORIZED_MODE, abi.encode(calls, linkFee + bindFee, deadline, callGas, abi.encode(authorization))
 );
 // calls: registry.linkIdentity{value: linkFee}(platformId, v, listPayload, linkData, policy), // K, the first session
 //        identities.bindPrivately{value: bindFee}(platformId, v, listPayload, 0, address(0)),
@@ -70,22 +70,22 @@ One `execute(bytes32 mode, bytes data)`, ERC-7579's, takes two kinds of mode:
 - `AUTHORIZED_MODE`, exactly the word of batch call type, default exec type,
   selector `bytes4(keccak256("libid.webwallet.authorized"))` and zero
   payload: from anyone. `data` is
-  `abi.encode(bytes executionCalldata, uint48 deadline, uint256 callGas, bytes authorization)`,
+  `abi.encode(bytes executionCalldata, uint256 value, uint48 deadline, uint256 callGas, bytes authorization)`,
   with `authorization = abi.encode(Authorization)`. The wallet:
   1. requires `executionCalldata` to be exactly `abi.encode(Execution[])`
      of the calls it decodes to, else `NoncanonicalBatch`: the signers sign
      those bytes alone, so no call may be read from outside them;
-  2. consumes the EntryPoint nonce under key
+  2. requires `msg.value == value`, else `WrongValue`;
+  3. consumes the EntryPoint nonce under key
      `uint192(uint160(validator)) << 32`, which UserOperations share;
-  3. reads `threshold(wallet)` and its own EIP-712 domain separator;
-  4. requires `gasleft() * 63 / 64` of at least `callGas` plus a fixed
-     20,000 for the calls' own start, so the first call gets at least
-     `callGas` (EIP-150 forwards at most 63/64 of the gas left). The 20,000
-     covers a first call of up to about 16 KiB of call data in a batch of up
-     to 64; a larger first call may get a little less;
-  5. runs the batch;
+  4. reads `threshold(wallet)` and its own EIP-712 domain separator;
+  5. runs the batch, requiring before each call `gasleft() * 63 / 64` of at
+     least `callGas` plus `CALL_OVERHEAD` (`IWebWallet.sol`), so every call
+     gets at least `callGas` (EIP-150 forwards at most 63/64 of the gas
+     left), else `InsufficientCallGas`. A call with more call data than
+     `CALL_OVERHEAD`'s comment names may get a little less;
   6. calls the validator's
-     `checkExecution(mode, executionCalldata, deadline, callGas, authorization, nonce, threshold, domainSeparator)`,
+     `checkExecution(mode, executionCalldata, value, deadline, callGas, authorization, nonce, threshold, domainSeparator)`,
      with the domain separator it read before the batch.
 
   Any failure reverts everything, the nonce included. So a failed batch
@@ -101,7 +101,7 @@ both modes, so a batch cannot call the wallet's `execute`.
 for `AUTHORIZED_MODE`.
 
 Signers sign the EIP-712 hash of
-`Execute(bytes32 mode,bytes executionCalldata,uint48 at,uint256 nonce,uint48 deadline,uint256 callGas)`
+`Execute(bytes32 mode,bytes executionCalldata,uint256 value,uint48 at,uint256 nonce,uint48 deadline,uint256 callGas)`
 under the wallet's EIP-712 domain before the batch (name `WebWallet`,
 version `1`, the chain id and the wallet's address), with `mode = AUTHORIZED_MODE`,
 `at = Authorization.at` and `nonce` the full EntryPoint nonce before it was

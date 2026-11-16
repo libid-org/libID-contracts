@@ -79,6 +79,27 @@ contract DirectExecuteEdgesTest is ExecuteBase {
         x[1].value = 0.1 ether;
     }
 
+    /// The batch is sent with exactly the value it signs, and `data` carries that value.
+    function test_theSignedValueIsSent() public {
+        bytes memory hit = _one(_hitX());
+        bytes memory auth = _direct(w, address(validator), _pks(ALICE_PK), hit, false);
+        vm.deal(relayer, 1);
+        vm.prank(relayer);
+        vm.expectRevert(abi.encodeWithSelector(IWebWallet.WrongValue.selector, 0, 1));
+        IWebWallet(w).execute{value: 1}(AUTHORIZED_MODE, _data(hit, auth));
+
+        signedValue = 1;
+        vm.prank(relayer);
+        vm.expectRevert(NOT_AUTHORIZED);
+        IWebWallet(w).execute{value: 1}(AUTHORIZED_MODE, _data(hit, auth));
+
+        vm.prank(relayer);
+        IWebWallet(w).execute{value: 1}(
+            AUTHORIZED_MODE, _data(hit, _direct(w, address(validator), _pks(ALICE_PK), hit, false))
+        );
+        assertEq(target.calls(), 1, "control");
+    }
+
     /// Signed for one batch, mode, deadline, gas and chain; submitted with one of them changed.
     function test_aChangedBatchIsRefused() public {
         Execution[] memory x = _batch();

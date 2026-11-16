@@ -51,6 +51,7 @@ contract CreateAndExecuteTest is ExecuteBase {
             })
         );
         linkFee = registry.quote(X, V2);
+        signedValue = linkFee + FEE;
         token = new TestERC20();
         vm.deal(bob, CLAIMED);
         token.mint(bob, CLAIMED);
@@ -119,6 +120,7 @@ contract CreateAndExecuteTest is ExecuteBase {
         assertEq(bot.activeAt, _now(), "the bot session's start");
 
         // The bot acts alone within its rules, from the next second.
+        signedValue = 0;
         bytes memory hit = _one(_hitX());
         _refuses(w, hit, _direct(w, address(validator), _pks(BOT_PK), hit, true), NOT_AUTHORIZED);
         vm.warp(_now() + 1);

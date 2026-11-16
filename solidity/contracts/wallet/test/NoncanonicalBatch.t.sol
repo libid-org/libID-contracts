@@ -74,18 +74,18 @@ contract NoncanonicalBatchTest is ExecuteBase {
         auth.signatures[0].signature = abi.encodePacked(sr, ss, sv);
         bytes memory authBytes = abi.encode(auth);
 
-        // `data`: the head, the batch at 0x80, a `gate.openUp()` Execution where the wallet's element lands, then
+        // `data`: the head, the batch at 0xa0, a `gate.openUp()` Execution where the wallet's element lands, then
         // the authorization.
-        uint256 g = 0xe0 + rel;
+        uint256 g = 0x100 + rel;
         uint256 a = g + 0xa0;
         bytes memory data = new bytes(a + 0x20 + authBytes.length);
-        _setWord(data, 0x00, bytes32(uint256(0x80)));
-        _setWord(data, 0x20, bytes32(uint256(deadline)));
-        _setWord(data, 0x40, bytes32(CALL_GAS));
-        _setWord(data, 0x60, bytes32(a));
-        _setWord(data, 0x80, bytes32(uint256(0x60)));
+        _setWord(data, 0x00, bytes32(uint256(0xa0)));
+        _setWord(data, 0x40, bytes32(uint256(deadline)));
+        _setWord(data, 0x60, bytes32(CALL_GAS));
+        _setWord(data, 0x80, bytes32(a));
+        _setWord(data, 0xa0, bytes32(uint256(0x60)));
         for (uint256 i; i < 3; ++i) {
-            _setWord(data, 0xa0 + i * 0x20, _wordAt(batch, i * 0x20));
+            _setWord(data, 0xc0 + i * 0x20, _wordAt(batch, i * 0x20));
         }
         _setWord(data, g, bytes32(uint256(uint160(address(gate)))));
         _setWord(data, g + 0x40, bytes32(uint256(0x60)));
