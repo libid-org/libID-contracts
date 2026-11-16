@@ -35,9 +35,10 @@ interface IProofVerifier {
     /// @dev `verifierVersion` selects which registered verifier answers; it is
     ///      this chain's slot number, chosen by governance here, and unrelated
     ///      to the ceremony version the verifier itself supports. `payload` is
-    ///      opaque at this hop. The value is `quote`, which always verifies;
-    ///      or zero, for a payload this verifier already verified in the
-    ///      same transaction, which returns that claim again.
+    ///      opaque at this hop. Zero value returns the claim this verifier
+    ///      already verified for the payload in the same transaction, if any.
+    ///      Otherwise the value is `quote`, and a non-zero `quote` always
+    ///      verifies.
     function verify(bytes32 platformId, uint16 verifierVersion, bytes calldata payload)
         external
         payable

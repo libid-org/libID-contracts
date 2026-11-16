@@ -104,23 +104,23 @@ contract CeremonyProofVerifier is IProofVerifier, Initializable, UUPSUpgradeable
         IPlatformVerifier verifier = _requireVerifier(platformId, verifierVersion);
         bytes32 slot = _slot(verifier, payload);
 
-        // Exact value at every hop: no refund path, so no partial-failure rule
-        // is needed and nothing can be captured in transit (REQ-COMMON-06D).
-        uint256 required = verifier.quote();
-        if (msg.value == required) {
-            // Forwarded whole and returned whole. The payload is the verifier's
-            // to decode and the claim is the Consumer's to act on; this hop
-            // reads neither (REQ-COMMON-06B).
-            claim = verifier.verify{value: required}(payload);
-            _remember(slot, abi.encode(claim));
-            return claim;
+        // No value: the claim this transaction already verified, as of that
+        // verification, if there is one.
+        if (msg.value == 0) {
+            bytes memory verified = _verified(slot);
+            if (verified.length != 0) return abi.decode(verified, (ICeremony.VerifiedClaim));
         }
 
-        // No value: the claim this transaction already verified, its Notary
-        // Fee paid. It is the claim as of that verification.
-        bytes memory verified = msg.value == 0 ? _verified(slot) : bytes("");
-        if (verified.length == 0) revert WrongValue(required, msg.value);
-        return abi.decode(verified, (ICeremony.VerifiedClaim));
+        // Otherwise exactly the quote: no refund path, so no partial-failure
+        // rule is needed and nothing can be captured in transit (REQ-COMMON-06D).
+        uint256 required = verifier.quote();
+        if (msg.value != required) revert WrongValue(required, msg.value);
+
+        // Forwarded whole and returned whole. The payload is the verifier's to
+        // decode and the claim is the Consumer's to act on; this hop reads
+        // neither (REQ-COMMON-06B).
+        claim = verifier.verify{value: required}(payload);
+        _remember(slot, abi.encode(claim));
     }
 
     /// @notice Add or remove a Platform Verifier from the Supported Version Set.

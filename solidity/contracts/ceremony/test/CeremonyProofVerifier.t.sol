@@ -123,6 +123,21 @@ contract CeremonyProofVerifierTest is Test {
         assertEq(keccak256(abi.encode(second)), keccak256(abi.encode(first)), "not the same claim");
     }
 
+    /// A free verifier verifies once, then serves its claim.
+    function test_aFreeVerificationIsRemembered() public {
+        StubPlatformVerifier free = new StubPlatformVerifier(PLATFORM_ID, 0);
+        vm.prank(OWNER);
+        pv.setVerifier(PLATFORM_ID, 2, IPlatformVerifier(address(free)));
+        this.verifyFreeTwice(free);
+    }
+
+    function verifyFreeTwice(StubPlatformVerifier free) external {
+        vm.expectCall(address(free), abi.encodeWithSelector(IPlatformVerifier.verify.selector), 1);
+        ICeremony.VerifiedClaim memory first = pv.verify(PLATFORM_ID, 2, _payload(1));
+        ICeremony.VerifiedClaim memory second = pv.verify(PLATFORM_ID, 2, _payload(1));
+        assertEq(keccak256(abi.encode(second)), keccak256(abi.encode(first)), "not the same claim");
+    }
+
     function test_anotherPayloadOrSlotVerifiesAgain() public {
         StubPlatformVerifier second = new StubPlatformVerifier(PLATFORM_ID, FEE);
         vm.prank(OWNER);
