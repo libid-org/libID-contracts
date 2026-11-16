@@ -53,7 +53,8 @@ interface IIdentityValidator is IERC7579Validator {
         Allowance[] allowances;
     }
 
-    /// @dev `validUntil == 0` never expires. Only admin sessions may change the account.
+    /// @dev `validUntil == 0` never expires, and an admin session's is 0. Only admin sessions may change
+    ///      the account.
     ///      `signers`: below quorum, the distinct platforms whose sessions sign with this one; 0 is 1.
     struct Policy {
         uint48 validAfter;
@@ -144,8 +145,8 @@ interface IIdentityValidator is IERC7579Validator {
     error RecoveryDelayTooShort(uint48 delay);
     /// The recovery delay may not exceed `MAX_RECOVERY_DELAY`.
     error RecoveryDelayTooLong(uint48 delay);
-    /// The threshold may not exceed the number of platforms with a linked identity.
-    error ThresholdTooHigh(uint8 threshold, uint32 platforms);
+    /// The threshold may not exceed the number of platforms with an admin session, unless none has one.
+    error ThresholdTooHigh(uint8 threshold, uint32 adminPlatforms);
     /// An account keeps at least one linked identity.
     error LastIdentity(bytes32 identity);
     /// The unlink would leave the account no admin session.
@@ -160,6 +161,8 @@ interface IIdentityValidator is IERC7579Validator {
     error NoSession(bytes key);
     /// A policy bound reaches bit 47, which EntryPoint v0.9 reads as a block-number flag.
     error PolicyOutOfRange(uint48 validAfter, uint48 validUntil);
+    /// An admin session never expires: its `validUntil` is 0.
+    error AdminSessionExpires(uint48 validUntil);
     /// The session carried by install data is not an admin session.
     error InstallSessionNotAdmin();
     /// An allowance repeats an earlier one's token, or its period reaches bit 47.

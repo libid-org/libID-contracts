@@ -168,6 +168,12 @@ with `queueRoot` and executed by anyone with `executeRoot` once
 session, or unlinking an identity, voids every root operation queued before
 it.
 
+The threshold never exceeds the platforms holding an admin session:
+`setThreshold`, a revoke, an unlink or a freeze that would leave fewer
+reverts `ThresholdTooHigh`, unless it leaves none. An admin session never
+expires: a policy with `admin` and a non-zero `validUntil` reverts
+`AdminSessionExpires`.
+
 ## Trust
 
 - **The proof verifier's owner.** `WalletRegistry` trusts the
@@ -201,6 +207,8 @@ it.
 - The JWT roots cannot drop a leaked key at once, and `WalletRegistry` has no
   pause: during a leak anyone could add pending sessions to every wallet with
   a linked identity on that platform (not exercised: it needs a leaked key).
+- After a root revoke to zero admin sessions, recovery needs proofs on
+  `threshold` distinct, unfrozen platforms, each waiting the recovery delay.
 - `entryPoint()` is fixed to v0.9: a later EntryPoint costs one root upgrade
   per wallet.
 - Sessions cannot be listed from storage. Watch `SessionAddedByProof` and
