@@ -2,6 +2,7 @@
 //! artifacts and read views back. Requires foundry's `anvil` on PATH.
 
 use alloy::{
+    eips::BlockId,
     primitives::{
         keccak256,
         Address,
@@ -27,8 +28,8 @@ use libid_contracts::{
     deploy::{
         deploy_behind_proxy,
         deploy_contract,
-        implementation_of,
         upgrade_uups,
+        ProxyReads,
     },
     send_with_nonce_retry,
     Artifacts,
@@ -234,7 +235,10 @@ async fn deploys_and_upgrades_the_jwt_roots_lists() {
     .unwrap();
     assert_ne!(new_impl, google_proxy);
     assert_eq!(
-        implementation_of(&provider, google_proxy).await.unwrap(),
+        provider
+            .implementation_of(google_proxy, BlockId::latest())
+            .await
+            .unwrap(),
         new_impl
     );
     assert_eq!(google.AUTHORITY().call().await.unwrap(), authority);
@@ -321,19 +325,23 @@ async fn rotates_and_upgrades_the_notary_service() {
     assert_eq!(notary.owner().call().await.unwrap(), deployer);
 }
 
-/// A Notary Service behind a proxy the default signer owns.
-async fn deploy_notary_service(
-    provider: &impl Provider,
-    artifacts: &Artifacts,
-) -> Address {
-    let init = NotaryService::initializeCall {
-        owner_: default_signer(provider).await,
-        notary_: Address::repeat_byte(0x11),
-        fee_: U256::ZERO,
-    };
-    deploy_behind_proxy(provider, artifacts, "NotaryService", &init, None)
-        .await
-        .unwrap()
+/// Test deploys through a provider.
+trait TestDeploys {
+    /// A Notary Service behind a proxy the default signer owns.
+    async fn deploy_notary_service(&self, artifacts: &Artifacts) -> Address;
+}
+
+impl<P: Provider> TestDeploys for P {
+    async fn deploy_notary_service(&self, artifacts: &Artifacts) -> Address {
+        let init = NotaryService::initializeCall {
+            owner_: default_signer(self).await,
+            notary_: Address::repeat_byte(0x11),
+            fee_: U256::ZERO,
+        };
+        deploy_behind_proxy(self, artifacts, "NotaryService", &init, None)
+            .await
+            .unwrap()
+    }
 }
 
 /// A transaction mined as reverted is an error, not a receipt: an upgrade
@@ -344,8 +352,11 @@ async fn a_mined_revert_is_an_error() {
     let provider = test_provider();
     let artifacts = Artifacts::embedded();
     let deployer = default_signer(&provider).await;
-    let proxy = deploy_notary_service(&provider, &artifacts).await;
-    let before = implementation_of(&provider, proxy).await.unwrap();
+    let proxy = provider.deploy_notary_service(&artifacts).await;
+    let before = provider
+        .implementation_of(proxy, BlockId::latest())
+        .await
+        .unwrap();
     let new_impl = deploy_contract(
         &provider,
         artifacts.bytecode("NotaryService").unwrap(),
@@ -370,7 +381,13 @@ async fn a_mined_revert_is_an_error() {
     }
     .await;
     assert!(matches!(sent, Err(Error::Reverted { .. })), "{sent:?}");
-    assert_eq!(implementation_of(&provider, proxy).await.unwrap(), before);
+    assert_eq!(
+        provider
+            .implementation_of(proxy, BlockId::latest())
+            .await
+            .unwrap(),
+        before
+    );
 }
 
 /// An upgrade the proxy does not take is an error: an address with no code
