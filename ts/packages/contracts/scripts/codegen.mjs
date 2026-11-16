@@ -32,7 +32,8 @@ const callsDir = join(packageDir, 'src', 'calls')
 // solidity/out, `name` the contract inside it, `exportName` what a consumer
 // imports. `rootOnly` names pure functions that only revert when called but
 // whose calldata is a root operation's payload (`queueRoot(target, data)`):
-// they get builders too.
+// they get builders too. Where given, codegen fails unless it lists exactly
+// the contract's pure functions with no outputs.
 const contracts = [
   { file: 'IdentityRegistry.sol', name: 'IdentityRegistry', exportName: 'identityRegistryAbi' },
   { file: 'HandleResolver.sol', name: 'HandleResolver', exportName: 'handleResolverAbi' },
@@ -181,11 +182,19 @@ export const bindErrorsAbi = ${JSON.stringify(bindErrors(), null, 2)} as const s
  * @returns {string | null}
  */
 function callModule({ file, name, exportName, moduleName, abi, rootOnly }) {
-  for (const fn of rootOnly) {
-    const entries = abi.filter((entry) => entry.type === 'function' && entry.name === fn)
-    if (entries.length === 0 || entries.some((entry) => entry.stateMutability !== 'pure')) {
-      throw new Error(`${name}.${fn}: rootOnly names a function the ABI has no pure entry for`)
-    }
+  // A pure function with no outputs only reverts: here, a root operation's selector.
+  const revertOnly = abi
+    .filter(
+      (entry) =>
+        entry.type === 'function' && entry.stateMutability === 'pure' && entry.outputs.length === 0,
+    )
+    .map((entry) => /** @type {AbiFunction} */ (entry).name)
+  const missing = revertOnly.filter((fn) => !rootOnly.includes(fn))
+  const extra = rootOnly.filter((fn) => !revertOnly.includes(fn))
+  if (rootOnly.length !== 0 && (missing.length !== 0 || extra.length !== 0)) {
+    throw new Error(
+      `${name}: rootOnly must list exactly its pure, output-less functions (missing: ${missing}; not one: ${extra})`,
+    )
   }
   const writes = abi.filter(
     /** @returns {entry is AbiFunction} */
