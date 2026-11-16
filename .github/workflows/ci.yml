@@ -590,21 +590,11 @@ jobs:
       # From the package directory, for the pnpm 10 -C bug noted in
       # publish-check.
       #
-      # Auth: the org NPM_TOKEN secret when set, a granular @libid token that
-      # can create packages, so a new package publishes before it has a
-      # trusted publisher. Otherwise OIDC trusted publishing, which needs the
-      # package's trusted publisher (libid-org, this repo, ci.yml,
-      # npm-deploy). Provenance signs with the runner's OIDC identity either way.
+      # Auth: npm OIDC trusted publishing, through the package's trusted
+      # publisher (libid-org, this repo, ci.yml, npm-deploy). Provenance signs
+      # with the runner's OIDC identity.
       - name: pnpm publish
         working-directory: ts/packages/contracts
-        env:
-          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           set -euo pipefail
-          if [ -n "${NPM_TOKEN}" ]; then
-            echo "//registry.npmjs.org/:_authToken=${NPM_TOKEN}" >> "$HOME/.npmrc"
-            echo "Authenticating with the org npm token"
-          else
-            echo "No NPM_TOKEN secret; relying on OIDC trusted publishing"
-          fi
           pnpm publish --access public --no-git-checks --tag "${{ steps.dist-tag.outputs.dist-tag }}"
