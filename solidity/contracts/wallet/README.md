@@ -112,7 +112,7 @@ runs the signer and rule checks of `validateUserOp` at the threshold read on
 entry, charges value to `NATIVE_TOKEN` below quorum (no gas charge, no
 paymaster), then requires the block time inside the signers' window narrowed
 to the periods charged. Its errors are `ExecutionExpired`,
-`ExecutionNotAuthorized` and `ExecutionOutsidePeriod`.
+`ExecutionNotSigned`, `ExecutionNotAllowed` and `ExecutionOutsideWindow`.
 
 The check reads the threshold, the nonce and the domain from before the
 calls, and the sessions as the calls left them. A batch that executes

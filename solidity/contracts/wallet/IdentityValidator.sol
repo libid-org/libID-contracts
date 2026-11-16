@@ -159,10 +159,10 @@ contract IdentityValidator is IIdentityValidator, IdentityValidatorState {
             )
         );
         (bool ok, bool below, Verified memory v) = _signers(digest, auth, quorum);
-        if (!ok || !_inWindow(v)) revert ExecutionNotAuthorized();
+        if (!ok) revert ExecutionNotSigned();
         (ok, v) = _rules(abi.encodeCall(SessionRules.allowedExecution, (v, mode, executionCalldata, auth, below)));
-        if (!ok) revert ExecutionNotAuthorized();
-        if (!_inWindow(v)) revert ExecutionOutsidePeriod(auth.at);
+        if (!ok) revert ExecutionNotAllowed();
+        if (!_inWindow(v)) revert ExecutionOutsideWindow(auth.at);
     }
 
     // ─── Views ──────────────────────────────────────────────────────

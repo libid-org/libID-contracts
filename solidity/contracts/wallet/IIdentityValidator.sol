@@ -32,10 +32,13 @@ function policyHashOf(IIdentityValidator.Policy memory policy) pure returns (byt
 interface IExecutionCheck {
     /// `deadline` is zero or has passed.
     error ExecutionExpired(uint48 deadline);
-    /// The signatures over the `Execute` digest do not authorize the batch at the threshold.
-    error ExecutionNotAuthorized();
-    /// The period `at` picks does not contain the block time.
-    error ExecutionOutsidePeriod(uint48 at);
+    /// The signatures over the `Execute` digest are not by live sessions, or below the threshold not by
+    /// the sessions a co-signed batch needs.
+    error ExecutionNotSigned();
+    /// Below the threshold, a call is outside the governing session's rules or allowances.
+    error ExecutionNotAllowed();
+    /// The block time is outside the signers' window, narrowed to the periods `at` picks.
+    error ExecutionOutsideWindow(uint48 at);
 
     function checkExecution(
         bytes32 mode,

@@ -90,7 +90,7 @@ contract DirectExecuteEdgesTest is ExecuteBase {
 
         signedValue = 1;
         vm.prank(relayer);
-        vm.expectRevert(NOT_AUTHORIZED);
+        vm.expectRevert(NOT_SIGNED);
         IWebWallet(w).execute{value: 1}(AUTHORIZED_MODE, _data(hit, auth));
 
         vm.prank(relayer);
@@ -123,33 +123,33 @@ contract DirectExecuteEdgesTest is ExecuteBase {
         batches[4][1].value = 0.1 ether;
         batches[5] = _hits(1);
         for (uint256 i; i < batches.length; ++i) {
-            _refuses(w, abi.encode(batches[i]), auth, NOT_AUTHORIZED, string.concat("batch ", vm.toString(i)));
+            _refuses(w, abi.encode(batches[i]), auth, NOT_SIGNED, string.concat("batch ", vm.toString(i)));
         }
 
         bytes32 h = _execDigest(w, AUTHORIZED_MODE | bytes32(uint256(1)), calls, at, n, deadline);
-        _refuses(w, calls, _alice(h, at, deadline), NOT_AUTHORIZED, "mode");
+        _refuses(w, calls, _alice(h, at, deadline), NOT_SIGNED, "mode");
         _refuses(w, bytes.concat(calls, hex"00"), auth, IWebWallet.NoncanonicalBatch.selector, "a trailing byte");
-        _refuses(w, calls, abi.encode(a, deadline + 1, CALL_GAS), NOT_AUTHORIZED, "deadline");
-        _refuses(w, calls, abi.encode(a, deadline, CALL_GAS - 1), NOT_AUTHORIZED, "callGas");
+        _refuses(w, calls, abi.encode(a, deadline + 1, CALL_GAS), NOT_SIGNED, "deadline");
+        _refuses(w, calls, abi.encode(a, deadline, CALL_GAS - 1), NOT_SIGNED, "callGas");
         h = _execDigest(w, AUTHORIZED_MODE, calls, at, n, at - 1);
         _refuses(w, calls, _alice(h, at, at - 1), IExecutionCheck.ExecutionExpired.selector, "expired");
         h = _execDigest(w, AUTHORIZED_MODE, calls, at, n, 0);
         _refuses(w, calls, _alice(h, at, 0), IExecutionCheck.ExecutionExpired.selector, "no deadline");
         uint256 chain = vm.getChainId();
         vm.chainId(chain + 1);
-        _refuses(w, calls, auth, NOT_AUTHORIZED, "chain");
+        _refuses(w, calls, auth, NOT_SIGNED, "chain");
         vm.chainId(chain);
         _runs(w, calls, auth);
     }
 
-    /// Pending, expired, not yet valid, revoked and unlinked admin sessions sign nothing.
+    /// Pending, expired, not yet valid, revoked and unlinked sessions sign nothing.
     function test_signersOutsideTheirWindowAreRefused() public {
         bytes32 alice = _identity(X, ALICE);
         _link(w, GITHUB, BOB, w, _key(BOB_PK), _admin());
         _root(w, address(validator), abi.encodeCall(IIdentityValidator.unlink, (_identity(GITHUB, BOB))));
 
         _addByProof(relayer, X, ALICE, w, _key(ALICE2_PK), _admin());
-        IIdentityValidator.Policy memory p = _app();
+        IIdentityValidator.Policy memory p = _hitOnly();
         p.validUntil = uint48(_now() + 1 hours);
         vm.startPrank(w);
         validator.addSession(alice, _key(CAROL_PK), p);
@@ -162,11 +162,21 @@ contract DirectExecuteEdgesTest is ExecuteBase {
         vm.warp(_now() + 2 hours);
 
         bytes memory hit = _one(_hitX());
-        uint256[5] memory pks = [ALICE2_PK, CAROL_PK, MALLORY_PK, OTHER_PK, BOB_PK];
-        for (uint256 i; i < pks.length; ++i) {
-            _refuses(w, hit, _direct(w, address(validator), _pks(pks[i]), hit, false), NOT_AUTHORIZED);
-        }
+        _refuses(w, hit, _direct(w, address(validator), _pks(ALICE2_PK), hit, false), OUTSIDE_WINDOW, "pending");
+        _refuses(w, hit, _direct(w, address(validator), _pks(CAROL_PK), hit, true), OUTSIDE_WINDOW, "expired");
+        _refuses(w, hit, _direct(w, address(validator), _pks(MALLORY_PK), hit, false), OUTSIDE_WINDOW, "not yet");
+        _refuses(w, hit, _direct(w, address(validator), _pks(OTHER_PK), hit, false), NOT_SIGNED, "revoked");
+        _refuses(w, hit, _direct(w, address(validator), _pks(BOB_PK), hit, false), NOT_SIGNED, "unlinked");
         _runs(w, hit, _direct(w, address(validator), _pks(ALICE_PK), hit, false));
+    }
+
+    /// Below quorum, a call outside the signing session's scope is refused once the signatures pass.
+    function test_aCallOutsideTheScopeIsNotAllowed() public {
+        vm.prank(w);
+        validator.addSession(_identity(X, ALICE), _key(APP_PK), _hitOnly());
+        vm.warp(_now() + 1);
+        bytes memory calls = _one(_x(address(new CallTarget()), 0, abi.encodeCall(CallTarget.hit, ())));
+        _refuses(w, calls, _direct(w, address(validator), _pks(APP_PK), calls, true), NOT_ALLOWED);
     }
 
     function test_theEntryPointRefusesNonZeroSelectorsInValidation() public {

@@ -122,7 +122,7 @@ contract CreateAndExecuteTest is ExecuteBase {
         // The bot acts alone within its rules, from the next second.
         signedValue = 0;
         bytes memory hit = _one(_hitX());
-        _refuses(w, hit, _direct(w, address(validator), _pks(BOT_PK), hit, true), NOT_AUTHORIZED);
+        _refuses(w, hit, _direct(w, address(validator), _pks(BOT_PK), hit, true), OUTSIDE_WINDOW);
         vm.warp(_now() + 1);
         _runs(w, hit, _direct(w, address(validator), _pks(BOT_PK), hit, true));
     }
@@ -130,7 +130,7 @@ contract CreateAndExecuteTest is ExecuteBase {
     /// Someone else signing for Alice's new wallet is refused, though the batch would link K.
     function test_onlyTheLinkedKeySignsTheOnboarding() public {
         bytes memory calls = _onboarding();
-        vm.expectRevert(NOT_AUTHORIZED);
+        vm.expectRevert(NOT_SIGNED);
         _send(calls, _signedBy(MALLORY_PK, calls));
         assertEq(w.code.length, 0, "the wallet was created");
         _send(calls, _signedBy(ALICE_PK, calls));
