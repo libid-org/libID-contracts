@@ -63,8 +63,10 @@ interface IExecutionCheck {
 ///      below quorum, install data and validator migration are in README.md beside this file.
 ///      Admin sessions of `threshold` distinct platforms are unrestricted; below it a session acts
 ///      only within its `Rules`.
-///      Install data is `abi.encode(platformId, idNode)`, the genesis identity, which the install
-///      accepts only from `walletFactory().walletAddress(platformId, idNode)` and links, optionally followed by an admin session's `key` and `policy`, which it adds from the next second.
+///      Install data is `abi.encode(bytes32 platformId, bytes32 idNode, uint256 salt, bytes key, Policy policy)`:
+///      the genesis identity, which the install accepts only from
+///      `walletFactory().walletAddress(platformId, idNode, salt)` and links, and, unless `key` is empty, an admin
+///      session, which it adds from the next second.
 ///      `onInstall` and `onUninstall` run only from the account's own install and uninstall:
 ///      they revert while the account has this validator installed.
 ///      `onUninstall` expects the account to remove the module before it calls the hook, the order
@@ -219,7 +221,8 @@ interface IIdentityValidator is IERC7579Validator, IExecutionCheck {
     /// The WalletFactory whose wallets alone may install this validator.
     function walletFactory() external view returns (address);
 
-    function genesisIdentity(address account) external view returns (bytes32 platformId, bytes32 idNode);
+    /// The genesis identity and the factory salt the account's address derives from.
+    function genesisIdentity(address account) external view returns (bytes32 platformId, bytes32 idNode, uint256 salt);
     function isLinked(address account, bytes32 identity) external view returns (bool);
     function sessionOf(address account, bytes calldata key) external view returns (Session memory);
     /// The live session `key`'s raw counter for `token`; zero when it has no session or no such allowance.

@@ -841,7 +841,7 @@ contract PolicyTest is WalletTestBase {
         (, bytes32[] memory proofB) = _tree(listed, 1);
         _addApp(APP_PK, _rules(0, 0, DAY, domains));
         _addApp(MALLORY_PK, _daily());
-        address w2 = factory.createWallet(GITHUB, BOB);
+        address w2 = factory.createWallet(GITHUB, BOB, 0);
         _link(w2, GITHUB, BOB, w2, _key(BOB_PK), _admin());
         _add(w2, _identity(GITHUB, BOB), APP_PK, false, _rules(0, 0, DAY, domains));
         vm.warp(_now() + 1);

@@ -100,7 +100,7 @@ abstract contract ExecuteBase is WalletTestBase {
 
     /// Alice's wallet, holding 1 ether, whose genesis link added her admin session.
     function _fresh() internal returns (address w) {
-        w = factory.createWallet(X, ALICE);
+        w = factory.createWallet(X, ALICE, 0);
         _link(w, X, ALICE, w, _key(ALICE_PK), _admin());
         vm.deal(w, 1 ether);
     }
@@ -357,7 +357,7 @@ contract DirectExecuteTest is ExecuteBase {
     /// that executes the migration, while the old validator's admin can.
     function test_executingAMigrationInTheBatchDoesNotHelpIt() public {
         address w = _fresh();
-        (IIdentityValidator v2, bytes memory up) = _upgrade(abi.encode(X, ALICE, _key(NEW_PK), _admin()));
+        (IIdentityValidator v2, bytes memory up) = _upgrade(_install(X, ALICE, _key(NEW_PK), _admin()));
         _queue(w, w, up);
         bytes memory calls = _onValidator(abi.encodeCall(IIdentityValidator.executeRoot, (w, w, up)));
         _refusesBy(w, calls, _pks(NEW_PK), NOT_SIGNED);
@@ -375,7 +375,7 @@ contract DirectExecuteTest is ExecuteBase {
     /// The nonce carries the validator's key: a signature for V1, unused, does not run after migrating to V2.
     function test_aV1SignatureDoesNotReplayAfterMigration() public {
         address w = _fresh();
-        (IIdentityValidator v2, bytes memory up) = _upgrade(abi.encode(X, ALICE, _key(ALICE_PK), _admin()));
+        (IIdentityValidator v2, bytes memory up) = _upgrade(_install(X, ALICE, _key(ALICE_PK), _admin()));
         _queue(w, w, up);
         // Signed for V1's sequence 0, which V2's sequence 0 matches but for the key.
         bytes memory hit = _one(_hitX());
@@ -425,7 +425,7 @@ contract DirectExecuteTest is ExecuteBase {
         OtherClientVerifier other = new OtherClientVerifier(xStub);
         vm.prank(owner);
         proofVerifier.setVerifier(X, V1, other);
-        address w = factory.createWallet(X, ALICE);
+        address w = factory.createWallet(X, ALICE, 0);
         _link(w, X, ALICE, w, _key(ALICE_PK), _admin());
         assertEq(other.lastClient(), "another-app", "not the other client's proof");
         assertEq(validator.sessionOf(w, _key(ALICE_PK)).activeAt, 0, "the first session is pending");
@@ -436,7 +436,7 @@ contract DirectExecuteTest is ExecuteBase {
     // added (if at all) cannot sign in its own second.
 
     function test_theExceptionNeedsTheGenesisAndAnAdmin() public {
-        address w = factory.createWallet(X, ALICE);
+        address w = factory.createWallet(X, ALICE, 0);
         _linkRefused(w, GITHUB, BOB, BOB_PK, _admin());
         _linkRefused(w, X, ALICE, APP_PK, _hitOnly());
         bytes memory hit = _one(_hitX());
@@ -462,7 +462,7 @@ contract DirectExecuteTest is ExecuteBase {
 
     /// A stranger's proof of the genesis identity, naming her own key, does not link it to a fresh wallet.
     function test_aFreshWalletsFirstSessionComesOnlyFromItsOwnBatch() public {
-        address w = factory.createWallet(X, ALICE);
+        address w = factory.createWallet(X, ALICE, 0);
         bytes memory link = _payload(X, ALICE, LINK, _txData(w, _key(MALLORY_PK), _ph(_admin())));
         vm.prank(mallory);
         vm.expectRevert(abi.encodeWithSelector(IWalletRegistry.NotWallet.selector, w, mallory));
@@ -472,12 +472,12 @@ contract DirectExecuteTest is ExecuteBase {
 
     function test_migrateRefusesAnEmptyKey() public {
         address w = _fresh();
-        (, bytes memory bare) = _upgrade(abi.encode(X, ALICE));
+        (, bytes memory bare) = _upgrade(_install(X, ALICE));
         _queue(w, w, bare);
         vm.expectRevert(IWebWallet.MigrationWithoutSession.selector);
         validator.executeRoot(w, w, bare);
 
-        (IIdentityValidator v2, bytes memory keyed) = _upgrade(abi.encode(X, ALICE, _key(ALICE_PK), _admin()));
+        (IIdentityValidator v2, bytes memory keyed) = _upgrade(_install(X, ALICE, _key(ALICE_PK), _admin()));
         _root(w, w, keyed);
         assertTrue(IWebWallet(w).isModuleInstalled(1, address(v2), ""), "the keyed migration failed");
     }

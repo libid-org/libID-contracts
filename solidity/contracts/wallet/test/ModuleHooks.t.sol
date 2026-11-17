@@ -35,7 +35,7 @@ contract ModuleHooksTest is WalletTestBase {
     }
 
     function _assertIntact(address w, string memory why) internal view {
-        (bytes32 platformId, bytes32 idNode) = validator.genesisIdentity(w);
+        (bytes32 platformId, bytes32 idNode,) = validator.genesisIdentity(w);
         assertEq(platformId, X, why);
         assertEq(idNode, ALICE, why);
         assertTrue(validator.isLinked(w, _identity(X, ALICE)), why);
@@ -75,11 +75,11 @@ contract ModuleHooksTest is WalletTestBase {
     /// R6: state is keyed by install, so a reinstall starts empty.
     function test_reinstallDoesNotRestoreSessions() public {
         // At the factory's address of its genesis, the only account the validator installs on.
-        address w = factory.walletAddress(X, ALICE);
+        address w = factory.walletAddress(X, ALICE, 0);
         vm.etch(w, address(new InstallFlagAccount()).code);
         InstallFlagAccount a = InstallFlagAccount(w);
         vm.prank(w);
-        validator.onInstall(abi.encode(X, ALICE));
+        validator.onInstall(_install(X, ALICE));
         vm.prank(w);
         validator.addSession(_identity(X, ALICE), _key(ALICE_PK), _admin());
         vm.prank(address(registry));
@@ -95,7 +95,7 @@ contract ModuleHooksTest is WalletTestBase {
         assertFalse(validator.isLinked(w, _identity(X, ALICE)), "link kept by an uninstall");
         vm.expectRevert(abi.encodeWithSelector(IIdentityValidator.NotInstalled.selector, w));
         validator.onUninstall("");
-        validator.onInstall(abi.encode(X, ALICE));
+        validator.onInstall(_install(X, ALICE));
         vm.stopPrank();
         assertEq(validator.sessionOf(w, _key(ALICE_PK)).identity, bytes32(0), "session came back");
         assertFalse(validator.isLinked(w, _identity(GITHUB, BOB)), "link came back");

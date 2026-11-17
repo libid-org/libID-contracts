@@ -40,7 +40,7 @@ contract CreateAndExecuteTest is ExecuteBase {
         paid.setNodes(ALICE, HANDLE);
         vm.prank(owner);
         proofVerifier.setVerifier(X, V2, IPlatformVerifier(address(paid)));
-        w = factory.walletAddress(X, ALICE);
+        w = factory.walletAddress(X, ALICE, 0);
         linkData = _txData(w, _key(ALICE_PK), _ph(_admin()));
         list = abi.encode(
             StubPlatformVerifier.StubPayload({
@@ -99,7 +99,7 @@ contract CreateAndExecuteTest is ExecuteBase {
     function _send(bytes memory calls, bytes memory auth) internal {
         vm.prank(relayer, relayer);
         IWalletFactoryOnboarding(address(factory)).createAndExecute{value: signedValue}(
-            X, ALICE, AUTHORIZED_MODE, _data(calls, auth)
+            X, ALICE, 0, AUTHORIZED_MODE, _data(calls, auth)
         );
     }
 

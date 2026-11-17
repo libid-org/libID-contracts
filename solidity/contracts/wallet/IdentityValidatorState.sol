@@ -24,6 +24,7 @@ abstract contract IdentityValidatorState {
         uint32 rootEpoch;
         uint32 platforms;
         uint32 adminPlatforms;
+        uint256 salt;
     }
 
     /// What `_verify` found: whether every signature holds, the distinct platforms of its signers and

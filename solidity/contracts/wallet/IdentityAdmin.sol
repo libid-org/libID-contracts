@@ -50,17 +50,17 @@ contract IdentityAdmin is IdentityValidatorState {
     function onInstall(bytes calldata data) external delegated {
         uint256 install = _install(msg.sender);
         if (install % 2 == 1) revert IIdentityValidator.InstallLive(msg.sender);
-        (bytes32 platformId, bytes32 idNode) = abi.decode(data[:64], (bytes32, bytes32));
-        address wallet = IWalletFactory(FACTORY).walletAddress(platformId, idNode);
+        (bytes32 platformId, bytes32 idNode, uint256 salt, bytes memory key, IIdentityValidator.Policy memory policy) =
+            abi.decode(data, (bytes32, bytes32, uint256, bytes, IIdentityValidator.Policy));
+        address wallet = IWalletFactory(FACTORY).walletAddress(platformId, idNode, salt);
         if (wallet != msg.sender) revert IIdentityValidator.NotFactoryWallet(msg.sender, wallet);
         _s().installs[msg.sender] = ++install;
         AccountState storage a = _s().accounts[install][msg.sender];
         a.platformId = platformId;
         a.idNode = idNode;
+        if (salt != 0) a.salt = salt;
         _link(msg.sender, platformId, idNode);
-        if (data.length == 64) return;
-        (,, bytes memory key, IIdentityValidator.Policy memory policy) =
-            abi.decode(data, (bytes32, bytes32, bytes, IIdentityValidator.Policy));
+        if (key.length == 0) return;
         if (!policy.admin) revert IIdentityValidator.InstallSessionNotAdmin();
         _add(msg.sender, identityOf(platformId, idNode), key, policy, false, false);
     }

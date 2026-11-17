@@ -16,7 +16,7 @@ contract OperationListWalletTest is WalletTestBase {
     /// One proof: the wallet's first session at WalletRegistry and its binding at IdentityRegistry.
     function test_bothConsumersAcceptOneListOnce() public {
         vm.prank(relayer);
-        address w = factory.createWallet(X, ALICE);
+        address w = factory.createWallet(X, ALICE, 0);
         bytes memory link = _linkData(w);
         bytes memory payload = _payload(X, ALICE, OPERATIONS, operationList(BIND, abi.encode(w), LINK, link));
 
@@ -53,7 +53,7 @@ contract OperationListWalletTest is WalletTestBase {
     /// The registry cannot refuse a list with a link and an add-session for one chain, which
     /// REQ-COMMON-01L forbids the Application to compose; only one of them is applied.
     function test_aListWithBothWalletDomainsIsSpentOnce() public {
-        address w = factory.createWallet(X, ALICE);
+        address w = factory.createWallet(X, ALICE, 0);
         bytes memory link = _linkData(w);
         bytes memory add = _txData(w, _key(ALICE2_PK), _ph(_admin()));
         bytes memory payload = _payload(X, ALICE, OPERATIONS, operationList(LINK, link, ADD, add));
@@ -64,7 +64,7 @@ contract OperationListWalletTest is WalletTestBase {
     }
 
     function test_aListWithoutTheCallsEntryIsRefused() public {
-        address w = factory.createWallet(X, ALICE);
+        address w = factory.createWallet(X, ALICE, 0);
         bytes memory payload = _payload(X, ALICE, OPERATIONS, operationList(BIND, abi.encode(w), BIND, hex"ff"));
         vm.expectRevert(IOperationLists.NoOwnOperation.selector);
         registry.linkIdentity(X, V1, payload, _linkData(w), _admin());
@@ -76,7 +76,7 @@ contract OperationListWalletTest is WalletTestBase {
 
     /// Link data itself, and a list with a trailing byte, under `libid.operations`.
     function test_bytesThatAreNoListAreRefused() public {
-        address w = factory.createWallet(X, ALICE);
+        address w = factory.createWallet(X, ALICE, 0);
         bytes memory link = _linkData(w);
         bytes[2] memory lists = [link, bytes.concat(operationList(LINK, link, BIND, hex"ff"), hex"00")];
         for (uint256 i; i < lists.length; ++i) {
@@ -87,7 +87,7 @@ contract OperationListWalletTest is WalletTestBase {
     }
 
     function test_dataBesideOneOperationIsRefused() public {
-        address w = factory.createWallet(X, ALICE);
+        address w = factory.createWallet(X, ALICE, 0);
         bytes memory payload = _payload(X, ALICE, LINK, _linkData(w));
         vm.expectRevert(IWalletRegistry.DataWithoutList.selector);
         registry.linkIdentity(X, V1, payload, _linkData(w), _admin());
@@ -95,7 +95,7 @@ contract OperationListWalletTest is WalletTestBase {
 
     /// The entry's data is held to the domain's own encoding.
     function test_anEntryOnAnotherChainIsRefused() public {
-        address w = factory.createWallet(X, ALICE);
+        address w = factory.createWallet(X, ALICE, 0);
         bytes memory data = abi.encode(block.chainid + 1, w, _key(ALICE_PK), _ph(_admin()));
         bytes memory payload = _payload(X, ALICE, OPERATIONS, operationList(LINK, data, BIND, hex"ff"));
         vm.expectRevert(abi.encodeWithSelector(IWalletRegistry.WrongChain.selector, block.chainid + 1));
@@ -104,7 +104,7 @@ contract OperationListWalletTest is WalletTestBase {
 
     /// TEST-COMMON-02D: link entries naming chains A and B, accepted once on each.
     function test_entriesForTwoChainsAreAcceptedOnEach() public {
-        address w = factory.createWallet(X, ALICE);
+        address w = factory.createWallet(X, ALICE, 0);
         (uint256 a, uint256 b) = (vm.getChainId(), vm.getChainId() + 1);
         bytes memory dataA = abi.encode(a, w, _key(ALICE_PK), _ph(_admin()));
         bytes memory dataB = abi.encode(b, w, _key(ALICE_PK), _ph(_admin()));

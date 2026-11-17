@@ -7,7 +7,7 @@ import {WalletTestBase} from "./WalletTestBase.sol";
 contract GenesisLinkTest is WalletTestBase {
     function test_creationLinksTheGenesisIdentity() public {
         vm.prank(relayer);
-        address w = factory.createWallet(X, ALICE);
+        address w = factory.createWallet(X, ALICE, 0);
         assertTrue(validator.isLinked(w, _identity(X, ALICE)), "genesis not linked");
         assertFalse(validator.hadSession(w), "a session without a proof");
     }

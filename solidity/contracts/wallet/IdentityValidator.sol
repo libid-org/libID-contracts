@@ -141,9 +141,9 @@ contract IdentityValidator is IIdentityValidator, IdentityValidatorState {
         return FACTORY;
     }
 
-    function genesisIdentity(address account) external view returns (bytes32 platformId, bytes32 idNode) {
+    function genesisIdentity(address account) external view returns (bytes32 platformId, bytes32 idNode, uint256 salt) {
         AccountState storage a = _account(account);
-        return (a.platformId, a.idNode);
+        return (a.platformId, a.idNode, a.salt);
     }
 
     function isLinked(address account, bytes32 identity) external view returns (bool) {

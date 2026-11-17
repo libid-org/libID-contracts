@@ -296,6 +296,21 @@ abstract contract WalletTestBase is Test, Trees {
         );
     }
 
+    /// Install data of the genesis `(platformId, idNode)` at salt 0 with the admin session `key`.
+    function _install(bytes32 platformId, bytes32 idNode, bytes memory key, IIdentityValidator.Policy memory p)
+        internal
+        pure
+        returns (bytes memory)
+    {
+        return abi.encode(platformId, idNode, uint256(0), key, p);
+    }
+
+    /// Install data of the genesis `(platformId, idNode)` at salt 0, with no session.
+    function _install(bytes32 platformId, bytes32 idNode) internal pure returns (bytes memory) {
+        IIdentityValidator.Policy memory none;
+        return _install(platformId, idNode, "", none);
+    }
+
     function _link(
         address submitter,
         bytes32 platformId,
@@ -328,7 +343,7 @@ abstract contract WalletTestBase is Test, Trees {
     /// Alice's canonical wallet, which linked her first session itself.
     function _claimWith(IIdentityValidator.Policy memory p) internal returns (address w) {
         vm.prank(relayer);
-        w = factory.createWallet(X, ALICE);
+        w = factory.createWallet(X, ALICE, 0);
         _link(w, X, ALICE, w, _key(ALICE_PK), p);
     }
 

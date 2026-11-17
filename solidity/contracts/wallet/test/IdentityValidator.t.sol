@@ -441,7 +441,7 @@ contract IdentityValidatorTest is WalletTestBase {
 
         address other =
             deployCode("IdentityValidator.sol:IdentityValidator", abi.encode(address(registry), address(factory)));
-        bytes memory data = abi.encodeCall(IERC7579ModuleConfig.installModule, (1, other, abi.encode(X, ALICE)));
+        bytes memory data = abi.encodeCall(IERC7579ModuleConfig.installModule, (1, other, _install(X, ALICE)));
         vm.prank(w);
         validator.queueRoot(w, data);
         vm.warp(_now() + 48 hours);
@@ -761,10 +761,10 @@ contract IdentityValidatorTest is WalletTestBase {
     /// Both ERC-7739 forms follow the account's whole domain, salt included.
     function test_erc1271FollowsASaltedDomain() public {
         // At the factory's address of its genesis, the only account the validator installs on.
-        SaltedAccount a = SaltedAccount(factory.walletAddress(X, ALICE));
+        SaltedAccount a = SaltedAccount(factory.walletAddress(X, ALICE, 0));
         vm.etch(address(a), address(new SaltedAccount(validator)).code);
         vm.prank(address(a));
-        validator.onInstall(abi.encode(X, ALICE));
+        validator.onInstall(_install(X, ALICE));
         vm.prank(address(registry));
         validator.link(address(a), X, ALICE);
         vm.prank(address(a));
@@ -821,7 +821,7 @@ contract IdentityValidatorTest is WalletTestBase {
     function test_erc1271SignatureDoesNotReplayOnAnotherAccount() public {
         bytes32 h = keccak256("a message");
         address w = _claim();
-        address w2 = factory.createWallet(GITHUB, BOB);
+        address w2 = factory.createWallet(GITHUB, BOB, 0);
         _link(w2, GITHUB, BOB, w2, _key(ALICE_PK), _admin());
 
         assertTrue(_isValid1271(w2, h, ALICE_PK, _wrapped(w2, h)), "control");
