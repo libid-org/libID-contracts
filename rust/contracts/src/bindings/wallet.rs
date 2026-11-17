@@ -188,40 +188,44 @@ mod execute {
     }
 }
 
-/// What the signers of a direct `execute(AUTHORIZED_MODE, data)` sign, as
-/// `IdentityValidator.checkExecution` hashes it: `mode` is
-/// [`AUTHORIZED_MODE`], `value` is the `msg.value` the batch must be sent
-/// with, `at` is `Authorization.at`, and `nonce` is the
-/// wallet's full EntryPoint nonce under [`direct_nonce_key`] before the batch.
-/// Build it with [`Execute::authorized`].
+/// The EIP-712 `Execute` type `IdentityValidator.checkExecution` hashes. Build
+/// messages with [`ExecuteMessage`], which sets `mode`.
 pub use execute::Execute;
 
-impl Execute {
-    /// The message of a direct `execute`, with `mode` [`AUTHORIZED_MODE`].
-    pub fn authorized(
-        execution_calldata: Bytes,
-        value: U256,
-        at: U48,
-        nonce: U256,
-        deadline: U48,
-        call_gas: U256,
-    ) -> Self {
-        Self {
-            mode: AUTHORIZED_MODE,
-            executionCalldata: execution_calldata,
-            value,
-            at,
-            nonce,
-            deadline,
-            callGas: call_gas,
-        }
-    }
+/// What the signers of a direct `execute(AUTHORIZED_MODE, data)` sign, besides
+/// `mode`, which is always [`AUTHORIZED_MODE`].
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ExecuteMessage {
+    /// The ERC-7579 batch: `abi.encode(Execution[])`.
+    pub execution_calldata: Bytes,
+    /// The `msg.value` the batch must be sent with.
+    pub value: U256,
+    /// `Authorization.at`.
+    pub at: U48,
+    /// The wallet's full EntryPoint nonce under [`direct_nonce_key`] before
+    /// the batch.
+    pub nonce: U256,
+    /// The last second the batch may run.
+    pub deadline: U48,
+    /// The gas the batch's calls get.
+    pub call_gas: U256,
+}
 
+impl ExecuteMessage {
     /// The EIP-712 hash the signers sign: under the wallet's domain, name
     /// `WebWallet`, version `1`, `chain_id` and `wallet`. Below quorum each
     /// signer signs [`below_quorum_hash`] of it.
     pub fn digest(&self, chain_id: u64, wallet: Address) -> B256 {
-        self.eip712_signing_hash(&eip712_domain! {
+        Execute {
+            mode: AUTHORIZED_MODE,
+            executionCalldata: self.execution_calldata.clone(),
+            value: self.value,
+            at: self.at,
+            nonce: self.nonce,
+            deadline: self.deadline,
+            callGas: self.call_gas,
+        }
+        .eip712_signing_hash(&eip712_domain! {
             name: "WebWallet",
             version: "1",
             chain_id: chain_id,
@@ -232,10 +236,6 @@ impl Execute {
     /// `data` of `execute(AUTHORIZED_MODE, data)` for this message:
     /// `abi.encode(executionCalldata, value, deadline, callGas, abi.encode(authorization))`,
     /// the authorization's `at` this message's.
-    ///
-    /// # Panics
-    ///
-    /// If `mode` is not [`AUTHORIZED_MODE`]: the wallet would refuse the batch.
     pub fn authorized_data(
         &self,
         signatures: Vec<IIdentityValidator::SessionSignature>,
@@ -243,7 +243,6 @@ impl Execute {
         domain_proof: Vec<B256>,
         paymaster_proof: Vec<B256>,
     ) -> Bytes {
-        assert_eq!(self.mode, AUTHORIZED_MODE, "a direct execute's mode");
         let authorization = IIdentityValidator::Authorization {
             signatures,
             at: self.at,
@@ -252,10 +251,10 @@ impl Execute {
             paymasterProof: paymaster_proof,
         };
         (
-            self.executionCalldata.clone(),
+            self.execution_calldata.clone(),
             self.value,
             self.deadline,
-            self.callGas,
+            self.call_gas,
             Bytes::from(authorization.abi_encode()),
         )
             .abi_encode_params()
@@ -374,14 +373,14 @@ mod tests {
         assert_eq!(U256::from(key), v.nonce_key);
         assert_eq!((U256::from(key) << 64) | U256::from(7), v.nonce);
 
-        let execute = Execute::authorized(
-            v.execution_calldata,
-            v.value,
-            U48::from(v.at),
-            v.nonce,
-            U48::from(v.deadline),
-            U256::from(v.call_gas),
-        );
+        let execute = ExecuteMessage {
+            execution_calldata: v.execution_calldata,
+            value: v.value,
+            at: U48::from(v.at),
+            nonce: v.nonce,
+            deadline: U48::from(v.deadline),
+            call_gas: U256::from(v.call_gas),
+        };
         let data = execute.authorized_data(
             vec![IIdentityValidator::SessionSignature {
                 key: v.session_key,
@@ -393,21 +392,6 @@ mod tests {
         );
         assert_eq!(keccak256(&data), v.data_hash);
         assert_eq!(execute.digest(v.chain_id, v.wallet), v.digest);
-    }
-
-    #[test]
-    #[should_panic(expected = "a direct execute's mode")]
-    fn authorized_data_refuses_another_mode() {
-        let mut execute = Execute::authorized(
-            Bytes::new(),
-            U256::ZERO,
-            U48::ZERO,
-            U256::ZERO,
-            U48::ZERO,
-            U256::ZERO,
-        );
-        execute.mode = B256::ZERO;
-        execute.authorized_data(vec![], vec![], vec![], vec![]);
     }
 
     /// The two `Policy` bindings name one struct: either decodes the other, and
