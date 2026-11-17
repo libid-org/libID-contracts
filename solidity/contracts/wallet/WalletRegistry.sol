@@ -80,11 +80,12 @@ contract WalletRegistry is IWalletRegistry {
         (address wallet, bytes memory key) = _transactionData(txData, policy);
         bytes32 identity = identityOf(platformId, claimed.idNode);
         bytes32[] storage apps = _s().appLists[wallet][identity];
-        if (apps.length != 0) {
+        uint256 n = apps.length;
+        if (n != 0) {
             bytes32 app = keccak256(claimed.clientIdentifier);
             uint256 i;
-            while (i < apps.length && apps[i] != app) ++i;
-            if (i == apps.length) revert AppNotListed(app);
+            while (i < n && apps[i] != app) ++i;
+            if (i == n) revert AppNotListed(app);
         }
         VALIDATOR.addSessionByRegistry(wallet, identity, key, policy, true);
     }
