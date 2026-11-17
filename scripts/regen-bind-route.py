@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""Regenerate the `bind` route for Rust and TypeScript.
+"""Regenerate the `bind` and `WalletRegistry` routes for Rust and TypeScript.
 
-A revert passes unchanged through every contract a `bind` calls, so a client
-decodes it against each contract's error set in call order. `ROUTE` below is
-that order, and the one place it is written:
+A revert passes unchanged through every contract a call reaches, so a client
+decodes it against each contract's error set in call order. `ROUTES` below
+holds those orders, and is the one place they are written:
 
-    rust/contracts/src/bind_route.rs               # BindError and ROUTE
-    ts/packages/contracts/scripts/bind-route.mjs   # what codegen.mjs builds bindErrorsAbi from
+    rust/contracts/src/bind_route.rs               # BindError, WalletRegistryError and their routes
+    ts/packages/contracts/scripts/bind-route.mjs   # what codegen.mjs builds the errors ABIs from
 
 Run: ./scripts/regen-bind-route.py [--check]
 """
@@ -46,11 +46,9 @@ class Hop:
         return f"{self.contract}Errors"
 
 
-# In call order. The Honk verifier's errors are IHonkVerifierErrors, since
-# bb's artifacts declare none. `bindWithFeeCall` calls its fee receiver after
-# the proof checks.
-ROUTE = (
-    Hop("IdentityRegistry", "Registry", "IdentityRegistry", "identity"),
+# The proof hops, in call order. The Honk verifier's errors are
+# IHonkVerifierErrors, since bb's artifacts declare none.
+PROOF = (
     Hop("CeremonyProofVerifier", "ProofVerifier", "CeremonyProofVerifier", "ceremony"),
     Hop("XPlatformVerifier", "XVerifier", "XPlatformVerifier", "ceremony"),
     Hop("GitHubPlatformVerifier", "GitHubVerifier", "GitHubPlatformVerifier", "ceremony"),
@@ -66,33 +64,82 @@ ROUTE = (
     Hop("TelegramPlatformVerifier", None, "TelegramPlatformVerifier", "ceremony"),
     Hop("NotaryService", "NotaryService", "NotaryService", "ceremony"),
     Hop("IHonkVerifierErrors", "HonkVerifier", "HonkVerifier", "circuits"),
-    Hop(
-        "ReferralSplitter",
-        "Referral",
-        "ReferralSplitter",
-        "referral",
-        "`ReferralSplitter`, the fee receiver of every `bindWithFeeCall` through it.",
+)
+
+
+@dataclass(frozen=True)
+class Route:
+    """The contracts one call passes through."""
+
+    what: str
+    """The call, as the docs name it."""
+    error: str
+    """The Rust enum its reverts decode into."""
+    const: str
+    """The Rust route constant."""
+    ts: str
+    """The TypeScript export."""
+    hops: tuple[Hop, ...]
+    example: str
+    """A signature for the Rust `signature` doc."""
+
+    @property
+    def decoded(self) -> tuple[Hop, ...]:
+        return tuple(hop for hop in self.hops if hop.variant)
+
+
+ROUTES = (
+    # `bindWithFeeCall` calls its fee receiver after the proof checks.
+    Route(
+        "a `bind`",
+        "BindError",
+        "ROUTE",
+        "bindRoute",
+        (
+            Hop("IdentityRegistry", "Registry", "IdentityRegistry", "identity"),
+            *PROOF,
+            Hop(
+                "ReferralSplitter",
+                "Referral",
+                "ReferralSplitter",
+                "referral",
+                "`ReferralSplitter`, the fee receiver of every `bindWithFeeCall` through it.",
+            ),
+        ),
+        "HandleNotProved(bytes32,bytes32)",
+    ),
+    # `linkIdentity` and `addSessionByProof` call the IdentityValidator after the proof checks.
+    Route(
+        "a `WalletRegistry` link or session by proof",
+        "WalletRegistryError",
+        "WALLET_REGISTRY_ROUTE",
+        "walletRegistryRoute",
+        (
+            Hop("WalletRegistry", "Registry", "WalletRegistry", "wallet"),
+            *PROOF,
+            Hop("IdentityValidator", "Validator", "IdentityValidator", "wallet"),
+        ),
+        "NotLinked(address,bytes32)",
     ),
 )
 
-DECODED = tuple(hop for hop in ROUTE if hop.variant)
-
 
 def rust() -> str:
-    modules: dict[str, list[Hop]] = {}
-    for hop in ROUTE:
-        modules.setdefault(hop.module, []).append(hop)
+    modules: dict[str, set[str]] = {}
+    for route in ROUTES:
+        for hop in route.hops:
+            modules.setdefault(hop.module, set()).add(f"{hop.contract}::{hop.errors}")
     imports = []
-    for module, hops in sorted(modules.items()):
-        names = sorted(f"{hop.contract}::{hop.errors}" for hop in hops)
+    for module, names in sorted(modules.items()):
         if len(names) == 1:
-            imports.append(f"    {module}::{names[0]},")
+            imports.append(f"    {module}::{next(iter(names))},")
         else:
-            imports += [f"    {module}::{{", *(f"        {name}," for name in names), "    },"]
+            imports += [f"    {module}::{{", *(f"        {name}," for name in sorted(names)), "    },"]
     lines = [
         f"// {BANNER}",
         "",
-        "//! The contracts a `bind` passes through, in call order, and their error sets.",
+        "//! The contracts a `bind` or a `WalletRegistry` proof passes through, in",
+        "//! call order, and their error sets.",
         "",
         "use alloy::{",
         "    primitives::U256,",
@@ -107,13 +154,30 @@ def rust() -> str:
         *imports,
         "};",
         "",
-        "/// A `bind` revert, decoded by the first error set on the route that",
-        "/// declares its selector. Many selectors are declared by several contracts,",
-        "/// so the variant names the error set, not the contract that reverted;",
-        "/// [`BindError::contracts`] lists every contract that could have.",
-        "pub enum BindError {",
+        "/// Whether an error set declares a selector.",
+        "pub(crate) type Declares = fn([u8; 4]) -> bool;",
+        "",
+        "/// Revert data as one error set's error, if that set declares it; `None` for a",
+        "/// set whose every error an earlier set on the route declares.",
+        "pub(crate) type Decode<E> = fn(&[u8]) -> Option<E>;",
     ]
-    for hop in DECODED:
+    for route in ROUTES:
+        lines += rust_route(route)
+    return "\n".join(lines) + "\n"
+
+
+def rust_route(route: Route) -> list[str]:
+    error = route.error
+    lines = [
+        "",
+        f"/// A revert of {route.what},",
+        "/// decoded by the first error set on the route that declares its selector.",
+        "/// Many selectors are declared by several contracts, so the variant names",
+        "/// the error set, not the contract that reverted;",
+        f"/// [`{error}::contracts`] lists every contract that could have.",
+        f"pub enum {error} {{",
+    ]
+    for hop in route.decoded:
         lines += [f"    /// {hop.doc or f'`{hop.label}`.'}", f"    {hop.variant}({hop.errors}),"]
     lines += [
         "    /// A Solidity `Panic(uint256)`, with its code: a failed `assert`, an",
@@ -121,23 +185,16 @@ def rust() -> str:
         "    Panic(U256),",
         "}",
         "",
-        "/// Whether an error set declares a selector.",
-        "pub(crate) type Declares = fn([u8; 4]) -> bool;",
-        "",
-        "/// Revert data as one error set's error, if that set declares it; `None` for a",
-        "/// set whose every error an earlier set on the route declares.",
-        "pub(crate) type Decode = fn(&[u8]) -> Option<BindError>;",
-        "",
-        "/// The route's error sets, in the order `BindError::decode` tries them.",
-        f"pub(crate) const ROUTE: [(&str, Declares, Decode); {len(ROUTE)}] = [",
+        f"/// The route's error sets, in the order `{error}::decode` tries them.",
+        f"pub(crate) const {route.const}: [(&str, Declares, Decode<{error}>); {len(route.hops)}] = [",
     ]
-    for hop in ROUTE:
+    for hop in route.hops:
         lines += [
             "    (",
             f'        "{hop.label}",',
             f"        {hop.errors}::valid_selector,",
             (
-                f"        |d| {hop.errors}::abi_decode(d).ok().map(BindError::{hop.variant}),"
+                f"        |d| {hop.errors}::abi_decode(d).ok().map({error}::{hop.variant}),"
                 if hop.variant
                 else "        |_| None,"
             ),
@@ -146,12 +203,12 @@ def rust() -> str:
     lines += [
         "];",
         "",
-        "impl BindError {",
-        "    /// The error's Solidity signature: `HandleNotProved(bytes32,bytes32)`.",
+        f"impl {error} {{",
+        f"    /// The error's Solidity signature: `{route.example}`.",
         "    pub fn signature(&self) -> &'static str {",
         "        match self {",
     ]
-    for hop in DECODED:
+    for hop in route.decoded:
         lines.append(f"            Self::{hop.variant}(e) => {hop.errors}::signature_by_selector(e.selector()),")
     lines += [
         "            Self::Panic(_) => Some(Panic::SIGNATURE),",
@@ -163,7 +220,7 @@ def rust() -> str:
         "    pub(crate) fn selector(&self) -> [u8; 4] {",
         "        match self {",
     ]
-    for hop in DECODED:
+    for hop in route.decoded:
         lines.append(f"            Self::{hop.variant}(e) => e.selector(),")
     lines += [
         "            Self::Panic(_) => Panic::SELECTOR,",
@@ -171,22 +228,23 @@ def rust() -> str:
         "    }",
         "}",
     ]
-    return "\n".join(lines) + "\n"
+    return lines
 
 
 def ts() -> str:
-    lines = [
-        f"// {BANNER}",
-        "",
-        "/**",
-        " * Every contract a `bind` passes through, in call order, as",
-        " * `[source unit, contract]`; a revert from any comes back out of `bind` unchanged.",
-        " * @type {readonly (readonly [string, string])[]}",
-        " */",
-        "export const bindRoute = [",
-        *(f"  ['{hop.contract}.sol', '{hop.contract}']," for hop in ROUTE),
-        "]",
-    ]
+    lines = [f"// {BANNER}"]
+    for route in ROUTES:
+        lines += [
+            "",
+            "/**",
+            f" * Every contract {route.what} passes through, in call order, as",
+            " * `[source unit, contract]`; a revert from any comes back out unchanged.",
+            " * @type {readonly (readonly [string, string])[]}",
+            " */",
+            f"export const {route.ts} = [",
+            *(f"  ['{hop.contract}.sol', '{hop.contract}']," for hop in route.hops),
+            "]",
+        ]
     return "\n".join(lines) + "\n"
 
 
