@@ -65,6 +65,11 @@ jobs:
         with:
           foundry-version: ${{ env.FOUNDRY_VERSION }}
 
+      # Fails when a contract's runtime code exceeds EIP-170's 24,576 bytes.
+      - name: Contract sizes
+        working-directory: solidity
+        run: forge build --sizes
+
       # Upgradeable storage may only grow at the end. The script compares each
       # layout with the snapshot committed beside its contract; see its header.
       - name: Storage layout
