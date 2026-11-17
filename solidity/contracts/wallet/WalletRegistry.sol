@@ -22,6 +22,7 @@ contract WalletRegistry is IWalletRegistry {
     /// @custom:storage-location erc7201:libid.storage.WalletRegistry
     struct WalletRegistryStorage {
         mapping(bytes32 digest => bool) spentDigests;
+        mapping(address wallet => mapping(bytes32 identity => bytes32[])) appLists;
     }
 
     // cast index-erc7201 libid.storage.WalletRegistry
@@ -76,7 +77,15 @@ contract WalletRegistry is IWalletRegistry {
         (ICeremony.VerifiedClaim memory claimed, bytes memory txData) =
             _accept(ADD_SESSION_DOMAIN, platformId, verifierVersion, payload, data);
         (address wallet, bytes memory key) = _transactionData(txData, policy);
-        VALIDATOR.addSessionByRegistry(wallet, identityOf(platformId, claimed.idNode), key, policy, true);
+        bytes32 identity = identityOf(platformId, claimed.idNode);
+        bytes32[] storage apps = _s().appLists[wallet][identity];
+        if (apps.length != 0) {
+            bytes32 app = keccak256(claimed.clientIdentifier);
+            uint256 i;
+            while (i < apps.length && apps[i] != app) ++i;
+            if (i == apps.length) revert AppNotListed(app);
+        }
+        VALIDATOR.addSessionByRegistry(wallet, identity, key, policy, true);
     }
 
     function removeSessionsByLogin(
@@ -88,6 +97,15 @@ contract WalletRegistry is IWalletRegistry {
         (ICeremony.VerifiedClaim memory claimed, bytes memory txData) =
             _accept(REMOVE_SESSIONS_DOMAIN, platformId, verifierVersion, payload, data);
         VALIDATOR.removeByLogin(_removalData(txData), identityOf(platformId, claimed.idNode));
+    }
+
+    function setAppList(bytes32 identity, bytes32[] calldata apps) external {
+        _s().appLists[msg.sender][identity] = apps;
+        emit AppListSet(msg.sender, identity, apps);
+    }
+
+    function appList(address wallet, bytes32 identity) external view returns (bytes32[] memory) {
+        return _s().appLists[wallet][identity];
     }
 
     function quote(bytes32 platformId, uint16 verifierVersion) external view returns (uint256) {

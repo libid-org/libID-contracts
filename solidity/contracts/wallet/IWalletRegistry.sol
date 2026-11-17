@@ -26,7 +26,12 @@ interface IWalletRegistry is IOperationLists {
         address indexed wallet, bytes32 indexed platformId, bytes32 indexed idNode, bytes32 authorizationDigest
     );
 
+    /// `wallet` set the list of apps that may add `identity`'s sessions by login; empty is any app.
+    event AppListSet(address indexed wallet, bytes32 indexed identity, bytes32[] apps);
+
     error ForeignOperationDomain(bytes32 operationDomain);
+    /// The login's app, `keccak256(clientIdentifier)`, is not on the list the wallet set for the identity.
+    error AppNotListed(bytes32 app);
     error DigestAlreadySpent(bytes32 digest);
     /// The transaction data, or under a list the entry's `data`, is not the canonical encoding, or
     /// commits an empty key with a policy hash; `length` is its length.
@@ -56,7 +61,8 @@ interface IWalletRegistry is IOperationLists {
         IIdentityValidator.Policy calldata policy
     ) external payable;
 
-    /// Anyone may submit; the identity must already be linked to the wallet, which must have had a session.
+    /// Anyone may submit; the identity must already be linked to the wallet, which must have had a session, and
+    /// the login's app must be on the wallet's list for the identity, if it set one.
     /// Adds a session `byProof` (`IIdentityValidator.addSessionByRegistry`).
     function addSessionByLogin(
         bytes32 platformId,
@@ -74,6 +80,12 @@ interface IWalletRegistry is IOperationLists {
         bytes calldata payload,
         bytes calldata data
     ) external payable;
+
+    /// Sets the caller's list of apps, each `keccak256(clientIdentifier)`, whose logins may add `identity`'s
+    /// sessions; empty is any app. A removal by login leaves it. A wallet's validator treats this call as an admin
+    /// operation.
+    function setAppList(bytes32 identity, bytes32[] calldata apps) external;
+    function appList(address wallet, bytes32 identity) external view returns (bytes32[] memory);
 
     /// The IdentityValidator this registry deployed and alone may call.
     function identityValidator() external view returns (address);
