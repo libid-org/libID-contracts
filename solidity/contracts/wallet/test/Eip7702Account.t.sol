@@ -125,6 +125,24 @@ contract Eip7702AccountTest is ExecuteBase {
         assertEq(validator.sessionOf(a, _key(MALLORY_PK)).identity, bytes32(0), "mallory has a session");
     }
 
+    /// A stranger's direct batch that links her identity and adds her session runs as the account, but her
+    /// session signs only from the next second: the end check refuses it.
+    function test_aStrangersBatchCannotAddTheFirstSession() public {
+        _delegateTo(walletImpl);
+        Execution[] memory x = new Execution[](2);
+        bytes memory payload = _payload(X, MALLORY, LINK, _txData(a, "", 0));
+        x[0] = _x(address(registry), 0, abi.encodeCall(IWalletRegistry.linkIdentity, (X, V1, payload, "", _app())));
+        x[1] = _x(
+            address(validator),
+            0,
+            abi.encodeCall(IIdentityValidator.addSession, (_identity(X, MALLORY), _key(MALLORY_PK), _admin()))
+        );
+        bytes memory calls = abi.encode(x);
+        _refuses(a, calls, _direct(a, address(validator), _pks(MALLORY_PK), calls, false), OUTSIDE_WINDOW);
+        assertFalse(validator.isLinked(a, _identity(X, MALLORY)), "linked");
+        assertFalse(validator.hadSession(a), "a session");
+    }
+
     function test_theKeySignsAsAnEoaAndSessionsAsBefore() public {
         _setUp();
         bytes32 h = keccak256("a message");
