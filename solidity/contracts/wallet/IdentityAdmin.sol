@@ -23,7 +23,7 @@ contract IdentityAdmin is IdentityValidatorState {
         SetThreshold,
         RevokeSession,
         Unlink,
-        SetRecoveryDelay
+        SetRootDelay
     }
 
     modifier delegated() {
@@ -114,7 +114,10 @@ contract IdentityAdmin is IdentityValidatorState {
         _rootAction(msg.sender, target, data);
         opId = _rootId(msg.sender, target, data);
         // forge-lint: disable-next-line(unsafe-typecast)
-        uint48 readyAt = uint48(block.timestamp) + _recoveryDelay(msg.sender);
+        uint48 delay = _account(msg.sender).rootDelay;
+        // A root operation never matures in the second it was queued, so one batch cannot queue and run it.
+        // forge-lint: disable-next-line(unsafe-typecast)
+        uint48 readyAt = uint48(block.timestamp) + (delay == 0 ? 1 : delay);
         _roots(msg.sender, opId)[msg.sender] = Root({readyAt: readyAt, epoch: _account(msg.sender).rootEpoch});
         emit IIdentityValidator.RootQueued(msg.sender, opId, target, data, readyAt);
     }
@@ -145,7 +148,7 @@ contract IdentityAdmin is IdentityValidatorState {
         } else if (action == RootAction.Unlink) {
             _remove(account, abi.decode(data[4:], (bytes32)), false);
         } else {
-            _setRecoveryDelay(account, abi.decode(data[4:], (uint48)));
+            _setRootDelay(account, abi.decode(data[4:], (uint48)));
         }
         if (action == RootAction.SetThreshold || action == RootAction.RevokeSession) _keepQuorum(account);
     }
@@ -252,10 +255,9 @@ contract IdentityAdmin is IdentityValidatorState {
         a.threshold = t;
     }
 
-    function _setRecoveryDelay(address account, uint48 delay) private {
-        if (delay < MIN_DELAY) revert IIdentityValidator.RecoveryDelayTooShort(delay);
-        if (delay > MAX_DELAY) revert IIdentityValidator.RecoveryDelayTooLong(delay);
-        _account(account).recoveryDelay = delay;
+    function _setRootDelay(address account, uint48 delay) private {
+        if (delay > MAX_DELAY) revert IIdentityValidator.RootDelayTooLong(delay);
+        _account(account).rootDelay = delay;
     }
 
     /// Kills every session of `identity` and voids every queued root operation. Unlinks it unless it is the
@@ -301,7 +303,7 @@ contract IdentityAdmin is IdentityValidatorState {
             if (selector == IIdentityValidator.setThreshold.selector) return RootAction.SetThreshold;
             if (selector == IIdentityValidator.revokeSession.selector) return RootAction.RevokeSession;
             if (selector == IIdentityValidator.unlink.selector) return RootAction.Unlink;
-            if (selector == IIdentityValidator.setRecoveryDelay.selector) return RootAction.SetRecoveryDelay;
+            if (selector == IIdentityValidator.setRootDelay.selector) return RootAction.SetRootDelay;
         }
         revert IIdentityValidator.BadRootOperation(target);
     }

@@ -414,10 +414,10 @@ abstract contract WalletTestBase is Test, Trees {
     }
 
     function _raise() internal pure returns (bytes memory) {
-        return abi.encodeCall(IIdentityValidator.setRecoveryDelay, (72 hours));
+        return abi.encodeCall(IIdentityValidator.setRootDelay, (72 hours));
     }
 
-    /// The account's admin call queueing a recovery delay of 72 hours.
+    /// The account's admin call queueing a root delay of 72 hours.
     function _queueRaise() internal view returns (bytes memory) {
         return abi.encodeCall(IIdentityValidator.queueRoot, (address(validator), _raise()));
     }

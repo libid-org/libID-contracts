@@ -7,7 +7,6 @@ import {IIdentityValidator} from "./IIdentityValidator.sol";
 ///        IdentityAdmin and SessionRules it delegates to share.
 /// @dev Every slot validation reads or writes has the account as its innermost mapping key (ERC-7562).
 abstract contract IdentityValidatorState {
-    uint48 internal constant MIN_DELAY = 48 hours;
     uint48 internal constant MAX_DELAY = 365 days;
 
     /// Called other than through the validator's DELEGATECALL.
@@ -17,7 +16,7 @@ abstract contract IdentityValidatorState {
     struct AccountState {
         bytes32 platformId;
         bytes32 idNode;
-        uint48 recoveryDelay;
+        uint48 rootDelay;
         uint8 threshold;
         bool hadSession;
         uint32 adminSessions;
@@ -158,11 +157,6 @@ abstract contract IdentityValidatorState {
         returns (mapping(address => uint32) storage)
     {
         return _s().platformAdmins[_install(account)][platformId];
-    }
-
-    function _recoveryDelay(address account) internal view returns (uint48) {
-        uint48 d = _account(account).recoveryDelay;
-        return d == 0 ? MIN_DELAY : d;
     }
 
     /// Whether an unlink or an active admin session's revoke ran after the root operation was queued.

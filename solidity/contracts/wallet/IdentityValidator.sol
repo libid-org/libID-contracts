@@ -30,8 +30,7 @@ contract IdentityValidator is IIdentityValidator, IdentityValidatorState {
     using ERC7739Utils for *;
     using MessageHashUtils for bytes32;
 
-    uint48 public constant MIN_RECOVERY_DELAY = MIN_DELAY;
-    uint48 public constant MAX_RECOVERY_DELAY = MAX_DELAY;
+    uint48 public constant MAX_ROOT_DELAY = MAX_DELAY;
 
     address private immutable REGISTRY;
     address private immutable FACTORY;
@@ -173,8 +172,8 @@ contract IdentityValidator is IIdentityValidator, IdentityValidatorState {
         return t == 0 ? 1 : t;
     }
 
-    function recoveryDelay(address account) external view returns (uint48) {
-        return _recoveryDelay(account);
+    function rootDelay(address account) external view returns (uint48) {
+        return _account(account).rootDelay;
     }
 
     function hadSession(address account) external view returns (bool) {
@@ -233,7 +232,7 @@ contract IdentityValidator is IIdentityValidator, IdentityValidatorState {
         revert RootOperationRequired();
     }
 
-    function setRecoveryDelay(uint48) external pure {
+    function setRootDelay(uint48) external pure {
         revert RootOperationRequired();
     }
 

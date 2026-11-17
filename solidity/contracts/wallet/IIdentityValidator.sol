@@ -184,10 +184,8 @@ interface IIdentityValidator is IERC7579Validator, IExecutionCheck {
     error RootOperationRequired();
     /// No matured root operation with this id.
     error RootNotReady(bytes32 opId);
-    /// The recovery delay may not go below `MIN_RECOVERY_DELAY`.
-    error RecoveryDelayTooShort(uint48 delay);
-    /// The recovery delay may not exceed `MAX_RECOVERY_DELAY`.
-    error RecoveryDelayTooLong(uint48 delay);
+    /// The root delay may not exceed `MAX_ROOT_DELAY`.
+    error RootDelayTooLong(uint48 delay);
     /// The threshold may not exceed the number of platforms with an admin session, unless none has one.
     error ThresholdTooHigh(uint8 threshold, uint32 adminPlatforms);
     /// The genesis identity stays linked: it names the wallet's factory address.
@@ -207,16 +205,14 @@ interface IIdentityValidator is IERC7579Validator, IExecutionCheck {
     /// An allowance's token does not sort after the one before it, or its period reaches bit 47.
     error BadAllowance(address token);
     /// A root operation targets the account, or this validator's `setThreshold`, `revokeSession`,
-    /// `unlink` or `setRecoveryDelay`.
+    /// `unlink` or `setRootDelay`.
     error BadRootOperation(address target);
     /// The registry adds to a wallet that never had a session only its first session: the genesis
     /// identity's, admin, linked by the account.
     error FirstSessionRefused(address account);
 
-    /// Floor of `recoveryDelay`.
-    function MIN_RECOVERY_DELAY() external view returns (uint48);
-    /// Ceiling of `recoveryDelay`.
-    function MAX_RECOVERY_DELAY() external view returns (uint48);
+    /// Ceiling of `rootDelay`: 365 days.
+    function MAX_ROOT_DELAY() external view returns (uint48);
     function walletRegistry() external view returns (address);
     /// The WalletFactory whose wallets alone may install this validator.
     function walletFactory() external view returns (address);
@@ -238,12 +234,13 @@ interface IIdentityValidator is IERC7579Validator, IExecutionCheck {
     /// Distinct platforms an admin operation's admin sessions need: two identities on one platform count once.
     /// Defaults to 1.
     function threshold(address account) external view returns (uint8);
-    /// The account's wait for root operations (see `rootReadyAt`).
-    function recoveryDelay(address account) external view returns (uint48);
+    /// The account's wait for root operations (see `rootReadyAt`), 0 by default; a migration's fresh install
+    /// resets it.
+    function rootDelay(address account) external view returns (uint48);
     /// One-way: set once the account has had any session.
     function hadSession(address account) external view returns (bool);
     /// When the root operation `opId = keccak256(abi.encode(account, target, data))` matures, else 0;
-    /// also 0 once an unlink or an admin revoke supersedes it.
+    /// also 0 once an unlink, an admin revoke or a removal by login supersedes it.
     function rootReadyAt(address account, bytes32 opId) external view returns (uint48);
 
     // Registry only.
@@ -269,9 +266,9 @@ interface IIdentityValidator is IERC7579Validator, IExecutionCheck {
     /// Revoking an active admin session voids every root operation queued before it.
     /// Refused when it leaves fewer admin platforms than the threshold, but some (see `ThresholdTooHigh`).
     function revokeSession(bytes calldata key) external;
-    /// Root operation only, raising or lowering, within `MIN_RECOVERY_DELAY` and `MAX_RECOVERY_DELAY`:
+    /// Root operation only, raising or lowering, up to `MAX_ROOT_DELAY`, so a change waits the current delay:
     /// reverts `RootOperationRequired` when the account calls it.
-    function setRecoveryDelay(uint48 delay) external;
+    function setRootDelay(uint48 delay) external;
     /// Root operation only: reverts `RootOperationRequired` when the account calls it.
     function setThreshold(uint8 threshold_) external;
     /// Root operation only. Every session of the identity stops validating for good,
@@ -280,8 +277,8 @@ interface IIdentityValidator is IERC7579Validator, IExecutionCheck {
     /// Refused for an identity not linked, or the genesis identity.
     function unlink(bytes32 identity) external;
     /// `target` is the account (install, uninstall, upgrade) or this validator
-    /// (`setThreshold`, `unlink`, `revokeSession` of the last admin, `setRecoveryDelay`).
-    /// Ready after `recoveryDelay`.
+    /// (`setThreshold`, `unlink`, `revokeSession` of the last admin, `setRootDelay`).
+    /// Ready after `rootDelay`, and never in the second it was queued.
     function queueRoot(address target, bytes calldata data) external returns (bytes32 opId);
     function cancelRoot(bytes32 opId) external;
 

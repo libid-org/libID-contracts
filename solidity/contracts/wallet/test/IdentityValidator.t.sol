@@ -45,7 +45,6 @@ contract SaltedAccount {
 contract IdentityValidatorTest is WalletTestBase {
     function test_registryOnlyEntries() public {
         assertEq(validator.walletRegistry(), address(registry));
-        assertEq(validator.MIN_RECOVERY_DELAY(), 48 hours);
         address w = _claim();
         vm.startPrank(mallory);
         vm.expectRevert(abi.encodeWithSelector(IIdentityValidator.NotRegistry.selector, mallory));
@@ -358,6 +357,7 @@ contract IdentityValidatorTest is WalletTestBase {
 
     function test_rootOperationWaitsThenRunsOnce() public {
         address w = _claim();
+        _root(w, address(validator), abi.encodeCall(IIdentityValidator.setRootDelay, (48 hours)));
         address impl2 = _walletImpl();
         _factoryNames(impl2);
         bytes memory data = abi.encodeCall(IWebWallet.upgradeToAndCall, (impl2, ""));
@@ -479,6 +479,7 @@ contract IdentityValidatorTest is WalletTestBase {
     /// After the timelock, every session of the identity stops validating, and no proof adds one.
     function test_unlinkStopsTheIdentitysSessions() public {
         address w = _claim();
+        _root(w, address(validator), abi.encodeCall(IIdentityValidator.setRootDelay, (48 hours)));
         bytes32 bob = _identity(GITHUB, BOB);
         _link(w, GITHUB, BOB, w, _key(BOB_PK), _admin());
         _addByLogin(relayer, GITHUB, BOB, w, _key(APP_PK), _admin());

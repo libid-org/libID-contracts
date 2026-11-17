@@ -59,7 +59,7 @@ contract QuorumByProofTest is WalletTestBase {
         _handle(_signed(_op(w, 0, _hit()), _pks(ALICE2_PK)));
         assertEq(target.calls(), 1, "an ordinary call");
         _handle(_signed(_op(w, 1, _exec(address(validator), _queueRaise())), _pks(ALICE2_PK)));
-        assertEq(validator.recoveryDelay(w), 48 hours, "raised at once");
+        assertEq(validator.rootDelay(w), 0, "raised at once");
         assertNotEq(validator.rootReadyAt(w, _raiseId(w)), 0, "an admin operation");
         bytes32 h = keccak256("message");
         assertTrue(_isValid1271(w, h, ALICE2_PK, _wrapped(w, h)), "ERC-1271");
