@@ -50,7 +50,8 @@ contract OperationListWalletTest is WalletTestBase {
         assertEq(validator.sessionOf(w, _key(ALICE2_PK)).identity, _identity(X, ALICE), "no session");
     }
 
-    /// Both wallet domains commit the chain, so a list may hold both; the digest is still spent once.
+    /// The registry cannot refuse a list with a link and an add-session for one chain, which
+    /// REQ-COMMON-01L forbids the Application to compose; only one of them is applied.
     function test_aListWithBothWalletDomainsIsSpentOnce() public {
         address w = factory.createWallet(X, ALICE);
         bytes memory link = _linkData(w);
@@ -99,5 +100,27 @@ contract OperationListWalletTest is WalletTestBase {
         bytes memory payload = _payload(X, ALICE, OPERATIONS, operationList(LINK, data, BIND, hex"ff"));
         vm.expectRevert(abi.encodeWithSelector(IWalletRegistry.WrongChain.selector, block.chainid + 1));
         registry.linkIdentity(X, V1, payload, data, _admin());
+    }
+
+    /// TEST-COMMON-02D: link entries naming chains A and B, accepted once on each.
+    function test_entriesForTwoChainsAreAcceptedOnEach() public {
+        address w = factory.createWallet(X, ALICE);
+        (uint256 a, uint256 b) = (vm.getChainId(), vm.getChainId() + 1);
+        bytes memory dataA = abi.encode(a, w, _key(ALICE_PK), _ph(_admin()));
+        bytes memory dataB = abi.encode(b, w, _key(ALICE_PK), _ph(_admin()));
+        bytes memory payload = _payload(X, ALICE, OPERATIONS, operationList(LINK, dataA, LINK, dataB));
+
+        uint256 fresh = vm.snapshotState();
+        vm.prank(w);
+        vm.expectRevert(abi.encodeWithSelector(IWalletRegistry.WrongChain.selector, b));
+        registry.linkIdentity(X, V1, payload, dataB, _admin());
+        vm.prank(w);
+        registry.linkIdentity(X, V1, payload, dataA, _admin());
+
+        vm.revertToState(fresh);
+        vm.chainId(b);
+        vm.prank(w);
+        registry.linkIdentity(X, V1, payload, dataB, _admin());
+        assertEq(validator.sessionOf(w, _key(ALICE_PK)).identity, _identity(X, ALICE), "not linked on B");
     }
 }

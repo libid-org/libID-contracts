@@ -27,6 +27,16 @@ pub enum Error {
         /// Which rule, and which contract.
         detail: String,
     },
+    /// Session allowances not in strictly ascending token order, which the
+    /// validator refuses with `BadAllowance`.
+    #[error(
+        "allowance error: token {token} does not sort after the allowance before it; \
+         list allowances in strictly ascending token order"
+    )]
+    AllowanceOrder {
+        /// The first token out of order.
+        token: Address,
+    },
     /// A proxy that serves another platform than the one asked about.
     #[error(
         "platform error: the Platform Verifier at {proxy} serves platform {found}, \

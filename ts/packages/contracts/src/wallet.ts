@@ -53,8 +53,16 @@ export type SessionPolicy = AbiParameterToPrimitiveType<PolicyParameter>
 export type SessionRules = SessionPolicy['rules']
 
 /// `rulesHashOf(rules)`: stored in the session record, it keys the session's
-/// allowance counters.
+/// allowance counters. Throws on allowances not in strictly ascending token
+/// order, which the validator reverts on.
 export function rulesHashOf(rules: SessionRules): Hex {
+  rules.allowances.forEach(({ token }, i) => {
+    if (i > 0 && BigInt(token) <= BigInt(rules.allowances[i - 1].token)) {
+      throw new Error(
+        `allowance token ${token} does not sort after the one before it: list allowances in strictly ascending token order (BadAllowance)`,
+      )
+    }
+  })
   return keccak256(
     encodeAbiParameters(RULES.components, [
       rules.scopeRoot,
