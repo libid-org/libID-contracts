@@ -80,29 +80,29 @@ contract IdentityAdmin is IdentityValidatorState {
         _link(account, platformId, idNode);
     }
 
-    function addSessionByRegistry(
-        address account,
-        bytes32 identity,
-        bytes calldata key,
-        IIdentityValidator.Policy calldata policy,
-        bool byLogin
-    ) external delegated onlyRegistry {
-        _add(account, identity, key, policy, byLogin, true);
-    }
-
     function removeByLogin(address account, bytes32 identity) external delegated onlyRegistry {
         _remove(account, identity, true);
         emit IIdentityValidator.SessionsRemovedByLogin(account, identity);
     }
 
-    // ─── The account ────────────────────────────────────────────────
+    // ─── Either ─────────────────────────────────────────────────────
 
-    function addSession(bytes32 identity, bytes calldata key, IIdentityValidator.Policy calldata policy)
-        external
-        delegated
-    {
-        _add(msg.sender, identity, key, policy, false, false);
+    /// The validator's `addSessionByRegistry` (`byRegistry`, from the registry only) and `addSession`, which
+    /// adds to the calling account and ignores `account`.
+    function addSessionFor(
+        address account,
+        bytes32 identity,
+        bytes calldata key,
+        IIdentityValidator.Policy calldata policy,
+        bool byRegistry,
+        bool byLogin
+    ) external delegated {
+        if (!byRegistry) account = msg.sender;
+        else if (msg.sender != REGISTRY) revert IIdentityValidator.NotRegistry(msg.sender);
+        _add(account, identity, key, policy, byLogin, byRegistry);
     }
+
+    // ─── The account ────────────────────────────────────────────────
 
     function revokeSession(bytes calldata key) external delegated {
         _revoke(msg.sender, key, false);

@@ -80,11 +80,12 @@ contract IdentityValidator is IIdentityValidator, IdentityValidatorState {
 
     /// @dev Inside the signers' window; below quorum, signers `_cosigned` signing `TypedDataSign` for an
     ///      app the first one lists, bound to it at `at` 0.
-    function isValidSignatureWithSender(address, bytes32 hash, bytes calldata signature)
+    function isValidSignatureWithSender(address sender, bytes32 hash, bytes calldata signature)
         external
         view
         returns (bytes4)
     {
+        sender; // Named for the ABI.
         if (hash == ERC7739_PROBE && signature.length == 0) return bytes4(0x77390001);
         (bytes32 signed, bytes calldata inner, bytes32 app) = _unnest(hash, signature);
         Authorization memory auth = _decode(inner);
@@ -203,7 +204,7 @@ contract IdentityValidator is IIdentityValidator, IdentityValidatorState {
         Policy calldata policy,
         bool byLogin
     ) external {
-        _delegate(abi.encodeCall(IdentityAdmin.addSessionByRegistry, (account, identity, key, policy, byLogin)));
+        _delegate(abi.encodeCall(IdentityAdmin.addSessionFor, (account, identity, key, policy, true, byLogin)));
     }
 
     function removeByLogin(address account, bytes32 identity) external {
@@ -211,7 +212,7 @@ contract IdentityValidator is IIdentityValidator, IdentityValidatorState {
     }
 
     function addSession(bytes32 identity, bytes calldata key, Policy calldata policy) external {
-        _delegate(abi.encodeCall(IdentityAdmin.addSession, (identity, key, policy)));
+        _delegate(abi.encodeCall(IdentityAdmin.addSessionFor, (msg.sender, identity, key, policy, false, false)));
     }
 
     function revokeSession(bytes calldata key) external {
@@ -235,15 +236,18 @@ contract IdentityValidator is IIdentityValidator, IdentityValidatorState {
         return abi.decode(signature, (Authorization));
     }
 
-    function setThreshold(uint8) external pure {
+    function setThreshold(uint8 threshold_) external pure {
+        threshold_; // Named for the ABI.
         revert RootOperationRequired();
     }
 
-    function setRootDelay(uint48) external pure {
+    function setRootDelay(uint48 delay) external pure {
+        delay; // Named for the ABI.
         revert RootOperationRequired();
     }
 
-    function unlink(bytes32) external pure {
+    function unlink(bytes32 identity) external pure {
+        identity; // Named for the ABI.
         revert RootOperationRequired();
     }
 
