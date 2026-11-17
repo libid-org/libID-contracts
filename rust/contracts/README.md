@@ -172,8 +172,8 @@ A web wallet's signers can sign a batch that anyone then sends as
 `execute(AUTHORIZED_MODE, data)`, with no UserOperation.
 `ExecuteMessage` is the message, its mode always `AUTHORIZED_MODE`: `digest`
 is the hash the signers sign, `direct_nonce_key` the EntryPoint nonce key the
-batch uses, and `authorized_data` builds `data` from the same message, so the
-two agree:
+batch uses, and `authorized_data` builds `data` from the same message and an
+`ExecuteAuthorization`, so the two agree:
 
 ```rust,no_run
 use alloy::{
@@ -182,8 +182,8 @@ use alloy::{
     signers::{local::PrivateKeySigner, SignerSync},
 };
 use libid_contracts::bindings::wallet::{
-    direct_nonce_key, ExecuteMessage, IIdentityValidator::SessionSignature, WebWallet,
-    AUTHORIZED_MODE,
+    direct_nonce_key, ExecuteAuthorization, ExecuteMessage, IIdentityValidator::SessionSignature,
+    WebWallet, AUTHORIZED_MODE,
 };
 
 alloy::sol! {
@@ -195,8 +195,9 @@ alloy::sol! {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let relayer: PrivateKeySigner = todo!();
     let provider = ProviderBuilder::new()
-        .wallet(/* the relayer's signer */ todo!())
+        .wallet(relayer)
         .connect_http("https://rpc.example.org".parse()?);
     let (wallet, validator, entry_point, chain_id): (Address, Address, Address, u64) = todo!();
     let session: PrivateKeySigner = todo!();
@@ -219,15 +220,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // At quorum a session key signs the digest; below quorum,
     // `below_quorum_hash` of it.
     let signature = session.sign_hash_sync(&execute.digest(chain_id, wallet))?;
-    let data = execute.authorized_data(
-        vec![SessionSignature {
+    let data = execute.authorized_data(ExecuteAuthorization {
+        signatures: vec![SessionSignature {
             key: session.address().to_vec().into(),
             signature: signature.as_bytes().to_vec().into(),
         }],
-        vec![],
-        vec![],
-        vec![],
-    );
+        ..Default::default()
+    });
     WebWallet::new(wallet, &provider)
         .execute(AUTHORIZED_MODE, data)
         .value(execute.value)

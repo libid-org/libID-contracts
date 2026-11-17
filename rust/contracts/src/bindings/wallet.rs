@@ -224,6 +224,20 @@ pub struct ExecuteMessage {
     pub call_gas: U256,
 }
 
+/// `IIdentityValidator.Authorization` without `at`, which
+/// [`ExecuteMessage::authorized_data`] takes from the message.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ExecuteAuthorization {
+    /// `Authorization.signatures`.
+    pub signatures: Vec<IIdentityValidator::SessionSignature>,
+    /// `Authorization.calls`: `calls[i]` is for the batch's i-th execution.
+    pub calls: Vec<IIdentityValidator::CallProof>,
+    /// `Authorization.domainProof`.
+    pub domain_proof: Vec<B256>,
+    /// `Authorization.paymasterProof`.
+    pub paymaster_proof: Vec<B256>,
+}
+
 impl ExecuteMessage {
     /// The EIP-712 hash the signers sign: under the wallet's domain, name
     /// `WebWallet`, version `1`, `chain_id` and `wallet`. Below quorum each
@@ -249,19 +263,13 @@ impl ExecuteMessage {
     /// `data` of `execute(AUTHORIZED_MODE, data)` for this message:
     /// `abi.encode(executionCalldata, value, deadline, callGas, abi.encode(authorization))`,
     /// the authorization's `at` this message's.
-    pub fn authorized_data(
-        &self,
-        signatures: Vec<IIdentityValidator::SessionSignature>,
-        calls: Vec<IIdentityValidator::CallProof>,
-        domain_proof: Vec<B256>,
-        paymaster_proof: Vec<B256>,
-    ) -> Bytes {
+    pub fn authorized_data(&self, authorization: ExecuteAuthorization) -> Bytes {
         let authorization = IIdentityValidator::Authorization {
-            signatures,
+            signatures: authorization.signatures,
             at: self.at,
-            calls,
-            domainProof: domain_proof,
-            paymasterProof: paymaster_proof,
+            calls: authorization.calls,
+            domainProof: authorization.domain_proof,
+            paymasterProof: authorization.paymaster_proof,
         };
         (
             self.execution_calldata.clone(),
@@ -394,15 +402,13 @@ mod tests {
             deadline: U48::from(v.deadline),
             call_gas: U256::from(v.call_gas),
         };
-        let data = execute.authorized_data(
-            vec![IIdentityValidator::SessionSignature {
+        let data = execute.authorized_data(ExecuteAuthorization {
+            signatures: vec![IIdentityValidator::SessionSignature {
                 key: v.session_key,
                 signature: v.signature,
             }],
-            vec![],
-            vec![],
-            vec![],
-        );
+            ..Default::default()
+        });
         assert_eq!(keccak256(&data), v.data_hash);
         assert_eq!(execute.digest(v.chain_id, v.wallet), v.digest);
     }
