@@ -3,6 +3,8 @@ pragma solidity ^0.8.24;
 
 import {Initializable} from "@openzeppelin/contracts/proxy/utils/Initializable.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts/proxy/utils/UUPSUpgradeable.sol";
+import {SlotDerivation} from "@openzeppelin/contracts/utils/SlotDerivation.sol";
+import {TransientSlot} from "@openzeppelin/contracts/utils/TransientSlot.sol";
 import {Ownable2StepUpgradeable} from "@openzeppelin/contracts-upgradeable/access/Ownable2StepUpgradeable.sol";
 
 import {ICeremony} from "./ICeremony.sol";
@@ -36,6 +38,9 @@ import {IProofVerifier} from "./IProofVerifier.sol";
 ///      lets one proof outlive a verifier upgrade, and what lets Solana run
 ///      its slot numbers without matching this chain's.
 contract CeremonyProofVerifier is IProofVerifier, Initializable, UUPSUpgradeable, Ownable2StepUpgradeable {
+    using SlotDerivation for bytes32;
+    using TransientSlot for *;
+
     /// @custom:storage-location erc7201:libid.storage.CeremonyProofVerifier
     struct ProofVerifierStorage {
         /// platformId -> verifier version -> the Platform Verifier for that
@@ -162,35 +167,31 @@ contract CeremonyProofVerifier is IProofVerifier, Initializable, UUPSUpgradeable
 
     /// Transient slot of a payload's claim under `verifier`.
     function _slot(IPlatformVerifier verifier, bytes calldata payload) private pure returns (bytes32) {
-        return keccak256(abi.encode(VERIFIED_NAMESPACE, verifier, keccak256(payload)));
+        return VERIFIED_NAMESPACE.deriveMapping(address(verifier)).deriveMapping(keccak256(payload));
     }
 
-    /// The claim this transaction verified at `slot`, or empty: its length
-    /// plus one at `slot`, its words from `slot + 1`.
+    /// The claim this transaction verified at `slot`, or empty: its length at
+    /// `slot`, its words from `slot.deriveArray()`.
     function _verified(bytes32 slot) private view returns (bytes memory data) {
-        assembly ("memory-safe") {
-            let stored := tload(slot)
-            if stored {
-                let length := sub(stored, 1)
-                data := mload(0x40)
-                mstore(data, length)
-                let words := shr(5, add(length, 31))
-                for { let i := 0 } lt(i, words) { i := add(i, 1) } {
-                    mstore(add(data, add(32, shl(5, i))), tload(add(slot, add(i, 1))))
-                }
-                mstore(0x40, add(data, add(32, shl(5, words))))
+        data = new bytes(slot.asUint256().tload());
+        bytes32 words = slot.deriveArray();
+        for (uint256 i; i < data.length; i += 32) {
+            bytes32 word = words.offset(i / 32).asBytes32().tload();
+            assembly ("memory-safe") {
+                mstore(add(add(data, 32), i), word)
             }
         }
     }
 
     function _remember(bytes32 slot, bytes memory data) private {
-        assembly ("memory-safe") {
-            let length := mload(data)
-            tstore(slot, add(length, 1))
-            let words := shr(5, add(length, 31))
-            for { let i := 0 } lt(i, words) { i := add(i, 1) } {
-                tstore(add(slot, add(i, 1)), mload(add(data, add(32, shl(5, i)))))
+        slot.asUint256().tstore(data.length);
+        bytes32 words = slot.deriveArray();
+        for (uint256 i; i < data.length; i += 32) {
+            bytes32 word;
+            assembly ("memory-safe") {
+                word := mload(add(add(data, 32), i))
             }
+            words.offset(i / 32).asBytes32().tstore(word);
         }
     }
 
