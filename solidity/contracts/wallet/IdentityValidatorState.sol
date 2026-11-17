@@ -4,9 +4,15 @@ pragma solidity ^0.8.24;
 import {IIdentityValidator} from "./IIdentityValidator.sol";
 
 /// @title IdentityValidatorState - IdentityValidator's storage, and the helpers its own code and the
-///        SessionRules it delegates to share.
+///        IdentityAdmin and SessionRules it delegates to share.
 /// @dev Every slot validation reads or writes has the account as its innermost mapping key (ERC-7562).
 abstract contract IdentityValidatorState {
+    uint48 internal constant MIN_DELAY = 48 hours;
+    uint48 internal constant MAX_DELAY = 365 days;
+
+    /// Called other than through the validator's DELEGATECALL.
+    error NotDelegated();
+
     /// One install's settings for one account.
     struct AccountState {
         bytes32 platformId;
@@ -82,6 +88,10 @@ abstract contract IdentityValidatorState {
         return _s().installs[account];
     }
 
+    function _isLinked(address account, bytes32 identity) internal view returns (bool) {
+        return _s().links[_install(account)][identity][account];
+    }
+
     function _account(address account) internal view returns (AccountState storage) {
         return _s().accounts[_install(account)][account];
     }
@@ -148,6 +158,22 @@ abstract contract IdentityValidatorState {
         returns (mapping(address => uint32) storage)
     {
         return _s().platformAdmins[_install(account)][platformId];
+    }
+
+    function _recoveryDelay(address account) internal view returns (uint48) {
+        uint48 d = _account(account).recoveryDelay;
+        return d == 0 ? MIN_DELAY : d;
+    }
+
+    /// Whether an unlink or an active admin session's revoke ran after the root operation was queued.
+    function _superseded(address account, Root memory r) internal view returns (bool) {
+        return r.epoch != _account(account).rootEpoch;
+    }
+
+    /// Whether the session exists and belongs to its identity's current link.
+    function _live(address account, IIdentityValidator.Session storage s) internal view returns (bool) {
+        bytes32 identity = s.identity;
+        return identity != 0 && s.generation == _generations(account, identity)[account];
     }
 
     /// Narrows `v`'s window to `(validAfter, validUntil]`; `validUntil == 0` is unbounded.

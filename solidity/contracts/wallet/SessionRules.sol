@@ -31,9 +31,6 @@ contract SessionRules is IdentityValidatorState {
     address private immutable SELF = address(this);
     address private immutable REGISTRY;
 
-    /// Called other than through the validator's DELEGATECALL.
-    error NotDelegated();
-
     /// What one execution asks of the account.
     enum Scope {
         Call,
