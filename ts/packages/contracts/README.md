@@ -218,7 +218,8 @@ omits. `honkVerifierErrorsAbi` declares them under bb's names, and
 `walletRegistryErrorsAbi` does the same for `linkIdentity` and
 `addSessionByProof`: the registry, the same proof route, and the
 IdentityValidator. A wrong value is the Proof Verifier's
-`WrongValue(quote, value)`.
+`WrongValue(quote, value)`, and no value for a payload not verified earlier in
+the transaction its `NotVerifiedInTransaction(quote)`.
 
 ## Executing a wallet batch directly
 

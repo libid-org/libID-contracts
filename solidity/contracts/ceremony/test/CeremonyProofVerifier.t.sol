@@ -111,7 +111,7 @@ contract CeremonyProofVerifierTest is Test {
     }
 
     function test_noValueForAPayloadNotYetVerifiedIsRefused() public {
-        vm.expectRevert(abi.encodeWithSelector(CeremonyProofVerifier.WrongValue.selector, FEE, 0));
+        vm.expectRevert(abi.encodeWithSelector(CeremonyProofVerifier.NotVerifiedInTransaction.selector, FEE));
         pv.verify(PLATFORM_ID, 1, _payload(1));
     }
 
@@ -147,9 +147,9 @@ contract CeremonyProofVerifierTest is Test {
 
     function verifyThenOthers(StubPlatformVerifier second) external payable {
         pv.verify{value: FEE}(PLATFORM_ID, 1, _payload(1));
-        vm.expectRevert(abi.encodeWithSelector(CeremonyProofVerifier.WrongValue.selector, FEE, 0));
+        vm.expectRevert(abi.encodeWithSelector(CeremonyProofVerifier.NotVerifiedInTransaction.selector, FEE));
         pv.verify(PLATFORM_ID, 1, _payload(2));
-        vm.expectRevert(abi.encodeWithSelector(CeremonyProofVerifier.WrongValue.selector, FEE, 0));
+        vm.expectRevert(abi.encodeWithSelector(CeremonyProofVerifier.NotVerifiedInTransaction.selector, FEE));
         pv.verify(PLATFORM_ID, 2, _payload(1));
         pv.verify{value: FEE}(PLATFORM_ID, 2, _payload(1));
         assertEq(second.lastValue(), FEE, "slot 2 did not verify");
@@ -161,7 +161,7 @@ contract CeremonyProofVerifierTest is Test {
 
     function revertedThenRepeat() external payable {
         try this.verifyAndRevert{value: FEE}() {} catch {}
-        vm.expectRevert(abi.encodeWithSelector(CeremonyProofVerifier.WrongValue.selector, FEE, 0));
+        vm.expectRevert(abi.encodeWithSelector(CeremonyProofVerifier.NotVerifiedInTransaction.selector, FEE));
         pv.verify(PLATFORM_ID, 1, _payload(1));
     }
 
@@ -173,7 +173,7 @@ contract CeremonyProofVerifierTest is Test {
     /// forge-config: default.isolate = true
     function test_aLaterTransactionPaysAgain() public {
         pv.verify{value: FEE}(PLATFORM_ID, 1, _payload(1));
-        vm.expectRevert(abi.encodeWithSelector(CeremonyProofVerifier.WrongValue.selector, FEE, 0));
+        vm.expectRevert(abi.encodeWithSelector(CeremonyProofVerifier.NotVerifiedInTransaction.selector, FEE));
         pv.verify(PLATFORM_ID, 1, _payload(1));
     }
 

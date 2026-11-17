@@ -68,6 +68,8 @@ contract CeremonyProofVerifier is IProofVerifier, Initializable, UUPSUpgradeable
 
     error UnknownVersion(bytes32 platformId, uint16 verifierVersion);
     error WrongValue(uint256 required, uint256 provided);
+    /// No value for a payload this transaction has not verified, at a non-zero quote.
+    error NotVerifiedInTransaction(uint256 required);
     error VerifierPlatformMismatch(bytes32 expected, bytes32 found);
 
     /// @custom:oz-upgrades-unsafe-allow constructor
@@ -102,19 +104,21 @@ contract CeremonyProofVerifier is IProofVerifier, Initializable, UUPSUpgradeable
         returns (ICeremony.VerifiedClaim memory claim)
     {
         IPlatformVerifier verifier = _requireVerifier(platformId, verifierVersion);
-        bytes32 slot = _slot(verifier, payload);
-
-        // No value: the claim this transaction already verified, as of that
-        // verification, if there is one.
+        uint256 required;
+        bytes32 slot;
         if (msg.value == 0) {
+            slot = _slot(verifier, payload);
             bytes memory verified = _verified(slot);
             if (verified.length != 0) return abi.decode(verified, (ICeremony.VerifiedClaim));
+            required = verifier.quote();
+            if (required != 0) revert NotVerifiedInTransaction(required);
+        } else {
+            // Exactly the quote: no refund path, so no partial-failure rule is
+            // needed and nothing can be captured in transit (REQ-COMMON-06D).
+            required = verifier.quote();
+            if (msg.value != required) revert WrongValue(required, msg.value);
+            slot = _slot(verifier, payload);
         }
-
-        // Otherwise exactly the quote: no refund path, so no partial-failure
-        // rule is needed and nothing can be captured in transit (REQ-COMMON-06D).
-        uint256 required = verifier.quote();
-        if (msg.value != required) revert WrongValue(required, msg.value);
 
         // Forwarded whole and returned whole. The payload is the verifier's to
         // decode and the claim is the Consumer's to act on; this hop reads
