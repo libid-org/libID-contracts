@@ -264,6 +264,59 @@ is charged to `NATIVE_TOKEN` with its value.
   - the old validator's own operations, such as `setThreshold` or
     `revokeSession`, run, but change only that validator's records.
 
+## EIP-7702 accounts
+
+An existing EOA can point at the `WebWallet` implementation with an EIP-7702
+authorization. It keeps its address, balances, approvals and handles, and
+gains identity links, sessions, `AUTHORIZED` batches and UserOperations. The
+code is the same as a factory wallet's. There is no setup call.
+
+```solidity
+// Type 4: the authorization, signed by the key for this chain id. Anyone may send it.
+authorization = sign(key, (block.chainid, walletImplementation, keyNonce));
+// Then the key's own transaction, to its own address:
+account.execute(MODE_BATCH, abi.encode(calls));
+// calls: registry.linkIdentity{value: linkFee}(platformId, v, payload, "", policy), // link only: key empty
+//        validator.addSession(identity, sessionKey, adminPolicy)                     // the first session
+```
+
+- Sign the authorization for one chain id. The implementation's address
+  differs per chain unless it is deployed at the same address everywhere.
+- A relayer can send the authorization in its own type-4 transaction. The
+  first batch must come from the key: the default mode takes the EntryPoint
+  or the account itself, and the account has no session to sign an
+  `AUTHORIZED` batch yet. The key can also put its own authorization in that
+  transaction (authorization nonce = transaction nonce + 1).
+- The account has no genesis identity, and `onInstall` never runs for it:
+  `initialize`, `migrate` and a root `installModule` revert
+  `NotFactoryWallet`. A link proof naming a session key, or a session by
+  proof, reverts `FirstSessionRefused` until the account has had a session.
+  So only the key adds the first one, with `addSession`.
+
+**The key keeps full control.** It can send any transaction, sign anything,
+point the address at other code, or clear the delegation. Quorum, recovery
+delays and session rules bind every signer except the key. Identity recovery
+covers a lost key, not a stolen one. `isValidSignature` accepts the key's
+plain 65-byte ECDSA signature of the hash, so dapps keep accepting its EOA
+signatures.
+
+**Pointing away and back resumes.** The validator keeps the account's links
+and sessions while the address runs other code. Pointing back at `WebWallet`
+brings them back, live at once. Revoke sessions first if they should not
+come back.
+
+**Leftover storage.** An earlier OpenZeppelin-based delegate may have left
+modules in the same storage. `WebWallet` never reads them: `isModuleInstalled`
+reports only its validator, `executeFromExecutor` and fallbacks always
+revert, and validation asks its validator alone. A leftover ERC-1967 slot
+lets only a matured root operation call `upgradeToAndCall`, and the slot
+does not change the code the account runs.
+
+**Wallet support.** Most browser-extension wallets do not let a dapp request
+an authorization for third-party code: they delegate only to their own
+account contract. Embedded-wallet SDKs that expose authorization signing,
+and raw keys (for example `cast wallet sign-auth`), can.
+
 ## Deployment
 
 `IdentityValidator` learns the factory without an owner. Its constructor
