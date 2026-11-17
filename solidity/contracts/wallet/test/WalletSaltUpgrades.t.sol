@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-// Planned ABI: see the header of WalletLogins.t.sol.
-
 import {Execution} from "@openzeppelin/contracts/interfaces/draft-IERC7579.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts/proxy/utils/UUPSUpgradeable.sol";
 

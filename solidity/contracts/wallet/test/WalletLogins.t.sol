@@ -1,28 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-// Planned ABI these tests assume; names the plan leaves open are marked (open).
-//   IWalletRegistry
-//     addSessionByLogin(bytes32 platformId, uint16 verifierVersion, bytes payload, bytes data, Policy policy) payable
-//     removeSessionsByLogin(bytes32 platformId, uint16 verifierVersion, bytes payload, bytes data) payable
-//     REMOVE_SESSIONS_DOMAIN() = keccak256("libid.webwallet.remove-sessions")
-//     removal data: abi.encode(uint256 chainId, address wallet)
-//     setAppList(bytes32 identity, bytes32[] clients), keyed by (msg.sender, identity)            (open)
-//     appList(address wallet, bytes32 identity) returns (bytes32[])                              (open)
-//     error AppNotListed(...)                                       (open arguments: selector only)
-//     event AppListSet(address indexed wallet, bytes32 indexed identity, bytes32[] clients)    (open)
-//   IIdentityValidator
-//     registry only: addSessionByRegistry(address, bytes32, bytes, Policy, bool byLogin),
-//                    removeByLogin(address, bytes32)
-//     event SessionAddedByLogin(address indexed account, ...), SessionsRemovedByLogin(address indexed account, ...)
-//     setRootDelay(uint48), rootDelay(address), MAX_ROOT_DELAY() = 365 days
-//     error RootDelayTooLong(uint48 delay)                                                       (open)
-//     genesisIdentity(address) returns (bytes32 platformId, bytes32 idNode, uint256 salt)
-//   IWebWallet: error NotFactoryImplementation(...)                     (open arguments: selector only)
-//   IWalletFactory: createWallet/walletAddress(platformId, idNode, uint256 salt);
-//     createAndExecute(platformId, idNode, salt, mode, data); WalletCreated(wallet, platformId, idNode, uint256 salt)
-//   Install data: abi.encode(platformId, idNode, uint256 salt, bytes key, Policy policy).
-
 import {Vm} from "forge-std/Vm.sol";
 import {Execution} from "@openzeppelin/contracts/interfaces/draft-IERC7579.sol";
 
