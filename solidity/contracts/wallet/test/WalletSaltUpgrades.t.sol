@@ -61,8 +61,7 @@ contract WalletSaltUpgradesTest is LoginBase {
         uint256 n = uint256(uint160(address(validator))) << 96;
         bytes memory auth = _directAt(w, _pks(pk), calls, n, uint48(_now()), false, _hitProofs(0));
         vm.prank(relayer, relayer);
-        IWalletFactoryOnboarding(address(factory))
-            .createAndExecute(X, ALICE, salt, AUTHORIZED_MODE, _data(calls, auth));
+        IWalletFactoryOnboarding(address(factory)).createAndExecute(X, ALICE, salt, AUTHORIZED_MODE, _data(calls, auth));
         assertEq(target.last(), w, "the onboarding batch did not run");
     }
 

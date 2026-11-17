@@ -21,9 +21,9 @@ contract WalletLoginsAbuseTest is LoginBase {
         bytes txData;
         /// The call's `data`: the Operation List entry's bytes, or empty.
         bytes data;
-        /// The revert data, or only its selector when `partial`.
+        /// The revert data, or only its selector when `selectorOnly`.
         bytes err;
-        bool partial;
+        bool selectorOnly;
     }
 
     address internal w;
@@ -33,7 +33,7 @@ contract WalletLoginsAbuseTest is LoginBase {
         w = _wallet(2, 2);
     }
 
-    function _bob() internal view returns (bytes32) {
+    function _bob() internal pure returns (bytes32) {
         return _identity(GITHUB, BOB);
     }
 
@@ -44,7 +44,7 @@ contract WalletLoginsAbuseTest is LoginBase {
             Row memory r = rows[i];
             uint256 state = vm.snapshotState();
             bytes memory payload = _payload(r.platformId, r.idNode, r.domain, r.txData);
-            if (r.partial) vm.expectPartialRevert(bytes4(r.err));
+            if (r.selectorOnly) vm.expectPartialRevert(bytes4(r.err));
             else vm.expectRevert(r.err);
             vm.prank(mallory);
             if (add) registry.addSessionByLogin(r.platformId, V1, payload, r.data, _admin());
@@ -67,23 +67,63 @@ contract WalletLoginsAbuseTest is LoginBase {
         bytes4 foreign = IWalletRegistry.ForeignOperationDomain.selector;
         bytes memory addData = _txData(w, _key(NEW_PK), _ph(_admin()));
         Row[] memory rows = new Row[](10);
-        rows[0] = Row("another chain", GITHUB, BOB, REMOVE, abi.encode(block.chainid + 1, w), "",
-            _err(IWalletRegistry.WrongChain.selector, block.chainid + 1), false);
+        rows[0] = Row(
+            "another chain",
+            GITHUB,
+            BOB,
+            REMOVE,
+            abi.encode(block.chainid + 1, w),
+            "",
+            _err(IWalletRegistry.WrongChain.selector, block.chainid + 1),
+            false
+        );
         rows[1] = Row("trailing byte", GITHUB, BOB, REMOVE, bytes.concat(good, hex"00"), "", _err(bad, 65), false);
         rows[2] =
             Row("dirty address word", GITHUB, BOB, REMOVE, abi.encode(block.chainid, dirty), "", _err(bad, 64), false);
         rows[3] = Row("no wallet", GITHUB, BOB, REMOVE, abi.encode(block.chainid), "", _err(bad, 32), false);
-        rows[4] = Row("an identity not linked here", GITHUB, DAVE, REMOVE, good, "",
-            abi.encodeWithSelector(notLinked, w, _identity(GITHUB, DAVE)), false);
-        rows[5] = Row("Bob's id on another platform", X, BOB, REMOVE, good, "",
-            abi.encodeWithSelector(notLinked, w, _identity(X, BOB)), false);
+        rows[4] = Row(
+            "an identity not linked here",
+            GITHUB,
+            DAVE,
+            REMOVE,
+            good,
+            "",
+            abi.encodeWithSelector(notLinked, w, _identity(GITHUB, DAVE)),
+            false
+        );
+        rows[5] = Row(
+            "Bob's id on another platform",
+            X,
+            BOB,
+            REMOVE,
+            good,
+            "",
+            abi.encodeWithSelector(notLinked, w, _identity(X, BOB)),
+            false
+        );
         rows[6] =
             Row("an add-session proof", GITHUB, BOB, ADD, addData, "", abi.encodeWithSelector(foreign, ADD), false);
         rows[7] = Row("a link proof", GITHUB, BOB, LINK, addData, "", abi.encodeWithSelector(foreign, LINK), false);
-        rows[8] = Row("data without a list", GITHUB, BOB, REMOVE, good, good,
-            abi.encodeWithSelector(IWalletRegistry.DataWithoutList.selector), false);
-        rows[9] = Row("a list's add-session entry", GITHUB, BOB, OPERATIONS,
-            operationList(ADD, addData, BIND, abi.encode(w)), addData, abi.encodeWithSelector(foreign, ADD), false);
+        rows[8] = Row(
+            "data without a list",
+            GITHUB,
+            BOB,
+            REMOVE,
+            good,
+            good,
+            abi.encodeWithSelector(IWalletRegistry.DataWithoutList.selector),
+            false
+        );
+        rows[9] = Row(
+            "a list's add-session entry",
+            GITHUB,
+            BOB,
+            OPERATIONS,
+            operationList(ADD, addData, BIND, abi.encode(w)),
+            addData,
+            abi.encodeWithSelector(foreign, ADD),
+            false
+        );
         _run(rows, false);
     }
 
@@ -91,17 +131,57 @@ contract WalletLoginsAbuseTest is LoginBase {
         bytes memory good = _txData(w, _key(NEW_PK), _ph(_admin()));
         address fresh = factory.createWallet(X, CAROL, 0);
         Row[] memory rows = new Row[](5);
-        rows[0] = Row("a removal proof", GITHUB, BOB, REMOVE, _removeData(w), "",
-            abi.encodeWithSelector(IWalletRegistry.ForeignOperationDomain.selector, REMOVE), false);
-        rows[1] = Row("another chain", GITHUB, BOB, ADD, abi.encode(block.chainid + 1, w, _key(NEW_PK), _ph(_admin())),
-            "", _err(IWalletRegistry.WrongChain.selector, block.chainid + 1), false);
-        rows[2] = Row("an identity not linked here", GITHUB, DAVE, ADD, good, "",
-            abi.encodeWithSelector(IIdentityValidator.NotLinked.selector, w, _identity(GITHUB, DAVE)), false);
+        rows[0] = Row(
+            "a removal proof",
+            GITHUB,
+            BOB,
+            REMOVE,
+            _removeData(w),
+            "",
+            abi.encodeWithSelector(IWalletRegistry.ForeignOperationDomain.selector, REMOVE),
+            false
+        );
+        rows[1] = Row(
+            "another chain",
+            GITHUB,
+            BOB,
+            ADD,
+            abi.encode(block.chainid + 1, w, _key(NEW_PK), _ph(_admin())),
+            "",
+            _err(IWalletRegistry.WrongChain.selector, block.chainid + 1),
+            false
+        );
+        rows[2] = Row(
+            "an identity not linked here",
+            GITHUB,
+            DAVE,
+            ADD,
+            good,
+            "",
+            abi.encodeWithSelector(IIdentityValidator.NotLinked.selector, w, _identity(GITHUB, DAVE)),
+            false
+        );
         // Q1: a wallet that never had a session takes its first one from its own link only.
-        rows[3] = Row("a wallet with no session", X, CAROL, ADD, _txData(fresh, _key(NEW_PK), _ph(_admin())), "",
-            abi.encodeWithSelector(IIdentityValidator.FirstSessionRefused.selector, fresh), false);
-        rows[4] = Row("a policy the proof does not commit", GITHUB, BOB, ADD,
-            _txData(w, _key(NEW_PK), _ph(_app())), "", abi.encodePacked(IWalletRegistry.PolicyMismatch.selector), true);
+        rows[3] = Row(
+            "a wallet with no session",
+            X,
+            CAROL,
+            ADD,
+            _txData(fresh, _key(NEW_PK), _ph(_admin())),
+            "",
+            abi.encodeWithSelector(IIdentityValidator.FirstSessionRefused.selector, fresh),
+            false
+        );
+        rows[4] = Row(
+            "a policy the proof does not commit",
+            GITHUB,
+            BOB,
+            ADD,
+            _txData(w, _key(NEW_PK), _ph(_app())),
+            "",
+            abi.encodePacked(IWalletRegistry.PolicyMismatch.selector),
+            true
+        );
         _run(rows, true);
     }
 

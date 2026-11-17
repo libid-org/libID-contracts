@@ -105,7 +105,7 @@ abstract contract LoginBase is ExecuteBase {
     }
 
     /// A log with `topic0` whose first indexed argument is `account`, from any emitter.
-    function _logged(bytes32 topic0, address account) internal returns (bool) {
+    function _logged(bytes32 topic0, address account) internal view returns (bool) {
         Vm.Log[] memory logs = vm.getRecordedLogs();
         for (uint256 i; i < logs.length; ++i) {
             if (
