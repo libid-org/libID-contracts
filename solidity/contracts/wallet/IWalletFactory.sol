@@ -16,7 +16,7 @@ interface IWalletFactoryOnboarding {
 ///         proxy initialized with `initialize(owner)` and deployed under a `LibidFactory` name, so it
 ///         has one address on every chain. Deploys through `Create3` from the proxy's address, with
 ///         `identityOf(platformId, idNode)` (`IIdentityValidator.sol`) as the CREATE3 salt for `salt` 0
-///         and `keccak256(abi.encode(identityOf(platformId, idNode), salt))` for any other, and installs
+///         and `keccak256(abi.encode(platformId, idNode, salt))` for any other, and installs
 ///         the genesis identity in the same call with install data
 ///         `abi.encode(platformId, idNode, salt, bytes(""), Policy())`: one wallet per identity and salt.
 ///         A new salt gives the identity a new wallet, for one an attacker holds at quorum.

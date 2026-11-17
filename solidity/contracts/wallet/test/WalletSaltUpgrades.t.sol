@@ -6,7 +6,7 @@ pragma solidity ^0.8.24;
 import {Execution} from "@openzeppelin/contracts/interfaces/draft-IERC7579.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts/proxy/utils/UUPSUpgradeable.sol";
 
-import {IIdentityValidator} from "../IIdentityValidator.sol";
+import {IIdentityValidator, identityOf} from "../IIdentityValidator.sol";
 import {IWalletFactory, IWalletFactoryOnboarding} from "../IWalletFactory.sol";
 import {IWalletRegistry} from "../IWalletRegistry.sol";
 import {AUTHORIZED_MODE, IWebWallet} from "../IWebWallet.sol";
@@ -17,10 +17,10 @@ contract WalletSaltUpgradesTest is LoginBase {
     /// The deployer of the cast vectors below.
     address internal constant D = 0x1111111111111111111111111111111111111111;
     // CREATE3 by cast, for deployer D and genesis (x, alice):
-    //   salt 0: identityOf; salt n: keccak256(abi.encode(identityOf, n)).
+    //   salt 0: identityOf; salt n: keccak256(abi.encode(x, alice, n)).
     address internal constant AT_SALT_0 = 0x74678B208abb48F06B50F6Ec393157C0259AcA14;
-    address internal constant AT_SALT_1 = 0x56Ce2e78950E6c22BC5932FB441381555839896F;
-    address internal constant AT_SALT_7 = 0xd9438b7E4233fa4954Cb1D6567128788f0790AD8;
+    address internal constant AT_SALT_1 = 0x651FE3166cd83da01eB7Ad678246151bFeEFbe1D;
+    address internal constant AT_SALT_7 = 0xEfd86c0C4eF2289D7d4DaC0D0e602Dd7584A0409;
     // cast keccak 0x67363d3d37363d34f03d5260086018f3
     bytes32 internal constant PROXY_HASH = 0x21c35dbe1b344a2488cf3321d6ce542f8e9f305544ff09e4993a62319a497c1f;
 
@@ -31,8 +31,7 @@ contract WalletSaltUpgradesTest is LoginBase {
     }
 
     function _create3Salt(uint256 salt) internal pure returns (bytes32) {
-        bytes32 id = keccak256(abi.encode(X, ALICE));
-        return salt == 0 ? id : keccak256(abi.encode(id, salt));
+        return salt == 0 ? keccak256(abi.encode(X, ALICE)) : keccak256(abi.encode(X, ALICE, salt));
     }
 
     /// Moves the factory to a new wallet implementation; with `v2`, one on a second stack.
@@ -118,6 +117,16 @@ contract WalletSaltUpgradesTest is LoginBase {
 
         assertEq(_onboard(2, ALICE_PK), w, "Alice onboards the squatted wallet");
         assertEq(validator.sessionOf(w, _key(ALICE_PK)).activeAt, 0, "not the first session");
+    }
+
+    /// The genesis (identityOf(x, alice), 1) at salt 0 is not Alice's wallet at salt 1.
+    function test_aSaltIsNotAnotherGenesis() public {
+        bytes32 id = identityOf(X, ALICE);
+        address at1 = factory.walletAddress(X, ALICE, 1);
+        assertNotEq(at1, factory.walletAddress(id, bytes32(uint256(1)), 0), "same address");
+        vm.prank(mallory);
+        factory.createWallet(id, bytes32(uint256(1)), 0);
+        assertEq(at1.code.length, 0, "squatted");
     }
 
     /// `createAndExecute` at salt 1, then a migration naming the wrong salt.

@@ -8,7 +8,7 @@ interfaces beside this file.
 
 | Contract | Role | Upgrade |
 |---|---|---|
-| `WalletFactory` | Deploys wallets with `Create3` at `(platformId, idNode, salt)`: salt 0 is `identityOf(platformId, idNode)`, salt n `keccak256(abi.encode(identityOf(platformId, idNode), n))` | UUPS, owner |
+| `WalletFactory` | Deploys wallets with `Create3` at `(platformId, idNode, salt)`: salt 0 is `identityOf(platformId, idNode)`, salt n `keccak256(abi.encode(platformId, idNode, n))` | UUPS, owner |
 | `WebWallet` | The account (OpenZeppelin v5.7.0, EntryPoint v0.9) | UUPS, by the wallet's own root operation |
 | `IdentityValidator` | Identities, sessions, threshold and root operations of every wallet | none |
 | `IdentityAdmin` | The validator's writes: installs, links, sessions and root operations; deployed by `IdentityValidator`'s constructor and run through DELEGATECALL on its storage | none |

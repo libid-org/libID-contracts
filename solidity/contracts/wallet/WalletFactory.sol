@@ -60,10 +60,9 @@ contract WalletFactory is IWalletFactory, Initializable, UUPSUpgradeable, Ownabl
         return Create3.addressOf(_create3Salt(platformId, idNode, salt), address(this));
     }
 
-    /// Salt 0 is the identity alone.
+    /// Salt 0 is the identity alone; any other hashes three words, so it is no other genesis's salt 0.
     function _create3Salt(bytes32 platformId, bytes32 idNode, uint256 salt) private pure returns (bytes32) {
-        bytes32 identity = identityOf(platformId, idNode);
-        return salt == 0 ? identity : keccak256(abi.encode(identity, salt));
+        return salt == 0 ? identityOf(platformId, idNode) : keccak256(abi.encode(platformId, idNode, salt));
     }
 
     function _authorizeUpgrade(address) internal override onlyOwner {}
