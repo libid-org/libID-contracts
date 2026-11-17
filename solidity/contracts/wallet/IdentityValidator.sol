@@ -204,7 +204,9 @@ contract IdentityValidator is IIdentityValidator, IdentityValidatorState {
         Policy calldata policy,
         bool byLogin
     ) external {
-        _delegate(abi.encodeCall(IdentityAdmin.addSessionFor, (account, identity, key, policy, true, byLogin)));
+        IdentityAdmin.SessionSource source =
+            byLogin ? IdentityAdmin.SessionSource.Login : IdentityAdmin.SessionSource.Link;
+        _delegate(abi.encodeCall(IdentityAdmin.addSessionFor, (account, identity, key, policy, source)));
     }
 
     function removeByLogin(address account, bytes32 identity) external {
@@ -212,7 +214,11 @@ contract IdentityValidator is IIdentityValidator, IdentityValidatorState {
     }
 
     function addSession(bytes32 identity, bytes calldata key, Policy calldata policy) external {
-        _delegate(abi.encodeCall(IdentityAdmin.addSessionFor, (msg.sender, identity, key, policy, false, false)));
+        _delegate(
+            abi.encodeCall(
+                IdentityAdmin.addSessionFor, (msg.sender, identity, key, policy, IdentityAdmin.SessionSource.Account)
+            )
+        );
     }
 
     function revokeSession(bytes calldata key) external {

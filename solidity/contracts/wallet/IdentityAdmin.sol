@@ -26,6 +26,13 @@ contract IdentityAdmin is IdentityValidatorState {
         SetRootDelay
     }
 
+    /// Who adds a session: the calling account, or the registry for a link or a login.
+    enum SessionSource {
+        Account,
+        Link,
+        Login
+    }
+
     modifier delegated() {
         if (address(this) == SELF) revert NotDelegated();
         _;
@@ -87,19 +94,18 @@ contract IdentityAdmin is IdentityValidatorState {
 
     // ─── Either ─────────────────────────────────────────────────────
 
-    /// The validator's `addSessionByRegistry` (`byRegistry`, from the registry only) and `addSession`, which
-    /// adds to the calling account and ignores `account`.
+    /// The validator's `addSession` (`Account`: adds to the calling account, whatever `account` says) and
+    /// `addSessionByRegistry` (`Link` or `Login`, from the registry only).
     function addSessionFor(
         address account,
         bytes32 identity,
         bytes calldata key,
         IIdentityValidator.Policy calldata policy,
-        bool byRegistry,
-        bool byLogin
+        SessionSource source
     ) external delegated {
-        if (!byRegistry) account = msg.sender;
+        if (source == SessionSource.Account) account = msg.sender;
         else if (msg.sender != REGISTRY) revert IIdentityValidator.NotRegistry(msg.sender);
-        _add(account, identity, key, policy, byLogin, byRegistry);
+        _add(account, identity, key, policy, source == SessionSource.Login, source != SessionSource.Account);
     }
 
     // ─── The account ────────────────────────────────────────────────
