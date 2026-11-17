@@ -29,6 +29,7 @@ import {Execution} from "@openzeppelin/contracts/interfaces/draft-IERC7579.sol";
 import {operationList} from "../../ceremony/test/OperationListVector.sol";
 import {IIdentityValidator} from "../IIdentityValidator.sol";
 import {IWalletRegistry} from "../IWalletRegistry.sol";
+import {IWebWallet} from "../IWebWallet.sol";
 import {ExecuteBase, OtherClientVerifier} from "./DirectExecute.t.sol";
 
 /// Submits a removal login: anyone may, so a batch can reach the registry through it below quorum.
@@ -196,6 +197,15 @@ contract WalletLoginsTest is LoginBase {
         _runsBy(w, hit, _pks(NEW_PK));
     }
 
+    /// The drop is to the platforms left, not to those holding an admin.
+    function test_aRemovalDropsToPlatformsNotAdminPlatforms() public {
+        address w = _wallet(3, 3);
+        _loginRemove(w, X, ALICE);
+        _loginRemove(w, GITHUB, BOB);
+        assertEq(validator.threshold(w), 2, "not min(3, 2)");
+        _refusesBy(w, _one(_hitX()), _pks(CAROL_PK), NOT_SIGNED);
+    }
+
     function test_theWalletsOwnUnlinkLowersTheThreshold() public {
         address w = _wallet(2, 2);
         bytes32 bob = _identity(GITHUB, BOB);
@@ -251,6 +261,27 @@ contract WalletLoginsTest is LoginBase {
 
         _root(w, address(validator), abi.encodeCall(IIdentityValidator.setThreshold, (1)));
         _runs(w, hit, _direct(w, address(validator), _pks(APP_PK), hit, true));
+    }
+
+    /// ERC-1271 too: a login session signs for an app alone only at threshold 1.
+    function test_aLoginSessionSignsForAnAppAloneOnlyAtThresholdOne() public {
+        address w = _wallet(2, 2);
+        bytes32 app = keccak256("an app's domain separator");
+        IIdentityValidator.Policy memory p = _hitOnly();
+        p.rules.domainsRoot = _domainLeaf(app);
+        _loginAdd(w, X, ALICE, APP_PK, p);
+        vm.prank(w);
+        validator.addSession(_identity(X, ALICE), _key(NEW_PK), p);
+        vm.warp(_now() + 1);
+        bytes32[] memory none = new bytes32[](0);
+
+        (bytes32 h, bytes memory sig) = _typedSigBy(w, _pks(APP_PK), app, none);
+        assertEq(IWebWallet(w).isValidSignature(h, sig), bytes4(0xffffffff), "a login session alone at 2");
+        (h, sig) = _typedSigBy(w, _pks(NEW_PK), app, none);
+        assertEq(IWebWallet(w).isValidSignature(h, sig), bytes4(0x1626ba7e), "control: the wallet's own session");
+        _root(w, address(validator), abi.encodeCall(IIdentityValidator.setThreshold, (1)));
+        (h, sig) = _typedSigBy(w, _pks(APP_PK), app, none);
+        assertEq(IWebWallet(w).isValidSignature(h, sig), bytes4(0x1626ba7e), "a login session alone at 1");
     }
 
     // ─── The end check: rows for logins (other writers: DirectExecuteTest) ──
@@ -351,6 +382,21 @@ contract WalletLoginsTest is LoginBase {
         bytes memory again = _addPayload(w, X, ALICE, APP_PK, p);
         vm.expectPartialRevert(IWalletRegistry.AppNotListed.selector);
         registry.addSessionByLogin(X, OTHER_APP, again, "", p);
+    }
+
+    /// Every entry of a list admits its app, not only the first.
+    function test_aListOfTwoAdmitsItsSecondAndRefusesTheRest() public {
+        address w = _wallet(1, 1);
+        bytes32[] memory apps = new bytes32[](2);
+        (apps[0], apps[1]) = (keccak256("a third app"), CLIENT);
+        vm.prank(w);
+        registry.setAppList(_identity(X, ALICE), apps);
+        IIdentityValidator.Policy memory p = _admin();
+        bytes memory payload = _addPayload(w, X, ALICE, NEW_PK, p);
+        vm.expectPartialRevert(IWalletRegistry.AppNotListed.selector);
+        registry.addSessionByLogin(X, OTHER_APP, payload, "", p);
+        registry.addSessionByLogin(X, V1, payload, "", p);
+        assertTrue(validator.sessionOf(w, _key(NEW_PK)).byProof, "the second entry was refused");
     }
 
     function test_aStrangerWritesOnlyItsOwnList() public {

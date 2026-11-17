@@ -133,6 +133,7 @@ contract WalletSaltUpgradesTest is LoginBase {
         assertTrue(IWebWallet(w).isModuleInstalled(1, address(v2), ""), "not migrated");
         (,, uint256 salt) = v2.genesisIdentity(w);
         assertEq(salt, 1, "salt");
+        assertFalse(v2.sessionOf(w, _key(ALICE_PK)).byProof, "the install session is by login");
     }
 
     // ─── Upgrades ───────────────────────────────────────────────────
