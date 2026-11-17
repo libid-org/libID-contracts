@@ -144,6 +144,27 @@ contract CreateAndExecuteTest is ExecuteBase {
         assertEq(token.balanceOf(w), CLAIMED, "control");
     }
 
+    /// The bind pays the Notary Fee and the link after it, with no value, takes the bind's claim.
+    function test_aLinkAfterTheBindTakesItsClaim() public {
+        address[] memory tokens = new address[](1);
+        tokens[0] = NATIVE_TOKEN;
+        Execution[] memory x = new Execution[](4);
+        x[0] =
+            _x(address(identities), FEE, abi.encodeCall(IIdentityRegistry.bindPrivately, (X, V2, list, 0, address(0))));
+        x[1] = _x(address(registry), 0, abi.encodeCall(IWalletRegistry.linkIdentity, (X, V2, list, linkData, _admin())));
+        x[2] = _x(address(escrow), 0, abi.encodeCall(IHandleEscrow.claim, (HANDLE, tokens, w)));
+        x[3] = _x(relayer, FEE, "");
+        bytes memory calls = abi.encode(x);
+        signedValue = FEE;
+        vm.expectCall(address(paid), abi.encodeWithSelector(IPlatformVerifier.verify.selector), 1);
+        _send(calls, _signedBy(ALICE_PK, calls));
+
+        (address holder,) = identities.handleBinding(HANDLE);
+        assertEq(holder, w, "handle not bound to the wallet");
+        assertTrue(validator.sessionOf(w, _key(ALICE_PK)).admin, "K not linked");
+        assertEq(relayer.balance, 1 ether, "the relayer is not even");
+    }
+
     /// A bind priced in full verifies again, even after someone else verified the proof earlier in the transaction.
     function test_aFullPricedBindSurvivesAnEarlierVerification() public {
         vm.deal(address(this), FEE);

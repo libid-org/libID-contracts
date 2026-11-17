@@ -471,6 +471,14 @@ contract CeremonyBindTest is Test {
         registry.bind{value: FEE}(PLATFORM, 1, p, "", false, SERVICE_FEE, HOST);
     }
 
+    /// The fee alone, for a payload this transaction has not verified, leaves the verification nothing.
+    function test_rejectsTheFeeAloneForAFreshPayload() public {
+        bytes memory p = _payload(WALLET, bytes32(uint256(65)));
+        vm.prank(WALLET);
+        vm.expectRevert(abi.encodeWithSelector(CeremonyProofVerifier.NotVerifiedInTransaction.selector, FEE));
+        registry.bind{value: SERVICE_FEE}(PLATFORM, 1, p, "", false, SERVICE_FEE, HOST);
+    }
+
     function test_rejectsMoreThanTheCallerNamed() public {
         bytes memory p = _payload(WALLET, bytes32(uint256(63)));
         vm.prank(WALLET);
