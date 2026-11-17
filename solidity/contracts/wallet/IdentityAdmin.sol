@@ -32,7 +32,6 @@ contract IdentityAdmin is IdentityValidatorState {
     }
 
     modifier onlyRegistry() {
-        if (address(this) == SELF) revert NotDelegated();
         if (msg.sender != REGISTRY) revert IIdentityValidator.NotRegistry(msg.sender);
         _;
     }
@@ -77,7 +76,7 @@ contract IdentityAdmin is IdentityValidatorState {
 
     // ─── Registry ───────────────────────────────────────────────────
 
-    function link(address account, bytes32 platformId, bytes32 idNode) external onlyRegistry {
+    function link(address account, bytes32 platformId, bytes32 idNode) external delegated onlyRegistry {
         _link(account, platformId, idNode);
     }
 
@@ -87,11 +86,11 @@ contract IdentityAdmin is IdentityValidatorState {
         bytes calldata key,
         IIdentityValidator.Policy calldata policy,
         bool byLogin
-    ) external onlyRegistry {
+    ) external delegated onlyRegistry {
         _add(account, identity, key, policy, byLogin, true);
     }
 
-    function removeByLogin(address account, bytes32 identity) external onlyRegistry {
+    function removeByLogin(address account, bytes32 identity) external delegated onlyRegistry {
         _remove(account, identity, true);
         emit IIdentityValidator.SessionsRemovedByLogin(account, identity);
     }
@@ -113,7 +112,6 @@ contract IdentityAdmin is IdentityValidatorState {
     function queueRoot(address target, bytes calldata data) external delegated returns (bytes32 opId) {
         _rootAction(msg.sender, target, data);
         opId = _rootId(msg.sender, target, data);
-        // forge-lint: disable-next-line(unsafe-typecast)
         uint48 delay = _account(msg.sender).rootDelay;
         // A root operation never matures in the second it was queued, so one batch cannot queue and run it.
         // forge-lint: disable-next-line(unsafe-typecast)
@@ -187,11 +185,7 @@ contract IdentityAdmin is IdentityValidatorState {
             }
             activeAt = 0;
         }
-        if (key.length < 20) revert IIdentityValidator.InvalidKey(key);
-        if ((policy.validAfter | policy.validUntil | activeAt) >= 1 << 47) {
-            revert IIdentityValidator.PolicyOutOfRange(policy.validAfter, policy.validUntil);
-        }
-        if (policy.admin && policy.validUntil != 0) revert IIdentityValidator.AdminSessionExpires(policy.validUntil);
+        _checkSession(key, policy, activeAt);
         bytes32 keyHash = keccak256(key);
         mapping(address => IIdentityValidator.Session) storage sessions = _sessions(account, keyHash);
         if (_live(account, sessions[account])) revert IIdentityValidator.SessionExists(key);
@@ -211,17 +205,7 @@ contract IdentityAdmin is IdentityValidatorState {
             paymastersRoot: r.paymastersRoot,
             rulesHash: rulesHash
         });
-        // A counter of the same key and rules keeps its spend.
-        address last;
-        for (uint256 i; i < r.allowances.length; ++i) {
-            IIdentityValidator.Allowance memory allowance = r.allowances[i];
-            if (allowance.period >= 1 << 47 || (i != 0 && allowance.token <= last)) {
-                revert IIdentityValidator.BadAllowance(allowance.token);
-            }
-            last = allowance.token;
-            Counter storage c = _counter(account, keyHash, rulesHash, allowance.token);
-            (c.amount, c.period, c.listed) = (allowance.amount, allowance.period, true);
-        }
+        _setAllowances(account, keyHash, rulesHash, r.allowances);
 
         a.hadSession = true;
         if (policy.admin) {
@@ -231,6 +215,33 @@ contract IdentityAdmin is IdentityValidatorState {
         }
         if (byLogin) emit IIdentityValidator.SessionAddedByLogin(account, identity, key, policy, activeAt);
         else emit IIdentityValidator.SessionAdded(account, identity, key, policy);
+    }
+
+    function _checkSession(bytes memory key, IIdentityValidator.Policy memory policy, uint48 activeAt) private pure {
+        if (key.length < 20) revert IIdentityValidator.InvalidKey(key);
+        if ((policy.validAfter | policy.validUntil | activeAt) >= 1 << 47) {
+            revert IIdentityValidator.PolicyOutOfRange(policy.validAfter, policy.validUntil);
+        }
+        if (policy.admin && policy.validUntil != 0) revert IIdentityValidator.AdminSessionExpires(policy.validUntil);
+    }
+
+    /// Sets the key's counters under `rulesHash`; one of the same key and rules keeps its spend.
+    function _setAllowances(
+        address account,
+        bytes32 keyHash,
+        bytes32 rulesHash,
+        IIdentityValidator.Allowance[] memory allowances
+    ) private {
+        address last;
+        for (uint256 i; i < allowances.length; ++i) {
+            IIdentityValidator.Allowance memory allowance = allowances[i];
+            if (allowance.period >= 1 << 47 || (i != 0 && allowance.token <= last)) {
+                revert IIdentityValidator.BadAllowance(allowance.token);
+            }
+            last = allowance.token;
+            Counter storage c = _counter(account, keyHash, rulesHash, allowance.token);
+            (c.amount, c.period, c.listed) = (allowance.amount, allowance.period, true);
+        }
     }
 
     function _revoke(address account, bytes memory key, bool root) private {
