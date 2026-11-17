@@ -159,7 +159,8 @@ abstract contract IdentityValidatorState {
         return _s().platformAdmins[_install(account)][platformId];
     }
 
-    /// Whether an unlink or an active admin session's revoke ran after the root operation was queued.
+    /// Whether an unlink, a removal by login or an active admin session's revoke ran after the root operation was
+    /// queued.
     function _superseded(address account, Root memory r) internal view returns (bool) {
         return r.epoch != _account(account).rootEpoch;
     }

@@ -20,8 +20,9 @@ import {SessionRules} from "./SessionRules.sol";
 
 /// @title IdentityValidator - the one ERC-7579 validator of every WebWallet.
 /// @notice Holds each account's linked identities, sessions, threshold and root operations.
-///         The threshold counts distinct admin platforms, and never exceeds the platforms holding an
-///         admin session unless none does.
+///         The threshold counts distinct admin platforms. `setThreshold` and a revoke keep it within the
+///         platforms holding an admin session unless none does; an unlink lowers it to the platforms
+///         still linked, which may leave it above the admin platforms until a login adds an admin back.
 /// @dev Every slot validation reads or writes has the account as its innermost mapping key (ERC-7562),
 ///      and validation reads no clock: windows go back to the EntryPoint packed. What an operation may
 ///      do runs in SessionRules, and every write in IdentityAdmin: both deployed by the constructor and
@@ -57,12 +58,12 @@ contract IdentityValidator is IIdentityValidator, IdentityValidatorState {
         return moduleTypeId == MODULE_TYPE_VALIDATOR;
     }
 
-    function onInstall(bytes calldata) external {
-        _delegate();
+    function onInstall(bytes calldata data) external {
+        _delegate(abi.encodeCall(IdentityAdmin.onInstall, (data)));
     }
 
-    function onUninstall(bytes calldata) external {
-        _delegate();
+    function onUninstall(bytes calldata data) external {
+        _delegate(abi.encodeCall(IdentityAdmin.onUninstall, (data)));
     }
 
     /// @dev Below quorum, charges the session's allowances: a refused operation's charges are
@@ -191,36 +192,42 @@ contract IdentityValidator is IIdentityValidator, IdentityValidatorState {
 
     // ─── Writes, run in IdentityAdmin ───────────────────────────────
 
-    function link(address, bytes32, bytes32) external {
-        _delegate();
+    function link(address account, bytes32 platformId, bytes32 idNode) external {
+        _delegate(abi.encodeCall(IdentityAdmin.link, (account, platformId, idNode)));
     }
 
-    function addSessionByRegistry(address, bytes32, bytes calldata, Policy calldata, bool) external {
-        _delegate();
+    function addSessionByRegistry(
+        address account,
+        bytes32 identity,
+        bytes calldata key,
+        Policy calldata policy,
+        bool byLogin
+    ) external {
+        _delegate(abi.encodeCall(IdentityAdmin.addSessionByRegistry, (account, identity, key, policy, byLogin)));
     }
 
-    function removeByLogin(address, bytes32) external {
-        _delegate();
+    function removeByLogin(address account, bytes32 identity) external {
+        _delegate(abi.encodeCall(IdentityAdmin.removeByLogin, (account, identity)));
     }
 
-    function addSession(bytes32, bytes calldata, Policy calldata) external {
-        _delegate();
+    function addSession(bytes32 identity, bytes calldata key, Policy calldata policy) external {
+        _delegate(abi.encodeCall(IdentityAdmin.addSession, (identity, key, policy)));
     }
 
-    function revokeSession(bytes calldata) external {
-        _delegate();
+    function revokeSession(bytes calldata key) external {
+        _delegate(abi.encodeCall(IdentityAdmin.revokeSession, (key)));
     }
 
-    function queueRoot(address, bytes calldata) external returns (bytes32) {
-        return abi.decode(_delegate(), (bytes32));
+    function queueRoot(address target, bytes calldata data) external returns (bytes32 opId) {
+        return abi.decode(_delegate(abi.encodeCall(IdentityAdmin.queueRoot, (target, data))), (bytes32));
     }
 
-    function cancelRoot(bytes32) external {
-        _delegate();
+    function cancelRoot(bytes32 opId) external {
+        _delegate(abi.encodeCall(IdentityAdmin.cancelRoot, (opId)));
     }
 
-    function executeRoot(address, address, bytes calldata) external {
-        _delegate();
+    function executeRoot(address account, address target, bytes calldata data) external {
+        _delegate(abi.encodeCall(IdentityAdmin.executeRoot, (account, target, data)));
     }
 
     /// Decodes an `Authorization`; external so a malformed one fails validation instead of reverting it.
@@ -242,9 +249,9 @@ contract IdentityValidator is IIdentityValidator, IdentityValidatorState {
 
     // ─── Internals ──────────────────────────────────────────────────
 
-    /// Runs this call in IdentityAdmin; a revert bubbles.
-    function _delegate() private returns (bytes memory) {
-        return Address.functionDelegateCall(ADMIN, msg.data);
+    /// Runs `call` in IdentityAdmin; a revert bubbles.
+    function _delegate(bytes memory call) private returns (bytes memory) {
+        return Address.functionDelegateCall(ADMIN, call);
     }
 
     /// SessionRules' verdict on `call`, and the signers' window narrowed to the periods it charged.

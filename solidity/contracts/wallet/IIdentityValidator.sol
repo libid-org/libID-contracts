@@ -104,7 +104,7 @@ interface IIdentityValidator is IERC7579Validator, IExecutionCheck {
 
     /// @dev `identity == 0`: no such session. The session signs only after `activeAt`: the second it was
     ///      added, or 0 for a new wallet's first session, which signs at once.
-    ///      A session whose `generation` is not its identity's current one, bumped by each unlink, is dead.
+    ///      A session whose `generation` is not its identity's current one, bumped by each unlink and removal by login, is dead.
     ///      `byProof`: added by a login to an account that already had a session. Above threshold 1 its
     ///      operations, ordinary calls and ERC-1271 signatures included, need signers that reach the threshold.
     struct Session {
@@ -186,11 +186,12 @@ interface IIdentityValidator is IERC7579Validator, IExecutionCheck {
     error RootNotReady(bytes32 opId);
     /// The root delay may not exceed `MAX_ROOT_DELAY`.
     error RootDelayTooLong(uint48 delay);
-    /// The threshold may not exceed the number of platforms with an admin session, unless none has one.
+    /// `setThreshold` or a revoke may not leave the threshold above the number of platforms with an admin
+    /// session, unless none has one.
     error ThresholdTooHigh(uint8 threshold, uint32 adminPlatforms);
     /// The genesis identity stays linked: it names the wallet's factory address.
     error GenesisIdentity(bytes32 identity);
-    /// An unlink or an active admin session's revoke ran after the root operation was queued.
+    /// An unlink, a removal by login or an active admin session's revoke ran after the root operation was queued.
     error RootSuperseded(bytes32 opId);
     /// A session key is a 20-byte address or `verifier || key`.
     error InvalidKey(bytes key);
@@ -282,6 +283,6 @@ interface IIdentityValidator is IERC7579Validator, IExecutionCheck {
     function queueRoot(address target, bytes calldata data) external returns (bytes32 opId);
     function cancelRoot(bytes32 opId) external;
 
-    /// Anyone, once `rootReadyAt` has passed, unless an unlink or an admin revoke superseded it.
+    /// Anyone, once `rootReadyAt` has passed, unless an unlink, a removal by login or an admin revoke superseded it.
     function executeRoot(address account, address target, bytes calldata data) external;
 }
