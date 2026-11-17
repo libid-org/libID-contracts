@@ -161,7 +161,7 @@ contract WalletLoginsAbuseTest is LoginBase {
             abi.encodeWithSelector(IIdentityValidator.NotLinked.selector, w, _identity(GITHUB, DAVE)),
             false
         );
-        // Q1: a wallet that never had a session takes its first one from its own link only.
+        // A wallet that never had a session takes its first one from its own link only.
         rows[3] = Row(
             "a wallet with no session",
             X,

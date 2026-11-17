@@ -180,7 +180,7 @@ contract WalletLoginsTest is LoginBase {
         _runsBy(w, hit, _pks(NEW_PK, BOB_PK));
     }
 
-    /// Q2: the last admin goes too; signing in again gives the wallet back.
+    /// The last admin goes too; signing in again gives the wallet back.
     function test_aRemovalNeverRevertsOnTheLastAdminOrTheThreshold() public {
         address w = _wallet(2, 2);
         _loginRemove(w, GITHUB, BOB);
@@ -205,7 +205,7 @@ contract WalletLoginsTest is LoginBase {
         _runsBy(w, _one(_hitX()), _pks(ALICE_PK));
     }
 
-    /// Q2: no LastAdmin refusal.
+    /// An unlink may leave the wallet no admin session.
     function test_theWalletsOwnUnlinkMayLeaveNoAdmin() public {
         address w = _wallet(2, 1);
         vm.prank(w);

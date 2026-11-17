@@ -199,7 +199,7 @@ contract WalletSaltUpgradesTest is LoginBase {
         assertEq(validator.rootDelay(w), d, "not changed");
     }
 
-    /// Q3: a raise too waits the current delay; delay 0 matures the next second.
+    /// A raise too waits the current delay; delay 0 matures the next second.
     function test_everyChangeIsARootOperationAfterTheCurrentDelay() public {
         address w = _claim();
         assertEq(validator.rootDelay(w), 0, "default");
