@@ -24,6 +24,11 @@ use alloy::{
     },
 };
 
+use crate::{
+    Error,
+    Result,
+};
+
 #[allow(
     clippy::too_many_arguments,
     missing_docs,
@@ -113,15 +118,23 @@ macro_rules! policy_hashes {
     ($rules:ty, $policy:ty) => {
         impl $rules {
             /// `rulesHashOf(rules)`: stored in the session record, it keys the
-            /// session's allowance counters.
-            pub fn rules_hash(&self) -> B256 {
+            /// session's allowance counters. Refuses allowances not in strictly
+            /// ascending token order, which the validator reverts on.
+            pub fn rules_hash(&self) -> Result<B256> {
                 let Self {
                     scopeRoot,
                     domainsRoot,
                     paymastersRoot,
                     allowances,
                 } = self;
-                keccak256(
+                if let Some(pair) =
+                    allowances.windows(2).find(|p| p[1].token <= p[0].token)
+                {
+                    return Err(Error::AllowanceOrder {
+                        token: pair[1].token,
+                    });
+                }
+                Ok(keccak256(
                     (
                         *scopeRoot,
                         *domainsRoot,
@@ -129,24 +142,24 @@ macro_rules! policy_hashes {
                         allowances.clone(),
                     )
                         .abi_encode_params(),
-                )
+                ))
             }
         }
 
         impl $policy {
             /// `policyHashOf(policy)`: the policy hash a proof commits.
-            pub fn policy_hash(&self) -> B256 {
-                keccak256(
+            pub fn policy_hash(&self) -> Result<B256> {
+                Ok(keccak256(
                     (
                         self.validAfter,
                         self.validUntil,
                         self.admin,
                         // `uint8` encodes as one word.
                         U256::from(self.signers),
-                        self.rules.rules_hash(),
+                        self.rules.rules_hash()?,
                     )
                         .abi_encode_params(),
-                )
+                ))
             }
         }
     };
@@ -188,40 +201,58 @@ mod execute {
     }
 }
 
-/// What the signers of a direct `execute(AUTHORIZED_MODE, data)` sign, as
-/// `IdentityValidator.checkExecution` hashes it: `mode` is
-/// [`AUTHORIZED_MODE`], `value` is the `msg.value` the batch must be sent
-/// with, `at` is `Authorization.at`, and `nonce` is the
-/// wallet's full EntryPoint nonce under [`direct_nonce_key`] before the batch.
-/// Build it with [`Execute::authorized`].
+/// The EIP-712 `Execute` type `IdentityValidator.checkExecution` hashes. Build
+/// messages with [`ExecuteMessage`], which sets `mode`.
 pub use execute::Execute;
 
-impl Execute {
-    /// The message of a direct `execute`, with `mode` [`AUTHORIZED_MODE`].
-    pub fn authorized(
-        execution_calldata: Bytes,
-        value: U256,
-        at: U48,
-        nonce: U256,
-        deadline: U48,
-        call_gas: U256,
-    ) -> Self {
-        Self {
-            mode: AUTHORIZED_MODE,
-            executionCalldata: execution_calldata,
-            value,
-            at,
-            nonce,
-            deadline,
-            callGas: call_gas,
-        }
-    }
+/// What the signers of a direct `execute(AUTHORIZED_MODE, data)` sign, besides
+/// `mode`, which is always [`AUTHORIZED_MODE`].
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ExecuteMessage {
+    /// The ERC-7579 batch: `abi.encode(Execution[])`.
+    pub execution_calldata: Bytes,
+    /// The `msg.value` the batch must be sent with.
+    pub value: U256,
+    /// `Authorization.at`.
+    pub at: U48,
+    /// The wallet's full EntryPoint nonce under [`direct_nonce_key`] before
+    /// the batch.
+    pub nonce: U256,
+    /// The last second the batch may run.
+    pub deadline: U48,
+    /// The gas the batch's calls get.
+    pub call_gas: U256,
+}
 
+/// `IIdentityValidator.Authorization` without `at`, which
+/// [`ExecuteMessage::authorized_data`] takes from the message.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ExecuteAuthorization {
+    /// `Authorization.signatures`.
+    pub signatures: Vec<IIdentityValidator::SessionSignature>,
+    /// `Authorization.calls`: `calls[i]` is for the batch's i-th execution.
+    pub calls: Vec<IIdentityValidator::CallProof>,
+    /// `Authorization.domainProof`.
+    pub domain_proof: Vec<B256>,
+    /// `Authorization.paymasterProof`.
+    pub paymaster_proof: Vec<B256>,
+}
+
+impl ExecuteMessage {
     /// The EIP-712 hash the signers sign: under the wallet's domain, name
     /// `WebWallet`, version `1`, `chain_id` and `wallet`. Below quorum each
     /// signer signs [`below_quorum_hash`] of it.
     pub fn digest(&self, chain_id: u64, wallet: Address) -> B256 {
-        self.eip712_signing_hash(&eip712_domain! {
+        Execute {
+            mode: AUTHORIZED_MODE,
+            executionCalldata: self.execution_calldata.clone(),
+            value: self.value,
+            at: self.at,
+            nonce: self.nonce,
+            deadline: self.deadline,
+            callGas: self.call_gas,
+        }
+        .eip712_signing_hash(&eip712_domain! {
             name: "WebWallet",
             version: "1",
             chain_id: chain_id,
@@ -232,30 +263,19 @@ impl Execute {
     /// `data` of `execute(AUTHORIZED_MODE, data)` for this message:
     /// `abi.encode(executionCalldata, value, deadline, callGas, abi.encode(authorization))`,
     /// the authorization's `at` this message's.
-    ///
-    /// # Panics
-    ///
-    /// If `mode` is not [`AUTHORIZED_MODE`]: the wallet would refuse the batch.
-    pub fn authorized_data(
-        &self,
-        signatures: Vec<IIdentityValidator::SessionSignature>,
-        calls: Vec<IIdentityValidator::CallProof>,
-        domain_proof: Vec<B256>,
-        paymaster_proof: Vec<B256>,
-    ) -> Bytes {
-        assert_eq!(self.mode, AUTHORIZED_MODE, "a direct execute's mode");
+    pub fn authorized_data(&self, authorization: ExecuteAuthorization) -> Bytes {
         let authorization = IIdentityValidator::Authorization {
-            signatures,
+            signatures: authorization.signatures,
             at: self.at,
-            calls,
-            domainProof: domain_proof,
-            paymasterProof: paymaster_proof,
+            calls: authorization.calls,
+            domainProof: authorization.domain_proof,
+            paymasterProof: authorization.paymaster_proof,
         };
         (
-            self.executionCalldata.clone(),
+            self.execution_calldata.clone(),
             self.value,
             self.deadline,
-            self.callGas,
+            self.call_gas,
             Bytes::from(authorization.abi_encode()),
         )
             .abi_encode_params()
@@ -312,11 +332,11 @@ mod tests {
             b256!("0x91a60d66d4b51055570ae803ab60eeb97f5719221a31686eb83fba2cd2169b20");
         let policy_hash =
             b256!("0xc51a04460ba256d1efcef52fde677904487eed95b705a198c65d40178196f7e8");
-        assert_eq!(policy.rules.rules_hash(), rules_hash);
-        assert_eq!(policy.policy_hash(), policy_hash);
+        assert_eq!(policy.rules.rules_hash().unwrap(), rules_hash);
+        assert_eq!(policy.policy_hash().unwrap(), policy_hash);
         let registry = RegistryPolicy::abi_decode(&policy.abi_encode()).unwrap();
-        assert_eq!(registry.rules.rules_hash(), rules_hash);
-        assert_eq!(registry.policy_hash(), policy_hash);
+        assert_eq!(registry.rules.rules_hash().unwrap(), rules_hash);
+        assert_eq!(registry.policy_hash().unwrap(), policy_hash);
         assert_eq!(
             below_quorum_hash(
                 keccak256("op"),
@@ -374,40 +394,23 @@ mod tests {
         assert_eq!(U256::from(key), v.nonce_key);
         assert_eq!((U256::from(key) << 64) | U256::from(7), v.nonce);
 
-        let execute = Execute::authorized(
-            v.execution_calldata,
-            v.value,
-            U48::from(v.at),
-            v.nonce,
-            U48::from(v.deadline),
-            U256::from(v.call_gas),
-        );
-        let data = execute.authorized_data(
-            vec![IIdentityValidator::SessionSignature {
+        let execute = ExecuteMessage {
+            execution_calldata: v.execution_calldata,
+            value: v.value,
+            at: U48::from(v.at),
+            nonce: v.nonce,
+            deadline: U48::from(v.deadline),
+            call_gas: U256::from(v.call_gas),
+        };
+        let data = execute.authorized_data(ExecuteAuthorization {
+            signatures: vec![IIdentityValidator::SessionSignature {
                 key: v.session_key,
                 signature: v.signature,
             }],
-            vec![],
-            vec![],
-            vec![],
-        );
+            ..Default::default()
+        });
         assert_eq!(keccak256(&data), v.data_hash);
         assert_eq!(execute.digest(v.chain_id, v.wallet), v.digest);
-    }
-
-    #[test]
-    #[should_panic(expected = "a direct execute's mode")]
-    fn authorized_data_refuses_another_mode() {
-        let mut execute = Execute::authorized(
-            Bytes::new(),
-            U256::ZERO,
-            U48::ZERO,
-            U256::ZERO,
-            U48::ZERO,
-            U256::ZERO,
-        );
-        execute.mode = B256::ZERO;
-        execute.authorized_data(vec![], vec![], vec![], vec![]);
     }
 
     /// The two `Policy` bindings name one struct: either decodes the other, and
@@ -454,5 +457,28 @@ mod tests {
             },
         };
         assert_eq!(built.abi_encode(), policy.abi_encode());
+    }
+
+    /// `BadAllowance`: tokens must strictly ascend.
+    #[test]
+    fn allowances_out_of_order_are_refused() {
+        let allowance = |token: u8| IIdentityValidator::Allowance {
+            token: [token; 20].into(),
+            amount: 1,
+            period: U48::from(1),
+        };
+        let rules = |tokens: &[u8]| IIdentityValidator::Rules {
+            scopeRoot: B256::ZERO,
+            domainsRoot: B256::ZERO,
+            paymastersRoot: B256::ZERO,
+            allowances: tokens.iter().copied().map(allowance).collect(),
+        };
+        assert!(rules(&[1, 2]).rules_hash().is_ok());
+        for tokens in [[2, 1], [1, 1]] {
+            assert!(matches!(
+                rules(&tokens).rules_hash(),
+                Err(Error::AllowanceOrder { token }) if token == allowance(tokens[1]).token
+            ));
+        }
     }
 }

@@ -100,8 +100,7 @@ interface IIdentityValidator is IERC7579Validator, IExecutionCheck {
     }
 
     /// @dev `identity == 0`: no such session. The session signs only after `activeAt`: the second it was
-    ///      added for an add by the account, its install or a link by the account; the end of the recovery
-    ///      delay for a session by proof; 0 for a new wallet's first session, which signs at once.
+    ///      added, or 0 for a new wallet's first session, which signs at once.
     ///      A session whose `generation` is not its identity's current one, bumped by each unlink, is dead.
     ///      `byProof`: added by proof to an account that already had a session. Its operations, ordinary
     ///      calls and ERC-1271 signatures included, need signers that reach the threshold.
@@ -155,7 +154,7 @@ interface IIdentityValidator is IERC7579Validator, IExecutionCheck {
 
     /// A session added by the account itself.
     event SessionAdded(address indexed account, bytes32 indexed identity, bytes key, Policy policy);
-    /// A session added by proof, the event to alert on: it is pending until `activeAt`.
+    /// A session added by proof, the event to alert on: it signs after `activeAt`.
     event SessionAddedByProof(
         address indexed account, bytes32 indexed identity, bytes key, Policy policy, uint48 activeAt
     );
@@ -207,10 +206,8 @@ interface IIdentityValidator is IERC7579Validator, IExecutionCheck {
     /// An allowance's token does not sort after the one before it, or its period reaches bit 47.
     error BadAllowance(address token);
     /// A root operation targets the account, or this validator's `setThreshold`, `revokeSession`,
-    /// `unlink`, `setRecoveryDelay` or `setRecoveryFrozen`.
+    /// `unlink` or `setRecoveryDelay`.
     error BadRootOperation(address target);
-    /// The account froze recovery by proof for this identity.
-    error RecoveryFrozen(bytes32 identity);
     /// The registry adds to a wallet that never had a session only its first session: the genesis
     /// identity's, admin, linked by the account.
     error FirstSessionRefused(address account);
@@ -239,21 +236,17 @@ interface IIdentityValidator is IERC7579Validator, IExecutionCheck {
     /// Distinct platforms an admin operation's admin sessions need: two identities on one platform count once.
     /// Defaults to 1.
     function threshold(address account) external view returns (uint8);
-    /// The account's wait for sessions added by proof and for root operations (see `rootReadyAt`).
+    /// The account's wait for root operations (see `rootReadyAt`).
     function recoveryDelay(address account) external view returns (uint48);
     /// One-way: set once the account has had any session.
     function hadSession(address account) external view returns (bool);
-    /// Whether `addSessionByProof` refuses the identity. The flag survives an unlink and a relink.
-    function recoveryFrozen(address account, bytes32 identity) external view returns (bool);
     /// When the root operation `opId = keccak256(abi.encode(account, target, data))` matures, else 0;
     /// also 0 once an unlink or an admin revoke supersedes it.
     function rootReadyAt(address account, bytes32 opId) external view returns (uint48);
 
     // Registry only.
     function link(address account, bytes32 platformId, bytes32 idNode) external;
-    /// Pending for `recoveryDelay`, and `byProof`. A newer pending session of the same identity replaces the older
-    /// one. Refused while the identity's recovery is frozen, for an account that never had a session, or when the
-    /// replacement leaves fewer admin platforms than the threshold (see `ThresholdTooHigh`).
+    /// Active from the next second, and `byProof`. Refused for an account that never had a session.
     function addSessionByProof(address account, bytes32 identity, bytes calldata key, Policy calldata policy)
         external
         returns (uint48 activeAt);
@@ -264,7 +257,7 @@ interface IIdentityValidator is IERC7579Validator, IExecutionCheck {
     // The account itself (an admin operation, under the threshold).
     /// Active from the next second. The identity must be linked. A dead session's key may be reused.
     function addSession(bytes32 identity, bytes calldata key, Policy calldata policy) external;
-    /// Revokes an active or pending session. Removing the last admin session, counting pending ones, is a root operation.
+    /// Revokes a session. Removing the last admin session is a root operation.
     /// Revoking an active admin session voids every root operation queued before it.
     /// Refused when it leaves fewer admin platforms than the threshold, but some (see `ThresholdTooHigh`).
     function revokeSession(bytes calldata key) external;
@@ -273,17 +266,13 @@ interface IIdentityValidator is IERC7579Validator, IExecutionCheck {
     function setRecoveryDelay(uint48 delay) external;
     /// Root operation only: reverts `RootOperationRequired` when the account calls it.
     function setThreshold(uint8 threshold_) external;
-    /// Root operation only. Every session of the identity, active or pending, stops validating for good,
+    /// Root operation only. Every session of the identity stops validating for good,
     /// and every root operation queued before it stops executing.
     /// Refused for an identity not linked, the last one, the last admin sessions of a platform the threshold
     /// still needs, the genesis identity, or when the account would be left with no admin session.
     function unlink(bytes32 identity) external;
-    /// Root operation only. While frozen, `addSessionByProof` refuses the identity; its active sessions
-    /// keep working. Freezing revokes the identity's latest session by proof while it is still pending,
-    /// refused when that leaves fewer admin platforms than the threshold, but some.
-    function setRecoveryFrozen(bytes32 identity, bool frozen) external;
     /// `target` is the account (install, uninstall, upgrade) or this validator
-    /// (`setThreshold`, `unlink`, `setRecoveryFrozen`, `revokeSession` of the last admin, a lower
+    /// (`setThreshold`, `unlink`, `revokeSession` of the last admin, a lower
     /// `setRecoveryDelay`).
     /// Ready after `recoveryDelay`.
     function queueRoot(address target, bytes calldata data) external returns (bytes32 opId);

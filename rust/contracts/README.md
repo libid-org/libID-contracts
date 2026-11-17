@@ -170,10 +170,10 @@ Other entry points:
 
 A web wallet's signers can sign a batch that anyone then sends as
 `execute(AUTHORIZED_MODE, data)`, with no UserOperation.
-`Execute::authorized` builds the message with its mode set, `digest` is the
-hash the signers sign, `direct_nonce_key` the EntryPoint nonce key the batch
-uses, and `authorized_data` builds `data` from the same message, so the two
-agree:
+`ExecuteMessage` is the message, its mode always `AUTHORIZED_MODE`: `digest`
+is the hash the signers sign, `direct_nonce_key` the EntryPoint nonce key the
+batch uses, and `authorized_data` builds `data` from the same message and an
+`ExecuteAuthorization`, so the two agree:
 
 ```rust,no_run
 use alloy::{
@@ -182,7 +182,8 @@ use alloy::{
     signers::{local::PrivateKeySigner, SignerSync},
 };
 use libid_contracts::bindings::wallet::{
-    direct_nonce_key, Execute, IIdentityValidator::SessionSignature, WebWallet, AUTHORIZED_MODE,
+    direct_nonce_key, ExecuteAuthorization, ExecuteMessage, IIdentityValidator::SessionSignature,
+    WebWallet, AUTHORIZED_MODE,
 };
 
 alloy::sol! {
@@ -194,8 +195,9 @@ alloy::sol! {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let relayer: PrivateKeySigner = todo!();
     let provider = ProviderBuilder::new()
-        .wallet(/* the relayer's signer */ todo!())
+        .wallet(relayer)
         .connect_http("https://rpc.example.org".parse()?);
     let (wallet, validator, entry_point, chain_id): (Address, Address, Address, u64) = todo!();
     let session: PrivateKeySigner = todo!();
@@ -207,26 +209,24 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .call()
         .await?;
     // `value` is the `msg.value` the batch is sent with.
-    let execute = Execute::authorized(
+    let execute = ExecuteMessage {
         execution_calldata,
-        U256::ZERO,
-        U48::ZERO,
+        value: U256::ZERO,
+        at: U48::ZERO,
         nonce,
-        U48::from(2_000_000_000),
-        U256::from(500_000),
-    );
+        deadline: U48::from(2_000_000_000),
+        call_gas: U256::from(500_000),
+    };
     // At quorum a session key signs the digest; below quorum,
     // `below_quorum_hash` of it.
     let signature = session.sign_hash_sync(&execute.digest(chain_id, wallet))?;
-    let data = execute.authorized_data(
-        vec![SessionSignature {
+    let data = execute.authorized_data(ExecuteAuthorization {
+        signatures: vec![SessionSignature {
             key: session.address().to_vec().into(),
             signature: signature.as_bytes().to_vec().into(),
         }],
-        vec![],
-        vec![],
-        vec![],
-    );
+        ..Default::default()
+    });
     WebWallet::new(wallet, &provider)
         .execute(AUTHORIZED_MODE, data)
         .value(execute.value)

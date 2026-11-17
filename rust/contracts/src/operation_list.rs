@@ -14,13 +14,22 @@ use alloy::{
 pub const OPERATIONS_DOMAIN: B256 =
     b256!("0x60b329d7366897b03545eb9f63f4a707253258ee2e1cd0ba3a8973aa4959e967");
 
+/// One entry of an Operation List: a Consumer's domain and the data it applies.
+#[derive(Clone, Copy, Debug)]
+pub struct OperationEntry<'a> {
+    /// The operation domain the Consumer owns.
+    pub domain: B256,
+    /// The entry's transaction data; the list commits its `keccak256`.
+    pub data: &'a [u8],
+}
+
 /// The transaction data under [`OPERATIONS_DOMAIN`]: `abi.encode(Operation[])`
 /// of each entry's domain and `keccak256(data)`. No `data` is in the list:
 /// each Consumer's call carries its own entry's, or rebuilds it.
-pub fn encode_operation_list(entries: &[(B256, &[u8])]) -> Vec<u8> {
+pub fn encode_operation_list(entries: &[OperationEntry<'_>]) -> Vec<u8> {
     entries
         .iter()
-        .map(|(domain, data)| (*domain, keccak256(data)))
+        .map(|entry| (entry.domain, keccak256(entry.data)))
         .collect::<Vec<_>>()
         .abi_encode()
 }
@@ -45,8 +54,14 @@ mod tests {
         let vector = alloy::hex::decode(words.concat()).unwrap();
         let target = Address::repeat_byte(0x11).abi_encode();
         let encoded = encode_operation_list(&[
-            (keccak256("libid.bind-identity"), &target),
-            (keccak256("libid.test.a"), &[0xff]),
+            OperationEntry {
+                domain: keccak256("libid.bind-identity"),
+                data: &target,
+            },
+            OperationEntry {
+                domain: keccak256("libid.test.a"),
+                data: &[0xff],
+            },
         ]);
         assert_eq!(encoded, vector);
         assert_eq!(OPERATIONS_DOMAIN, keccak256("libid.operations"));
