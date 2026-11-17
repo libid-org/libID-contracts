@@ -52,17 +52,19 @@ export type SessionPolicy = AbiParameterToPrimitiveType<PolicyParameter>
 /// `IIdentityValidator.Rules`.
 export type SessionRules = SessionPolicy['rules']
 
-/// `rulesHashOf(rules)`: stored in the session record, it keys the session's
-/// allowance counters. Throws on allowances not in strictly ascending token
-/// order, which the validator reverts on.
-export function rulesHashOf(rules: SessionRules): Hex {
-  rules.allowances.forEach(({ token }, i) => {
-    if (i > 0 && BigInt(token) <= BigInt(rules.allowances[i - 1].token)) {
-      throw new Error(
-        `allowance token ${token} does not sort after the one before it: list allowances in strictly ascending token order (BadAllowance)`,
-      )
-    }
+/// The rules with their allowances sorted into the strictly ascending token
+/// order the validator requires. Sort before hashing and building calls.
+export function sortAllowances(rules: SessionRules): SessionRules {
+  const allowances = [...rules.allowances].sort((a, b) => {
+    const [x, y] = [BigInt(a.token), BigInt(b.token)]
+    return x < y ? -1 : x > y ? 1 : 0
   })
+  return { ...rules, allowances }
+}
+
+/// `rulesHashOf(rules)`: stored in the session record, it keys the session's
+/// allowance counters.
+export function rulesHashOf(rules: SessionRules): Hex {
   return keccak256(
     encodeAbiParameters(RULES.components, [
       rules.scopeRoot,

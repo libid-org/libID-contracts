@@ -24,11 +24,6 @@ use alloy::{
     },
 };
 
-use crate::{
-    Error,
-    Result,
-};
-
 #[allow(
     clippy::too_many_arguments,
     missing_docs,
@@ -117,24 +112,22 @@ pub use wallet_factory::WalletFactory;
 macro_rules! policy_hashes {
     ($rules:ty, $policy:ty) => {
         impl $rules {
+            /// Sorts the allowances into the strictly ascending token order
+            /// the validator requires. Sort before hashing and building calls.
+            pub fn sort_allowances(&mut self) {
+                self.allowances.sort_by_key(|allowance| allowance.token);
+            }
+
             /// `rulesHashOf(rules)`: stored in the session record, it keys the
-            /// session's allowance counters. Refuses allowances not in strictly
-            /// ascending token order, which the validator reverts on.
-            pub fn rules_hash(&self) -> Result<B256> {
+            /// session's allowance counters.
+            pub fn rules_hash(&self) -> B256 {
                 let Self {
                     scopeRoot,
                     domainsRoot,
                     paymastersRoot,
                     allowances,
                 } = self;
-                if let Some(pair) =
-                    allowances.windows(2).find(|p| p[1].token <= p[0].token)
-                {
-                    return Err(Error::AllowanceOrder {
-                        token: pair[1].token,
-                    });
-                }
-                Ok(keccak256(
+                keccak256(
                     (
                         *scopeRoot,
                         *domainsRoot,
@@ -142,24 +135,24 @@ macro_rules! policy_hashes {
                         allowances.clone(),
                     )
                         .abi_encode_params(),
-                ))
+                )
             }
         }
 
         impl $policy {
             /// `policyHashOf(policy)`: the policy hash a proof commits.
-            pub fn policy_hash(&self) -> Result<B256> {
-                Ok(keccak256(
+            pub fn policy_hash(&self) -> B256 {
+                keccak256(
                     (
                         self.validAfter,
                         self.validUntil,
                         self.admin,
                         // `uint8` encodes as one word.
                         U256::from(self.signers),
-                        self.rules.rules_hash()?,
+                        self.rules.rules_hash(),
                     )
                         .abi_encode_params(),
-                ))
+                )
             }
         }
     };
@@ -332,11 +325,11 @@ mod tests {
             b256!("0x91a60d66d4b51055570ae803ab60eeb97f5719221a31686eb83fba2cd2169b20");
         let policy_hash =
             b256!("0xc51a04460ba256d1efcef52fde677904487eed95b705a198c65d40178196f7e8");
-        assert_eq!(policy.rules.rules_hash().unwrap(), rules_hash);
-        assert_eq!(policy.policy_hash().unwrap(), policy_hash);
+        assert_eq!(policy.rules.rules_hash(), rules_hash);
+        assert_eq!(policy.policy_hash(), policy_hash);
         let registry = RegistryPolicy::abi_decode(&policy.abi_encode()).unwrap();
-        assert_eq!(registry.rules.rules_hash().unwrap(), rules_hash);
-        assert_eq!(registry.policy_hash().unwrap(), policy_hash);
+        assert_eq!(registry.rules.rules_hash(), rules_hash);
+        assert_eq!(registry.policy_hash(), policy_hash);
         assert_eq!(
             below_quorum_hash(
                 keccak256("op"),
@@ -459,12 +452,12 @@ mod tests {
         assert_eq!(built.abi_encode(), policy.abi_encode());
     }
 
-    /// `BadAllowance`: tokens must strictly ascend.
+    /// Sorting puts any order in token order; hashing keeps the order given.
     #[test]
-    fn allowances_out_of_order_are_refused() {
+    fn allowances_sort_by_token() {
         let allowance = |token: u8| IIdentityValidator::Allowance {
             token: [token; 20].into(),
-            amount: 1,
+            amount: token.into(),
             period: U48::from(1),
         };
         let rules = |tokens: &[u8]| IIdentityValidator::Rules {
@@ -473,12 +466,11 @@ mod tests {
             paymastersRoot: B256::ZERO,
             allowances: tokens.iter().copied().map(allowance).collect(),
         };
-        assert!(rules(&[1, 2]).rules_hash().is_ok());
-        for tokens in [[2, 1], [1, 1]] {
-            assert!(matches!(
-                rules(&tokens).rules_hash(),
-                Err(Error::AllowanceOrder { token }) if token == allowance(tokens[1]).token
-            ));
-        }
+        let sorted = rules(&[1, 2, 0xff]);
+        let mut unsorted = rules(&[0xff, 1, 2]);
+        assert_ne!(unsorted.rules_hash(), sorted.rules_hash());
+        unsorted.sort_allowances();
+        assert_eq!(unsorted.abi_encode(), sorted.abi_encode());
+        assert_eq!(unsorted.rules_hash(), sorted.rules_hash());
     }
 }
