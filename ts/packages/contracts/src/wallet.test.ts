@@ -12,6 +12,7 @@ import {
   policyHashOf,
   rulesHashOf,
   type SessionPolicy,
+  sortAllowances,
 } from './wallet.js'
 
 // PolicyEncodingTest's vectors, which `cast` computes outside Solidity.
@@ -112,14 +113,22 @@ describe('the direct execute', () => {
 describe('allowances', () => {
   const rules = (...tokens: `0x${string}`[]) => ({
     ...POLICY.rules,
-    allowances: tokens.map((token) => ({ token, amount: 1n, period: 1 })),
+    allowances: tokens.map((token, i) => ({ token, amount: BigInt(i), period: 1 })),
   })
-  const A = '0x00000000000000000000000000000000000000aa'
-  const B = '0x00000000000000000000000000000000000000bb'
+  // A < B as numbers, B < A as checksummed strings.
+  const A = '0x00000000000000000000000000000000000000a0'
+  const B = '0x00000000000000000000000000000000000000B0'
 
-  it('must ascend strictly by token', () => {
-    expect(() => rulesHashOf(rules(A, B))).not.toThrow()
-    expect(() => rulesHashOf(rules(B, A))).toThrow(/strictly ascending token order/)
-    expect(() => policyHashOf({ ...POLICY, rules: rules(A, A) })).toThrow(/strictly ascending/)
+  it('sort by token', () => {
+    const sorted = rules(A, B)
+    const unsorted = { ...sorted, allowances: [...sorted.allowances].reverse() }
+    const given = structuredClone(unsorted)
+    expect(rulesHashOf(unsorted)).not.toBe(rulesHashOf(sorted))
+    expect(unsorted).toEqual(given)
+    expect(sortAllowances(unsorted)).toEqual(sorted)
+    expect(unsorted).toEqual(given)
+    expect(policyHashOf({ ...POLICY, rules: sortAllowances(unsorted) })).toBe(
+      policyHashOf({ ...POLICY, rules: sorted }),
+    )
   })
 })

@@ -181,9 +181,12 @@ and its transaction data an Operation List, which commits each entry's domain
 and the hash of its data:
 
 ```ts
-import { encodeOperationList, OPERATIONS_DOMAIN, policyHashOf } from '@libid/contracts'
+import { encodeOperationList, OPERATIONS_DOMAIN, policyHashOf, sortAllowances } from '@libid/contracts'
 import { encodeAbiParameters, keccak256, parseAbiParameters, toHex } from 'viem'
 
+// The validator takes allowances in ascending token order: sort the rules
+// before hashing and building calls.
+const policy = { ...draft, rules: sortAllowances(draft.rules) }
 const linkData = encodeAbiParameters(parseAbiParameters('uint256, address, bytes, bytes32'), [
   chainId, wallet, sessionKey, policyHashOf(policy),
 ])
