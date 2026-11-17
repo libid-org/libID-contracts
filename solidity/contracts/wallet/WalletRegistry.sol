@@ -9,7 +9,8 @@ import {IdentityValidator} from "./IdentityValidator.sol";
 import {IWalletRegistry} from "./IWalletRegistry.sol";
 
 /// @title WalletRegistry - the Consumer of the `libid.webwallet.*` operations.
-/// @notice Turns a proof into a link or a session in the IdentityValidator. Immutable, no owner.
+/// @notice Turns a proof into a link, a session or a removal by login in the IdentityValidator, and keeps
+///         each wallet's app lists for logins. Immutable, no owner.
 /// @dev The digest is the nullifier (REQ-COMMON-03A).
 contract WalletRegistry is IWalletRegistry {
     bytes32 public constant LINK_IDENTITY_DOMAIN = keccak256("libid.webwallet.link-identity");
