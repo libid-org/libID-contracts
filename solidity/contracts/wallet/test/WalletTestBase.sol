@@ -3,6 +3,7 @@ pragma solidity ^0.8.24;
 
 import {Test} from "forge-std/Test.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
+import {UUPSUpgradeable} from "@openzeppelin/contracts/proxy/utils/UUPSUpgradeable.sol";
 import {IEntryPoint, PackedUserOperation} from "@openzeppelin/contracts/interfaces/IERC4337.sol";
 import {IERC7579Execution} from "@openzeppelin/contracts/interfaces/draft-IERC7579.sol";
 
@@ -227,6 +228,13 @@ abstract contract WalletTestBase is Test, Trees {
 
     function _factoryImpl(address walletImplementation) internal returns (address) {
         return deployCode("WalletFactory.sol:WalletFactory", abi.encode(walletImplementation));
+    }
+
+    /// Upgrades the factory to one naming `walletImplementation`, the one implementation wallets may upgrade to.
+    function _factoryNames(address walletImplementation) internal {
+        address next = _factoryImpl(walletImplementation);
+        vm.prank(owner);
+        UUPSUpgradeable(address(factory)).upgradeToAndCall(next, "");
     }
 
     /// The EntryPoint and the SenderCreator its immutables name, each at its own address.

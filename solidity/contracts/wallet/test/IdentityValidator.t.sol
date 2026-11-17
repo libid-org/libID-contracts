@@ -359,6 +359,7 @@ contract IdentityValidatorTest is WalletTestBase {
     function test_rootOperationWaitsThenRunsOnce() public {
         address w = _claim();
         address impl2 = _walletImpl();
+        _factoryNames(impl2);
         bytes memory data = abi.encodeCall(IWebWallet.upgradeToAndCall, (impl2, ""));
         bytes32 opId = keccak256(abi.encode(w, w, data));
 

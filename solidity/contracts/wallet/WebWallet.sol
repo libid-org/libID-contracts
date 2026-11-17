@@ -34,6 +34,7 @@ import {
 
 import {bytesAt, canonicalBatch} from "./AbiBytes.sol";
 import {IIdentityValidator} from "./IIdentityValidator.sol";
+import {IWalletFactory} from "./IWalletFactory.sol";
 import {AUTHORIZED_MODE, CALL_OVERHEAD, INonceIncrement, IWebWallet} from "./IWebWallet.sol";
 
 /// @title WebWallet - an ERC-7579 account whose one module is the IdentityValidator.
@@ -244,5 +245,12 @@ contract WebWallet is
         }
     }
 
-    function _authorizeUpgrade(address) internal view override onlyValidator {}
+    /// Only to the implementation the factory names when the upgrade runs.
+    function _authorizeUpgrade(address newImplementation) internal view override onlyValidator {
+        address factoryImplementation =
+            IWalletFactory(IIdentityValidator(VALIDATOR).walletFactory()).walletImplementation();
+        if (newImplementation != factoryImplementation) {
+            revert NotFactoryImplementation(newImplementation, factoryImplementation);
+        }
+    }
 }

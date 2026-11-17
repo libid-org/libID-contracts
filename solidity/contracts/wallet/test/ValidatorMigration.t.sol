@@ -19,7 +19,9 @@ contract ValidatorMigrationTest is WalletTestBase {
     function _v2Impl() internal returns (address) {
         registry2 = _newRegistry(address(factory));
         v2 = IIdentityValidator(registry2.identityValidator());
-        return deployCode("WebWallet.sol:WebWallet", abi.encode(address(v2)));
+        address impl = deployCode("WebWallet.sol:WebWallet", abi.encode(address(v2)));
+        _factoryNames(impl);
+        return impl;
     }
 
     function _upgrade(bytes memory installData) internal returns (bytes memory) {

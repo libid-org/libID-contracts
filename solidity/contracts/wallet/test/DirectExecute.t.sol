@@ -296,6 +296,7 @@ contract DirectExecuteTest is ExecuteBase {
         IWalletRegistry r2 = _newRegistry(address(factory));
         v2 = IIdentityValidator(r2.identityValidator());
         address impl2 = deployCode("WebWallet.sol:WebWallet", abi.encode(address(v2)));
+        _factoryNames(impl2);
         up = abi.encodeCall(IWebWallet.upgradeToAndCall, (impl2, abi.encodeCall(IWebWallet.migrate, (installData))));
     }
 
@@ -613,7 +614,9 @@ contract DirectExecuteTest is ExecuteBase {
     /// Signed under the domain before the batch, which upgrades to an implementation of another EIP-712 version.
     function test_theCheckUsesTheDomainOfEntry() public {
         address w = _fresh();
-        bytes memory up = abi.encodeCall(IWebWallet.upgradeToAndCall, (address(new OtherVersionWallet()), ""));
+        address other = address(new OtherVersionWallet());
+        _factoryNames(other);
+        bytes memory up = abi.encodeCall(IWebWallet.upgradeToAndCall, (other, ""));
         _queue(w, w, up);
         _runsBy(w, _onValidator(abi.encodeCall(IIdentityValidator.executeRoot, (w, w, up))), _pks(ALICE_PK));
         (, string memory name, string memory version,,,,) = OtherVersionWallet(w).eip712Domain();
