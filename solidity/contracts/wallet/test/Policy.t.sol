@@ -160,7 +160,7 @@ contract PolicyTest is WalletTestBase {
         leaves.push(Leaf(address(sink), Sink.boom.selector, 1 ether));
         leaves.push(Leaf(payee, bytes4(0), 1 ether));
         leaves.push(Leaf(unbounded, bytes4(0), type(uint256).max));
-        leaves.push(Leaf(address(validator), IIdentityValidator.setRecoveryDelay.selector, 0));
+        leaves.push(Leaf(address(validator), IIdentityValidator.queueRoot.selector, 0));
         day0 = uint48((_now() / DAY + 1) * DAY);
         vm.warp(day0);
     }
@@ -769,8 +769,7 @@ contract PolicyTest is WalletTestBase {
         _root(w, address(validator), abi.encodeCall(IIdentityValidator.setThreshold, (2)));
 
         Execution[] memory hit = _one(_e(address(target), 0, abi.encodeCall(CallTarget.hit, ())));
-        Execution[] memory delay =
-            _one(_e(address(validator), 0, abi.encodeCall(IIdentityValidator.setRecoveryDelay, (72 hours))));
+        Execution[] memory delay = _one(_e(address(validator), 0, _queueRaise()));
         Execution[] memory outside = _one(_e(address(target), 0, abi.encodeCall(target.calls, ())));
 
         PackedUserOperation[3] memory ops =
@@ -785,7 +784,7 @@ contract PolicyTest is WalletTestBase {
         _handle(_opAtQuorum(_pks(ALICE_PK, BOB_PK), _callData(delay)));
         _handle(_opAtQuorum(_pks(ALICE_PK, BOB_PK), _callData(outside)));
         _handle(_opAtQuorum(_pks(ALICE2_PK, BOB_PK), _callData(_pay(0.9 ether))));
-        assertEq(validator.recoveryDelay(w), 72 hours, "quorum is unrestricted");
+        assertNotEq(validator.rootReadyAt(w, _raiseId(w)), 0, "quorum is unrestricted");
         assertEq(_spent(ALICE2_PK, NATIVE_TOKEN), 0, "quorum was charged");
 
         vm.warp(_now() + 1);

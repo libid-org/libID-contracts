@@ -284,7 +284,7 @@ address, every wallet creation reverts.
 ## Root operations
 
 Install, uninstall, upgrade, `setThreshold`, `unlink`,
-revoking the last admin session and lowering the recovery delay are queued
+revoking the last admin session and changing the recovery delay are queued
 with `queueRoot` and executed by anyone with `executeRoot` once
 `recoveryDelay` (48 h to 365 days) has passed. Revoking an active admin
 session, or unlinking an identity, voids every root operation queued before

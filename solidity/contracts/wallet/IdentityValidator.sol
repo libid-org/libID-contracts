@@ -267,17 +267,16 @@ contract IdentityValidator is IIdentityValidator, IdentityValidatorState {
         _keepQuorum(msg.sender);
     }
 
-    function setRecoveryDelay(uint48 delay) external {
-        if (delay < recoveryDelay(msg.sender)) revert RootOperationRequired();
-        _setRecoveryDelay(msg.sender, delay);
-    }
-
     /// Decodes an `Authorization`; external so a malformed one fails validation instead of reverting it.
     function decodeAuthorization(bytes calldata signature) external pure returns (Authorization memory) {
         return abi.decode(signature, (Authorization));
     }
 
     function setThreshold(uint8) external pure {
+        revert RootOperationRequired();
+    }
+
+    function setRecoveryDelay(uint48) external pure {
         revert RootOperationRequired();
     }
 
