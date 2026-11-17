@@ -390,6 +390,19 @@ abstract contract WalletTestBase is Test, Trees {
         return abi.encodeCall(IERC7579Execution.execute, (MODE_SINGLE, abi.encodePacked(to, uint256(0), data)));
     }
 
+    function _raise() internal pure returns (bytes memory) {
+        return abi.encodeCall(IIdentityValidator.setRecoveryDelay, (72 hours));
+    }
+
+    /// The account's admin call queueing a recovery delay of 72 hours.
+    function _queueRaise() internal view returns (bytes memory) {
+        return abi.encodeCall(IIdentityValidator.queueRoot, (address(validator), _raise()));
+    }
+
+    function _raiseId(address wallet) internal view returns (bytes32) {
+        return keccak256(abi.encode(wallet, address(validator), _raise()));
+    }
+
     function _hit() internal view returns (bytes memory) {
         return _exec(address(target), abi.encodeCall(CallTarget.hit, ()));
     }

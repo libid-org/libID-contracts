@@ -4,29 +4,33 @@ pragma solidity ^0.8.24;
 import {IIdentityValidator} from "../IIdentityValidator.sol";
 import {WalletTestBase} from "./WalletTestBase.sol";
 
-/// The account raises its recovery delay at once and lowers it only by root operation.
+/// The account changes its recovery delay, up or down, only by root operation, after the current delay.
 contract RecoveryDelayTest is WalletTestBase {
     function _setDelay(uint48 delay) internal pure returns (bytes memory) {
         return abi.encodeCall(IIdentityValidator.setRecoveryDelay, (delay));
     }
 
-    function test_aRootOperationLowersTheDelayAfterTheCurrentOne() public {
-        address w = _claim();
-        vm.prank(w);
-        validator.setRecoveryDelay(30 days);
+    /// Queues `setRecoveryDelay(delay)` and executes it once `wait` has passed, not a second earlier.
+    function _change(address w, uint48 delay, uint48 wait) internal {
         vm.prank(w);
         vm.expectRevert(IIdentityValidator.RootOperationRequired.selector);
-        validator.setRecoveryDelay(72 hours);
+        validator.setRecoveryDelay(delay);
 
         vm.prank(w);
-        bytes32 opId = validator.queueRoot(address(validator), _setDelay(72 hours));
-        assertEq(validator.rootReadyAt(w, opId), _now() + 30 days, "the lowering waits the old delay");
-        vm.warp(_now() + 30 days - 1);
+        bytes32 opId = validator.queueRoot(address(validator), _setDelay(delay));
+        assertEq(validator.rootReadyAt(w, opId), _now() + wait, "not ready after the current delay");
+        vm.warp(_now() + wait - 1);
         vm.expectRevert(abi.encodeWithSelector(IIdentityValidator.RootNotReady.selector, opId));
-        validator.executeRoot(w, address(validator), _setDelay(72 hours));
+        validator.executeRoot(w, address(validator), _setDelay(delay));
         vm.warp(_now() + 1);
-        validator.executeRoot(w, address(validator), _setDelay(72 hours));
-        assertEq(validator.recoveryDelay(w), 72 hours, "not lowered");
+        validator.executeRoot(w, address(validator), _setDelay(delay));
+        assertEq(validator.recoveryDelay(w), delay, "not changed");
+    }
+
+    function test_aRootOperationChangesTheDelayAfterTheCurrentOne() public {
+        address w = _claim();
+        _change(w, 30 days, 48 hours);
+        _change(w, 72 hours, 30 days);
     }
 
     function test_aRootOperationKeepsTheBounds() public {
