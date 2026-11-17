@@ -32,9 +32,10 @@ factory.createAndExecute{value: linkFee}(
 `listPayload` is one sign-in proving an Operation List of the `bind-identity`
 entry for `w` and the `link-identity` entry for `linkData`, the
 `abi.encode(chainId, w, K, policyHash)` it hashes, so the same payload serves
-both calls. The link pays the Notary Fee. The bind attaches no value, so
-`CeremonyProofVerifier` returns the claim the link verified in this
-transaction; with `quoteBind` attached it would verify again.
+both calls. The link pays the Notary Fee. The bind, a later call of the same
+batch, attaches no value, so `CeremonyProofVerifier` returns the claim the link
+verified; with `quoteBind` attached it would verify again. The value rule is
+`IProofVerifier.verify`'s.
 `createAndExecute` creates the wallet if it has no code, then calls its
 `execute(mode, data)` with `msg.value`. It grants nothing: the batch passes the same end
 check as any direct batch. Any failure reverts the whole transaction, the
@@ -340,7 +341,7 @@ address, every wallet creation reverts.
 ## Root operations
 
 Install, uninstall, upgrade, `setThreshold`, `unlink`,
-revoking the last admin session and lowering the recovery delay are queued
+revoking the last admin session and changing the recovery delay are queued
 with `queueRoot` and executed by anyone with `executeRoot` once
 `recoveryDelay` (48 h to 365 days) has passed. Revoking an active admin
 session, or unlinking an identity, voids every root operation queued before

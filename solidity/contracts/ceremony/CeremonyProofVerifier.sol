@@ -3,6 +3,8 @@ pragma solidity ^0.8.24;
 
 import {Initializable} from "@openzeppelin/contracts/proxy/utils/Initializable.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts/proxy/utils/UUPSUpgradeable.sol";
+import {SlotDerivation} from "@openzeppelin/contracts/utils/SlotDerivation.sol";
+import {TransientSlot} from "@openzeppelin/contracts/utils/TransientSlot.sol";
 import {Ownable2StepUpgradeable} from "@openzeppelin/contracts-upgradeable/access/Ownable2StepUpgradeable.sol";
 
 import {ICeremony} from "./ICeremony.sol";
@@ -21,10 +23,11 @@ import {IProofVerifier} from "./IProofVerifier.sol";
 ///      The concentration that buys is real and the specification names it: a
 ///      compromise here authorises arbitrary transactions at every Consumer at
 ///      once. That is the price of one entry point, and it is why this contract
-///      holds no platform constant, decodes nothing -- not the payload, not the
-///      transaction data inside it -- and applies no effect. Its one state
-///      besides the Supported Version Set is transient: the claims verified
-///      in the current transaction, so a payload consumed twice pays once.
+///      holds no platform constant, reads nothing of the payload or of the
+///      claim it returns, and applies no effect. Its one state besides the
+///      Supported Version Set is transient: the claims verified in the
+///      current transaction, so a payload consumed twice pays once
+///      (`IProofVerifier.verify`).
 ///
 ///      Two versions, and this contract knows only one of them. The VERIFIER
 ///      version is the key a payload is routed on: this chain's slot number,
@@ -36,6 +39,9 @@ import {IProofVerifier} from "./IProofVerifier.sol";
 ///      lets one proof outlive a verifier upgrade, and what lets Solana run
 ///      its slot numbers without matching this chain's.
 contract CeremonyProofVerifier is IProofVerifier, Initializable, UUPSUpgradeable, Ownable2StepUpgradeable {
+    using SlotDerivation for bytes32;
+    using TransientSlot for *;
+
     /// @custom:storage-location erc7201:libid.storage.CeremonyProofVerifier
     struct ProofVerifierStorage {
         /// platformId -> verifier version -> the Platform Verifier for that
@@ -68,6 +74,8 @@ contract CeremonyProofVerifier is IProofVerifier, Initializable, UUPSUpgradeable
 
     error UnknownVersion(bytes32 platformId, uint16 verifierVersion);
     error WrongValue(uint256 required, uint256 provided);
+    /// No value for a payload this transaction has not verified, at a non-zero quote.
+    error NotVerifiedInTransaction(uint256 required);
     error VerifierPlatformMismatch(bytes32 expected, bytes32 found);
 
     /// @custom:oz-upgrades-unsafe-allow constructor
@@ -102,19 +110,21 @@ contract CeremonyProofVerifier is IProofVerifier, Initializable, UUPSUpgradeable
         returns (ICeremony.VerifiedClaim memory claim)
     {
         IPlatformVerifier verifier = _requireVerifier(platformId, verifierVersion);
-        bytes32 slot = _slot(verifier, payload);
-
-        // No value: the claim this transaction already verified, as of that
-        // verification, if there is one.
+        uint256 required;
+        bytes32 slot;
         if (msg.value == 0) {
+            slot = _slot(verifier, payload);
             bytes memory verified = _verified(slot);
             if (verified.length != 0) return abi.decode(verified, (ICeremony.VerifiedClaim));
+            required = verifier.quote();
+            if (required != 0) revert NotVerifiedInTransaction(required);
+        } else {
+            // Exactly the quote: no refund path, so no partial-failure rule is
+            // needed and nothing can be captured in transit (REQ-COMMON-06D).
+            required = verifier.quote();
+            if (msg.value != required) revert WrongValue(required, msg.value);
+            slot = _slot(verifier, payload);
         }
-
-        // Otherwise exactly the quote: no refund path, so no partial-failure
-        // rule is needed and nothing can be captured in transit (REQ-COMMON-06D).
-        uint256 required = verifier.quote();
-        if (msg.value != required) revert WrongValue(required, msg.value);
 
         // Forwarded whole and returned whole. The payload is the verifier's to
         // decode and the claim is the Consumer's to act on; this hop reads
@@ -158,35 +168,31 @@ contract CeremonyProofVerifier is IProofVerifier, Initializable, UUPSUpgradeable
 
     /// Transient slot of a payload's claim under `verifier`.
     function _slot(IPlatformVerifier verifier, bytes calldata payload) private pure returns (bytes32) {
-        return keccak256(abi.encode(VERIFIED_NAMESPACE, verifier, keccak256(payload)));
+        return VERIFIED_NAMESPACE.deriveMapping(address(verifier)).deriveMapping(keccak256(payload));
     }
 
-    /// The claim this transaction verified at `slot`, or empty: its length
-    /// plus one at `slot`, its words from `slot + 1`.
+    /// The claim this transaction verified at `slot`, or empty: its length at
+    /// `slot`, its words from `slot.deriveArray()`.
     function _verified(bytes32 slot) private view returns (bytes memory data) {
-        assembly ("memory-safe") {
-            let stored := tload(slot)
-            if stored {
-                let length := sub(stored, 1)
-                data := mload(0x40)
-                mstore(data, length)
-                let words := shr(5, add(length, 31))
-                for { let i := 0 } lt(i, words) { i := add(i, 1) } {
-                    mstore(add(data, add(32, shl(5, i))), tload(add(slot, add(i, 1))))
-                }
-                mstore(0x40, add(data, add(32, shl(5, words))))
+        data = new bytes(slot.asUint256().tload());
+        bytes32 words = slot.deriveArray();
+        for (uint256 i; i < data.length; i += 32) {
+            bytes32 word = words.offset(i / 32).asBytes32().tload();
+            assembly ("memory-safe") {
+                mstore(add(add(data, 32), i), word)
             }
         }
     }
 
     function _remember(bytes32 slot, bytes memory data) private {
-        assembly ("memory-safe") {
-            let length := mload(data)
-            tstore(slot, add(length, 1))
-            let words := shr(5, add(length, 31))
-            for { let i := 0 } lt(i, words) { i := add(i, 1) } {
-                tstore(add(slot, add(i, 1)), mload(add(data, add(32, shl(5, i)))))
+        slot.asUint256().tstore(data.length);
+        bytes32 words = slot.deriveArray();
+        for (uint256 i; i < data.length; i += 32) {
+            bytes32 word;
+            assembly ("memory-safe") {
+                word := mload(add(add(data, 32), i))
             }
+            words.offset(i / 32).asBytes32().tstore(word);
         }
     }
 

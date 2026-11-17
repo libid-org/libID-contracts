@@ -15,8 +15,9 @@ import {IIdentityValidator} from "./IIdentityValidator.sol";
 ///      The wallet's genesis identity (`IIdentityValidator.genesisIdentity`) is linked when the wallet
 ///      is created. Only the wallet links, usually inside its own direct `execute`; the session a link adds
 ///      is the wallet's own (`IIdentityValidator.addSessionByAccount`), from any OAuth client.
-///      `msg.value` goes whole to `proofVerifier.verify`: `quote`, or zero for a payload verified earlier
-///      in the same transaction (`IProofVerifier.verify`). Links are not exclusive.
+///      `msg.value` goes whole to `proofVerifier.verify`, under its value rule (`IProofVerifier.verify`):
+///      `quote`, or zero for a payload an earlier call of the caller's own batch verified. Links are not
+///      exclusive.
 ///      Every proof goes through `proofVerifier`, whose owner this registry trusts (README.md).
 interface IWalletRegistry is IOperationLists {
     event IdentityLinked(

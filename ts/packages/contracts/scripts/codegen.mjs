@@ -11,7 +11,7 @@ import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-import { bindRoute } from './bind-route.mjs'
+import { bindRoute, walletRegistryRoute } from './bind-route.mjs'
 
 /** @typedef {import('viem').Abi} Abi */
 /** @typedef {import('viem').AbiFunction} AbiFunction */
@@ -69,7 +69,7 @@ const contracts = [
     file: 'IdentityValidator.sol',
     name: 'IdentityValidator',
     exportName: 'identityValidatorAbi',
-    rootOnly: ['setThreshold', 'unlink'],
+    rootOnly: ['setThreshold', 'unlink', 'setRecoveryDelay'],
   },
   { file: 'WalletRegistry.sol', name: 'WalletRegistry', exportName: 'walletRegistryAbi' },
   { file: 'WalletFactory.sol', name: 'WalletFactory', exportName: 'walletFactoryAbi' },
@@ -89,22 +89,6 @@ function readArtifact(file, name) {
     throw err
   }
 }
-
-// A WalletRegistry call verifies its proof on the bind route's proof hops,
-// those between the IdentityRegistry and the fee receiver, then calls the
-// IdentityValidator.
-const walletRegistryRoute = (() => {
-  const [first, ...rest] = bindRoute
-  const last = rest.pop()
-  if (first?.[1] !== 'IdentityRegistry' || last?.[1] !== 'ReferralSplitter') {
-    throw new Error('bindRoute no longer starts at IdentityRegistry and ends at ReferralSplitter')
-  }
-  return [
-    ['WalletRegistry.sol', 'WalletRegistry'],
-    ...rest,
-    ['IdentityValidator.sol', 'IdentityValidator'],
-  ]
-})()
 
 /// The errors of every contract on `route`, each signature once.
 /// @param {readonly (readonly [string, string])[]} route

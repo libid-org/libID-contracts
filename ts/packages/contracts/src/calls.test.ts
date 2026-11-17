@@ -50,7 +50,7 @@ describe('generated call builders', () => {
   })
 
   it('builds the payloads of root-only functions', () => {
-    // setThreshold and unlink revert when called: the account queues their calldata.
+    // setThreshold, unlink and setRecoveryDelay revert when called: the account queues their calldata.
     const op = calls.identityValidator.unlink(VALIDATOR, PLATFORM)
     expect(decodeFunctionData({ abi: identityValidatorAbi, data: op.data })).toEqual({
       functionName: 'unlink',

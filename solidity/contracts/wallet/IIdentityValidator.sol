@@ -261,8 +261,8 @@ interface IIdentityValidator is IERC7579Validator, IExecutionCheck {
     /// Revoking an active admin session voids every root operation queued before it.
     /// Refused when it leaves fewer admin platforms than the threshold, but some (see `ThresholdTooHigh`).
     function revokeSession(bytes calldata key) external;
-    /// Raises the delay at once. Lowering it, never below `MIN_RECOVERY_DELAY`, is a root operation:
-    /// the account reverts `RootOperationRequired`.
+    /// Root operation only, raising or lowering, within `MIN_RECOVERY_DELAY` and `MAX_RECOVERY_DELAY`:
+    /// reverts `RootOperationRequired` when the account calls it.
     function setRecoveryDelay(uint48 delay) external;
     /// Root operation only: reverts `RootOperationRequired` when the account calls it.
     function setThreshold(uint8 threshold_) external;
@@ -272,8 +272,7 @@ interface IIdentityValidator is IERC7579Validator, IExecutionCheck {
     /// still needs, the genesis identity, or when the account would be left with no admin session.
     function unlink(bytes32 identity) external;
     /// `target` is the account (install, uninstall, upgrade) or this validator
-    /// (`setThreshold`, `unlink`, `revokeSession` of the last admin, a lower
-    /// `setRecoveryDelay`).
+    /// (`setThreshold`, `unlink`, `revokeSession` of the last admin, `setRecoveryDelay`).
     /// Ready after `recoveryDelay`.
     function queueRoot(address target, bytes calldata data) external returns (bytes32 opId);
     function cancelRoot(bytes32 opId) external;

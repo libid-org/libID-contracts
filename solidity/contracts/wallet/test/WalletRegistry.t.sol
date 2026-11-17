@@ -231,6 +231,37 @@ contract WalletRegistryTest is WalletTestBase {
         assertEq(paid.lastValue(), 5, "the verifier was not paid");
     }
 
+    /// A link with no value takes the claim an earlier call of the same transaction verified.
+    function test_aZeroValueLinkTakesTheSavedClaim() public {
+        StubPlatformVerifier paid = new StubPlatformVerifier(GITHUB, 5);
+        vm.prank(owner);
+        proofVerifier.setVerifier(GITHUB, 2, IPlatformVerifier(address(paid)));
+        address w = _claim();
+        paid.setNodes(BOB, keccak256("h"));
+        bytes memory payload = abi.encode(
+            StubPlatformVerifier.StubPayload({
+                ceremonyVersion: 1,
+                operationDomain: LINK,
+                authorizationNonce: keccak256("saved"),
+                transactionData: _txData(w, "", bytes32(0))
+            })
+        );
+        vm.prank(w);
+        vm.expectRevert(abi.encodeWithSelector(CeremonyProofVerifier.NotVerifiedInTransaction.selector, 5));
+        registry.linkIdentity(GITHUB, 2, payload, "", _admin());
+
+        vm.deal(address(this), 5);
+        this.verifyThenLink(paid, w, payload);
+        assertTrue(validator.isLinked(w, _identity(GITHUB, BOB)), "not linked");
+    }
+
+    function verifyThenLink(StubPlatformVerifier paid, address w, bytes calldata payload) external {
+        proofVerifier.verify{value: 5}(GITHUB, 2, payload);
+        vm.expectCall(address(paid), abi.encodeWithSelector(IPlatformVerifier.verify.selector), 0);
+        vm.prank(w);
+        registry.linkIdentity(GITHUB, 2, payload, "", _admin());
+    }
+
     // ─── Sessions by proof (R4) ─────────────────────────────────────
 
     function test_addSessionNeedsALinkedIdentity() public {

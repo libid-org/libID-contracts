@@ -74,7 +74,7 @@ contract WebWalletTest is WalletTestBase {
                 (MODE_DELEGATE, abi.encodePacked(address(marker), abi.encodeCall(SlotMarker.mark, ())))
             ),
             _exec(w, abi.encodeCall(IERC7579AccountConfig.supportsModule, (2))),
-            _exec(address(validator), abi.encodeCall(IIdentityValidator.setRecoveryDelay, (72 hours))),
+            _exec(address(validator), _queueRaise()),
             abi.encodeCall(IERC7579Execution.execute, (MODE_BATCH, abi.encode(mixed))),
             abi.encodeCall(IWebWallet.upgradeToAndCall, (address(marker), ""))
         ];

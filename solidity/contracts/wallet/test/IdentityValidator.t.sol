@@ -246,8 +246,7 @@ contract IdentityValidatorTest is WalletTestBase {
         _root(w, address(validator), abi.encodeCall(IIdentityValidator.setThreshold, (2)));
         assertEq(validator.threshold(w), 2, "threshold");
 
-        bytes memory adminOp =
-            _exec(address(validator), abi.encodeCall(IIdentityValidator.setRecoveryDelay, (72 hours)));
+        bytes memory adminOp = _exec(address(validator), _queueRaise());
         assertEq(_validate(w, adminOp, _pks(ALICE_PK)), 1, "one identity");
         assertEq(_validate(w, adminOp, _pks(ALICE_PK, ALICE_PK)), 1, "one key twice");
         assertEq(_validate(w, adminOp, _pks(ALICE_PK, ALICE2_PK)), 1, "two keys of one identity");
@@ -263,8 +262,7 @@ contract IdentityValidatorTest is WalletTestBase {
         _link(w, GOOGLE, CAROL, w, _key(CAROL_PK), _admin());
         uint256 linked = _window(uint48(_now()), 0);
         _root(w, address(validator), abi.encodeCall(IIdentityValidator.setThreshold, (2)));
-        bytes memory adminOp =
-            _exec(address(validator), abi.encodeCall(IIdentityValidator.setRecoveryDelay, (72 hours)));
+        bytes memory adminOp = _exec(address(validator), _queueRaise());
         assertEq(_validate(w, adminOp, _pks(ALICE_PK, MALLORY_PK)), 1, "two X identities met the threshold");
         assertEq(_validate(w, adminOp, _pks(MALLORY_PK, CAROL_PK)), linked, "X and Google missed the threshold");
         assertEq(_validate(w, _hit(), _pks(ALICE_PK, MALLORY_PK)), 1, "two X identities skipped the session rules");
@@ -467,24 +465,6 @@ contract IdentityValidatorTest is WalletTestBase {
 
         _addByProof(relayer, X, ALICE, w, _key(ALICE2_PK), _admin());
         assertEq(validator.sessionOf(w, _key(ALICE2_PK)).activeAt, _now(), "no session by proof after the last admin");
-    }
-
-    function test_recoveryDelayOnlyGrows() public {
-        address w = _claim();
-        vm.startPrank(w);
-        vm.expectRevert(IIdentityValidator.RootOperationRequired.selector);
-        validator.setRecoveryDelay(47 hours);
-        validator.setRecoveryDelay(72 hours);
-        validator.setRecoveryDelay(72 hours);
-        vm.expectRevert(IIdentityValidator.RootOperationRequired.selector);
-        validator.setRecoveryDelay(60 hours);
-        vm.stopPrank();
-        assertEq(validator.recoveryDelay(w), 72 hours);
-
-        uint48 max = validator.MAX_RECOVERY_DELAY();
-        vm.prank(w);
-        vm.expectRevert(abi.encodeWithSelector(IIdentityValidator.RecoveryDelayTooLong.selector, max + 1));
-        validator.setRecoveryDelay(max + 1);
     }
 
     /// The threshold may not exceed the admin platforms, or no admin operation could pass again.
