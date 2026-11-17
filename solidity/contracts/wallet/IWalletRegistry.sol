@@ -7,14 +7,16 @@ import {IIdentityValidator} from "./IIdentityValidator.sol";
 /// @title IWalletRegistry - links proved identities to wallets.
 /// @notice Constructor: `WalletRegistry(address proofVerifier, address walletFactory)`, which deploys its
 ///         IdentityValidator for the wallets of `walletFactory`. Immutable, no owner.
-/// @dev Both domains carry `abi.encode(uint256 chainId, address wallet, bytes sessionKey, bytes32 policyHash)`,
-///      canonically encoded. A proof of one operation carries it as its transaction data, and the call's
-///      `data` is empty. A proof of an Operation List (`IOperationLists`) commits its hash in an entry of
-///      either domain, and the call carries it as `data`. An empty key with a zero policy hash links
-///      only, and `policy` is then ignored.
+/// @dev The link and add-session domains carry
+///      `abi.encode(uint256 chainId, address wallet, bytes sessionKey, bytes32 policyHash)`, the
+///      remove-sessions domain `abi.encode(uint256 chainId, address wallet)`, each canonically encoded. A proof
+///      of one operation carries it as its transaction data, and the call's `data` is empty. A proof of an
+///      Operation List (`IOperationLists`) commits its hash in an entry of any of the three domains, and the
+///      call carries it as `data`. An empty key with a zero policy hash links only, and `policy` is then
+///      ignored.
 ///      The wallet's genesis identity (`IIdentityValidator.genesisIdentity`) is linked when the wallet
 ///      is created. Only the wallet links, usually inside its own direct `execute`; the session a link adds
-///      is the wallet's own (`IIdentityValidator.addSessionByAccount`), from any OAuth client.
+///      is the wallet's own (`IIdentityValidator.addSessionByRegistry`), from any OAuth client.
 ///      `msg.value` goes whole to `proofVerifier.verify`, under its value rule (`IProofVerifier.verify`):
 ///      `quote`, or zero for a payload an earlier call of the caller's own batch verified. Links are not
 ///      exclusive.
@@ -43,6 +45,8 @@ interface IWalletRegistry is IOperationLists {
     function LINK_IDENTITY_DOMAIN() external view returns (bytes32);
     /// keccak256("libid.webwallet.add-session")
     function ADD_SESSION_DOMAIN() external view returns (bytes32);
+    /// keccak256("libid.webwallet.remove-sessions")
+    function REMOVE_SESSIONS_DOMAIN() external view returns (bytes32);
 
     function linkIdentity(
         bytes32 platformId,
@@ -53,12 +57,22 @@ interface IWalletRegistry is IOperationLists {
     ) external payable;
 
     /// Anyone may submit; the identity must already be linked to the wallet, which must have had a session.
-    function addSessionByProof(
+    /// Adds a session `byProof` (`IIdentityValidator.addSessionByRegistry`).
+    function addSessionByLogin(
         bytes32 platformId,
         uint16 verifierVersion,
         bytes calldata payload,
         bytes calldata data,
         IIdentityValidator.Policy calldata policy
+    ) external payable;
+
+    /// Anyone may submit, from any app; the identity must be linked to the wallet. Kills its sessions, voids the
+    /// wallet's queued root operations and unlinks it unless it is the genesis (`IIdentityValidator.removeByLogin`).
+    function removeSessionsByLogin(
+        bytes32 platformId,
+        uint16 verifierVersion,
+        bytes calldata payload,
+        bytes calldata data
     ) external payable;
 
     /// The IdentityValidator this registry deployed and alone may call.

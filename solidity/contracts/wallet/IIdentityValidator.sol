@@ -69,8 +69,9 @@ interface IExecutionCheck {
 ///      they revert while the account has this validator installed.
 ///      `onUninstall` expects the account to remove the module before it calls the hook, the order
 ///      of OpenZeppelin's `AccountERC7579`: an account that calls the hook first cannot uninstall.
-///      Revoking an active admin session, or unlinking an identity, voids every root operation
-///      queued before it: a queued change does not outlive the sessions that could have queued it.
+///      Revoking an active admin session, unlinking an identity or removing its sessions by login voids
+///      every root operation queued before it: a queued change does not outlive the sessions that could
+///      have queued it.
 interface IIdentityValidator is IERC7579Validator, IExecutionCheck {
     /// @dev `period == 0` is a lifetime cap.
     struct Allowance {
@@ -102,9 +103,8 @@ interface IIdentityValidator is IERC7579Validator, IExecutionCheck {
     /// @dev `identity == 0`: no such session. The session signs only after `activeAt`: the second it was
     ///      added, or 0 for a new wallet's first session, which signs at once.
     ///      A session whose `generation` is not its identity's current one, bumped by each unlink, is dead.
-    ///      `byProof`: added by proof to an account that already had a session. Its operations, ordinary
-    ///      calls and ERC-1271 signatures included, need signers that reach the threshold.
-    ///      A non-admin session by proof counts toward no platform, so it never acts alone.
+    ///      `byProof`: added by a login to an account that already had a session. Above threshold 1 its
+    ///      operations, ordinary calls and ERC-1271 signatures included, need signers that reach the threshold.
     struct Session {
         bytes32 identity;
         uint48 validAfter;
@@ -154,10 +154,13 @@ interface IIdentityValidator is IERC7579Validator, IExecutionCheck {
 
     /// A session added by the account itself.
     event SessionAdded(address indexed account, bytes32 indexed identity, bytes key, Policy policy);
-    /// A session added by proof, the event to alert on: it signs after `activeAt`.
-    event SessionAddedByProof(
+    /// A session added by login, the event to alert on: it signs after `activeAt`.
+    event SessionAddedByLogin(
         address indexed account, bytes32 indexed identity, bytes key, Policy policy, uint48 activeAt
     );
+    /// A login removed every session of `identity`, voided every queued root operation and, unless it is the
+    /// genesis, unlinked it.
+    event SessionsRemovedByLogin(address indexed account, bytes32 indexed identity);
     event SessionRevoked(address indexed account, bytes32 indexed identity, bytes key);
     event RootQueued(address indexed account, bytes32 indexed opId, address target, bytes data, uint48 readyAt);
     event RootCancelled(address indexed account, bytes32 indexed opId);
@@ -185,10 +188,6 @@ interface IIdentityValidator is IERC7579Validator, IExecutionCheck {
     error RecoveryDelayTooLong(uint48 delay);
     /// The threshold may not exceed the number of platforms with an admin session, unless none has one.
     error ThresholdTooHigh(uint8 threshold, uint32 adminPlatforms);
-    /// An account keeps at least one linked identity.
-    error LastIdentity(bytes32 identity);
-    /// The unlink would leave the account no admin session.
-    error LastAdmin(bytes32 identity);
     /// The genesis identity stays linked: it names the wallet's factory address.
     error GenesisIdentity(bytes32 identity);
     /// An unlink or an active admin session's revoke ran after the root operation was queued.
@@ -246,13 +245,19 @@ interface IIdentityValidator is IERC7579Validator, IExecutionCheck {
 
     // Registry only.
     function link(address account, bytes32 platformId, bytes32 idNode) external;
-    /// Active from the next second, and `byProof`. Refused for an account that never had a session.
-    function addSessionByProof(address account, bytes32 identity, bytes calldata key, Policy calldata policy)
-        external
-        returns (uint48 activeAt);
-    /// The account itself submitted the proof: active from the next second. An account that never had a session
-    /// takes only the genesis identity's admin session, active at once.
-    function addSessionByAccount(address account, bytes32 identity, bytes calldata key, Policy calldata policy) external;
+    /// Active from the next second. `byLogin`: anyone submitted the login; the session is `byProof`, and an account
+    /// that never had a session is refused. Otherwise the account itself submitted its link: an account that never
+    /// had a session takes only the genesis identity's admin session, active at once.
+    function addSessionByRegistry(
+        address account,
+        bytes32 identity,
+        bytes calldata key,
+        Policy calldata policy,
+        bool byLogin
+    ) external;
+    /// Kills every session of the linked `identity` and voids every queued root operation. Unlinks it unless it is
+    /// the genesis, lowering the threshold to the platforms left. Never refused for the last admin.
+    function removeByLogin(address account, bytes32 identity) external;
 
     // The account itself (an admin operation, under the threshold).
     /// Active from the next second. The identity must be linked. A dead session's key may be reused.
@@ -267,9 +272,9 @@ interface IIdentityValidator is IERC7579Validator, IExecutionCheck {
     /// Root operation only: reverts `RootOperationRequired` when the account calls it.
     function setThreshold(uint8 threshold_) external;
     /// Root operation only. Every session of the identity stops validating for good,
-    /// and every root operation queued before it stops executing.
-    /// Refused for an identity not linked, the last one, the last admin sessions of a platform the threshold
-    /// still needs, the genesis identity, or when the account would be left with no admin session.
+    /// and every root operation queued before it stops executing. The threshold drops to the platforms
+    /// still linked; the account may be left with no admin session.
+    /// Refused for an identity not linked, or the genesis identity.
     function unlink(bytes32 identity) external;
     /// `target` is the account (install, uninstall, upgrade) or this validator
     /// (`setThreshold`, `unlink`, `revokeSession` of the last admin, `setRecoveryDelay`).

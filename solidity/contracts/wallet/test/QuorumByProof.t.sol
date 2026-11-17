@@ -28,7 +28,7 @@ contract QuorumByProofTest is WalletTestBase {
 
     function test_aProofSessionAloneIsBelowTheThreshold() public {
         address w = _twoPlatforms();
-        _addByProof(mallory, GITHUB, BOB, w, _key(BOB_PK), _adminHitOnly());
+        _addByLogin(mallory, GITHUB, BOB, w, _key(BOB_PK), _adminHitOnly());
         vm.warp(_now() + 48 hours + 1);
         assertTrue(validator.sessionOf(w, _key(BOB_PK)).byProof, "not marked");
         assertFalse(validator.sessionOf(w, _key(ALICE_PK)).byProof, "the genesis session is marked");
@@ -44,7 +44,7 @@ contract QuorumByProofTest is WalletTestBase {
         _handle(_signedWith(_op(w, 0, _hit()), _pks(ALICE_PK), _hitProofs(1)));
         assertEq(target.calls(), 1, "the genesis session's call");
 
-        _addByProof(mallory, X, ALICE, w, _key(ALICE2_PK), _admin());
+        _addByLogin(mallory, X, ALICE, w, _key(ALICE2_PK), _admin());
         vm.warp(_now() + 48 hours + 1);
         _handle(_signed(_op(w, 1, _hit()), _pks(BOB_PK, ALICE2_PK)));
         assertEq(target.calls(), 2, "two proof sessions reach the threshold");
@@ -53,7 +53,7 @@ contract QuorumByProofTest is WalletTestBase {
 
     function test_atThresholdOneAProofSessionHasFullControl() public {
         address w = _claim();
-        _addByProof(mallory, X, ALICE, w, _key(ALICE2_PK), _admin());
+        _addByLogin(mallory, X, ALICE, w, _key(ALICE2_PK), _admin());
         vm.warp(_now() + 48 hours + 1);
 
         _handle(_signed(_op(w, 0, _hit()), _pks(ALICE2_PK)));

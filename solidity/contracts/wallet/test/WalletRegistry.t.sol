@@ -128,7 +128,7 @@ contract WalletRegistryTest is WalletTestBase {
         }
         bytes memory linkPayload = _payload(X, ALICE, LINK, data);
         vm.expectRevert(abi.encodeWithSelector(IWalletRegistry.ForeignOperationDomain.selector, LINK));
-        registry.addSessionByProof(X, V1, linkPayload, "", _admin());
+        registry.addSessionByLogin(X, V1, linkPayload, "", _admin());
     }
 
     function test_crossChainReplayIsRefused() public {
@@ -187,7 +187,7 @@ contract WalletRegistryTest is WalletTestBase {
 
         bytes memory addPayload = _payload(X, ALICE, ADD, abi.encodePacked(good, bytes1(0)));
         vm.expectPartialRevert(IWalletRegistry.BadTransactionData.selector);
-        registry.addSessionByProof(X, V1, addPayload, "", _admin());
+        registry.addSessionByLogin(X, V1, addPayload, "", _admin());
     }
 
     function test_policyMustMatchTheCommitment() public {
@@ -268,11 +268,11 @@ contract WalletRegistryTest is WalletTestBase {
         address w = _claim();
         bytes memory payload = _payload(GITHUB, BOB, ADD, _txData(w, _key(BOB_PK), _ph(_admin())));
         vm.expectRevert(abi.encodeWithSelector(IIdentityValidator.NotLinked.selector, w, _identity(GITHUB, BOB)));
-        registry.addSessionByProof(GITHUB, V1, payload, "", _admin());
+        registry.addSessionByLogin(GITHUB, V1, payload, "", _admin());
 
         payload = _payload(X, ALICE, ADD, _txData(w, "", bytes32(0)));
         vm.expectRevert(abi.encodeWithSelector(IIdentityValidator.InvalidKey.selector, ""));
-        registry.addSessionByProof(X, V1, payload, "", _admin());
+        registry.addSessionByLogin(X, V1, payload, "", _admin());
     }
 
     function test_aWalletThatNeverHadASessionTakesNoSessionByProof() public {
@@ -281,7 +281,7 @@ contract WalletRegistryTest is WalletTestBase {
         bytes memory payload = _payload(X, ALICE, ADD, _txData(w, _key(ALICE_PK), _ph(_admin())));
         vm.prank(mallory);
         vm.expectRevert(abi.encodeWithSelector(IIdentityValidator.FirstSessionRefused.selector, w));
-        registry.addSessionByProof(X, V1, payload, "", _admin());
+        registry.addSessionByLogin(X, V1, payload, "", _admin());
         assertFalse(validator.hadSession(w), "flag set");
     }
 
@@ -290,9 +290,9 @@ contract WalletRegistryTest is WalletTestBase {
         address w = _claim();
         bytes memory payload = _payload(X, ALICE, ADD, _txData(w, _key(ALICE2_PK), _ph(_admin())));
         vm.expectEmit(true, true, false, true, address(validator));
-        emit IIdentityValidator.SessionAddedByProof(w, _identity(X, ALICE), _key(ALICE2_PK), _admin(), uint48(_now()));
+        emit IIdentityValidator.SessionAddedByLogin(w, _identity(X, ALICE), _key(ALICE2_PK), _admin(), uint48(_now()));
         vm.prank(mallory);
-        registry.addSessionByProof(X, V1, payload, "", _admin());
+        registry.addSessionByLogin(X, V1, payload, "", _admin());
         IIdentityValidator.Session memory s = validator.sessionOf(w, _key(ALICE2_PK));
         assertTrue(s.byProof && s.activeAt == _now(), "not by proof from now");
 

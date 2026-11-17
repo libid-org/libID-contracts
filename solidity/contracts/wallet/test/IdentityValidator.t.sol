@@ -51,7 +51,7 @@ contract IdentityValidatorTest is WalletTestBase {
         vm.expectRevert(abi.encodeWithSelector(IIdentityValidator.NotRegistry.selector, mallory));
         validator.link(w, X, MALLORY);
         vm.expectRevert(abi.encodeWithSelector(IIdentityValidator.NotRegistry.selector, mallory));
-        validator.addSessionByProof(w, _identity(X, ALICE), _key(MALLORY_PK), _admin());
+        validator.addSessionByRegistry(w, _identity(X, ALICE), _key(MALLORY_PK), _admin(), true);
         vm.stopPrank();
     }
 
@@ -105,7 +105,7 @@ contract IdentityValidatorTest is WalletTestBase {
         _addHitOnly(w, APP_PK, start, end);
         assertEq(_validateHit(w, APP_PK), _window(start, end), "policy window");
 
-        _addByProof(relayer, X, ALICE, w, _key(ALICE2_PK), _admin());
+        _addByLogin(relayer, X, ALICE, w, _key(ALICE2_PK), _admin());
         assertEq(_validate(w, _hit(), _pks(ALICE2_PK)), _window(uint48(_now()), 0), "session by proof window");
     }
 
@@ -307,18 +307,16 @@ contract IdentityValidatorTest is WalletTestBase {
         assertEq(validator.sessionOf(w, _key(BOB_PK)).identity, _identity(GITHUB, BOB), "revoked anyway");
     }
 
-    /// An unlink may not take a platform's last admin session the threshold needs, though the platform
-    /// stays linked.
-    function test_unlinkKeepsTheAdminPlatformsTheThresholdNeeds() public {
+    /// An unlink may take a platform's last admin session the threshold needs: the threshold follows the platforms
+    /// still linked, not the admin ones.
+    function test_unlinkMayTakeTheAdminPlatformsTheThresholdNeeds() public {
         address w = _claim();
         _link(w, GITHUB, BOB, w, _key(BOB_PK), _admin());
         _link(w, GITHUB, CAROL, w, "", _admin());
         _root(w, address(validator), abi.encodeCall(IIdentityValidator.setThreshold, (2)));
-        _unlinkReverts(
-            w,
-            _identity(GITHUB, BOB),
-            abi.encodeWithSelector(IIdentityValidator.ThresholdTooHigh.selector, uint8(2), uint32(1))
-        );
+        _root(w, address(validator), abi.encodeCall(IIdentityValidator.unlink, (_identity(GITHUB, BOB))));
+        assertFalse(validator.isLinked(w, _identity(GITHUB, BOB)), "linked");
+        assertEq(validator.threshold(w), 2, "threshold");
     }
 
     /// An admin session never expires on its own, so time cannot take a platform off the quorum.
@@ -332,11 +330,11 @@ contract IdentityValidatorTest is WalletTestBase {
         validator.addSession(_identity(X, ALICE), _key(ALICE2_PK), p);
         bytes memory payload = _payload(X, ALICE, ADD, _txData(w, _key(ALICE2_PK), _ph(p)));
         vm.expectRevert(expires);
-        registry.addSessionByProof(X, V1, payload, "", p);
+        registry.addSessionByLogin(X, V1, payload, "", p);
     }
 
-    /// An unlink may not drop the last admin session of a platform the threshold needs; a re-link counts it again.
-    function test_unlinkKeepsThePlatformsTheThresholdNeeds() public {
+    /// An unlink of a platform lowers the threshold to the platforms left; a re-link counts it again.
+    function test_unlinkLowersTheThresholdToThePlatformsLeft() public {
         address w = _claim();
         bytes32 mallory_ = _identity(X, MALLORY);
         bytes32 carol = _identity(GOOGLE, CAROL);
@@ -346,11 +344,10 @@ contract IdentityValidatorTest is WalletTestBase {
         _link(w, GOOGLE, CAROL, w, _key(CAROL_PK), _admin());
         _root(w, address(validator), threshold2);
 
-        _unlinkReverts(w, carol, tooHigh);
         _root(w, address(validator), abi.encodeCall(IIdentityValidator.unlink, (mallory_)));
-
-        _root(w, address(validator), abi.encodeCall(IIdentityValidator.setThreshold, (1)));
+        assertEq(validator.threshold(w), 2, "an unlink within a platform lowered the threshold");
         _root(w, address(validator), abi.encodeCall(IIdentityValidator.unlink, (carol)));
+        assertEq(validator.threshold(w), 1, "not min(2, 1)");
         _rootReverts(w, address(validator), threshold2, tooHigh);
         _link(w, GOOGLE, CAROL, w, _key(CAROL_PK), _admin());
         _root(w, address(validator), threshold2);
@@ -463,7 +460,7 @@ contract IdentityValidatorTest is WalletTestBase {
         _root(w, address(validator), abi.encodeCall(IIdentityValidator.revokeSession, (_key(ALICE_PK))));
         assertEq(validator.sessionOf(w, _key(ALICE_PK)).identity, bytes32(0), "not revoked");
 
-        _addByProof(relayer, X, ALICE, w, _key(ALICE2_PK), _admin());
+        _addByLogin(relayer, X, ALICE, w, _key(ALICE2_PK), _admin());
         assertEq(validator.sessionOf(w, _key(ALICE2_PK)).activeAt, _now(), "no session by proof after the last admin");
     }
 
@@ -483,7 +480,7 @@ contract IdentityValidatorTest is WalletTestBase {
         address w = _claim();
         bytes32 bob = _identity(GITHUB, BOB);
         _link(w, GITHUB, BOB, w, _key(BOB_PK), _admin());
-        _addByProof(relayer, GITHUB, BOB, w, _key(APP_PK), _admin());
+        _addByLogin(relayer, GITHUB, BOB, w, _key(APP_PK), _admin());
 
         bytes memory data = abi.encodeCall(IIdentityValidator.unlink, (bob));
         vm.prank(w);
@@ -511,7 +508,7 @@ contract IdentityValidatorTest is WalletTestBase {
 
         bytes memory payload = _payload(GITHUB, BOB, ADD, _txData(w, _key(MALLORY_PK), _ph(_admin())));
         vm.expectRevert(abi.encodeWithSelector(IIdentityValidator.NotLinked.selector, w, bob));
-        registry.addSessionByProof(GITHUB, V1, payload, "", _admin());
+        registry.addSessionByLogin(GITHUB, V1, payload, "", _admin());
     }
 
     /// A re-link starts a new generation: sessions of the earlier link stay dead.
@@ -520,7 +517,7 @@ contract IdentityValidatorTest is WalletTestBase {
         bytes32 bob = _identity(GITHUB, BOB);
         bytes32 h = keccak256("a message");
         _link(w, GITHUB, BOB, w, _key(BOB_PK), _admin());
-        _addByProof(mallory, GITHUB, BOB, w, _key(MALLORY_PK), _admin());
+        _addByLogin(mallory, GITHUB, BOB, w, _key(MALLORY_PK), _admin());
         _root(w, address(validator), abi.encodeCall(IIdentityValidator.unlink, (bob)));
         _link(w, GITHUB, BOB, w, "", _admin());
 
@@ -536,43 +533,24 @@ contract IdentityValidatorTest is WalletTestBase {
         assertTrue(_isValid1271(w, h, APP_PK, _wrapped(w, h)), "a fresh session fails ERC-1271");
     }
 
-    /// An unlink keeps one identity and enough platforms for the threshold.
+    /// An unlink refuses an identity not linked (the genesis: GenesisIdentity.t.sol).
     function test_unlinkRefusals() public {
         address w = _claim();
         bytes32 bob = _identity(GITHUB, BOB);
         _unlinkReverts(w, bob, abi.encodeWithSelector(IIdentityValidator.NotLinked.selector, w, bob));
-        bytes32 alice = _identity(X, ALICE);
-        _unlinkReverts(w, alice, abi.encodeWithSelector(IIdentityValidator.LastIdentity.selector, alice));
-
-        _link(w, GITHUB, BOB, w, _key(BOB_PK), _admin());
-        _root(w, address(validator), abi.encodeCall(IIdentityValidator.setThreshold, (2)));
-        _unlinkReverts(
-            w, bob, abi.encodeWithSelector(IIdentityValidator.ThresholdTooHigh.selector, uint8(2), uint32(1))
-        );
-        assertTrue(validator.isLinked(w, bob), "unlinked anyway");
     }
 
     function _unlinkReverts(address w, bytes32 identity, bytes memory err) internal {
         _rootReverts(w, address(validator), abi.encodeCall(IIdentityValidator.unlink, (identity)), err);
     }
 
-    /// An unlink may not take the account's last admin session with it.
-    function test_unlinkOfTheLastAdminIsRefused() public {
-        address w = _claim();
-        bytes32 alice = _identity(X, ALICE);
-        _link(w, GITHUB, BOB, w, _key(BOB_PK), _app());
-        _unlinkReverts(w, alice, abi.encodeWithSelector(IIdentityValidator.LastAdmin.selector, alice));
-    }
-
     /// An unlinked identity's admin sessions stop counting, even after a re-link or a revoke.
     function test_deadAdminSessionsDoNotCount() public {
         address w = _claim();
         bytes32 bob = _identity(GITHUB, BOB);
-        bytes32 alice = _identity(X, ALICE);
         _link(w, GITHUB, BOB, w, _key(BOB_PK), _admin());
         _root(w, address(validator), abi.encodeCall(IIdentityValidator.unlink, (bob)));
         _link(w, GITHUB, BOB, w, "", _admin());
-        _unlinkReverts(w, alice, abi.encodeWithSelector(IIdentityValidator.LastAdmin.selector, alice));
 
         vm.startPrank(w);
         validator.revokeSession(_key(BOB_PK));
@@ -730,7 +708,7 @@ contract IdentityValidatorTest is WalletTestBase {
 
             bytes memory payload = _payload(X, ALICE, ADD, _txData(w, _key(APP_PK), _ph(ps[i])));
             vm.expectRevert();
-            registry.addSessionByProof(X, V1, payload, "", ps[i]);
+            registry.addSessionByLogin(X, V1, payload, "", ps[i]);
 
             payload = _payload(X, ALICE, LINK, _txData(w, _key(APP_PK), _ph(ps[i])));
             vm.prank(w);
@@ -742,7 +720,7 @@ contract IdentityValidatorTest is WalletTestBase {
         IIdentityValidator.Policy memory app = _app();
         bytes memory late = _payload(X, ALICE, ADD, _txData(w, _key(APP_PK), _ph(app)));
         vm.expectRevert(abi.encodeWithSelector(IIdentityValidator.PolicyOutOfRange.selector, 0, 0));
-        registry.addSessionByProof(X, V1, late, "", app);
+        registry.addSessionByLogin(X, V1, late, "", app);
     }
 
     /// ERC-7739 `TypedDataSign`: the app's hash, nested under the account's domain, signed by an admin.

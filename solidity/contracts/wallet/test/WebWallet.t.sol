@@ -105,7 +105,7 @@ contract WebWalletTest is WalletTestBase {
         hourly.validUntil = uint48(_now() + 1 hours);
         vm.prank(w);
         validator.addSession(_identity(X, ALICE), _key(APP_PK), hourly);
-        _addByProof(relayer, X, ALICE, w, _key(ALICE2_PK), _admin());
+        _addByLogin(relayer, X, ALICE, w, _key(ALICE2_PK), _admin());
         bytes memory notDue = abi.encodeWithSelector(IEntryPoint.FailedOp.selector, 0, "AA22 expired or not due");
 
         PackedUserOperation memory early = _signed(_op(w, 0, _hit()), _pks(ALICE2_PK));

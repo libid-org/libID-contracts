@@ -21,7 +21,6 @@ abstract contract IdentityValidatorState {
         uint8 threshold;
         bool hadSession;
         uint32 adminSessions;
-        uint32 identities;
         uint32 rootEpoch;
         uint32 platforms;
         uint32 adminPlatforms;

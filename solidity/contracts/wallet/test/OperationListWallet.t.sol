@@ -46,7 +46,7 @@ contract OperationListWalletTest is WalletTestBase {
         vm.expectRevert(abi.encodeWithSelector(IWalletRegistry.ForeignOperationDomain.selector, ADD));
         registry.linkIdentity(X, V1, payload, add, _app());
 
-        registry.addSessionByProof(X, V1, payload, add, _app());
+        registry.addSessionByLogin(X, V1, payload, add, _app());
         assertEq(validator.sessionOf(w, _key(ALICE2_PK)).identity, _identity(X, ALICE), "no session");
     }
 
@@ -60,7 +60,7 @@ contract OperationListWalletTest is WalletTestBase {
         vm.prank(w);
         registry.linkIdentity(X, V1, payload, link, _admin());
         vm.expectRevert(abi.encodeWithSelector(IWalletRegistry.DigestAlreadySpent.selector, xStub.lastDigest()));
-        registry.addSessionByProof(X, V1, payload, add, _admin());
+        registry.addSessionByLogin(X, V1, payload, add, _admin());
     }
 
     function test_aListWithoutTheCallsEntryIsRefused() public {

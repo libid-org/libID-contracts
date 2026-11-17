@@ -584,7 +584,7 @@ contract PolicyTest is WalletTestBase {
         IIdentityValidator.Policy memory p = IIdentityValidator.Policy(0, 0, false, 0, far);
         bytes memory payload = _payload(X, ALICE, ADD, _txData(w, _key(APP_PK), _ph(p)));
         vm.expectRevert(abi.encodeWithSelector(IIdentityValidator.BadAllowance.selector, address(token)));
-        registry.addSessionByProof(X, V1, payload, "", p);
+        registry.addSessionByLogin(X, V1, payload, "", p);
     }
 
     /// `at == 0` is refused: in a one-second period it would end the window at 0, which is unbounded.
@@ -902,7 +902,7 @@ contract PolicyTest is WalletTestBase {
     /// The proof of a session commits its rules, which the session record keeps.
     function test_aProofCommitsTheRules() public {
         IIdentityValidator.Policy memory p = IIdentityValidator.Policy(0, 0, false, 0, _sorted(_daily()));
-        _addByProof(relayer, X, ALICE, w, _key(APP_PK), p);
+        _addByLogin(relayer, X, ALICE, w, _key(APP_PK), p);
         IIdentityValidator.Session memory s = validator.sessionOf(w, _key(APP_PK));
         assertEq(s.scopeRoot, _scopeRoot(), "scopeRoot");
         assertEq(s.domainsRoot, 0, "domainsRoot");
@@ -912,7 +912,7 @@ contract PolicyTest is WalletTestBase {
         bytes memory payload = _payload(X, ALICE, ADD, _txData(w, _key(APP_PK), committed));
         p.rules.allowances[0].amount += 1;
         vm.expectRevert(abi.encodeWithSelector(IWalletRegistry.PolicyMismatch.selector, committed, _ph(p)));
-        registry.addSessionByProof(X, V1, payload, "", p);
+        registry.addSessionByLogin(X, V1, payload, "", p);
     }
 
     // ─── Signing helpers ────────────────────────────────────────────

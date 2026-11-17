@@ -312,7 +312,7 @@ abstract contract WalletTestBase is Test, Trees {
         return _stub(platformId).lastDigest();
     }
 
-    function _addByProof(
+    function _addByLogin(
         address submitter,
         bytes32 platformId,
         bytes32 idNode,
@@ -322,7 +322,7 @@ abstract contract WalletTestBase is Test, Trees {
     ) internal {
         bytes memory payload = _payload(platformId, idNode, ADD, _txData(wallet, key, _ph(p)));
         vm.prank(submitter);
-        registry.addSessionByProof(platformId, V1, payload, "", p);
+        registry.addSessionByLogin(platformId, V1, payload, "", p);
     }
 
     /// Alice's canonical wallet, which linked her first session itself.

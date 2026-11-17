@@ -62,7 +62,7 @@ contract IdentityAdmin is IdentityValidatorState {
         (,, bytes memory key, IIdentityValidator.Policy memory policy) =
             abi.decode(data, (bytes32, bytes32, bytes, IIdentityValidator.Policy));
         if (!policy.admin) revert IIdentityValidator.InstallSessionNotAdmin();
-        _addNow(msg.sender, identityOf(platformId, idNode), key, policy);
+        _add(msg.sender, identityOf(platformId, idNode), key, policy, false, false);
     }
 
     /// @dev The account removes the module before it calls this hook, as OpenZeppelin's `AccountERC7579` does.
@@ -81,33 +81,19 @@ contract IdentityAdmin is IdentityValidatorState {
         _link(account, platformId, idNode);
     }
 
-    function addSessionByProof(
+    function addSessionByRegistry(
         address account,
         bytes32 identity,
         bytes calldata key,
-        IIdentityValidator.Policy calldata policy
-    ) external onlyRegistry returns (uint48 activeAt) {
-        if (!_account(account).hadSession) revert IIdentityValidator.FirstSessionRefused(account);
-        // forge-lint: disable-next-line(unsafe-typecast)
-        activeAt = uint48(block.timestamp);
-        _add(account, identity, key, policy, activeAt, true);
-        emit IIdentityValidator.SessionAddedByProof(account, identity, key, policy, activeAt);
+        IIdentityValidator.Policy calldata policy,
+        bool byLogin
+    ) external onlyRegistry {
+        _add(account, identity, key, policy, byLogin, true);
     }
 
-    /// @dev The wallet's first session is active at once; any other from the next second.
-    function addSessionByAccount(
-        address account,
-        bytes32 identity,
-        bytes calldata key,
-        IIdentityValidator.Policy calldata policy
-    ) external onlyRegistry {
-        AccountState storage a = _account(account);
-        if (a.hadSession) return _addNow(account, identity, key, policy);
-        if (!policy.admin || identity != identityOf(a.platformId, a.idNode)) {
-            revert IIdentityValidator.FirstSessionRefused(account);
-        }
-        _add(account, identity, key, policy, 0, false);
-        emit IIdentityValidator.SessionAdded(account, identity, key, policy);
+    function removeByLogin(address account, bytes32 identity) external onlyRegistry {
+        _remove(account, identity, true);
+        emit IIdentityValidator.SessionsRemovedByLogin(account, identity);
     }
 
     // ─── The account ────────────────────────────────────────────────
@@ -116,7 +102,7 @@ contract IdentityAdmin is IdentityValidatorState {
         external
         delegated
     {
-        _addNow(msg.sender, identity, key, policy);
+        _add(msg.sender, identity, key, policy, false, false);
     }
 
     function revokeSession(bytes calldata key) external delegated {
@@ -157,11 +143,11 @@ contract IdentityAdmin is IdentityValidatorState {
         } else if (action == RootAction.RevokeSession) {
             _revoke(account, abi.decode(data[4:], (bytes)), true);
         } else if (action == RootAction.Unlink) {
-            _unlink(account, abi.decode(data[4:], (bytes32)));
+            _remove(account, abi.decode(data[4:], (bytes32)), false);
         } else {
             _setRecoveryDelay(account, abi.decode(data[4:], (uint48)));
         }
-        if (action != RootAction.AccountCall) _keepQuorum(account);
+        if (action == RootAction.SetThreshold || action == RootAction.RevokeSession) _keepQuorum(account);
     }
 
     // ─── Internals ──────────────────────────────────────────────────
@@ -173,20 +159,30 @@ contract IdentityAdmin is IdentityValidatorState {
         linked[account] = true;
         _s().platformOf[_install(account)][identity][account] = platformId;
         AccountState storage a = _account(account);
-        ++a.identities;
         if (++_platformLinks(account, platformId)[account] == 1) ++a.platforms;
     }
 
+    /// Adds a session that signs from the next second. `byLogin` adds it `byProof`. From the registry, an
+    /// account that never had a session takes only its own link's genesis admin session, active at once.
     function _add(
         address account,
         bytes32 identity,
         bytes memory key,
         IIdentityValidator.Policy memory policy,
-        uint48 activeAt,
-        bool byProof
+        bool byLogin,
+        bool byRegistry
     ) private {
         if (!_isLinked(account, identity)) {
             revert IIdentityValidator.NotLinked(account, identity);
+        }
+        AccountState storage a = _account(account);
+        // forge-lint: disable-next-line(unsafe-typecast)
+        uint48 activeAt = uint48(block.timestamp);
+        if (byRegistry && !a.hadSession) {
+            if (byLogin || !policy.admin || identity != identityOf(a.platformId, a.idNode)) {
+                revert IIdentityValidator.FirstSessionRefused(account);
+            }
+            activeAt = 0;
         }
         if (key.length < 20) revert IIdentityValidator.InvalidKey(key);
         if ((policy.validAfter | policy.validUntil | activeAt) >= 1 << 47) {
@@ -205,7 +201,7 @@ contract IdentityAdmin is IdentityValidatorState {
             admin: policy.admin,
             activeAt: activeAt,
             generation: _generations(account, identity)[account],
-            byProof: byProof,
+            byProof: byLogin,
             signers: policy.signers,
             scopeRoot: r.scopeRoot,
             domainsRoot: r.domainsRoot,
@@ -224,22 +220,14 @@ contract IdentityAdmin is IdentityValidatorState {
             (c.amount, c.period, c.listed) = (allowance.amount, allowance.period, true);
         }
 
-        AccountState storage a = _account(account);
         a.hadSession = true;
         if (policy.admin) {
             ++a.adminSessions;
             ++_identityAdmins(account, identity)[account];
             if (++_platformAdmins(account, _platformOf(account, identity))[account] == 1) ++a.adminPlatforms;
         }
-    }
-
-    /// Adds a session that signs from the next second.
-    function _addNow(address account, bytes32 identity, bytes memory key, IIdentityValidator.Policy memory policy)
-        private
-    {
-        // forge-lint: disable-next-line(unsafe-typecast)
-        _add(account, identity, key, policy, uint48(block.timestamp), false);
-        emit IIdentityValidator.SessionAdded(account, identity, key, policy);
+        if (byLogin) emit IIdentityValidator.SessionAddedByLogin(account, identity, key, policy, activeAt);
+        else emit IIdentityValidator.SessionAdded(account, identity, key, policy);
     }
 
     function _revoke(address account, bytes memory key, bool root) private {
@@ -270,22 +258,22 @@ contract IdentityAdmin is IdentityValidatorState {
         _account(account).recoveryDelay = delay;
     }
 
-    function _unlink(address account, bytes32 identity) private {
+    /// Kills every session of `identity` and voids every queued root operation. Unlinks it unless it is the
+    /// genesis, which a root operation may not name, and lowers the threshold to the platforms left.
+    function _remove(address account, bytes32 identity, bool byLogin) private {
         mapping(address => bool) storage linked = _s().links[_install(account)][identity];
         if (!linked[account]) revert IIdentityValidator.NotLinked(account, identity);
         AccountState storage a = _account(account);
-        uint32 left = a.identities - 1;
-        if (left == 0) revert IIdentityValidator.LastIdentity(identity);
-        mapping(address => uint32) storage platformLinks = _platformLinks(account, _platformOf(account, identity));
-        uint32 admins = _identityAdmins(account, identity)[account];
-        if (admins == a.adminSessions) revert IIdentityValidator.LastAdmin(identity);
-        if (identity == identityOf(a.platformId, a.idNode)) revert IIdentityValidator.GenesisIdentity(identity);
-        _dropAdmins(account, identity, admins);
-        delete linked[account];
+        bool genesis = identity == identityOf(a.platformId, a.idNode);
+        if (genesis && !byLogin) revert IIdentityValidator.GenesisIdentity(identity);
+        _dropAdmins(account, identity, _identityAdmins(account, identity)[account]);
         ++_generations(account, identity)[account];
-        if (--platformLinks[account] == 0) --a.platforms;
-        a.identities = left;
         ++a.rootEpoch;
+        if (genesis) return;
+        delete linked[account];
+        if (--_platformLinks(account, _platformOf(account, identity))[account] == 0) --a.platforms;
+        // forge-lint: disable-next-line(unsafe-typecast)
+        if (a.threshold > a.platforms) a.threshold = uint8(a.platforms);
         emit IIdentityValidator.IdentityUnlinked(account, identity);
     }
 

@@ -14,6 +14,7 @@ import {IWalletRegistry} from "./IWalletRegistry.sol";
 contract WalletRegistry is IWalletRegistry {
     bytes32 public constant LINK_IDENTITY_DOMAIN = keccak256("libid.webwallet.link-identity");
     bytes32 public constant ADD_SESSION_DOMAIN = keccak256("libid.webwallet.add-session");
+    bytes32 public constant REMOVE_SESSIONS_DOMAIN = keccak256("libid.webwallet.remove-sessions");
 
     IProofVerifier private immutable PROOF_VERIFIER;
     IIdentityValidator private immutable VALIDATOR;
@@ -54,24 +55,39 @@ contract WalletRegistry is IWalletRegistry {
         bytes calldata data,
         IIdentityValidator.Policy calldata policy
     ) external payable {
-        (bytes32 idNode, bytes32 digest, address wallet, bytes memory key) =
-            _accept(LINK_IDENTITY_DOMAIN, platformId, verifierVersion, payload, data, policy);
+        (ICeremony.VerifiedClaim memory claimed, bytes memory txData) =
+            _accept(LINK_IDENTITY_DOMAIN, platformId, verifierVersion, payload, data);
+        (address wallet, bytes memory key) = _transactionData(txData, policy);
         if (msg.sender != wallet) revert NotWallet(wallet, msg.sender);
-        VALIDATOR.link(wallet, platformId, idNode);
-        if (key.length != 0) VALIDATOR.addSessionByAccount(wallet, identityOf(platformId, idNode), key, policy);
-        emit IdentityLinked(wallet, platformId, idNode, digest);
+        VALIDATOR.link(wallet, platformId, claimed.idNode);
+        if (key.length != 0) {
+            VALIDATOR.addSessionByRegistry(wallet, identityOf(platformId, claimed.idNode), key, policy, false);
+        }
+        emit IdentityLinked(wallet, platformId, claimed.idNode, claimed.sessionId);
     }
 
-    function addSessionByProof(
+    function addSessionByLogin(
         bytes32 platformId,
         uint16 verifierVersion,
         bytes calldata payload,
         bytes calldata data,
         IIdentityValidator.Policy calldata policy
     ) external payable {
-        (bytes32 idNode,, address wallet, bytes memory key) =
-            _accept(ADD_SESSION_DOMAIN, platformId, verifierVersion, payload, data, policy);
-        VALIDATOR.addSessionByProof(wallet, identityOf(platformId, idNode), key, policy);
+        (ICeremony.VerifiedClaim memory claimed, bytes memory txData) =
+            _accept(ADD_SESSION_DOMAIN, platformId, verifierVersion, payload, data);
+        (address wallet, bytes memory key) = _transactionData(txData, policy);
+        VALIDATOR.addSessionByRegistry(wallet, identityOf(platformId, claimed.idNode), key, policy, true);
+    }
+
+    function removeSessionsByLogin(
+        bytes32 platformId,
+        uint16 verifierVersion,
+        bytes calldata payload,
+        bytes calldata data
+    ) external payable {
+        (ICeremony.VerifiedClaim memory claimed, bytes memory txData) =
+            _accept(REMOVE_SESSIONS_DOMAIN, platformId, verifierVersion, payload, data);
+        VALIDATOR.removeByLogin(_removalData(txData), identityOf(platformId, claimed.idNode));
     }
 
     function quote(bytes32 platformId, uint16 verifierVersion) external view returns (uint256) {
@@ -82,29 +98,28 @@ contract WalletRegistry is IWalletRegistry {
         return _s().spentDigests[digest];
     }
 
-    /// Verifies the proof, spends its digest, and checks its transaction data: the identity, the digest,
-    /// and the wallet and session key the data names.
+    /// Verifies the proof and spends its digest. Returns the claim and its transaction data, under a list the
+    /// entry's `data`, for `domain`.
     function _accept(
         bytes32 domain,
         bytes32 platformId,
         uint16 verifierVersion,
         bytes calldata payload,
-        bytes calldata data,
-        IIdentityValidator.Policy calldata policy
-    ) private returns (bytes32 idNode, bytes32 digest, address wallet, bytes memory key) {
+        bytes calldata data
+    ) private returns (ICeremony.VerifiedClaim memory claimed, bytes memory txData) {
         // The Proof Verifier checks the value.
-        ICeremony.VerifiedClaim memory claimed =
-            PROOF_VERIFIER.verify{value: msg.value}(platformId, verifierVersion, payload);
+        claimed = PROOF_VERIFIER.verify{value: msg.value}(platformId, verifierVersion, payload);
 
-        bytes memory txData = claimed.transactionData;
+        txData = claimed.transactionData;
         if (claimed.operationDomain != domain) {
             if (claimed.operationDomain != OperationList.DOMAIN) {
                 revert ForeignOperationDomain(claimed.operationDomain);
             }
-            // Both domains commit the chain id, which `_transactionData` checks (REQ-COMMON-01I).
-            bytes32[] memory own = new bytes32[](2);
+            // Every domain commits the chain id, which the transaction data's reader checks (REQ-COMMON-01I).
+            bytes32[] memory own = new bytes32[](3);
             own[0] = LINK_IDENTITY_DOMAIN;
             own[1] = ADD_SESSION_DOMAIN;
+            own[2] = REMOVE_SESSIONS_DOMAIN;
             bytes32 entryDomain = OperationList.select(txData, data, own, true);
             if (entryDomain != domain) revert ForeignOperationDomain(entryDomain);
             txData = data;
@@ -114,9 +129,15 @@ contract WalletRegistry is IWalletRegistry {
         if (claimed.idNode == bytes32(0)) revert NoId();
         if (_s().spentDigests[claimed.sessionId]) revert DigestAlreadySpent(claimed.sessionId);
         _s().spentDigests[claimed.sessionId] = true;
+    }
 
-        (wallet, key) = _transactionData(txData, policy);
-        return (claimed.idNode, claimed.sessionId, wallet, key);
+    /// The wallet of a removal's canonical transaction data for this chain.
+    function _removalData(bytes memory data) private view returns (address) {
+        if (data.length != 64) revert BadTransactionData(data.length);
+        (uint256 chainId, uint256 wallet) = abi.decode(data, (uint256, uint256));
+        if (wallet >> 160 != 0) revert BadTransactionData(data.length);
+        if (chainId != block.chainid) revert WrongChain(chainId);
+        return address(uint160(wallet));
     }
 
     /// The wallet and session key of canonical transaction data for this chain that commits to `policy`.

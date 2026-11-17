@@ -92,7 +92,7 @@ contract IdentityValidator is IIdentityValidator, IdentityValidatorState {
         Verified memory v = _verify(msg.sender, signed, auth.signatures, quorum, 0);
         bool live = _inWindow(v);
         bool allowed = v.adminPlatforms >= quorum
-            || (_cosigned(v, auth.signatures.length)
+            || (_cosigned(v, auth.signatures.length, quorum)
                 && app != 0
                 && MerkleProof.verify(
                     auth.domainProof, _sessions(msg.sender, v.keyHash)[msg.sender].domainsRoot, _leaf(abi.encode(app))
@@ -196,11 +196,11 @@ contract IdentityValidator is IIdentityValidator, IdentityValidatorState {
         _delegate();
     }
 
-    function addSessionByProof(address, bytes32, bytes calldata, Policy calldata) external returns (uint48) {
-        return abi.decode(_delegate(), (uint48));
+    function addSessionByRegistry(address, bytes32, bytes calldata, Policy calldata, bool) external {
+        _delegate();
     }
 
-    function addSessionByAccount(address, bytes32, bytes calldata, Policy calldata) external {
+    function removeByLogin(address, bytes32) external {
         _delegate();
     }
 
@@ -300,14 +300,14 @@ contract IdentityValidator is IIdentityValidator, IdentityValidatorState {
     {
         v = _verify(msg.sender, hash, auth.signatures, quorum, auth.at);
         below = v.adminPlatforms < quorum;
-        ok = v.ok && (!below || _cosigned(v, auth.signatures.length));
+        ok = v.ok && (!below || _cosigned(v, auth.signatures.length, quorum));
     }
 
-    /// Below quorum: `n` signatures, by sessions none by proof, of as many distinct platforms as the
-    /// first session's `signers`.
-    function _cosigned(Verified memory v, uint256 n) private pure returns (bool) {
+    /// Below quorum: `n` signatures, by sessions none by proof unless `quorum` is 1, of as many distinct
+    /// platforms as the first session's `signers`.
+    function _cosigned(Verified memory v, uint256 n, uint8 quorum) private pure returns (bool) {
         uint256 need = v.signers == 0 ? 1 : v.signers;
-        return !v.byProof && n == need && v.platforms == need;
+        return (quorum == 1 || !v.byProof) && n == need && v.platforms == need;
     }
 
     /// The hash an ERC-7739 nested signature signs, its `Authorization`, and the app separator

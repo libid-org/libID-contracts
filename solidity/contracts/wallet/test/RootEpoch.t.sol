@@ -48,7 +48,7 @@ contract RootEpochTest is WalletTestBase {
         validator.addSession(_identity(X, ALICE), _key(APP_PK), _app());
         vm.prank(w);
         validator.revokeSession(_key(APP_PK));
-        _addByProof(relayer, X, ALICE, w, _key(BOB_PK), _admin());
+        _addByLogin(relayer, X, ALICE, w, _key(BOB_PK), _admin());
         vm.prank(w);
         validator.revokeSession(_key(BOB_PK));
 

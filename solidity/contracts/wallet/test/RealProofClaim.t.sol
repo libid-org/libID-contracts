@@ -198,7 +198,7 @@ contract RealProofClaimTest is ExecuteBase {
         bytes memory add = _real(ADD, _txData(w, _key(ALICE2_PK), _ph(p)));
         uint256 fee = registry.quote(X, VX);
         vm.prank(relayer);
-        registry.addSessionByProof{value: fee}(X, VX, add, "", p);
+        registry.addSessionByLogin{value: fee}(X, VX, add, "", p);
         IIdentityValidator.Session memory s = validator.sessionOf(w, _key(ALICE2_PK));
         assertTrue(s.byProof && s.activeAt == _now(), "no session by proof");
     }
