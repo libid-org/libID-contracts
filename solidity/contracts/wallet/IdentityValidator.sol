@@ -242,7 +242,7 @@ contract IdentityValidator is IIdentityValidator, IdentityValidatorState {
         emit SessionAddedByProof(account, identity, key, policy, activeAt);
     }
 
-    /// @dev The first session is the one add active at once.
+    /// @dev The wallet's first session is active at once; any other from the next second.
     function addSessionByAccount(address account, bytes32 identity, bytes calldata key, Policy calldata policy)
         external
         onlyRegistry
