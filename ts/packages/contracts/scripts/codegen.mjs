@@ -69,7 +69,7 @@ const contracts = [
     file: 'IdentityValidator.sol',
     name: 'IdentityValidator',
     exportName: 'identityValidatorAbi',
-    rootOnly: ['setThreshold', 'unlink', 'setRecoveryDelay'],
+    rootOnly: ['setThreshold', 'unlink', 'setRootDelay'],
   },
   { file: 'WalletRegistry.sol', name: 'WalletRegistry', exportName: 'walletRegistryAbi' },
   { file: 'WalletFactory.sol', name: 'WalletFactory', exportName: 'walletFactoryAbi' },
