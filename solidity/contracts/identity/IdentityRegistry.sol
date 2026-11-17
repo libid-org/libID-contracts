@@ -193,10 +193,15 @@ contract IdentityRegistry is
     /// @notice Bind an identity from a ceremony. A nonempty `handle` must fold and
     ///         hash to the proved handle node; it is logged in `HandleRevealed`,
     ///         and with `primary` it also becomes the caller's name.
-    /// @dev `msg.value` is `quoteBind` plus `feeAmount`, which goes to
-    ///      `feeReceiver`. A bind with no service fee passes `(0, address(0))`.
-    ///      The `quoteBind` part may be zero for a payload verified earlier in
-    ///      the same transaction (`IProofVerifier.verify`).
+    /// @dev `msg.value` is `feeAmount`, which goes to `feeReceiver`, plus what
+    ///      the Proof Verifier takes for the payload under its value rule
+    ///      (`IProofVerifier.verify`): `quoteBind`, or zero for a payload an
+    ///      earlier call of the caller's own transaction verified. A bind with
+    ///      no service fee passes `(0, address(0))`. Less than `feeAmount`
+    ///      reverts `WrongFeeValue` here; otherwise the Proof Verifier gets
+    ///      what is left after `feeAmount`, so a value short of the quote by
+    ///      the fee reverts there (`WrongValue`, or `NotVerifiedInTransaction`
+    ///      for exactly the fee). Check `feeAmount + quoteBind` first.
     function bind(
         bytes32 platformId,
         uint16 verifierVersion,

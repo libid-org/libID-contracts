@@ -23,10 +23,11 @@ import {IProofVerifier} from "./IProofVerifier.sol";
 ///      The concentration that buys is real and the specification names it: a
 ///      compromise here authorises arbitrary transactions at every Consumer at
 ///      once. That is the price of one entry point, and it is why this contract
-///      holds no platform constant, decodes nothing -- not the payload, not the
-///      transaction data inside it -- and applies no effect. Its one state
-///      besides the Supported Version Set is transient: the claims verified
-///      in the current transaction, so a payload consumed twice pays once.
+///      holds no platform constant, reads nothing of the payload or of the
+///      claim it returns, and applies no effect. Its one state besides the
+///      Supported Version Set is transient: the claims verified in the
+///      current transaction, so a payload consumed twice pays once
+///      (`IProofVerifier.verify`).
 ///
 ///      Two versions, and this contract knows only one of them. The VERIFIER
 ///      version is the key a payload is routed on: this chain's slot number,
