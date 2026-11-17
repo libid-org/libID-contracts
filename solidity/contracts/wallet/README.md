@@ -287,11 +287,14 @@ account.execute(MODE_BATCH, abi.encode(calls));
   or the account itself, and the account has no session to sign an
   `AUTHORIZED` batch yet. The key can also put its own authorization in that
   transaction (authorization nonce = transaction nonce + 1).
-- The account has no genesis identity, and `onInstall` never runs for it:
-  `initialize`, `migrate` and a root `installModule` revert
-  `NotFactoryWallet`. A link proof naming a session key, or a session by
+- The account has no genesis identity, and `onInstall` never succeeds for
+  it: through `initialize`, `migrate` or a root `installModule`, the
+  validator's check that the caller is the factory's wallet refuses it
+  (`NotFactoryWallet`). A link proof naming a session key, or a session by
   proof, reverts `FirstSessionRefused` until the account has had a session.
-  So only the key adds the first one, with `addSession`.
+  A stranger's `AUTHORIZED` batch can link her identity and add her session,
+  but that session signs only from the next second, so the end check refuses
+  the batch. Only the key adds the first session, with `addSession`.
 
 **The key keeps full control.** It can send any transaction, sign anything,
 point the address at other code, or clear the delegation. Quorum, recovery
