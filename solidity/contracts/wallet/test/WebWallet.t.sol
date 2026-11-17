@@ -99,7 +99,7 @@ contract WebWalletTest is WalletTestBase {
         assertEq(target.calls(), 3, "in-scope calls");
     }
 
-    function test_pendingAndExpiredSessionsRefused() public {
+    function test_notYetActiveAndExpiredSessionsRefused() public {
         address w = _claim();
         IIdentityValidator.Policy memory hourly = _hitOnly();
         hourly.validUntil = uint48(_now() + 1 hours);
@@ -108,11 +108,11 @@ contract WebWalletTest is WalletTestBase {
         _addByProof(relayer, X, ALICE, w, _key(ALICE2_PK), _admin());
         bytes memory notDue = abi.encodeWithSelector(IEntryPoint.FailedOp.selector, 0, "AA22 expired or not due");
 
-        PackedUserOperation memory pending = _signed(_op(w, 0, _hit()), _pks(ALICE2_PK));
+        PackedUserOperation memory early = _signed(_op(w, 0, _hit()), _pks(ALICE2_PK));
         vm.deal(w, 1 ether);
         vm.prank(bundler, bundler);
         vm.expectRevert(notDue);
-        IEntryPoint(EP).handleOps(_ops(pending), payable(bundler));
+        IEntryPoint(EP).handleOps(_ops(early), payable(bundler));
 
         vm.warp(_now() + 2 hours);
         PackedUserOperation memory expired = _signedWith(_op(w, 0, _hit()), _pks(APP_PK), _hitProofs(1));
@@ -120,9 +120,8 @@ contract WebWalletTest is WalletTestBase {
         vm.expectRevert(notDue);
         IEntryPoint(EP).handleOps(_ops(expired), payable(bundler));
 
-        vm.warp(_now() + 48 hours);
-        _handle(pending);
-        assertEq(target.calls(), 1, "the matured session did not run");
+        _handle(early);
+        assertEq(target.calls(), 1, "the session by proof did not run");
     }
 
     function test_validUntilZeroNeverExpires() public {

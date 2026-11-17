@@ -41,7 +41,7 @@ contract RootEpochTest is WalletTestBase {
         validator.executeRoot(w, w, data);
     }
 
-    /// Revoking an app session, or replacing a pending session by proof, keeps queued operations.
+    /// Revoking an app session, or an admin session added this second, keeps queued operations.
     function test_otherRevokesKeepQueuedRootOperations() public {
         (address w, bytes memory data, bytes32 opId) = _leakedUpgrade();
         vm.prank(w);
@@ -49,8 +49,8 @@ contract RootEpochTest is WalletTestBase {
         vm.prank(w);
         validator.revokeSession(_key(APP_PK));
         _addByProof(relayer, X, ALICE, w, _key(BOB_PK), _admin());
-        _addByProof(relayer, X, ALICE, w, _key(CAROL_PK), _admin());
-        assertEq(validator.sessionOf(w, _key(BOB_PK)).identity, bytes32(0), "pending session not replaced");
+        vm.prank(w);
+        validator.revokeSession(_key(BOB_PK));
 
         vm.warp(_now() + 48 hours);
         validator.executeRoot(w, w, data);

@@ -142,13 +142,12 @@ contract DirectExecuteEdgesTest is ExecuteBase {
         _runs(w, calls, auth);
     }
 
-    /// Pending, expired, not yet valid, revoked and unlinked sessions sign nothing.
+    /// Expired, not yet valid, revoked and unlinked sessions sign nothing.
     function test_signersOutsideTheirWindowAreRefused() public {
         bytes32 alice = _identity(X, ALICE);
         _link(w, GITHUB, BOB, w, _key(BOB_PK), _admin());
         _root(w, address(validator), abi.encodeCall(IIdentityValidator.unlink, (_identity(GITHUB, BOB))));
 
-        _addByProof(relayer, X, ALICE, w, _key(ALICE2_PK), _admin());
         IIdentityValidator.Policy memory p = _hitOnly();
         p.validUntil = uint48(_now() + 1 hours);
         vm.startPrank(w);
@@ -162,7 +161,6 @@ contract DirectExecuteEdgesTest is ExecuteBase {
         vm.warp(_now() + 2 hours);
 
         bytes memory hit = _one(_hitX());
-        _refuses(w, hit, _direct(w, address(validator), _pks(ALICE2_PK), hit, false), OUTSIDE_WINDOW, "pending");
         _refuses(w, hit, _direct(w, address(validator), _pks(CAROL_PK), hit, true), OUTSIDE_WINDOW, "expired");
         _refuses(w, hit, _direct(w, address(validator), _pks(MALLORY_PK), hit, false), OUTSIDE_WINDOW, "not yet");
         _refuses(w, hit, _direct(w, address(validator), _pks(OTHER_PK), hit, false), NOT_SIGNED, "revoked");

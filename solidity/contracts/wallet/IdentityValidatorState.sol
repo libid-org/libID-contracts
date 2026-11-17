@@ -59,13 +59,11 @@ abstract contract IdentityValidatorState {
             uint256 install => mapping(bytes32 keyHash => mapping(address account => IIdentityValidator.Session))
         ) sessions;
         mapping(uint256 install => mapping(bytes32 identity => mapping(address account => bool))) links;
-        mapping(uint256 install => mapping(bytes32 identity => mapping(address account => bytes))) pendingKeys;
         mapping(uint256 install => mapping(bytes32 opId => mapping(address account => Root))) roots;
         mapping(uint256 install => mapping(bytes32 identity => mapping(address account => uint32))) generations;
         mapping(uint256 install => mapping(bytes32 identity => mapping(address account => uint32))) adminSessions;
         mapping(uint256 install => mapping(bytes32 identity => mapping(address account => bytes32))) platformOf;
         mapping(uint256 install => mapping(bytes32 platformId => mapping(address account => uint32))) platformLinks;
-        mapping(uint256 install => mapping(bytes32 identity => mapping(address account => bool))) recoveryFrozen;
         mapping(uint256 install => mapping(bytes32 counterId => mapping(address account => Counter))) counters;
         mapping(uint256 install => mapping(bytes32 platformId => mapping(address account => uint32))) platformAdmins;
     }

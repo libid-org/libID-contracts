@@ -53,9 +53,8 @@ had a session, any other session a link would add reverts
 `Session.activeAt` is when the session starts signing: it signs only after
 that second.
 
-- `addSession`, a link by the wallet, and a migration's install session:
-  `block.timestamp`, so the session signs from the next second.
-- A session by proof: the end of `recoveryDelay`.
+- Any session but the first: `block.timestamp`, so it signs from the next
+  second.
 - The first session: 0.
 
 So the first session is the only one that can sign the batch that adds it.
@@ -282,7 +281,7 @@ address, every wallet creation reverts.
 
 ## Root operations
 
-Install, uninstall, upgrade, `setThreshold`, `unlink`, `setRecoveryFrozen`,
+Install, uninstall, upgrade, `setThreshold`, `unlink`,
 revoking the last admin session and lowering the recovery delay are queued
 with `queueRoot` and executed by anyone with `executeRoot` once
 `recoveryDelay` (48 h to 365 days) has passed. Revoking an active admin
@@ -290,7 +289,7 @@ session, or unlinking an identity, voids every root operation queued before
 it.
 
 The threshold never exceeds the platforms holding an admin session:
-`setThreshold`, a revoke, an unlink or a freeze that would leave fewer
+`setThreshold`, a revoke or an unlink that would leave fewer
 reverts `ThresholdTooHigh`, unless it leaves none. An admin session never
 expires: a policy with `admin` and a non-zero `validUntil` reverts
 `AdminSessionExpires`.
@@ -299,8 +298,7 @@ expires: a policy with `admin` and a non-zero `validUntil` reverts
 
 A wallet trusts the parties below, with no timelock, until libID and the
 registry are decentralized. Each of the first three can make a login proof
-valid, and so give a wallet a session: an active one on a wallet that never
-had one, and one live after the recovery delay on any other.
+valid, and so give a wallet a session that signs from the next second.
 
 - **The proof verifiers' owners.** `WalletRegistry` trusts the
   `CeremonyProofVerifier` proxy, whose owner can `setVerifier` and upgrade
@@ -334,15 +332,12 @@ had one, and one live after the recovery delay on any other.
   scope.
 - Re-adding a key with a different rules hash starts its counters fresh.
   Adding a session is an admin operation.
-- A newer session added by proof for the same identity replaces the pending
-  one, so a holder of a phished proof can restart the owner's recovery
-  clock as often as it can mint proofs. Only an owner who still holds an
-  active admin session can stop it, by freezing the identity's recovery.
+- Until removal of sessions by login lands (a later change, before any
+  wallet goes live), a login proof of a linked identity adds a session at
+  once; at threshold 1 that session acts at quorum.
 - The JWT roots cannot drop a leaked key at once, and `WalletRegistry` has no
-  pause: during a leak anyone could add pending sessions to every wallet with
-  a linked identity on that platform (not exercised: it needs a leaked key).
-- After a root revoke to zero admin sessions, recovery needs proofs on
-  `threshold` distinct, unfrozen platforms, each waiting the recovery delay.
+  pause: during a leak anyone could add sessions to every wallet with a
+  linked identity on that platform (not exercised: it needs a leaked key).
 - `entryPoint()` is fixed to v0.9: a later EntryPoint costs one root upgrade
   per wallet.
 - Direct batches of every signer share one nonce sequence, under key
@@ -358,5 +353,5 @@ had one, and one live after the recovery delay on any other.
   allowances.
 - Approvals a session made outlive its revocation.
 - Sessions cannot be listed from storage. Watch `SessionAddedByProof` and
-  `RootQueued` to alert the owner: every wait protects only an owner who is
-  told.
+  `RootQueued` to alert the owner: the root-operation wait protects only an
+  owner who is told.

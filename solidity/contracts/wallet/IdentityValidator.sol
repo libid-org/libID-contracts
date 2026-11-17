@@ -49,8 +49,7 @@ contract IdentityValidator is IIdentityValidator, IdentityValidatorState {
         SetThreshold,
         RevokeSession,
         Unlink,
-        SetRecoveryDelay,
-        SetRecoveryFrozen
+        SetRecoveryDelay
     }
 
     modifier onlyRegistry() {
@@ -220,10 +219,6 @@ contract IdentityValidator is IIdentityValidator, IdentityValidatorState {
         return _generations(account, identity)[account];
     }
 
-    function recoveryFrozen(address account, bytes32 identity) public view returns (bool) {
-        return _s().recoveryFrozen[_install(account)][identity][account];
-    }
-
     function rootReadyAt(address account, bytes32 opId) external view returns (uint48) {
         Root memory r = _roots(account, opId)[account];
         return _superseded(account, r) ? 0 : r.readyAt;
@@ -240,12 +235,10 @@ contract IdentityValidator is IIdentityValidator, IdentityValidatorState {
         onlyRegistry
         returns (uint48 activeAt)
     {
-        if (recoveryFrozen(account, identity)) revert RecoveryFrozen(identity);
         if (!_account(account).hadSession) revert FirstSessionRefused(account);
-        activeAt = _maturity(account);
-        _replacePending(account, identity, key);
+        // forge-lint: disable-next-line(unsafe-typecast)
+        activeAt = uint48(block.timestamp);
         _add(account, identity, key, policy, activeAt, true);
-        _keepQuorum(account);
         emit SessionAddedByProof(account, identity, key, policy, activeAt);
     }
 
@@ -292,14 +285,11 @@ contract IdentityValidator is IIdentityValidator, IdentityValidatorState {
         revert RootOperationRequired();
     }
 
-    function setRecoveryFrozen(bytes32, bool) external pure {
-        revert RootOperationRequired();
-    }
-
     function queueRoot(address target, bytes calldata data) external returns (bytes32 opId) {
         _rootAction(msg.sender, target, data);
         opId = _rootId(msg.sender, target, data);
-        uint48 readyAt = _maturity(msg.sender);
+        // forge-lint: disable-next-line(unsafe-typecast)
+        uint48 readyAt = uint48(block.timestamp) + recoveryDelay(msg.sender);
         _roots(msg.sender, opId)[msg.sender] = Root({readyAt: readyAt, epoch: _account(msg.sender).rootEpoch});
         emit RootQueued(msg.sender, opId, target, data, readyAt);
     }
@@ -329,12 +319,8 @@ contract IdentityValidator is IIdentityValidator, IdentityValidatorState {
             _revoke(account, abi.decode(data[4:], (bytes)), true);
         } else if (action == RootAction.Unlink) {
             _unlink(account, abi.decode(data[4:], (bytes32)));
-        } else if (action == RootAction.SetRecoveryDelay) {
-            _setRecoveryDelay(account, abi.decode(data[4:], (uint48)));
         } else {
-            (bytes32 identity, bool frozen) = abi.decode(data[4:], (bytes32, bool));
-            _s().recoveryFrozen[_install(account)][identity][account] = frozen;
-            if (frozen) _revokePending(account, identity);
+            _setRecoveryDelay(account, abi.decode(data[4:], (uint48)));
         }
         if (action != RootAction.AccountCall) _keepQuorum(account);
     }
@@ -422,7 +408,7 @@ contract IdentityValidator is IIdentityValidator, IdentityValidatorState {
             AccountState storage a = _account(account);
             if (a.adminSessions == 1 && !root) revert RootOperationRequired();
             _dropAdmins(account, identity, 1);
-            // A pending session has signed nothing; one that was active may have queued roots.
+            // A session added this second has signed nothing; an older one may have queued roots.
             if (s.activeAt < block.timestamp) ++a.rootEpoch;
         }
         delete _sessions(account, keccak256(key))[account];
@@ -485,7 +471,6 @@ contract IdentityValidator is IIdentityValidator, IdentityValidatorState {
             if (selector == this.revokeSession.selector) return RootAction.RevokeSession;
             if (selector == this.unlink.selector) return RootAction.Unlink;
             if (selector == this.setRecoveryDelay.selector) return RootAction.SetRecoveryDelay;
-            if (selector == this.setRecoveryFrozen.selector) return RootAction.SetRecoveryFrozen;
         }
         revert BadRootOperation(target);
     }
@@ -503,27 +488,6 @@ contract IdentityValidator is IIdentityValidator, IdentityValidatorState {
 
     function _rootId(address account, address target, bytes calldata data) private pure returns (bytes32) {
         return keccak256(abi.encode(account, target, data));
-    }
-
-    /// When a wait of the account's recovery delay, started now, ends.
-    function _maturity(address account) private view returns (uint48) {
-        // forge-lint: disable-next-line(unsafe-typecast)
-        return uint48(block.timestamp) + recoveryDelay(account);
-    }
-
-    /// Drops the identity's earlier session by proof while it is still pending.
-    function _replacePending(address account, bytes32 identity, bytes memory key) private {
-        _revokePending(account, identity);
-        _s().pendingKeys[_install(account)][identity][account] = key;
-    }
-
-    /// Revokes the identity's latest session by proof while it is still pending.
-    function _revokePending(address account, bytes32 identity) private {
-        bytes memory old = _s().pendingKeys[_install(account)][identity][account];
-        if (old.length != 0) {
-            Session storage o = _session(account, old);
-            if (o.identity == identity && o.activeAt >= block.timestamp) _revoke(account, old, true);
-        }
     }
 
     /// SessionRules' verdict on `call`, and the signers' window narrowed to the periods it charged.

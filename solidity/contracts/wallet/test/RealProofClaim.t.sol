@@ -193,7 +193,7 @@ contract RealProofClaimTest is ExecuteBase {
         vm.snapshotValue("wallet-claim", "createAndExecute onboarding(stub proof, operation list)", gas);
     }
 
-    /// Once the wallet had a session, a second real proof adds a session that waits the recovery delay.
+    /// Once the wallet had a session, a second real proof adds a session by proof from the next second.
     function test_aSessionByARealProof() public {
         (address w,) = _onboard(VX, _list(VX));
         IIdentityValidator.Policy memory p = _admin();
@@ -201,6 +201,7 @@ contract RealProofClaimTest is ExecuteBase {
         uint256 fee = registry.quote(X, VX);
         vm.prank(relayer);
         registry.addSessionByProof{value: fee}(X, VX, add, "", p);
-        assertEq(validator.sessionOf(w, _key(ALICE2_PK)).activeAt, _now() + validator.recoveryDelay(w), "not pending");
+        IIdentityValidator.Session memory s = validator.sessionOf(w, _key(ALICE2_PK));
+        assertTrue(s.byProof && s.activeAt == _now(), "no session by proof");
     }
 }

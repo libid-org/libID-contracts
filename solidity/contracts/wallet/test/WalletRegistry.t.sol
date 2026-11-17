@@ -9,7 +9,7 @@ import {IIdentityValidator} from "../IIdentityValidator.sol";
 import {IWalletRegistry} from "../IWalletRegistry.sol";
 import {WalletTestBase} from "./WalletTestBase.sol";
 
-/// @notice The two `libid.webwallet.*` domains: encoding, chain, submitter, spending, and the 48 h rule.
+/// @notice The two `libid.webwallet.*` domains: encoding, chain, submitter and spending.
 contract WalletRegistryTest is WalletTestBase {
     function test_domainsAreTheSpecStrings() public view {
         assertEq(registry.LINK_IDENTITY_DOMAIN(), LINK);
@@ -253,63 +253,20 @@ contract WalletRegistryTest is WalletTestBase {
         assertFalse(validator.hadSession(w), "flag set");
     }
 
-    function test_aSessionByProofWaitsAndIsAnnounced() public {
+    /// A session by proof is announced, and signs from the next second.
+    function test_aSessionByProofIsAnnouncedAndSignsFromTheNextSecond() public {
         address w = _claim();
-        uint48 due = uint48(_now() + 48 hours);
         bytes memory payload = _payload(X, ALICE, ADD, _txData(w, _key(ALICE2_PK), _ph(_admin())));
         vm.expectEmit(true, true, false, true, address(validator));
-        emit IIdentityValidator.SessionAddedByProof(w, _identity(X, ALICE), _key(ALICE2_PK), _admin(), due);
+        emit IIdentityValidator.SessionAddedByProof(w, _identity(X, ALICE), _key(ALICE2_PK), _admin(), uint48(_now()));
         vm.prank(mallory);
         registry.addSessionByProof(X, V1, payload, "", _admin());
-        assertEq(validator.sessionOf(w, _key(ALICE2_PK)).activeAt, due, "not pending for 48 h");
-    }
+        IIdentityValidator.Session memory s = validator.sessionOf(w, _key(ALICE2_PK));
+        assertTrue(s.byProof && s.activeAt == _now(), "not by proof from now");
 
-    /// A wallet idle for 30 days still makes a session by proof wait.
-    function test_anIdleWalletStillWaits() public {
-        address w = _claim();
-        vm.warp(_now() + 30 days);
-        _addByProof(mallory, X, ALICE, w, _key(MALLORY_PK), _admin());
-        assertEq(validator.sessionOf(w, _key(MALLORY_PK)).activeAt, _now() + 48 hours, "dormant wallet skipped wait");
-    }
-
-    /// Only a still-pending session of the same identity is replaced.
-    function test_replacementSparesMaturedAndForeignSessions() public {
-        address w = _claim();
-        _addByProof(relayer, X, ALICE, w, _key(ALICE2_PK), _admin());
-        vm.warp(validator.sessionOf(w, _key(ALICE2_PK)).activeAt + 1);
-        _addByProof(relayer, X, ALICE, w, _key(MALLORY_PK), _admin());
-        assertEq(validator.sessionOf(w, _key(ALICE2_PK)).identity, _identity(X, ALICE), "matured session replaced");
-
-        // Alice's pending key, revoked, then pending again for Bob.
-        vm.prank(w);
-        validator.revokeSession(_key(MALLORY_PK));
-        _link(w, GITHUB, BOB, w, "", _admin());
-        _addByProof(relayer, GITHUB, BOB, w, _key(MALLORY_PK), _admin());
-        _addByProof(relayer, X, ALICE, w, _key(APP_PK), _admin());
-        assertEq(validator.sessionOf(w, _key(MALLORY_PK)).identity, _identity(GITHUB, BOB), "bob's session replaced");
-    }
-
-    /// A session signs only after `activeAt`, so at that second it is still pending and replaced.
-    function test_aSessionIsPendingThroughItsActiveAtSecond() public {
-        address w = _claim();
-        _addByProof(relayer, X, ALICE, w, _key(ALICE2_PK), _admin());
-        vm.warp(validator.sessionOf(w, _key(ALICE2_PK)).activeAt);
         bytes32 h = keccak256("hello");
         assertFalse(_isValid1271(w, h, ALICE2_PK, _wrapped(w, h)), "signs at activeAt");
-
-        _addByProof(relayer, X, ALICE, w, _key(MALLORY_PK), _admin());
-        assertEq(validator.sessionOf(w, _key(ALICE2_PK)).identity, bytes32(0), "pending session kept");
-    }
-
-    function test_aNewerPendingSessionReplacesTheOlder() public {
-        address w = _claim();
-        _addByProof(relayer, X, ALICE, w, _key(MALLORY_PK), _admin());
-        vm.warp(_now() + 1 hours);
-        _addByProof(relayer, X, ALICE, w, _key(ALICE2_PK), _admin());
-
-        assertEq(validator.sessionOf(w, _key(MALLORY_PK)).identity, bytes32(0), "older pending kept");
-        vm.warp(_now() + 48 hours);
-        assertEq(_validate(w, _hit(), _pks(MALLORY_PK)), 1, "replaced session still signs");
-        assertEq(validator.sessionOf(w, _key(ALICE2_PK)).activeAt, _now(), "newer not pending");
+        vm.warp(_now() + 1);
+        assertTrue(_isValid1271(w, h, ALICE2_PK, _wrapped(w, h)), "no signature after activeAt");
     }
 }
