@@ -80,7 +80,7 @@ contract ValidatorMigrationTest is WalletTestBase {
         return IWebWallet(w).isValidSignature(h, sig) == bytes4(0x1626ba7e);
     }
 
-    /// The replaced validator stays installed, but neither validates nor signs for the wallet.
+    /// The replaced validator is not reported installed, and neither validates nor signs for the wallet.
     function test_theReplacedValidatorNoLongerValidates() public {
         address w = _claim();
         vm.prank(w);
@@ -89,7 +89,7 @@ contract ValidatorMigrationTest is WalletTestBase {
 
         _root(w, w, _upgrade(abi.encode(X, ALICE, _key(ALICE_PK), _admin())));
         vm.warp(_now() + 1);
-        assertTrue(IWebWallet(w).isModuleInstalled(1, address(validator), ""), "v1 uninstalled");
+        assertFalse(IWebWallet(w).isModuleInstalled(1, address(validator), ""), "v1 reported installed");
 
         _refused(_opVia(w, address(validator), ALICE_PK, _hit()), "a v1 admin session");
         _refused(_signedWith(_op(w, 0, _hit()), _pks(APP_PK), _hitProofs(1)), "a v1 app session in its scope");

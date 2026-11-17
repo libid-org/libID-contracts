@@ -11,6 +11,7 @@ import {
     MODULE_TYPE_VALIDATOR
 } from "@openzeppelin/contracts/interfaces/draft-IERC7579.sol";
 import {Account} from "@openzeppelin/contracts/account/Account.sol";
+import {EIP7702Utils} from "@openzeppelin/contracts/account/utils/EIP7702Utils.sol";
 import {ERC4337Utils} from "@openzeppelin/contracts/account/utils/ERC4337Utils.sol";
 import {
     CallType,
@@ -26,6 +27,7 @@ import {ERC1155Holder} from "@openzeppelin/contracts/token/ERC1155/utils/ERC1155
 import {Address} from "@openzeppelin/contracts/utils/Address.sol";
 import {Calldata} from "@openzeppelin/contracts/utils/Calldata.sol";
 import {ReentrancyGuardTransient} from "@openzeppelin/contracts/utils/ReentrancyGuardTransient.sol";
+import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import {EIP712} from "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
 import {IERC165} from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
 import {
@@ -38,6 +40,7 @@ import {AUTHORIZED_MODE, CALL_OVERHEAD, INonceIncrement, IWebWallet} from "./IWe
 
 /// @title WebWallet - an ERC-7579 account whose one module is the IdentityValidator.
 /// @notice Module changes and upgrades come only from that validator, for a matured root operation.
+///         Runs as a factory wallet's proxy implementation or as an EOA's EIP-7702 delegate.
 contract WebWallet is
     AccountERC7579Upgradeable,
     UUPSUpgradeable,
@@ -69,11 +72,11 @@ contract WebWallet is
         _installModule(MODULE_TYPE_VALIDATOR, VALIDATOR, validatorData);
     }
 
-    function migrate(bytes calldata validatorData)
-        external
-        reinitializer(MIGRATION)
-        onlyModule(MODULE_TYPE_VALIDATOR, Calldata.emptyBytes())
-    {
+    /// The replaced validator calls it, so this one gate reads OpenZeppelin's module set.
+    function migrate(bytes calldata validatorData) external reinitializer(MIGRATION) {
+        if (!super.isModuleInstalled(MODULE_TYPE_VALIDATOR, msg.sender, Calldata.emptyBytes())) {
+            revert ERC7579Utils.ERC7579UninstalledModule(MODULE_TYPE_VALIDATOR, msg.sender);
+        }
         _installModule(MODULE_TYPE_VALIDATOR, VALIDATOR, validatorData);
         // A session-less install would reopen the first-session rule.
         if (!IIdentityValidator(VALIDATOR).hadSession(address(this))) revert MigrationWithoutSession();
@@ -84,7 +87,7 @@ contract WebWallet is
     }
 
     /// `AUTHORIZED_MODE` from anyone, checked at the end; a default-selector mode from the EntryPoint, whose
-    /// validation checked the operation.
+    /// validation checked the operation, or from an EIP-7702 account's own key.
     function execute(bytes32 mode, bytes calldata data)
         public
         payable
@@ -92,7 +95,10 @@ contract WebWallet is
         nonReentrant
     {
         if (mode == AUTHORIZED_MODE) return _executeAuthorized(data);
-        _checkEntryPoint();
+        // A factory wallet calls itself only from inside a batch, under this lock.
+        if (msg.sender != address(this) || EIP7702Utils.fetchDelegate(address(this)) == address(0)) {
+            _checkEntryPoint();
+        }
         (,, ModeSelector selector,) = Mode.wrap(mode).decodeMode();
         if (ModeSelector.unwrap(selector) != 0) revert UnsupportedModeSelector(ModeSelector.unwrap(selector));
         _execute(Mode.wrap(mode), data);
@@ -127,6 +133,16 @@ contract WebWallet is
         _installModule(moduleTypeId, module, initData);
     }
 
+    /// Only the constructor's validator: leftover modules of an earlier EIP-7702 delegate are not.
+    function isModuleInstalled(uint256 moduleTypeId, address module, bytes calldata)
+        public
+        view
+        override(IERC7579ModuleConfig, AccountERC7579Upgradeable)
+        returns (bool)
+    {
+        return moduleTypeId == MODULE_TYPE_VALIDATOR && module == VALIDATOR;
+    }
+
     function uninstallModule(uint256 moduleTypeId, address module, bytes calldata deInitData)
         public
         override(IERC7579ModuleConfig, AccountERC7579Upgradeable)
@@ -137,22 +153,27 @@ contract WebWallet is
         _uninstallModule(moduleTypeId, module, deInitData);
     }
 
-    /// Only the constructor's validator signs. An empty signature goes to it, which answers the
-    /// ERC-7739 probe.
+    /// An EIP-7702 account's key signs with plain ECDSA; otherwise only the constructor's validator signs.
+    /// An empty signature goes to it, which answers the ERC-7739 probe.
     function isValidSignature(bytes32 hash, bytes calldata signature)
         public
         view
         override(IERC1271, AccountERC7579Upgradeable)
         returns (bytes4)
     {
+        if (signature.length == 65) {
+            (address signer, ECDSA.RecoverError err,) = ECDSA.tryRecoverCalldata(hash, signature);
+            if (err == ECDSA.RecoverError.NoError && signer == address(this)) {
+                return IERC1271.isValidSignature.selector;
+            }
+        }
+        bytes calldata inner = signature;
         if (signature.length != 0) {
             // forge-lint: disable-next-line(unsafe-typecast)
-            if (address(bytes20(signature)) != VALIDATOR) return bytes4(0xffffffff);
-            return super.isValidSignature(hash, signature);
+            if (signature.length < 20 || address(bytes20(signature)) != VALIDATOR) return bytes4(0xffffffff);
+            inner = signature[20:];
         }
-        try IERC7579Validator(VALIDATOR).isValidSignatureWithSender(msg.sender, hash, signature) returns (
-            bytes4 magic
-        ) {
+        try IERC7579Validator(VALIDATOR).isValidSignatureWithSender(msg.sender, hash, inner) returns (bytes4 magic) {
             return magic;
         } catch {
             return bytes4(0xffffffff);
@@ -180,15 +201,19 @@ contract WebWallet is
         super._installModule(moduleTypeId, module, initData);
     }
 
-    /// Only the constructor's validator validates: another still installed, such as the one a
-    /// migration replaced, is refused.
-    function _validateUserOp(PackedUserOperation calldata userOp, bytes32 userOpHash, bytes calldata signature)
+    /// Only the constructor's validator validates: another, such as the one a migration replaced, is refused.
+    function _validateUserOp(PackedUserOperation calldata userOp, bytes32 userOpHash, bytes calldata)
         internal
         override
         returns (uint256)
     {
         if (_extractUserOpValidator(userOp) != VALIDATOR) return ERC4337Utils.SIG_VALIDATION_FAILED;
-        return super._validateUserOp(userOp, userOpHash, signature);
+        return IERC7579Validator(VALIDATOR).validateUserOp(userOp, _signableUserOpHash(userOp, userOpHash));
+    }
+
+    /// No fallback handler: a leftover one of an earlier EIP-7702 delegate is never called.
+    function _fallbackHandler(bytes4) internal pure override returns (address) {
+        return address(0);
     }
 
     function _execute(Mode mode, bytes calldata executionCalldata) internal override returns (bytes[] memory) {

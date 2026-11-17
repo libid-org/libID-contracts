@@ -31,8 +31,11 @@ interface INonceIncrement {
 ///         `initialize` installs it.
 /// @dev `installModule`, `uninstallModule` and `upgradeToAndCall` accept only the constructor's
 ///      validator, which calls them for a matured root operation; another validator still installed
-///      has no power. The validator cannot be uninstalled. No executor module is supported.
-///      `execute(mode, data)` takes a default-selector mode from the EntryPoint only, and `AUTHORIZED_MODE`
+///      has no power. The validator cannot be uninstalled. `isModuleInstalled` reports that validator
+///      alone; no executor module or fallback handler is supported, and none an earlier EIP-7702
+///      delegate left in OpenZeppelin's storage is ever called.
+///      `execute(mode, data)` takes a default-selector mode from the EntryPoint, or, on an EIP-7702
+///      account, from the account itself (its key), and `AUTHORIZED_MODE`
 ///      from anyone, checked at the end: `data` is then
 ///      `abi.encode(bytes executionCalldata, uint256 value, uint48 deadline, uint256 callGas, bytes authorization)`,
 ///      sent with exactly `value`.
@@ -44,7 +47,8 @@ interface INonceIncrement {
 ///      selector, and delegatecall execution, are refused. Only the constructor's validator validates
 ///      UserOperations and signs: another validator still installed, such as the one a migration
 ///      replaced, is refused.
-///      `isValidSignature` passes `hash` to that validator, which reads it as ERC-7739 under
+///      `isValidSignature` accepts a 65-byte ECDSA signature of `hash` by `address(this)`, which only an
+///      EIP-7702 account's key can make; otherwise it passes `hash` to that validator, which reads it as ERC-7739 under
 ///      `eip712Domain()`; an empty signature goes to it too, so the ERC-7739 probe is answered.
 ///      ERC-721 and ERC-1155 safe transfers are accepted; ERC-165 reports both receivers.
 ///      Integration notes are in README.md beside this file.
