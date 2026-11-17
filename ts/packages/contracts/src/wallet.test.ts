@@ -32,3 +32,18 @@ describe('session-policy hashes', () => {
     ).toBe('0xf63e6147bfa910f2dab04a6910a61fbf42066f204e2344c197c154c1b5a6e8dc')
   })
 })
+
+describe('allowances', () => {
+  const rules = (...tokens: `0x${string}`[]) => ({
+    ...POLICY.rules,
+    allowances: tokens.map((token) => ({ token, amount: 1n, period: 1 })),
+  })
+  const A = '0x00000000000000000000000000000000000000aa'
+  const B = '0x00000000000000000000000000000000000000bb'
+
+  it('must ascend strictly by token', () => {
+    expect(() => rulesHashOf(rules(A, B))).not.toThrow()
+    expect(() => rulesHashOf(rules(B, A))).toThrow(/strictly ascending token order/)
+    expect(() => policyHashOf({ ...POLICY, rules: rules(A, A) })).toThrow(/strictly ascending/)
+  })
+})
