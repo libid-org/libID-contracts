@@ -162,11 +162,16 @@ contract WalletForwarderTest is ExecuteBase {
     /// A stranger's first call runs setup and nothing else; the key's batch then runs as if it had not.
     function test_aStrangersSetupIsTheKeysAndRunsOnce() public {
         _delegate();
+        // The ERC-7201 root of the namespace the compatibility rule fixes, derived here.
+        bytes32 flag =
+            keccak256(abi.encode(uint256(keccak256("libid.webwallet.forwarder")) - 1)) & ~bytes32(uint256(0xff));
+        assertEq(vm.load(a, flag), bytes32(0), "set up before a call");
         vm.recordLogs();
         vm.prank(mallory);
         (bool ok,) = a.call(abi.encodeCall(IWebWallet.identityValidator, ()));
         assertTrue(ok, "a stranger's call reverted");
         _implIs(walletImpl, "setup's implementation");
+        assertEq(vm.load(a, flag), bytes32(uint256(1)), "the flag is not at its namespace");
         assertFalse(validator.hadSession(a), "a session");
 
         address next = _walletImpl();
