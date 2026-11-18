@@ -279,7 +279,8 @@ interface IIdentityValidator is IERC7579Validator, IExecutionCheck {
     function unlink(bytes32 identity) external;
     /// `target` is the account (install, uninstall, upgrade) or this validator
     /// (`setThreshold`, `unlink`, `revokeSession` of the last admin, `setRootDelay`).
-    /// Ready after `rootDelay`, and never in the second it was queued.
+    /// Ready after `rootDelay`, and never in the second it was queued. An upgrade to any implementation but
+    /// the factory's `walletImplementation()` reverts `NotFactoryImplementation`.
     function queueRoot(address target, bytes calldata data) external returns (bytes32 opId);
     function cancelRoot(bytes32 opId) external;
 

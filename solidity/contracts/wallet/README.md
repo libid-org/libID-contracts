@@ -78,13 +78,14 @@ own batch.
   no session by login.
 - `removeSessionsByLogin` (`libid.webwallet.remove-sessions`, the same
   transaction data as an add) kills every session of the identity and voids
-  every queued root operation.
+  every queued root operation. A login from any app may remove.
   - With an empty key (and a zero policy hash) it unlinks the identity
     unless it is the genesis, which stays linked. The threshold drops to
     `min(threshold, platforms still linked)`. It never reverts for the last
     admin: the user signs in again to add one back.
   - With a key it keeps the link and the threshold, then adds the key as
-    `addSessionByLogin` does. One sign-in proof is spent once, so this is
+    `addSessionByLogin` does; the app list is checked before anything is
+    removed. One sign-in proof is spent once, so this is
     how one login both clears an identity's sessions and signs in again.
 - Either may be an entry of an Operation List.
 - Every count is of distinct platforms: many sessions on one platform still
@@ -93,8 +94,9 @@ own batch.
 ### App lists
 
 `WalletRegistry.setAppList(identity, apps)` sets, for the calling wallet,
-the apps whose logins may add or remove the identity's sessions: each entry
-is `keccak256(clientIdentifier)`. An empty list, the default, accepts any
+the apps whose logins may add the identity's sessions: each entry
+is `keccak256(clientIdentifier)`. A removal by login without a key is
+accepted from any app. An empty list, the default, accepts any
 app. The registry is an admin target, so the wallet sets a list at quorum. A
 removal by login leaves the list. Client ids are public: a
 list stops apps on other domains, not someone holding the user's live
@@ -107,7 +109,9 @@ the same genesis at a new salt; anyone can create it, and only a login of the
 genesis can give it its first session. The client:
 
 1. picks the lowest salt whose wallet never had a session
-   (`validator.hadSession(factory.walletAddress(platformId, idNode, salt))`);
+   (`validator.hadSession(w)`, with `w = factory.walletAddress(platformId, idNode, salt)`).
+   Ask the wallet's own validator, `IWebWallet(w).identityValidator()`, when
+   `w` has code, and the current validator only when it has none;
 2. onboards it with the genesis's own `linkIdentity`;
 3. relinks the other platforms, and sets the app lists and the threshold;
 4. binds each handle again with a fresh login: a bind gives the handle to
@@ -201,13 +205,16 @@ the nonce lives there. Without it the direct path reverts
   below quorum each signs the nested hash bound as above, with `at` 0.
 - `isValidSignature(0x7739…7739, "")` answers `0x77390001` (ERC-7739
   detection).
-- A proof's transaction data, for the link and add-session domains, is
+- A proof's transaction data, for the link, add-session and remove-sessions
+  domains, is
   `abi.encode(uint256 chainId, address wallet, bytes sessionKey, bytes32 policyHash)`,
   canonically encoded, with `policyHash = policyHashOf(policy)`. An empty key
-  with a zero policy hash links only. Under `libid.operations` the proof's
-  Operation List commits `keccak256` of these bytes in a `libid.webwallet.*`
-  entry, and the call passes them as `data`; a proof of one operation passes
-  empty `data`.
+  with a zero policy hash links only; under remove-sessions it removes the
+  identity's sessions and unlinks it, unless it is the genesis. With a key,
+  remove-sessions replaces the sessions and keeps the link. Under
+  `libid.operations` the proof's Operation List commits `keccak256` of these
+  bytes in a `libid.webwallet.*` entry, and the call passes them as `data`; a
+  proof of one operation passes empty `data`.
 
 ## Sessions below quorum
 
@@ -315,8 +322,11 @@ is charged to `NATIVE_TOKEN` with its value.
   cannot rename the genesis.
 - A migration is a fresh install: links, sessions and the root delay start
   empty. The user relinks platforms and sets app lists again at quorum.
-- `upgradeToAndCall` goes only to the factory's `walletImplementation()` when
-  it executes, and reverts `NotFactoryImplementation` otherwise.
+- `upgradeToAndCall` goes only to the factory's `walletImplementation()`,
+  checked when it is queued and again when it executes, and reverts
+  `NotFactoryImplementation` otherwise. It reverts `ValidatorNotInstalled`
+  when the new implementation's validator is not installed once its data
+  ran: an upgrade to another validator must carry `migrate`.
 - After the upgrade the old validator stays installed but keeps no power:
   the wallet accepts UserOperations, ERC-1271 signatures, module changes and
   upgrades only from the validator its implementation names. Root operations
@@ -462,9 +472,15 @@ valid, and so give a wallet a session that signs from the next second.
   scope.
 - Re-adding a key with a different rules hash starts its counters fresh.
   Adding a session is an admin operation.
-- A phished login of a linked identity, from an app its list admits,
-  removes its sessions and voids the owner's queued root operations; the
-  owner queues them again.
+- A phished login of a linked identity, from any app, removes its sessions,
+  unlinks it unless it is the genesis, and voids the owner's queued root
+  operations; the owner relinks it and queues them again.
+- A login proof placed in a signed batch can be copied out and submitted
+  alone by anyone: its session is added, and the batch then reverts
+  `DigestAlreadySpent`. Onboarding's `linkIdentity` admits only the wallet.
+- At threshold 1 with no app list, a session added by login may carry an
+  admin policy, so one phished login takes full control; the owner can still
+  remove it by login from any app. Set the app list in the onboarding batch.
 - At k of n, the wallet stays the user's until k platforms are phished, and
   a login removal can unlink all but the genesis. Keep the threshold at most
   the number of platforms minus 1, so a lost genesis still leaves a quorum.
@@ -486,5 +502,7 @@ valid, and so give a wallet a session that signs from the next second.
   allowances.
 - Approvals a session made outlive its revocation.
 - Sessions cannot be listed from storage. Watch `SessionAddedByLogin`,
-  `SessionsRemovedByLogin` and `RootQueued` to alert the owner: the
-  root-operation wait protects only an owner who is told.
+  `SessionsRemovedByLogin` and `RootQueued` to alert the owner. The root
+  delay is 0 by default, so a root operation matures one second after
+  `queueRoot`, too soon for any alert. A wallet that holds value should
+  raise it with `setRootDelay`; the wait then protects an owner who is told.

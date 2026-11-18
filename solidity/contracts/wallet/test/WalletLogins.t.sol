@@ -385,7 +385,7 @@ contract WalletLoginsTest is LoginBase {
 
     // ─── App lists ──────────────────────────────────────────────────
 
-    function test_aListRefusesOtherAppsAndSurvivesARemoval() public {
+    function test_aListRefusesOtherAppsAddsAndSurvivesARemoval() public {
         address w = _wallet(1, 1);
         bytes32 alice = _identity(X, ALICE);
         bytes32[] memory apps = _list(CLIENT);
@@ -402,12 +402,15 @@ contract WalletLoginsTest is LoginBase {
         registry.addSessionByLogin(X, V1, off, "", p);
         assertEq(validator.sessionOf(w, _key(NEW_PK)).identity, alice, "the listed app was refused");
 
-        // The list governs removals too, and survives one.
-        bytes memory rm = _removePayload(w, X, ALICE);
+        // A keyed removal adds, so the list refuses it before anything changes.
+        bytes memory keyed = _payload(X, ALICE, REMOVE, _txData(w, _key(APP_PK), _ph(p)));
         vm.expectPartialRevert(IWalletRegistry.AppNotListed.selector);
-        registry.removeSessionsByLogin(X, OTHER_APP, rm, "", _none());
+        registry.removeSessionsByLogin(X, OTHER_APP, keyed, "", p);
         assertEq(validator.sessionOf(w, _key(NEW_PK)).generation, validator.generationOf(w, alice), "removed");
-        registry.removeSessionsByLogin(X, V1, rm, "", _none());
+        assertEq(validator.sessionOf(w, _key(APP_PK)).identity, bytes32(0), "added");
+
+        // A removal from any app is accepted, and leaves the list.
+        registry.removeSessionsByLogin(X, OTHER_APP, _removePayload(w, X, ALICE), "", _none());
         assertGt(validator.generationOf(w, alice), validator.sessionOf(w, _key(NEW_PK)).generation, "not removed");
         assertEq(abi.encode(registry.appList(w, alice)), abi.encode(apps), "the removal cleared the list");
     }

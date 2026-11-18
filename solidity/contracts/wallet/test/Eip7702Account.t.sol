@@ -236,7 +236,9 @@ contract Eip7702AccountTest is ExecuteBase {
             vm.expectRevert(abi.encodeWithSelector(IWebWallet.NotValidator.selector, callers[i]));
             IWebWallet(a).upgradeToAndCall(next, "");
         }
-        _rootReverts(a, a, up, abi.encodeWithSelector(IWebWallet.NotFactoryImplementation.selector, next, walletImpl));
+        vm.prank(a);
+        vm.expectRevert(abi.encodeWithSelector(IWebWallet.NotFactoryImplementation.selector, next, walletImpl));
+        validator.queueRoot(a, up);
         _factoryNames(next);
         vm.prank(a);
         bytes32 opId = validator.queueRoot(a, up);

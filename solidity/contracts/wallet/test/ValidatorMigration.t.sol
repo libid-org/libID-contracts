@@ -103,6 +103,17 @@ contract ValidatorMigrationTest is WalletTestBase {
         assertEq(target.calls(), 1, "the carried session could not act");
     }
 
+    /// Without `migrate`, nothing installs the new validator, and no session could sign again.
+    function test_anUpgradeToAnotherValidatorMustMigrate() public {
+        address w = _claim();
+        address impl2 = _v2Impl();
+        bytes memory bare = abi.encodeCall(IWebWallet.upgradeToAndCall, (impl2, ""));
+        _rootReverts(w, w, bare, abi.encodeWithSelector(IWebWallet.ValidatorNotInstalled.selector, address(v2)));
+        assertEq(IWebWallet(w).identityValidator(), address(validator), "upgraded");
+        _handle(_opVia(w, address(validator), ALICE_PK, _hit()));
+        assertEq(target.calls(), 1, "the v1 session could not act");
+    }
+
     function test_theCarriedSessionMustBeAdmin() public {
         address w = _claim();
         bytes memory upgrade = _upgrade(_install(X, ALICE, _key(ALICE_PK), _app()));
@@ -118,7 +129,7 @@ contract ValidatorMigrationTest is WalletTestBase {
         vm.prank(w);
         v2.addSession(_identity(X, ALICE), _key(APP_PK), p);
         vm.warp(_now() + 1);
-        bytes memory up = abi.encodeCall(IWebWallet.upgradeToAndCall, (_walletImpl(), ""));
+        bytes memory up = abi.encodeCall(IWebWallet.upgradeToAndCall, (factory.walletImplementation(), ""));
         PackedUserOperation memory op =
             _op(w, 0, _exec(address(validator), abi.encodeCall(IIdentityValidator.queueRoot, (w, up))));
         op.nonce = uint256(uint160(address(v2))) << 96;
@@ -130,7 +141,7 @@ contract ValidatorMigrationTest is WalletTestBase {
 
     function test_rootsQueuedBeforeTheMigrationCannotExecute() public {
         address w = _claim();
-        bytes memory up = abi.encodeCall(IWebWallet.upgradeToAndCall, (_walletImpl(), ""));
+        bytes memory up = abi.encodeCall(IWebWallet.upgradeToAndCall, (factory.walletImplementation(), ""));
         vm.prank(w);
         validator.queueRoot(w, up);
         _root(w, w, _upgrade(_install(X, ALICE, _key(ALICE_PK), _admin())));
