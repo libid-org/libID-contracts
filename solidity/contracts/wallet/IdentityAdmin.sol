@@ -87,8 +87,8 @@ contract IdentityAdmin is IdentityValidatorState {
         _link(account, platformId, idNode);
     }
 
-    function removeByLogin(address account, bytes32 identity) external delegated onlyRegistry {
-        _remove(account, identity, true);
+    function removeByLogin(address account, bytes32 identity, bool keepLink) external delegated onlyRegistry {
+        _remove(account, identity, true, keepLink);
         emit IIdentityValidator.SessionsRemovedByLogin(account, identity);
     }
 
@@ -150,7 +150,7 @@ contract IdentityAdmin is IdentityValidatorState {
         } else if (action == RootAction.RevokeSession) {
             _revoke(account, abi.decode(data[4:], (bytes)), true);
         } else if (action == RootAction.Unlink) {
-            _remove(account, abi.decode(data[4:], (bytes32)), false);
+            _remove(account, abi.decode(data[4:], (bytes32)), false, false);
         } else {
             _setRootDelay(account, abi.decode(data[4:], (uint48)));
         }
@@ -278,8 +278,8 @@ contract IdentityAdmin is IdentityValidatorState {
     }
 
     /// Kills every session of `identity` and voids every queued root operation. Unlinks it unless it is the
-    /// genesis, which a root operation may not name, and lowers the threshold to the platforms left.
-    function _remove(address account, bytes32 identity, bool byLogin) private {
+    /// genesis, which a root operation may not name, or `keepLink`, and lowers the threshold to the platforms left.
+    function _remove(address account, bytes32 identity, bool byLogin, bool keepLink) private {
         mapping(address => bool) storage linked = _s().links[_install(account)][identity];
         if (!linked[account]) revert IIdentityValidator.NotLinked(account, identity);
         AccountState storage a = _account(account);
@@ -288,7 +288,7 @@ contract IdentityAdmin is IdentityValidatorState {
         _dropAdmins(account, identity, _identityAdmins(account, identity)[account]);
         ++_generations(account, identity)[account];
         ++a.rootEpoch;
-        if (genesis) return;
+        if (genesis || keepLink) return;
         delete linked[account];
         if (--_platformLinks(account, _platformOf(account, identity))[account] == 0) --a.platforms;
         // forge-lint: disable-next-line(unsafe-typecast)

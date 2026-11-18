@@ -209,8 +209,8 @@ contract IdentityValidator is IIdentityValidator, IdentityValidatorState {
         _delegate(abi.encodeCall(IdentityAdmin.addSessionFor, (account, identity, key, policy, source)));
     }
 
-    function removeByLogin(address account, bytes32 identity) external {
-        _delegate(abi.encodeCall(IdentityAdmin.removeByLogin, (account, identity)));
+    function removeByLogin(address account, bytes32 identity, bool keepLink) external {
+        _delegate(abi.encodeCall(IdentityAdmin.removeByLogin, (account, identity, keepLink)));
     }
 
     function addSession(bytes32 identity, bytes calldata key, Policy calldata policy) external {

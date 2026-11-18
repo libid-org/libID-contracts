@@ -76,13 +76,16 @@ own batch.
   operations need admin signers that reach the threshold. At threshold 1 it
   co-signs like any other session. A wallet that never had a session takes
   no session by login.
-- `removeSessionsByLogin` (`libid.webwallet.remove-sessions`, transaction
-  data `abi.encode(uint256 chainId, address wallet)`, canonically encoded)
-  accepts a login from any app. It kills every session of the identity,
-  voids every queued root operation, and unlinks the identity unless it is
-  the genesis, which stays linked. The threshold drops to
-  `min(threshold, platforms still linked)`. It never reverts for the last
-  admin: the user signs in again to add one back.
+- `removeSessionsByLogin` (`libid.webwallet.remove-sessions`, the same
+  transaction data as an add) accepts a login from any app. It kills every
+  session of the identity and voids every queued root operation.
+  - With an empty key (and a zero policy hash) it unlinks the identity
+    unless it is the genesis, which stays linked. The threshold drops to
+    `min(threshold, platforms still linked)`. It never reverts for the last
+    admin: the user signs in again to add one back.
+  - With a key it keeps the link and the threshold, then adds the key as
+    `addSessionByLogin` does. One sign-in proof is spent once, so this is
+    how one login both clears an identity's sessions and signs in again.
 - Either may be an entry of an Operation List.
 - Every count is of distinct platforms: many sessions on one platform still
   count once toward the threshold.

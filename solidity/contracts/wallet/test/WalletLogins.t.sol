@@ -13,7 +13,8 @@ import {ExecuteBase, OtherClientVerifier} from "./DirectExecute.t.sol";
 /// Submits a removal login: anyone may, so a batch can reach the registry through it below quorum.
 contract Remover {
     function run(IWalletRegistry r, bytes32 platformId, uint16 version, bytes calldata payload) external {
-        r.removeSessionsByLogin(platformId, version, payload, "");
+        IIdentityValidator.Policy memory none;
+        r.removeSessionsByLogin(platformId, version, payload, "", none);
     }
 }
 
@@ -44,8 +45,11 @@ abstract contract LoginBase is ExecuteBase {
     }
 
     function _removeData(address w) internal view returns (bytes memory) {
-        return abi.encode(block.chainid, w);
+        return _txData(w, "", bytes32(0));
     }
+
+    /// The policy of a removal with no key, which the registry ignores.
+    function _none() internal pure returns (IIdentityValidator.Policy memory none) {}
 
     function _removePayload(address w, bytes32 platformId, bytes32 idNode) internal returns (bytes memory) {
         return _payload(platformId, idNode, REMOVE, _removeData(w));
@@ -62,7 +66,7 @@ abstract contract LoginBase is ExecuteBase {
     function _loginRemove(address w, bytes32 platformId, bytes32 idNode) internal {
         bytes memory payload = _removePayload(w, platformId, idNode);
         vm.prank(mallory);
-        registry.removeSessionsByLogin(platformId, V1, payload, "");
+        registry.removeSessionsByLogin(platformId, V1, payload, "", _none());
     }
 
     /// A relayer submits an add-session login of `(platformId, idNode)` for `w`'s key `pk`.
@@ -213,9 +217,54 @@ contract WalletLoginsTest is LoginBase {
         bytes memory data = _removeData(w);
         bytes memory payload = _payload(GITHUB, BOB, OPERATIONS, operationList(REMOVE, data, BIND, abi.encode(w)));
         vm.prank(mallory);
-        registry.removeSessionsByLogin(GITHUB, V1, payload, data);
+        registry.removeSessionsByLogin(GITHUB, V1, payload, data, _none());
         assertFalse(validator.isLinked(w, _identity(GITHUB, BOB)), "not removed");
         assertTrue(registry.digestSpent(githubStub.lastDigest()), "not spent");
+    }
+
+    function test_aRemovalWithAKeyReplacesTheSessions() public {
+        _replaceBob(false);
+    }
+
+    /// Beside another Consumer's entry.
+    function test_aRemovalWithAKeyMayBeAListEntry() public {
+        _replaceBob(true);
+    }
+
+    /// Bob's GitHub login on a 2-of-2 wallet removes his sessions and adds NEW_PK, one operation or a list entry.
+    function _replaceBob(bool list) internal {
+        address w = _wallet(2, 2);
+        bytes32 bob = _identity(GITHUB, BOB);
+        vm.prank(w);
+        bytes32 opId = validator.queueRoot(address(validator), _delay(1 days));
+        vm.warp(_now() + 1);
+
+        IIdentityValidator.Policy memory p = _admin();
+        bytes memory data = _txData(w, _key(NEW_PK), _ph(p));
+        bytes memory payload = list
+            ? _payload(GITHUB, BOB, OPERATIONS, operationList(REMOVE, data, BIND, abi.encode(w)))
+            : _payload(GITHUB, BOB, REMOVE, data);
+        vm.recordLogs();
+        vm.prank(mallory);
+        registry.removeSessionsByLogin(GITHUB, V1, payload, list ? data : bytes(""), p);
+
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+        (uint256 removed, uint256 added) = (0, 0);
+        for (uint256 i; i < logs.length; ++i) {
+            if (logs[i].topics[0] == IIdentityValidator.SessionsRemovedByLogin.selector) removed = i + 1;
+            if (logs[i].topics[0] == IIdentityValidator.SessionAddedByLogin.selector) added = i + 1;
+        }
+        assertTrue(removed != 0 && removed < added, "not removed, then added");
+        assertTrue(validator.isLinked(w, bob), "unlinked");
+        assertEq(validator.threshold(w), 2, "threshold");
+        assertEq(validator.rootReadyAt(w, opId), 0, "the queued operation survived");
+        IIdentityValidator.Session memory s = validator.sessionOf(w, _key(NEW_PK));
+        assertTrue(s.byProof && s.identity == bob, "not Bob's session by login");
+
+        vm.warp(_now() + 1);
+        bytes memory hit = _one(_hitX());
+        _refusesBy(w, hit, _pks(ALICE_PK, BOB_PK), NOT_SIGNED);
+        _runsBy(w, hit, _pks(ALICE_PK, NEW_PK));
     }
 
     // ─── Login sessions and the threshold ───────────────────────────
@@ -281,12 +330,12 @@ contract WalletLoginsTest is LoginBase {
     function test_aLoginRemovalInTheBatchDoesNotLowerItsCheck() public {
         address w = _wallet(2, 2);
         bytes memory payload = _removePayload(w, GITHUB, BOB);
-        bytes memory rm = abi.encodeCall(IWalletRegistry.removeSessionsByLogin, (GITHUB, V1, payload, ""));
+        bytes memory rm = abi.encodeCall(IWalletRegistry.removeSessionsByLogin, (GITHUB, V1, payload, "", _none()));
         _refusesBy(w, _then(_x(address(registry), 0, rm)), _pks(ALICE_PK), NOT_SIGNED);
         assertTrue(validator.isLinked(w, _identity(GITHUB, BOB)), "the removal stayed");
 
         vm.prank(mallory);
-        registry.removeSessionsByLogin(GITHUB, V1, payload, "");
+        registry.removeSessionsByLogin(GITHUB, V1, payload, "", _none());
         vm.warp(_now() + 1);
         _runsBy(w, _one(_hitX()), _pks(ALICE_PK));
     }
@@ -355,7 +404,7 @@ contract WalletLoginsTest is LoginBase {
 
         // Any app removes; the list stays, so the removing app still cannot add.
         bytes memory rm = _removePayload(w, X, ALICE);
-        registry.removeSessionsByLogin(X, OTHER_APP, rm, "");
+        registry.removeSessionsByLogin(X, OTHER_APP, rm, "", _none());
         assertEq(abi.encode(registry.appList(w, alice)), abi.encode(apps), "the removal cleared the list");
         bytes memory again = _addPayload(w, X, ALICE, APP_PK, p);
         vm.expectPartialRevert(IWalletRegistry.AppNotListed.selector);

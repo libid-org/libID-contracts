@@ -161,7 +161,7 @@ interface IIdentityValidator is IERC7579Validator, IExecutionCheck {
         address indexed account, bytes32 indexed identity, bytes key, Policy policy, uint48 activeAt
     );
     /// A login removed every session of `identity`, voided every queued root operation and, unless it is the
-    /// genesis, unlinked it.
+    /// genesis or the login adds a session, unlinked it.
     event SessionsRemovedByLogin(address indexed account, bytes32 indexed identity);
     event SessionRevoked(address indexed account, bytes32 indexed identity, bytes key);
     event RootQueued(address indexed account, bytes32 indexed opId, address target, bytes data, uint48 readyAt);
@@ -257,8 +257,8 @@ interface IIdentityValidator is IERC7579Validator, IExecutionCheck {
         bool byLogin
     ) external;
     /// Kills every session of the linked `identity` and voids every queued root operation. Unlinks it unless it is
-    /// the genesis, lowering the threshold to the platforms left. Never refused for the last admin.
-    function removeByLogin(address account, bytes32 identity) external;
+    /// the genesis or `keepLink`, lowering the threshold to the platforms left. Never refused for the last admin.
+    function removeByLogin(address account, bytes32 identity, bool keepLink) external;
 
     // The account itself (an admin operation, under the threshold).
     /// Active from the next second. The identity must be linked. A dead session's key may be reused.

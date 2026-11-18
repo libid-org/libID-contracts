@@ -94,11 +94,15 @@ contract WalletRegistry is IWalletRegistry {
         bytes32 platformId,
         uint16 verifierVersion,
         bytes calldata payload,
-        bytes calldata data
+        bytes calldata data,
+        IIdentityValidator.Policy calldata policy
     ) external payable {
         (ICeremony.VerifiedClaim memory claimed, bytes memory txData) =
             _accept(REMOVE_SESSIONS_DOMAIN, platformId, verifierVersion, payload, data);
-        VALIDATOR.removeByLogin(_removalData(txData), identityOf(platformId, claimed.idNode));
+        (address wallet, bytes memory key) = _transactionData(txData, policy);
+        bytes32 identity = identityOf(platformId, claimed.idNode);
+        VALIDATOR.removeByLogin(wallet, identity, key.length != 0);
+        if (key.length != 0) VALIDATOR.addSessionByRegistry(wallet, identity, key, policy, true);
     }
 
     function setAppList(bytes32 identity, bytes32[] calldata apps) external {
@@ -151,15 +155,6 @@ contract WalletRegistry is IWalletRegistry {
         _s().spentDigests[claimed.sessionId] = true;
     }
 
-    /// The wallet of a removal's canonical transaction data for this chain.
-    function _removalData(bytes memory data) private view returns (address) {
-        if (data.length != 64) revert BadTransactionData(data.length);
-        (uint256 chainId, uint256 wallet) = abi.decode(data, (uint256, uint256));
-        if (wallet >> 160 != 0) revert BadTransactionData(data.length);
-        if (chainId != block.chainid) revert WrongChain(chainId);
-        return address(uint160(wallet));
-    }
-
     /// The wallet and session key of canonical transaction data for this chain that commits to `policy`.
     function _transactionData(bytes memory data, IIdentityValidator.Policy calldata policy)
         private
@@ -170,7 +165,7 @@ contract WalletRegistry is IWalletRegistry {
         uint256 chainId;
         bytes32 policyHash;
         (chainId, wallet, key, policyHash) = abi.decode(data, (uint256, address, bytes, bytes32));
-        // An empty key links only, and commits no policy.
+        // An empty key adds no session, and commits no policy.
         if (
             keccak256(abi.encode(chainId, wallet, key, policyHash)) != keccak256(data)
                 || (key.length == 0 && policyHash != 0)

@@ -7,13 +7,13 @@ import {IIdentityValidator} from "./IIdentityValidator.sol";
 /// @title IWalletRegistry - links proved identities to wallets.
 /// @notice Constructor: `WalletRegistry(address proofVerifier, address walletFactory)`, which deploys its
 ///         IdentityValidator for the wallets of `walletFactory`. Immutable, no owner.
-/// @dev The link and add-session domains carry
-///      `abi.encode(uint256 chainId, address wallet, bytes sessionKey, bytes32 policyHash)`, the
-///      remove-sessions domain `abi.encode(uint256 chainId, address wallet)`, each canonically encoded. A proof
+/// @dev Each domain carries
+///      `abi.encode(uint256 chainId, address wallet, bytes sessionKey, bytes32 policyHash)`, canonically
+///      encoded. A proof
 ///      of one operation carries it as its transaction data, and the call's `data` is empty. A proof of an
 ///      Operation List (`IOperationLists`) commits its hash in an entry of any of the three domains, and the
-///      call carries it as `data`. An empty key with a zero policy hash links only, and `policy` is then
-///      ignored.
+///      call carries it as `data`. An empty key with a zero policy hash adds no session, and `policy` is
+///      then ignored.
 ///      The wallet's genesis identity (`IIdentityValidator.genesisIdentity`) is linked when the wallet
 ///      is created. Only the wallet links, usually inside its own direct `execute`; the session a link adds
 ///      is the wallet's own (`IIdentityValidator.addSessionByRegistry`), from any OAuth client.
@@ -72,13 +72,16 @@ interface IWalletRegistry is IOperationLists {
         IIdentityValidator.Policy calldata policy
     ) external payable;
 
-    /// Anyone may submit, from any app; the identity must be linked to the wallet. Kills its sessions, voids the
-    /// wallet's queued root operations and unlinks it unless it is the genesis (`IIdentityValidator.removeByLogin`).
+    /// Anyone may submit, from any app; the identity must be linked to the wallet. Kills its sessions and voids the
+    /// wallet's queued root operations (`IIdentityValidator.removeByLogin`). With an empty key it unlinks the
+    /// identity unless it is the genesis. With a key it keeps the link and then adds the key `byProof`, as
+    /// `addSessionByLogin` does, so the wallet must have had a session.
     function removeSessionsByLogin(
         bytes32 platformId,
         uint16 verifierVersion,
         bytes calldata payload,
-        bytes calldata data
+        bytes calldata data,
+        IIdentityValidator.Policy calldata policy
     ) external payable;
 
     /// Sets the caller's list of apps, each `keccak256(clientIdentifier)`, whose logins may add `identity`'s

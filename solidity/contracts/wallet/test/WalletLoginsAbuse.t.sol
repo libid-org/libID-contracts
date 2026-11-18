@@ -46,7 +46,7 @@ contract WalletLoginsAbuseTest is LoginBase {
             else vm.expectRevert(r.err);
             vm.prank(mallory);
             if (add) registry.addSessionByLogin(r.platformId, V1, payload, r.data, _admin());
-            else registry.removeSessionsByLogin(r.platformId, V1, payload, r.data);
+            else registry.removeSessionsByLogin(r.platformId, V1, payload, r.data, _none());
             assertTrue(validator.isLinked(w, _bob()), r.name);
             assertEq(validator.threshold(w), 2, r.name);
             vm.revertToState(state);
@@ -59,27 +59,26 @@ contract WalletLoginsAbuseTest is LoginBase {
 
     function test_removalRows() public {
         bytes memory good = _removeData(w);
-        uint256 dirty = uint256(uint160(w)) | (uint256(1) << 200);
         bytes4 bad = IWalletRegistry.BadTransactionData.selector;
         bytes4 notLinked = IIdentityValidator.NotLinked.selector;
         bytes4 foreign = IWalletRegistry.ForeignOperationDomain.selector;
         bytes memory addData = _txData(w, _key(NEW_PK), _ph(_admin()));
-        Row[] memory rows = new Row[](10);
+        Row[] memory rows = new Row[](9);
         rows[0] = Row(
             "another chain",
             GITHUB,
             BOB,
             REMOVE,
-            abi.encode(block.chainid + 1, w),
+            abi.encode(block.chainid + 1, w, bytes(""), bytes32(0)),
             "",
             _err(IWalletRegistry.WrongChain.selector, block.chainid + 1),
             false
         );
-        rows[1] = Row("trailing byte", GITHUB, BOB, REMOVE, bytes.concat(good, hex"00"), "", _err(bad, 65), false);
-        rows[2] =
-            Row("dirty address word", GITHUB, BOB, REMOVE, abi.encode(block.chainid, dirty), "", _err(bad, 64), false);
-        rows[3] = Row("no wallet", GITHUB, BOB, REMOVE, abi.encode(block.chainid), "", _err(bad, 32), false);
-        rows[4] = Row(
+        rows[1] = Row("trailing byte", GITHUB, BOB, REMOVE, bytes.concat(good, hex"00"), "", _err(bad, 161), false);
+        rows[2] = Row(
+            "no key, with a policy hash", GITHUB, BOB, REMOVE, _txData(w, "", _ph(_admin())), "", _err(bad, 160), false
+        );
+        rows[3] = Row(
             "an identity not linked here",
             GITHUB,
             DAVE,
@@ -89,7 +88,7 @@ contract WalletLoginsAbuseTest is LoginBase {
             abi.encodeWithSelector(notLinked, w, _identity(GITHUB, DAVE)),
             false
         );
-        rows[5] = Row(
+        rows[4] = Row(
             "Bob's id on another platform",
             X,
             BOB,
@@ -99,10 +98,10 @@ contract WalletLoginsAbuseTest is LoginBase {
             abi.encodeWithSelector(notLinked, w, _identity(X, BOB)),
             false
         );
-        rows[6] =
+        rows[5] =
             Row("an add-session proof", GITHUB, BOB, ADD, addData, "", abi.encodeWithSelector(foreign, ADD), false);
-        rows[7] = Row("a link proof", GITHUB, BOB, LINK, addData, "", abi.encodeWithSelector(foreign, LINK), false);
-        rows[8] = Row(
+        rows[6] = Row("a link proof", GITHUB, BOB, LINK, addData, "", abi.encodeWithSelector(foreign, LINK), false);
+        rows[7] = Row(
             "data without a list",
             GITHUB,
             BOB,
@@ -112,7 +111,7 @@ contract WalletLoginsAbuseTest is LoginBase {
             abi.encodeWithSelector(IWalletRegistry.DataWithoutList.selector),
             false
         );
-        rows[9] = Row(
+        rows[8] = Row(
             "a list's add-session entry",
             GITHUB,
             BOB,
@@ -186,12 +185,12 @@ contract WalletLoginsAbuseTest is LoginBase {
     /// A spent removal does not run twice, even while its identity, the genesis, stays linked.
     function test_aRemovalIsSpentOnce() public {
         bytes memory payload = _removePayload(w, X, ALICE);
-        registry.removeSessionsByLogin(X, V1, payload, "");
+        registry.removeSessionsByLogin(X, V1, payload, "", _none());
         bytes32 digest = xStub.lastDigest();
         vm.prank(w);
         validator.addSession(_identity(X, ALICE), _key(NEW_PK), _admin());
         vm.expectRevert(abi.encodeWithSelector(IWalletRegistry.DigestAlreadySpent.selector, digest));
-        registry.removeSessionsByLogin(X, V1, payload, "");
+        registry.removeSessionsByLogin(X, V1, payload, "", _none());
         assertEq(validator.sessionOf(w, _key(NEW_PK)).identity, _identity(X, ALICE), "the replay removed");
     }
 
@@ -200,7 +199,7 @@ contract WalletLoginsAbuseTest is LoginBase {
         for (uint256 i; i < 2; ++i) {
             vm.prank(callers[i]);
             vm.expectRevert(abi.encodeWithSelector(IIdentityValidator.NotRegistry.selector, callers[i]));
-            validator.removeByLogin(w, _bob());
+            validator.removeByLogin(w, _bob(), false);
             vm.prank(callers[i]);
             vm.expectRevert(abi.encodeWithSelector(IIdentityValidator.NotRegistry.selector, callers[i]));
             validator.addSessionByRegistry(w, _bob(), _key(MALLORY_PK), _admin(), true);
@@ -215,7 +214,7 @@ contract WalletLoginsAbuseTest is LoginBase {
         bytes memory payload = _removePayload(w, GITHUB, BOB);
         Execution[] memory x = new Execution[](3);
         x[0] = _x(address(validator), 0, abi.encodeCall(IIdentityValidator.revokeSession, (_key(BOB_PK))));
-        bytes memory rm = abi.encodeCall(IWalletRegistry.removeSessionsByLogin, (GITHUB, V1, payload, ""));
+        bytes memory rm = abi.encodeCall(IWalletRegistry.removeSessionsByLogin, (GITHUB, V1, payload, "", _none()));
         x[1] = _x(address(registry), 0, rm);
         x[2] = _hitX();
         bytes memory calls = abi.encode(x);
