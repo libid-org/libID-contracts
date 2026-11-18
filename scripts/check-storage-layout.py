@@ -182,6 +182,13 @@ LAYOUTS = (
         "IdentityRegistry.IdentityRegistryStorage",
         "IDENTITY_REGISTRY_STORAGE",
     ),
+    # Not upgradeable, but every forwarder an EOA delegates to keeps this flag.
+    Layout(
+        "wallet/WalletForwarder.sol",
+        ("WalletForwarder",),
+        "WalletForwarder.ForwarderStorage",
+        "FORWARDER_STORAGE",
+    ),
     # No storage of its own: the wallet implementation is an immutable of
     # the factory implementation.
     Layout("wallet/WalletFactory.sol", ("WalletFactory",)),

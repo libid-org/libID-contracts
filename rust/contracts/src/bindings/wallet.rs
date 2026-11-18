@@ -107,6 +107,24 @@ mod wallet_factory {
 /// `wallet/WalletFactory.sol`: deploys wallets at addresses fixed by identity.
 pub use wallet_factory::WalletFactory;
 
+#[allow(
+    clippy::too_many_arguments,
+    missing_docs,
+    non_camel_case_types,
+    unused_attributes
+)]
+mod wallet_forwarder {
+    alloy::sol!(
+        #[sol(rpc, all_derives)]
+        WalletForwarder,
+        "abi/WalletForwarder.json"
+    );
+}
+
+/// `wallet/WalletForwarder.sol`: the EIP-7702 delegate that sets an EOA up as
+/// a WebWallet on its first call.
+pub use wallet_forwarder::WalletForwarder;
+
 /// `rulesHashOf` and `policyHashOf` of `IIdentityValidator.sol`, on both
 /// bindings of `Rules` and `Policy`.
 macro_rules! policy_hashes {

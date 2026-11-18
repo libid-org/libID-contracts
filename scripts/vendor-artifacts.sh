@@ -67,6 +67,7 @@ ARTIFACTS=(
     "IdentityValidator:IdentityValidator"
     "WalletRegistry:WalletRegistry"
     "WalletFactory:WalletFactory"
+    "WalletForwarder:WalletForwarder"
 )
 
 # "<File>:<Contract>" for the test stand-ins.
@@ -104,6 +105,7 @@ ABIS=(
     "IdentityValidator:IdentityValidator"
     "WalletRegistry:WalletRegistry"
     "WalletFactory:WalletFactory"
+    "WalletForwarder:WalletForwarder"
 )
 
 if [[ $# -gt 0 ]]; then

@@ -13,8 +13,9 @@ import {OidcPlatformVerifierBase} from "../ceremony/OidcPlatformVerifierBase.sol
 import {PlatformVerifierBase} from "../ceremony/PlatformVerifierBase.sol";
 import {HandleEscrow} from "../escrow/HandleEscrow.sol";
 import {IdentityRegistry} from "../identity/IdentityRegistry.sol";
+import {WalletForwarder} from "../wallet/WalletForwarder.sol";
 
-/// @notice Holds each upgradeable contract's namespaced struct as an ordinary
+/// @notice Holds each checked contract's namespaced struct as an ordinary
 ///         state variable, so the compiler's storage layout lists its fields.
 ///
 /// @dev `forge inspect <Contract> storageLayout` is empty for these
@@ -31,6 +32,7 @@ contract StorageLayoutProbe {
     OidcPlatformVerifierBase.OidcStorage internal oidcPlatformVerifier;
     HandleEscrow.HandleEscrowStorage internal handleEscrow;
     IdentityRegistry.IdentityRegistryStorage internal identityRegistry;
+    WalletForwarder.ForwarderStorage internal walletForwarder;
     // OpenZeppelin's, inherited by WebWallet.
     AccountERC7579Upgradeable.AccountERC7579Storage internal accountERC7579;
     Initializable.InitializableStorage internal initializable;

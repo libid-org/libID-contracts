@@ -3,10 +3,10 @@
 Typed, viem-ready ABIs for the libid identity stack (NotaryService,
 CeremonyProofVerifier, GoogleJwtRoots, IdentityRegistry, HandleEscrow,
 ReferralSplitter, HandleResolver, LibidFactory, WTIA9, and the WebWallet
-contracts: WebWallet, IdentityValidator, WalletRegistry, WalletFactory), the
-errors a bind or a WalletRegistry proof can revert with, a call builder for
-every state-changing function, and the identity helper layer: handle
-normalization, node derivation and resolution.
+contracts: WebWallet, IdentityValidator, WalletRegistry, WalletFactory,
+WalletForwarder), the errors a bind or a WalletRegistry proof can revert
+with, a call builder for every state-changing function, and the identity
+helper layer: handle normalization, node derivation and resolution.
 
 `src/abis/` and `src/calls/` are generated from the forge artifacts
 (`solidity/out`) by `scripts/codegen.mjs` and are not committed. Each ABI is

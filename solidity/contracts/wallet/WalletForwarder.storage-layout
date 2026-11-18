@@ -1,0 +1,4 @@
+# WalletForwarder storage layout. Checked in CI by scripts/check-storage-layout.py.
+# Fields may only be APPENDED. Record an append with --update; see the script.
+root erc7201:libid.webwallet.forwarder 0xc2f8af3814a07eb6741c63b4fc041906beb0f9e67ef98cd0864a23c39b9fc100
+field slot=0 offset=0 setUp: bool
