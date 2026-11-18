@@ -18,7 +18,7 @@ export const bindRoute = [
 ]
 
 /**
- * Every contract a `WalletRegistry` link or session by proof passes through, in call order, as
+ * Every contract a `WalletRegistry` link or login passes through, in call order, as
  * `[source unit, contract]`; a revert from any comes back out unchanged.
  * @type {readonly (readonly [string, string])[]}
  */

@@ -123,12 +123,12 @@ contract RealProofClaimTest is ExecuteBase {
 
     /// The link entry's data for Alice's new wallet: K, the first session.
     function _linkData() internal view returns (bytes memory) {
-        return _txData(factory.walletAddress(X, idNode), _key(ALICE_PK), _ph(_admin()));
+        return _txData(factory.walletAddress(X, idNode, 0), _key(ALICE_PK), _ph(_admin()));
     }
 
     /// The Operation List a proof of `version` carries for Alice's new wallet: bind it, and link K.
     function _list(uint16 version) internal view returns (bytes memory) {
-        address w = factory.walletAddress(X, idNode);
+        address w = factory.walletAddress(X, idNode, 0);
         bytes memory data = operationList(BIND, abi.encode(w), LINK, _linkData());
         return version == VX ? _real(OPERATIONS, data) : _stubbed(OPERATIONS, data);
     }
@@ -136,7 +136,7 @@ contract RealProofClaimTest is ExecuteBase {
     /// The relayer onboards Alice with one list proof in one `createAndExecute`: the batch K signs links K,
     /// binds the handle, claims the escrow, repays the relayer and adds a bot's session.
     function _onboard(uint16 version, bytes memory list) internal returns (address w, uint256 gas) {
-        w = factory.walletAddress(X, idNode);
+        w = factory.walletAddress(X, idNode, 0);
         escrow.deposit{value: CLAIMED}(X, handleNode, NATIVE_TOKEN, CLAIMED);
         uint256 linkFee = registry.quote(X, version);
         address[] memory tokens = new address[](1);
@@ -163,7 +163,7 @@ contract RealProofClaimTest is ExecuteBase {
         signedValue = linkFee;
         bytes memory auth = _aliceFor(w, calls, n);
         vm.prank(relayer, relayer);
-        factory.createAndExecute{value: linkFee}(X, idNode, AUTHORIZED_MODE, _data(calls, auth));
+        factory.createAndExecute{value: linkFee}(X, idNode, 0, AUTHORIZED_MODE, _data(calls, auth));
         signedValue = 0;
         Vm.Gas memory used = vm.lastFrameGas();
         // forge-lint: disable-next-line(unsafe-typecast)
@@ -198,7 +198,7 @@ contract RealProofClaimTest is ExecuteBase {
         bytes memory add = _real(ADD, _txData(w, _key(ALICE2_PK), _ph(p)));
         uint256 fee = registry.quote(X, VX);
         vm.prank(relayer);
-        registry.addSessionByProof{value: fee}(X, VX, add, "", p);
+        registry.addSessionByLogin{value: fee}(X, VX, add, "", p);
         IIdentityValidator.Session memory s = validator.sessionOf(w, _key(ALICE2_PK));
         assertTrue(s.byProof && s.activeAt == _now(), "no session by proof");
     }

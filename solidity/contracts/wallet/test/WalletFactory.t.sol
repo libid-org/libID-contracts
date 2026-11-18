@@ -15,19 +15,19 @@ import {WalletTestBase} from "./WalletTestBase.sol";
 contract WalletFactoryTest is WalletTestBase {
     function test_addressIsCreate3OfTheDerivedSalt() public {
         address expected = Create3.addressOf(keccak256(abi.encode(X, ALICE)), address(factory));
-        assertEq(factory.walletAddress(X, ALICE), expected, "salt is not (platformId, idNode)");
-        assertTrue(factory.walletAddress(X, ALICE) != factory.walletAddress(GITHUB, ALICE), "platform");
-        address here = factory.walletAddress(X, ALICE);
+        assertEq(factory.walletAddress(X, ALICE, 0), expected, "salt is not (platformId, idNode)");
+        assertTrue(factory.walletAddress(X, ALICE, 0) != factory.walletAddress(GITHUB, ALICE, 0), "platform");
+        address here = factory.walletAddress(X, ALICE, 0);
         vm.chainId(8453);
-        assertEq(factory.walletAddress(X, ALICE), here, "the address depends on the chain");
+        assertEq(factory.walletAddress(X, ALICE, 0), here, "the address depends on the chain");
     }
 
     function test_createWalletLinksTheGenesisIdentityInTheSameCall() public {
         vm.prank(mallory);
-        address w = factory.createWallet(X, ALICE);
+        address w = factory.createWallet(X, ALICE, 0);
 
-        assertEq(w, factory.walletAddress(X, ALICE), "not at the predicted address");
-        (bytes32 platformId, bytes32 idNode) = validator.genesisIdentity(w);
+        assertEq(w, factory.walletAddress(X, ALICE, 0), "not at the predicted address");
+        (bytes32 platformId, bytes32 idNode,) = validator.genesisIdentity(w);
         assertEq(platformId, X, "genesis platform");
         assertEq(idNode, ALICE, "genesis id");
         assertTrue(IWebWallet(w).isModuleInstalled(1, address(validator), ""), "validator not installed");
@@ -43,15 +43,15 @@ contract WalletFactoryTest is WalletTestBase {
 
     function test_implementationCannotBeInitialized() public {
         vm.expectRevert(Initializable.InvalidInitialization.selector);
-        IWebWallet(walletImpl).initialize(abi.encode(X, ALICE));
+        IWebWallet(walletImpl).initialize(_install(X, ALICE));
     }
 
     /// Taking the address first changes nothing, and a foreign proof cannot link first.
     function test_genesisFrontRunGainsNothing() public {
         vm.prank(mallory);
-        address w = factory.createWallet(X, ALICE);
+        address w = factory.createWallet(X, ALICE, 0);
         vm.recordLogs();
-        assertEq(factory.createWallet(X, ALICE), w, "a second call moved the wallet");
+        assertEq(factory.createWallet(X, ALICE, 0), w, "a second call moved the wallet");
         assertEq(vm.getRecordedLogs().length, 0, "a second call emitted");
 
         bytes memory payload = _payload(X, MALLORY, LINK, _txData(w, _key(MALLORY_PK), _ph(_admin())));
@@ -67,7 +67,7 @@ contract WalletFactoryTest is WalletTestBase {
     /// R1: the address is a function of (factory proxy, platformId, idNode) only, not of
     ///     the chain or the wallet implementation the factory deploys.
     function test_anUpgradeReachesNewWalletsAtTheirPromisedAddress() public {
-        address promised = factory.walletAddress(X, ALICE);
+        address promised = factory.walletAddress(X, ALICE, 0);
         address impl2 = _walletImpl();
         address factory2 = _factoryImpl(impl2);
         vm.prank(owner);
@@ -75,11 +75,11 @@ contract WalletFactoryTest is WalletTestBase {
         vm.chainId(8453);
 
         assertEq(factory.walletImplementation(), impl2, "not upgraded");
-        assertEq(factory.walletAddress(X, ALICE), promised, "prediction moved");
-        address w = factory.createWallet(X, ALICE);
+        assertEq(factory.walletAddress(X, ALICE, 0), promised, "prediction moved");
+        address w = factory.createWallet(X, ALICE, 0);
         assertEq(w, promised, "deployed elsewhere");
         assertEq(address(uint160(uint256(vm.load(w, IMPL_SLOT)))), impl2, "not the new implementation");
-        (, bytes32 idNode) = validator.genesisIdentity(w);
+        (, bytes32 idNode,) = validator.genesisIdentity(w);
         assertEq(idNode, ALICE, "genesis lost");
     }
 

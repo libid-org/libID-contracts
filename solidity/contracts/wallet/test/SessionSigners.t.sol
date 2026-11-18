@@ -69,9 +69,13 @@ contract SessionSignersTest is WalletTestBase {
         _refused(_hitBy(0, _pks(APP_PK, ALICE2_PK, BOB_PK)), "three signers for two");
     }
 
+    /// Above threshold 1 (at 1, WalletLogins.t.sol).
     function test_aSessionByProofNeverCounts() public {
+        vm.prank(w);
+        validator.addSession(_identity(GITHUB, BOB), _key(ALICE2_PK), _admin());
+        _root(w, address(validator), abi.encodeCall(IIdentityValidator.setThreshold, (2)));
         _governing(2);
-        _addByProof(mallory, GITHUB, BOB, w, _key(MALLORY_PK), _app());
+        _addByLogin(mallory, GITHUB, BOB, w, _key(MALLORY_PK), _app());
         vm.warp(_now() + 48 hours + 1);
         assertTrue(validator.sessionOf(w, _key(MALLORY_PK)).byProof, "not by proof");
         _refused(_hitBy(0, _pks(APP_PK, MALLORY_PK)), "a GitHub session by proof");

@@ -102,11 +102,13 @@ contract Eip7702AccountTest is ExecuteBase {
     /// The account has no genesis identity: neither first-session exception opens it to a stranger.
     function test_aStrangerCannotAddASession() public {
         _delegateTo(walletImpl);
-        (bytes32 platformId, bytes32 idNode) = validator.genesisIdentity(a);
-        assertEq(abi.encode(platformId, idNode), abi.encode(bytes32(0), bytes32(0)), "a genesis");
+        (bytes32 platformId, bytes32 idNode, uint256 salt) = validator.genesisIdentity(a);
+        assertEq(abi.encode(platformId, idNode, salt), abi.encode(bytes32(0), bytes32(0), 0), "a genesis");
 
         bytes memory refused = abi.encodeWithSelector(IIdentityValidator.FirstSessionRefused.selector, a);
-        _addByProofReverts(refused);
+        _addByLoginReverts(
+            MALLORY, abi.encodeWithSelector(IIdentityValidator.NotLinked.selector, a, _identity(X, MALLORY))
+        );
         bytes memory linkPayload = _payload(X, MALLORY, LINK, _txData(a, _key(MALLORY_PK), _ph(_admin())));
         vm.prank(mallory);
         vm.expectRevert(abi.encodeWithSelector(IWalletRegistry.NotWallet.selector, a, mallory));
@@ -117,11 +119,11 @@ contract Eip7702AccountTest is ExecuteBase {
         registry.linkIdentity(X, V1, linkPayload, "", _admin());
 
         _link(a, X, ALICE, a, "", _app());
-        _addByProofReverts(refused);
+        _addByLoginReverts(ALICE, refused);
         vm.expectRevert(
-            abi.encodeWithSelector(IIdentityValidator.NotFactoryWallet.selector, a, factory.walletAddress(X, ALICE))
+            abi.encodeWithSelector(IIdentityValidator.NotFactoryWallet.selector, a, factory.walletAddress(X, ALICE, 0))
         );
-        IWebWallet(a).initialize(abi.encode(X, ALICE, _key(MALLORY_PK), _admin()));
+        IWebWallet(a).initialize(_install(X, ALICE, _key(MALLORY_PK), _admin()));
         assertEq(validator.sessionOf(a, _key(MALLORY_PK)).identity, bytes32(0), "mallory has a session");
     }
 
@@ -180,10 +182,10 @@ contract Eip7702AccountTest is ExecuteBase {
         LeftoverModule(a).hello();
         // OpenZeppelin's set still lets it call `migrate`, whose install only a factory wallet passes.
         bytes memory notFactory =
-            abi.encodeWithSelector(IIdentityValidator.NotFactoryWallet.selector, a, factory.walletAddress(X, ALICE));
+            abi.encodeWithSelector(IIdentityValidator.NotFactoryWallet.selector, a, factory.walletAddress(X, ALICE, 0));
         vm.prank(address(m));
         vm.expectRevert(notFactory);
-        IWebWallet(a).migrate(abi.encode(X, ALICE, _key(MALLORY_PK), _admin()));
+        IWebWallet(a).migrate(_install(X, ALICE, _key(MALLORY_PK), _admin()));
         _refused(_opVia(address(m)), "a leftover validator");
     }
 
@@ -207,17 +209,18 @@ contract Eip7702AccountTest is ExecuteBase {
         IWebWallet(a).execute(MODE_DELEGATE, abi.encodePacked(address(target), abi.encodeCall(CallTarget.hit, ())));
         // Even a matured root operation cannot install the validator: its install is the factory's.
         bytes memory install = abi.encodeCall(
-            IERC7579ModuleConfig.installModule, (MODULE_TYPE_VALIDATOR, address(validator), abi.encode(X, ALICE))
+            IERC7579ModuleConfig.installModule, (MODULE_TYPE_VALIDATOR, address(validator), _install(X, ALICE))
         );
         _rootReverts(
             a,
             a,
             install,
-            abi.encodeWithSelector(IIdentityValidator.NotFactoryWallet.selector, a, factory.walletAddress(X, ALICE))
+            abi.encodeWithSelector(IIdentityValidator.NotFactoryWallet.selector, a, factory.walletAddress(X, ALICE, 0))
         );
     }
 
-    /// A leftover ERC-1967 slot opens `upgradeToAndCall` to a matured root operation alone.
+    /// A leftover ERC-1967 slot opens `upgradeToAndCall` to a matured root operation alone, and only to the
+    /// factory's implementation.
     function test_onlyAMaturedRootUpgrades() public {
         _setUp();
         address next = _walletImpl();
@@ -233,6 +236,8 @@ contract Eip7702AccountTest is ExecuteBase {
             vm.expectRevert(abi.encodeWithSelector(IWebWallet.NotValidator.selector, callers[i]));
             IWebWallet(a).upgradeToAndCall(next, "");
         }
+        _rootReverts(a, a, up, abi.encodeWithSelector(IWebWallet.NotFactoryImplementation.selector, next, walletImpl));
+        _factoryNames(next);
         vm.prank(a);
         bytes32 opId = validator.queueRoot(a, up);
         vm.expectRevert(abi.encodeWithSelector(IIdentityValidator.RootNotReady.selector, opId));
@@ -242,12 +247,12 @@ contract Eip7702AccountTest is ExecuteBase {
         assertEq(vm.load(a, IMPL_SLOT), bytes32(uint256(uint160(next))), "not upgraded");
     }
 
-    /// Mallory's proof of her own identity, naming her key for the account, reverts with `err`.
-    function _addByProofReverts(bytes memory err) internal {
-        bytes memory payload = _payload(X, MALLORY, ADD, _txData(a, _key(MALLORY_PK), _ph(_admin())));
+    /// A login of `idNode` on X, naming Mallory's key for the account, reverts with `err`.
+    function _addByLoginReverts(bytes32 idNode, bytes memory err) internal {
+        bytes memory payload = _payload(X, idNode, ADD, _txData(a, _key(MALLORY_PK), _ph(_admin())));
         vm.prank(mallory);
         vm.expectRevert(err);
-        registry.addSessionByProof(X, V1, payload, "", _admin());
+        registry.addSessionByLogin(X, V1, payload, "", _admin());
     }
 
     /// A UserOperation by Alice's session naming `module` in its nonce key.

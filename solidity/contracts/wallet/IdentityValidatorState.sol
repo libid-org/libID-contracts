@@ -4,21 +4,26 @@ pragma solidity ^0.8.24;
 import {IIdentityValidator} from "./IIdentityValidator.sol";
 
 /// @title IdentityValidatorState - IdentityValidator's storage, and the helpers its own code and the
-///        SessionRules it delegates to share.
+///        IdentityAdmin and SessionRules it delegates to share.
 /// @dev Every slot validation reads or writes has the account as its innermost mapping key (ERC-7562).
 abstract contract IdentityValidatorState {
+    uint48 internal constant MAX_DELAY = 365 days;
+
+    /// Called other than through the validator's DELEGATECALL.
+    error NotDelegated();
+
     /// One install's settings for one account.
     struct AccountState {
         bytes32 platformId;
         bytes32 idNode;
-        uint48 recoveryDelay;
+        uint48 rootDelay;
         uint8 threshold;
         bool hadSession;
         uint32 adminSessions;
-        uint32 identities;
         uint32 rootEpoch;
         uint32 platforms;
         uint32 adminPlatforms;
+        uint256 salt;
     }
 
     /// What `_verify` found: whether every signature holds, the distinct platforms of its signers and
@@ -80,6 +85,10 @@ abstract contract IdentityValidatorState {
 
     function _install(address account) internal view returns (uint256) {
         return _s().installs[account];
+    }
+
+    function _isLinked(address account, bytes32 identity) internal view returns (bool) {
+        return _s().links[_install(account)][identity][account];
     }
 
     function _account(address account) internal view returns (AccountState storage) {
@@ -148,6 +157,17 @@ abstract contract IdentityValidatorState {
         returns (mapping(address => uint32) storage)
     {
         return _s().platformAdmins[_install(account)][platformId];
+    }
+
+    /// Whether the root epoch moved since the operation was queued.
+    function _superseded(address account, Root memory r) internal view returns (bool) {
+        return r.epoch != _account(account).rootEpoch;
+    }
+
+    /// Whether the session exists and belongs to its identity's current link.
+    function _live(address account, IIdentityValidator.Session storage s) internal view returns (bool) {
+        bytes32 identity = s.identity;
+        return identity != 0 && s.generation == _generations(account, identity)[account];
     }
 
     /// Narrows `v`'s window to `(validAfter, validUntil]`; `validUntil == 0` is unbounded.

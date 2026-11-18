@@ -13,7 +13,7 @@ contract RootEpochTest is WalletTestBase {
         vm.prank(w);
         validator.addSession(_identity(X, ALICE), _key(ALICE2_PK), _admin());
         vm.warp(_now() + 1);
-        data = abi.encodeCall(IWebWallet.upgradeToAndCall, (_walletImpl(), ""));
+        data = abi.encodeCall(IWebWallet.upgradeToAndCall, (walletImpl, ""));
         bytes memory queue = _exec(address(validator), abi.encodeCall(IIdentityValidator.queueRoot, (w, data)));
         _handle(_signed(_op(w, 0, queue), _pks(ALICE2_PK)));
         opId = keccak256(abi.encode(w, w, data));
@@ -48,7 +48,7 @@ contract RootEpochTest is WalletTestBase {
         validator.addSession(_identity(X, ALICE), _key(APP_PK), _app());
         vm.prank(w);
         validator.revokeSession(_key(APP_PK));
-        _addByProof(relayer, X, ALICE, w, _key(BOB_PK), _admin());
+        _addByLogin(relayer, X, ALICE, w, _key(BOB_PK), _admin());
         vm.prank(w);
         validator.revokeSession(_key(BOB_PK));
 

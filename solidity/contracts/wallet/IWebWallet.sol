@@ -31,9 +31,10 @@ interface INonceIncrement {
 ///         `initialize` installs it.
 /// @dev `installModule`, `uninstallModule` and `upgradeToAndCall` accept only the constructor's
 ///      validator, which calls them for a matured root operation; another validator still installed
-///      has no power. The validator cannot be uninstalled. `isModuleInstalled` reports that validator
-///      alone; no executor module or fallback handler is supported, and none an earlier EIP-7702
-///      delegate left in OpenZeppelin's storage is ever called.
+///      has no power. `upgradeToAndCall` goes only to the implementation the validator's `walletFactory`
+///      names when it runs. The validator cannot be uninstalled. `isModuleInstalled` reports that
+///      validator alone; no executor module or fallback handler is supported, and none an earlier
+///      EIP-7702 delegate left in OpenZeppelin's storage is ever called.
 ///      `execute(mode, data)` takes a default-selector mode from the EntryPoint, or, on an EIP-7702
 ///      account, from the account itself (its key), and `AUTHORIZED_MODE`
 ///      from anyone, checked at the end: `data` is then
@@ -85,6 +86,9 @@ interface IWebWallet is
 
     /// The migration's install data added no session.
     error MigrationWithoutSession();
+
+    /// An upgrade goes only to the factory's `walletImplementation`.
+    error NotFactoryImplementation(address implementation, address factoryImplementation);
 
     /// Installs the validator with `validatorData`. Once, by the factory.
     function initialize(bytes calldata validatorData) external;

@@ -19,7 +19,9 @@ contract ValidatorMigrationTest is WalletTestBase {
     function _v2Impl() internal returns (address) {
         registry2 = _newRegistry(address(factory));
         v2 = IIdentityValidator(registry2.identityValidator());
-        return deployCode("WebWallet.sol:WebWallet", abi.encode(address(v2)));
+        address impl = deployCode("WebWallet.sol:WebWallet", abi.encode(address(v2)));
+        _factoryNames(impl);
+        return impl;
     }
 
     function _upgrade(bytes memory installData) internal returns (bytes memory) {
@@ -30,7 +32,7 @@ contract ValidatorMigrationTest is WalletTestBase {
     /// Alice's wallet moved to `v2`, carrying her admin session, which signs from the next second.
     function _migrated() internal returns (address w) {
         w = _claim();
-        bytes memory upgrade = _upgrade(abi.encode(X, ALICE, _key(ALICE_PK), _admin()));
+        bytes memory upgrade = _upgrade(_install(X, ALICE, _key(ALICE_PK), _admin()));
         _root(w, w, upgrade);
         vm.warp(_now() + 1);
         assertTrue(IWebWallet(w).isModuleInstalled(1, address(v2), ""), "v2 not installed");
@@ -39,15 +41,16 @@ contract ValidatorMigrationTest is WalletTestBase {
     /// The new validator installs only the factory's wallet of the genesis named: a migration cannot rename it.
     function test_aMigrationKeepsTheGenesis() public {
         address w = _claim();
-        bytes memory renamed = _upgrade(abi.encode(X, MALLORY, _key(ALICE_PK), _admin()));
-        bytes memory err =
-            abi.encodeWithSelector(IIdentityValidator.NotFactoryWallet.selector, w, factory.walletAddress(X, MALLORY));
+        bytes memory renamed = _upgrade(_install(X, MALLORY, _key(ALICE_PK), _admin()));
+        bytes memory err = abi.encodeWithSelector(
+            IIdentityValidator.NotFactoryWallet.selector, w, factory.walletAddress(X, MALLORY, 0)
+        );
         _rootReverts(w, w, renamed, err);
         assertFalse(IWebWallet(w).isModuleInstalled(1, address(v2), ""), "migrated under another genesis");
 
-        _root(w, w, _upgrade(abi.encode(X, ALICE, _key(ALICE_PK), _admin())));
+        _root(w, w, _upgrade(_install(X, ALICE, _key(ALICE_PK), _admin())));
         assertTrue(IWebWallet(w).isModuleInstalled(1, address(v2), ""), "the same genesis did not migrate");
-        (bytes32 platformId, bytes32 idNode) = v2.genesisIdentity(w);
+        (bytes32 platformId, bytes32 idNode,) = v2.genesisIdentity(w);
         assertEq(abi.encode(platformId, idNode), abi.encode(X, ALICE), "genesis");
     }
 
@@ -87,7 +90,7 @@ contract ValidatorMigrationTest is WalletTestBase {
         validator.addSession(_identity(X, ALICE), _key(APP_PK), _hitOnly());
         assertTrue(_signs(w, address(validator), ALICE_PK), "v1 could not sign before");
 
-        _root(w, w, _upgrade(abi.encode(X, ALICE, _key(ALICE_PK), _admin())));
+        _root(w, w, _upgrade(_install(X, ALICE, _key(ALICE_PK), _admin())));
         vm.warp(_now() + 1);
         assertFalse(IWebWallet(w).isModuleInstalled(1, address(validator), ""), "v1 reported installed");
 
@@ -102,7 +105,7 @@ contract ValidatorMigrationTest is WalletTestBase {
 
     function test_theCarriedSessionMustBeAdmin() public {
         address w = _claim();
-        bytes memory upgrade = _upgrade(abi.encode(X, ALICE, _key(ALICE_PK), _app()));
+        bytes memory upgrade = _upgrade(_install(X, ALICE, _key(ALICE_PK), _app()));
         _rootReverts(w, w, upgrade, abi.encodeWithSelector(IIdentityValidator.InstallSessionNotAdmin.selector));
     }
 
@@ -130,14 +133,14 @@ contract ValidatorMigrationTest is WalletTestBase {
         bytes memory up = abi.encodeCall(IWebWallet.upgradeToAndCall, (_walletImpl(), ""));
         vm.prank(w);
         validator.queueRoot(w, up);
-        _root(w, w, _upgrade(abi.encode(X, ALICE, _key(ALICE_PK), _admin())));
+        _root(w, w, _upgrade(_install(X, ALICE, _key(ALICE_PK), _admin())));
         vm.expectRevert(abi.encodeWithSelector(IWebWallet.NotValidator.selector, address(validator)));
         validator.executeRoot(w, w, up);
     }
 
     function test_migrateRunsOnlyInsideTheUpgrade() public {
         address w = _migrated();
-        bytes memory data = abi.encode(X, ALICE, _key(MALLORY_PK), _admin());
+        bytes memory data = _install(X, ALICE, _key(MALLORY_PK), _admin());
         vm.prank(mallory);
         vm.expectRevert(Initializable.InvalidInitialization.selector);
         IWebWallet(w).migrate(data);
@@ -146,7 +149,7 @@ contract ValidatorMigrationTest is WalletTestBase {
         IWebWallet(w).migrate(data);
 
         // A wallet that never migrated: only an installed validator may call it.
-        address fresh = factory.createWallet(GITHUB, BOB);
+        address fresh = factory.createWallet(GITHUB, BOB, 0);
         vm.prank(mallory);
         vm.expectRevert(abi.encodeWithSelector(ERC7579Utils.ERC7579UninstalledModule.selector, 1, mallory));
         IWebWallet(fresh).migrate(data);

@@ -3,6 +3,7 @@ pragma solidity ^0.8.24;
 
 import {Test} from "forge-std/Test.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
+import {UUPSUpgradeable} from "@openzeppelin/contracts/proxy/utils/UUPSUpgradeable.sol";
 import {IEntryPoint, PackedUserOperation} from "@openzeppelin/contracts/interfaces/IERC4337.sol";
 import {IERC7579Execution} from "@openzeppelin/contracts/interfaces/draft-IERC7579.sol";
 
@@ -229,6 +230,13 @@ abstract contract WalletTestBase is Test, Trees {
         return deployCode("WalletFactory.sol:WalletFactory", abi.encode(walletImplementation));
     }
 
+    /// Upgrades the factory to one naming `walletImplementation`, the one implementation wallets may upgrade to.
+    function _factoryNames(address walletImplementation) internal {
+        address next = _factoryImpl(walletImplementation);
+        vm.prank(owner);
+        UUPSUpgradeable(address(factory)).upgradeToAndCall(next, "");
+    }
+
     /// The EntryPoint and the SenderCreator its immutables name, each at its own address.
     function _deployEntryPoint() private {
         string memory json = vm.readFile("contracts/wallet/test/fixtures/entrypoint-v0.9.json");
@@ -296,6 +304,21 @@ abstract contract WalletTestBase is Test, Trees {
         );
     }
 
+    /// Install data of the genesis `(platformId, idNode)` at salt 0 with the admin session `key`.
+    function _install(bytes32 platformId, bytes32 idNode, bytes memory key, IIdentityValidator.Policy memory p)
+        internal
+        pure
+        returns (bytes memory)
+    {
+        return abi.encode(platformId, idNode, uint256(0), key, p);
+    }
+
+    /// Install data of the genesis `(platformId, idNode)` at salt 0, with no session.
+    function _install(bytes32 platformId, bytes32 idNode) internal pure returns (bytes memory) {
+        IIdentityValidator.Policy memory none;
+        return _install(platformId, idNode, "", none);
+    }
+
     function _link(
         address submitter,
         bytes32 platformId,
@@ -312,7 +335,7 @@ abstract contract WalletTestBase is Test, Trees {
         return _stub(platformId).lastDigest();
     }
 
-    function _addByProof(
+    function _addByLogin(
         address submitter,
         bytes32 platformId,
         bytes32 idNode,
@@ -322,13 +345,13 @@ abstract contract WalletTestBase is Test, Trees {
     ) internal {
         bytes memory payload = _payload(platformId, idNode, ADD, _txData(wallet, key, _ph(p)));
         vm.prank(submitter);
-        registry.addSessionByProof(platformId, V1, payload, "", p);
+        registry.addSessionByLogin(platformId, V1, payload, "", p);
     }
 
     /// Alice's canonical wallet, which linked her first session itself.
     function _claimWith(IIdentityValidator.Policy memory p) internal returns (address w) {
         vm.prank(relayer);
-        w = factory.createWallet(X, ALICE);
+        w = factory.createWallet(X, ALICE, 0);
         _link(w, X, ALICE, w, _key(ALICE_PK), p);
     }
 
@@ -391,10 +414,10 @@ abstract contract WalletTestBase is Test, Trees {
     }
 
     function _raise() internal pure returns (bytes memory) {
-        return abi.encodeCall(IIdentityValidator.setRecoveryDelay, (72 hours));
+        return abi.encodeCall(IIdentityValidator.setRootDelay, (72 hours));
     }
 
-    /// The account's admin call queueing a recovery delay of 72 hours.
+    /// The account's admin call queueing a root delay of 72 hours.
     function _queueRaise() internal view returns (bytes memory) {
         return abi.encodeCall(IIdentityValidator.queueRoot, (address(validator), _raise()));
     }

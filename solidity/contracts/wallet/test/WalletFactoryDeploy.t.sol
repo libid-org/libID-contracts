@@ -13,7 +13,7 @@ contract WalletFactoryDeployTest is WalletTestBase {
     function test_theValidatorNamesTheFactoryBeforeItIsDeployed() public {
         assertEq(address(factory), names.predict(FACTORY_NAME), "the factory is not at its name");
         assertEq(validator.walletFactory(), address(factory), "the validator names another factory");
-        address w = factory.createWallet(X, ALICE);
+        address w = factory.createWallet(X, ALICE, 0);
         assertTrue(IWebWallet(w).isModuleInstalled(1, address(validator), ""), "not installed");
     }
 
@@ -25,14 +25,14 @@ contract WalletFactoryDeployTest is WalletTestBase {
         vm.prank(owner);
         IWalletFactory wrong = IWalletFactory(names.deploy("WalletFactory-b", proxy));
         vm.expectRevert(Create3.TargetDeployFailed.selector);
-        wrong.createWallet(X, ALICE);
+        wrong.createWallet(X, ALICE, 0);
 
         // The deployed validator refuses that wallet's install.
-        address w = wrong.walletAddress(X, ALICE);
+        address w = wrong.walletAddress(X, ALICE, 0);
         bytes memory err =
-            abi.encodeWithSelector(IIdentityValidator.NotFactoryWallet.selector, w, factory.walletAddress(X, ALICE));
+            abi.encodeWithSelector(IIdentityValidator.NotFactoryWallet.selector, w, factory.walletAddress(X, ALICE, 0));
         vm.prank(w);
         vm.expectRevert(err);
-        validator.onInstall(abi.encode(X, ALICE));
+        validator.onInstall(_install(X, ALICE));
     }
 }

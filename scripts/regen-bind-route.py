@@ -108,9 +108,9 @@ ROUTES = (
         ),
         "HandleNotProved(bytes32,bytes32)",
     ),
-    # `linkIdentity` and `addSessionByProof` call the IdentityValidator after the proof checks.
+    # `linkIdentity`, `addSessionByLogin` and `removeSessionsByLogin` call the IdentityValidator after the proof checks.
     Route(
-        "a `WalletRegistry` link or session by proof",
+        "a `WalletRegistry` link or login",
         "WalletRegistryError",
         "WALLET_REGISTRY_ROUTE",
         "walletRegistryRoute",

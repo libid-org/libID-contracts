@@ -146,7 +146,7 @@ impl BindError {
     }
 }
 
-/// A revert of a `WalletRegistry` link or session by proof,
+/// A revert of a `WalletRegistry` link or login,
 /// decoded by the first error set on the route that declares its selector.
 /// Many selectors are declared by several contracts, so the variant names
 /// the error set, not the contract that reverted;

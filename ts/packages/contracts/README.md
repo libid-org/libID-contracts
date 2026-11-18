@@ -225,9 +225,9 @@ The Honk verifiers raise errors such as `SumcheckFailed()` that their own ABI
 omits. `honkVerifierErrorsAbi` declares them under bb's names, and
 `bindErrorsAbi` includes it.
 
-`walletRegistryErrorsAbi` does the same for `linkIdentity` and
-`addSessionByProof`: the registry, the same proof route, and the
-IdentityValidator. A wrong value is the Proof Verifier's
+`walletRegistryErrorsAbi` does the same for `linkIdentity`,
+`addSessionByLogin` and `removeSessionsByLogin`: the registry, the same proof
+route, and the IdentityValidator. A wrong value is the Proof Verifier's
 `WrongValue(quote, value)`, and no value for a payload not verified earlier in
 the transaction its `NotVerifiedInTransaction(quote)`. `IWebWallet` declares
 `WrongValue(uint256,uint256)` too, for a batch whose signed value is not the
