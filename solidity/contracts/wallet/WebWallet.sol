@@ -166,9 +166,12 @@ contract WebWallet is
         override(IWebWallet, UUPSUpgradeable)
     {
         super.upgradeToAndCall(newImplementation, data);
-        // No session could sign through a validator the wallet never installed.
+        // No session could sign through a validator the wallet never installed. Reads the module storage
+        // `migrate` writes, not an override.
         address next = IWebWallet(newImplementation).identityValidator();
-        if (!isModuleInstalled(MODULE_TYPE_VALIDATOR, next, Calldata.emptyBytes())) revert ValidatorNotInstalled(next);
+        if (!AccountERC7579Upgradeable.isModuleInstalled(MODULE_TYPE_VALIDATOR, next, Calldata.emptyBytes())) {
+            revert ValidatorNotInstalled(next);
+        }
     }
 
     function entryPoint() public view override(IWebWallet, Account) returns (IEntryPoint) {
