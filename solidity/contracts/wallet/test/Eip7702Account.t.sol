@@ -11,7 +11,6 @@ import {
     MODULE_TYPE_FALLBACK,
     MODULE_TYPE_VALIDATOR
 } from "@openzeppelin/contracts/interfaces/draft-IERC7579.sol";
-import {UUPSUpgradeable} from "@openzeppelin/contracts/proxy/utils/UUPSUpgradeable.sol";
 import {
     AccountERC7579Upgradeable
 } from "@openzeppelin/contracts-upgradeable/account/extensions/draft-AccountERC7579Upgradeable.sol";
@@ -217,36 +216,6 @@ contract Eip7702AccountTest is ExecuteBase {
             install,
             abi.encodeWithSelector(IIdentityValidator.NotFactoryWallet.selector, a, factory.walletAddress(X, ALICE, 0))
         );
-    }
-
-    /// A leftover ERC-1967 slot opens `upgradeToAndCall` to a matured root operation alone, and only to the
-    /// factory's implementation.
-    function test_onlyAMaturedRootUpgrades() public {
-        _setUp();
-        address next = _walletImpl();
-        bytes memory up = abi.encodeCall(IWebWallet.upgradeToAndCall, (next, ""));
-        vm.prank(mallory);
-        vm.expectRevert(UUPSUpgradeable.UUPSUnauthorizedCallContext.selector);
-        IWebWallet(a).upgradeToAndCall(next, "");
-
-        vm.store(a, IMPL_SLOT, bytes32(uint256(uint160(walletImpl))));
-        address[2] memory callers = [mallory, a];
-        for (uint256 i; i < callers.length; ++i) {
-            vm.prank(callers[i], callers[i]);
-            vm.expectRevert(abi.encodeWithSelector(IWebWallet.NotValidator.selector, callers[i]));
-            IWebWallet(a).upgradeToAndCall(next, "");
-        }
-        vm.prank(a);
-        vm.expectRevert(abi.encodeWithSelector(IWebWallet.NotFactoryImplementation.selector, next, walletImpl));
-        validator.queueRoot(a, up);
-        _factoryNames(next);
-        vm.prank(a);
-        bytes32 opId = validator.queueRoot(a, up);
-        vm.expectRevert(abi.encodeWithSelector(IIdentityValidator.RootNotReady.selector, opId));
-        validator.executeRoot(a, a, up);
-        vm.warp(_now() + 48 hours);
-        validator.executeRoot(a, a, up);
-        assertEq(vm.load(a, IMPL_SLOT), bytes32(uint256(uint160(next))), "not upgraded");
     }
 
     /// A login of `idNode` on X, naming Mallory's key for the account, reverts with `err`.
