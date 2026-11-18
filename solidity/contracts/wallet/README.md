@@ -78,13 +78,14 @@ own batch.
   no session by login.
 - `removeSessionsByLogin` (`libid.webwallet.remove-sessions`, the same
   transaction data as an add) kills every session of the identity and voids
-  every queued root operation.
+  every queued root operation. A login from any app may remove.
   - With an empty key (and a zero policy hash) it unlinks the identity
     unless it is the genesis, which stays linked. The threshold drops to
     `min(threshold, platforms still linked)`. It never reverts for the last
     admin: the user signs in again to add one back.
   - With a key it keeps the link and the threshold, then adds the key as
-    `addSessionByLogin` does. One sign-in proof is spent once, so this is
+    `addSessionByLogin` does; the app list is checked before anything is
+    removed. One sign-in proof is spent once, so this is
     how one login both clears an identity's sessions and signs in again.
 - Either may be an entry of an Operation List.
 - Every count is of distinct platforms: many sessions on one platform still
@@ -93,8 +94,9 @@ own batch.
 ### App lists
 
 `WalletRegistry.setAppList(identity, apps)` sets, for the calling wallet,
-the apps whose logins may add or remove the identity's sessions: each entry
-is `keccak256(clientIdentifier)`. An empty list, the default, accepts any
+the apps whose logins may add the identity's sessions: each entry
+is `keccak256(clientIdentifier)`. A removal by login without a key is
+accepted from any app. An empty list, the default, accepts any
 app. The registry is an admin target, so the wallet sets a list at quorum. A
 removal by login leaves the list. Client ids are public: a
 list stops apps on other domains, not someone holding the user's live
@@ -410,9 +412,9 @@ valid, and so give a wallet a session that signs from the next second.
   scope.
 - Re-adding a key with a different rules hash starts its counters fresh.
   Adding a session is an admin operation.
-- A phished login of a linked identity, from an app its list admits,
-  removes its sessions and voids the owner's queued root operations; the
-  owner queues them again.
+- A phished login of a linked identity, from any app, removes its sessions,
+  unlinks it unless it is the genesis, and voids the owner's queued root
+  operations; the owner relinks it and queues them again.
 - At k of n, the wallet stays the user's until k platforms are phished, and
   a login removal can unlink all but the genesis. Keep the threshold at most
   the number of platforms minus 1, so a lost genesis still leaves a quorum.

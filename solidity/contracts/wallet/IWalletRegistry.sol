@@ -26,7 +26,7 @@ interface IWalletRegistry is IOperationLists {
         address indexed wallet, bytes32 indexed platformId, bytes32 indexed idNode, bytes32 authorizationDigest
     );
 
-    /// `wallet` set the list of apps whose logins may add or remove `identity`'s sessions; empty is any app.
+    /// `wallet` set the list of apps whose logins may add `identity`'s sessions; empty is any app.
     event AppListSet(address indexed wallet, bytes32 indexed identity, bytes32[] apps);
 
     error ForeignOperationDomain(bytes32 operationDomain);
@@ -72,11 +72,11 @@ interface IWalletRegistry is IOperationLists {
         IIdentityValidator.Policy calldata policy
     ) external payable;
 
-    /// Anyone may submit; the identity must be linked to the wallet, and the login's app on the wallet's list for
-    /// the identity, if it set one. Kills its sessions and voids the wallet's queued root operations
-    /// (`IIdentityValidator.removeByLogin`). With an empty key it unlinks the identity unless it is the genesis.
-    /// With a key it keeps the link and then adds the key `byProof`, as `addSessionByLogin` does, so the wallet
-    /// must have had a session.
+    /// Anyone may submit, from any app; the identity must be linked to the wallet. Kills its sessions and voids
+    /// the wallet's queued root operations (`IIdentityValidator.removeByLogin`). With an empty key it unlinks the
+    /// identity unless it is the genesis. With a key it keeps the link and then adds the key `byProof`, as
+    /// `addSessionByLogin` does, so the wallet must have had a session and the login's app must be on the list;
+    /// a refused key changes nothing.
     function removeSessionsByLogin(
         bytes32 platformId,
         uint16 verifierVersion,
@@ -85,8 +85,8 @@ interface IWalletRegistry is IOperationLists {
         IIdentityValidator.Policy calldata policy
     ) external payable;
 
-    /// Sets the caller's list of apps, each `keccak256(clientIdentifier)`, whose logins may add or remove
-    /// `identity`'s sessions; empty is any app. A removal by login leaves it. A wallet's validator treats this
+    /// Sets the caller's list of apps, each `keccak256(clientIdentifier)`, whose logins may add `identity`'s
+    /// sessions; empty is any app. A removal by login leaves it. A wallet's validator treats this
     /// call as an admin operation.
     function setAppList(bytes32 identity, bytes32[] calldata apps) external;
     function appList(address wallet, bytes32 identity) external view returns (bytes32[] memory);

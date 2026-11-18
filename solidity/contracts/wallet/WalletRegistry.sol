@@ -94,7 +94,8 @@ contract WalletRegistry is IWalletRegistry {
             _accept(REMOVE_SESSIONS_DOMAIN, platformId, verifierVersion, payload, data);
         (address wallet, bytes memory key) = _transactionData(txData, policy);
         bytes32 identity = identityOf(platformId, claimed.idNode);
-        _checkApp(wallet, identity, claimed.clientIdentifier);
+        // The list governs adds only.
+        if (key.length != 0) _checkApp(wallet, identity, claimed.clientIdentifier);
         VALIDATOR.removeByLogin(wallet, identity, key.length != 0);
         if (key.length != 0) VALIDATOR.addSessionByRegistry(wallet, identity, key, policy, true);
     }
