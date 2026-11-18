@@ -163,6 +163,8 @@ Other entry points:
   so `contracts()` lists every one that declares the error. For
   `telegram/v1`, `AttestationAhead` and `ProofExpired` date the signed
   token's `iat`, not an attestation.
+- `WalletRegistryError::decode` — a refused `linkIdentity` or session add by
+  name, from WalletRegistry, the same proof route and the IdentityValidator.
 - `bindings::ceremony::{TlsNotaryProof, OidcProof}` — the payload a Platform
   Verifier decodes; its `SolValue::abi_encode` is the `payload` `bind` takes.
 
