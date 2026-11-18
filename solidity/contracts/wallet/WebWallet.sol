@@ -135,12 +135,13 @@ contract WebWallet is
     }
 
     /// Only the constructor's validator: leftover modules of an earlier EIP-7702 delegate are not.
-    function isModuleInstalled(uint256 moduleTypeId, address module, bytes calldata)
+    function isModuleInstalled(uint256 moduleTypeId, address module, bytes calldata additionalContext)
         public
         view
         override(IERC7579ModuleConfig, AccountERC7579Upgradeable)
         returns (bool)
     {
+        additionalContext; // Named for the ABI.
         return moduleTypeId == MODULE_TYPE_VALIDATOR && module == VALIDATOR;
     }
 
