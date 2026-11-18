@@ -366,8 +366,9 @@ account.execute(AUTHORIZED_MODE, abi.encode(calls, value, deadline, callGas, key
   sets its flag (ERC-7201 `libid.webwallet.forwarder`) and then forwards the
   call. Setup takes no data, so a stranger who calls first only chooses when
   it runs. An empty call, such as a 2,300-gas `transfer`, returns at once,
-  before and after setup. Before setup a static call reverts, since setup
-  writes storage; send the first batch with the authorization. After setup
+  before and after setup. Before setup a STATICCALL from another contract
+  reverts, since setup writes storage (an off-chain `eth_call` succeeds); send
+  the first batch with the authorization. After setup
   the forwarder runs whatever implementation the slot names, and routes by
   its flag alone: a slot an earlier delegate left is overwritten at setup.
   Setup reverts `NoImplementation` if the factory's implementation has no
