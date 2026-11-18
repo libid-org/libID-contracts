@@ -79,14 +79,7 @@ contract WalletRegistry is IWalletRegistry {
             _accept(ADD_SESSION_DOMAIN, platformId, verifierVersion, payload, data);
         (address wallet, bytes memory key) = _transactionData(txData, policy);
         bytes32 identity = identityOf(platformId, claimed.idNode);
-        bytes32[] storage apps = _s().appLists[wallet][identity];
-        uint256 n = apps.length;
-        if (n != 0) {
-            bytes32 app = keccak256(claimed.clientIdentifier);
-            uint256 i;
-            while (i < n && apps[i] != app) ++i;
-            if (i == n) revert AppNotListed(app);
-        }
+        _checkApp(wallet, identity, claimed.clientIdentifier);
         VALIDATOR.addSessionByRegistry(wallet, identity, key, policy, true);
     }
 
@@ -101,6 +94,7 @@ contract WalletRegistry is IWalletRegistry {
             _accept(REMOVE_SESSIONS_DOMAIN, platformId, verifierVersion, payload, data);
         (address wallet, bytes memory key) = _transactionData(txData, policy);
         bytes32 identity = identityOf(platformId, claimed.idNode);
+        _checkApp(wallet, identity, claimed.clientIdentifier);
         VALIDATOR.removeByLogin(wallet, identity, key.length != 0);
         if (key.length != 0) VALIDATOR.addSessionByRegistry(wallet, identity, key, policy, true);
     }
@@ -153,6 +147,17 @@ contract WalletRegistry is IWalletRegistry {
         if (claimed.idNode == bytes32(0)) revert NoId();
         if (_s().spentDigests[claimed.sessionId]) revert DigestAlreadySpent(claimed.sessionId);
         _s().spentDigests[claimed.sessionId] = true;
+    }
+
+    /// Reverts `AppNotListed` unless the login's app is on the wallet's list for `identity`, or the list is empty.
+    function _checkApp(address wallet, bytes32 identity, bytes memory clientIdentifier) private view {
+        bytes32[] storage apps = _s().appLists[wallet][identity];
+        uint256 n = apps.length;
+        if (n == 0) return;
+        bytes32 app = keccak256(clientIdentifier);
+        uint256 i;
+        while (i < n && apps[i] != app) ++i;
+        if (i == n) revert AppNotListed(app);
     }
 
     /// The wallet and session key of canonical transaction data for this chain that commits to `policy`.

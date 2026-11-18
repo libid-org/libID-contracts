@@ -402,13 +402,14 @@ contract WalletLoginsTest is LoginBase {
         registry.addSessionByLogin(X, V1, off, "", p);
         assertEq(validator.sessionOf(w, _key(NEW_PK)).identity, alice, "the listed app was refused");
 
-        // Any app removes; the list stays, so the removing app still cannot add.
+        // The list governs removals too, and survives one.
         bytes memory rm = _removePayload(w, X, ALICE);
-        registry.removeSessionsByLogin(X, OTHER_APP, rm, "", _none());
-        assertEq(abi.encode(registry.appList(w, alice)), abi.encode(apps), "the removal cleared the list");
-        bytes memory again = _addPayload(w, X, ALICE, APP_PK, p);
         vm.expectPartialRevert(IWalletRegistry.AppNotListed.selector);
-        registry.addSessionByLogin(X, OTHER_APP, again, "", p);
+        registry.removeSessionsByLogin(X, OTHER_APP, rm, "", _none());
+        assertEq(validator.sessionOf(w, _key(NEW_PK)).generation, validator.generationOf(w, alice), "removed");
+        registry.removeSessionsByLogin(X, V1, rm, "", _none());
+        assertGt(validator.generationOf(w, alice), validator.sessionOf(w, _key(NEW_PK)).generation, "not removed");
+        assertEq(abi.encode(registry.appList(w, alice)), abi.encode(apps), "the removal cleared the list");
     }
 
     /// Every entry of a list admits its app, not only the first.

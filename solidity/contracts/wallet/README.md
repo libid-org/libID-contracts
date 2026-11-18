@@ -77,8 +77,8 @@ own batch.
   co-signs like any other session. A wallet that never had a session takes
   no session by login.
 - `removeSessionsByLogin` (`libid.webwallet.remove-sessions`, the same
-  transaction data as an add) accepts a login from any app. It kills every
-  session of the identity and voids every queued root operation.
+  transaction data as an add) kills every session of the identity and voids
+  every queued root operation.
   - With an empty key (and a zero policy hash) it unlinks the identity
     unless it is the genesis, which stays linked. The threshold drops to
     `min(threshold, platforms still linked)`. It never reverts for the last
@@ -93,11 +93,10 @@ own batch.
 ### App lists
 
 `WalletRegistry.setAppList(identity, apps)` sets, for the calling wallet,
-the apps whose logins may add the identity's sessions: each entry is
-`keccak256(clientIdentifier)`. An empty list, the default, accepts any app.
-The registry is an admin target, so the wallet sets a list at quorum. A
-removal by login accepts any app and leaves the list, so a phish that
-removes an identity cannot then add itself to it. Client ids are public: a
+the apps whose logins may add or remove the identity's sessions: each entry
+is `keccak256(clientIdentifier)`. An empty list, the default, accepts any
+app. The registry is an admin target, so the wallet sets a list at quorum. A
+removal by login leaves the list. Client ids are public: a
 list stops apps on other domains, not someone holding the user's live
 browser login. A migration starts with no list.
 
@@ -404,8 +403,9 @@ valid, and so give a wallet a session that signs from the next second.
   scope.
 - Re-adding a key with a different rules hash starts its counters fresh.
   Adding a session is an admin operation.
-- A phished login of a linked identity removes its sessions and voids the
-  owner's queued root operations; the owner queues them again.
+- A phished login of a linked identity, from an app its list admits,
+  removes its sessions and voids the owner's queued root operations; the
+  owner queues them again.
 - At k of n, the wallet stays the user's until k platforms are phished, and
   a login removal can unlink all but the genesis. Keep the threshold at most
   the number of platforms minus 1, so a lost genesis still leaves a quorum.
