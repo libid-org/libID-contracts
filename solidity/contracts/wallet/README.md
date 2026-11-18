@@ -205,7 +205,8 @@ is charged to `NATIVE_TOKEN` with its value.
 
 ### Allowances and `at`
 
-- Allowances are listed by strictly ascending token address.
+- Allowances are listed by strictly ascending token address, each with a
+  `period` below 2^47; otherwise adding the session reverts `BadAllowance`.
 - Allowances are charged in validation, even when the execution reverts.
 - The period is `at - at % period`, or the session's whole life when
   `period == 0`. A charging operation's validity window is that period
@@ -337,7 +338,17 @@ valid, and so give a wallet a session that signs from the next second.
   Adding a session is an admin operation.
 - Until removal of sessions by login lands (a later change, before any
   wallet goes live), a login proof of a linked identity adds a session at
-  once; at threshold 1 that session acts at quorum.
+  once, and a wallet an attacker holds at quorum is lost:
+  - At threshold k, login proofs on k linked platforms give sessions that
+    act at quorum at once.
+  - A session at quorum can move every asset and revoke the owner's admin
+    sessions down to its own: `_keepQuorum` refuses only a drop below the
+    threshold. The owner's only answer is its own admin session, racing it.
+  - A wallet left with no admin session has no recovery path but a login
+    proof; at threshold 1 one proof restores an admin session at once.
+  - Revoking an active admin session voids every queued root operation,
+    the owner's included: revoke the attacker's session first, then queue
+    the unlink.
 - The JWT roots cannot drop a leaked key at once, and `WalletRegistry` has no
   pause: during a leak anyone could add sessions to every wallet with a
   linked identity on that platform (not exercised: it needs a leaked key).
