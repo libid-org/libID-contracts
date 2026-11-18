@@ -145,22 +145,18 @@ contract WalletSaltUpgradesTest is LoginBase {
 
     // ─── Upgrades ───────────────────────────────────────────────────
 
-    function test_anUpgradeGoesOnlyToTheFactoryImplementation() public {
+    /// Refused at the queue, so no upgrade to another implementation waits for the factory to name it.
+    function test_anUpgradeQueuesOnlyToTheFactoryImplementation() public {
         address w = _claim();
         address impl2 = _walletImpl();
         bytes memory up = abi.encodeCall(IWebWallet.upgradeToAndCall, (impl2, ""));
         vm.prank(w);
-        bytes32 opId = validator.queueRoot(w, up);
-        vm.warp(_now() + 1);
-        vm.expectPartialRevert(IWebWallet.NotFactoryImplementation.selector);
-        validator.executeRoot(w, w, up);
-        assertNotEq(validator.rootReadyAt(w, opId), 0, "the refused upgrade left the queue");
-        assertEq(address(uint160(uint256(vm.load(w, IMPL_SLOT)))), walletImpl, "upgraded");
+        vm.expectRevert(abi.encodeWithSelector(IWebWallet.NotFactoryImplementation.selector, impl2, walletImpl));
+        validator.queueRoot(w, up);
+        assertEq(validator.rootReadyAt(w, keccak256(abi.encode(w, w, up))), 0, "queued");
 
-        address next = _factoryImpl(impl2);
-        vm.prank(owner);
-        UUPSUpgradeable(address(factory)).upgradeToAndCall(next, "");
-        validator.executeRoot(w, w, up);
+        _factoryNames(impl2);
+        _root(w, w, up);
         assertEq(address(uint160(uint256(vm.load(w, IMPL_SLOT)))), impl2, "not upgraded");
     }
 

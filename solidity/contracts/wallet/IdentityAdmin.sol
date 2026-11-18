@@ -7,6 +7,7 @@ import {Address} from "@openzeppelin/contracts/utils/Address.sol";
 import {IIdentityValidator, identityOf, rulesHashOf} from "./IIdentityValidator.sol";
 import {IdentityValidatorState} from "./IdentityValidatorState.sol";
 import {IWalletFactory} from "./IWalletFactory.sol";
+import {IWebWallet} from "./IWebWallet.sol";
 
 /// @title IdentityAdmin - IdentityValidator's writes: installs, links, sessions and root operations.
 /// @notice Deployed by IdentityValidator's constructor, which forwards each of these entries to it through
@@ -116,7 +117,10 @@ contract IdentityAdmin is IdentityValidatorState {
     }
 
     function queueRoot(address target, bytes calldata data) external delegated returns (bytes32 opId) {
-        _rootAction(msg.sender, target, data);
+        if (
+            _rootAction(msg.sender, target, data) == RootAction.AccountCall
+                && _selector(data) == IWebWallet.upgradeToAndCall.selector
+        ) _onlyFactoryImplementation(abi.decode(data[4:], (address)));
         opId = _rootId(msg.sender, target, data);
         uint48 delay = _account(msg.sender).rootDelay;
         // A root operation never matures in the second it was queued, so one batch cannot queue and run it.
@@ -310,6 +314,12 @@ contract IdentityAdmin is IdentityValidatorState {
         AccountState storage a = _account(account);
         uint32 left = a.adminPlatforms;
         if (left != 0 && left < a.threshold) revert IIdentityValidator.ThresholdTooHigh(a.threshold, left);
+    }
+
+    /// Refuses an upgrade to any implementation but the factory's.
+    function _onlyFactoryImplementation(address implementation) private view {
+        address named = IWalletFactory(FACTORY).walletImplementation();
+        if (implementation != named) revert IWebWallet.NotFactoryImplementation(implementation, named);
     }
 
     /// The root operation's action; reverts `BadRootOperation` for any other target or selector.

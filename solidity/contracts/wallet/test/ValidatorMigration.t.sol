@@ -118,7 +118,7 @@ contract ValidatorMigrationTest is WalletTestBase {
         vm.prank(w);
         v2.addSession(_identity(X, ALICE), _key(APP_PK), p);
         vm.warp(_now() + 1);
-        bytes memory up = abi.encodeCall(IWebWallet.upgradeToAndCall, (_walletImpl(), ""));
+        bytes memory up = abi.encodeCall(IWebWallet.upgradeToAndCall, (factory.walletImplementation(), ""));
         PackedUserOperation memory op =
             _op(w, 0, _exec(address(validator), abi.encodeCall(IIdentityValidator.queueRoot, (w, up))));
         op.nonce = uint256(uint160(address(v2))) << 96;
@@ -130,7 +130,7 @@ contract ValidatorMigrationTest is WalletTestBase {
 
     function test_rootsQueuedBeforeTheMigrationCannotExecute() public {
         address w = _claim();
-        bytes memory up = abi.encodeCall(IWebWallet.upgradeToAndCall, (_walletImpl(), ""));
+        bytes memory up = abi.encodeCall(IWebWallet.upgradeToAndCall, (factory.walletImplementation(), ""));
         vm.prank(w);
         validator.queueRoot(w, up);
         _root(w, w, _upgrade(_install(X, ALICE, _key(ALICE_PK), _admin())));
