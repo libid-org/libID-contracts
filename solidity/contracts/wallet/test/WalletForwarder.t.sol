@@ -10,6 +10,7 @@ import {IExecutionCheck, IIdentityValidator} from "../IIdentityValidator.sol";
 import {IWalletRegistry} from "../IWalletRegistry.sol";
 import {AUTHORIZED_MODE, IWebWallet} from "../IWebWallet.sol";
 import {ExecuteBase, OtherVersionWallet, Reenter} from "./DirectExecute.t.sol";
+import {IUserOpHash} from "./WalletTestBase.sol";
 import {LeftoverDelegate} from "./Eip7702Account.t.sol";
 
 /// An implementation planted in the ERC-1967 slot before setup: it answers a view and marks its use.
@@ -230,7 +231,8 @@ contract WalletForwarderTest is ExecuteBase {
         vm.expectRevert();
         IWebWallet(a).execute(AUTHORIZED_MODE, _withAuth(good, abi.encodePacked(_authOf(good), bytes1(0))));
 
-        (, uint256 v, uint48 d, uint256 g, bytes memory sig) = abi.decode(good, (bytes, uint256, uint48, uint256, bytes));
+        (, uint256 v, uint48 d, uint256 g, bytes memory sig) =
+            abi.decode(good, (bytes, uint256, uint48, uint256, bytes));
         _sendReverts(a, abi.encode(_then(_hitX()), v, d, g, sig), notSigned);
         _sendReverts(a, abi.encode(hit, v, d, g + 1, sig), notSigned);
         vm.deal(relayer, 1);
@@ -248,8 +250,7 @@ contract WalletForwarderTest is ExecuteBase {
     function test_theKeysSignatureExpires() public {
         _delegate();
         uint48 deadline = uint48(_now());
-        bytes memory data =
-            _keySigned(a, KEY_PK, _one(_hitX()), _nonce(a, address(validator)), deadline, CALL_GAS);
+        bytes memory data = _keySigned(a, KEY_PK, _one(_hitX()), _nonce(a, address(validator)), deadline, CALL_GAS);
         vm.warp(_now() + 1);
         _sendReverts(a, data, abi.encodeWithSelector(IExecutionCheck.ExecutionExpired.selector, deadline));
     }
@@ -384,8 +385,9 @@ contract WalletForwarderTest is ExecuteBase {
         PackedUserOperation memory op = _signed(_op(a, 0, _hit()), _pks(ALICE_PK));
         vm.startMappingRecording();
         vm.record();
+        bytes32 h = IUserOpHash(EP).getUserOpHash(op);
         vm.prank(EP);
-        assertEq(IAccount(a).validateUserOp(op, keccak256("unused"), 0) & 1, 0, "not validated");
+        assertEq(IAccount(a).validateUserOp(op, h, 0) & 1, 0, "not validated");
         (bytes32[] memory reads,) = vm.accesses(address(factory));
         assertEq(reads.length, 0, "validation read the factory");
         (reads,) = vm.accesses(address(validator));
