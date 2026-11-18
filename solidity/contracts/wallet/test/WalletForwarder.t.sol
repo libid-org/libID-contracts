@@ -2,6 +2,7 @@
 pragma solidity ^0.8.24;
 
 import {Vm} from "forge-std/Vm.sol";
+import {IERC1967} from "@openzeppelin/contracts/interfaces/IERC1967.sol";
 import {IAccount, PackedUserOperation} from "@openzeppelin/contracts/interfaces/IERC4337.sol";
 import {Execution} from "@openzeppelin/contracts/interfaces/draft-IERC7579.sol";
 import {ReentrancyGuardTransient} from "@openzeppelin/contracts/utils/ReentrancyGuardTransient.sol";
@@ -70,7 +71,6 @@ contract WalletForwarderTest is ExecuteBase {
     uint256 internal constant KEY_PK = 0x7702;
     uint256 internal constant SECP256K1_N = 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141;
     bytes4 internal constant NOT_DELEGATED = bytes4(keccak256("NotDelegated()"));
-    bytes32 internal constant UPGRADED = keccak256("Upgraded(address)");
 
     address internal a;
     address internal fwd;
@@ -178,7 +178,7 @@ contract WalletForwarderTest is ExecuteBase {
         Vm.Log[] memory logs = vm.getRecordedLogs();
         uint256 upgrades;
         for (uint256 i; i < logs.length; ++i) {
-            if (logs[i].emitter == a && logs[i].topics[0] == UPGRADED) {
+            if (logs[i].emitter == a && logs[i].topics[0] == IERC1967.Upgraded.selector) {
                 assertEq(logs[i].topics[1], bytes32(uint256(uint160(walletImpl))), "Upgraded's implementation");
                 upgrades++;
             }
