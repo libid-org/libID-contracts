@@ -10,6 +10,7 @@ interfaces beside this file.
 |---|---|---|
 | `WalletFactory` | Deploys wallets with `Create3` at `(platformId, idNode, salt)`: salt 0 is `identityOf(platformId, idNode)`, salt n `keccak256(abi.encode(platformId, idNode, n))` | UUPS, owner |
 | `WebWallet` | The account (OpenZeppelin v5.7.0, EntryPoint v0.9) | UUPS, by the wallet's own root operation |
+| `WalletForwarder` | An EOA's EIP-7702 delegate: sets the account up with the factory's `WebWallet` implementation on its first call, then forwards to it | none |
 | `IdentityValidator` | Identities, sessions, threshold and root operations of every wallet | none |
 | `IdentityAdmin` | The validator's writes: installs, links, sessions and root operations; deployed by `IdentityValidator`'s constructor and run through DELEGATECALL on its storage | none |
 | `SessionRules` | What an operation may do, and the allowances it charges; deployed by `IdentityValidator`'s constructor and run through DELEGATECALL on its storage | none |
@@ -142,14 +143,15 @@ One `execute(bytes32 mode, bytes data)`, ERC-7579's, takes two kinds of mode:
   2. requires `msg.value == value`, else `WrongValue`;
   3. consumes the EntryPoint nonce under key
      `uint192(uint160(validator)) << 32`, which UserOperations share;
-  4. reads `threshold(wallet)` and its own EIP-712 domain separator;
+  4. reads `threshold(wallet)`, `hadSession(wallet)` and its own EIP-712
+     domain separator;
   5. runs the batch, requiring before each call `gasleft() * 63 / 64` of at
      least `callGas` plus `CALL_OVERHEAD` (`IWebWallet.sol`), so every call
      gets at least `callGas` (EIP-150 forwards at most 63/64 of the gas
      left), else `InsufficientCallGas`. `CALL_OVERHEAD` is checked for
      calls of up to 64 KiB of call data; a larger call may get a little less;
   6. calls the validator's
-     `checkExecution(mode, executionCalldata, value, deadline, callGas, authorization, nonce, threshold, domainSeparator)`,
+     `checkExecution(mode, executionCalldata, value, deadline, callGas, authorization, nonce, threshold, hadSession, domainSeparator)`,
      with the domain separator it read before the batch.
 
   Any failure reverts everything, the nonce included. So a failed batch
@@ -175,11 +177,13 @@ UserOperation. `checkExecution` requires `deadline` nonzero and not passed,
 runs the signer and rule checks of `validateUserOp` at the threshold read on
 entry, charges value to `NATIVE_TOKEN` below quorum (no gas charge, no
 paymaster), then requires the block time inside the signers' window narrowed
-to the periods charged. Its errors are `ExecutionExpired`,
+to the periods charged. A 65-byte `authorization` is an EIP-7702 account's
+key instead, only before its first session (see
+[EIP-7702 accounts](#eip-7702-accounts)). Its errors are `ExecutionExpired`,
 `ExecutionNotSigned`, `ExecutionNotAllowed` and `ExecutionOutsideWindow`.
 
-The check reads the threshold, the nonce and the domain from before the
-calls, and the sessions as the calls left them. A batch that executes
+The check reads the threshold, the nonce, `hadSession` and the domain from
+before the calls, and the sessions as the calls left them. A batch that executes
 `setThreshold`, revokes a signer or migrates the validator does not help its
 own check; one that revokes or unlinks its own signer cannot pass it. One
 that upgrades the wallet is checked under the domain its signers signed.
@@ -340,55 +344,87 @@ is charged to `NATIVE_TOKEN` with its value.
 
 ## EIP-7702 accounts
 
-An existing EOA can point at the `WebWallet` implementation with an EIP-7702
+An existing EOA can delegate to `WalletForwarder` with an EIP-7702
 authorization. It keeps its address, balances, approvals and handles, and
 gains identity links, sessions, `AUTHORIZED` batches and UserOperations. The
-code is the same as a factory wallet's. There is no setup call.
+code it runs is the factory's `WebWallet` implementation.
 
 ```solidity
-// Type 4: the authorization, signed by the key for this chain id. Anyone may send it.
-authorization = sign(key, (block.chainid, walletImplementation, keyNonce));
-// Then the key's own transaction, to its own address:
-account.execute(MODE_BATCH, abi.encode(calls));
+// Type 4, sent by a relayer: the key's authorization for this chain id, then the key's batch.
+authorization = sign(key, (block.chainid, walletForwarder, keyNonce));
+account.execute(AUTHORIZED_MODE, abi.encode(calls, value, deadline, callGas, keySignature));
 // calls: registry.linkIdentity{value: linkFee}(platformId, v, payload, "", policy), // link only: key empty
-//        validator.addSession(identity, sessionKey, adminPolicy)                     // the first session
+//        validator.addSession(identity, sessionKey, adminPolicy),                  // the first session
+//        relayer.call{value: repayment}("")
+// keySignature: 65 bytes, the key's ECDSA signature of the Execute digest with at = 0.
 ```
 
-- Sign the authorization for one chain id. The implementation's address
-  differs per chain unless it is deployed at the same address everywhere.
-- A relayer can send the authorization in its own type-4 transaction. The
-  first batch must come from the key: the default mode takes the EntryPoint
-  or the account itself, and the account has no session to sign an
-  `AUTHORIZED` batch yet. The key can also put its own authorization in that
-  transaction (authorization nonce = transaction nonce + 1).
-- The account has no genesis identity, and `onInstall` never succeeds for
-  it: through `initialize`, `migrate` or a root `installModule`, the
-  validator's check that the caller is the factory's wallet refuses it
-  (`NotFactoryWallet`). A link proof naming a session key, or a session by
-  login, reverts `FirstSessionRefused` until the account has had a session.
-  A stranger's `AUTHORIZED` batch can link her identity and add her session,
-  but that session signs only from the next second, so the end check refuses
-  the batch. Only the key adds the first session, with `addSession`.
+- Sign the authorization for one chain id, never chain id 0: the
+  forwarder's `LibidFactory` address commits to no code.
+- The first call with data sets the account up: the forwarder writes the
+  factory's `walletImplementation()` to the ERC-1967 slot (event `Upgraded`),
+  sets its flag (ERC-7201 `libid.webwallet.forwarder`) and then forwards the
+  call. Setup takes no data, so a stranger who calls first only chooses when
+  it runs. An empty call, such as a 2,300-gas `transfer`, returns at once,
+  before and after setup. Before setup a static call reverts, since setup
+  writes storage; send the first batch with the authorization. After setup
+  the forwarder runs whatever implementation the slot names, and routes by
+  its flag alone: a slot an earlier delegate left is overwritten at setup.
+- Onboarding is one relayer transaction. `checkExecution` accepts an
+  `authorization` of exactly 65 bytes as the key's signature (the signer is
+  the account) of the `Execute` digest with `at = 0`, only while the account
+  had no session when the batch started. Deadline, nonce, value, `callGas`
+  and the domain bind it as they bind sessions; no quorum, rules or window
+  apply. Every refusal is `ExecutionNotSigned`. Once the account had a
+  session the key signs no batch this way. The key can also send the batch
+  itself in the default mode.
+- Only the key adds the first session: until the account had one, a link
+  proof naming a key and a session by login revert `FirstSessionRefused`,
+  and a stranger's session signs only from the next second, so the end
+  check refuses her batch.
+- The account never installs the validator: `onInstall` checks the caller
+  is the factory's wallet. Its state lives at install 0, and
+  `isModuleInstalled` reports the validator anyway.
+- Root upgrades reach the account: once setup wrote the slot, a matured
+  root operation upgrades it to the factory's next implementation. `migrate`
+  reverts for these accounts, since the validator is not in the module
+  storage it reads, until a later validator and implementation define their
+  migration.
+- No genesis identity: `genesisIdentity` returns zeros, there is no new-salt
+  counterpart for a lost account, and a removal by login can unlink every
+  identity. The threshold then falls to the platforms left; none reads as 1.
+- The factory emits nothing for these accounts. An indexer finds them
+  through `IdentityLinked` and the session events, or by their delegation
+  code (`0xef0100 || walletForwarder`).
 
 **The key keeps full control.** It can send any transaction, sign anything,
 point the address at other code, or clear the delegation. Quorum, the root
 delay and session rules bind every signer except the key. Identity recovery
 covers a lost key, not a stolen one. `isValidSignature` accepts the key's
 plain 65-byte ECDSA signature of the hash, so dapps keep accepting its EOA
-signatures.
+signatures. Keep the key offline after onboarding.
 
-**Pointing away and back resumes.** The validator keeps the account's links
-and sessions while the address runs other code. Pointing back at `WebWallet`
-brings them back, live at once. Revoke sessions first if they should not
-come back.
+**Linking extends trust.** Once linked, the EOA's existing balance is
+under the parties in [Trust](#trust) too. At threshold 1 with an empty app
+list, a phished login from any app adds a session at quorum; set
+[app lists](#app-lists).
+
+**Re-delegating does not disarm the wallet.** The validator keeps the
+account's links and sessions while the address runs other code, and logins
+still add sessions there; pointing back brings them all back, live at once.
+A matured root operation still reaches whatever code the address runs.
+Revoking sessions with the key is not enough: its own `revokeSession` of
+the last admin session reverts `RootOperationRequired`. To disarm, remove
+each identity by login, or add a fresh admin session and then revoke the
+old one.
 
 **Leftover storage.** An earlier OpenZeppelin-based delegate may have left
-modules in the same storage. `WebWallet` never reads them: `isModuleInstalled`
-reports only its validator, `executeFromExecutor` and fallbacks always
-revert, and validation asks its validator alone. A leftover ERC-1967 slot
-lets only a matured root operation call `upgradeToAndCall`, only to the
-factory's `walletImplementation()`, and the slot does not change the code
-the account runs.
+modules in the same storage. `WebWallet` reads that storage in one place,
+the upgrade guard, which requires an upgrade to another validator to find
+that validator there.
+Otherwise it ignores it: `isModuleInstalled` reports only its validator,
+`executeFromExecutor` and fallbacks always revert, and validation and
+ERC-1271 ask its validator alone.
 
 **Wallet support.** Most browser-extension wallets do not let a dapp request
 an authorization for third-party code: they delegate only to their own
@@ -408,7 +444,10 @@ the proxy is deployed later under a `LibidFactory` name, whose address
 2. `WebWallet(registry.identityValidator())`;
 3. `WalletFactory(walletImplementation)`;
 4. `libidFactory.deploy("WalletFactory", proxyCreationCode)`, the proxy
-   initialized with its owner.
+   initialized with its owner;
+5. `libidFactory.deploy("WalletForwarder", creationCode)`, with
+   `WalletForwarder(libidFactory.predict("WalletFactory"))`: it needs only
+   the factory proxy's address.
 
 Check `validator.walletFactory() == factory` after step 4: with any other
 address, every wallet creation reverts.
