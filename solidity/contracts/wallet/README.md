@@ -417,6 +417,12 @@ valid, and so give a wallet a session that signs from the next second.
 - A phished login of a linked identity, from any app, removes its sessions,
   unlinks it unless it is the genesis, and voids the owner's queued root
   operations; the owner relinks it and queues them again.
+- A login proof placed in a signed batch can be copied out and submitted
+  alone by anyone: its session is added, and the batch then reverts
+  `DigestAlreadySpent`. Onboarding's `linkIdentity` admits only the wallet.
+- At threshold 1 with no app list, a session added by login may carry an
+  admin policy, so one phished login takes full control; the owner can still
+  remove it by login from any app. Set the app list in the onboarding batch.
 - At k of n, the wallet stays the user's until k platforms are phished, and
   a login removal can unlink all but the genesis. Keep the threshold at most
   the number of platforms minus 1, so a lost genesis still leaves a quorum.
