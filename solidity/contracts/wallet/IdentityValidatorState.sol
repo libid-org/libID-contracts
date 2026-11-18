@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
+import {SlotDerivation} from "@openzeppelin/contracts/utils/SlotDerivation.sol";
+import {TransientSlot} from "@openzeppelin/contracts/utils/TransientSlot.sol";
+
 import {IIdentityValidator} from "./IIdentityValidator.sol";
 
 /// @title IdentityValidatorState - IdentityValidator's storage, and the helpers its own code and the
@@ -76,6 +79,23 @@ abstract contract IdentityValidatorState {
     // cast index-erc7201 libid.storage.IdentityValidator
     bytes32 private constant IDENTITY_VALIDATOR_STORAGE =
         0x873011f05c4a0f65dcb571f9747866179ce051ed2f0788dad77cc90e91439700;
+
+    // cast index-erc7201 libid.transient.IdentityValidator.firstSession
+    bytes32 private constant FIRST_SESSION_TRANSIENT =
+        0x3d5ed351bea8ee20975ec9dbede567863b7c4839d477a186ffd1dfc271c10500;
+
+    /// Marks, for this transaction, that `account` took its first session.
+    function _markFirstSession(address account) internal {
+        TransientSlot.tstore(
+            TransientSlot.asBoolean(SlotDerivation.deriveMapping(FIRST_SESSION_TRANSIENT, account)), true
+        );
+    }
+
+    /// Whether `account` took its first session in this transaction.
+    function _firstSessionNow(address account) internal view returns (bool) {
+        return
+            TransientSlot.tload(TransientSlot.asBoolean(SlotDerivation.deriveMapping(FIRST_SESSION_TRANSIENT, account)));
+    }
 
     function _s() internal pure returns (IdentityValidatorStorage storage $) {
         assembly {

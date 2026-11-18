@@ -9,9 +9,10 @@ import {StorageSlot} from "@openzeppelin/contracts/utils/StorageSlot.sol";
 import {IWalletFactory} from "./IWalletFactory.sol";
 
 /// @title WalletForwarder - the EIP-7702 delegate of an EOA that runs a WebWallet.
-/// @notice An empty call returns. Any other call sets the account up once, writing the factory's
-///         `walletImplementation()` to the ERC-1967 slot, then delegatecalls the implementation that slot
-///         names. Setup takes no data: a stranger can only choose when it runs.
+/// @notice At the forwarder's own address every call reverts. On an account an empty call returns; any other
+///         call sets the account up once, writing the factory's `walletImplementation()` (which must have
+///         code) to the ERC-1967 slot, then delegatecalls the implementation that slot names. Setup takes no
+///         data: a stranger can only choose when it runs.
 /// @dev Ownerless and never upgraded. Routing reads the flag, never the slot, so a slot left by an earlier
 ///      delegate is overwritten at setup. Compatibility rule: a later forwarder keeps the flag at
 ///      `erc7201:libid.webwallet.forwarder`, so a key that re-delegates to it is not set up again.
@@ -29,18 +30,23 @@ contract WalletForwarder is Proxy {
 
     /// Called at the forwarder's own address, not through a delegation.
     error NotDelegated();
+    /// The factory's `walletImplementation()` has no code.
+    error NoImplementation(address implementation);
 
     constructor(address walletFactory) {
         FACTORY = walletFactory;
     }
 
-    receive() external payable {}
+    receive() external payable {
+        if (address(this) == SELF) revert NotDelegated();
+    }
 
     function _fallback() internal override {
         if (address(this) == SELF) revert NotDelegated();
         ForwarderStorage storage $ = _forwarderStorage();
         if (!$.setUp) {
             address implementation = IWalletFactory(FACTORY).walletImplementation();
+            if (implementation.code.length == 0) revert NoImplementation(implementation);
             StorageSlot.getAddressSlot(ERC1967Utils.IMPLEMENTATION_SLOT).value = implementation;
             emit IERC1967.Upgraded(implementation);
             $.setUp = true;

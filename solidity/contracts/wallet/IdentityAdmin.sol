@@ -217,7 +217,10 @@ contract IdentityAdmin is IdentityValidatorState {
         });
         _setAllowances(account, keyHash, rulesHash, r.allowances);
 
-        a.hadSession = true;
+        if (!a.hadSession) {
+            a.hadSession = true;
+            _markFirstSession(account);
+        }
         if (policy.admin) {
             ++a.adminSessions;
             ++_identityAdmins(account, identity)[account];

@@ -26,19 +26,19 @@ function policyHashOf(IIdentityValidator.Policy memory policy) pure returns (byt
 ///      `Execute(bytes32 mode,bytes executionCalldata,uint256 value,uint48 at,uint256 nonce,uint48 deadline,uint256 callGas)`,
 ///      with `at = Authorization.at`, signed as `validateUserOp` signs its hash. The account (`msg.sender`)
 ///      passes `EntryPoint.getNonce(account, uint192(uint160(validator)) << 32)` as it was before it consumed it,
-///      and the threshold, `hadSession(account)` and its own EIP-712 domain separator as they were before its
-///      calls. The signers and the rules are those of `validateUserOp`
+///      and the threshold and its own EIP-712 domain separator as they were before its calls. The signers and the rules are those of `validateUserOp`
 ///      at that threshold, with no paymaster and no gas charge; below quorum the value is charged to
 ///      `NATIVE_TOKEN`. The signers' window, narrowed to the periods charged, must hold the block time.
 ///      An `authorization` of exactly 65 bytes is instead an ECDSA signature by the account itself (an
-///      EIP-7702 account's key) of the digest with `at = 0`, accepted only when `hadSession` was false:
-///      no quorum, rules or window, and any refusal is `ExecutionNotSigned`.
+///      EIP-7702 account's key) of the digest with `at = 0`, accepted only while the account has had no
+///      session or took its first in this transaction: no quorum, rules or window, and any refusal is
+///      `ExecutionNotSigned`.
 interface IExecutionCheck {
     /// `deadline` is zero or has passed.
     error ExecutionExpired(uint48 deadline);
     /// The signatures over the `Execute` digest are not by live sessions, or below the threshold not by
-    /// the sessions a co-signed batch needs; or a 65-byte authorization is not the key's before a first
-    /// session.
+    /// the sessions a co-signed batch needs; or a 65-byte authorization is not the key's, or the account had
+    /// a session before this transaction.
     error ExecutionNotSigned();
     /// A call is refused: below the threshold, outside the governing session's rules or allowances; at any
     /// threshold, the validator's `onInstall` or `onUninstall`.
@@ -55,7 +55,6 @@ interface IExecutionCheck {
         bytes calldata authorization,
         uint256 nonce,
         uint8 threshold,
-        bool hadSession,
         bytes32 domainSeparator
     ) external;
 }

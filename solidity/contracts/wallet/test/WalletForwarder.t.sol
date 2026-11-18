@@ -55,6 +55,14 @@ contract Payer {
     }
 }
 
+/// Sends two `AUTHORIZED` batches in one transaction.
+contract TwoBatches {
+    function send(address w, bytes calldata first, bytes calldata second) external {
+        IWebWallet(w).execute(AUTHORIZED_MODE, first);
+        IWebWallet(w).execute(AUTHORIZED_MODE, second);
+    }
+}
+
 /// Measures one call from its own isolated transaction, where the target and everything it reads are cold.
 contract ColdMeter {
     function cost(address target) external returns (uint256 gas) {
@@ -71,6 +79,7 @@ contract WalletForwarderTest is ExecuteBase {
     uint256 internal constant KEY_PK = 0x7702;
     uint256 internal constant SECP256K1_N = 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141;
     bytes4 internal constant NOT_DELEGATED = bytes4(keccak256("NotDelegated()"));
+    bytes4 internal constant NO_IMPLEMENTATION = bytes4(keccak256("NoImplementation(address)"));
 
     address internal a;
     address internal fwd;
@@ -159,6 +168,21 @@ contract WalletForwarderTest is ExecuteBase {
         _sendReverts(a, _keyNow(hit), abi.encodeWithSelector(NOT_SIGNED));
     }
 
+    /// In the transaction that added the first session the key, root anyway, may sign another batch; in a
+    /// later one it may not.
+    function test_theKeySignsAgainOnlyInTheOnboardingTransaction() public {
+        uint256 n = _nonce(a, address(validator));
+        uint48 deadline = uint48(_now() + 1 hours);
+        bytes memory first = _keySigned(a, KEY_PK, _onboarding(), n, deadline, CALL_GAS);
+        bytes memory second = _keySigned(a, KEY_PK, _one(_hitX()), n + 1, deadline, CALL_GAS);
+        TwoBatches two = new TwoBatches();
+        uint256 hits = target.calls();
+        vm.signAndAttachDelegation(fwd, KEY_PK);
+        two.send(a, first, second);
+        assertEq(target.calls(), hits + 1, "the key's second batch did not run");
+        _sendReverts(a, _keyNow(_one(_hitX())), abi.encodeWithSelector(NOT_SIGNED));
+    }
+
     /// A stranger's first call runs setup and nothing else; the key's batch then runs as if it had not.
     function test_aStrangersSetupIsTheKeysAndRunsOnce() public {
         _delegate();
@@ -196,6 +220,20 @@ contract WalletForwarderTest is ExecuteBase {
         assertFalse(ok, "the forwarder answered");
         assertEq(err, abi.encodeWithSelector(NOT_DELEGATED), "the error");
         assertEq(vm.load(fwd, IMPL_SLOT), bytes32(0), "the forwarder set itself up");
+        (ok, err) = fwd.call{value: 1}("");
+        assertFalse(ok, "the forwarder took ETH");
+        assertEq(err, abi.encodeWithSelector(NOT_DELEGATED), "the error on ETH");
+    }
+
+    /// Setup never routes to an address with no code: the flag stays clear.
+    function test_setupRefusesAnImplementationWithNoCode() public {
+        address none = address(0xC0DE);
+        _factoryNames(none);
+        _delegate();
+        bytes memory data = _keyNow(_onboarding());
+        vm.expectRevert(abi.encodeWithSelector(NO_IMPLEMENTATION, none));
+        IWebWallet(a).execute(AUTHORIZED_MODE, data);
+        _implIs(address(0), "setup wrote the slot");
     }
 
     function test_aStipendTransferArrivesBeforeAndAfterSetup() public {

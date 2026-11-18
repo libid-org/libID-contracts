@@ -143,15 +143,14 @@ One `execute(bytes32 mode, bytes data)`, ERC-7579's, takes two kinds of mode:
   2. requires `msg.value == value`, else `WrongValue`;
   3. consumes the EntryPoint nonce under key
      `uint192(uint160(validator)) << 32`, which UserOperations share;
-  4. reads `threshold(wallet)`, `hadSession(wallet)` and its own EIP-712
-     domain separator;
+  4. reads `threshold(wallet)` and its own EIP-712 domain separator;
   5. runs the batch, requiring before each call `gasleft() * 63 / 64` of at
      least `callGas` plus `CALL_OVERHEAD` (`IWebWallet.sol`), so every call
      gets at least `callGas` (EIP-150 forwards at most 63/64 of the gas
      left), else `InsufficientCallGas`. `CALL_OVERHEAD` is checked for
      calls of up to 64 KiB of call data; a larger call may get a little less;
   6. calls the validator's
-     `checkExecution(mode, executionCalldata, value, deadline, callGas, authorization, nonce, threshold, hadSession, domainSeparator)`,
+     `checkExecution(mode, executionCalldata, value, deadline, callGas, authorization, nonce, threshold, domainSeparator)`,
      with the domain separator it read before the batch.
 
   Any failure reverts everything, the nonce included. So a failed batch
@@ -178,12 +177,13 @@ runs the signer and rule checks of `validateUserOp` at the threshold read on
 entry, charges value to `NATIVE_TOKEN` below quorum (no gas charge, no
 paymaster), then requires the block time inside the signers' window narrowed
 to the periods charged. A 65-byte `authorization` is an EIP-7702 account's
-key instead, only before its first session (see
+key instead, only before its first session or in the transaction that adds
+it (see
 [EIP-7702 accounts](#eip-7702-accounts)). Its errors are `ExecutionExpired`,
 `ExecutionNotSigned`, `ExecutionNotAllowed` and `ExecutionOutsideWindow`.
 
-The check reads the threshold, the nonce, `hadSession` and the domain from
-before the calls, and the sessions as the calls left them. A batch that executes
+The check reads the threshold, the nonce and the domain from before the
+calls, and the sessions as the calls left them. A batch that executes
 `setThreshold`, revokes a signer or migrates the validator does not help its
 own check; one that revokes or unlinks its own signer cannot pass it. One
 that upgrades the wallet is checked under the domain its signers signed.
@@ -329,8 +329,8 @@ is charged to `NATIVE_TOKEN` with its value.
 - `upgradeToAndCall` goes only to the factory's `walletImplementation()`,
   checked when it is queued and again when it executes, and reverts
   `NotFactoryImplementation` otherwise. It reverts `ValidatorNotInstalled`
-  when the new implementation's validator is not installed once its data
-  ran: an upgrade to another validator must carry `migrate`.
+  when the new implementation names another validator that is not installed
+  once its data ran: an upgrade to another validator must carry `migrate`.
 - After the upgrade the old validator stays installed but keeps no power:
   the wallet accepts UserOperations, ERC-1271 signatures, module changes and
   upgrades only from the validator its implementation names. Root operations
@@ -370,14 +370,19 @@ account.execute(AUTHORIZED_MODE, abi.encode(calls, value, deadline, callGas, key
   writes storage; send the first batch with the authorization. After setup
   the forwarder runs whatever implementation the slot names, and routes by
   its flag alone: a slot an earlier delegate left is overwritten at setup.
+  Setup reverts `NoImplementation` if the factory's implementation has no
+  code. At the forwarder's own address every call, ETH included, reverts
+  `NotDelegated`.
 - Onboarding is one relayer transaction. `checkExecution` accepts an
   `authorization` of exactly 65 bytes as the key's signature (the signer is
   the account) of the `Execute` digest with `at = 0`, only while the account
-  had no session when the batch started. Deadline, nonce, value, `callGas`
-  and the domain bind it as they bind sessions; no quorum, rules or window
-  apply. Every refusal is `ExecutionNotSigned`. Once the account had a
-  session the key signs no batch this way. The key can also send the batch
-  itself in the default mode.
+  has had no session or took its first in this transaction. Deadline,
+  nonce, value, `callGas` and the domain bind it as they bind sessions; no
+  quorum, rules or window apply. Every refusal is `ExecutionNotSigned`. After
+  that transaction the key signs no batch this way. The key can also send
+  the batch itself in the default mode. A UserOperation cannot set up or
+  onboard the account: it has no session yet, and the key's onboarding
+  batch is an `AUTHORIZED` call, so UserOperations start after onboarding.
 - Only the key adds the first session: until the account had one, a link
   proof naming a key and a session by login revert `FirstSessionRefused`,
   and a stranger's session signs only from the next second, so the end

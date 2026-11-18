@@ -233,8 +233,7 @@ contract WebWallet is
         return super._execute(mode, executionCalldata);
     }
 
-    /// The validator checks the batch once it ran, against the nonce, threshold, `hadSession` and domain of
-    /// entry.
+    /// The validator checks the batch once it ran, against the nonce, threshold and domain of entry.
     function _executeAuthorized(bytes calldata data) private {
         bytes calldata executionCalldata = bytesAt(data, 0);
         (Execution[] calldata batch, bool canonical) = canonicalBatch(executionCalldata);
@@ -248,7 +247,6 @@ contract WebWallet is
         uint256 nonce = ep.getNonce(address(this), key);
         INonceIncrement(address(ep)).incrementNonce(key);
         uint8 threshold = IIdentityValidator(VALIDATOR).threshold(address(this));
-        bool hadSession = IIdentityValidator(VALIDATOR).hadSession(address(this));
         bytes32 domain = _domainSeparatorV4();
         for (uint256 i; i < batch.length; ++i) {
             _call(batch[i], callGas);
@@ -263,7 +261,6 @@ contract WebWallet is
                 bytesAt(data, 128),
                 nonce,
                 threshold,
-                hadSession,
                 domain
             );
     }

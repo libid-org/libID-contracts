@@ -11,6 +11,7 @@ import {
     MODULE_TYPE_FALLBACK,
     MODULE_TYPE_VALIDATOR
 } from "@openzeppelin/contracts/interfaces/draft-IERC7579.sol";
+import {UUPSUpgradeable} from "@openzeppelin/contracts/proxy/utils/UUPSUpgradeable.sol";
 import {
     AccountERC7579Upgradeable
 } from "@openzeppelin/contracts-upgradeable/account/extensions/draft-AccountERC7579Upgradeable.sol";
@@ -43,17 +44,19 @@ contract LeftoverModule {
     }
 }
 
-/// @notice An EOA delegated to WebWallet with EIP-7702: its key links an identity and adds the first session
-///         in one self-batch; that session then acts as on a factory wallet.
+/// @notice An EOA delegated to WalletForwarder with EIP-7702: its key links an identity and adds the first
+///         session in one self-batch; that session then acts as on a factory wallet.
 /// forge-config: default.evm_version = "prague"
 contract Eip7702AccountTest is ExecuteBase {
     uint256 internal constant KEY_PK = 0x7702;
 
     address internal a;
+    address internal fwd;
 
     function setUp() public override {
         super.setUp();
         a = vm.addr(KEY_PK);
+        fwd = deployCode("WalletForwarder.sol:WalletForwarder", abi.encode(address(factory)));
     }
 
     /// The key's authorization for this chain, sent by the relayer with an empty call.
@@ -67,7 +70,7 @@ contract Eip7702AccountTest is ExecuteBase {
 
     /// The key's own transaction: link Alice's X identity with a link-only proof, then add her admin session.
     function _setUp() internal {
-        _delegateTo(walletImpl);
+        _delegateTo(fwd);
         Execution[] memory x = new Execution[](2);
         bytes memory payload = _payload(X, ALICE, LINK, _txData(a, "", 0));
         x[0] = _x(address(registry), 0, abi.encodeCall(IWalletRegistry.linkIdentity, (X, V1, payload, "", _app())));
@@ -100,7 +103,7 @@ contract Eip7702AccountTest is ExecuteBase {
 
     /// The account has no genesis identity: neither first-session exception opens it to a stranger.
     function test_aStrangerCannotAddASession() public {
-        _delegateTo(walletImpl);
+        _delegateTo(fwd);
         (bytes32 platformId, bytes32 idNode, uint256 salt) = validator.genesisIdentity(a);
         assertEq(abi.encode(platformId, idNode, salt), abi.encode(bytes32(0), bytes32(0), 0), "a genesis");
 
@@ -129,7 +132,7 @@ contract Eip7702AccountTest is ExecuteBase {
     /// A stranger's direct batch that links her identity and adds her session runs as the account, but her
     /// session signs only from the next second: the end check refuses it.
     function test_aStrangersBatchCannotAddTheFirstSession() public {
-        _delegateTo(walletImpl);
+        _delegateTo(fwd);
         Execution[] memory x = new Execution[](2);
         bytes memory payload = _payload(X, MALLORY, LINK, _txData(a, "", 0));
         x[0] = _x(address(registry), 0, abi.encodeCall(IWalletRegistry.linkIdentity, (X, V1, payload, "", _app())));
@@ -193,7 +196,7 @@ contract Eip7702AccountTest is ExecuteBase {
         _setUp();
         _delegateTo(address(new SlotMarker()));
         SlotMarker(a).mark();
-        _delegateTo(walletImpl);
+        _delegateTo(fwd);
         _handle(_signed(_op(a, 0, _hit()), _pks(ALICE_PK)));
         assertEq(target.last(), a, "the old session did not act");
     }
@@ -216,6 +219,15 @@ contract Eip7702AccountTest is ExecuteBase {
             install,
             abi.encodeWithSelector(IIdentityValidator.NotFactoryWallet.selector, a, factory.walletAddress(X, ALICE, 0))
         );
+    }
+
+    /// Unsupported: delegated straight to WebWallet, the account has no ERC-1967 slot, so even the validator
+    /// cannot upgrade it.
+    function test_aDirectDelegationCannotBeUpgraded() public {
+        _delegateTo(walletImpl);
+        vm.prank(address(validator));
+        vm.expectRevert(UUPSUpgradeable.UUPSUnauthorizedCallContext.selector);
+        IWebWallet(a).upgradeToAndCall(walletImpl, "");
     }
 
     /// A login of `idNode` on X, naming Mallory's key for the account, reverts with `err`.

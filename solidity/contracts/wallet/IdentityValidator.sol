@@ -105,7 +105,7 @@ contract IdentityValidator is IIdentityValidator, IdentityValidatorState {
 
     /// @dev Signers and rules as `validateUserOp`'s at `quorum`, charging after the calls ran; the window
     ///      is checked once the charges narrowed it. A 65-byte authorization is the account's own key, at
-    ///      `at` 0, only before its first session.
+    ///      `at` 0, only before its first session or in the transaction that added it.
     function checkExecution(
         bytes32 mode,
         bytes calldata executionCalldata,
@@ -115,7 +115,6 @@ contract IdentityValidator is IIdentityValidator, IdentityValidatorState {
         bytes calldata authorization,
         uint256 nonce,
         uint8 quorum,
-        bool sessionBefore,
         bytes32 domainSeparator
     ) external {
         if (deadline == 0 || block.timestamp > deadline) revert ExecutionExpired(deadline);
@@ -123,7 +122,10 @@ contract IdentityValidator is IIdentityValidator, IdentityValidatorState {
             bytes32 keyDigest =
                 _executeDigest(domainSeparator, mode, executionCalldata, value, 0, nonce, deadline, callGas);
             (address signer, ECDSA.RecoverError err,) = ECDSA.tryRecoverCalldata(keyDigest, authorization);
-            if (sessionBefore || err != ECDSA.RecoverError.NoError || signer != msg.sender) {
+            if (
+                err != ECDSA.RecoverError.NoError || signer != msg.sender
+                    || (_account(msg.sender).hadSession && !_firstSessionNow(msg.sender))
+            ) {
                 revert ExecutionNotSigned();
             }
             return;
