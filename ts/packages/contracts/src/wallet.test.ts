@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { type Address, type Hex, keccak256, toHex } from 'viem'
+import { sign } from 'viem/accounts'
 import { describe, expect, it } from 'vitest'
 
 import {
@@ -9,6 +10,8 @@ import {
   directNonceKey,
   EXECUTE_TYPEHASH,
   executeDigest,
+  keyDigest,
+  keySignedData,
   policyHashOf,
   rulesHashOf,
   type SessionPolicy,
@@ -63,6 +66,10 @@ interface DirectExecuteVector {
   chainId: number
   wallet: Address
   digest: Hex
+  keyPrivateKey: Hex
+  keyDigest: Hex
+  keySignature: Hex
+  keyDataHash: Hex
 }
 
 const VECTOR = JSON.parse(
@@ -107,6 +114,24 @@ describe('the direct execute', () => {
     expect(keccak256(data)).toBe(v.dataHash)
     const digest = executeDigest(message, v.chainId, v.wallet)
     expect(digest).toBe(v.digest)
+  })
+
+  it('signed by an EIP-7702 key matches the Solidity vector', async () => {
+    const v = VECTOR
+    const message = {
+      executionCalldata: v.executionCalldata,
+      value: BigInt(v.value),
+      nonce: BigInt(v.nonce),
+      deadline: v.deadline,
+      callGas: BigInt(v.callGas),
+    }
+    const hash = keyDigest(message, v.chainId, v.wallet)
+    expect(hash).toBe(v.keyDigest)
+    const privateKey = toHex(BigInt(v.keyPrivateKey), { size: 32 })
+    const signature = await sign({ hash, privateKey, to: 'hex' })
+    expect(signature).toBe(v.keySignature)
+    expect(keccak256(keySignedData(message, signature))).toBe(v.keyDataHash)
+    expect(() => keySignedData(message, '0x1234')).toThrow()
   })
 })
 

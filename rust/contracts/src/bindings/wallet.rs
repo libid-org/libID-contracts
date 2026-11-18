@@ -14,6 +14,7 @@ use alloy::{
         keccak256,
         Address,
         Bytes,
+        Signature,
         B256,
         U256,
     },
@@ -292,6 +293,31 @@ impl ExecuteMessage {
             .abi_encode_params()
             .into()
     }
+
+    /// What an EIP-7702 account's key signs for its onboarding batch:
+    /// [`Self::digest`] with `at` 0.
+    pub fn key_digest(&self, chain_id: u64, wallet: Address) -> B256 {
+        Self {
+            at: U48::ZERO,
+            ..self.clone()
+        }
+        .digest(chain_id, wallet)
+    }
+
+    /// `data` of `execute(AUTHORIZED_MODE, data)` signed by the account's key:
+    /// `abi.encode(executionCalldata, value, deadline, callGas, signature)`,
+    /// `signature` the 65-byte `r || s || v` over [`Self::key_digest`].
+    pub fn key_signed_data(&self, signature: &Signature) -> Bytes {
+        (
+            self.execution_calldata.clone(),
+            self.value,
+            self.deadline,
+            self.call_gas,
+            Bytes::from(signature.as_bytes()),
+        )
+            .abi_encode_params()
+            .into()
+    }
 }
 
 /// The EntryPoint nonce key of the direct path for a wallet whose validator is
@@ -315,6 +341,10 @@ mod tests {
         },
     };
 
+    use alloy::signers::{
+        local::PrivateKeySigner,
+        SignerSync,
+    };
     use serde::Deserialize;
 
     use super::*;
@@ -379,6 +409,10 @@ mod tests {
         chain_id: u64,
         wallet: Address,
         digest: B256,
+        key_private_key: U256,
+        key_digest: B256,
+        key_signature: Bytes,
+        key_data_hash: B256,
     }
 
     #[test]
@@ -422,6 +456,18 @@ mod tests {
         });
         assert_eq!(keccak256(&data), v.data_hash);
         assert_eq!(execute.digest(v.chain_id, v.wallet), v.digest);
+
+        let key_digest = execute.key_digest(v.chain_id, v.wallet);
+        assert_eq!(key_digest, v.key_digest);
+        let signature = PrivateKeySigner::from_bytes(&B256::from(v.key_private_key))
+            .unwrap()
+            .sign_hash_sync(&key_digest)
+            .unwrap();
+        assert_eq!(Bytes::from(signature.as_bytes()), v.key_signature);
+        assert_eq!(
+            keccak256(execute.key_signed_data(&signature)),
+            v.key_data_hash
+        );
     }
 
     /// The two `Policy` bindings name one struct: either decodes the other, and

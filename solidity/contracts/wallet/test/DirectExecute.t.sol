@@ -746,5 +746,18 @@ contract ExecuteVectorTest is ExecuteBase {
             vm.parseJsonBytes32(j, ".digest"),
             "the Execute digest"
         );
+
+        // An EIP-7702 key's batch: its signature of the digest at `at = 0` is the whole authorization.
+        bytes32 keyDigest =
+            _execDigestGas(vm.parseJsonAddress(j, ".wallet"), AUTHORIZED_MODE, calls, 0, n, deadline, callGas);
+        assertEq(keyDigest, vm.parseJsonBytes32(j, ".keyDigest"), "the key's digest");
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(vm.parseJsonUint(j, ".keyPrivateKey"), keyDigest);
+        bytes memory keySig = abi.encodePacked(r, s, v);
+        assertEq(keySig, vm.parseJsonBytes(j, ".keySignature"), "the key's signature");
+        assertEq(
+            keccak256(abi.encode(calls, signedValue, deadline, callGas, keySig)),
+            vm.parseJsonBytes32(j, ".keyDataHash"),
+            "the key's data"
+        );
     }
 }

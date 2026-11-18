@@ -1,6 +1,6 @@
 /// The session-policy hashes of `IIdentityValidator.sol`, what each signer
 /// signs below quorum, and the direct `execute`'s mode, digest, nonce key and
-/// data. Types follow `identityValidatorAbi`.
+/// data, signed by sessions or by an EIP-7702 account's key. Types follow `identityValidatorAbi`.
 
 import {
   type AbiParameterToPrimitiveType,
@@ -10,6 +10,7 @@ import {
   hashTypedData,
   keccak256,
   parseAbiParameters,
+  size,
   toHex,
 } from 'viem'
 
@@ -177,5 +178,29 @@ export function authorizedData(
     message.deadline,
     message.callGas,
     encodeAbiParameters([AUTHORIZATION], [{ ...authorization, at: message.at }]),
+  ])
+}
+
+/// What an EIP-7702 account's key signs for its onboarding batch:
+/// `executeDigest` with `at` 0.
+export function keyDigest(
+  execute: Omit<ExecuteMessage, 'at'>,
+  chainId: number | bigint,
+  wallet: Address,
+): Hex {
+  return executeDigest({ ...execute, at: 0 }, chainId, wallet)
+}
+
+/// `data` of `execute(AUTHORIZED_MODE, data)` signed by the account's key:
+/// `abi.encode(executionCalldata, value, deadline, callGas, signature)`,
+/// `signature` the 65-byte `r || s || v` over `keyDigest`.
+export function keySignedData(message: Omit<ExecuteMessage, 'at'>, signature: Hex): Hex {
+  if (size(signature) !== 65) throw new Error(`a key signature is 65 bytes, not ${size(signature)}`)
+  return encodeAbiParameters(parseAbiParameters('bytes, uint256, uint48, uint256, bytes'), [
+    message.executionCalldata,
+    message.value,
+    message.deadline,
+    message.callGas,
+    signature,
   ])
 }
