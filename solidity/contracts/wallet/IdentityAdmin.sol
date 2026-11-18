@@ -158,7 +158,7 @@ contract IdentityAdmin is IdentityValidatorState {
         } else {
             _setRootDelay(account, abi.decode(data[4:], (uint48)));
         }
-        if (action == RootAction.SetThreshold || action == RootAction.RevokeSession) _keepQuorum(account);
+        if (action == RootAction.RevokeSession) _keepQuorum(account);
     }
 
     // ─── Internals ──────────────────────────────────────────────────
