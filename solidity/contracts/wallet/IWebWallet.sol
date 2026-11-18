@@ -43,9 +43,9 @@ interface INonceIncrement {
 ///      sent with exactly `value`.
 ///      For it the wallet requires `executionCalldata` to be the canonical `abi.encode(Execution[])` of its
 ///      calls, consumes the EntryPoint nonce under key `uint192(uint160(validator)) << 32`,
-///      reads the threshold and its EIP-712 domain separator, runs the batch, requiring
-///      `gasleft() * 63 / 64 >= callGas + CALL_OVERHEAD` before each call so that every call gets at least
-///      `callGas`, then calls the validator's `checkExecution`; any failure reverts everything, the nonce included. One reentrancy lock covers both modes. Any other mode
+///      reads the threshold, the validator's `hadSession` and its EIP-712 domain separator, runs the batch,
+///      requiring `gasleft() * 63 / 64 >= callGas + CALL_OVERHEAD` before each call so that every call gets
+///      at least `callGas`, then calls the validator's `checkExecution`; any failure reverts everything, the nonce included. One reentrancy lock covers both modes. Any other mode
 ///      selector, and delegatecall execution, are refused. Only the constructor's validator validates
 ///      UserOperations and signs: another validator still installed, such as the one a migration
 ///      replaced, is refused.

@@ -104,7 +104,8 @@ contract IdentityValidator is IIdentityValidator, IdentityValidatorState {
     // ─── Direct execution ─────────────────────────────────────────
 
     /// @dev Signers and rules as `validateUserOp`'s at `quorum`, charging after the calls ran; the window
-    ///      is checked once the charges narrowed it.
+    ///      is checked once the charges narrowed it. A 65-byte authorization is the account's own key, at
+    ///      `at` 0, only before its first session.
     function checkExecution(
         bytes32 mode,
         bytes calldata executionCalldata,
@@ -114,17 +115,22 @@ contract IdentityValidator is IIdentityValidator, IdentityValidatorState {
         bytes calldata authorization,
         uint256 nonce,
         uint8 quorum,
+        bool sessionBefore,
         bytes32 domainSeparator
     ) external {
-        Authorization memory auth = abi.decode(authorization, (Authorization));
         if (deadline == 0 || block.timestamp > deadline) revert ExecutionExpired(deadline);
-        bytes32 digest = domainSeparator.toTypedDataHash(
-            keccak256(
-                abi.encode(
-                    EXECUTE_TYPEHASH, mode, keccak256(executionCalldata), value, auth.at, nonce, deadline, callGas
-                )
-            )
-        );
+        if (authorization.length == 65) {
+            bytes32 keyDigest =
+                _executeDigest(domainSeparator, mode, executionCalldata, value, 0, nonce, deadline, callGas);
+            (address signer, ECDSA.RecoverError err,) = ECDSA.tryRecoverCalldata(keyDigest, authorization);
+            if (sessionBefore || err != ECDSA.RecoverError.NoError || signer != msg.sender) {
+                revert ExecutionNotSigned();
+            }
+            return;
+        }
+        Authorization memory auth = abi.decode(authorization, (Authorization));
+        bytes32 digest =
+            _executeDigest(domainSeparator, mode, executionCalldata, value, auth.at, nonce, deadline, callGas);
         (bool ok, bool below, Verified memory v) = _signers(digest, auth, quorum);
         if (!ok) revert ExecutionNotSigned();
         (ok, v) = _rules(abi.encodeCall(SessionRules.allowedExecution, (v, mode, executionCalldata, auth, below)));
@@ -305,6 +311,23 @@ contract IdentityValidator is IIdentityValidator, IdentityValidatorState {
             if (!_signedBy(sigs[i].key, signed, sigs[i].signature)) return v;
         }
         v.ok = true;
+    }
+
+    function _executeDigest(
+        bytes32 domainSeparator,
+        bytes32 mode,
+        bytes calldata executionCalldata,
+        uint256 value,
+        uint48 at,
+        uint256 nonce,
+        uint48 deadline,
+        uint256 callGas
+    ) private pure returns (bytes32) {
+        return domainSeparator.toTypedDataHash(
+            keccak256(
+                abi.encode(EXECUTE_TYPEHASH, mode, keccak256(executionCalldata), value, at, nonce, deadline, callGas)
+            )
+        );
     }
 
     /// `_verify` over `hash` at `auth.at`, whether the signers fall short of `quorum`, and whether
