@@ -54,6 +54,15 @@ contract Payer {
     }
 }
 
+/// Measures one call from its own isolated transaction, where the target and everything it reads are cold.
+contract ColdMeter {
+    function cost(address target) external returns (uint256 gas) {
+        gas = gasleft();
+        IWebWallet(target).identityValidator();
+        gas -= gasleft();
+    }
+}
+
 /// @notice An EOA delegated with EIP-7702 to `WalletForwarder`, which routes to the implementation its setup
 ///         wrote to the ERC-1967 slot. The key signs only the onboarding batch.
 /// forge-config: default.evm_version = "prague"
@@ -358,23 +367,19 @@ contract WalletForwarderTest is ExecuteBase {
 
     // ─── Gas and ERC-7562 ───────────────────────────────────────────
 
-    /// The forwarder's cost on a cold call, against a factory wallet's proxy.
+    /// The forwarder's cost on a cold call, against a factory wallet's proxy: the flag read and the delegation
+    /// lookup.
+    /// forge-config: default.isolate = true
     function test_forwarderOverheadPerCall() public {
         _onboard();
         address w = factory.createWallet(X, BOB, 0);
-        vm.cool(a);
-        vm.cool(fwd);
-        vm.cool(w);
-        vm.cool(walletImpl);
-        uint256 g = gasleft();
-        IWebWallet(a).identityValidator();
-        uint256 viaForwarder = g - gasleft();
-        vm.cool(walletImpl);
-        g = gasleft();
-        IWebWallet(w).identityValidator();
-        uint256 viaProxy = g - gasleft();
+        ColdMeter meter = new ColdMeter();
+        uint256 viaForwarder = meter.cost(a);
+        uint256 viaProxy = meter.cost(w);
         emit log_named_uint("cold view via the forwarder", viaForwarder);
         emit log_named_uint("cold view via a factory proxy", viaProxy);
+        assertGt(viaForwarder, viaProxy, "the forwarder's path was not cold");
+        emit log_named_uint("forwarder overhead", viaForwarder - viaProxy);
         assertLt(viaForwarder, viaProxy + 10_000, "forwarder overhead");
     }
 
