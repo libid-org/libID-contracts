@@ -103,6 +103,17 @@ contract ValidatorMigrationTest is WalletTestBase {
         assertEq(target.calls(), 1, "the carried session could not act");
     }
 
+    /// Without `migrate`, nothing installs the new validator, and no session could sign again.
+    function test_anUpgradeToAnotherValidatorMustMigrate() public {
+        address w = _claim();
+        address impl2 = _v2Impl();
+        bytes memory bare = abi.encodeCall(IWebWallet.upgradeToAndCall, (impl2, ""));
+        _rootReverts(w, w, bare, abi.encodeWithSelector(IWebWallet.ValidatorNotInstalled.selector, address(v2)));
+        assertEq(IWebWallet(w).identityValidator(), address(validator), "upgraded");
+        _handle(_opVia(w, address(validator), ALICE_PK, _hit()));
+        assertEq(target.calls(), 1, "the v1 session could not act");
+    }
+
     function test_theCarriedSessionMustBeAdmin() public {
         address w = _claim();
         bytes memory upgrade = _upgrade(_install(X, ALICE, _key(ALICE_PK), _app()));

@@ -323,7 +323,9 @@ is charged to `NATIVE_TOKEN` with its value.
   empty. The user relinks platforms and sets app lists again at quorum.
 - `upgradeToAndCall` goes only to the factory's `walletImplementation()`,
   checked when it is queued and again when it executes, and reverts
-  `NotFactoryImplementation` otherwise.
+  `NotFactoryImplementation` otherwise. It reverts `ValidatorNotInstalled`
+  when the new implementation's validator is not installed once its data
+  ran: an upgrade to another validator must carry `migrate`.
 - After the upgrade the old validator stays installed but keeps no power:
   the wallet accepts UserOperations, ERC-1271 signatures, module changes and
   upgrades only from the validator its implementation names. Root operations

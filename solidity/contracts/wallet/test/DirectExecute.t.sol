@@ -71,7 +71,12 @@ contract GasProbe {
 
 /// An implementation whose EIP-712 domain has another version.
 contract OtherVersionWallet is UUPSUpgradeable, EIP712 {
-    constructor() EIP712("WebWallet", "2") {}
+    /// The wallet's validator, so the upgrade's install check passes.
+    address public immutable identityValidator;
+
+    constructor(address validator) EIP712("WebWallet", "2") {
+        identityValidator = validator;
+    }
 
     function _authorizeUpgrade(address) internal override {}
 }
@@ -614,7 +619,7 @@ contract DirectExecuteTest is ExecuteBase {
     /// Signed under the domain before the batch, which upgrades to an implementation of another EIP-712 version.
     function test_theCheckUsesTheDomainOfEntry() public {
         address w = _fresh();
-        address other = address(new OtherVersionWallet());
+        address other = address(new OtherVersionWallet(address(validator)));
         _factoryNames(other);
         bytes memory up = abi.encodeCall(IWebWallet.upgradeToAndCall, (other, ""));
         _queue(w, w, up);
