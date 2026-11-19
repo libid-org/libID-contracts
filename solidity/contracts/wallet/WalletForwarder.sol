@@ -7,8 +7,8 @@ import {IWebWallet} from "./IWebWallet.sol";
 import {WalletRelease} from "./WalletRelease.sol";
 
 /// @title WalletForwarder - the EIP-7702 delegate of a key that runs a WebWallet.
-/// @notice Routes by the account's release slot. `reset` always goes to the factory's latest release, which
-///         writes the slot. With an empty slot an empty call returns and any other reverts `NotSetUp`.
+/// @notice Empty calldata returns at once. Other calls route by the account's release slot. `reset` always goes
+///         to the factory's latest release, which writes the slot. With an empty slot they revert `NotSetUp`.
 /// @dev Ownerless and never upgraded.
 contract WalletForwarder is IWalletForwarder {
     address public immutable FACTORY;
@@ -19,7 +19,7 @@ contract WalletForwarder is IWalletForwarder {
     }
 
     receive() external payable {
-        _route();
+        if (address(this) == SELF) revert IWebWallet.NotDelegated();
     }
 
     fallback() external payable {
@@ -31,10 +31,7 @@ contract WalletForwarder is IWalletForwarder {
         address target;
         if (msg.sig == IWebWallet.reset.selector) (target,) = IWalletFactory(FACTORY).latest();
         else target = WalletRelease.implementation();
-        if (target == address(0)) {
-            if (msg.data.length == 0) return;
-            revert NotSetUp();
-        }
+        if (target == address(0)) revert NotSetUp();
         assembly ("memory-safe") {
             calldatacopy(0, 0, calldatasize())
             let ok := delegatecall(gas(), target, 0, calldatasize(), 0, 0)

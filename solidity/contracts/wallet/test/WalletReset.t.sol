@@ -19,6 +19,13 @@ contract ColdMeter {
     }
 }
 
+/// Sends with the 2,300-gas stipend.
+contract Payer {
+    function pay(address payable to) external payable {
+        to.transfer(msg.value);
+    }
+}
+
 /// Code a key delegates to while away: it points the release slot at its own implementation.
 contract Planter {
     fallback() external {}
@@ -231,6 +238,38 @@ contract WalletResetTest is WalletBase {
             assertFalse(ok, "the forwarder answered");
             assertEq(err, abi.encodeWithSelector(IWebWallet.NotDelegated.selector), "the error");
         }
+    }
+
+    /// Plain ETH with the 2,300-gas stipend reaches an account before and after `reset`.
+    /// forge-config: default.isolate = true
+    function test_aStipendTransferArrivesBeforeAndAfterReset() public {
+        Payer payer = new Payer();
+        _delegateTo(fwd);
+        payer.pay{value: 1}(payable(a));
+        assertEq(a.balance, 1, "before reset");
+        assertEq(vm.load(a, RELEASE_SLOT), bytes32(0), "a transfer wrote the slot");
+        _onboard();
+        payer.pay{value: 1}(payable(a));
+        assertEq(a.balance, 1 ether + 1, "after reset");
+    }
+
+    /// The same transfer after `reset` alone, so it is checked whatever the row before it does.
+    /// forge-config: default.isolate = true
+    function test_aStipendTransferArrivesAfterReset() public {
+        Payer payer = new Payer();
+        _onboard();
+        payer.pay{value: 1}(payable(a));
+        assertEq(a.balance, 1 ether + 1, "after reset");
+    }
+
+    /// Plain ETH with the 2,300-gas stipend reaches a factory wallet.
+    /// forge-config: default.isolate = true
+    function test_aStipendTransferReachesAFactoryWallet() public {
+        Payer payer = new Payer();
+        address w = factory.createWallet(X, BOB, 0);
+        uint256 before = w.balance;
+        payer.pay{value: 1}(payable(w));
+        assertEq(w.balance, before + 1, "a factory wallet");
     }
 
     /// With no release published, `reset` has nowhere to go.
