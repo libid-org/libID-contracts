@@ -250,6 +250,10 @@ contract IdentityAdmin is IIdentityAdmin {
         return WalletStorage.state().rootDelay;
     }
 
+    function rootEpoch() external view delegated returns (uint32) {
+        return WalletStorage.state().rootEpoch;
+    }
+
     function bump(uint64 version) external rootOnly {
         _bump(version, IWalletFactory(_factory()).release(version));
     }

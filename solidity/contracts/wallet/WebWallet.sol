@@ -506,9 +506,9 @@ contract WebWallet is Account, ERC721Holder, ERC1155Holder, IWalletCore {
                 || selector == IIdentityAdmin.rootReadyAt.selector || selector == IIdentityAdmin.queueRoot.selector
                 || selector == IIdentityAdmin.cancelRoot.selector || selector == IIdentityAdmin.executeRoot.selector
                 || selector == IIdentityAdmin.rootOperation.selector || selector == IIdentityAdmin.threshold.selector
-                || selector == IIdentityAdmin.rootDelay.selector || selector == IIdentityAdmin.bump.selector
-                || selector == IIdentityAdmin.setThreshold.selector || selector == IIdentityAdmin.setRootDelay.selector
-                || selector == IIdentityAdmin.unlink.selector
+                || selector == IIdentityAdmin.rootDelay.selector || selector == IIdentityAdmin.rootEpoch.selector
+                || selector == IIdentityAdmin.bump.selector || selector == IIdentityAdmin.setThreshold.selector
+                || selector == IIdentityAdmin.setRootDelay.selector || selector == IIdentityAdmin.unlink.selector
         ) return ADMIN;
         return address(0);
     }

@@ -461,6 +461,24 @@ contract WalletSessionsTest is WalletSuite {
         _assertVoid(w, id);
     }
 
+    /// The salt `eip712Domain()` reports is `keccak256(abi.encode(epoch(), rootEpoch()))`, before and after a
+    /// revoked admin moves the root epoch.
+    function test_theSaltIsTheEpochAndRootEpoch() public {
+        address w = _claim();
+        _addSession(w, _identity(X, ALICE), _key(ALICE2_PK), _admin());
+        vm.warp(_now() + 1);
+        assertEq(IWebWallet(w).rootEpoch(), 0, "a new wallet's root epoch");
+        _assertSalt(w);
+        _revoke(w, _key(ALICE2_PK));
+        assertEq(IWebWallet(w).rootEpoch(), 1, "the revoke did not move it");
+        _assertSalt(w);
+    }
+
+    function _assertSalt(address w) internal view {
+        (,,,,, bytes32 salt,) = IWebWallet(w).eip712Domain();
+        assertEq(salt, keccak256(abi.encode(IWebWallet(w).epoch(), IWebWallet(w).rootEpoch())), "salt");
+    }
+
     /// Revoking an app session, or an admin session added this second, keeps queued operations.
     function test_otherRevokesKeepQueuedRootOperations() public {
         (address w, bytes32 id) = _leaked();

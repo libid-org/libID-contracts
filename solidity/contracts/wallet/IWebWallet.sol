@@ -187,6 +187,8 @@ interface IIdentityAdmin {
     function rootReadyAt(bytes32 id) external view returns (uint48);
     function threshold() external view returns (uint8);
     function rootDelay() external view returns (uint32);
+    /// The current epoch's root epoch: the salt is `keccak256(abi.encode(epoch(), rootEpoch()))`.
+    function rootEpoch() external view returns (uint32);
     function bump(uint64 version) external;
     function setThreshold(uint8 threshold) external;
     function setRootDelay(uint32 delay) external;

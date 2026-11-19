@@ -46,7 +46,7 @@ contract WalletGateTest is WalletBase {
     }
 
     function _rows() internal returns (Row[] memory r) {
-        r = new Row[](45);
+        r = new Row[](46);
         uint256 i;
         bytes memory hit = _one(_hitX());
         PackedUserOperation memory op = _signOp(_op(w, _hitCall()), 1, _pks(MALLORY_PK));
@@ -109,6 +109,7 @@ contract WalletGateTest is WalletBase {
         r[i++] = Row(abi.encodeCall(IIdentityAdmin.rootReadyAt, (matured)), Gate.View);
         r[i++] = Row(abi.encodeCall(IIdentityAdmin.threshold, ()), Gate.View);
         r[i++] = Row(abi.encodeCall(IIdentityAdmin.rootDelay, ()), Gate.View);
+        r[i++] = Row(abi.encodeCall(IIdentityAdmin.rootEpoch, ()), Gate.View);
         r[i++] = Row(abi.encodeCall(IIdentityAdmin.bump, (2)), Gate.Root);
         r[i++] = Row(abi.encodeCall(IIdentityAdmin.setThreshold, (2)), Gate.Root);
         r[i++] = Row(abi.encodeCall(IIdentityAdmin.setRootDelay, (1)), Gate.Root);

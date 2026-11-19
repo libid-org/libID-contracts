@@ -250,7 +250,8 @@ const [, version] = await client.readContract({
   functionName: 'release',
 })
 // The domain's salt: `reset`, revoking an admin, removing or unlinking an
-// identity, and a threshold change move it. A wallet without code signs
+// identity, and a threshold change move it. Read it from `eip712Domain()`,
+// or as `walletSalt(epoch(), rootEpoch())`. A wallet without code signs
 // with `walletSalt(zeroHash, 0)`.
 const [, , , , , salt] = await client.readContract({
   address: wallet,

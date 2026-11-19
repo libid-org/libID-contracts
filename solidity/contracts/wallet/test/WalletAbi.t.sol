@@ -38,7 +38,7 @@ contract WalletAbiTest is WalletBase {
     ];
 
     /// `_target`'s table: every `IIdentityAdmin` selector, which `test_theTargetTableIsIIdentityAdmin` checks.
-    function _adminSelectors() internal pure returns (bytes4[25] memory) {
+    function _adminSelectors() internal pure returns (bytes4[26] memory) {
         return [
             IIdentityAdmin.genesisIdentity.selector,
             IIdentityAdmin.linkIdentity.selector,
@@ -61,6 +61,7 @@ contract WalletAbiTest is WalletBase {
             IIdentityAdmin.rootReadyAt.selector,
             IIdentityAdmin.threshold.selector,
             IIdentityAdmin.rootDelay.selector,
+            IIdentityAdmin.rootEpoch.selector,
             IIdentityAdmin.bump.selector,
             IIdentityAdmin.setThreshold.selector,
             IIdentityAdmin.setRootDelay.selector,
@@ -69,7 +70,7 @@ contract WalletAbiTest is WalletBase {
     }
 
     function _isAdmin(bytes4 selector) internal pure returns (bool) {
-        bytes4[25] memory admin = _adminSelectors();
+        bytes4[26] memory admin = _adminSelectors();
         for (uint256 i; i < admin.length; ++i) {
             if (admin[i] == selector) return true;
         }
@@ -87,7 +88,7 @@ contract WalletAbiTest is WalletBase {
     /// `_target` routes every `IIdentityAdmin` selector to IdentityAdmin, and SessionRules' to none. The table's
     /// selectors are distinct and XOR to `IIdentityAdmin`'s interface id, so the list is the interface.
     function test_theTargetTableIsIIdentityAdmin() public {
-        bytes4[25] memory admin = _adminSelectors();
+        bytes4[26] memory admin = _adminSelectors();
         bytes4 id;
         for (uint256 i; i < admin.length; ++i) {
             for (uint256 j; j < i; ++j) {
@@ -156,7 +157,7 @@ contract WalletAbiTest is WalletBase {
 
     /// Each target refuses a call at its own address.
     function test_targetsRefuseDirectCalls() public {
-        bytes4[25] memory admin = _adminSelectors();
+        bytes4[26] memory admin = _adminSelectors();
         for (uint256 i; i < admin.length; ++i) {
             _refusesDirect(identityAdmin, admin[i]);
         }
