@@ -365,11 +365,14 @@ contract WebWallet is Account, EIP712 {
                 || selector == IWebWallet.revokeSession.selector || selector == IWebWallet.setAppList.selector
                 || selector == IWebWallet.sessionOf.selector || selector == IWebWallet.isLinked.selector
                 || selector == IWebWallet.appList.selector || selector == IWebWallet.genesisIdentity.selector
-                || selector == IWebWallet.queueRoot.selector || selector == IWebWallet.cancelRoot.selector
-                || selector == IWebWallet.executeRoot.selector || selector == IWebWallet.rootOperation.selector
-                || selector == IWebWallet.threshold.selector || selector == IWebWallet.rootDelay.selector
-                || selector == IWebWallet.bump.selector || selector == IWebWallet.setThreshold.selector
-                || selector == IWebWallet.setRootDelay.selector || selector == IWebWallet.unlink.selector
+                || selector == IWebWallet.allowanceOf.selector || selector == IWebWallet.generationOf.selector
+                || selector == IWebWallet.linkedPlatforms.selector || selector == IWebWallet.hadSession.selector
+                || selector == IWebWallet.rootReadyAt.selector || selector == IWebWallet.queueRoot.selector
+                || selector == IWebWallet.cancelRoot.selector || selector == IWebWallet.executeRoot.selector
+                || selector == IWebWallet.rootOperation.selector || selector == IWebWallet.threshold.selector
+                || selector == IWebWallet.rootDelay.selector || selector == IWebWallet.bump.selector
+                || selector == IWebWallet.setThreshold.selector || selector == IWebWallet.setRootDelay.selector
+                || selector == IWebWallet.unlink.selector
         ) return ADMIN;
         return address(0);
     }

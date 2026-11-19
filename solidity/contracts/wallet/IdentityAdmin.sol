@@ -127,6 +127,32 @@ contract IdentityAdmin {
         return WalletStorage.state().appLists[platformId];
     }
 
+    function allowanceOf(bytes calldata key, address token)
+        external
+        view
+        delegated
+        returns (IWebWallet.AllowanceState memory a)
+    {
+        bytes32 keyHash = keccak256(key);
+        WalletStorage.SessionRecord storage s = WalletStorage.session(keyHash);
+        WalletStorage.Counter storage c = WalletStorage.counter(keyHash, s.rulesHash, token);
+        if (WalletStorage.live(s) && c.listed) {
+            a = IWebWallet.AllowanceState(c.amount, c.period, c.periodStart, c.spent);
+        }
+    }
+
+    function generationOf(bytes32 identity) external view delegated returns (uint32) {
+        return WalletStorage.state().links[identity].generation;
+    }
+
+    function linkedPlatforms() external view delegated returns (uint32) {
+        return WalletStorage.state().platforms;
+    }
+
+    function hadSession() external view delegated returns (bool) {
+        return WalletStorage.state().hadSession;
+    }
+
     function genesisIdentity() external view delegated returns (bytes32 platformId, bytes32 idNode, uint256 salt) {
         WalletStorage.EpochState storage s = WalletStorage.state();
         return (s.platformId, s.idNode, s.salt);
@@ -187,6 +213,13 @@ contract IdentityAdmin {
     function rootOperation(bytes32 id) external view delegated returns (IWebWallet.RootOperation memory) {
         WalletStorage.Root storage r = WalletStorage.state().roots[id];
         return IWebWallet.RootOperation({data: r.data, version: r.version, readyAt: r.readyAt});
+    }
+
+    function rootReadyAt(bytes32 id) external view delegated returns (uint48) {
+        WalletStorage.EpochState storage s = WalletStorage.state();
+        WalletStorage.Root storage r = s.roots[id];
+        (, uint64 current) = WalletRelease.read();
+        return r.version == current && r.rootEpoch == s.rootEpoch ? r.readyAt : 0;
     }
 
     function threshold() external view delegated returns (uint8) {

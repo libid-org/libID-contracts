@@ -47,7 +47,7 @@ contract WalletGateTest is WalletBase {
     }
 
     function _rows() internal returns (Row[] memory r) {
-        r = new Row[](36);
+        r = new Row[](41);
         uint256 i;
         bytes memory hit = _one(_hitX());
         PackedUserOperation memory op = _signOp(_op(w, _hitCall()), 1, _pks(MALLORY_PK));
@@ -87,10 +87,15 @@ contract WalletGateTest is WalletBase {
         r[i++] = Row(abi.encodeCall(IWebWallet.sessionOf, (_key(ALICE_PK))), Gate.View);
         r[i++] = Row(abi.encodeCall(IWebWallet.isLinked, (_identity(X, ALICE))), Gate.View);
         r[i++] = Row(abi.encodeCall(IWebWallet.appList, (X)), Gate.View);
+        r[i++] = Row(abi.encodeCall(IWebWallet.allowanceOf, (_key(BOT_PK), address(0))), Gate.View);
+        r[i++] = Row(abi.encodeCall(IWebWallet.generationOf, (_identity(X, ALICE))), Gate.View);
+        r[i++] = Row(abi.encodeCall(IWebWallet.linkedPlatforms, ()), Gate.View);
+        r[i++] = Row(abi.encodeCall(IWebWallet.hadSession, ()), Gate.View);
         r[i++] = Row(abi.encodeCall(IWebWallet.queueRoot, (abi.encodeCall(IWebWallet.setThreshold, (2)))), Gate.Self);
         r[i++] = Row(abi.encodeCall(IWebWallet.cancelRoot, (matured)), Gate.Self);
         r[i++] = Row(abi.encodeCall(IWebWallet.executeRoot, (bytes32(uint256(1)))), Gate.Public);
         r[i++] = Row(abi.encodeCall(IWebWallet.rootOperation, (matured)), Gate.View);
+        r[i++] = Row(abi.encodeCall(IWebWallet.rootReadyAt, (matured)), Gate.View);
         r[i++] = Row(abi.encodeCall(IWebWallet.threshold, ()), Gate.View);
         r[i++] = Row(abi.encodeCall(IWebWallet.rootDelay, ()), Gate.View);
         r[i++] = Row(abi.encodeCall(IWebWallet.bump, (2)), Gate.Root);

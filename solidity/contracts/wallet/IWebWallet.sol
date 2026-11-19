@@ -67,6 +67,14 @@ interface IWebWallet {
         bytes32[] paymasterProof;
     }
 
+    /// A live session's raw counter for one token.
+    struct AllowanceState {
+        uint128 amount;
+        uint48 period;
+        uint48 periodStart;
+        uint128 spent;
+    }
+
     struct RootOperation {
         bytes data;
         uint64 version;
@@ -196,6 +204,15 @@ interface IWebWallet {
     function sessionOf(bytes calldata key) external view returns (Session memory);
     function isLinked(bytes32 identity) external view returns (bool);
     function appList(bytes32 platformId) external view returns (bytes[] memory);
+    /// The live session `key`'s counter for `token`; zero without one. `spent` holds only while
+    /// `at - at % period == periodStart`.
+    function allowanceOf(bytes calldata key, address token) external view returns (AllowanceState memory);
+    /// The identity's current generation: a session of any other is dead.
+    function generationOf(bytes32 identity) external view returns (uint32);
+    /// Distinct platforms with a linked identity.
+    function linkedPlatforms() external view returns (uint32);
+    /// Whether the wallet ever had a session in this epoch.
+    function hadSession() external view returns (bool);
 
     // ─── Root operations ────────────────────────────────────────────
 
@@ -203,6 +220,8 @@ interface IWebWallet {
     function cancelRoot(bytes32 id) external;
     function executeRoot(bytes32 id) external;
     function rootOperation(bytes32 id) external view returns (RootOperation memory);
+    /// When the queued operation `id` matures; 0 when unknown or void.
+    function rootReadyAt(bytes32 id) external view returns (uint48);
     function threshold() external view returns (uint8);
     function rootDelay() external view returns (uint32);
     function bump(uint64 version) external;
