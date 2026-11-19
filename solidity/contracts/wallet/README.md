@@ -230,9 +230,9 @@ The wallet:
    (`EntryPointMissing` when the EntryPoint has no code on the chain);
 4. reads the threshold and its EIP-712 domain separator;
 5. requires `deadline` nonzero and not passed (`ExecutionExpired`);
-6. runs the calls. Before each it requires `gasleft() * 63 / 64` of at least
-   `callGas + CALL_OVERHEAD`, else `InsufficientCallGas`. A call to
-   `address(0)` is a call to the wallet;
+6. runs the calls. Before each, with the call's data already in memory, it
+   requires `gasleft() * 63 / 64` of at least `callGas + CALL_OVERHEAD`, else
+   `InsufficientCallGas`. A call to `address(0)` is a call to the wallet;
 7. checks the signatures against the sessions as the calls left them
    (`ExecutionNotSigned`), the rules below quorum (`ExecutionNotAllowed`),
    and that the block time is inside the signers' window
@@ -366,8 +366,9 @@ count once.
   none of them may be a session added by login.
 - `setThreshold(t)` is a root operation. It reverts `ThresholdTooHigh` when
   `t` exceeds the platforms holding an admin session.
-- A revoke may not leave admin sessions on fewer platforms than the
-  threshold, unless it leaves none.
+- Revoking an admin session may not leave admin sessions on fewer platforms
+  than the threshold, unless it leaves none. A limited session can always be
+  revoked.
 - An unlink lowers the threshold to the platforms still linked, not to the
   platforms still holding an admin session.
 
