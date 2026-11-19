@@ -340,6 +340,31 @@ contract WalletResetTest is WalletBase {
         assertEq(IWebWallet(a).sessionOf(_key(MALLORY_PK)).identity, bytes32(0), "a stranger's first session");
     }
 
+    /// Threshold 2 over X and GitHub. A keyed login removal leaves admins on X alone, short of the threshold; the
+    /// key still revokes a limited session.
+    function test_theKeyRevokesALimitedSessionBelowTheThreshold() public {
+        _onboard();
+        IWebWallet.Policy memory none;
+        bytes memory link = _linkPayload(a, GITHUB, BOB, "", none);
+        vm.prank(a);
+        IWebWallet(a).linkIdentity(GITHUB, V1, link, "", none);
+        vm.startPrank(a);
+        IWebWallet(a).addSession(_identity(GITHUB, BOB), _key(BOB_PK), _admin());
+        IWebWallet(a).addSession(_identity(X, ALICE), _key(MALLORY_PK), _hitOnly());
+        vm.stopPrank();
+        vm.prank(a, a);
+        IWebWallet(a).setThreshold(2);
+        vm.warp(_now() + 1);
+
+        bytes memory remove = _payload(GITHUB, BOB, REMOVE, _txData(a, _key(BOT_PK), _ph(_hitOnly())));
+        IWebWallet(a).removeSessionsByLogin(GITHUB, V1, remove, "", _hitOnly());
+        assertEq(IWebWallet(a).threshold(), 2, "the threshold moved");
+
+        vm.prank(a);
+        IWebWallet(a).revokeSession(_key(MALLORY_PK));
+        assertEq(IWebWallet(a).sessionOf(_key(MALLORY_PK)).identity, bytes32(0), "the limited session lives");
+    }
+
     // ─── The forwarder ──────────────────────────────────────────────
 
     /// At its own address the forwarder refuses every call, `reset` and plain ETH included.

@@ -361,7 +361,7 @@ contract IdentityAdmin {
         }
     }
 
-    /// Revoking an active admin session voids every root operation queued before it.
+    /// Revoking an active admin session voids every root operation queued before it, and keeps the quorum.
     function _revoke(bytes memory key, bool root) private {
         WalletStorage.EpochState storage s = WalletStorage.state();
         bytes32 keyHash = keccak256(key);
@@ -374,10 +374,10 @@ contract IdentityAdmin {
             _dropAdmins(identity, 1);
             // A session added this second has signed nothing; an older one may have queued roots.
             if (r.activeAt < block.timestamp) ++s.rootEpoch;
+            _keepQuorum();
         }
         delete s.sessions[keyHash];
         emit IWebWallet.SessionRevoked(identity, key);
-        _keepQuorum();
     }
 
     /// Kills every session of `identity` and voids every queued root operation. Unlinks it unless it is the
