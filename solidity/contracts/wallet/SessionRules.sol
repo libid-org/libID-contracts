@@ -5,7 +5,7 @@ import {CallType, ERC7579Utils, Execution} from "@openzeppelin/contracts/account
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {MerkleProof} from "@openzeppelin/contracts/utils/cryptography/MerkleProof.sol";
 
-import {NATIVE_TOKEN} from "../escrow/HandleEscrow.sol";
+import {NATIVE_TOKEN} from "../common/Constants.sol";
 import {bytesFrom, executionsFit} from "./AbiBytes.sol";
 import {IWebWallet} from "./IWebWallet.sol";
 import {WalletStorage} from "./WalletStorage.sol";

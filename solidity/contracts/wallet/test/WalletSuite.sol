@@ -6,7 +6,7 @@ import {Execution} from "@openzeppelin/contracts/interfaces/draft-IERC7579.sol";
 
 import {CeremonyProfile} from "../../ceremony/CeremonyProfile.sol";
 import {IPlatformVerifier} from "../../ceremony/IPlatformVerifier.sol";
-import {NATIVE_TOKEN} from "../../escrow/HandleEscrow.sol";
+import {NATIVE_TOKEN} from "../../common/Constants.sol";
 import {StubPlatformVerifier} from "../../identity/test/StubPlatformVerifier.sol";
 import {AUTHORIZED_MODE, IWebWallet} from "../IWebWallet.sol";
 import {CallTarget, IUserOpHash, WalletBase} from "./WalletBase.sol";
