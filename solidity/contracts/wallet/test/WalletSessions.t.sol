@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
+import {Vm} from "forge-std/Test.sol";
 import {PackedUserOperation} from "@openzeppelin/contracts/interfaces/IERC4337.sol";
 import {Base64} from "@openzeppelin/contracts/utils/Base64.sol";
 import {P256} from "@openzeppelin/contracts/utils/cryptography/P256.sol";
@@ -159,17 +160,50 @@ contract WalletSessionsTest is WalletSuite {
         assertEq(_validate(w, _hitCall(), _pks(ALICE2_PK)), 1, "revoked key");
     }
 
-    /// A UserOperation calls only `execute` with a single or batch call and selector 0, even an admin's.
+    /// A UserOperation calls only `execute` with mode selector 0, even an admin's: the rest is refused in validation.
     function test_outerCallScope() public {
         address w = _claim();
         bytes[3] memory calls = [
             abi.encodeCall(IIdentityAdmin.addSession, (_alice(), _key(MALLORY_PK), _admin())),
-            abi.encodeCall(IWalletCore.execute, (bytes32(uint256(0xff) << 248), hex"")),
-            abi.encodeCall(IWalletCore.execute, (MODE_BATCH | bytes32(uint256(0xdeadbeef) << 176), _one(_hitX())))
+            abi.encodeCall(IWalletCore.execute, (MODE_BATCH | bytes32(uint256(0xdeadbeef) << 176), _one(_hitX()))),
+            abi.encodePacked(IWalletCore.execute.selector, bytes31(MODE_BATCH))
         ];
         for (uint256 i; i < calls.length; ++i) {
             assertEq(_validate(w, calls[i], _pks(ALICE_PK)), 1, vm.toString(i));
         }
+    }
+
+    /// `UserOperationRevertReason` of EntryPoint v0.9.
+    event UserOperationRevertReason(
+        bytes32 indexed userOpHash, address indexed sender, uint256 nonce, bytes revertReason
+    );
+
+    /// At quorum, validation reads no more of the call: `execute` refuses a call type it does not run and a
+    /// non-canonical batch, and the account pays for the operation.
+    function test_atQuorumExecuteRefusesWhatValidationLetsThrough() public {
+        address w = _claim();
+        vm.warp(_now() + 1);
+        bytes[2] memory calls = [
+            abi.encodeCall(IWalletCore.execute, (bytes32(uint256(0xff) << 248), _one(_hitX()))),
+            abi.encodeCall(IWalletCore.execute, (MODE_BATCH, bytes.concat(_one(_hitX()), hex"00")))
+        ];
+        bytes4[2] memory errs = [IWebWallet.UnsupportedMode.selector, IWebWallet.NoncanonicalBatch.selector];
+        for (uint256 i; i < calls.length; ++i) {
+            assertEq(_validate(w, calls[i], _pks(ALICE_PK)), 0, vm.toString(i));
+            uint256 n = _nonce(w);
+            vm.recordLogs();
+            _handle(_signed(_op(w, calls[i]), _pks(ALICE_PK)));
+            assertEq(_nonce(w), n + 1, "not included");
+            Vm.Log[] memory logs = vm.getRecordedLogs();
+            bytes memory reason;
+            for (uint256 j; j < logs.length; ++j) {
+                if (logs[j].topics[0] == UserOperationRevertReason.selector) {
+                    (, reason) = abi.decode(logs[j].data, (uint256, bytes));
+                }
+            }
+            assertEq(bytes4(reason), errs[i], vm.toString(i));
+        }
+        assertEq(target.calls(), 0, "a refused call ran");
     }
 
     // ─── Threshold ──────────────────────────────────────────────────

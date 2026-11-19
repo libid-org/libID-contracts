@@ -291,8 +291,10 @@ contract WebWallet is Account, ERC721Holder, ERC1155Holder, IWalletCore {
 
     // ─── Validation and signatures ──────────────────────────────────
 
-    /// A malformed signature fails. Below quorum, charges the session's allowances: a refused operation's charges
-    /// revert with the EntryPoint's call. Reads only the wallet's own storage, never the clock: the window goes back to the EntryPoint.
+    /// A malformed signature fails. At quorum, the call must be `execute` with mode selector 0, which checks the
+    /// rest. Below quorum, SessionRules checks the calls and charges the session's allowances: a refused
+    /// operation's charges revert with the EntryPoint's call. Reads only the wallet's own storage, never the clock:
+    /// the window goes back to the EntryPoint.
     function _validateUserOp(PackedUserOperation calldata userOp, bytes32 userOpHash, bytes calldata signature)
         internal
         override
@@ -304,17 +306,23 @@ contract WebWallet is Account, ERC721Holder, ERC1155Holder, IWalletCore {
         WalletStorage.Verified memory v;
         (ok, below, v) = _signers(_signableUserOpHash(userOp, userOpHash), auth, WalletStorage.threshold());
         if (!ok) return ERC4337Utils.SIG_VALIDATION_FAILED;
-        SessionRules.Operation memory op = SessionRules.Operation({
-            callData: userOp.callData,
-            paymasterAndData: userOp.paymasterAndData,
-            accountGasLimits: userOp.accountGasLimits,
-            preVerificationGas: userOp.preVerificationGas,
-            gasFees: userOp.gasFees,
-            at: auth.at,
-            calls: auth.calls,
-            paymasterProof: auth.paymasterProof
-        });
-        (ok, v) = _rules(abi.encodeCall(SessionRules.allowed, (abi.encode(v, op, below, _adminTargets()))));
+        if (below) {
+            SessionRules.Operation memory op = SessionRules.Operation({
+                callData: userOp.callData,
+                paymasterAndData: userOp.paymasterAndData,
+                accountGasLimits: userOp.accountGasLimits,
+                preVerificationGas: userOp.preVerificationGas,
+                gasFees: userOp.gasFees,
+                at: auth.at,
+                calls: auth.calls,
+                paymasterProof: auth.paymasterProof
+            });
+            (ok, v) = _rules(abi.encodeCall(SessionRules.allowed, (abi.encode(v, op, _adminTargets()))));
+        } else {
+            bytes calldata callData = userOp.callData;
+            ok = callData.length >= 36 && WalletStorage.selectorOf(callData) == IWalletCore.execute.selector
+                && bytes4(bytes32(callData[4:36]) << 48) == 0;
+        }
         if (!ok) return ERC4337Utils.SIG_VALIDATION_FAILED;
         return (uint256(v.validAfter) << 208) | (uint256(v.validUntil) << 160);
     }

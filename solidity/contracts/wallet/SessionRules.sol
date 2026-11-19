@@ -18,14 +18,13 @@ import {WalletStorage} from "./WalletStorage.sol";
 contract SessionRules {
     address private immutable SELF = address(this);
 
-    /// What every execution of an operation is checked against below quorum: the governing session's scope and
-    /// rules hash, the signed `at`, the native value and gas charged so far, and the admin targets.
+    /// What every execution of an operation is checked against: the governing session's scope and rules hash, the
+    /// signed `at`, the native value and gas charged so far, and the admin targets.
     struct Spend {
         bytes32 keyHash;
         bytes32 scopeRoot;
         bytes32 rulesHash;
         uint48 at;
-        bool below;
         uint256 native;
         Targets targets;
     }
@@ -55,13 +54,13 @@ contract SessionRules {
         IWalletCore.CallProof[] calls;
     }
 
-    /// A UserOperation's `execute(mode, executionCalldata)` with mode selector 0, a batch encoded canonically.
-    /// `input` is `abi.encode(Verified v, Operation op, bool below, Targets targets)`. Returns the verdict and
+    /// A UserOperation below quorum: `execute(mode, executionCalldata)` with mode selector 0, a batch encoded
+    /// canonically. `input` is `abi.encode(Verified v, Operation op, Targets targets)`. Returns the verdict and
     /// `v` narrowed to the periods charged.
     function allowed(bytes calldata input) external returns (bool, WalletStorage.Verified memory) {
         _delegated();
-        (WalletStorage.Verified memory v, Operation memory op, bool below, Targets memory targets) =
-            abi.decode(input, (WalletStorage.Verified, Operation, bool, Targets));
+        (WalletStorage.Verified memory v, Operation memory op, Targets memory targets) =
+            abi.decode(input, (WalletStorage.Verified, Operation, Targets));
         bytes memory callData = op.callData;
         if (callData.length < 4 || bytes4(memoryWord(callData, 0)) != IWalletCore.execute.selector) return (false, v);
         (bytes32 mode, bytes memory executions) = abi.decode(Bytes.slice(callData, 4), (bytes32, bytes));
@@ -69,26 +68,22 @@ contract SessionRules {
         CallType callType = CallType.wrap(mode[0]);
         bool batch = callType == ERC7579Utils.CALLTYPE_BATCH;
         if (!batch && !(callType == ERC7579Utils.CALLTYPE_SINGLE)) return (false, v);
-        Spend memory sp = Spend(v.keyHash, 0, 0, op.at, below, 0, targets);
-        // At quorum neither the paymaster nor the gas is read.
-        if (below) {
-            WalletStorage.SessionRecord storage s = WalletStorage.session(v.keyHash);
-            (sp.scopeRoot, sp.rulesHash) = (s.scopeRoot, s.rulesHash);
-            if (op.paymasterAndData.length != 0) {
-                // Shorter than a paymaster's address and gas limits, it names none.
-                if (op.paymasterAndData.length < 52) return (false, v);
-                address paymaster = address(bytes20(memoryWord(op.paymasterAndData, 0)));
-                // `address(0)` stands for no paymaster.
-                if (
-                    paymaster == address(0)
-                        || !MerkleProof.verify(
-                            op.paymasterProof, s.paymastersRoot, WalletStorage.leaf(abi.encode(paymaster))
-                        )
-                ) return (false, v);
-            } else {
-                uint256 limits = uint256(op.accountGasLimits);
-                sp.native = ((limits >> 128) + uint128(limits) + op.preVerificationGas) * uint128(uint256(op.gasFees));
-            }
+        WalletStorage.SessionRecord storage s = WalletStorage.session(v.keyHash);
+        Spend memory sp = Spend(v.keyHash, s.scopeRoot, s.rulesHash, op.at, 0, targets);
+        if (op.paymasterAndData.length != 0) {
+            // Shorter than a paymaster's address and gas limits, it names none.
+            if (op.paymasterAndData.length < 52) return (false, v);
+            address paymaster = address(bytes20(memoryWord(op.paymasterAndData, 0)));
+            // `address(0)` stands for no paymaster.
+            if (
+                paymaster == address(0)
+                    || !MerkleProof.verify(
+                        op.paymasterProof, s.paymastersRoot, WalletStorage.leaf(abi.encode(paymaster))
+                    )
+            ) return (false, v);
+        } else {
+            uint256 limits = uint256(op.accountGasLimits);
+            sp.native = ((limits >> 128) + uint128(limits) + op.preVerificationGas) * uint128(uint256(op.gasFees));
         }
         Execution[] memory x;
         if (batch) {
@@ -116,7 +111,7 @@ contract SessionRules {
         (WalletStorage.Verified memory v, Batch memory b, Targets memory targets) =
             abi.decode(input, (WalletStorage.Verified, Batch, Targets));
         WalletStorage.SessionRecord storage s = WalletStorage.session(v.keyHash);
-        Spend memory sp = Spend(v.keyHash, s.scopeRoot, s.rulesHash, b.at, true, 0, targets);
+        Spend memory sp = Spend(v.keyHash, s.scopeRoot, s.rulesHash, b.at, 0, targets);
         return (_calls(v, sp, abi.decode(b.executionCalldata, (Execution[])), b.calls), v);
     }
 
@@ -124,15 +119,15 @@ contract SessionRules {
         if (address(this) == SELF) revert IWebWallet.NotDelegated();
     }
 
-    /// The calls, each passing `_execution`. Below quorum, at least one, and the native value charged to
-    /// `NATIVE_TOKEN` with `sp.native`.
+    /// At least one call, each passing `_execution`, and the native value charged to `NATIVE_TOKEN` with
+    /// `sp.native`.
     function _calls(
         WalletStorage.Verified memory v,
         Spend memory sp,
         Execution[] memory x,
         IWalletCore.CallProof[] memory proofs
     ) private returns (bool) {
-        if (sp.below && (x.length == 0 || proofs.length != x.length)) return false;
+        if (x.length == 0 || proofs.length != x.length) return false;
         for (uint256 i; i < x.length; ++i) {
             if (!_execution(v, sp, x[i].target, x[i].value, x[i].callData, proofs, i)) return false;
         }
@@ -141,8 +136,8 @@ contract SessionRules {
                 || _charge(v, WalletStorage.counter(sp.keyHash, sp.rulesHash, NATIVE_TOKEN), sp.native, sp.at);
     }
 
-    /// One execution. Below quorum, an outside call proved by `proofs[i]` under the session's scope, its token
-    /// spend charged and its value added to `sp.native`.
+    /// One execution: an outside call proved by `proofs[i]` under the session's scope, its token spend charged and
+    /// its value added to `sp.native`.
     /// @dev `scopeRoot == 0` proves no leaf. A value past uint128 fits no allowance; refusing it keeps the sum
     ///      from overflowing.
     function _execution(
@@ -154,7 +149,6 @@ contract SessionRules {
         IWalletCore.CallProof[] memory proofs,
         uint256 i
     ) private returns (bool) {
-        if (!sp.below) return true;
         // A call to the wallet (or `address(0)`, the wallet), its registry or its EntryPoint is an admin operation.
         if (
             target == address(this) || target == address(0) || target == sp.targets.registry
