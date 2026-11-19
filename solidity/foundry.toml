@@ -38,8 +38,8 @@ gas_snapshot_emit = false
 
 # What verifying a claim costs, recorded in snapshots/ by
 # ClaimVerificationGas.t.sol, and the wallet's one-call onboarding by
-# WalletRealProof.t.sol: on the real X attestation with the Honk `verify`
-# mocked, and on a stub proof. CI fails when the committed numbers are stale:
+# WalletRealProof.t.sol: on the real X attestation and its real Honk proof,
+# and on a stub proof. CI fails when the committed numbers are stale:
 # update them with `FOUNDRY_PROFILE=gas forge test`.
 #
 # Osaka because eden-testnet executes under it, and EIP-7883 reprices the

@@ -6,7 +6,6 @@ import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.s
 import {Execution} from "@openzeppelin/contracts/interfaces/draft-IERC7579.sol";
 
 import {AttestationBuilder} from "../../ceremony/test/AttestationBuilder.sol";
-import {HonkStub} from "../../ceremony/test/HonkStub.sol";
 import {operationList} from "../../ceremony/test/OperationListVector.sol";
 import {CeremonyAuthorization} from "../../ceremony/CeremonyAuthorization.sol";
 import {ICeremony} from "../../ceremony/ICeremony.sol";
@@ -22,7 +21,8 @@ import {AUTHORIZED_MODE, IWebWallet} from "../IWebWallet.sol";
 import {WalletBase} from "./WalletBase.sol";
 
 /// @notice Acceptance 2: one `createAndExecute` onboards on one real X list proof: link K and bind the handle.
-/// @dev The fixture's token session is re-signed by its test notary key with each new digest's code_verifier.
+/// @dev The fixture's token session is re-signed by its test notary key with each new digest's code_verifier; the
+///      circuit's own verifier checks the proof.
 contract WalletRealProofTest is WalletBase {
     string constant SESSION = "contracts/ceremony/test/fixtures/x-ceremony-session.json";
     uint256 constant NOTARY_KEY = 0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80;
@@ -53,7 +53,11 @@ contract WalletRealProofTest is WalletBase {
                 address(new XPlatformVerifier()),
                 abi.encodeCall(
                     XPlatformVerifier.initialize,
-                    (owner, INotaryService(notary), IHonkVerifier(HonkStub.deploy(HonkStub.BEARER_LINK)))
+                    (
+                        owner,
+                        INotaryService(notary),
+                        IHonkVerifier(vm.deployCode("BearerLinkHonkVerifier.sol:BearerLinkHonkVerifier"))
+                    )
                 )
             )
         );
