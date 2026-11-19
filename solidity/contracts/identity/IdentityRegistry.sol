@@ -292,16 +292,15 @@ contract IdentityRegistry is
         if (msg.value < feeAmount) revert WrongFeeValue(feeAmount, msg.value);
         claimed = _s().proofVerifier.verify{value: msg.value - feeAmount}(platformId, verifierVersion, payload);
 
-        bytes memory data = claimed.transactionData;
-        if (claimed.operationDomain != OPERATION_DOMAIN) {
+        bool single = claimed.operationDomain == OPERATION_DOMAIN;
+        if (!single) {
             if (claimed.operationDomain != OperationList.DOMAIN) {
                 revert ForeignOperationDomain(claimed.operationDomain);
             }
             // The entry's data is the caller as target (REQ-PLAT-08P).
-            data = abi.encode(msg.sender);
             bytes32[] memory own = new bytes32[](1);
             own[0] = OPERATION_DOMAIN;
-            OperationList.select(claimed.transactionData, data, own, false);
+            OperationList.select(claimed.transactionData, abi.encode(msg.sender), own, false);
         }
 
         if (_s().spentDigests[claimed.sessionId]) {
@@ -309,9 +308,12 @@ contract IdentityRegistry is
         }
         _s().spentDigests[claimed.sessionId] = true;
 
-        if (data.length != 32) revert BadTransactionData(data.length);
-        address target = abi.decode(data, (address));
-        if (target != msg.sender) revert NotProofTarget(target, msg.sender);
+        if (single) {
+            bytes memory data = claimed.transactionData;
+            if (data.length != 32) revert BadTransactionData(data.length);
+            address target = abi.decode(data, (address));
+            if (target != msg.sender) revert NotProofTarget(target, msg.sender);
+        }
 
         if ((feeAmount == 0) != (feeReceiver == address(0))) {
             revert NoncanonicalFee(feeAmount, feeReceiver);

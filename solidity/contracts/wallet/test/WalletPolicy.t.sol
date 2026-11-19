@@ -13,7 +13,7 @@ import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {IERC721} from "@openzeppelin/contracts/token/ERC721/IERC721.sol";
 import {MerkleProof} from "@openzeppelin/contracts/utils/cryptography/MerkleProof.sol";
 
-import {NATIVE_TOKEN} from "../../escrow/HandleEscrow.sol";
+import {NATIVE_TOKEN} from "../../common/Constants.sol";
 import {IWalletRegistry} from "../IWalletRegistry.sol";
 import {IWebWallet} from "../IWebWallet.sol";
 import {policyHashOf, rulesHashOf} from "../WalletStorage.sol";

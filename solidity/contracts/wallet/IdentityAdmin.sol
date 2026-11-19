@@ -1,12 +1,13 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-import {bytesFrom} from "./AbiBytes.sol";
+import {Bytes} from "@openzeppelin/contracts/utils/Bytes.sol";
+
 import {IWalletFactory} from "./IWalletFactory.sol";
 import {ADD_SESSION_DOMAIN, IWalletRegistry, LINK_IDENTITY_DOMAIN, REMOVE_SESSIONS_DOMAIN} from "./IWalletRegistry.sol";
 import {IWebWallet} from "./IWebWallet.sol";
 import {WalletRelease} from "./WalletRelease.sol";
-import {WalletStorage, identityOf, policyHashFrom, policyHashOf, rulesHashOf} from "./WalletStorage.sol";
+import {WalletStorage, identityOf, policyHashFrom, rulesHashOf} from "./WalletStorage.sol";
 import {WalletTransient} from "./WalletTransient.sol";
 
 /// @title IdentityAdmin - the wallet's identities, sessions, app lists and root operations.
@@ -50,15 +51,16 @@ contract IdentityAdmin {
         bytes calldata data,
         IWebWallet.Policy calldata policy
     ) external payable onlySelf {
+        (bytes32 rulesHash, bytes32 policyHash) = _hashes(policy);
         IWalletRegistry.Checked memory c =
-            _check(LINK_IDENTITY_DOMAIN, platformId, verifierVersion, payload, data, policy);
+            _check(LINK_IDENTITY_DOMAIN, platformId, verifierVersion, payload, data, policyHash);
         WalletStorage.link(platformId, c.identity);
         if (c.key.length == 0) return;
         WalletStorage.EpochState storage s = WalletStorage.state();
         if (s.platformId == 0 || s.hadSession || !policy.admin || c.identity != identityOf(s.platformId, s.idNode)) {
             revert IWebWallet.LinkSessionRefused();
         }
-        _add(c.identity, c.key, policy, 0, false);
+        _add(c.identity, c.key, policy, 0, false, rulesHash, policyHash);
     }
 
     /// Anyone: a login of a linked identity adds its session, from the next second.
@@ -69,7 +71,13 @@ contract IdentityAdmin {
         bytes calldata data,
         IWebWallet.Policy calldata policy
     ) external payable delegated {
-        _login(_check(ADD_SESSION_DOMAIN, platformId, verifierVersion, payload, data, policy), policy);
+        (bytes32 rulesHash, bytes32 policyHash) = _hashes(policy);
+        _login(
+            _check(ADD_SESSION_DOMAIN, platformId, verifierVersion, payload, data, policyHash),
+            policy,
+            rulesHash,
+            policyHash
+        );
     }
 
     /// Anyone: a login kills every session of a linked identity and voids every queued root operation. With no
@@ -82,17 +90,19 @@ contract IdentityAdmin {
         bytes calldata data,
         IWebWallet.Policy calldata policy
     ) external payable delegated {
+        (bytes32 rulesHash, bytes32 policyHash) = _hashes(policy);
         IWalletRegistry.Checked memory c =
-            _check(REMOVE_SESSIONS_DOMAIN, platformId, verifierVersion, payload, data, policy);
+            _check(REMOVE_SESSIONS_DOMAIN, platformId, verifierVersion, payload, data, policyHash);
         bool keyed = c.key.length != 0;
         _remove(c.identity, true, keyed);
         emit IWebWallet.SessionsRemovedByLogin(c.identity);
-        if (keyed) _login(c, policy);
+        if (keyed) _login(c, policy, rulesHash, policyHash);
     }
 
     /// Active from the next second, for a linked identity.
     function addSession(bytes32 identity, bytes calldata key, IWebWallet.Policy calldata policy) external onlySelf {
-        _add(identity, key, policy, _now(), false);
+        (bytes32 rulesHash, bytes32 policyHash) = _hashes(policy);
+        _add(identity, key, policy, _now(), false, rulesHash, policyHash);
     }
 
     /// Revoking the last admin session is a root operation.
@@ -275,6 +285,12 @@ contract IdentityAdmin {
         return IWebWallet(address(this)).FACTORY();
     }
 
+    /// The policy's rules hash, and its policy hash.
+    function _hashes(IWebWallet.Policy calldata policy) private pure returns (bytes32 rulesHash, bytes32 policyHash) {
+        rulesHash = rulesHashOf(policy.rules);
+        policyHash = policyHashFrom(policy.validAfter, policy.validUntil, policy.admin, policy.signers, rulesHash);
+    }
+
     /// The registry's check of a proof for this wallet, forwarding the whole value.
     function _check(
         bytes32 domain,
@@ -282,15 +298,20 @@ contract IdentityAdmin {
         uint16 verifierVersion,
         bytes calldata payload,
         bytes calldata data,
-        IWebWallet.Policy calldata policy
+        bytes32 policyHash
     ) private returns (IWalletRegistry.Checked memory) {
         return IWalletRegistry(IWebWallet(address(this)).REGISTRY()).check{value: msg.value}(
-            domain, platformId, verifierVersion, payload, data, policyHashOf(policy)
+            domain, platformId, verifierVersion, payload, data, policyHash
         );
     }
 
     /// A login's session: of a linked identity, never the first, from an app on the identity's list.
-    function _login(IWalletRegistry.Checked memory c, IWebWallet.Policy calldata policy) private {
+    function _login(
+        IWalletRegistry.Checked memory c,
+        IWebWallet.Policy calldata policy,
+        bytes32 rulesHash,
+        bytes32 policyHash
+    ) private {
         WalletStorage.EpochState storage s = WalletStorage.state();
         if (!s.hadSession) revert IWebWallet.FirstSessionRefused();
         bytes32[] storage apps = s.appLists[c.identity];
@@ -301,13 +322,19 @@ contract IdentityAdmin {
             while (i < n && apps[i] != app) ++i;
             if (i == n) revert IWebWallet.AppNotListed(app);
         }
-        _add(c.identity, c.key, policy, _now(), true);
+        _add(c.identity, c.key, policy, _now(), true, rulesHash, policyHash);
     }
 
-    /// Adds a session that signs after `activeAt`.
-    function _add(bytes32 identity, bytes memory key, IWebWallet.Policy calldata policy, uint48 activeAt, bool byProof)
-        private
-    {
+    /// Adds a session that signs after `activeAt`, under `policy` and its hashes.
+    function _add(
+        bytes32 identity,
+        bytes memory key,
+        IWebWallet.Policy calldata policy,
+        uint48 activeAt,
+        bool byProof,
+        bytes32 rulesHash,
+        bytes32 policyHash
+    ) private {
         WalletStorage.EpochState storage s = WalletStorage.state();
         WalletStorage.Link storage l = s.links[identity];
         if (!l.linked) revert IWebWallet.NotLinked(identity);
@@ -320,7 +347,6 @@ contract IdentityAdmin {
         WalletStorage.SessionRecord storage r = s.sessions[keyHash];
         if (WalletStorage.live(r)) revert IWebWallet.SessionExists(key);
         IWebWallet.Rules calldata rules = policy.rules;
-        bytes32 rulesHash = rulesHashOf(rules);
         s.sessions[keyHash] = WalletStorage.SessionRecord({
             identity: identity,
             rulesHash: rulesHash,
@@ -342,8 +368,6 @@ contract IdentityAdmin {
             ++l.adminSessions;
             if (++s.platformCounts[l.platformId].admins == 1) ++s.adminPlatforms;
         }
-        bytes32 policyHash =
-            policyHashFrom(policy.validAfter, policy.validUntil, policy.admin, policy.signers, rulesHash);
         emit IWebWallet.SessionAdded(identity, key, policyHash, activeAt, byProof);
     }
 
@@ -437,7 +461,7 @@ contract IdentityAdmin {
     /// Runs a matured root operation, one of those `queueRoot` admits; a bump's to its queued implementation.
     function _root(bytes memory data, address implementation) private {
         bytes4 selector = bytes4(data);
-        bytes memory args = bytesFrom(data, 4);
+        bytes memory args = Bytes.slice(data, 4);
         if (selector == IWebWallet.bump.selector) _bump(abi.decode(args, (uint64)), implementation);
         else if (selector == IWebWallet.setThreshold.selector) _setThreshold(abi.decode(args, (uint8)));
         else if (selector == IWebWallet.setRootDelay.selector) _setRootDelay(abi.decode(args, (uint32)));

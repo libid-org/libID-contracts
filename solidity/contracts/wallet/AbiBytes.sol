@@ -3,6 +3,7 @@ pragma solidity ^0.8.24;
 
 import {ERC7579Utils, Execution} from "@openzeppelin/contracts/account/utils/draft-ERC7579Utils.sol";
 
+import {memoryWord} from "../common/MemoryWord.sol";
 import {IWebWallet} from "./IWebWallet.sol";
 
 /// The `bytes` member of the ABI tuple `data` whose offset is the head word at `head`.
@@ -88,35 +89,18 @@ function _wordAt(bytes calldata s, uint256 at) pure returns (bytes32) {
 /// revert. Its padding is left to the caller's re-encoding.
 function executionsFit(bytes memory b) pure returns (bool) {
     uint256 length = b.length;
-    if (length < 64 || _mwordAt(b, 0) != 0x20) return false;
-    uint256 n = _mwordAt(b, 32);
+    if (length < 64 || uint256(memoryWord(b, 0)) != 0x20) return false;
+    uint256 n = uint256(memoryWord(b, 32));
     if (n > length / 32) return false;
     uint256 at = 64 + 32 * n;
     for (uint256 i; i < n; ++i) {
         if (
-            at + 128 > length || _mwordAt(b, 64 + 32 * i) != at - 64 || _mwordAt(b, at) >> 160 != 0
-                || _mwordAt(b, at + 64) != 0x60
+            at + 128 > length || uint256(memoryWord(b, 64 + 32 * i)) != at - 64
+                || uint256(memoryWord(b, at)) >> 160 != 0 || uint256(memoryWord(b, at + 64)) != 0x60
         ) return false;
-        uint256 size = _mwordAt(b, at + 96);
+        uint256 size = uint256(memoryWord(b, at + 96));
         if (size > length) return false;
         at += 128 + (size + 31) / 32 * 32;
     }
     return at == length;
-}
-
-/// `b` from `at` on, copied with `mcopy`.
-function bytesFrom(bytes memory b, uint256 at) pure returns (bytes memory r) {
-    uint256 n = b.length - at;
-    assembly ("memory-safe") {
-        r := mload(0x40)
-        mstore(r, n)
-        mcopy(add(r, 0x20), add(add(b, 0x20), at), n)
-        mstore(0x40, and(add(add(r, 0x3f), n), not(0x1f)))
-    }
-}
-
-function _mwordAt(bytes memory b, uint256 at) pure returns (uint256 w) {
-    assembly ("memory-safe") {
-        w := mload(add(add(b, 0x20), at))
-    }
 }

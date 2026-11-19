@@ -3,10 +3,12 @@ pragma solidity ^0.8.24;
 
 import {CallType, ERC7579Utils, Execution} from "@openzeppelin/contracts/account/utils/draft-ERC7579Utils.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {Bytes} from "@openzeppelin/contracts/utils/Bytes.sol";
 import {MerkleProof} from "@openzeppelin/contracts/utils/cryptography/MerkleProof.sol";
 
 import {NATIVE_TOKEN} from "../common/Constants.sol";
-import {bytesFrom, executionsFit} from "./AbiBytes.sol";
+import {memoryWord} from "../common/MemoryWord.sol";
+import {executionsFit} from "./AbiBytes.sol";
 import {IWebWallet} from "./IWebWallet.sol";
 import {WalletStorage} from "./WalletStorage.sol";
 
@@ -61,8 +63,8 @@ contract SessionRules {
         (WalletStorage.Verified memory v, Operation memory op, bool below, Targets memory targets) =
             abi.decode(input, (WalletStorage.Verified, Operation, bool, Targets));
         bytes memory callData = op.callData;
-        if (callData.length < 4 || bytes4(_word(callData, 0)) != IWebWallet.execute.selector) return (false, v);
-        (bytes32 mode, bytes memory executions) = abi.decode(bytesFrom(callData, 4), (bytes32, bytes));
+        if (callData.length < 4 || bytes4(memoryWord(callData, 0)) != IWebWallet.execute.selector) return (false, v);
+        (bytes32 mode, bytes memory executions) = abi.decode(Bytes.slice(callData, 4), (bytes32, bytes));
         if (bytes4(mode << 48) != 0) return (false, v);
         CallType callType = CallType.wrap(mode[0]);
         bool batch = callType == ERC7579Utils.CALLTYPE_BATCH;
@@ -75,7 +77,7 @@ contract SessionRules {
             if (op.paymasterAndData.length != 0) {
                 // Shorter than a paymaster's address and gas limits, it names none.
                 if (op.paymasterAndData.length < 52) return (false, v);
-                address paymaster = address(bytes20(_word(op.paymasterAndData, 0)));
+                address paymaster = address(bytes20(memoryWord(op.paymasterAndData, 0)));
                 // `address(0)` stands for no paymaster.
                 if (
                     paymaster == address(0)
@@ -98,7 +100,9 @@ contract SessionRules {
             if (executions.length < 52) return (false, v);
             x = new Execution[](1);
             x[0] = Execution(
-                address(bytes20(_word(executions, 0))), uint256(_word(executions, 20)), bytesFrom(executions, 52)
+                address(bytes20(memoryWord(executions, 0))),
+                uint256(memoryWord(executions, 20)),
+                Bytes.slice(executions, 52)
             );
         }
         return (_calls(v, sp, x, op.calls), v);
@@ -157,7 +161,7 @@ contract SessionRules {
                 || target == sp.targets.entryPoint
         ) return false;
         IWebWallet.CallProof memory proof = proofs[i];
-        bytes4 selector = data.length < 4 ? bytes4(0) : bytes4(_word(data, 0));
+        bytes4 selector = data.length < 4 ? bytes4(0) : bytes4(memoryWord(data, 0));
         if (
             value > proof.maxValue || value > type(uint128).max
                 || !MerkleProof.verify(
@@ -179,7 +183,7 @@ contract SessionRules {
     ) private returns (bool) {
         bool spends = selector == IERC20.transfer.selector || selector == IERC20.approve.selector;
         if (selector == IERC20.transferFrom.selector || spends != c.listed) return false;
-        return !spends || (data.length >= 68 && _charge(v, c, uint256(_word(data, 36)), at));
+        return !spends || (data.length >= 68 && _charge(v, c, uint256(memoryWord(data, 36)), at));
     }
 
     /// Charges `amount` to `c` in the period of `at`, and narrows the window to that period.
@@ -203,13 +207,5 @@ contract SessionRules {
         // forge-lint: disable-next-line(unsafe-typecast)
         (c.periodStart, c.spent) = (start, spent + uint128(amount));
         return true;
-    }
-
-    /// The 32 bytes of `b` from `at`, zero-padded past its end.
-    function _word(bytes memory b, uint256 at) private pure returns (bytes32 w) {
-        assembly ("memory-safe") {
-            w := mload(add(add(b, 0x20), at))
-        }
-        if (b.length < at + 32) w &= ~bytes32(type(uint256).max >> (8 * (b.length > at ? b.length - at : 0)));
     }
 }

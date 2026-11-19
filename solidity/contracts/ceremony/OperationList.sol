@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
+import {memoryWord} from "../common/MemoryWord.sol";
 import {IOperationLists} from "./IOperationLists.sol";
 
 /// @title OperationList
@@ -24,33 +25,27 @@ library OperationList {
         returns (bytes32 domain)
     {
         uint256 len = list.length;
-        if (len < 64 || (len - 64) % 64 != 0 || _word(list, 0) != bytes32(uint256(0x20))) {
+        if (len < 64 || (len - 64) % 64 != 0 || memoryWord(list, 0) != bytes32(uint256(0x20))) {
             revert IOperationLists.NoncanonicalOperationList();
         }
         uint256 n = (len - 64) / 64;
-        if (_word(list, 1) != bytes32(n)) revert IOperationLists.NoncanonicalOperationList();
+        if (memoryWord(list, 32) != bytes32(n)) revert IOperationLists.NoncanonicalOperationList();
 
         bytes32 hash = keccak256(data);
         uint256 candidates;
         uint256 matches;
         for (uint256 i; i < n; ++i) {
-            bytes32 d = _word(list, 2 + 2 * i);
+            bytes32 d = memoryWord(list, 64 + 64 * i);
             if (d == DOMAIN) revert IOperationLists.NestedOperationList();
             if (!_contains(own, d)) continue;
             ++candidates;
-            if (_word(list, 3 + 2 * i) == hash) {
+            if (memoryWord(list, 96 + 64 * i) == hash) {
                 ++matches;
                 domain = d;
             }
         }
         if (matches > 1 || (candidates > 1 && !chainBound)) revert IOperationLists.SeveralOwnOperations();
         if (matches == 0) revert IOperationLists.NoOwnOperation();
-    }
-
-    function _word(bytes memory b, uint256 i) private pure returns (bytes32 w) {
-        assembly ("memory-safe") {
-            w := mload(add(b, mul(add(i, 1), 32)))
-        }
     }
 
     function _contains(bytes32[] memory set, bytes32 d) private pure returns (bool) {
