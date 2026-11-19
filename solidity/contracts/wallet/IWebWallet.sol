@@ -164,6 +164,20 @@ interface IWebWallet {
             uint256[] memory extensions
         );
     function execute(bytes32 mode, bytes calldata executionCalldata) external payable;
+    function supportsInterface(bytes4 interfaceId) external view returns (bool);
+    function onERC721Received(address operator, address from, uint256 tokenId, bytes calldata data)
+        external
+        returns (bytes4);
+    function onERC1155Received(address operator, address from, uint256 id, uint256 value, bytes calldata data)
+        external
+        returns (bytes4);
+    function onERC1155BatchReceived(
+        address operator,
+        address from,
+        uint256[] calldata ids,
+        uint256[] calldata values,
+        bytes calldata data
+    ) external returns (bytes4);
 
     // ─── Setup and releases ─────────────────────────────────────────
 

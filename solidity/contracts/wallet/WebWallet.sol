@@ -16,12 +16,15 @@ import {Errors} from "@openzeppelin/contracts/utils/Errors.sol";
 import {Strings} from "@openzeppelin/contracts/utils/Strings.sol";
 import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import {EIP712} from "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
+import {IERC721Receiver} from "@openzeppelin/contracts/token/ERC721/IERC721Receiver.sol";
+import {ERC721Holder} from "@openzeppelin/contracts/token/ERC721/utils/ERC721Holder.sol";
+import {ERC1155Holder} from "@openzeppelin/contracts/token/ERC1155/utils/ERC1155Holder.sol";
 import {MerkleProof} from "@openzeppelin/contracts/utils/cryptography/MerkleProof.sol";
 import {MessageHashUtils} from "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
 import {SignatureChecker} from "@openzeppelin/contracts/utils/cryptography/SignatureChecker.sol";
 import {ERC7739Utils} from "@openzeppelin/contracts/utils/cryptography/draft-ERC7739Utils.sol";
 
-import {bytesAt, canonicalBatch} from "./AbiBytes.sol";
+import {bytesAt, canonicalBatch, decodeAuthorization} from "./AbiBytes.sol";
 import {IWalletFactory} from "./IWalletFactory.sol";
 import {AUTHORIZED_MODE, CALL_OVERHEAD, INonceIncrement, IWebWallet} from "./IWebWallet.sol";
 import {SessionRules} from "./SessionRules.sol";
@@ -33,7 +36,7 @@ import {WalletTransient} from "./WalletTransient.sol";
 /// @notice One numbered release: a factory wallet's WalletProxy, or an EIP-7702 account's WalletForwarder, routes
 ///         to it by the release slot. Identity and root-operation entries run in IdentityAdmin through DELEGATECALL;
 ///         what an operation may do runs in SessionRules. Every external is declared in `IWebWallet`.
-contract WebWallet is Account, EIP712 {
+contract WebWallet is Account, EIP712, ERC721Holder, ERC1155Holder {
     using ERC7579Utils for Mode;
     using ERC7739Utils for *;
     using MessageHashUtils for bytes32;
@@ -113,6 +116,10 @@ contract WebWallet is Account, EIP712 {
         if (msg.sender != address(this) || !WalletTransient.get(WalletTransient.DATA_STEP)) {
             revert IWebWallet.DataStepRefused();
         }
+    }
+
+    function supportsInterface(bytes4 interfaceId) public view override returns (bool) {
+        return interfaceId == type(IERC721Receiver).interfaceId || super.supportsInterface(interfaceId);
     }
 
     // ─── Execution ──────────────────────────────────────────────────
@@ -211,16 +218,18 @@ contract WebWallet is Account, EIP712 {
 
     // ─── Validation and signatures ──────────────────────────────────
 
-    /// Below quorum, charges the session's allowances: a refused operation's charges revert with the EntryPoint's
-    /// call. Reads only the wallet's own storage, never the clock: the window goes back to the EntryPoint.
+    /// A malformed signature fails. Below quorum, charges the session's allowances: a refused operation's charges
+    /// revert with the EntryPoint's call. Reads only the wallet's own storage, never the clock: the window goes back to the EntryPoint.
     function _validateUserOp(PackedUserOperation calldata userOp, bytes32 userOpHash, bytes calldata signature)
         internal
         override
         returns (uint256)
     {
-        IWebWallet.Authorization memory auth = abi.decode(signature, (IWebWallet.Authorization));
-        (bool ok, bool below, WalletStorage.Verified memory v) =
-            _signers(_signableUserOpHash(userOp, userOpHash), auth, WalletStorage.threshold());
+        (bool ok, IWebWallet.Authorization memory auth) = decodeAuthorization(signature);
+        if (!ok) return ERC4337Utils.SIG_VALIDATION_FAILED;
+        bool below;
+        WalletStorage.Verified memory v;
+        (ok, below, v) = _signers(_signableUserOpHash(userOp, userOpHash), auth, WalletStorage.threshold());
         if (!ok) return ERC4337Utils.SIG_VALIDATION_FAILED;
         (ok, v) = _rules(abi.encodeCall(SessionRules.allowed, (abi.encode(v, userOp, auth, below, REGISTRY))));
         if (!ok) return ERC4337Utils.SIG_VALIDATION_FAILED;
@@ -242,12 +251,14 @@ contract WebWallet is Account, EIP712 {
         return false;
     }
 
-    /// ERC-7739 under `eip712Domain()`, `signature` a bare `Authorization` at `at` 0, inside the signers' window.
+    /// ERC-7739 under `eip712Domain()`, `signature` a bare `Authorization` at `at` 0, inside the signers' window; a
+    /// malformed one answers `0xffffffff`.
     /// Below quorum, signers `_cosigned` signing `TypedDataSign` for an app the first one lists.
     function isValidSignature(bytes32 hash, bytes calldata signature) external view returns (bytes4) {
         if (hash == ERC7739_PROBE && signature.length == 0) return bytes4(0x77390001);
         (bytes32 signed, bytes calldata inner, bytes32 app) = _unnest(hash, signature);
-        IWebWallet.Authorization memory auth = abi.decode(inner, (IWebWallet.Authorization));
+        (bool decoded, IWebWallet.Authorization memory auth) = decodeAuthorization(inner);
+        if (!decoded) return bytes4(0xffffffff);
         uint8 quorum = WalletStorage.threshold();
         WalletStorage.Verified memory v = _verify(signed, auth.signatures, quorum, 0);
         bool allowed = v.adminPlatforms >= quorum

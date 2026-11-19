@@ -47,7 +47,7 @@ contract WalletGateTest is WalletBase {
     }
 
     function _rows() internal returns (Row[] memory r) {
-        r = new Row[](41);
+        r = new Row[](45);
         uint256 i;
         bytes memory hit = _one(_hitX());
         PackedUserOperation memory op = _signOp(_op(w, _hitCall()), 1, _pks(MALLORY_PK));
@@ -68,6 +68,15 @@ contract WalletGateTest is WalletBase {
             Gate.Special
         );
         r[i++] = Row(abi.encodeCall(IWebWallet.execute, (MODE_BATCH, hit)), Gate.Special);
+        r[i++] = Row(abi.encodeCall(IWebWallet.supportsInterface, (bytes4(0x150b7a02))), Gate.View);
+        r[i++] = Row(abi.encodeCall(IWebWallet.onERC721Received, (mallory, mallory, 1, "")), Gate.View);
+        r[i++] = Row(abi.encodeCall(IWebWallet.onERC1155Received, (mallory, mallory, 1, 1, "")), Gate.View);
+        r[i++] = Row(
+            abi.encodeCall(
+                IWebWallet.onERC1155BatchReceived, (mallory, mallory, new uint256[](1), new uint256[](1), "")
+            ),
+            Gate.View
+        );
         r[i++] = Row(abi.encodeCall(IWebWallet.VERSION, ()), Gate.View);
         r[i++] = Row(abi.encodeCall(IWebWallet.FACTORY, ()), Gate.View);
         r[i++] = Row(abi.encodeCall(IWebWallet.REGISTRY, ()), Gate.View);
