@@ -17,7 +17,7 @@ contract SessionRules {
     address private immutable SELF = address(this);
 
     /// What every execution of an operation is checked against below quorum: the governing session's scope and
-    /// rules hash, the signed `at`, the native value and gas charged so far, and the registry.
+    /// rules hash, the signed `at`, the native value and gas charged so far, and the admin targets.
     struct Spend {
         bytes32 keyHash;
         bytes32 scopeRoot;
@@ -25,7 +25,13 @@ contract SessionRules {
         uint48 at;
         bool below;
         uint256 native;
+        Targets targets;
+    }
+
+    /// The outside targets a call to is an admin operation: the wallet's registry and EntryPoint.
+    struct Targets {
         address registry;
+        address entryPoint;
     }
 
     /// What `allowed` reads of a UserOperation and its `Authorization`.
@@ -48,12 +54,12 @@ contract SessionRules {
     }
 
     /// A UserOperation's `execute(mode, executionCalldata)` with mode selector 0, a batch encoded canonically.
-    /// `input` is `abi.encode(Verified v, Operation op, bool below, address registry)`. Returns the verdict and
+    /// `input` is `abi.encode(Verified v, Operation op, bool below, Targets targets)`. Returns the verdict and
     /// `v` narrowed to the periods charged.
     function allowed(bytes calldata input) external returns (bool, WalletStorage.Verified memory) {
         _delegated();
-        (WalletStorage.Verified memory v, Operation memory op, bool below, address registry) =
-            abi.decode(input, (WalletStorage.Verified, Operation, bool, address));
+        (WalletStorage.Verified memory v, Operation memory op, bool below, Targets memory targets) =
+            abi.decode(input, (WalletStorage.Verified, Operation, bool, Targets));
         bytes memory callData = op.callData;
         if (callData.length < 4 || bytes4(_word(callData, 0)) != IWebWallet.execute.selector) return (false, v);
         (bytes32 mode, bytes memory executions) = abi.decode(bytesFrom(callData, 4), (bytes32, bytes));
@@ -61,7 +67,7 @@ contract SessionRules {
         CallType callType = CallType.wrap(mode[0]);
         bool batch = callType == ERC7579Utils.CALLTYPE_BATCH;
         if (!batch && !(callType == ERC7579Utils.CALLTYPE_SINGLE)) return (false, v);
-        Spend memory sp = Spend(v.keyHash, 0, 0, op.at, below, 0, registry);
+        Spend memory sp = Spend(v.keyHash, 0, 0, op.at, below, 0, targets);
         // At quorum neither the paymaster nor the gas is read.
         if (below) {
             WalletStorage.SessionRecord storage s = WalletStorage.session(v.keyHash);
@@ -99,14 +105,14 @@ contract SessionRules {
     }
 
     /// An `AUTHORIZED_MODE` batch below quorum, with no paymaster and no gas charge. `input` is
-    /// `abi.encode(Verified v, Batch b, address registry)`, the batch one the wallet found canonical, so it
+    /// `abi.encode(Verified v, Batch b, Targets targets)`, the batch one the wallet found canonical, so it
     /// decodes unchecked. Payable: the delegatecall keeps the batch's value.
     function allowedExecution(bytes calldata input) external payable returns (bool, WalletStorage.Verified memory) {
         _delegated();
-        (WalletStorage.Verified memory v, Batch memory b, address registry) =
-            abi.decode(input, (WalletStorage.Verified, Batch, address));
+        (WalletStorage.Verified memory v, Batch memory b, Targets memory targets) =
+            abi.decode(input, (WalletStorage.Verified, Batch, Targets));
         WalletStorage.SessionRecord storage s = WalletStorage.session(v.keyHash);
-        Spend memory sp = Spend(v.keyHash, s.scopeRoot, s.rulesHash, b.at, true, 0, registry);
+        Spend memory sp = Spend(v.keyHash, s.scopeRoot, s.rulesHash, b.at, true, 0, targets);
         return (_calls(v, sp, abi.decode(b.executionCalldata, (Execution[])), b.calls), v);
     }
 
@@ -145,8 +151,11 @@ contract SessionRules {
         uint256 i
     ) private returns (bool) {
         if (!sp.below) return true;
-        // A call to the wallet (or `address(0)`, the wallet) or to the registry is an admin operation.
-        if (target == address(this) || target == address(0) || target == sp.registry) return false;
+        // A call to the wallet (or `address(0)`, the wallet), its registry or its EntryPoint is an admin operation.
+        if (
+            target == address(this) || target == address(0) || target == sp.targets.registry
+                || target == sp.targets.entryPoint
+        ) return false;
         IWebWallet.CallProof memory proof = proofs[i];
         bytes4 selector = data.length < 4 ? bytes4(0) : bytes4(_word(data, 0));
         if (

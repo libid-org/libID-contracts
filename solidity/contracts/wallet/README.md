@@ -365,8 +365,8 @@ Only the governing session's `Rules` apply. The other signers' windows still
 narrow the operation's.
 
 - An operation has at least one call.
-- A call to the wallet, to `address(0)` or to the registry is refused: those
-  are admin operations.
+- A call to the wallet, to `address(0)`, to the registry or to the EntryPoint
+  is refused: those are admin operations.
 - Every call needs `calls[i]`, a proof of the leaf
   `(target, selector, calls[i].maxValue)` under `scopeRoot`, with
   `value <= maxValue`. `scopeRoot == 0` allows no call.

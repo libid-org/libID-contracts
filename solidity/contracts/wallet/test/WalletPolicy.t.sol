@@ -2,7 +2,12 @@
 pragma solidity ^0.8.24;
 
 import {Vm} from "forge-std/Test.sol";
-import {IEntryPoint, IPaymaster, PackedUserOperation} from "@openzeppelin/contracts/interfaces/IERC4337.sol";
+import {
+    IEntryPoint,
+    IEntryPointStake,
+    IPaymaster,
+    PackedUserOperation
+} from "@openzeppelin/contracts/interfaces/IERC4337.sol";
 import {Execution} from "@openzeppelin/contracts/interfaces/draft-IERC7579.sol";
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {IERC721} from "@openzeppelin/contracts/token/ERC721/IERC721.sol";
@@ -826,13 +831,15 @@ contract WalletPolicyTest is WalletSuite {
 
     // ─── Admin targets ──────────────────────────────────────────────
 
-    /// Below quorum a call to the wallet, `address(0)` or the registry is an admin operation, even with a scope
-    /// leaf for it, and a batch takes its widest call.
+    /// Below quorum a call to the wallet, `address(0)`, the registry or the EntryPoint is an admin operation, even
+    /// with a scope leaf for it, and a batch takes its widest call.
     function test_adminTargetsAreRefusedBelowQuorum() public {
         bytes memory toWallet = abi.encodeCall(IWebWallet.rootDelay, ());
-        Leaf[6] memory admin = [
+        bytes memory withdraw = abi.encodeCall(IEntryPointStake.withdrawTo, (payable(payee), 1));
+        Leaf[7] memory admin = [
             Leaf(address(0), IWebWallet.execute.selector, 0),
             Leaf(address(registry), bytes4(0), 0),
+            Leaf(EP, IEntryPointStake.withdrawTo.selector, 0),
             Leaf(w, IWebWallet.rootDelay.selector, 0),
             Leaf(address(target), CallTarget.hit.selector, 0),
             Leaf(address(target), bytes4(0), 0),
@@ -848,6 +855,7 @@ contract WalletPolicyTest is WalletSuite {
 
         _refusedFor(_single(address(0), _hitCall()), _single(address(target), _hitCall()), "address(0)");
         _refusedFor(_single(address(registry), ""), _single(address(target), ""), "the registry");
+        _refusedFor(_single(EP, withdraw), _single(address(target), ""), "the EntryPoint");
         Execution[] memory x = _twos(_e(w, 0, toWallet), _e(address(target), 0, ""));
         Execution[] memory control = _twos(_e(address(target), 0, abi.encodeCall(CallTarget.hit, ())), x[1]);
         _refusedFor(_batchOp(x), _batchOp(control), "the wallet in a batch");

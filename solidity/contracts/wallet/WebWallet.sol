@@ -209,7 +209,7 @@ contract WebWallet is Account, ERC721Holder, ERC1155Holder {
         // At quorum the rules allow any canonical batch, which this one is.
         if (below) {
             SessionRules.Batch memory b = SessionRules.Batch(calls, auth.at, auth.calls);
-            (ok, v) = _rules(abi.encodeCall(SessionRules.allowedExecution, (abi.encode(v, b, REGISTRY))));
+            (ok, v) = _rules(abi.encodeCall(SessionRules.allowedExecution, (abi.encode(v, b, _adminTargets()))));
             if (!ok) revert IWebWallet.ExecutionNotAllowed();
         }
         if (!_inWindow(v)) revert IWebWallet.ExecutionOutsideWindow();
@@ -264,7 +264,7 @@ contract WebWallet is Account, ERC721Holder, ERC1155Holder {
             calls: auth.calls,
             paymasterProof: auth.paymasterProof
         });
-        (ok, v) = _rules(abi.encodeCall(SessionRules.allowed, (abi.encode(v, op, below, REGISTRY))));
+        (ok, v) = _rules(abi.encodeCall(SessionRules.allowed, (abi.encode(v, op, below, _adminTargets()))));
         if (!ok) return ERC4337Utils.SIG_VALIDATION_FAILED;
         return (uint256(v.validAfter) << 208) | (uint256(v.validUntil) << 160);
     }
@@ -406,6 +406,10 @@ contract WebWallet is Account, ERC721Holder, ERC1155Holder {
             }
         }
         return abi.decode(returned, (bool, WalletStorage.Verified));
+    }
+
+    function _adminTargets() private view returns (SessionRules.Targets memory) {
+        return SessionRules.Targets(REGISTRY, address(entryPoint()));
     }
 
     function _locked() private view returns (bool) {
