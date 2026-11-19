@@ -3,6 +3,9 @@ pragma solidity ^0.8.24;
 
 import {UUPSUpgradeable} from "@openzeppelin/contracts/proxy/utils/UUPSUpgradeable.sol";
 
+import {CeremonyProofVerifier} from "../../ceremony/CeremonyProofVerifier.sol";
+import {IPlatformVerifier} from "../../ceremony/IPlatformVerifier.sol";
+import {StubPlatformVerifier} from "../../identity/test/StubPlatformVerifier.sol";
 import {IWalletRegistry} from "../IWalletRegistry.sol";
 import {AUTHORIZED_MODE, IWebWallet} from "../IWebWallet.sol";
 import {WalletBase} from "./WalletBase.sol";
@@ -104,6 +107,49 @@ contract WalletRegistryCheckTest is WalletBase {
         _run(w, _two(_linkX(w, GITHUB, BOB, "", _admin()), _x(w, 0, add)));
         assertTrue(IWebWallet(w).isLinked(_identity(GITHUB, BOB)), "control: link only");
         assertEq(IWebWallet(w).sessionOf(_key(BOB_PK)).identity, _identity(GITHUB, BOB), "control: addSession");
+    }
+
+    /// Transaction data that is not canonical, a proof naming no id, and a fee off the quote are refused.
+    function test_malformedProofsAreRefused() public {
+        bytes memory k = _key(ALICE2_PK);
+        bytes32 ph = _ph(_admin());
+        bytes memory good = _txData(w, k, ph);
+        bytes memory gap = abi.encodePacked(block.chainid, uint256(uint160(w)), uint256(0xa0), ph, bytes32(0));
+        bytes memory padding = bytes.concat(good);
+        padding[191] = 0x01;
+        bytes[2] memory bad = [abi.encodePacked(gap, uint256(20), k, bytes12(0)), padding];
+        for (uint256 i; i < bad.length; ++i) {
+            bytes memory payload = _payload(X, ALICE, ADD, bad[i]);
+            vm.expectPartialRevert(IWalletRegistry.BadTransactionData.selector);
+            _login(payload);
+        }
+        bytes memory head = abi.encodePacked(block.chainid, uint256(uint160(w)) | (1 << 200), uint256(0x80), ph);
+        bytes memory dirty = _payload(X, ALICE, ADD, abi.encodePacked(head, uint256(20), k, bytes12(0)));
+        vm.expectRevert();
+        _login(dirty);
+        bytes memory noId = _payload(X, bytes32(0), ADD, good);
+        vm.expectRevert(IWalletRegistry.NoId.selector);
+        _login(noId);
+
+        StubPlatformVerifier paid = new StubPlatformVerifier(X, 5);
+        vm.prank(owner);
+        proofVerifier.setVerifier(X, 2, IPlatformVerifier(address(paid)));
+        assertEq(registry.quote(X, 2), 5, "quote");
+        paid.setNodes(ALICE, keccak256("h"));
+        bytes memory fee = abi.encode(
+            StubPlatformVerifier.StubPayload({
+                ceremonyVersion: 1, operationDomain: ADD, authorizationNonce: keccak256("paid"), transactionData: good
+            })
+        );
+        vm.deal(relayer, 10);
+        for (uint256 v = 4; v <= 6; v += 2) {
+            vm.prank(relayer);
+            vm.expectRevert(abi.encodeWithSelector(CeremonyProofVerifier.WrongValue.selector, 5, v));
+            IWebWallet(w).addSessionByLogin{value: v}(X, 2, fee, "", _admin());
+        }
+        vm.prank(relayer);
+        IWebWallet(w).addSessionByLogin{value: 5}(X, 2, fee, "", _admin());
+        assertEq(address(paid).balance, 5, "the verifier was not paid");
     }
 
     /// Calling the check directly spends only a proof naming the caller, and no wallet records it.

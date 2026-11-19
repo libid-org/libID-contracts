@@ -305,6 +305,29 @@ contract WalletSessionsTest is WalletSuite {
         IWebWallet(w).executeRoot(id);
     }
 
+    /// Each delay change waits out the current delay, a zero delay the next second; the delay is at most 365 days.
+    function test_theRootDelayChangesAfterTheCurrentDelay() public {
+        address w = _claim();
+        uint32[3] memory delays = [uint32(1 days), 2 days, 0];
+        uint256 wait = 1;
+        for (uint256 i; i < delays.length; ++i) {
+            bytes32 id = _queueW(w, abi.encodeCall(IWebWallet.setRootDelay, (delays[i])));
+            assertEq(IWebWallet(w).rootReadyAt(id), _now() + wait, "not after the current delay");
+            vm.warp(_now() + wait - 1);
+            vm.expectRevert(abi.encodeWithSelector(IWebWallet.RootOperationNotReady.selector, id));
+            IWebWallet(w).executeRoot(id);
+            vm.warp(_now() + 1);
+            IWebWallet(w).executeRoot(id);
+            assertEq(IWebWallet(w).rootDelay(), delays[i], "not changed");
+            wait = delays[i] == 0 ? 1 : delays[i];
+        }
+        uint32 over = 365 days + 1;
+        bytes memory tooLong = abi.encodeWithSelector(IWebWallet.RootDelayTooLong.selector, over);
+        _rootReverts(w, abi.encodeCall(IWebWallet.setRootDelay, (over)), tooLong);
+        _rootW(w, abi.encodeCall(IWebWallet.setRootDelay, (365 days)));
+        assertEq(IWebWallet(w).rootDelay(), 365 days, "max");
+    }
+
     function test_onlyTheWalletCancelsItsRootOperation() public {
         address w = _claim();
         bytes32 id = _queueW(w, abi.encodeCall(IWebWallet.setThreshold, (1)));
