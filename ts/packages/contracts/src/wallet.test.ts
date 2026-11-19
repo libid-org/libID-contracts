@@ -22,34 +22,6 @@ import {
   walletTransactionData,
 } from './wallet.js'
 
-// WalletPolicyTest.test_hashesFollowTheSpec's vectors, which `cast` computes outside Solidity; the
-// client vector's transaction data commits this policy too.
-const POLICY: SessionPolicy = {
-  validAfter: 10,
-  validUntil: 20,
-  admin: false,
-  signers: 2,
-  rules: {
-    scopeRoot: keccak256(toHex('s')),
-    domainsRoot: keccak256(toHex('d')),
-    paymastersRoot: keccak256(toHex('p')),
-    allowances: [
-      { token: '0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE', amount: 10n ** 18n, period: 86_400 },
-    ],
-  },
-}
-
-describe('session-policy hashes', () => {
-  it('match the Solidity vectors', () => {
-    expect(rulesHashOf(POLICY.rules)).toBe(
-      '0x91a60d66d4b51055570ae803ab60eeb97f5719221a31686eb83fba2cd2169b20',
-    )
-    expect(policyHashOf(POLICY)).toBe(
-      '0xc51a04460ba256d1efcef52fde677904487eed95b705a198c65d40178196f7e8',
-    )
-  })
-})
-
 // direct-execute-vector.json, written by `cast` alone; WalletAbiTest.test_theClientVector checks it too.
 interface Vector {
   authorizedMode: Hex
@@ -82,6 +54,19 @@ interface Vector {
   linkIdentityDomain: Hex
   addSessionDomain: Hex
   removeSessionsDomain: Hex
+  policy: {
+    validAfter: number
+    validUntil: number
+    admin: boolean
+    signers: number
+    rules: {
+      scopeRoot: Hex
+      domainsRoot: Hex
+      paymastersRoot: Hex
+      allowances: { token: Address; amount: number; period: number }[]
+    }
+  }
+  rulesHash: Hex
   policyHash: Hex
   keyedTransactionData: Hex
   keylessTransactionData: Hex
@@ -96,6 +81,22 @@ const VECTOR = JSON.parse(
     'utf8',
   ),
 ) as Vector
+
+// The vector's policy, whose hashes and transaction data it carries.
+const POLICY: SessionPolicy = {
+  ...VECTOR.policy,
+  rules: {
+    ...VECTOR.policy.rules,
+    allowances: VECTOR.policy.rules.allowances.map((a) => ({ ...a, amount: BigInt(a.amount) })),
+  },
+}
+
+describe('session-policy hashes', () => {
+  it('match the vector', () => {
+    expect(rulesHashOf(POLICY.rules)).toBe(VECTOR.rulesHash)
+    expect(policyHashOf(POLICY)).toBe(VECTOR.policyHash)
+  })
+})
 
 describe('the client helpers', () => {
   it('match the vector', () => {

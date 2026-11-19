@@ -296,22 +296,30 @@ contract WalletPolicyTest is WalletSuite {
     // ─── Encodings ──────────────────────────────────────────────────
 
     /// The encodings the spec pins, against vectors computed outside Solidity; the trees verify under OpenZeppelin.
-    function test_hashesFollowTheSpec() public pure {
+    function test_hashesFollowTheSpec() public view {
+        // `fixtures/direct-execute-vector.json`, which `cast` writes: a policy with one allowance and its hashes.
+        string memory j = vm.readFile("contracts/wallet/test/fixtures/direct-execute-vector.json");
         IIdentityAdmin.Allowance[] memory a = new IIdentityAdmin.Allowance[](1);
-        a[0] = IIdentityAdmin.Allowance({token: NATIVE_TOKEN, amount: 1 ether, period: DAY});
+        a[0] = IIdentityAdmin.Allowance({
+            token: vm.parseJsonAddress(j, ".policy.rules.allowances[0].token"),
+            amount: uint128(vm.parseJsonUint(j, ".policy.rules.allowances[0].amount")),
+            period: uint48(vm.parseJsonUint(j, ".policy.rules.allowances[0].period"))
+        });
         IIdentityAdmin.Policy memory p = IIdentityAdmin.Policy({
-            validAfter: 10,
-            validUntil: 20,
-            admin: false,
-            signers: 2,
+            validAfter: uint48(vm.parseJsonUint(j, ".policy.validAfter")),
+            validUntil: uint48(vm.parseJsonUint(j, ".policy.validUntil")),
+            admin: vm.parseJsonBool(j, ".policy.admin"),
+            signers: uint8(vm.parseJsonUint(j, ".policy.signers")),
             rules: IIdentityAdmin.Rules({
-                scopeRoot: keccak256("s"), domainsRoot: keccak256("d"), paymastersRoot: keccak256("p"), allowances: a
+                scopeRoot: vm.parseJsonBytes32(j, ".policy.rules.scopeRoot"),
+                domainsRoot: vm.parseJsonBytes32(j, ".policy.rules.domainsRoot"),
+                paymastersRoot: vm.parseJsonBytes32(j, ".policy.rules.paymastersRoot"),
+                allowances: a
             })
         });
-        // cast keccak (cast abi-encode "f(bytes32,bytes32,bytes32,(address,uint128,uint48)[])" ...), then of the policy,
-        // "f(uint48,uint48,bool,uint8,bytes32)".
-        assertEq(rulesHashOf(p.rules), 0x91a60d66d4b51055570ae803ab60eeb97f5719221a31686eb83fba2cd2169b20, "rules");
-        assertEq(policyHashOf(p), 0xc51a04460ba256d1efcef52fde677904487eed95b705a198c65d40178196f7e8, "policyHashOf");
+        assertFalse(vm.keyExistsJson(j, ".policy.rules.allowances[1]"), "a second allowance");
+        assertEq(rulesHashOf(p.rules), vm.parseJsonBytes32(j, ".rulesHash"), "rules");
+        assertEq(policyHashOf(p), vm.parseJsonBytes32(j, ".policyHash"), "policyHashOf");
         assertEq(_ph(p), policyHashOf(p), "the test base's policy hash");
         // cast keccak (cast abi-encode "f(bytes32,uint48,bytes32)" (cast keccak op) 1234 (cast keccak 0x…1234))
         assertEq(

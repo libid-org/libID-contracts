@@ -26,10 +26,14 @@ USER_OP_DIGEST=$(typed "$(cast keccak "$(cast abi-encode "f(bytes32,bytes32)" "$
 AUTH=$(cast abi-encode "f(((bytes,bytes)[],uint48,(uint256,bytes32[])[],bytes32[],bytes32[]))" \
   "([($KEY,$SIG)],$AT,[($MAX_VALUE,[$CALL_PROOF])],[$DOMAIN_PROOF],[$PAYMASTER_PROOF])")
 DATA=$(cast abi-encode "f(bytes,uint256,uint48,uint256,bytes)" $CALLS $VALUE $DEADLINE $CALL_GAS "$AUTH")
-# A link or login proof's transaction data: (chainId, wallet, key, policyHash), policy hash 0 for an empty key.
+# A policy, its rules hash and its policy hash.
+VALID_AFTER=10; VALID_UNTIL=20; ADMIN=false; SIGNERS=2
+SCOPE_ROOT=$(cast keccak s); DOMAINS_ROOT=$(cast keccak d); PAYMASTERS_ROOT=$(cast keccak p)
+TOKEN=0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE; AMOUNT=1000000000000000000; PERIOD=86400
 RULES_HASH=$(cast keccak "$(cast abi-encode "f(bytes32,bytes32,bytes32,(address,uint128,uint48)[])" \
-  "$(cast keccak s)" "$(cast keccak d)" "$(cast keccak p)" "[(0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE,1000000000000000000,86400)]")")
-POLICY_HASH=$(cast keccak "$(cast abi-encode "f(uint48,uint48,bool,uint8,bytes32)" 10 20 false 2 "$RULES_HASH")")
+  "$SCOPE_ROOT" "$DOMAINS_ROOT" "$PAYMASTERS_ROOT" "[($TOKEN,$AMOUNT,$PERIOD)]")")
+POLICY_HASH=$(cast keccak "$(cast abi-encode "f(uint48,uint48,bool,uint8,bytes32)" $VALID_AFTER $VALID_UNTIL $ADMIN $SIGNERS "$RULES_HASH")")
+# A link or login proof's transaction data: (chainId, wallet, key, policyHash), policy hash 0 for an empty key.
 KEYED=$(cast abi-encode "f(uint256,address,bytes,bytes32)" $CHAIN $WALLET $KEY "$POLICY_HASH")
 KEYLESS=$(cast abi-encode "f(uint256,address,bytes,bytes32)" $CHAIN $WALLET 0x 0x0000000000000000000000000000000000000000000000000000000000000000)
 BELOW=$(cast keccak "$(cast abi-encode "f(bytes32,uint48,bytes32)" "$DIGEST" $AT "$(cast keccak $KEY)")")
@@ -67,6 +71,19 @@ cat <<JSON
   "linkIdentityDomain": "$(cast keccak libid.webwallet.link-identity)",
   "addSessionDomain": "$(cast keccak libid.webwallet.add-session)",
   "removeSessionsDomain": "$(cast keccak libid.webwallet.remove-sessions)",
+  "policy": {
+    "validAfter": $VALID_AFTER,
+    "validUntil": $VALID_UNTIL,
+    "admin": $ADMIN,
+    "signers": $SIGNERS,
+    "rules": {
+      "scopeRoot": "$SCOPE_ROOT",
+      "domainsRoot": "$DOMAINS_ROOT",
+      "paymastersRoot": "$PAYMASTERS_ROOT",
+      "allowances": [{ "token": "$TOKEN", "amount": $AMOUNT, "period": $PERIOD }]
+    }
+  },
+  "rulesHash": "$RULES_HASH",
   "policyHash": "$POLICY_HASH",
   "keyedTransactionData": "$KEYED",
   "keylessTransactionData": "$KEYLESS"

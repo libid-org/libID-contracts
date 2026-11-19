@@ -37,10 +37,6 @@ mod web_wallet {
     );
 }
 
-/// `wallet/IWebWallet.sol`: every external of a wallet, on its address.
-pub use web_wallet::IWebWallet;
-/// The ERC-4337 operation `IWebWallet.validateUserOp` takes.
-pub use web_wallet::IWebWallet::PackedUserOperation;
 /// The structs of `IIdentityAdmin`, the half of [`IWebWallet`] that
 /// `IdentityAdmin` answers.
 pub use web_wallet::IIdentityAdmin::{
@@ -51,6 +47,10 @@ pub use web_wallet::IIdentityAdmin::{
     Rules,
     Session,
 };
+/// `wallet/IWebWallet.sol`: every external of a wallet, on its address.
+pub use web_wallet::IWebWallet;
+/// The ERC-4337 operation `IWebWallet.validateUserOp` takes.
+pub use web_wallet::IWebWallet::PackedUserOperation;
 
 #[allow(
     clippy::too_many_arguments,
@@ -392,45 +392,79 @@ impl ExecuteMessage {
 mod tests {
     use std::fs;
 
-    use alloy::primitives::address;
     use serde::Deserialize;
 
     use super::*;
 
-    /// The policy of `WalletPolicyTest.test_hashesFollowTheSpec` and of the
-    /// client vector's transaction data.
-    fn vector_policy() -> Policy {
-        Policy {
-            validAfter: U48::from(10),
-            validUntil: U48::from(20),
-            admin: false,
-            signers: 2,
-            rules: Rules {
-                scopeRoot: keccak256("s"),
-                domainsRoot: keccak256("d"),
-                paymastersRoot: keccak256("p"),
-                allowances: vec![Allowance {
-                    token: address!("0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE"),
-                    amount: 10u128.pow(18),
-                    period: U48::from(86_400),
-                }],
-            },
+    /// The vector's policy, whose hashes and transaction data it carries.
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct VectorPolicy {
+        valid_after: u64,
+        valid_until: u64,
+        admin: bool,
+        signers: u8,
+        rules: VectorRules,
+    }
+
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct VectorRules {
+        scope_root: B256,
+        domains_root: B256,
+        paymasters_root: B256,
+        allowances: Vec<VectorAllowance>,
+    }
+
+    #[derive(Deserialize)]
+    struct VectorAllowance {
+        token: Address,
+        amount: u128,
+        period: u64,
+    }
+
+    impl From<VectorPolicy> for Policy {
+        fn from(p: VectorPolicy) -> Self {
+            Policy {
+                validAfter: U48::from(p.valid_after),
+                validUntil: U48::from(p.valid_until),
+                admin: p.admin,
+                signers: p.signers,
+                rules: Rules {
+                    scopeRoot: p.rules.scope_root,
+                    domainsRoot: p.rules.domains_root,
+                    paymastersRoot: p.rules.paymasters_root,
+                    allowances: p
+                        .rules
+                        .allowances
+                        .into_iter()
+                        .map(|a| Allowance {
+                            token: a.token,
+                            amount: a.amount,
+                            period: U48::from(a.period),
+                        })
+                        .collect(),
+                },
+            }
         }
     }
 
-    /// `WalletPolicyTest.test_hashesFollowTheSpec`'s vectors, which `cast`
-    /// computes outside Solidity.
+    fn vector() -> Vector {
+        let path = format!(
+            "{}/../../solidity/contracts/wallet/test/fixtures/direct-execute-vector.json",
+            env!("CARGO_MANIFEST_DIR")
+        );
+        serde_json::from_str(&fs::read_to_string(&path).expect(&path)).expect(&path)
+    }
+
+    /// The vector's rules and policy hashes, which `cast` computes outside
+    /// Solidity.
     #[test]
-    fn hashes_match_the_solidity_vectors() {
-        let policy = vector_policy();
-        assert_eq!(
-            policy.rules.rules_hash(),
-            b256!("0x91a60d66d4b51055570ae803ab60eeb97f5719221a31686eb83fba2cd2169b20")
-        );
-        assert_eq!(
-            policy.policy_hash(),
-            b256!("0xc51a04460ba256d1efcef52fde677904487eed95b705a198c65d40178196f7e8")
-        );
+    fn hashes_match_the_vector() {
+        let v = vector();
+        let policy = Policy::from(v.policy);
+        assert_eq!(policy.rules.rules_hash(), v.rules_hash);
+        assert_eq!(policy.policy_hash(), v.policy_hash);
     }
 
     /// `solidity/contracts/wallet/test/fixtures/direct-execute-vector.json`,
@@ -470,6 +504,8 @@ mod tests {
         link_identity_domain: B256,
         add_session_domain: B256,
         remove_sessions_domain: B256,
+        policy: VectorPolicy,
+        rules_hash: B256,
         policy_hash: B256,
         keyed_transaction_data: Bytes,
         keyless_transaction_data: Bytes,
@@ -477,12 +513,7 @@ mod tests {
 
     #[test]
     fn the_client_helpers_match_the_vector() {
-        let path = format!(
-            "{}/../../solidity/contracts/wallet/test/fixtures/direct-execute-vector.json",
-            env!("CARGO_MANIFEST_DIR")
-        );
-        let v: Vector =
-            serde_json::from_str(&fs::read_to_string(&path).expect(&path)).expect(&path);
+        let v = vector();
 
         assert_eq!(AUTHORIZED_MODE, v.authorized_mode);
         assert_eq!(
@@ -568,7 +599,7 @@ mod tests {
             assert_eq!(constant, keccak256(name), "{name}");
             assert_eq!(constant, expected, "{name}");
         }
-        let policy = vector_policy();
+        let policy = Policy::from(v.policy);
         assert_eq!(policy.policy_hash(), v.policy_hash);
         assert_eq!(
             transaction_data(v.chain_id, v.wallet, &v.session_key, &policy),
