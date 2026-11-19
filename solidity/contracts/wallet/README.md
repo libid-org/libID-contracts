@@ -212,10 +212,10 @@ The wallet:
 3. reads and consumes its EntryPoint nonce under key 0
    (`EntryPointMissing` when the EntryPoint has no code on the chain);
 4. reads the threshold and its EIP-712 domain separator;
-5. runs the calls. Before each it requires `gasleft() * 63 / 64` of at least
+5. requires `deadline` nonzero and not passed (`ExecutionExpired`);
+6. runs the calls. Before each it requires `gasleft() * 63 / 64` of at least
    `callGas + CALL_OVERHEAD`, else `InsufficientCallGas`. A call to
    `address(0)` is a call to the wallet;
-6. requires `deadline` nonzero and not passed (`ExecutionExpired`);
 7. checks the signatures against the sessions as the calls left them
    (`ExecutionNotSigned`), the rules below quorum (`ExecutionNotAllowed`),
    and that the block time is inside the signers' window

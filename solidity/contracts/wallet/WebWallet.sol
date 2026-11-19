@@ -186,6 +186,7 @@ contract WebWallet is Account, ERC721Holder, ERC1155Holder {
         INonceIncrement(address(ep)).incrementNonce(0);
         uint8 quorum = WalletStorage.threshold();
         bytes32 domain = _domainSeparator();
+        if (deadline == 0 || block.timestamp > deadline) revert IWebWallet.ExecutionExpired(deadline);
         for (uint256 i; i < batch.length; ++i) {
             if (gasleft() * 63 / 64 < callGas + CALL_OVERHEAD) {
                 revert IWebWallet.InsufficientCallGas(callGas, gasleft());
@@ -193,7 +194,6 @@ contract WebWallet is Account, ERC721Holder, ERC1155Holder {
             Execution calldata x = batch[i];
             _call(i, x.target, x.value, x.callData, false);
         }
-        if (deadline == 0 || block.timestamp > deadline) revert IWebWallet.ExecutionExpired(deadline);
         IWebWallet.Authorization memory auth = abi.decode(bytesAt(data, 128), (IWebWallet.Authorization));
         bytes32 digest = domain.toTypedDataHash(
             keccak256(

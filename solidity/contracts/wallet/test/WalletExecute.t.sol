@@ -468,6 +468,15 @@ contract WalletExecuteTest is WalletSuite {
         _runs(w, hit, _direct(w, _pks(ALICE_PK), hit, false));
     }
 
+    /// An expired batch fails before its calls run: a reverting call does not stand in for the expiry.
+    function test_anExpiredBatchFailsBeforeItsCalls() public {
+        address w = _claim();
+        bytes memory calls = _one(_x(w, 0, abi.encodeCall(IWebWallet.revokeSession, (_key(MALLORY_PK)))));
+        uint48 at = uint48(_now());
+        bytes32 h = _execDigest(w, AUTHORIZED_MODE, calls, at, _nonce(w), at - 1);
+        _refuses(w, calls, _alice(h, at, at - 1), IWebWallet.ExecutionExpired.selector, "expired");
+    }
+
     /// Signed for one batch, mode, deadline, gas and chain; submitted with one of them changed.
     function test_aChangedBatchIsRefused() public {
         address w = _claim();
