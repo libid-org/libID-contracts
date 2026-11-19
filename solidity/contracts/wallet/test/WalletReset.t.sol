@@ -23,6 +23,7 @@ contract Planter {
 /// forge-config: default.evm_version = "prague"
 contract WalletResetTest is WalletBase {
     uint256 internal constant KEY_PK = 0x7702;
+    uint256 internal constant SECP256K1_N = 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141;
 
     address internal a;
     address internal fwd;
@@ -198,5 +199,36 @@ contract WalletResetTest is WalletBase {
         vm.expectRevert();
         IWebWallet(a).execute(AUTHORIZED_MODE, data);
         assertEq(IWebWallet(a).sessionOf(_key(MALLORY_PK)).identity, bytes32(0), "a stranger's first session");
+    }
+
+    /// ERC-1271 takes the account's own key's 65-byte ECDSA signature, never a stranger's or a high-s one, and only
+    /// under an EIP-7702 delegation: a factory wallet's code at a key's address refuses it.
+    function test_theKeySignsWith65Bytes() public {
+        _onboard();
+        bytes32 h = keccak256("a message");
+        assertEq(IWebWallet(a).isValidSignature(h, _sig65(KEY_PK, h)), bytes4(0x1626ba7e), "the key");
+        assertEq(IWebWallet(a).isValidSignature(h, _sig65(MALLORY_PK, h)), bytes4(0xffffffff), "a stranger");
+        assertEq(IWebWallet(a).isValidSignature(h, _highS(_sig65(KEY_PK, h))), bytes4(0xffffffff), "high s");
+        assertTrue(_valid1271(a, 1, ALICE_PK, h), "the session");
+
+        address w = _claim();
+        assertEq(IWebWallet(w).isValidSignature(h, _sig65(ALICE_PK, h)), bytes4(0xffffffff), "a factory wallet");
+        address k = vm.addr(BOB_PK);
+        vm.etch(k, w.code);
+        vm.store(k, RELEASE_SLOT, vm.load(w, RELEASE_SLOT));
+        assertEq(IWebWallet(k).VERSION(), 1, "control: the etched wallet runs");
+        assertEq(IWebWallet(k).isValidSignature(h, _sig65(BOB_PK, h)), bytes4(0xffffffff), "without a delegation");
+    }
+
+    function _sig65(uint256 pk, bytes32 h) internal pure returns (bytes memory) {
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(pk, h);
+        return abi.encodePacked(r, s, v);
+    }
+
+    /// The same signature with `s` mirrored to the upper half and `v` flipped.
+    function _highS(bytes memory sig) internal pure returns (bytes memory) {
+        (bytes32 r, bytes32 s) = abi.decode(sig, (bytes32, bytes32));
+        uint8 v = uint8(sig[64]);
+        return abi.encodePacked(r, bytes32(SECP256K1_N - uint256(s)), v == 27 ? uint8(28) : uint8(27));
     }
 }

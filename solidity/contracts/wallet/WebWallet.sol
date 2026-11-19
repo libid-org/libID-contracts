@@ -256,11 +256,15 @@ contract WebWallet is Account, EIP712, ERC721Holder, ERC1155Holder {
         return false;
     }
 
-    /// ERC-7739 under `eip712Domain()`, `signature` a bare `Authorization` at `at` 0, inside the signers' window; a
-    /// malformed one answers `0xffffffff`.
+    /// An EIP-7702 account's key signs `hash` with 65-byte ECDSA. Otherwise ERC-7739 under `eip712Domain()`,
+    /// `signature` a bare `Authorization` at `at` 0, inside the signers' window; a malformed one answers `0xffffffff`.
     /// Below quorum, signers `_cosigned` signing `TypedDataSign` for an app the first one lists.
     function isValidSignature(bytes32 hash, bytes calldata signature) external view returns (bytes4) {
         if (hash == ERC7739_PROBE && signature.length == 0) return bytes4(0x77390001);
+        if (signature.length == 65 && EIP7702Utils.fetchDelegate(address(this)) != address(0)) {
+            (address signer, ECDSA.RecoverError err,) = ECDSA.tryRecoverCalldata(hash, signature);
+            if (err == ECDSA.RecoverError.NoError && signer == address(this)) return this.isValidSignature.selector;
+        }
         (bytes32 signed, bytes calldata inner, bytes32 app) = _unnest(hash, signature);
         (bool decoded, IWebWallet.Authorization memory auth) = decodeAuthorization(inner);
         if (!decoded) return bytes4(0xffffffff);
