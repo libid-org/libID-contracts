@@ -133,7 +133,8 @@ calls[3] = Execution(relayer, linkFee, "");
 
 bytes memory executionCalldata = abi.encode(calls);
 // K signs Execute(AUTHORIZED_MODE, executionCalldata, linkFee, at, 0, deadline, callGas)
-// under the domain of the release w will run, salt 0: see the signing version below.
+// under the domain of the release w will run, with salt keccak256(abi.encode(0, 0)): see the
+// signing version and salt below.
 bytes memory data = abi.encode(executionCalldata, linkFee, deadline, callGas, abi.encode(authorization));
 
 factory.createAndExecute{value: linkFee}(platformId, idNode, salt, AUTHORIZED_MODE, data);
@@ -153,6 +154,9 @@ factory.createAndExecute{value: linkFee}(platformId, idNode, salt, AUTHORIZED_MO
   version. A signature under any other version fails as
   `ExecutionNotSigned`, as it does when a release is published before the
   transaction lands: sign again.
+- The signing salt is `keccak256(abi.encode(epoch, rootEpoch))`, so
+  `keccak256(abi.encode(0, 0))` while `w` has no code. When `w` has code,
+  read the salt from `eip712Domain()`.
 - `listPayload` is one sign-in proving an Operation List
   (`libid.operations`) with a `bind-identity` entry for `w` and a
   `link-identity` entry for `linkData`. The same payload serves the link and
@@ -634,6 +638,9 @@ delegation code (`0xef0100 || walletForwarder`).
   session record (times, generation, flags, signers and the link's index)
   and its link record (generation and platform index). Below quorum it also
   reads the governing session's rules and charges its counters.
+- `validateUserOp` measured about 64k at quorum with one ECDSA signer and
+  133k for a below-quorum passkey. Set `verificationGasLimit` from a simulation
+  with the real signature, or add about 35k over a bundler's estimate for one.
 - Frame transactions (EIP-8141) wait for a frames release. It would approve
   in validation, charge allowances in execution, and name the key by its
   signature rather than by `tx.origin` at the three gates: `reset`, the
@@ -740,6 +747,11 @@ that signs from the next second.
   outside the allowances.
 - **Approvals outlive sessions.** Approvals a session made outlive its
   revocation.
+- **A root-epoch move retires every signature.** Pending co-signed
+  batches, UserOperations in flight and ERC-1271 signatures such as permits
+  all die with it. A removal by login from any one of the wallet's
+  identities moves it, so a compromised identity can void pending
+  signatures again and again, at a notary fee each time.
 - **Root delay 0.** The root delay is 0 by default, so a root operation
   matures one second after `queueRoot`, too soon for any alert. A wallet
   that holds value should raise it with `setRootDelay`.

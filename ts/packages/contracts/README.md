@@ -250,7 +250,8 @@ const [, version] = await client.readContract({
   functionName: 'release',
 })
 // The domain's salt: `reset`, revoking an admin, removing or unlinking an
-// identity, and a threshold change move it.
+// identity, and a threshold change move it. A wallet without code signs
+// with `walletSalt(zeroHash, 0)`.
 const [, , , , , salt] = await client.readContract({
   address: wallet,
   abi: webWalletAbi,

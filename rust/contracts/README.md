@@ -226,7 +226,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let account = IWebWallet::new(wallet, &provider);
     let version = account.release().call().await?.version;
     // The domain's salt: `reset`, revoking an admin, removing or unlinking an
-    // identity, and a threshold change move it.
+    // identity, and a threshold change move it. A wallet without code signs
+    // with `wallet_salt(B256::ZERO, 0)`.
     let salt = account.eip712Domain().call().await?.salt;
     let nonce = IEntryPoint::new(entry_point, &provider)
         .getNonce(wallet, DIRECT_NONCE_KEY)
