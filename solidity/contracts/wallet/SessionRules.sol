@@ -53,6 +53,8 @@ contract SessionRules {
             WalletStorage.SessionRecord storage s = WalletStorage.session(v.keyHash);
             (sp.scopeRoot, sp.rulesHash) = (s.scopeRoot, s.rulesHash);
             if (op.paymasterAndData.length != 0) {
+                // Shorter than a paymaster's address and gas limits, it names none.
+                if (op.paymasterAndData.length < 52) return (false, v);
                 address paymaster = address(bytes20(_word(op.paymasterAndData, 0)));
                 // `address(0)` stands for no paymaster.
                 if (
@@ -63,8 +65,7 @@ contract SessionRules {
                 ) return (false, v);
             } else {
                 uint256 limits = uint256(op.accountGasLimits);
-                sp.native =
-                    (uint128(limits >> 128) + uint128(limits) + op.preVerificationGas) * uint128(uint256(op.gasFees));
+                sp.native = ((limits >> 128) + uint128(limits) + op.preVerificationGas) * uint128(uint256(op.gasFees));
             }
         }
         return (_calls(v, sp, batch, executions, auth.calls), v);

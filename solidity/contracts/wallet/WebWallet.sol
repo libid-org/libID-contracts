@@ -12,6 +12,7 @@ import {
     Mode,
     ModeSelector
 } from "@openzeppelin/contracts/account/utils/draft-ERC7579Utils.sol";
+import {Errors} from "@openzeppelin/contracts/utils/Errors.sol";
 import {Strings} from "@openzeppelin/contracts/utils/Strings.sol";
 import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import {EIP712} from "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
@@ -155,6 +156,7 @@ contract WebWallet is Account, EIP712 {
         (uint256 value, uint48 deadline, uint256 callGas) = abi.decode(data[32:128], (uint256, uint48, uint256));
         if (msg.value != value) revert IWebWallet.WrongValue(value, msg.value);
         IEntryPoint ep = entryPoint();
+        if (address(ep).code.length == 0) revert IWebWallet.EntryPointMissing(address(ep));
         uint256 nonce = ep.getNonce(address(this), 0);
         INonceIncrement(address(ep)).incrementNonce(0);
         uint8 quorum = WalletStorage.threshold();
@@ -193,11 +195,13 @@ contract WebWallet is Account, EIP712 {
         }
     }
 
-    /// One call; `address(0)` is the wallet. A failure bubbles unwrapped, or under the try exec type is reported.
+    /// One call; `address(0)` is the wallet. A failure bubbles unwrapped, an empty one as `FailedCall`; under the try
+    /// exec type it is reported.
     function _call(uint256 i, address target, uint256 value, bytes calldata data, bool tryExec) private {
         (bool ok, bytes memory returned) = (target == address(0) ? address(this) : target).call{value: value}(data);
         if (ok) return;
         if (!tryExec) {
+            if (returned.length == 0) revert Errors.FailedCall();
             assembly ("memory-safe") {
                 revert(add(returned, 0x20), mload(returned))
             }

@@ -101,6 +101,8 @@ interface IWebWallet {
     error ReleaseMismatch(uint64 version);
     error Locked();
     error EntryPointBlocked();
+    /// The EntryPoint has no code on this chain.
+    error EntryPointMissing(address entryPoint);
     error ResetRefused();
     error InitializeRefused();
     error DataStepRefused();
