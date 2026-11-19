@@ -307,11 +307,11 @@ contract WalletResetTest is WalletBase {
         _onboard();
         bytes memory hit = abi.encodePacked(address(target), uint256(0), abi.encodeWithSignature("hit()"));
         vm.prank(mallory, mallory);
-        vm.expectRevert();
+        vm.expectRevert(abi.encodeWithSelector(IWebWallet.AccountUnauthorized.selector, mallory));
         IWebWallet(a).execute(MODE_SINGLE, hit);
         address w = _claim();
         vm.prank(relayer, relayer);
-        vm.expectRevert();
+        vm.expectRevert(abi.encodeWithSelector(IWebWallet.AccountUnauthorized.selector, relayer));
         IWebWallet(w).execute(MODE_SINGLE, hit);
         assertEq(target.calls(), 0, "a stranger's default mode ran");
         vm.prank(a, a);
@@ -337,7 +337,7 @@ contract WalletResetTest is WalletBase {
         x[1] = _x(a, 0, abi.encodeCall(IWebWallet.addSession, (_identity(X, MALLORY), _key(MALLORY_PK), _admin())));
         bytes memory data = _signed(a, _pks(MALLORY_PK), abi.encode(x));
         vm.prank(mallory);
-        vm.expectRevert();
+        vm.expectRevert(IWebWallet.ExecutionNotSigned.selector);
         IWebWallet(a).execute(AUTHORIZED_MODE, data);
         assertEq(IWebWallet(a).sessionOf(_key(MALLORY_PK)).identity, bytes32(0), "a stranger's first session");
     }

@@ -26,7 +26,7 @@ contract WalletGenesisTest is WalletBase {
         address w = factory.createWallet(X, ALICE, 0);
         bytes memory data = _signed(w, _pks(MALLORY_PK), _one(_linkX(w, X, MALLORY, _key(MALLORY_PK), _admin())));
         vm.prank(mallory);
-        vm.expectRevert();
+        vm.expectRevert(IWebWallet.LinkSessionRefused.selector);
         IWebWallet(w).execute(AUTHORIZED_MODE, data);
         assertEq(IWebWallet(w).sessionOf(_key(MALLORY_PK)).identity, bytes32(0), "a stranger bootstrapped");
         assertFalse(IWebWallet(w).isLinked(_identity(X, MALLORY)), "a stranger linked");

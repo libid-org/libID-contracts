@@ -275,7 +275,9 @@ contract WalletSessionsTest is WalletSuite {
             );
             IWebWallet(w).addSession(_alice(), _key(APP_PK), ps[i]);
             bytes memory payload = _loginPayload(w, X, ALICE, _key(APP_PK), ps[i]);
-            vm.expectRevert();
+            vm.expectRevert(
+                abi.encodeWithSelector(IWebWallet.PolicyOutOfRange.selector, ps[i].validAfter, ps[i].validUntil)
+            );
             IWebWallet(w).addSessionByLogin(X, V1, payload, "", ps[i]);
         }
         vm.warp(flag);

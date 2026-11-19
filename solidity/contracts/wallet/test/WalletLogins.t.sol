@@ -369,7 +369,7 @@ contract WalletLoginsTest is WalletSuite {
         for (uint256 below; below < 2; ++below) {
             bytes memory auth = _direct(w, _pks(CAROL_PK), calls, below == 1);
             vm.prank(relayer);
-            vm.expectRevert();
+            vm.expectRevert(below == 0 ? NOT_SIGNED : NOT_ALLOWED);
             IWebWallet(w).execute(AUTHORIZED_MODE, _data(calls, auth));
         }
         assertEq(_nonce(w), n, "nonce");

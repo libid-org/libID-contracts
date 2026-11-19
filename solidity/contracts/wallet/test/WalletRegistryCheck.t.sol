@@ -125,7 +125,8 @@ contract WalletRegistryCheckTest is WalletBase {
         }
         bytes memory head = abi.encodePacked(block.chainid, uint256(uint160(w)) | (1 << 200), uint256(0x80), ph);
         bytes memory dirty = _payload(X, ALICE, ADD, abi.encodePacked(head, uint256(20), k, bytes12(0)));
-        vm.expectRevert();
+        // The address word's dirty bits fail ABI decoding, which reverts with no data.
+        vm.expectRevert(bytes(""));
         _login(dirty);
         bytes memory noId = _payload(X, bytes32(0), ADD, good);
         vm.expectRevert(IWalletRegistry.NoId.selector);
@@ -176,7 +177,7 @@ contract WalletRegistryCheckTest is WalletBase {
     function test_theRegistryProxyIsOwnedLikeTheFactory() public {
         assertEq(registry.owner(), factory.owner(), "owner");
         vm.prank(owner);
-        vm.expectRevert();
+        vm.expectRevert(IWalletRegistry.RenounceDisabled.selector);
         IRenounce(address(registry)).renounceOwnership();
         address next = deployCode("WalletRegistry.sol:WalletRegistry", abi.encode(address(proofVerifier)));
         vm.prank(mallory);
