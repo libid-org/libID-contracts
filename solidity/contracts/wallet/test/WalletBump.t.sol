@@ -123,6 +123,8 @@ contract WalletBumpTest is WalletBase {
         );
         _publish(3);
         _mature(w);
+        vm.expectEmit(w);
+        emit IWebWallet.Bumped(1, 2, impl2);
         IWebWallet(w).executeRoot(id);
         (address impl, uint64 version) = IWebWallet(w).release();
         assertEq(abi.encode(impl, version), abi.encode(impl2, uint64(2)), "release");

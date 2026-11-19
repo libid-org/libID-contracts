@@ -448,6 +448,11 @@ Watch `SessionAdded` with `byProof` set, `SessionsRemovedByLogin`,
 `AppListSet` and `RootQueued` to alert the owner. Sessions cannot be listed
 from storage.
 
+An indexer follows the settings by their events: `ThresholdSet`, also
+emitted when an unlink lowers the threshold, `RootDelaySet`, and `Bumped`
+for a release change. `EpochReset` marks a `reset`: everything indexed for
+the account before it is gone.
+
 ### App lists
 
 `setAppList(identity, apps)` is the wallet's own call. Each entry is
@@ -575,8 +580,8 @@ itself, the transaction uses its current nonce, so the authorization takes
 the next one.
 
 **Indexing.** The factory emits nothing for these accounts. Find them by
-`IdentityLinked` and the session events, or by their delegation code
-(`0xef0100 || walletForwarder`).
+`IdentityLinked`, the session events and `EpochReset`, or by their
+delegation code (`0xef0100 || walletForwarder`).
 
 ## Bundlers
 

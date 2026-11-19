@@ -93,6 +93,12 @@ interface IWebWallet {
     event SessionRevoked(bytes32 indexed identity, bytes key);
     event SessionsRemovedByLogin(bytes32 indexed identity);
     event AppListSet(bytes32 indexed identity, bytes32[] apps);
+    /// `reset` moved the epoch: every earlier session, link and root operation is gone.
+    event EpochReset(bytes32 epoch);
+    /// The release slot moved from version `from` to `to`, run by `implementation`.
+    event Bumped(uint64 from, uint64 to, address implementation);
+    event ThresholdSet(uint8 threshold);
+    event RootDelaySet(uint32 delay);
     /// A call of a batch under the try exec type failed.
     event ERC7579TryExecuteFail(uint256 batchExecutionIndex, bytes returndata);
 

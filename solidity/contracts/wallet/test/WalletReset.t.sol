@@ -141,6 +141,8 @@ contract WalletResetTest is WalletBase {
 
         vm.roll(vm.getBlockNumber() + 1);
         bytes32 expected = keccak256(abi.encode(old, blockhash(vm.getBlockNumber() - 1), _now()));
+        vm.expectEmit(a);
+        emit IWebWallet.EpochReset(expected);
         _reset(_one(_hitX()));
         assertEq(IWebWallet(a).epoch(), expected, "epoch");
         assertEq(IWebWallet(a).sessionOf(_key(ALICE_PK)).identity, bytes32(0), "a planted session lives");
@@ -274,7 +276,7 @@ contract WalletResetTest is WalletBase {
     /// The key's top-level call reaches a root-only entry; its batch does not.
     function test_theKeysRootOnlyCallsAreTopLevel() public {
         _onboard();
-        _publish(2);
+        address impl2 = _publish(2);
         bytes[4] memory calls = [
             abi.encodeCall(IWebWallet.bump, (2)),
             abi.encodeCall(IWebWallet.setThreshold, (2)),
@@ -290,8 +292,14 @@ contract WalletResetTest is WalletBase {
         vm.expectRevert(IWebWallet.RootOperationRequired.selector);
         IWebWallet(a).setRootDelay(72 hours);
         vm.prank(a, a);
+        vm.expectEmit(a);
+        emit IWebWallet.RootDelaySet(72 hours);
         IWebWallet(a).setRootDelay(72 hours);
         assertEq(IWebWallet(a).rootDelay(), 72 hours, "the key's own call");
+        vm.prank(a, a);
+        vm.expectEmit(a);
+        emit IWebWallet.Bumped(1, 2, impl2);
+        IWebWallet(a).bump(2);
     }
 
     /// The default mode in direct: the key's own call on its account runs; anyone else's does not.

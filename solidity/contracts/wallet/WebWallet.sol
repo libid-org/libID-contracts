@@ -96,6 +96,7 @@ contract WebWallet is Account, ERC721Holder, ERC1155Holder {
         WalletTransient.put(WalletTransient.LOCK, true);
         WalletStorage.WalletState storage w = WalletStorage.wallet();
         w.epoch = keccak256(abi.encode(w.epoch, blockhash(block.number - 1), block.timestamp));
+        emit IWebWallet.EpochReset(w.epoch);
         (address implementation, uint64 version) = IWalletFactory(FACTORY).latest();
         WalletRelease.write(implementation, version);
         _batch(executionCalldata, false);

@@ -393,9 +393,12 @@ contract IdentityAdmin {
         if (genesis || keepLink) return;
         l.linked = false;
         if (--s.platformCounts[l.platformId].links == 0) --s.platforms;
-        // forge-lint: disable-next-line(unsafe-typecast)
-        if (s.threshold > s.platforms) s.threshold = uint8(s.platforms);
         emit IWebWallet.IdentityUnlinked(identity);
+        if (s.threshold > s.platforms) {
+            // forge-lint: disable-next-line(unsafe-typecast)
+            s.threshold = uint8(s.platforms);
+            emit IWebWallet.ThresholdSet(s.threshold);
+        }
     }
 
     /// Takes `n` admin sessions off the identity, its platform and the wallet.
@@ -419,11 +422,13 @@ contract IdentityAdmin {
         WalletStorage.EpochState storage s = WalletStorage.state();
         if (t > s.adminPlatforms) revert IWebWallet.ThresholdTooHigh(t, s.adminPlatforms);
         s.threshold = t;
+        emit IWebWallet.ThresholdSet(t);
     }
 
     function _setRootDelay(uint32 delay) private {
         if (delay > WalletStorage.MAX_ROOT_DELAY) revert IWebWallet.RootDelayTooLong(delay);
         WalletStorage.state().rootDelay = delay;
+        emit IWebWallet.RootDelaySet(delay);
     }
 
     /// Runs a matured root operation, one of those `queueRoot` admits; a bump's to its queued implementation.
@@ -452,6 +457,7 @@ contract IdentityAdmin {
             revert IWebWallet.ReleaseMismatch(version);
         }
         WalletRelease.write(next, version);
+        emit IWebWallet.Bumped(from, version, next);
         WalletTransient.put(WalletTransient.ENTRY_POINT_BLOCKED, true);
         WalletTransient.put(WalletTransient.DATA_STEP, true);
         IWebWallet(address(this)).runDataSteps(from);
