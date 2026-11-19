@@ -93,6 +93,8 @@ interface IWebWallet {
     event SessionRevoked(bytes32 indexed identity, bytes key);
     event SessionsRemovedByLogin(bytes32 indexed identity);
     event AppListSet(bytes32 indexed identity, bytes32[] apps);
+    /// A call of a batch under the try exec type failed.
+    event ERC7579TryExecuteFail(uint256 batchExecutionIndex, bytes returndata);
 
     error RootOperationRequired();
     error RootOperationNotAllowed(bytes4 selector);
@@ -144,6 +146,14 @@ interface IWebWallet {
     error ThresholdTooHigh(uint8 threshold, uint32 adminPlatforms);
     /// The genesis identity stays linked: it names the wallet's address.
     error GenesisIdentity(bytes32 identity);
+    /// The default mode from neither the EntryPoint nor an EIP-7702 account's own key.
+    error AccountUnauthorized(address sender);
+    /// A call of a batch reverted with no data.
+    error FailedCall();
+    /// `executionCalldata` is not a well-formed batch.
+    error ERC7579DecodingError();
+    /// OpenZeppelin's mode decoder declares it; a 32-byte mode never raises it.
+    error OutOfRangeAccess();
 
     // ─── Account ────────────────────────────────────────────────────
 

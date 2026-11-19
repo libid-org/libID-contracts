@@ -90,6 +90,46 @@ contract WalletAbiTest is WalletBase {
         }
     }
 
+    /// Every error and event the implementation and its targets declare is in `IWebWallet`, so its ABI decodes them.
+    function test_theInterfaceDeclaresEveryErrorAndEvent() public view {
+        bytes32[] memory api = _errorsAndEvents("IWebWallet");
+        string[3] memory parts = ["WebWallet", "IdentityAdmin", "SessionRules"];
+        for (uint256 p; p < parts.length; ++p) {
+            bytes32[] memory s = _errorsAndEvents(parts[p]);
+            for (uint256 i; i < s.length; ++i) {
+                if (s[i] != 0) {
+                    assertTrue(_has(api, s[i]), string.concat(parts[p], " raises an error or event not in IWebWallet"));
+                }
+            }
+        }
+    }
+
+    /// The hash of each `error Name(types)` and `event Name(types)` in `name`'s ABI.
+    function _errorsAndEvents(string memory name) internal view returns (bytes32[] memory s) {
+        string memory json = vm.readFile(_artifact(name));
+        string[] memory kinds = abi.decode(vm.parseJson(json, ".abi[*].type"), (string[]));
+        s = new bytes32[](kinds.length);
+        for (uint256 i; i < kinds.length; ++i) {
+            bytes32 kind = keccak256(bytes(kinds[i]));
+            if (kind != keccak256("error") && kind != keccak256("event")) continue;
+            string memory at = string.concat(".abi[", vm.toString(i), "]");
+            string memory sig = string.concat(kinds[i], " ", vm.parseJsonString(json, string.concat(at, ".name")), "(");
+            for (uint256 j; vm.keyExistsJson(json, string.concat(at, ".inputs[", vm.toString(j), "]")); ++j) {
+                string memory t = vm.parseJsonString(json, string.concat(at, ".inputs[", vm.toString(j), "].type"));
+                assertFalse(vm.indexOf(t, "tuple") == 0, "a tuple input: compare its components");
+                sig = string.concat(sig, j == 0 ? "" : ",", t);
+            }
+            s[i] = keccak256(bytes(string.concat(sig, ")")));
+        }
+    }
+
+    function _has(bytes32[] memory set, bytes32 s) internal pure returns (bool) {
+        for (uint256 i; i < set.length; ++i) {
+            if (set[i] == s) return true;
+        }
+        return false;
+    }
+
     /// Each target refuses a call at its own address.
     function test_targetsRefuseDirectCalls() public {
         address[2] memory targets = [identityAdmin, sessionRules];
