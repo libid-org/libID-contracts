@@ -67,6 +67,10 @@ ARTIFACTS=(
     "WalletFactory:WalletFactory"
     "WalletProxy:WalletProxy"
     "WalletForwarder:WalletForwarder"
+    # wallet: a release, and the two targets it delegates to
+    "WebWallet:WebWallet"
+    "IdentityAdmin:IdentityAdmin"
+    "SessionRules:SessionRules"
 )
 
 # "<File>:<Contract>" for the test stand-ins.
