@@ -414,20 +414,23 @@ contract WebWallet is Account, ERC721Holder, ERC1155Holder, IWalletCore {
     {
         if (sigs.length == 0) return v;
         WalletStorage.EpochState storage st = WalletStorage.state();
-        bytes32[] memory platforms = new bytes32[](sigs.length);
-        bytes32[] memory adminPlatforms = new bytes32[](sigs.length);
+        uint256[] memory platforms = new uint256[](sigs.length);
+        uint256[] memory adminPlatforms = new uint256[](sigs.length);
         for (uint256 i; i < sigs.length; ++i) {
             bytes32 keyHash = keccak256(sigs[i].key);
+            // One slot of the session and one of its link.
             WalletStorage.SessionRecord storage s = st.sessions[keyHash];
-            if (!WalletStorage.live(s)) return v;
+            uint32 index = s.link;
+            WalletStorage.Link storage l = st.links[index];
+            if (index == 0 || s.generation != l.generation) return v;
             if (s.byProof) v.byProof = true;
             if (i == 0) (v.keyHash, v.signers) = (keyHash, s.signers);
             if (s.activeAt > v.activeAt) v.activeAt = s.activeAt;
             WalletStorage.narrow(v, s.validAfter > s.activeAt ? s.validAfter : s.activeAt, s.validUntil);
-            bytes32 platformId = st.links[s.identity].platformId;
-            if (!_contains(platforms, v.platforms, platformId)) platforms[v.platforms++] = platformId;
-            if (s.admin && !_contains(adminPlatforms, v.adminPlatforms, platformId)) {
-                adminPlatforms[v.adminPlatforms++] = platformId;
+            uint256 platform = l.platform;
+            if (!_contains(platforms, v.platforms, platform)) platforms[v.platforms++] = platform;
+            if (s.admin && !_contains(adminPlatforms, v.adminPlatforms, platform)) {
+                adminPlatforms[v.adminPlatforms++] = platform;
             }
         }
         bytes32 signed = v.adminPlatforms < quorum ? keccak256(abi.encode(hash, at, v.keyHash)) : hash;
@@ -477,7 +480,7 @@ contract WebWallet is Account, ERC721Holder, ERC1155Holder, IWalletCore {
         return WalletTransient.get(WalletTransient.LOCK);
     }
 
-    function _contains(bytes32[] memory ids, uint256 n, bytes32 id) private pure returns (bool) {
+    function _contains(uint256[] memory ids, uint256 n, uint256 id) private pure returns (bool) {
         for (uint256 i; i < n; ++i) {
             if (ids[i] == id) return true;
         }

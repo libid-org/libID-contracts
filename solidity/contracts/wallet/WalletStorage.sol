@@ -32,27 +32,25 @@ function policyHashFrom(uint48 validAfter, uint48 validUntil, bool admin, uint8 
 library WalletStorage {
     uint32 internal constant MAX_ROOT_DELAY = 365 days;
 
-    /// A linked identity: its platform, the generation its live sessions carry, and its admin sessions.
+    /// An identity's link, at the index it keeps for the epoch: whether it is linked, the generation its live
+    /// sessions carry, its admin sessions and its platform's index, in the one slot validation reads.
     struct Link {
         bool linked;
         uint32 generation;
         uint32 adminSessions;
+        uint32 platform;
         bytes32 platformId;
     }
 
-    /// A platform's linked identities and admin sessions.
+    /// A platform's linked identities and admin sessions, and its index for the epoch.
     struct PlatformCount {
         uint32 links;
         uint32 admins;
+        uint32 index;
     }
 
-    /// A session; dead once `generation` is not its identity's.
+    /// A session; dead once `generation` is not its link's. Validation at quorum reads only the first slot.
     struct SessionRecord {
-        bytes32 identity;
-        bytes32 rulesHash;
-        bytes32 scopeRoot;
-        bytes32 domainsRoot;
-        bytes32 paymastersRoot;
         uint48 validAfter;
         uint48 validUntil;
         uint48 activeAt;
@@ -60,6 +58,12 @@ library WalletStorage {
         bool admin;
         bool byProof;
         uint8 signers;
+        uint32 link;
+        bytes32 identity;
+        bytes32 rulesHash;
+        bytes32 scopeRoot;
+        bytes32 domainsRoot;
+        bytes32 paymastersRoot;
     }
 
     /// A session's counter for one token; `listed` marks a token its rules give an allowance.
@@ -92,12 +96,15 @@ library WalletStorage {
         uint32 adminSessions;
         uint32 platforms;
         uint32 adminPlatforms;
+        uint32 linkCount;
+        uint32 platformCount;
         mapping(bytes32 keyHash => SessionRecord) sessions;
-        mapping(bytes32 identity => Link) links;
+        mapping(uint32 index => Link) links;
         mapping(bytes32 platformId => PlatformCount) platformCounts;
         mapping(bytes32 counterId => Counter) counters;
         mapping(bytes32 id => Root) roots;
         mapping(bytes32 identity => bytes32[]) appLists;
+        mapping(bytes32 identity => uint32) linkIndex;
     }
 
     /// @custom:storage-location erc7201:libid.webwallet.state
@@ -151,20 +158,34 @@ library WalletStorage {
         return t == 0 ? 1 : t;
     }
 
-    /// Links `identity` of `platformId`; a linked identity stays as it is.
+    /// `identity`'s link; index 0, never written, for an identity never linked in this epoch.
+    function linkOf(bytes32 identity) internal view returns (Link storage) {
+        EpochState storage s = state();
+        return s.links[s.linkIndex[identity]];
+    }
+
+    /// Links `identity` of `platformId`; a linked identity stays as it is. Indices start at 1 and are never
+    /// reused, so an unlinked identity's generation persists.
     function link(bytes32 platformId, bytes32 identity) internal {
         EpochState storage s = state();
-        Link storage l = s.links[identity];
+        uint32 i = s.linkIndex[identity];
+        PlatformCount storage p = s.platformCounts[platformId];
+        if (i == 0) {
+            s.linkIndex[identity] = i = ++s.linkCount;
+            if (p.index == 0) p.index = ++s.platformCount;
+            (s.links[i].platform, s.links[i].platformId) = (p.index, platformId);
+        }
+        Link storage l = s.links[i];
         if (l.linked) return;
-        (l.linked, l.platformId) = (true, platformId);
-        if (++s.platformCounts[platformId].links == 1) ++s.platforms;
+        l.linked = true;
+        if (++p.links == 1) ++s.platforms;
         emit IWebWallet.IdentityLinked(identity);
     }
 
-    /// Whether the session exists and belongs to its identity's current link.
+    /// Whether the session exists and belongs to its link's current generation.
     function live(SessionRecord storage s) internal view returns (bool) {
-        bytes32 identity = s.identity;
-        return identity != 0 && s.generation == state().links[identity].generation;
+        uint32 i = s.link;
+        return i != 0 && s.generation == state().links[i].generation;
     }
 
     /// Narrows `v`'s window to `(validAfter, validUntil]`; `validUntil == 0` is unbounded.

@@ -131,7 +131,7 @@ contract IdentityAdmin is IIdentityAdmin {
     }
 
     function isLinked(bytes32 identity) external view delegated returns (bool) {
-        return WalletStorage.state().links[identity].linked;
+        return WalletStorage.linkOf(identity).linked;
     }
 
     function appList(bytes32 identity) external view delegated returns (bytes32[] memory) {
@@ -153,7 +153,7 @@ contract IdentityAdmin is IIdentityAdmin {
     }
 
     function generationOf(bytes32 identity) external view delegated returns (uint32) {
-        return WalletStorage.state().links[identity].generation;
+        return WalletStorage.linkOf(identity).generation;
     }
 
     function linkedPlatforms() external view delegated returns (uint32) {
@@ -340,7 +340,8 @@ contract IdentityAdmin is IIdentityAdmin {
         bytes32 policyHash
     ) private {
         WalletStorage.EpochState storage s = WalletStorage.state();
-        WalletStorage.Link storage l = s.links[identity];
+        uint32 index = s.linkIndex[identity];
+        WalletStorage.Link storage l = s.links[index];
         if (!l.linked) revert IWebWallet.NotLinked(identity);
         if (key.length < 20) revert IWebWallet.InvalidKey(key);
         if ((policy.validAfter | policy.validUntil | activeAt) >= 1 << 47) {
@@ -352,18 +353,19 @@ contract IdentityAdmin is IIdentityAdmin {
         if (WalletStorage.live(r)) revert IWebWallet.SessionExists(key);
         IIdentityAdmin.Rules calldata rules = policy.rules;
         s.sessions[keyHash] = WalletStorage.SessionRecord({
-            identity: identity,
-            rulesHash: rulesHash,
-            scopeRoot: rules.scopeRoot,
-            domainsRoot: rules.domainsRoot,
-            paymastersRoot: rules.paymastersRoot,
             validAfter: policy.validAfter,
             validUntil: policy.validUntil,
             activeAt: activeAt,
             generation: l.generation,
             admin: policy.admin,
             byProof: byProof,
-            signers: policy.signers
+            signers: policy.signers,
+            link: index,
+            identity: identity,
+            rulesHash: rulesHash,
+            scopeRoot: rules.scopeRoot,
+            domainsRoot: rules.domainsRoot,
+            paymastersRoot: rules.paymastersRoot
         });
         _setAllowances(keyHash, rulesHash, rules.allowances);
         s.hadSession = true;
@@ -414,7 +416,7 @@ contract IdentityAdmin is IIdentityAdmin {
     /// genesis, which only a login names, or `keepLink`, and lowers the threshold to the platforms left.
     function _remove(bytes32 identity, bool byLogin, bool keepLink) private {
         WalletStorage.EpochState storage s = WalletStorage.state();
-        WalletStorage.Link storage l = s.links[identity];
+        WalletStorage.Link storage l = WalletStorage.linkOf(identity);
         if (!l.linked) revert IWebWallet.NotLinked(identity);
         bool genesis = s.platformId != 0 && identity == identityOf(s.platformId, s.idNode);
         if (genesis && !byLogin) revert IWebWallet.GenesisIdentity(identity);
@@ -436,7 +438,7 @@ contract IdentityAdmin is IIdentityAdmin {
     function _dropAdmins(bytes32 identity, uint32 n) private {
         if (n == 0) return;
         WalletStorage.EpochState storage s = WalletStorage.state();
-        WalletStorage.Link storage l = s.links[identity];
+        WalletStorage.Link storage l = WalletStorage.linkOf(identity);
         s.adminSessions -= n;
         l.adminSessions -= n;
         if ((s.platformCounts[l.platformId].admins -= n) == 0) --s.adminPlatforms;

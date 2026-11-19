@@ -35,7 +35,7 @@ own address.
 | Namespace | Holds |
 |---|---|
 | `libid.webwallet.release` | The release slot: `implementation \| version << 160`, one word |
-| `libid.webwallet.state` | `epoch`, then `epochs[epoch]`: the genesis, threshold, root delay, sessions, links, counters, root queue and app lists |
+| `libid.webwallet.state` | `epoch`, then `epochs[epoch]`: the genesis, threshold, root delay, sessions, links by index, counters, root queue and app lists |
 | `libid.transient.webwallet.lock` | The lock over `execute`, `reset`, `executeRoot` and the key's root-only calls (transient) |
 | `libid.transient.webwallet.entryPointBlocked` | Set by a bump for the rest of the transaction (transient) |
 | `libid.transient.webwallet.dataStep` | Set while a bump runs the data steps (transient) |
@@ -627,8 +627,17 @@ delegation code (`0xef0100 || walletForwarder`).
 ## Bundlers
 
 - Validation reads only the account's own storage, never the factory, the
-  registry, the clock or transient storage (ERC-7562). The rule checks run
-  in `SessionRules` through DELEGATECALL, so they touch the wallet's slots.
+  registry, the clock or transient storage (ERC-7562). Below quorum the rule
+  checks run in `SessionRules` through DELEGATECALL, so they touch the
+  wallet's slots.
+- At quorum, validation reads two slots per signer: the first slot of its
+  session record (times, generation, flags, signers and the link's index)
+  and its link record (generation and platform index). Below quorum it also
+  reads the governing session's rules and charges its counters.
+- Frame transactions (EIP-8141) wait for a frames release. It would approve
+  in validation, charge allowances in execution, and name the key by its
+  signature rather than by `tx.origin` at the three gates: `reset`, the
+  forwarder's `reset` route and the root-only entries.
 - `WalletFactory` cannot serve as `initCode`: ERC-7562 lets the deployment
   CREATE2 deploy only the sender, and `Create3` deploys an intermediate
   contract. Create wallets with a plain transaction. A UserOperation can be

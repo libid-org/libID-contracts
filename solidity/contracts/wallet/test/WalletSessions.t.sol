@@ -206,6 +206,48 @@ contract WalletSessionsTest is WalletSuite {
         assertEq(target.calls(), 0, "a refused call ran");
     }
 
+    /// Validation at quorum reads two slots per signer: its session's first and its link's. An EIP-8141 frame
+    /// caps validation gas, so a signer costs two cold reads.
+    function test_validationReadsTwoSlotsPerSigner() public {
+        bytes32[3] memory platforms = [X, GITHUB, GOOGLE];
+        bytes32[3] memory nodes = [ALICE, BOB, CAROL];
+        uint256[3] memory keys = [ALICE_PK, BOB_PK, CAROL_PK];
+        uint256[3] memory reads;
+        for (uint256 n = 1; n <= 3; ++n) {
+            uint256 snap = vm.snapshotState();
+            address w = _claim();
+            uint256[] memory pks = new uint256[](n);
+            pks[0] = ALICE_PK;
+            for (uint256 i = 1; i < n; ++i) {
+                _link(w, platforms[i], nodes[i], _key(keys[i]), _admin());
+                pks[i] = keys[i];
+            }
+            // forge-lint: disable-next-line(unsafe-typecast)
+            if (n > 1) _threshold(w, uint8(n));
+            vm.warp(_now() + 1);
+            PackedUserOperation memory op = _signed(_op(w, _hitCall()), pks);
+            bytes32 h = IUserOpHash(EP).getUserOpHash(op);
+            vm.record();
+            vm.prank(EP);
+            assertNotEq(IWebWallet(w).validateUserOp(op, h, 0), 1, "refused");
+            (bytes32[] memory slots,) = vm.accesses(w);
+            reads[n - 1] = _distinct(slots);
+            vm.revertToStateAndDelete(snap);
+        }
+        assertEq(reads[1], reads[0] + 2, "a second signer");
+        assertEq(reads[2], reads[1] + 2, "a third signer");
+    }
+
+    function _distinct(bytes32[] memory slots) internal pure returns (uint256 n) {
+        for (uint256 i; i < slots.length; ++i) {
+            bool seen;
+            for (uint256 j; j < i && !seen; ++j) {
+                seen = slots[j] == slots[i];
+            }
+            if (!seen) ++n;
+        }
+    }
+
     // ─── Threshold ──────────────────────────────────────────────────
 
     function test_thresholdCountsDistinctAdminPlatforms() public {
