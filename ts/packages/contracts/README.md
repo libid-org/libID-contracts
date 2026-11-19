@@ -193,8 +193,8 @@ const transactionData = encodeOperationList([
 
 The same payload then goes to `bind`, called by `holder`, which rebuilds its
 entry's data from the caller, and to the other Consumer, once each. The first
-call pays the Notary Fee; the second, in the same transaction, attaches no
-value for it, and the Proof Verifier returns the claim the first verified.
+call pays the Notary Fee; the second, in the same batch, attaches no value
+for it, and the Proof Verifier returns the claim the first verified.
 
 A refused bind reverts with the error of whichever contract on its route
 refused it: the registry, the Proof Verifier, a Platform Verifier, the Notary

@@ -642,7 +642,9 @@ A wallet trusts the parties below, with no timelock.
   the deployment (see [Deployment](#deployment)). That owner can upgrade
   `WalletRegistry` and set its Proof Verifier. An upgraded registry can
   return any `Checked`, so it can add admin sessions to any wallet that has
-  a session, on every linked identity, with no delay.
+  a session, on every linked identity, with no delay, and give a factory
+  wallet that never had one its first admin session, with what waits at its
+  address.
 - **The Proof Verifier's owner** already has that power. `WalletRegistry`
   trusts the `CeremonyProofVerifier` proxy, whose owner can `setVerifier`
   and upgrade it, and so route a platform to a verifier that accepts any
