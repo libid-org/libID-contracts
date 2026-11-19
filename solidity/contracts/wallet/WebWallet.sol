@@ -14,6 +14,7 @@ import {
     ModeSelector
 } from "@openzeppelin/contracts/account/utils/draft-ERC7579Utils.sol";
 import {Errors} from "@openzeppelin/contracts/utils/Errors.sol";
+import {Memory} from "@openzeppelin/contracts/utils/Memory.sol";
 import {Strings} from "@openzeppelin/contracts/utils/Strings.sol";
 import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import {IERC721Receiver} from "@openzeppelin/contracts/token/ERC721/IERC721Receiver.sol";
@@ -237,13 +238,16 @@ contract WebWallet is Account, ERC721Holder, ERC1155Holder, IWalletCore {
         uint8 quorum = WalletStorage.threshold();
         bytes32 domain = _domainSeparator();
         if (deadline == 0 || block.timestamp > deadline) revert IWebWallet.ExecutionExpired(deadline);
+        // Each call's data is copied before the gas check, and its memory released after the call.
         for (uint256 i; i < batch.length; ++i) {
+            Memory.Pointer free = Memory.getFreeMemoryPointer();
             Execution calldata x = batch[i];
             bytes memory callData = x.callData;
             if (gasleft() * 63 / 64 < callGas + CALL_OVERHEAD) {
                 revert IWebWallet.InsufficientCallGas(callGas, gasleft());
             }
             _call(i, x.target, x.value, callData, false);
+            Memory.unsafeSetFreeMemoryPointer(free);
         }
         IWalletCore.Authorization memory auth = abi.decode(bytesAt(data, 128), (IWalletCore.Authorization));
         bytes32 digest = domain.toTypedDataHash(
@@ -265,13 +269,15 @@ contract WebWallet is Account, ERC721Holder, ERC1155Holder, IWalletCore {
         if (!_inWindow(v)) revert IWebWallet.ExecutionOutsideWindow();
     }
 
-    /// A canonical batch, each call as `_call` runs it.
+    /// A canonical batch, each call as `_call` runs it; each call's memory is released after it.
     function _batch(bytes calldata executionCalldata, bool tryExec) private {
         (Execution[] calldata batch, bool canonical) = canonicalBatch(executionCalldata);
         if (!canonical) revert IWebWallet.NoncanonicalBatch();
         for (uint256 i; i < batch.length; ++i) {
+            Memory.Pointer free = Memory.getFreeMemoryPointer();
             Execution calldata x = batch[i];
             _call(i, x.target, x.value, x.callData, tryExec);
+            Memory.unsafeSetFreeMemoryPointer(free);
         }
     }
 

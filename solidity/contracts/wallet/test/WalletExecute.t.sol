@@ -48,6 +48,15 @@ contract GasProbe {
     }
 }
 
+/// Answers every call with 16 KiB.
+contract LargeReturn {
+    fallback() external {
+        assembly {
+            return(0, 0x4000)
+        }
+    }
+}
+
 /// Called from a batch, submits another signed batch to the wallet; a failure bubbles.
 contract Reenter {
     function go(address w, bytes calldata data) external {
@@ -327,6 +336,58 @@ contract WalletExecuteTest is WalletSuite {
         uint256 callGas = 1_000_000;
         bytes memory one = _one(_probeX(probes[0], 256 << 10));
         assertGt(_sweep(w, one, probes, callGas, callGas, callGas + 2_500_000), 0, "control");
+    }
+
+    /// Each call's memory is released after it, so the calls' copies do not add to the memory SessionRules' check
+    /// takes below quorum. Kept, 32 calls of 8 KiB cost about 2.7 times the quorum batch; released, about 2.2.
+    function test_aBatchReleasesEachCallsMemory() public {
+        address w = _claim();
+        _addSession(w, _identity(X, ALICE), _key(BOT_PK), _hitOnly());
+        vm.warp(_now() + 1);
+        Execution[] memory x = new Execution[](32);
+        for (uint256 i; i < x.length; ++i) {
+            x[i] = _x(address(target), 0, bytes.concat(abi.encodeCall(CallTarget.hit, ()), new bytes(8 << 10)));
+        }
+        bytes memory calls = abi.encode(x);
+        uint256 snap = vm.snapshotState();
+        uint256 quorum = _gasOf(w, calls, ALICE_PK, false);
+        vm.revertToState(snap);
+        uint256 below = _gasOf(w, calls, BOT_PK, true);
+        assertLt(below, quorum * 245 / 100, "the calls' memory stayed allocated");
+    }
+
+    /// The default batch releases each call's return data: 64 calls cost about twice 32.
+    function test_aBatchsGasIsLinearInItsReturnData() public {
+        address w = _claim();
+        address large = address(new LargeReturn());
+        uint256 snap = vm.snapshotState();
+        uint256 g32 = _batchGas(w, large, 32);
+        vm.revertToState(snap);
+        uint256 g64 = _batchGas(w, large, 64);
+        assertLt(g64, g32 * 22 / 10, "the calls' return data stayed allocated");
+    }
+
+    function _batchGas(address w, address to, uint256 n) internal returns (uint256 used) {
+        Execution[] memory x = new Execution[](n);
+        for (uint256 i; i < n; ++i) {
+            x[i] = _x(to, 0, "");
+        }
+        bytes memory exec = abi.encodeCall(IWalletCore.execute, (MODE_BATCH, abi.encode(x)));
+        vm.prank(EP);
+        used = gasleft();
+        (bool ok,) = w.call(exec);
+        used -= gasleft();
+        assertTrue(ok, "the batch failed");
+    }
+
+    function _gasOf(address w, bytes memory calls, uint256 pk, bool below) internal returns (uint256 used) {
+        bytes memory exec =
+            abi.encodeCall(IWalletCore.execute, (AUTHORIZED_MODE, _data(calls, _direct(w, _pks(pk), calls, below))));
+        vm.prank(relayer);
+        used = gasleft();
+        (bool ok,) = w.call(exec);
+        used -= gasleft();
+        assertTrue(ok, "the batch failed");
     }
 
     // ─── Reentry ────────────────────────────────────────────────────
