@@ -8,6 +8,9 @@ import {OidcPlatformVerifierBase} from "../ceremony/OidcPlatformVerifierBase.sol
 import {PlatformVerifierBase} from "../ceremony/PlatformVerifierBase.sol";
 import {HandleEscrow} from "../escrow/HandleEscrow.sol";
 import {IdentityRegistry} from "../identity/IdentityRegistry.sol";
+import {WalletFactory} from "../wallet/WalletFactory.sol";
+import {WalletRegistry} from "../wallet/WalletRegistry.sol";
+import {WalletStorage} from "../wallet/WalletStorage.sol";
 
 /// @notice Holds each upgradeable contract's namespaced struct as an ordinary
 ///         state variable, so the compiler's storage layout lists its fields.
@@ -26,4 +29,7 @@ contract StorageLayoutProbe {
     OidcPlatformVerifierBase.OidcStorage internal oidcPlatformVerifier;
     HandleEscrow.HandleEscrowStorage internal handleEscrow;
     IdentityRegistry.IdentityRegistryStorage internal identityRegistry;
+    WalletStorage.WalletState internal webWallet;
+    WalletFactory.WalletFactoryStorage internal walletFactory;
+    WalletRegistry.WalletRegistryStorage internal walletRegistry;
 }
