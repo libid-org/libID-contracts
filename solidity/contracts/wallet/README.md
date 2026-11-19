@@ -459,6 +459,10 @@ proof commits `keccak256` of these bytes in a `libid.webwallet.*` entry and
 the call passes them as `data`. A proof of one operation passes empty
 `data`.
 
+A list holding more than one wallet entry for the same chain runs only one
+of them: the registry spends one digest per proof, and whoever submits first
+picks the entry. Put at most one wallet entry per chain in a list.
+
 The registry checks the operation's domain, so a link proof cannot serve as
 a login. A key that calls `check` directly spends its own proof and records
 nothing.
@@ -500,7 +504,8 @@ Anything else reverts `RootOperationNotAllowed`. The id is
 `keccak256(data)`. The operation is ready at
 `now + max(rootDelay, 1)`, so it never matures in the second it was queued.
 The root delay is 0 by default and at most 365 days. `setRootDelay` is
-itself a root operation, so a change waits out the current delay.
+itself a root operation, so a change waits out the current delay. Raising
+the delay does not delay operations already queued.
 
 `executeRoot(id)` is open to anyone once the operation matured. It refuses
 while the lock is held, so it never runs inside a batch. An operation is
@@ -576,7 +581,9 @@ list, a phished login from any app adds a session at quorum. Set
 **`reset` disarms.** Delegating away and back without `reset` resumes every
 session. To drop them, call `reset`, with an empty batch if there is nothing
 to run. Revoking with the key is not enough: its `revokeSession` of the last
-admin session reverts `RootOperationRequired`.
+admin session reverts `RootOperationRequired`. A login proof issued before
+the `reset` stays usable until it expires, once the identity is linked
+again: set the app list in the `reset` batch, or wait before linking again.
 
 **Send the authorization and `reset` together.** Until `reset` writes the
 slot, the forwarder routes by whatever the slot holds, and code delegated to
@@ -586,7 +593,10 @@ it, or clear the delegation.
 
 **Send `reset` privately.** The new epoch depends on the previous block hash
 and the block time. Code that runs in the same block before `reset` can
-predict it and plant state there.
+predict it and plant state there. Private submission covers only the
+mempool: whoever orders the block can still run an earlier untrusted
+delegate, or an implementation it planted in the release slot, before
+`reset`. After an untrusted delegate, moving the assets is what holds.
 
 **Move assets after an untrusted delegate.** Code you delegated to earlier
 can have left token approvals behind. `reset` drops the wallet's state, not
@@ -597,6 +607,11 @@ the assets to a fresh address.
 correct nonce, never chain id 0. When the key sends the type-4 transaction
 itself, the transaction uses its current nonce, so the authorization takes
 the next one.
+
+**`FACTORY()` is the forwarder's.** On an EIP-7702 account `FACTORY()`
+reads the forwarder's, which a bump checks releases against. An account
+moved to another factory's forwarder without `reset` cannot bump
+(`ReleaseMismatch`).
 
 **Indexing.** The factory emits nothing for these accounts. Find them by
 `IdentityLinked`, the session events and `EpochReset`, or by their
@@ -621,11 +636,11 @@ A wallet trusts the parties below, with no timelock.
   funds already sent to its address included, and of every EIP-7702 account
   at its next `reset`. A wallet that exists moves to a new release only by
   its own `bump`, after its root delay.
-- **The registry's owner** is the factory's owner: the deployment
-  initializes both proxies with the same owner. That owner can upgrade
-  `WalletRegistry`. An upgraded registry can return any `Checked`, so it can
-  add admin sessions to any wallet that has a session, on every linked
-  identity, with no delay.
+- **The registry's owner** must be the factory's owner, a requirement on
+  the deployment (see [Deployment](#deployment)). That owner can upgrade
+  `WalletRegistry` and set its Proof Verifier. An upgraded registry can
+  return any `Checked`, so it can add admin sessions to any wallet that has
+  a session, on every linked identity, with no delay.
 - **The Proof Verifier's owner** already has that power. `WalletRegistry`
   trusts the `CeremonyProofVerifier` proxy, whose owner can `setVerifier`
   and upgrade it, and so route a platform to a verifier that accepts any
@@ -677,7 +692,10 @@ that signs from the next second.
 - **Revocation and the bundle.** A revocation does not stop a UserOperation
   validated earlier in the same bundle. Only a bump does.
 - **Same-block epoch prediction** on EIP-7702 accounts: send `reset`
-  privately.
+  privately, and move the assets after an untrusted delegate.
+- **A login proof older than `reset`** stays usable until it expires: set
+  the app list in the `reset` batch, or wait before linking again.
+- **Several wallet entries in one list** for the same chain: only one runs.
 - **A `reset` that reverts** leaves the delegation in place: send the
   authorization and `reset` in one transaction, and retry or clear the
   delegation after a revert.
