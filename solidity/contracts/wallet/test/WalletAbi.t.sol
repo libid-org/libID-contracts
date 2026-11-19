@@ -2,8 +2,13 @@
 pragma solidity ^0.8.24;
 
 import {IWalletFactory} from "../IWalletFactory.sol";
-import {IWalletRegistry} from "../IWalletRegistry.sol";
-import {IWebWallet} from "../IWebWallet.sol";
+import {
+    ADD_SESSION_DOMAIN,
+    IWalletRegistry,
+    LINK_IDENTITY_DOMAIN,
+    REMOVE_SESSIONS_DOMAIN
+} from "../IWalletRegistry.sol";
+import {AUTHORIZED_MODE, IWebWallet} from "../IWebWallet.sol";
 import {WalletBase} from "./WalletBase.sol";
 
 /// @notice Sizes, the interface against the compiled selectors, the target table, and the pinned slots.
@@ -111,8 +116,7 @@ contract WalletAbiTest is WalletBase {
         ];
         bytes32[5] memory slots = [RELEASE_SLOT, STATE_SLOT, LOCK_SLOT, EP_BLOCKED_SLOT, DATA_STEP_SLOT];
         for (uint256 i; i < ids.length; ++i) {
-            bytes32 d = keccak256(abi.encode(uint256(keccak256(bytes(ids[i]))) - 1)) & ~bytes32(uint256(0xff));
-            assertEq(d, slots[i], ids[i]);
+            assertEq(_erc7201(ids[i]), slots[i], ids[i]);
         }
         address w = _claim();
         // `{address implementation; uint64 version}` packed into one word.
@@ -126,5 +130,40 @@ contract WalletAbiTest is WalletBase {
         assertEq(IWalletFactory.latest.selector, bytes4(0x52bfe789), "factory latest");
         assertEq(IWalletFactory.release.selector, bytes4(0x41fbbc31), "factory release");
         assertEq(IWebWallet.reset.selector, bytes4(0x12a20190), "reset");
+    }
+
+    /// Acceptance 10: the mode and domains against their strings, the factory's and the registry's namespaces on
+    /// the live proxies, and the return layouts other releases decode.
+    function test_pinnedValuesAndLayouts() public {
+        bytes32 selector = bytes32(bytes4(keccak256("libid.webwallet.authorized"))) >> 48;
+        assertEq(AUTHORIZED_MODE, bytes32(uint256(0x01) << 248) | selector, "AUTHORIZED_MODE");
+        assertEq(LINK_IDENTITY_DOMAIN, keccak256("libid.webwallet.link-identity"), "link domain");
+        assertEq(ADD_SESSION_DOMAIN, keccak256("libid.webwallet.add-session"), "add domain");
+        assertEq(REMOVE_SESSIONS_DOMAIN, keccak256("libid.webwallet.remove-sessions"), "remove domain");
+
+        // `{uint64 latest; mapping(uint64 => address) releases}`; `latest()` answers two words.
+        bytes32 f = _erc7201("libid.storage.WalletFactory");
+        assertEq(vm.load(address(factory), f), bytes32(uint256(1)), "the factory's latest");
+        bytes32 at1 = keccak256(abi.encode(uint256(1), uint256(f) + 1));
+        assertEq(vm.load(address(factory), at1), bytes32(uint256(uint160(impl1))), "the factory's release 1");
+        (, bytes memory latest) = address(factory).staticcall(abi.encodeCall(IWalletFactory.latest, ()));
+        assertEq(latest, abi.encode(impl1, uint256(1)), "latest() layout");
+
+        // `check` answers `Checked` as one tuple; the digest is spent at `spentDigests[digest]`.
+        bytes memory payload = _linkPayload(mallory, X, MALLORY, _key(MALLORY_PK), _admin());
+        vm.prank(mallory);
+        (bool ok, bytes memory checked) =
+            address(registry).call(abi.encodeCall(IWalletRegistry.check, (LINK, X, V1, payload, "", _ph(_admin()))));
+        assertTrue(ok, "check");
+        bytes memory expected = abi.encodePacked(
+            uint256(0x20), _identity(X, MALLORY), uint256(0x60), uint256(0xa0), uint256(20), bytes32(_key(MALLORY_PK))
+        );
+        assertEq(checked, abi.encodePacked(expected, uint256(6), bytes32("client")), "Checked layout");
+        bytes32 spent = keccak256(abi.encode(_digestOf(payload), _erc7201("libid.storage.WalletRegistry")));
+        assertEq(vm.load(address(registry), spent), bytes32(uint256(1)), "the registry's spent digest");
+    }
+
+    function _erc7201(string memory id) internal pure returns (bytes32) {
+        return keccak256(abi.encode(uint256(keccak256(bytes(id))) - 1)) & ~bytes32(uint256(0xff));
     }
 }

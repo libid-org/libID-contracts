@@ -122,6 +122,7 @@ contract WalletBumpTest is WalletBase {
         assertEq(abi.encode(p2, n2, s2), abi.encode(p, n, s), "the genesis did not survive");
         assertEq(IWebWallet(w).epoch(), epoch, "a bump moved the epoch");
         assertEq(IWebWallet(w).sessionOf(_key(ALICE_PK)).identity, _identity(X, ALICE), "the session did not survive");
+        assertEq(IWebWallet(w).rootReadyAt(delay), 0, "a void root reads as pending");
         uint32 before = IWebWallet(w).rootDelay();
         vm.expectRevert(abi.encodeWithSelector(IWebWallet.RootOperationVoid.selector, delay));
         IWebWallet(w).executeRoot(delay);
@@ -212,5 +213,15 @@ contract WalletBumpTest is WalletBase {
             assertEq(uint256(vm.load(w, bytes32(r + 3))), 7, "lock, entryPointBlocked and dataStep not all set");
             vm.revertToStateAndDelete(snap);
         }
+    }
+
+    /// Outside a bump, `runDataSteps` refuses a stranger and the wallet's own call.
+    function test_dataStepsAreRefusedOutsideABump() public {
+        vm.expectRevert(IWebWallet.DataStepRefused.selector);
+        IWebWallet(w).runDataSteps(1);
+        bytes memory data =
+            _signed(w, _pks(ALICE_PK), _one(_x(w, 0, abi.encodeCall(IWebWallet.runDataSteps, (uint64(1))))));
+        vm.expectRevert(IWebWallet.DataStepRefused.selector);
+        IWebWallet(w).execute(AUTHORIZED_MODE, data);
     }
 }

@@ -9,7 +9,9 @@ import {AUTHORIZED_MODE, IWebWallet} from "../IWebWallet.sol";
 import {WalletBase} from "./WalletBase.sol";
 
 /// @notice The whole-ABI gate: for every `IWebWallet` selector, a stranger, a session below quorum, and a quorum
-///         batch calling a root-only or construction entry change no storage.
+///         batch calling a root-only or construction entry, relayed or in an EIP-7702 key's own transaction, change
+///         no storage.
+/// forge-config: default.evm_version = "prague"
 contract WalletGateTest is WalletBase {
     // cast keccak "libid.webwallet.remove-sessions"
     bytes32 internal constant REMOVE = 0x7cabdd831000d819c7b2ae4f79b4d6b566aa21992764e735f944b1459cb43c1b;
@@ -161,17 +163,34 @@ contract WalletGateTest is WalletBase {
         _run(w, _one(_x(w, 0, abi.encodeCall(IWebWallet.setAppList, (_identity(X, ALICE), apps)))));
         assertEq(IWebWallet(w).appList(_identity(X, ALICE)).length, 1, "control: a quorum self-call did not run");
 
-        Row[] memory r = _rows();
-        for (uint256 i; i < r.length; ++i) {
-            if (r[i].gate != Gate.Root && r[i].gate != Gate.Special) continue;
-            _batchChangesNothing(_signed(w, _pks(ALICE_PK), _one(_x(w, 0, r[i].data))), r[i].data);
-        }
+        _rootAndSpecialChangeNothing(relayer);
         // A matured root operation, refused inside a batch (A7): the lock is held.
         bytes memory inBatch = abi.encodeCall(IWebWallet.executeRoot, (matured));
         _batchChangesNothing(_signed(w, _pks(ALICE_PK), _one(_x(w, 0, inBatch))), inBatch);
         vm.prank(relayer);
         IWebWallet(w).executeRoot(matured);
         assertEq(IWebWallet(w).rootDelay(), 72 hours, "control: the matured operation did not run");
+    }
+
+    /// The same batches on an EIP-7702 account, sent by its key: the key's top-level powers stay outside the lock.
+    function test_aQuorumBatchInTheKeysTransactionCannotReachRootOrSpecialEntries() public {
+        uint256 keyPk = 0x7702;
+        address a = vm.addr(keyPk);
+        address fwd = deployCode("WalletForwarder.sol:WalletForwarder", abi.encode(address(factory)));
+        bytes memory add = abi.encodeCall(IWebWallet.addSession, (_identity(X, ALICE), _key(ALICE_PK), _admin()));
+        bytes memory onboarding = _two(_linkX(a, X, ALICE, "", _admin()), _x(a, 0, add));
+        vm.signAndAttachDelegation(fwd, keyPk);
+        vm.prank(a, a);
+        IWebWallet(a).reset(onboarding);
+        vm.warp(_now() + 1);
+        w = a;
+        bytes32[] memory apps = new bytes32[](1);
+        bytes memory set = abi.encodeCall(IWebWallet.setAppList, (_identity(X, ALICE), apps));
+        bytes memory data = _signed(a, _pks(ALICE_PK), _one(_x(a, 0, set)));
+        vm.prank(a, a);
+        IWebWallet(a).execute(AUTHORIZED_MODE, data);
+        assertEq(IWebWallet(a).appList(_identity(X, ALICE)).length, 1, "control: the key's quorum batch did not run");
+        _rootAndSpecialChangeNothing(a);
     }
 
     /// Root-only entries do run through `executeRoot`.
@@ -187,9 +206,23 @@ contract WalletGateTest is WalletBase {
         assertFalse(IWebWallet(w).isLinked(_identity(GITHUB, BOB)), "unlink");
     }
 
+    /// Alice's quorum batch calling each root-only or special row, sent by `by`, changes nothing.
+    function _rootAndSpecialChangeNothing(address by) internal {
+        Row[] memory r = _rows();
+        for (uint256 i; i < r.length; ++i) {
+            if (r[i].gate != Gate.Root && r[i].gate != Gate.Special) continue;
+            _batchChangesNothing(_signed(w, _pks(ALICE_PK), _one(_x(w, 0, r[i].data))), r[i].data, by);
+        }
+    }
+
     function _batchChangesNothing(bytes memory data, bytes memory row) internal {
+        _batchChangesNothing(data, row, relayer);
+    }
+
+    /// `by`'s own transaction.
+    function _batchChangesNothing(bytes memory data, bytes memory row, address by) internal {
         vm.startStateDiffRecording();
-        vm.prank(relayer);
+        vm.prank(by, by);
         (bool ok,) = w.call(abi.encodeCall(IWebWallet.execute, (AUTHORIZED_MODE, data)));
         ok;
         Vm.AccountAccess[] memory acc = vm.stopAndReturnStateDiff();
