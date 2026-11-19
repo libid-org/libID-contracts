@@ -11,7 +11,7 @@ import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-import { bindRoute } from './bind-route.mjs'
+import { bindRoute, walletRegistryRoute } from './bind-route.mjs'
 
 /** @typedef {import('viem').Abi} Abi */
 /** @typedef {import('viem').AbiFunction} AbiFunction */
@@ -61,6 +61,12 @@ const contracts = [
   },
   { file: 'LibidFactory.sol', name: 'LibidFactory', exportName: 'libidFactoryAbi' },
   { file: 'WTIA9.sol', name: 'WTIA9', exportName: 'wtia9Abi' },
+  // Every external of a wallet, on its address.
+  { file: 'IWebWallet.sol', name: 'IWebWallet', exportName: 'webWalletAbi' },
+  { file: 'WalletRegistry.sol', name: 'WalletRegistry', exportName: 'walletRegistryAbi' },
+  { file: 'WalletFactory.sol', name: 'WalletFactory', exportName: 'walletFactoryAbi' },
+  { file: 'WalletProxy.sol', name: 'WalletProxy', exportName: 'walletProxyAbi' },
+  { file: 'WalletForwarder.sol', name: 'WalletForwarder', exportName: 'walletForwarderAbi' },
 ]
 
 /**
@@ -78,11 +84,12 @@ function readArtifact(file, name) {
   }
 }
 
-/// The errors of every contract on the bind route, each signature once.
-function bindErrors() {
+/// The errors of every contract on `route`, each signature once.
+/// @param {readonly (readonly [string, string])[]} route
+function routeErrors(route) {
   /** @type {Map<string, AbiError>} */
   const bySignature = new Map()
-  for (const [file, name] of bindRoute) {
+  for (const [file, name] of route) {
     for (const entry of readArtifact(file, name).abi) {
       if (entry.type !== 'error') continue
       const signature = `${entry.name}(${entry.inputs.map((i) => i.type).join(',')})`
@@ -131,17 +138,22 @@ export const ${exportName} = ${body} as const satisfies Abi
     }
   }
 
-  const route = bindRoute.map(([file, name]) => `${file}/${name}.json`).join(', ')
-  writeFileSync(
-    join(abisTarget, 'bindErrors.ts'),
-    `${banner(route)}
+  for (const [moduleName, route, what] of /** @type {const} */ ([
+    ['bindErrors', bindRoute, 'a `bind`'],
+    ['walletRegistryErrors', walletRegistryRoute, 'a wallet link or login'],
+  ])) {
+    const exportName = `${moduleName}Abi`
+    writeFileSync(
+      join(abisTarget, `${moduleName}.ts`),
+      `${banner(route.map(([file, name]) => `${file}/${name}.json`).join(', '))}
 import type { Abi } from 'viem'
 
-/// Every error a \`bind\` can revert with, each signature once.
-export const bindErrorsAbi = ${JSON.stringify(bindErrors(), null, 2)} as const satisfies Abi
+/// Every error ${what} can revert with, each signature once.
+export const ${exportName} = ${JSON.stringify(routeErrors(route), null, 2)} as const satisfies Abi
 `,
-  )
-  moduleNames.push({ moduleName: 'bindErrors', exportName: 'bindErrorsAbi' })
+    )
+    moduleNames.push({ moduleName, exportName })
+  }
 
   const index = `${banner('*')}${moduleNames
     .map(({ moduleName, exportName }) => `export { ${exportName} } from './${moduleName}.js'`)

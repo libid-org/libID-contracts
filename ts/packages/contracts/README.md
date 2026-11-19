@@ -2,8 +2,10 @@
 
 Typed, viem-ready ABIs for the libid identity stack (NotaryService,
 CeremonyProofVerifier, GoogleJwtRoots, IdentityRegistry, HandleEscrow,
-ReferralSplitter, HandleResolver, LibidFactory, WTIA9), the errors a bind can
-revert with, a call builder for every state-changing function, and the identity
+ReferralSplitter, HandleResolver, LibidFactory, WTIA9, and the WebWallet's
+IWebWallet, WalletRegistry, WalletFactory, WalletProxy and WalletForwarder),
+the errors a bind or a wallet link or login can revert with, what a wallet's
+signers sign, a call builder for every state-changing function, and the identity
 helper layer: handle normalization, node derivation and resolution.
 
 `src/abis/` and `src/calls/` are generated from the forge artifacts
@@ -213,6 +215,64 @@ token's `iat`, not an attestation.
 The Honk verifiers raise errors such as `SumcheckFailed()` that their own ABI
 omits. `honkVerifierErrorsAbi` declares them under bb's names, and
 `bindErrorsAbi` includes it.
+
+`walletRegistryErrorsAbi` does the same for a wallet's `linkIdentity`,
+`addSessionByLogin` and `removeSessionsByLogin`: WalletRegistry, the same
+proof route, then the wallet's own errors (`AppNotListed`,
+`FirstSessionRefused`, …). The Proof Verifier and the wallet both declare
+`WrongValue(uint256,uint256)`, so the selector alone does not say which one
+reverted.
+
+## Executing a wallet batch directly
+
+A WebWallet's whole ABI is `webWalletAbi`: its proxy routes every call. Its
+signers can sign a batch that anyone then sends as
+`execute(AUTHORIZED_MODE, data)`, with no UserOperation. `executeDigest` is
+the hash they sign, under the domain of the release the wallet runs, and
+`authorizedData` builds `data` from the same message. The batch consumes
+EntryPoint nonce key `DIRECT_NONCE_KEY` (0):
+
+```ts
+import { parseAbi } from 'viem'
+import {
+  AUTHORIZED_MODE,
+  authorizedData,
+  calls,
+  DIRECT_NONCE_KEY,
+  executeDigest,
+  webWalletAbi,
+} from '@libid/contracts'
+
+const [, version] = await client.readContract({
+  address: wallet,
+  abi: webWalletAbi,
+  functionName: 'release',
+})
+const nonce = await client.readContract({
+  address: ENTRY_POINT, // EntryPoint v0.9
+  abi: parseAbi(['function getNonce(address, uint192) view returns (uint256)']),
+  functionName: 'getNonce',
+  args: [wallet, DIRECT_NONCE_KEY],
+})
+// executionCalldata is an ERC-7579 batch: abi.encode(Execution[]).
+// `value` is the msg.value the batch is sent with.
+const message = { executionCalldata, value, at, nonce, deadline, callGas }
+// At quorum a session key signs the digest; below quorum, belowQuorumHash of it.
+const signature = await session.sign({ hash: executeDigest(message, chainId, wallet, version) })
+const data = authorizedData(message, {
+  signatures: [{ key: session.address, signature }],
+  calls: [],
+  domainProof: [],
+  paymasterProof: [],
+})
+const call = calls.webWallet.execute(wallet, value, AUTHORIZED_MODE, data)
+```
+
+A UserOperation's signers sign `userOperationDigest(userOpHash, chainId,
+wallet, version)`, and its signature is `encodeAuthorization(authorization)`.
+An ERC-1271 signature is the same encoding at `at` 0, with no prefix, inside
+the ERC-7739 wrapper. Sort a policy's allowances with `sortAllowances` before
+`policyHashOf` and building calls.
 
 ## Normalizing a handle locally
 

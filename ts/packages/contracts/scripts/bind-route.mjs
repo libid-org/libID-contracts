@@ -2,7 +2,7 @@
 
 /**
  * Every contract a `bind` passes through, in call order, as
- * `[source unit, contract]`; a revert from any comes back out of `bind` unchanged.
+ * `[source unit, contract]`; a revert from any comes back out unchanged.
  * @type {readonly (readonly [string, string])[]}
  */
 export const bindRoute = [
@@ -15,4 +15,21 @@ export const bindRoute = [
   ['NotaryService.sol', 'NotaryService'],
   ['IHonkVerifierErrors.sol', 'IHonkVerifierErrors'],
   ['ReferralSplitter.sol', 'ReferralSplitter'],
+]
+
+/**
+ * Every contract a `WalletRegistry` link or login passes through, in call order, as
+ * `[source unit, contract]`; a revert from any comes back out unchanged.
+ * @type {readonly (readonly [string, string])[]}
+ */
+export const walletRegistryRoute = [
+  ['WalletRegistry.sol', 'WalletRegistry'],
+  ['CeremonyProofVerifier.sol', 'CeremonyProofVerifier'],
+  ['XPlatformVerifier.sol', 'XPlatformVerifier'],
+  ['GitHubPlatformVerifier.sol', 'GitHubPlatformVerifier'],
+  ['GooglePlatformVerifier.sol', 'GooglePlatformVerifier'],
+  ['TelegramPlatformVerifier.sol', 'TelegramPlatformVerifier'],
+  ['NotaryService.sol', 'NotaryService'],
+  ['IHonkVerifierErrors.sol', 'IHonkVerifierErrors'],
+  ['IWebWallet.sol', 'IWebWallet'],
 ]
