@@ -6,10 +6,13 @@ pragma solidity ^0.8.24;
 /// @dev `latest()` keeps its selector and return layout across factory upgrades: WalletForwarder reads it.
 interface IWalletFactory {
     event Published(uint64 indexed version, address indexed implementation);
+    event WalletCreated(address indexed wallet, bytes32 indexed platformId, bytes32 indexed idNode, uint256 salt);
 
     error ImplementationWithoutCode(address implementation);
     error WrongReleaseVersion(uint64 expected, uint64 reported);
     error WrongReleaseFactory(address reported);
+    /// Ownership cannot be renounced.
+    error RenounceDisabled();
 
     function initialize(address owner) external;
     function owner() external view returns (address);

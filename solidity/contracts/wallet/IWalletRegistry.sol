@@ -1,6 +1,11 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
+// The wallet operations' domains.
+bytes32 constant LINK_IDENTITY_DOMAIN = keccak256("libid.webwallet.link-identity");
+bytes32 constant ADD_SESSION_DOMAIN = keccak256("libid.webwallet.add-session");
+bytes32 constant REMOVE_SESSIONS_DOMAIN = keccak256("libid.webwallet.remove-sessions");
+
 /// @title IWalletRegistry
 /// @notice Verifies a wallet operation proof for its caller and spends its digest.
 /// @dev `check`'s selector and return layout are frozen: every WebWallet release calls it.
@@ -18,6 +23,17 @@ interface IWalletRegistry {
     error WrongChain(uint256 chainId);
     error WrongPolicy(bytes32 expected, bytes32 actual);
     error DigestSpent(bytes32 digest);
+    /// `domain` is none of the three wallet operations.
+    error UnknownOperationDomain(bytes32 domain);
+    /// `data` was given for a proof that is not an Operation List.
+    error DataWithoutList();
+    /// The claim names no identity.
+    error NoId();
+    /// The transaction data is not the canonical `abi.encode(chainId, wallet, key, policyHash)`, or an empty key
+    /// commits a policy.
+    error BadTransactionData(uint256 length);
+    /// Ownership cannot be renounced.
+    error RenounceDisabled();
 
     function initialize(address owner) external;
     function owner() external view returns (address);

@@ -158,7 +158,7 @@ abstract contract WalletBase is Test {
         bytes memory words =
             abi.encodePacked(p.rules.scopeRoot, p.rules.domainsRoot, p.rules.paymastersRoot, uint256(0x80), a.length);
         for (uint256 i; i < a.length; ++i) {
-            words = abi.encodePacked(words, uint256(uint160(a[i].token)), a[i].amount, uint256(a[i].period));
+            words = abi.encodePacked(words, uint256(uint160(a[i].token)), uint256(a[i].amount), uint256(a[i].period));
         }
         return keccak256(abi.encode(p.validAfter, p.validUntil, p.admin, p.signers, keccak256(words)));
     }
@@ -438,8 +438,10 @@ abstract contract WalletBase is Test {
         revert("no RootQueued");
     }
 
+    /// Past `readyAt = queued + max(rootDelay, 1)`.
     function _mature(address w) internal {
-        vm.warp(_now() + IWebWallet(w).rootDelay());
+        uint256 delay = IWebWallet(w).rootDelay();
+        vm.warp(_now() + (delay == 0 ? 1 : delay));
     }
 
     /// Queues `data`, waits out the delay, and has a relayer execute it.

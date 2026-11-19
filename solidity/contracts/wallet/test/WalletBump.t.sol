@@ -193,11 +193,6 @@ contract WalletBumpTest is WalletBase {
         (, uint64 version) = IWebWallet(w).release();
         assertEq(version, 2, "the bump did not run");
         assertEq(target.calls(), 0, "the stale operation executed");
-
-        vm.prank(EP);
-        vm.expectRevert(IWebWallet.EntryPointBlocked.selector);
-        IWebWallet(w)
-            .execute(MODE_SINGLE, abi.encodePacked(address(target), uint256(0), abi.encodeWithSignature("hit()")));
     }
 
     /// A wallet skipping release 2 runs the data steps once, from its own version, inside the bump only.

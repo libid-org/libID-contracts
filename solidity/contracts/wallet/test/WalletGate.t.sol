@@ -79,7 +79,7 @@ contract WalletGateTest is WalletBase {
         r[i++] = Row(abi.encodeCall(IWebWallet.runDataSteps, (1)), Gate.Special);
         r[i++] = Row(abi.encodeCall(IWebWallet.linkIdentity, (X, V1, link, "", _admin())), Gate.Self);
         r[i++] = Row(abi.encodeCall(IWebWallet.addSessionByLogin, (X, V1, login, "", _admin())), Gate.Public);
-        r[i++] = Row(abi.encodeCall(IWebWallet.removeSessionsByLogin, (X, V1, remove, "")), Gate.Public);
+        r[i++] = Row(abi.encodeCall(IWebWallet.removeSessionsByLogin, (X, V1, remove, "", _admin())), Gate.Public);
         r[i++] =
             Row(abi.encodeCall(IWebWallet.addSession, (_identity(X, MALLORY), _key(MALLORY_PK), _admin())), Gate.Self);
         r[i++] = Row(abi.encodeCall(IWebWallet.revokeSession, (_key(ALICE2_PK))), Gate.Self);
@@ -162,9 +162,14 @@ contract WalletGateTest is WalletBase {
 
     /// Root-only entries do run through `executeRoot`.
     function test_rootEntriesRunInsideExecuteRoot() public {
+        // A second admin platform, so the threshold may reach 2; the unlink is queued while Alice alone is quorum.
+        bytes memory add = abi.encodeCall(IWebWallet.addSession, (_identity(GITHUB, BOB), _key(BOB_PK), _admin()));
+        _run(w, _one(_x(w, 0, add)));
+        bytes32 unlink = _queue(w, abi.encodeCall(IWebWallet.unlink, (_identity(GITHUB, BOB))));
         _root(w, abi.encodeCall(IWebWallet.setThreshold, (2)));
         assertEq(IWebWallet(w).threshold(), 2, "setThreshold");
-        _root(w, abi.encodeCall(IWebWallet.unlink, (_identity(GITHUB, BOB))));
+        vm.prank(relayer);
+        IWebWallet(w).executeRoot(unlink);
         assertFalse(IWebWallet(w).isLinked(_identity(GITHUB, BOB)), "unlink");
     }
 

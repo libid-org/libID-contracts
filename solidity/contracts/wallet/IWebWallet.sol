@@ -6,13 +6,21 @@ import {PackedUserOperation} from "@openzeppelin/contracts/interfaces/IERC4337.s
 // The mode of a signed batch anyone may submit: batch call type, default exec type, and mode selector
 // `bytes4(keccak256("libid.webwallet.authorized"))`.
 bytes32 constant AUTHORIZED_MODE = 0x01000000000018f4a5a900000000000000000000000000000000000000000000;
+// The gas between the wallet's `callGas` check before each `AUTHORIZED_MODE` call and the call, which gets 63/64 of
+// what is left.
+uint256 constant CALL_OVERHEAD = 20_000;
+
+/// EntryPoint v0.9's `incrementNonce`, which OpenZeppelin's interface leaves out.
+interface INonceIncrement {
+    function incrementNonce(uint192 key) external;
+}
 
 /// @title IWebWallet
 /// @notice Every external of the WebWallet implementation and of the selectors it routes to its targets.
 interface IWebWallet {
     struct Allowance {
         address token;
-        uint256 amount;
+        uint128 amount;
         uint48 period;
     }
 
@@ -46,6 +54,7 @@ interface IWebWallet {
     }
 
     struct CallProof {
+        uint256 maxValue;
         bytes32[] proof;
     }
 
@@ -65,6 +74,15 @@ interface IWebWallet {
     }
 
     event RootQueued(bytes32 indexed id, uint64 version, uint48 readyAt, bytes data);
+    event RootCancelled(bytes32 indexed id);
+    event RootExecuted(bytes32 indexed id);
+    event IdentityLinked(bytes32 indexed identity);
+    event IdentityUnlinked(bytes32 indexed identity);
+    /// `byProof`: added by a login, the event to alert on.
+    event SessionAdded(bytes32 indexed identity, bytes key, bytes32 policyHash, uint48 activeAt, bool byProof);
+    event SessionRevoked(bytes32 indexed identity, bytes key);
+    event SessionsRemovedByLogin(bytes32 indexed identity);
+    event AppListSet(bytes32 indexed platformId, bytes[] apps);
 
     error RootOperationRequired();
     error RootOperationNotAllowed(bytes4 selector);
@@ -79,6 +97,8 @@ interface IWebWallet {
     error InitializeRefused();
     error DataStepRefused();
     error NotDelegated();
+    /// Only the wallet's own call.
+    error OnlySelf();
     error FirstSessionRefused();
     error LinkSessionRefused();
     error NotLinked(bytes32 identity);
@@ -86,6 +106,31 @@ interface IWebWallet {
     error ExecutionNotSigned();
     error ExecutionNotAllowed();
     error ExecutionOutsideWindow();
+    /// The batch is not `abi.encode(Execution[])` of the calls it decodes to.
+    error NoncanonicalBatch();
+    /// `msg.value` is not the signed `value`.
+    error WrongValue(uint256 value, uint256 sent);
+    /// The gas left before a call would give it less than the signed `callGas`.
+    error InsufficientCallGas(uint256 callGas, uint256 left);
+    /// The signed `deadline` is zero or has passed.
+    error ExecutionExpired(uint48 deadline);
+    /// A mode other than `AUTHORIZED_MODE` or a single or batch call with selector 0.
+    error UnsupportedMode(bytes32 mode);
+    /// A session key is a 20-byte address or `verifier || key`.
+    error InvalidKey(bytes key);
+    error SessionExists(bytes key);
+    error NoSession(bytes key);
+    /// A policy bound reaches bit 47, which EntryPoint v0.9 reads as a block-number flag.
+    error PolicyOutOfRange(uint48 validAfter, uint48 validUntil);
+    /// An admin session never expires: its `validUntil` is 0.
+    error AdminSessionExpires(uint48 validUntil);
+    /// An allowance's token does not sort after the one before it, or its period reaches bit 47.
+    error BadAllowance(address token);
+    error RootDelayTooLong(uint32 delay);
+    /// The threshold would exceed the platforms holding an admin session, while some do.
+    error ThresholdTooHigh(uint8 threshold, uint32 adminPlatforms);
+    /// The genesis identity stays linked: it names the wallet's address.
+    error GenesisIdentity(bytes32 identity);
 
     // ─── Account ────────────────────────────────────────────────────
 
@@ -142,7 +187,8 @@ interface IWebWallet {
         bytes32 platformId,
         uint16 verifierVersion,
         bytes calldata payload,
-        bytes calldata data
+        bytes calldata data,
+        Policy calldata policy
     ) external payable;
     function addSession(bytes32 identity, bytes calldata key, Policy calldata policy) external;
     function revokeSession(bytes calldata key) external;
