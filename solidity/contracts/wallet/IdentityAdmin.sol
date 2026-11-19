@@ -421,6 +421,8 @@ contract IdentityAdmin {
     function _setThreshold(uint8 t) private {
         WalletStorage.EpochState storage s = WalletStorage.state();
         if (t > s.adminPlatforms) revert IWebWallet.ThresholdTooHigh(t, s.adminPlatforms);
+        // A quorum change voids the root operations queued under the old one.
+        if (WalletStorage.threshold() != (t == 0 ? 1 : t)) ++s.rootEpoch;
         s.threshold = t;
         emit IWebWallet.ThresholdSet(t);
     }

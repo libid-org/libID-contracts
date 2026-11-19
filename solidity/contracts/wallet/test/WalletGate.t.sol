@@ -195,14 +195,20 @@ contract WalletGateTest is WalletBase {
 
     /// Root-only entries do run through `executeRoot`.
     function test_rootEntriesRunInsideExecuteRoot() public {
-        // A second admin platform, so the threshold may reach 2; the unlink is queued while Alice alone is quorum.
+        // A second admin platform, so the threshold may reach 2; then both platforms queue the unlink.
         bytes memory add = abi.encodeCall(IWebWallet.addSession, (_identity(GITHUB, BOB), _key(BOB_PK), _admin()));
         _run(w, _one(_x(w, 0, add)));
-        bytes32 unlink = _queue(w, abi.encodeCall(IWebWallet.unlink, (_identity(GITHUB, BOB))));
         _root(w, abi.encodeCall(IWebWallet.setThreshold, (2)));
         assertEq(IWebWallet(w).threshold(), 2, "setThreshold");
+        bytes memory unlink = abi.encodeCall(IWebWallet.unlink, (_identity(GITHUB, BOB)));
+        uint256[] memory both = new uint256[](2);
+        (both[0], both[1]) = (ALICE_PK, BOB_PK);
+        bytes memory data = _signed(w, both, _one(_x(w, 0, abi.encodeCall(IWebWallet.queueRoot, (unlink)))));
         vm.prank(relayer);
-        IWebWallet(w).executeRoot(unlink);
+        IWebWallet(w).execute(AUTHORIZED_MODE, data);
+        _mature(w);
+        vm.prank(relayer);
+        IWebWallet(w).executeRoot(keccak256(unlink));
         assertFalse(IWebWallet(w).isLinked(_identity(GITHUB, BOB)), "unlink");
     }
 

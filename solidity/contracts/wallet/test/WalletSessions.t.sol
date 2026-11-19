@@ -423,6 +423,17 @@ contract WalletSessionsTest is WalletSuite {
         }
     }
 
+    /// A root operation queued at threshold 1 is void once the threshold is 2.
+    function test_aThresholdChangeVoidsEarlierRootOperations() public {
+        address w = _claim();
+        _link(w, GITHUB, BOB, _key(BOB_PK), _admin());
+        bytes32 id = _queueW(w, abi.encodeCall(IWebWallet.setRootDelay, (72 hours)));
+        _threshold(w, 2);
+        assertEq(IWebWallet(w).rootReadyAt(id), 0, "a void operation reads as ready");
+        vm.expectRevert(abi.encodeWithSelector(IWebWallet.RootOperationVoid.selector, id));
+        IWebWallet(w).executeRoot(id);
+    }
+
     function test_anUnlinkVoidsEarlierRootOperations() public {
         address w = _claim();
         _link(w, GITHUB, BOB, "", _admin());

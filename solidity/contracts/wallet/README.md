@@ -487,8 +487,8 @@ itself a root operation, so a change waits out the current delay.
 while the lock is held, so it never runs inside a batch. An operation is
 void, `RootOperationVoid`, when the release moved or the root epoch moved
 since it was queued. The root epoch moves when an admin session added before
-this second is revoked, an identity is unlinked, or its sessions are
-removed by login. `rootReadyAt(id)` reads 0 for a void or unknown operation.
+this second is revoked, an identity is unlinked, its sessions are removed
+by login, or the threshold changes. `rootReadyAt(id)` reads 0 for a void or unknown operation.
 `cancelRoot(id)` is the wallet's own call.
 
 Outside `executeRoot`, `bump`, `setThreshold`, `setRootDelay` and `unlink`
