@@ -406,14 +406,15 @@ contract WalletSessionsTest is WalletSuite {
         assertEq(IWebWallet(w).rootReadyAt(id), 0, "not executed");
     }
 
-    /// The settings emit their values, an unlink's lowering of the threshold included.
+    /// The settings emit their values, an unlink's lowering of the threshold included; 0 reads as 1.
     function test_settingsEmitTheirValues() public {
         address w = _claim();
         _link(w, GITHUB, BOB, _key(BOB_PK), _admin());
-        bytes[3] memory ops = [
+        bytes[4] memory ops = [
             abi.encodeCall(IWebWallet.setRootDelay, (48 hours)),
             abi.encodeCall(IWebWallet.setThreshold, (2)),
-            abi.encodeCall(IWebWallet.unlink, (_bob()))
+            abi.encodeCall(IWebWallet.unlink, (_bob())),
+            abi.encodeCall(IWebWallet.setThreshold, (0))
         ];
         for (uint256 i; i < ops.length; ++i) {
             bytes32 id = _queueW(w, ops[i]);

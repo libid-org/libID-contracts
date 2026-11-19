@@ -97,6 +97,7 @@ interface IWebWallet {
     event EpochReset(bytes32 epoch);
     /// The release slot moved from version `from` to `to`, run by `implementation`.
     event Bumped(uint64 from, uint64 to, address implementation);
+    /// The effective threshold, as `threshold()` reads it.
     event ThresholdSet(uint8 threshold);
     event RootDelaySet(uint32 delay);
     /// A call of a batch under the try exec type failed.

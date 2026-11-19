@@ -398,7 +398,7 @@ contract IdentityAdmin {
         if (s.threshold > s.platforms) {
             // forge-lint: disable-next-line(unsafe-typecast)
             s.threshold = uint8(s.platforms);
-            emit IWebWallet.ThresholdSet(s.threshold);
+            emit IWebWallet.ThresholdSet(WalletStorage.threshold());
         }
     }
 
@@ -425,7 +425,7 @@ contract IdentityAdmin {
         // A quorum change voids the root operations queued under the old one.
         if (WalletStorage.threshold() != (t == 0 ? 1 : t)) ++s.rootEpoch;
         s.threshold = t;
-        emit IWebWallet.ThresholdSet(t);
+        emit IWebWallet.ThresholdSet(WalletStorage.threshold());
     }
 
     function _setRootDelay(uint32 delay) private {
