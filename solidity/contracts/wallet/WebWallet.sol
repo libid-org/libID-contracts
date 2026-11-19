@@ -16,7 +16,6 @@ import {
 import {Errors} from "@openzeppelin/contracts/utils/Errors.sol";
 import {Strings} from "@openzeppelin/contracts/utils/Strings.sol";
 import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
-import {EIP712} from "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
 import {IERC721Receiver} from "@openzeppelin/contracts/token/ERC721/IERC721Receiver.sol";
 import {ERC721Holder} from "@openzeppelin/contracts/token/ERC721/utils/ERC721Holder.sol";
 import {ERC1155Holder} from "@openzeppelin/contracts/token/ERC1155/utils/ERC1155Holder.sol";
@@ -37,7 +36,7 @@ import {WalletTransient} from "./WalletTransient.sol";
 /// @notice One numbered release: a factory wallet's WalletProxy, or an EIP-7702 account's WalletForwarder, routes
 ///         to it by the release slot. Identity and root-operation entries run in IdentityAdmin through DELEGATECALL;
 ///         what an operation may do runs in SessionRules. Every external is declared in `IWebWallet`.
-contract WebWallet is Account, EIP712, ERC721Holder, ERC1155Holder {
+contract WebWallet is Account, ERC721Holder, ERC1155Holder {
     using ERC7579Utils for Mode;
     using ERC7739Utils for *;
     using MessageHashUtils for bytes32;
@@ -49,6 +48,8 @@ contract WebWallet is Account, EIP712, ERC721Holder, ERC1155Holder {
     address private immutable RULES;
     bytes32 private immutable VERSION_HASH;
 
+    bytes32 private constant DOMAIN_TYPEHASH =
+        keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract,bytes32 salt)");
     bytes32 private constant NAME_HASH = keccak256("WebWallet");
     bytes32 private constant EXECUTE_TYPEHASH = keccak256(
         "Execute(bytes32 mode,bytes executionCalldata,uint256 value,uint48 at,uint256 nonce,uint48 deadline,uint256 callGas)"
@@ -57,9 +58,7 @@ contract WebWallet is Account, EIP712, ERC721Holder, ERC1155Holder {
     /// The ERC-7739 detection hash: with an empty signature, it answers `0x77390001`.
     bytes32 private constant ERC7739_PROBE = 0x7739773977397739773977397739773977397739773977397739773977397739;
 
-    constructor(address factory, address registry, uint64 version, address identityAdmin, address sessionRules)
-        EIP712("WebWallet", Strings.toString(version))
-    {
+    constructor(address factory, address registry, uint64 version, address identityAdmin, address sessionRules) {
         (VERSION, FACTORY, REGISTRY, ADMIN, RULES) = (version, factory, registry, identityAdmin, sessionRules);
         VERSION_HASH = keccak256(bytes(Strings.toString(version)));
     }
@@ -109,6 +108,23 @@ contract WebWallet is Account, EIP712, ERC721Holder, ERC1155Holder {
 
     function epoch() external view returns (bytes32) {
         return WalletStorage.wallet().epoch;
+    }
+
+    /// ERC-5267: name `WebWallet`, this release's version, the chain, this account, and the epoch as `salt`.
+    function eip712Domain()
+        external
+        view
+        returns (bytes1, string memory, string memory, uint256, address, bytes32, uint256[] memory)
+    {
+        return (
+            hex"1f",
+            "WebWallet",
+            Strings.toString(VERSION),
+            block.chainid,
+            address(this),
+            WalletStorage.wallet().epoch,
+            new uint256[](0)
+        );
     }
 
     /// Runs the data steps after `from` up to this release, only inside a bump. Release 1 has none.
@@ -168,7 +184,7 @@ contract WebWallet is Account, EIP712, ERC721Holder, ERC1155Holder {
         uint256 nonce = ep.getNonce(address(this), 0);
         INonceIncrement(address(ep)).incrementNonce(0);
         uint8 quorum = WalletStorage.threshold();
-        bytes32 domain = _domainSeparatorV4();
+        bytes32 domain = _domainSeparator();
         for (uint256 i; i < batch.length; ++i) {
             if (gasleft() * 63 / 64 < callGas + CALL_OVERHEAD) {
                 revert IWebWallet.InsufficientCallGas(callGas, gasleft());
@@ -248,7 +264,7 @@ contract WebWallet is Account, EIP712, ERC721Holder, ERC1155Holder {
         override
         returns (bytes32)
     {
-        return _hashTypedDataV4(keccak256(abi.encode(USER_OP_TYPEHASH, userOpHash)));
+        return _domainSeparator().toTypedDataHash(keccak256(abi.encode(USER_OP_TYPEHASH, userOpHash)));
     }
 
     /// Unused: `_validateUserOp` checks sessions and rules itself.
@@ -284,13 +300,23 @@ contract WebWallet is Account, EIP712, ERC721Holder, ERC1155Holder {
     function _unnest(bytes32 hash, bytes calldata signature) private view returns (bytes32, bytes calldata, bytes32) {
         (bytes calldata inner, bytes32 appSeparator, bytes32 contentsHash, string calldata descr) =
             signature.decodeTypedDataSig();
-        bytes memory domain = abi.encode(NAME_HASH, VERSION_HASH, block.chainid, address(this), bytes32(0));
+        bytes memory domain =
+            abi.encode(NAME_HASH, VERSION_HASH, block.chainid, address(this), WalletStorage.wallet().epoch);
         // Zero for an empty or malformed contents type, which binds nothing.
         bytes32 structHash = descr.typedDataSignStructHash(contentsHash, domain);
         if (structHash != 0 && hash == appSeparator.toTypedDataHash(contentsHash)) {
             return (appSeparator.toTypedDataHash(structHash), inner, appSeparator);
         }
-        return (_hashTypedDataV4(hash.personalSignStructHash()), signature, 0);
+        return (_domainSeparator().toTypedDataHash(hash.personalSignStructHash()), signature, 0);
+    }
+
+    /// The domain `eip712Domain()` reports; the epoch as `salt` retires every signature a `reset` came after.
+    function _domainSeparator() private view returns (bytes32) {
+        return keccak256(
+            abi.encode(
+                DOMAIN_TYPEHASH, NAME_HASH, VERSION_HASH, block.chainid, address(this), WalletStorage.wallet().epoch
+            )
+        );
     }
 
     /// `_verify` over `hash` at `auth.at`, whether the signers fall short of `quorum`, and whether they sign:

@@ -60,6 +60,8 @@ contract OpenRelease {
 contract WalletResetTest is WalletBase {
     uint256 internal constant KEY_PK = 0x7702;
     uint256 internal constant SECP256K1_N = 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141;
+    bytes32 internal constant MAIL = keccak256("a Mail");
+    string internal constant MAIL_TYPE = "Mail(address to)";
 
     address internal a;
     address internal fwd;
@@ -200,6 +202,73 @@ contract WalletResetTest is WalletBase {
         (address impl, uint64 version) = IWebWallet(a).release();
         assertEq(abi.encode(impl, version), abi.encode(impl1, 1), "the release moved");
         assertEq(IWebWallet(a).sessionOf(_key(ALICE_PK)).identity, _identity(X, ALICE), "the session died");
+    }
+
+    /// L1: the epoch is the domain's `salt`, so a `reset` retires every earlier Execute, UserOperation and
+    /// ERC-7739 signature, even when the key adds the same session key again.
+    function test_aResetRetiresEverySignatureBeforeIt() public {
+        _assertDomain(_claim(), 0);
+        _onboard();
+        bytes32 old = IWebWallet(a).epoch();
+        _assertDomain(a, old);
+        bytes memory batch = _signed(a, _pks(ALICE_PK), _one(_hitX()));
+        PackedUserOperation memory op = _signOp(_op(a, _hitCall()), 1, _pks(ALICE_PK));
+        (bytes32 h, bytes memory sig) = _typedDataSign(a, old);
+        assertEq(IWebWallet(a).isValidSignature(h, sig), bytes4(0x1626ba7e), "control: TypedDataSign before");
+
+        _reset(_onboarding());
+        vm.warp(_now() + 1);
+        bytes32 epoch = IWebWallet(a).epoch();
+        assertNotEq(epoch, old, "the epoch did not move");
+        _assertDomain(a, epoch);
+        vm.prank(relayer);
+        vm.expectRevert(IWebWallet.ExecutionNotSigned.selector);
+        IWebWallet(a).execute(AUTHORIZED_MODE, batch);
+        _refusedOp(op);
+        assertEq(IWebWallet(a).isValidSignature(h, sig), bytes4(0xffffffff), "an old TypedDataSign");
+
+        (h, sig) = _typedDataSign(a, epoch);
+        assertEq(IWebWallet(a).isValidSignature(h, sig), bytes4(0x1626ba7e), "control: TypedDataSign after");
+        _run(a, _one(_hitX()));
+        _handle(_ops(_signOp(_op(a, _hitCall()), 1, _pks(ALICE_PK))));
+        assertEq(target.calls(), 2, "control: the new signatures");
+    }
+
+    /// `eip712Domain()` reports the domain the wallet signs under, written from the spec at `epoch`.
+    function _assertDomain(address w, bytes32 epoch) internal view {
+        (bytes1 fields, string memory name, string memory version, uint256 chainId, address verifying, bytes32 salt,) =
+            IWebWallet(w).eip712Domain();
+        assertEq(fields, bytes1(0x1f), "fields");
+        assertEq(salt, epoch, "salt");
+        bytes32 reported = keccak256(
+            abi.encode(
+                keccak256(
+                    "EIP712Domain(string name,string version,uint256 chainId,address verifyingContract,bytes32 salt)"
+                ),
+                keccak256(bytes(name)),
+                keccak256(bytes(version)),
+                chainId,
+                verifying,
+                salt
+            )
+        );
+        assertEq(reported, _domain(w, 1, epoch), "eip712Domain() is not the signed domain");
+    }
+
+    /// Alice's ERC-7739 `TypedDataSign` of a fixed Mail, under `w`'s release 1 domain at epoch `salt`.
+    function _typedDataSign(address w, bytes32 salt) internal view returns (bytes32 h, bytes memory sig) {
+        bytes32 app = keccak256("an app's domain");
+        bytes32 typehash = keccak256(
+            abi.encodePacked(
+                "TypedDataSign(Mail contents,string name,string version,uint256 chainId,address verifyingContract,bytes32 salt)",
+                MAIL_TYPE
+            )
+        );
+        bytes32 structHash =
+            keccak256(abi.encode(typehash, MAIL, keccak256("WebWallet"), keccak256("1"), block.chainid, w, salt));
+        bytes memory auth = _auth(_pks(ALICE_PK), keccak256(abi.encodePacked(hex"1901", app, structHash)), 0, false, 0);
+        h = keccak256(abi.encodePacked(hex"1901", app, MAIL));
+        sig = abi.encodePacked(auth, app, MAIL, MAIL_TYPE, uint16(bytes(MAIL_TYPE).length));
     }
 
     /// The key's top-level call reaches a root-only entry; its batch does not.

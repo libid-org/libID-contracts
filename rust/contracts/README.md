@@ -188,7 +188,7 @@ Other entry points:
 A web wallet's signers can sign a batch that anyone then sends as
 `execute(AUTHORIZED_MODE, data)`, with no UserOperation. `ExecuteMessage` is
 the message: `digest` is what the signers sign, under the domain of the
-release the wallet runs, and `authorized_data` builds `data` from the same
+release the wallet runs and its epoch, and `authorized_data` builds `data` from the same
 message. The batch consumes EntryPoint nonce key `DIRECT_NONCE_KEY` (0):
 
 ```rust,no_run
@@ -222,6 +222,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let account = IWebWallet::new(wallet, &provider);
     let version = account.release().call().await?.version;
+    // The domain's salt: zero for a factory wallet, moved by each `reset`.
+    let epoch = account.epoch().call().await?;
     let nonce = IEntryPoint::new(entry_point, &provider)
         .getNonce(wallet, DIRECT_NONCE_KEY)
         .call()
@@ -237,7 +239,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
     // At quorum a session key signs the digest; below quorum,
     // `below_quorum_hash` of it.
-    let signature = session.sign_hash_sync(&execute.digest(chain_id, wallet, version))?;
+    let signature = session.sign_hash_sync(&execute.digest(chain_id, wallet, version, epoch))?;
     let data = execute.authorized_data(ExecuteAuthorization {
         signatures: vec![SessionSignature {
             key: session.address().to_vec().into(),

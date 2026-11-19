@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs'
-import { type Address, type Hex, keccak256, toHex } from 'viem'
+import { type Address, type Hex, keccak256, toHex, zeroHash } from 'viem'
 import { describe, expect, it } from 'vitest'
 
 import {
@@ -51,6 +51,7 @@ interface Vector {
   chainId: number
   wallet: Address
   version: number
+  epoch: Hex
   nonce: number
   executionCalldata: Hex
   value: number
@@ -66,6 +67,7 @@ interface Vector {
   authorizationHash: Hex
   dataHash: Hex
   digest: Hex
+  epochZeroDigest: Hex
   belowQuorumHash: Hex
   userOpHash: Hex
   userOpDigest: Hex
@@ -106,10 +108,13 @@ describe('the client helpers', () => {
     expect(keccak256(encodeAuthorization({ ...authorization, at: v.at }))).toBe(v.authorizationHash)
     expect(keccak256(authorizedData(message, authorization))).toBe(v.dataHash)
 
-    const digest = executeDigest(message, v.chainId, v.wallet, v.version)
+    const digest = executeDigest(message, v.chainId, v.wallet, v.version, v.epoch)
     expect(digest).toBe(v.digest)
+    expect(executeDigest(message, v.chainId, v.wallet, v.version, zeroHash)).toBe(v.epochZeroDigest)
     expect(belowQuorumHash(digest, v.at, v.sessionKey)).toBe(v.belowQuorumHash)
-    expect(userOperationDigest(v.userOpHash, v.chainId, v.wallet, v.version)).toBe(v.userOpDigest)
+    expect(userOperationDigest(v.userOpHash, v.chainId, v.wallet, v.version, v.epoch)).toBe(
+      v.userOpDigest,
+    )
   })
 })
 

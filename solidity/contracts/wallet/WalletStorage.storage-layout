@@ -1,8 +1,7 @@
 # WalletStorage storage layout. Checked in CI by scripts/check-storage-layout.py.
 # Fields may only be APPENDED. Record an append with --update; see the script.
+# Reset for a redeploy, not an upgrade: WebWallet drops OpenZeppelin's EIP712 and its unused name/version fallback slots 0 and 1; no wallet is deployed yet
 root erc7201:libid.webwallet.state 0x2fefcc1cd2f12f011dc78ce30301455eb7a4a027395fa8fbcaed6284d99cf200
-contract WebWallet slot=0 offset=0 _nameFallback: string
-contract WebWallet slot=1 offset=0 _versionFallback: string
 field slot=0 offset=0 epoch: bytes32
 field slot=1 offset=0 epochs: mapping(bytes32 => struct WalletStorage.EpochState)
 struct WalletStorage.EpochState slot=0 offset=0 platformId: bytes32

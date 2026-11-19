@@ -953,7 +953,7 @@ contract WalletPolicyTest is WalletSuite {
         bytes32[3] memory apps = [keccak256("app A"), keccak256("app B"), keccak256("app C")];
         bytes32[] memory listed = new bytes32[](4);
         (listed[0], listed[1], listed[2], listed[3]) =
-        (_domainLeaf(apps[0]), _domainLeaf(apps[1]), _domainLeaf(0), _domainLeaf(_domain(w, 1)));
+        (_domainLeaf(apps[0]), _domainLeaf(apps[1]), _domainLeaf(0), _domainLeaf(_domain(w, 1, _epoch(w))));
         (bytes32 domains, bytes32[] memory proofA) = _tree(listed, 0);
         (, bytes32[] memory proofB) = _tree(listed, 1);
         _addApp(APP_PK, _rules(0, 0, DAY, domains));

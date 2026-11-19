@@ -230,14 +230,21 @@ pub const AUTHORIZED_MODE: B256 =
 pub const DIRECT_NONCE_KEY: U192 = U192::ZERO;
 
 /// The wallet's EIP-712 domain: name `WebWallet`, the release's version as a
-/// decimal string, `chain_id`, and the wallet's address. A bump to another
-/// release changes it.
-pub fn wallet_domain(chain_id: u64, wallet: Address, version: u64) -> Eip712Domain {
+/// decimal string, `chain_id`, the wallet's address, and its `epoch()` as
+/// `salt`, zero for a factory wallet. A bump to another release, or a
+/// `reset`, changes it.
+pub fn wallet_domain(
+    chain_id: u64,
+    wallet: Address,
+    version: u64,
+    epoch: B256,
+) -> Eip712Domain {
     eip712_domain! {
         name: "WebWallet",
         version: version.to_string(),
         chain_id: chain_id,
         verifying_contract: wallet,
+        salt: epoch,
     }
 }
 
@@ -248,11 +255,12 @@ pub fn user_operation_digest(
     chain_id: u64,
     wallet: Address,
     version: u64,
+    epoch: B256,
 ) -> B256 {
     signed::UserOperation {
         userOpHash: user_op_hash,
     }
-    .eip712_signing_hash(&wallet_domain(chain_id, wallet, version))
+    .eip712_signing_hash(&wallet_domain(chain_id, wallet, version, epoch))
 }
 
 /// What the signers of `execute(AUTHORIZED_MODE, data)` sign, besides
@@ -291,7 +299,13 @@ pub struct ExecuteAuthorization {
 impl ExecuteMessage {
     /// The EIP-712 hash the signers sign, under [`wallet_domain`]. Below
     /// quorum each signer signs [`below_quorum_hash`] of it.
-    pub fn digest(&self, chain_id: u64, wallet: Address, version: u64) -> B256 {
+    pub fn digest(
+        &self,
+        chain_id: u64,
+        wallet: Address,
+        version: u64,
+        epoch: B256,
+    ) -> B256 {
         Execute {
             mode: AUTHORIZED_MODE,
             executionCalldata: self.execution_calldata.clone(),
@@ -301,7 +315,7 @@ impl ExecuteMessage {
             deadline: self.deadline,
             callGas: self.call_gas,
         }
-        .eip712_signing_hash(&wallet_domain(chain_id, wallet, version))
+        .eip712_signing_hash(&wallet_domain(chain_id, wallet, version, epoch))
     }
 
     /// `data` of `execute(AUTHORIZED_MODE, data)` for this message:
@@ -378,6 +392,7 @@ mod tests {
         chain_id: u64,
         wallet: Address,
         version: u64,
+        epoch: B256,
         nonce: u64,
         execution_calldata: Bytes,
         value: u64,
@@ -393,6 +408,7 @@ mod tests {
         authorization_hash: B256,
         data_hash: B256,
         digest: B256,
+        epoch_zero_digest: B256,
         below_quorum_hash: B256,
         user_op_hash: B256,
         user_op_digest: B256,
@@ -449,14 +465,24 @@ mod tests {
         });
         assert_eq!(keccak256(&encoded), v.authorization_hash);
 
-        let digest = execute.digest(v.chain_id, v.wallet, v.version);
+        let digest = execute.digest(v.chain_id, v.wallet, v.version, v.epoch);
         assert_eq!(digest, v.digest);
+        assert_eq!(
+            execute.digest(v.chain_id, v.wallet, v.version, B256::ZERO),
+            v.epoch_zero_digest
+        );
         assert_eq!(
             below_quorum_hash(digest, execute.at, &v.session_key),
             v.below_quorum_hash
         );
         assert_eq!(
-            user_operation_digest(v.user_op_hash, v.chain_id, v.wallet, v.version),
+            user_operation_digest(
+                v.user_op_hash,
+                v.chain_id,
+                v.wallet,
+                v.version,
+                v.epoch
+            ),
             v.user_op_digest
         );
     }

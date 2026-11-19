@@ -269,21 +269,33 @@ abstract contract WalletBase is Test {
         return IEntryPoint(EP).getNonce(w, 0);
     }
 
-    /// `w`'s EIP-712 domain separator under release `version`, written from the spec.
-    function _domain(address w, uint64 version) internal view returns (bytes32) {
+    /// `w`'s EIP-712 domain separator under release `version` and epoch `salt`, written from the spec.
+    function _domain(address w, uint64 version, bytes32 salt) internal view returns (bytes32) {
         return keccak256(
             abi.encode(
-                keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)"),
+                keccak256(
+                    "EIP712Domain(string name,string version,uint256 chainId,address verifyingContract,bytes32 salt)"
+                ),
                 keccak256("WebWallet"),
                 keccak256(bytes(vm.toString(uint256(version)))),
                 vm.getChainId(),
-                w
+                w,
+                salt
             )
         );
     }
 
+    /// `w`'s epoch, read from its storage: zero before it has code.
+    function _epoch(address w) internal view returns (bytes32) {
+        return vm.load(w, STATE_SLOT);
+    }
+
     function _typed(address w, uint64 version, bytes32 structHash) internal view returns (bytes32) {
-        return keccak256(abi.encodePacked(hex"1901", _domain(w, version), structHash));
+        return _typed(w, version, _epoch(w), structHash);
+    }
+
+    function _typed(address w, uint64 version, bytes32 salt, bytes32 structHash) internal view returns (bytes32) {
+        return keccak256(abi.encodePacked(hex"1901", _domain(w, version, salt), structHash));
     }
 
     /// `pks` sign `h` at `at`; below quorum, each signs `h` bound to `at` and the first key, with `calls`.

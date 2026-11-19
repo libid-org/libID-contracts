@@ -108,10 +108,22 @@ export const AUTHORIZED_MODE: Hex =
 export const DIRECT_NONCE_KEY = 0n
 
 /// The wallet's EIP-712 domain: name `WebWallet`, the release's version as a
-/// decimal string, `chainId`, and the wallet's address. A bump to another
-/// release changes it.
-export function walletDomain(chainId: number | bigint, wallet: Address, version: number | bigint) {
-  return { name: 'WebWallet', version: version.toString(), chainId, verifyingContract: wallet }
+/// decimal string, `chainId`, the wallet's address, and its `epoch()` as
+/// `salt`, zero for a factory wallet. A bump to another release, or a
+/// `reset`, changes it.
+export function walletDomain(
+  chainId: number | bigint,
+  wallet: Address,
+  version: number | bigint,
+  salt: Hex,
+) {
+  return {
+    name: 'WebWallet',
+    version: version.toString(),
+    chainId,
+    verifyingContract: wallet,
+    salt,
+  }
 }
 
 /// What the signers of `userOpHash` sign: `UserOperation(bytes32 userOpHash)`
@@ -121,9 +133,10 @@ export function userOperationDigest(
   chainId: number | bigint,
   wallet: Address,
   version: number | bigint,
+  epoch: Hex,
 ): Hex {
   return hashTypedData({
-    domain: walletDomain(chainId, wallet, version),
+    domain: walletDomain(chainId, wallet, version, epoch),
     types: { UserOperation: [{ name: 'userOpHash', type: 'bytes32' }] },
     primaryType: 'UserOperation',
     message: { userOpHash },
@@ -162,9 +175,10 @@ export function executeDigest(
   chainId: number | bigint,
   wallet: Address,
   version: number | bigint,
+  epoch: Hex,
 ): Hex {
   return hashTypedData({
-    domain: walletDomain(chainId, wallet, version),
+    domain: walletDomain(chainId, wallet, version, epoch),
     types: EXECUTE_TYPES,
     primaryType: 'Execute',
     message: { ...execute, mode: AUTHORIZED_MODE },

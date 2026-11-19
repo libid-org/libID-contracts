@@ -173,6 +173,7 @@ contract WalletAbiTest is WalletBase {
         vm.chainId(vm.parseJsonUint(j, ".chainId"));
         address w = vm.parseJsonAddress(j, ".wallet");
         uint64 version = uint64(vm.parseJsonUint(j, ".version"));
+        bytes32 epoch = vm.parseJsonBytes32(j, ".epoch");
         uint48 at = uint48(vm.parseJsonUint(j, ".at"));
 
         IWebWallet.SessionSignature[] memory s = new IWebWallet.SessionSignature[](1);
@@ -193,23 +194,21 @@ contract WalletAbiTest is WalletBase {
         bytes memory data = abi.encode(calls, value, deadline, callGas, auth);
         assertEq(keccak256(data), vm.parseJsonBytes32(j, ".dataHash"), "AUTHORIZED data");
         // Nonce key 0: the full nonce is the sequence.
-        bytes32 digest = _typed(
-            w,
-            version,
-            keccak256(
-                abi.encode(
-                    EXECUTE_TYPEHASH,
-                    AUTHORIZED_MODE,
-                    keccak256(calls),
-                    value,
-                    at,
-                    vm.parseJsonUint(j, ".nonce"),
-                    deadline,
-                    callGas
-                )
+        bytes32 execute = keccak256(
+            abi.encode(
+                EXECUTE_TYPEHASH,
+                AUTHORIZED_MODE,
+                keccak256(calls),
+                value,
+                at,
+                vm.parseJsonUint(j, ".nonce"),
+                deadline,
+                callGas
             )
         );
+        bytes32 digest = _typed(w, version, epoch, execute);
         assertEq(digest, vm.parseJsonBytes32(j, ".digest"), "Execute digest");
+        assertEq(_typed(w, version, 0, execute), vm.parseJsonBytes32(j, ".epochZeroDigest"), "Execute digest, epoch 0");
         assertEq(
             keccak256(abi.encode(digest, at, keccak256(s[0].key))),
             vm.parseJsonBytes32(j, ".belowQuorumHash"),
@@ -217,7 +216,7 @@ contract WalletAbiTest is WalletBase {
         );
         bytes32 userOpHash = vm.parseJsonBytes32(j, ".userOpHash");
         assertEq(
-            _typed(w, version, keccak256(abi.encode(USER_OP_TYPEHASH, userOpHash))),
+            _typed(w, version, epoch, keccak256(abi.encode(USER_OP_TYPEHASH, userOpHash))),
             vm.parseJsonBytes32(j, ".userOpDigest"),
             "nested userOpHash"
         );
