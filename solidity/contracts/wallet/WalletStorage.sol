@@ -158,10 +158,15 @@ library WalletStorage {
         return t == 0 ? 1 : t;
     }
 
-    /// `identity`'s link; index 0, never written, for an identity never linked in this epoch.
-    function linkOf(bytes32 identity) internal view returns (Link storage) {
+    /// `identity`'s link index and link; index 0, never written, for an identity never linked in this epoch.
+    function indexedLinkOf(bytes32 identity) internal view returns (uint32 i, Link storage l) {
         EpochState storage s = state();
-        return s.links[s.linkIndex[identity]];
+        i = s.linkIndex[identity];
+        l = s.links[i];
+    }
+
+    function linkOf(bytes32 identity) internal view returns (Link storage l) {
+        (, l) = indexedLinkOf(identity);
     }
 
     /// Links `identity` of `platformId`; a linked identity stays as it is. Indices start at 1 and are never
@@ -169,23 +174,28 @@ library WalletStorage {
     function link(bytes32 platformId, bytes32 identity) internal {
         EpochState storage s = state();
         uint32 i = s.linkIndex[identity];
+        if (i != 0 && s.links[i].linked) return;
         PlatformCount storage p = s.platformCounts[platformId];
         if (i == 0) {
             s.linkIndex[identity] = i = ++s.linkCount;
             if (p.index == 0) p.index = ++s.platformCount;
             (s.links[i].platform, s.links[i].platformId) = (p.index, platformId);
         }
-        Link storage l = s.links[i];
-        if (l.linked) return;
-        l.linked = true;
+        s.links[i].linked = true;
         if (++p.links == 1) ++s.platforms;
         emit IWebWallet.IdentityLinked(identity);
     }
 
     /// Whether the session exists and belongs to its link's current generation.
-    function live(SessionRecord storage s) internal view returns (bool) {
+    function live(SessionRecord storage s) internal view returns (bool ok) {
+        (ok,) = liveLink(state(), s);
+    }
+
+    /// `live`, and the link of `s` in `st`: one slot of the session and one of the link.
+    function liveLink(EpochState storage st, SessionRecord storage s) internal view returns (bool, Link storage l) {
         uint32 i = s.link;
-        return i != 0 && s.generation == state().links[i].generation;
+        l = st.links[i];
+        return (i != 0 && s.generation == l.generation, l);
     }
 
     /// Narrows `v`'s window to `(validAfter, validUntil]`; `validUntil == 0` is unbounded.

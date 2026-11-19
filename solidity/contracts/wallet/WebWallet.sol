@@ -426,9 +426,8 @@ contract WebWallet is Account, ERC721Holder, ERC1155Holder, IWalletCore {
             bytes32 keyHash = keccak256(sigs[i].key);
             // One slot of the session and one of its link.
             WalletStorage.SessionRecord storage s = st.sessions[keyHash];
-            uint32 index = s.link;
-            WalletStorage.Link storage l = st.links[index];
-            if (index == 0 || s.generation != l.generation) return v;
+            (bool live, WalletStorage.Link storage l) = WalletStorage.liveLink(st, s);
+            if (!live) return v;
             if (s.byProof) v.byProof = true;
             if (i == 0) (v.keyHash, v.signers) = (keyHash, s.signers);
             if (s.activeAt > v.activeAt) v.activeAt = s.activeAt;

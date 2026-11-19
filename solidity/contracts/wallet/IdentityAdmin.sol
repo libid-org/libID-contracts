@@ -340,8 +340,7 @@ contract IdentityAdmin is IIdentityAdmin {
         bytes32 policyHash
     ) private {
         WalletStorage.EpochState storage s = WalletStorage.state();
-        uint32 index = s.linkIndex[identity];
-        WalletStorage.Link storage l = s.links[index];
+        (uint32 index, WalletStorage.Link storage l) = WalletStorage.indexedLinkOf(identity);
         if (!l.linked) revert IWebWallet.NotLinked(identity);
         if (key.length < 20) revert IWebWallet.InvalidKey(key);
         if ((policy.validAfter | policy.validUntil | activeAt) >= 1 << 47) {
