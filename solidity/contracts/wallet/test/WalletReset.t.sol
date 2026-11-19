@@ -182,6 +182,18 @@ contract WalletResetTest is WalletBase {
         assertEq(target.calls(), 0, "a refused reset ran its batch");
     }
 
+    /// Unlinking the account's last platform at stored threshold 1 emits the threshold `threshold()` reads: 1.
+    function test_unlinkingTheLastPlatformEmitsTheEffectiveThreshold() public {
+        _onboard();
+        _root(a, abi.encodeCall(IIdentityAdmin.setThreshold, (1)));
+        bytes32 id = _queue(a, abi.encodeCall(IIdentityAdmin.unlink, (_identity(X, ALICE))));
+        _mature(a);
+        vm.expectEmit(a);
+        emit IWebWallet.ThresholdSet(1);
+        IWebWallet(a).executeRoot(id);
+        assertEq(IWebWallet(a).linkedPlatforms(), 0, "still linked");
+    }
+
     /// The forwarder routes `reset` only for the key's own top-level transaction, so a release published later
     /// runs in no account for anyone else.
     function test_aNewReleasesResetRunsOnlyForTheKey() public {
@@ -190,8 +202,8 @@ contract WalletResetTest is WalletBase {
         address open = address(new OpenRelease(address(factory), address(registry)));
         vm.prank(owner);
         factory.publish(open);
-        address[2] memory senders = [mallory, a];
-        address[2] memory origins = [mallory, mallory];
+        address[3] memory senders = [mallory, a, mallory];
+        address[3] memory origins = [mallory, mallory, a];
         for (uint256 i; i < senders.length; ++i) {
             vm.prank(senders[i], origins[i]);
             vm.expectRevert(IWebWallet.ResetRefused.selector);

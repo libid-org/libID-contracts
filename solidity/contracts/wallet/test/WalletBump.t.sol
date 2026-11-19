@@ -36,18 +36,19 @@ contract StepRecorder {
     }
 }
 
-/// A factory upgrade whose `release(lie)` names another implementation.
+/// A factory upgrade whose `release(lie)` names `liar`.
 contract RogueFactory is UUPSUpgradeable {
     uint64 private immutable LIE;
+    address private immutable LIAR;
     address private immutable R1;
     address private immutable R2;
 
-    constructor(uint64 lie, address r1, address r2) {
-        (LIE, R1, R2) = (lie, r1, r2);
+    constructor(uint64 lie, address liar, address r1, address r2) {
+        (LIE, LIAR, R1, R2) = (lie, liar, r1, r2);
     }
 
     function release(uint64 v) external view returns (address) {
-        if (v == LIE) return address(0xbad);
+        if (v == LIE) return LIAR;
         return v == 1 ? R1 : v == 2 ? R2 : address(0);
     }
 
@@ -152,16 +153,18 @@ contract WalletBumpTest is WalletBase {
         vm.expectRevert(abi.encodeWithSelector(IWebWallet.ReleaseMismatch.selector, 3));
         IWebWallet(w).execute(AUTHORIZED_MODE, unpublished);
 
-        // The factory upgraded under a queued bump: `release(2)`, then `release(1)`, no longer match.
-        uint64[2] memory lies = [uint64(2), 1];
+        // The factory upgraded under a queued bump: `release(2)` with no code, `release(1)`, and `release(2)` naming
+        // another release 2 with code no longer match.
+        uint64[3] memory lies = [uint64(2), 1, 2];
+        address[3] memory liars = [address(0xbad), address(0xbad), _releaseFor(address(factory), 2)];
         for (uint256 i; i < lies.length; ++i) {
             uint256 snap = vm.snapshotState();
             bytes32 id = _queue(w, _bump(2));
             _mature(w);
-            address rogue = address(new RogueFactory(lies[i], impl1, impl2));
+            address rogue = address(new RogueFactory(lies[i], liars[i], impl1, impl2));
             vm.prank(owner);
             UUPSUpgradeable(address(factory)).upgradeToAndCall(rogue, "");
-            vm.expectPartialRevert(IWebWallet.ReleaseMismatch.selector);
+            vm.expectRevert(abi.encodeWithSelector(IWebWallet.ReleaseMismatch.selector, lies[i]));
             IWebWallet(w).executeRoot(id);
             (, uint64 version) = IWebWallet(w).release();
             assertEq(version, 1, "bumped on a mismatch");

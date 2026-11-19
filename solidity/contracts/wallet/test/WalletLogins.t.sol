@@ -3,6 +3,7 @@ pragma solidity ^0.8.24;
 
 import {Vm} from "forge-std/Test.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
+import {PackedUserOperation} from "@openzeppelin/contracts/interfaces/IERC4337.sol";
 import {Execution} from "@openzeppelin/contracts/interfaces/draft-IERC7579.sol";
 
 import {IOperationLists} from "../../ceremony/IOperationLists.sol";
@@ -237,21 +238,31 @@ contract WalletLoginsTest is WalletSuite {
 
     // ─── Login sessions and the threshold ───────────────────────────
 
+    /// In an AUTHORIZED batch and in a UserOperation alike.
     function test_aLimitedLoginSessionActsAloneOnlyAtThresholdOne() public {
         address w = _wallet(2, 2);
-        _loginAdd(w, X, ALICE, APP_PK, _hitOnly());
+        _loginAdd(w, X, ALICE, APP_PK, _hitGas());
         IIdentityAdmin.Session memory s = IWebWallet(w).sessionOf(_key(APP_PK));
         assertTrue(s.byProof, "not byProof");
         assertEq(s.activeAt, _now(), "not from the next second");
-        _addSession(w, _identity(X, ALICE), _key(NEW_PK), _hitOnly());
+        _addSession(w, _identity(X, ALICE), _key(NEW_PK), _hitGas());
         vm.warp(_now() + 1);
 
         bytes memory hit = _one(_hitX());
         _refuses(w, hit, _direct(w, _pks(APP_PK), hit, true), NOT_SIGNED);
+        _refused(_hitOp(w, APP_PK), "a login session alone at 2");
         // The wallet's own limited session acts alone at 2: the refusal is byProof's.
         _runs(w, hit, _direct(w, _pks(NEW_PK), hit, true));
+        _handle(_hitOp(w, NEW_PK));
         _threshold(w, 1);
         _runs(w, hit, _direct(w, _pks(APP_PK), hit, true));
+        _handle(_hitOp(w, APP_PK));
+        assertEq(target.calls(), 4, "the sessions' operations did not run");
+    }
+
+    /// `pk`'s UserOperation of one `hit()`, below quorum.
+    function _hitOp(address w, uint256 pk) internal view returns (PackedUserOperation memory) {
+        return _signedWith(_op(w, _hitCall()), _pks(pk), _hitProofs(1));
     }
 
     /// ERC-1271 too: a login session signs for an app alone only at threshold 1.
@@ -498,6 +509,9 @@ contract WalletLoginsTest is WalletSuite {
         bytes memory payload = _loginPayload(fresh, X, CAROL, _key(NEW_PK), _admin());
         vm.expectRevert(IWebWallet.FirstSessionRefused.selector);
         IWebWallet(fresh).addSessionByLogin(X, V1, payload, "", _admin());
+        payload = _payload(X, CAROL, REMOVE, _txData(fresh, _key(NEW_PK), _ph(_admin())));
+        vm.expectRevert(IWebWallet.FirstSessionRefused.selector);
+        IWebWallet(fresh).removeSessionsByLogin(X, V1, payload, "", _admin());
     }
 
     /// A spent removal does not run twice, even while its identity, the genesis, stays linked.

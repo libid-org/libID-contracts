@@ -477,6 +477,18 @@ contract WalletExecuteTest is WalletSuite {
         _runs(w, hit, _direct(w, _pks(ALICE_PK), hit, false));
     }
 
+    /// Below quorum too: the delegatecall to SessionRules keeps the batch's value.
+    function test_aBelowQuorumBatchTakesItsSignedValue() public {
+        address w = _claim();
+        _addSession(w, _identity(X, ALICE), _key(BOT_PK), _hitOnly());
+        vm.warp(_now() + 1);
+        bytes memory hit = _one(_hitX());
+        signedValue = 1;
+        uint256 balance = w.balance;
+        _runs(w, hit, _direct(w, _pks(BOT_PK), hit, true));
+        assertEq(w.balance, balance + 1, "the value did not arrive");
+    }
+
     /// An expired batch fails before its calls run: a reverting call does not stand in for the expiry.
     function test_anExpiredBatchFailsBeforeItsCalls() public {
         address w = _claim();

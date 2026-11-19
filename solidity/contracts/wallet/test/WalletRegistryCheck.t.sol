@@ -154,6 +154,15 @@ contract WalletRegistryCheckTest is WalletBase {
         assertEq(address(paid).balance, 5, "the verifier was not paid");
     }
 
+    /// A domain other than the three wallet operations is refused, and spends nothing.
+    function test_anUnknownOperationDomainIsRefused() public {
+        bytes memory payload = _payload(X, ALICE, BIND, _txData(w, "", 0));
+        vm.prank(w);
+        vm.expectRevert(abi.encodeWithSelector(IWalletRegistry.UnknownOperationDomain.selector, BIND));
+        registry.check(BIND, X, V1, payload, "", 0);
+        assertFalse(registry.spentDigests(_digestOf(payload)), "spent");
+    }
+
     /// Calling the check directly spends only a proof naming the caller, and no wallet records it.
     function test_aDirectCheckSpendsOnlyTheCallersOwnProof() public {
         bytes memory forW = _loginPayload(w, X, ALICE, _key(MALLORY_PK), _admin());
