@@ -101,7 +101,7 @@ contract WalletBumpTest is WalletBase {
         assertEq(factory.release(3), impls[0], "control: the next release");
     }
 
-    /// `bump(0)` resolves to the latest at queue time; the bump keeps the wallet's state and voids the roots
+    /// `bump(0)` resolves to the latest at queue time, and the operation names its implementation; the bump keeps the wallet's state and voids the roots
     /// queued under the old version.
     function test_bumpMovesTheReleaseAndKeepsTheWalletState() public {
         (bytes32 p, bytes32 n, uint256 s) = IWebWallet(w).genesisIdentity();
@@ -109,7 +109,11 @@ contract WalletBumpTest is WalletBase {
         bytes32 delay = _queue(w, abi.encodeCall(IWebWallet.setRootDelay, (72 hours)));
         bytes32 id = _queue(w, _bump(0));
         IWebWallet.RootOperation memory op = IWebWallet(w).rootOperation(id);
-        assertEq(abi.encode(op.version, op.data), abi.encode(uint64(1), _bump(2)), "not resolved at queue time");
+        assertEq(
+            abi.encode(op.version, op.data, op.implementation),
+            abi.encode(uint64(1), _bump(2), impl2),
+            "not resolved at queue time"
+        );
         _publish(3);
         _mature(w);
         IWebWallet(w).executeRoot(id);
@@ -134,6 +138,10 @@ contract WalletBumpTest is WalletBase {
             _signed(w, _pks(ALICE_PK), _one(_x(w, 0, abi.encodeCall(IWebWallet.queueRoot, (_bump(1))))));
         vm.expectPartialRevert(IWebWallet.ReleaseNotAbove.selector);
         IWebWallet(w).execute(AUTHORIZED_MODE, notAbove);
+        bytes memory unpublished =
+            _signed(w, _pks(ALICE_PK), _one(_x(w, 0, abi.encodeCall(IWebWallet.queueRoot, (_bump(3))))));
+        vm.expectRevert(abi.encodeWithSelector(IWebWallet.ReleaseMismatch.selector, 3));
+        IWebWallet(w).execute(AUTHORIZED_MODE, unpublished);
 
         // The factory upgraded under a queued bump: `release(2)`, then `release(1)`, no longer match.
         uint64[2] memory lies = [uint64(2), 1];

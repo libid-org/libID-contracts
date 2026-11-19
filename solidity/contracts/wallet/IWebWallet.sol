@@ -77,6 +77,8 @@ interface IWebWallet {
 
     struct RootOperation {
         bytes data;
+        /// A bump's implementation, read from the factory at queue time; zero for the others.
+        address implementation;
         uint64 version;
         uint48 readyAt;
     }

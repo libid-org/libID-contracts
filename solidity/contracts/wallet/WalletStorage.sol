@@ -66,9 +66,10 @@ library WalletStorage {
         uint128 spent;
     }
 
-    /// A queued root operation, void once the version or the root epoch moved.
+    /// A queued root operation, void once the version or the root epoch moved. `implementation`: a bump's.
     struct Root {
         bytes data;
+        address implementation;
         uint64 version;
         uint48 readyAt;
         uint32 rootEpoch;

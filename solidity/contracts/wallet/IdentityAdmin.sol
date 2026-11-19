@@ -161,15 +161,19 @@ contract IdentityAdmin {
     // ─── Root operations ────────────────────────────────────────────
 
     /// `bump`, `setThreshold`, `setRootDelay`, `unlink` or `revokeSession`, ready after the root delay and never
-    /// in the second it was queued. `bump(0)` is the factory's latest.
+    /// in the second it was queued. `bump(0)` is the factory's latest; a bump stores its version's implementation.
     function queueRoot(bytes calldata data) external onlySelf returns (bytes32 id) {
         bytes4 selector = WalletStorage.selectorOf(data);
         (, uint64 current) = WalletRelease.read();
         bytes memory op = data;
+        address implementation;
         if (selector == IWebWallet.bump.selector) {
             uint64 version = abi.decode(data[4:], (uint64));
-            if (version == 0) (, version) = IWalletFactory(_factory()).latest();
+            IWalletFactory factory = IWalletFactory(_factory());
+            if (version == 0) (, version) = factory.latest();
             if (version <= current) revert IWebWallet.ReleaseNotAbove(current, version);
+            implementation = factory.release(version);
+            if (implementation == address(0)) revert IWebWallet.ReleaseMismatch(version);
             op = abi.encodeCall(IWebWallet.bump, (version));
         } else if (
             selector != IWebWallet.setThreshold.selector && selector != IWebWallet.setRootDelay.selector
@@ -181,7 +185,9 @@ contract IdentityAdmin {
         WalletStorage.EpochState storage s = WalletStorage.state();
         uint32 delay = s.rootDelay;
         uint48 readyAt = _now() + (delay == 0 ? 1 : delay);
-        s.roots[id] = WalletStorage.Root({data: op, version: current, readyAt: readyAt, rootEpoch: s.rootEpoch});
+        s.roots[id] = WalletStorage.Root({
+            data: op, implementation: implementation, version: current, readyAt: readyAt, rootEpoch: s.rootEpoch
+        });
         emit IWebWallet.RootQueued(id, current, readyAt, op);
     }
 
@@ -204,15 +210,18 @@ contract IdentityAdmin {
         (, uint64 current) = WalletRelease.read();
         if (r.version != current || r.rootEpoch != s.rootEpoch) revert IWebWallet.RootOperationVoid(id);
         bytes memory data = r.data;
+        address implementation = r.implementation;
         delete s.roots[id];
         emit IWebWallet.RootExecuted(id);
-        _root(data);
+        _root(data, implementation);
         WalletTransient.put(WalletTransient.LOCK, false);
     }
 
     function rootOperation(bytes32 id) external view delegated returns (IWebWallet.RootOperation memory) {
         WalletStorage.Root storage r = WalletStorage.state().roots[id];
-        return IWebWallet.RootOperation({data: r.data, version: r.version, readyAt: r.readyAt});
+        return IWebWallet.RootOperation({
+            data: r.data, implementation: r.implementation, version: r.version, readyAt: r.readyAt
+        });
     }
 
     function rootReadyAt(bytes32 id) external view delegated returns (uint48) {
@@ -231,7 +240,7 @@ contract IdentityAdmin {
     }
 
     function bump(uint64 version) external rootOnly {
-        _bump(version);
+        _bump(version, IWalletFactory(_factory()).release(version));
     }
 
     function setThreshold(uint8 threshold_) external rootOnly {
@@ -417,30 +426,29 @@ contract IdentityAdmin {
         WalletStorage.state().rootDelay = delay;
     }
 
-    /// Runs a matured root operation, one of those `queueRoot` admits.
-    function _root(bytes memory data) private {
+    /// Runs a matured root operation, one of those `queueRoot` admits; a bump's to its queued implementation.
+    function _root(bytes memory data, address implementation) private {
         bytes4 selector = bytes4(data);
         bytes memory args = new bytes(data.length - 4);
         for (uint256 i; i < args.length; ++i) {
             args[i] = data[i + 4];
         }
-        if (selector == IWebWallet.bump.selector) _bump(abi.decode(args, (uint64)));
+        if (selector == IWebWallet.bump.selector) _bump(abi.decode(args, (uint64)), implementation);
         else if (selector == IWebWallet.setThreshold.selector) _setThreshold(abi.decode(args, (uint8)));
         else if (selector == IWebWallet.setRootDelay.selector) _setRootDelay(abi.decode(args, (uint32)));
         else if (selector == IWebWallet.unlink.selector) _remove(abi.decode(args, (bytes32)), false, false);
         else _revoke(abi.decode(args, (bytes)), true);
     }
 
-    /// Moves the release slot to `version`, once the factory still names the current release and names one of
-    /// `version` for it. Blocks the EntryPoint's `execute` for the rest of the transaction, then runs the new
+    /// Moves the release slot to `next`, once the factory still names the current release and names `next` for
+    /// `version`. Blocks the EntryPoint's `execute` for the rest of the transaction, then runs the new
     /// release's data steps.
-    function _bump(uint64 version) private {
+    function _bump(uint64 version, address next) private {
         (address current, uint64 from) = WalletRelease.read();
         if (version <= from) revert IWebWallet.ReleaseNotAbove(from, version);
         IWalletFactory factory = IWalletFactory(_factory());
         if (factory.release(from) != current) revert IWebWallet.ReleaseMismatch(from);
-        address next = factory.release(version);
-        if (next.code.length == 0 || IWebWallet(next).VERSION() != version) {
+        if (factory.release(version) != next || next.code.length == 0 || IWebWallet(next).VERSION() != version) {
             revert IWebWallet.ReleaseMismatch(version);
         }
         WalletRelease.write(next, version);
