@@ -91,7 +91,10 @@ contract WalletAccountEdgesTest is WalletBase {
         for (uint256 i; i < truncated.length; ++i) {
             truncated[i] = valid[i];
         }
+        bytes memory ecdsa = new bytes(65);
+        ecdsa[64] = 0x1b;
         _failsSoftly("", "empty");
+        _failsSoftly(ecdsa, "a 65-byte signature");
         _failsSoftly(truncated, "truncated");
         _failsSoftly(_put(bytes.concat(valid), 0, 1 << 255), "offset out of range");
         _failsSoftly(_put(bytes.concat(valid), 0xc0, type(uint64).max), "oversized length");

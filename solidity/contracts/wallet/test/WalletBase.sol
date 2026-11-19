@@ -188,7 +188,7 @@ abstract contract WalletBase is Test {
         internal
         returns (bytes memory)
     {
-        (platformId == GITHUB ? githubStub : xStub).setNodes(idNode, keccak256("some handle node"));
+        _stub(platformId).setNodes(idNode, keccak256("some handle node"));
         return abi.encode(
             StubPlatformVerifier.StubPayload({
                 ceremonyVersion: 1,
@@ -197,6 +197,10 @@ abstract contract WalletBase is Test {
                 transactionData: data
             })
         );
+    }
+
+    function _stub(bytes32 platformId) internal view virtual returns (StubPlatformVerifier) {
+        return platformId == GITHUB ? githubStub : xStub;
     }
 
     /// The digest a stub payload commits to, from the ceremony's own formula.
