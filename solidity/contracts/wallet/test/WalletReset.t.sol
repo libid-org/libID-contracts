@@ -303,7 +303,8 @@ contract WalletResetTest is WalletBase {
     }
 
     /// Revoking an older admin, changing the threshold and a login removal each move the root epoch, and each
-    /// retires every Execute, UserOperation and ERC-7739 signature made before it.
+    /// retires the Execute and UserOperation signatures made before it; the revoke and the removal, an ERC-7739
+    /// one too.
     function test_aRootEpochMoveRetiresEverySignatureBeforeIt() public {
         _onboard();
         IWebWallet.Policy memory none;
@@ -316,6 +317,9 @@ contract WalletResetTest is WalletBase {
         bytes memory remove = _payload(GITHUB, BOB, REMOVE, _txData(a, "", 0));
         bytes memory batch = _signed(a, _pks(ALICE_PK), _one(_hitX()));
         PackedUserOperation memory op = _signOp(_op(a, _hitCall()), 1, _pks(ALICE_PK));
+        // Two admin platforms still meet threshold 2: only the salt refuses these.
+        bytes memory both = _signed(a, _pks(ALICE_PK, BOB_PK), _one(_hitX()));
+        PackedUserOperation memory bothOp = _signOp(_op(a, _hitCall()), 1, _pks(ALICE_PK, BOB_PK));
         (bytes32 h, bytes memory sig) = _typedDataSign(a, _salt(a));
         assertEq(IWebWallet(a).isValidSignature(h, sig), bytes4(0x1626ba7e), "control: TypedDataSign");
 
@@ -332,9 +336,9 @@ contract WalletResetTest is WalletBase {
             }
             vm.prank(relayer);
             vm.expectRevert(IWebWallet.ExecutionNotSigned.selector);
-            IWebWallet(a).execute(AUTHORIZED_MODE, batch);
-            _refusedOp(op);
-            assertEq(IWebWallet(a).isValidSignature(h, sig), bytes4(0xffffffff), vm.toString(i));
+            IWebWallet(a).execute(AUTHORIZED_MODE, i == 1 ? both : batch);
+            _refusedOp(i == 1 ? bothOp : op);
+            if (i != 1) assertEq(IWebWallet(a).isValidSignature(h, sig), bytes4(0xffffffff), vm.toString(i));
             vm.revertToState(snap);
         }
         vm.prank(relayer);
