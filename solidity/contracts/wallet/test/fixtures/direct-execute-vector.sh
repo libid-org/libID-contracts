@@ -9,7 +9,7 @@ USER_OP_TYPEHASH=$(cast keccak "UserOperation(bytes32 userOpHash)")
 DOMAIN_TYPEHASH=$(cast keccak "EIP712Domain(string name,string version,uint256 chainId,address verifyingContract,bytes32 salt)")
 CHAIN=8453; WALLET=0x0000000000000000000000000000000000001234; VERSION=2; EPOCH=$(cast keccak "epoch"); ROOT_EPOCH=3
 NONCE=7; CALLS=0xc0ffee; VALUE=12345; AT=1000; DEADLINE=2000; CALL_GAS=200000
-KEY=0x1234; SIG=0x5678; MAX_VALUE=5
+KEY=0x1234; SIG=0x5678; MAX_VALUE=5; SUBMITTER=0x0000000000000000000000000000000000005678
 CALL_PROOF=$(cast keccak "call leaf"); DOMAIN_PROOF=$(cast keccak "domain leaf"); PAYMASTER_PROOF=$(cast keccak "paymaster leaf")
 USER_OP_HASH=$(cast keccak "op")
 
@@ -33,9 +33,11 @@ TOKEN=0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE; AMOUNT=1000000000000000000; PE
 RULES_HASH=$(cast keccak "$(cast abi-encode "f(bytes32,bytes32,bytes32,(address,uint128,uint48)[])" \
   "$SCOPE_ROOT" "$DOMAINS_ROOT" "$PAYMASTERS_ROOT" "[($TOKEN,$AMOUNT,$PERIOD)]")")
 POLICY_HASH=$(cast keccak "$(cast abi-encode "f(uint48,uint48,bool,uint8,bytes32)" $VALID_AFTER $VALID_UNTIL $ADMIN $SIGNERS "$RULES_HASH")")
-# A link or login proof's transaction data: (chainId, wallet, key, policyHash), policy hash 0 for an empty key.
-KEYED=$(cast abi-encode "f(uint256,address,bytes,bytes32)" $CHAIN $WALLET $KEY "$POLICY_HASH")
-KEYLESS=$(cast abi-encode "f(uint256,address,bytes,bytes32)" $CHAIN $WALLET 0x 0x0000000000000000000000000000000000000000000000000000000000000000)
+# A link or login proof's transaction data: (chainId, wallet, submitter, key, policyHash), policy hash 0 for an empty
+# key.
+KEYED=$(cast abi-encode "f(uint256,address,address,bytes,bytes32)" $CHAIN $WALLET $SUBMITTER $KEY "$POLICY_HASH")
+KEYLESS=$(cast abi-encode "f(uint256,address,address,bytes,bytes32)" $CHAIN $WALLET $SUBMITTER 0x \
+  0x0000000000000000000000000000000000000000000000000000000000000000)
 BELOW=$(cast keccak "$(cast abi-encode "f(bytes32,uint48,bytes32)" "$DIGEST" $AT "$(cast keccak $KEY)")")
 
 cat <<JSON
@@ -68,9 +70,10 @@ cat <<JSON
   "belowQuorumHash": "$BELOW",
   "userOpHash": "$USER_OP_HASH",
   "userOpDigest": "$USER_OP_DIGEST",
-  "linkIdentityDomain": "$(cast keccak libid.webwallet.link-identity)",
-  "addSessionDomain": "$(cast keccak libid.webwallet.add-session)",
-  "removeSessionsDomain": "$(cast keccak libid.webwallet.remove-sessions)",
+  "linkIdentityDomain": "$(cast keccak libid.webwallet.link-identity.v2)",
+  "addSessionDomain": "$(cast keccak libid.webwallet.add-session.v2)",
+  "removeSessionsDomain": "$(cast keccak libid.webwallet.remove-sessions.v2)",
+  "submitter": "$SUBMITTER",
   "policy": {
     "validAfter": $VALID_AFTER,
     "validUntil": $VALID_UNTIL,

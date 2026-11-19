@@ -578,7 +578,7 @@ contract WalletPolicyTest is WalletSuite {
         vm.expectRevert(abi.encodeWithSelector(IWebWallet.BadAllowance.selector, address(token)));
         IWebWallet(w).addSession(_identity(X, ALICE), _key(APP_PK), IIdentityAdmin.Policy(0, 0, false, 0, _daily()));
         IIdentityAdmin.Policy memory p = IIdentityAdmin.Policy(0, 0, false, 0, far);
-        bytes memory payload = _loginPayload(w, X, ALICE, _key(APP_PK), p);
+        bytes memory payload = _loginPayload(w, address(this), X, ALICE, _key(APP_PK), p);
         vm.expectRevert(abi.encodeWithSelector(IWebWallet.BadAllowance.selector, address(token)));
         IWebWallet(w).addSessionByLogin(X, V1, payload, "", p);
     }
@@ -1032,7 +1032,7 @@ contract WalletPolicyTest is WalletSuite {
         assertEq(IWebWallet(w).sessionOf(_key(APP_PK)).policyHash, _ph(p), "policyHash");
         assertEq(IWebWallet(w).allowanceOf(_key(APP_PK), NATIVE_TOKEN).amount, 1 ether, "allowance");
         bytes32 committed = _ph(p);
-        bytes memory payload = _payload(X, ALICE, ADD, _txData(w, _key(MALLORY_PK), committed));
+        bytes memory payload = _payload(X, ALICE, ADD, _txData(w, address(this), _key(MALLORY_PK), committed));
         p.rules.allowances[0].amount += 1;
         vm.expectRevert(abi.encodeWithSelector(IWalletRegistry.WrongPolicy.selector, _ph(p), committed));
         IWebWallet(w).addSessionByLogin(X, V1, payload, "", p);

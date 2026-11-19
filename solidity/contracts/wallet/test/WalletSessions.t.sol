@@ -301,12 +301,12 @@ contract WalletSessionsTest is WalletSuite {
             vm.prank(w);
             vm.expectRevert(err);
             IWebWallet(w).addSession(_alice(), _key(APP_PK), ps[i]);
-            bytes memory payload = _loginPayload(w, X, ALICE, _key(APP_PK), ps[i]);
+            bytes memory payload = _loginPayload(w, address(this), X, ALICE, _key(APP_PK), ps[i]);
             vm.expectRevert(err);
             IWebWallet(w).addSessionByLogin(X, V1, payload, "", ps[i]);
         }
         vm.warp(flag);
-        bytes memory late = _loginPayload(w, X, ALICE, _key(APP_PK), _app());
+        bytes memory late = _loginPayload(w, address(this), X, ALICE, _key(APP_PK), _app());
         vm.expectRevert(abi.encodeWithSelector(IWebWallet.PolicyOutOfRange.selector, 0, 0));
         IWebWallet(w).addSessionByLogin(X, V1, late, "", _app());
     }
@@ -494,7 +494,7 @@ contract WalletSessionsTest is WalletSuite {
         assertEq(_validate(w, _hitCall(), _pks(APP_PK)), 1, "session by proof validates");
         assertFalse(_isValid1271(w, h, BOB_PK, _wrapped(w, h)), "ERC-1271 accepts an unlinked identity");
         assertTrue(_isValid1271(w, h, ALICE_PK, _wrapped(w, h)), "the other identity stopped");
-        bytes memory payload = _loginPayload(w, GITHUB, BOB, _key(MALLORY_PK), _admin());
+        bytes memory payload = _loginPayload(w, address(this), GITHUB, BOB, _key(MALLORY_PK), _admin());
         vm.expectRevert(abi.encodeWithSelector(IWebWallet.NotLinked.selector, _bob()));
         IWebWallet(w).addSessionByLogin(GITHUB, V1, payload, "", _admin());
     }

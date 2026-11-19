@@ -108,7 +108,7 @@ contract WalletFactoryTest is WalletBase {
         vm.prank(mallory);
         vm.expectRevert(IWebWallet.OnlySelf.selector);
         IWebWallet(w).linkIdentity(X, V1, own, "", _admin());
-        bytes memory login = _loginPayload(w, X, ALICE, _key(MALLORY_PK), _admin());
+        bytes memory login = _loginPayload(w, mallory, X, ALICE, _key(MALLORY_PK), _admin());
         vm.prank(mallory);
         vm.expectRevert(IWebWallet.FirstSessionRefused.selector);
         IWebWallet(w).addSessionByLogin(X, V1, login, "", _admin());

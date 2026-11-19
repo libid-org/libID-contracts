@@ -498,7 +498,7 @@ abstract contract WalletSuite is WalletBase {
         bytes memory key,
         IIdentityAdmin.Policy memory p
     ) internal {
-        bytes memory payload = _loginPayload(w, platformId, idNode, key, p);
+        bytes memory payload = _loginPayload(w, submitter, platformId, idNode, key, p);
         vm.prank(submitter);
         IWebWallet(w).addSessionByLogin(platformId, V1, payload, "", p);
     }

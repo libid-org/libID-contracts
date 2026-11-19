@@ -4,9 +4,9 @@ pragma solidity ^0.8.24;
 import {IProofVerifier} from "../ceremony/IProofVerifier.sol";
 
 // The wallet operations' domains.
-bytes32 constant LINK_IDENTITY_DOMAIN = keccak256("libid.webwallet.link-identity");
-bytes32 constant ADD_SESSION_DOMAIN = keccak256("libid.webwallet.add-session");
-bytes32 constant REMOVE_SESSIONS_DOMAIN = keccak256("libid.webwallet.remove-sessions");
+bytes32 constant LINK_IDENTITY_DOMAIN = keccak256("libid.webwallet.link-identity.v2");
+bytes32 constant ADD_SESSION_DOMAIN = keccak256("libid.webwallet.add-session.v2");
+bytes32 constant REMOVE_SESSIONS_DOMAIN = keccak256("libid.webwallet.remove-sessions.v2");
 
 /// @title IWalletRegistry
 /// @notice Verifies a wallet operation proof for its caller and spends its digest.
@@ -27,6 +27,10 @@ interface IWalletRegistry {
     error WrongWallet(address expected, address actual);
     error WrongChain(uint256 chainId);
     error WrongPolicy(bytes32 expected, bytes32 actual);
+    /// The transaction data names another submitter than the wallet's caller.
+    error WrongSubmitter(address expected, address actual);
+    /// The transaction data names no submitter.
+    error ZeroSubmitter();
     error DigestSpent(bytes32 digest);
     /// `domain` is none of the three wallet operations.
     error UnknownOperationDomain(bytes32 domain);
@@ -34,8 +38,8 @@ interface IWalletRegistry {
     error DataWithoutList();
     /// The claim names no identity.
     error NoId();
-    /// The transaction data is not the canonical `abi.encode(chainId, wallet, key, policyHash)`, or an empty key
-    /// commits a policy.
+    /// The transaction data is not the canonical `abi.encode(chainId, wallet, submitter, key, policyHash)`, or an
+    /// empty key commits a policy.
     error BadTransactionData(uint256 length);
     /// Ownership cannot be renounced.
     error RenounceDisabled();
@@ -50,14 +54,16 @@ interface IWalletRegistry {
     /// Owner only.
     function setProofVerifier(IProofVerifier verifier) external;
 
-    /// Verifies `payload` for an operation of `domain` whose transaction data names this chain, `msg.sender`
-    /// and `policyHash`, spends its digest, and returns what it names.
+    /// Verifies `payload` for an operation of `domain` whose transaction data names this chain, `msg.sender`,
+    /// `submitter` and `policyHash`, spends its digest, and returns what it names. The wallet passes its own caller
+    /// as `submitter`.
     function check(
         bytes32 domain,
         bytes32 platformId,
         uint16 verifierVersion,
         bytes calldata payload,
         bytes calldata data,
+        address submitter,
         bytes32 policyHash
     ) external payable returns (Checked memory);
 

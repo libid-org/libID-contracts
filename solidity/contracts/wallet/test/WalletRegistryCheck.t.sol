@@ -39,7 +39,7 @@ contract WalletRegistryCheckTest is WalletBase {
 
     /// Acceptance 5: a login session signs from the next second.
     function test_aLoginSessionSignsFromTheNextSecond() public {
-        bytes memory payload = _loginPayload(w, X, ALICE, _key(ALICE2_PK), _admin());
+        bytes memory payload = _loginPayload(w, relayer, X, ALICE, _key(ALICE2_PK), _admin());
         _login(payload);
         assertTrue(registry.spentDigests(_digestOf(payload)), "digest unspent");
         IIdentityAdmin.Session memory s = IWebWallet(w).sessionOf(_key(ALICE2_PK));
@@ -56,7 +56,7 @@ contract WalletRegistryCheckTest is WalletBase {
     /// Acceptance 5: an app off the wallet's list is refused, and the proof stays unspent.
     function test_aLoginFromAnUnlistedAppIsRefused() public {
         _setApp("another-app");
-        bytes memory payload = _loginPayload(w, X, ALICE, _key(ALICE2_PK), _admin());
+        bytes memory payload = _loginPayload(w, relayer, X, ALICE, _key(ALICE2_PK), _admin());
         vm.expectRevert(abi.encodeWithSelector(IWebWallet.AppNotListed.selector, keccak256("client")));
         _login(payload);
         assertFalse(registry.spentDigests(_digestOf(payload)), "a refused login spent the digest");
@@ -68,10 +68,10 @@ contract WalletRegistryCheckTest is WalletBase {
         bytes memory k = _key(ALICE2_PK);
         bytes[5] memory payloads = [
             _payload(X, ALICE, LINK, _txData(w, k, _ph(_admin()))),
-            _loginPayload(factory.walletAddress(X, ALICE, 1), X, ALICE, k, _admin()),
-            _payload(X, ALICE, ADD, abi.encode(vm.getChainId() + 1, w, k, _ph(_admin()))),
-            _payload(X, ALICE, ADD, _txData(w, k, keccak256("another policy"))),
-            _loginPayload(w, X, ALICE, k, _admin())
+            _loginPayload(factory.walletAddress(X, ALICE, 1), relayer, X, ALICE, k, _admin()),
+            _payload(X, ALICE, ADD, abi.encode(vm.getChainId() + 1, w, relayer, k, _ph(_admin()))),
+            _payload(X, ALICE, ADD, _txData(w, relayer, k, keccak256("another policy"))),
+            _loginPayload(w, relayer, X, ALICE, k, _admin())
         ];
         bytes4[5] memory errs = [
             IWalletRegistry.WrongOperationDomain.selector,
@@ -88,7 +88,7 @@ contract WalletRegistryCheckTest is WalletBase {
             assertEq(registry.spentDigests(_digestOf(payloads[i])), i == 4, "a refused proof's digest");
         }
         // A login proof used as a link, in Alice's own batch.
-        bytes memory login = _loginPayload(w, X, ALICE, k, _admin());
+        bytes memory login = _loginPayload(w, w, X, ALICE, k, _admin());
         bytes memory data = _signed(w, _pks(ALICE_PK), _one(_linkWith(w, X, login, _admin())));
         vm.expectPartialRevert(IWalletRegistry.WrongOperationDomain.selector);
         IWebWallet(w).execute(AUTHORIZED_MODE, data);
@@ -114,17 +114,21 @@ contract WalletRegistryCheckTest is WalletBase {
     function test_malformedProofsAreRefused() public {
         bytes memory k = _key(ALICE2_PK);
         bytes32 ph = _ph(_admin());
-        bytes memory good = _txData(w, k, ph);
-        bytes memory gap = abi.encodePacked(block.chainid, uint256(uint160(w)), uint256(0xa0), ph, bytes32(0));
+        bytes memory good = _txData(w, relayer, k, ph);
+        bytes memory gap = abi.encodePacked(
+            block.chainid, uint256(uint160(w)), uint256(uint160(relayer)), uint256(0xc0), ph, bytes32(0)
+        );
         bytes memory padding = bytes.concat(good);
-        padding[191] = 0x01;
+        padding[223] = 0x01;
         bytes[2] memory bad = [abi.encodePacked(gap, uint256(20), k, bytes12(0)), padding];
         for (uint256 i; i < bad.length; ++i) {
             bytes memory payload = _payload(X, ALICE, ADD, bad[i]);
             vm.expectPartialRevert(IWalletRegistry.BadTransactionData.selector);
             _login(payload);
         }
-        bytes memory head = abi.encodePacked(block.chainid, uint256(uint160(w)) | (1 << 200), uint256(0x80), ph);
+        bytes memory head = abi.encodePacked(
+            block.chainid, uint256(uint160(w)) | (1 << 200), uint256(uint160(relayer)), uint256(0xa0), ph
+        );
         bytes memory dirty = _payload(X, ALICE, ADD, abi.encodePacked(head, uint256(20), k, bytes12(0)));
         // The address word's dirty bits fail ABI decoding, which reverts with no data.
         vm.expectRevert(bytes(""));
@@ -159,21 +163,21 @@ contract WalletRegistryCheckTest is WalletBase {
         bytes memory payload = _payload(X, ALICE, BIND, _txData(w, "", 0));
         vm.prank(w);
         vm.expectRevert(abi.encodeWithSelector(IWalletRegistry.UnknownOperationDomain.selector, BIND));
-        registry.check(BIND, X, V1, payload, "", 0);
+        registry.check(BIND, X, V1, payload, "", w, 0);
         assertFalse(registry.spentDigests(_digestOf(payload)), "spent");
     }
 
     /// Calling the check directly spends only a proof naming the caller, and no wallet records it.
     function test_aDirectCheckSpendsOnlyTheCallersOwnProof() public {
-        bytes memory forW = _loginPayload(w, X, ALICE, _key(MALLORY_PK), _admin());
+        bytes memory forW = _loginPayload(w, mallory, X, ALICE, _key(MALLORY_PK), _admin());
         vm.prank(mallory);
         vm.expectPartialRevert(IWalletRegistry.WrongWallet.selector);
-        registry.check(ADD, X, V1, forW, "", _ph(_admin()));
+        registry.check(ADD, X, V1, forW, "", mallory, _ph(_admin()));
         assertFalse(registry.spentDigests(_digestOf(forW)), "a stranger burned the wallet's proof");
 
         bytes memory own = _linkPayload(mallory, X, MALLORY, _key(MALLORY_PK), _admin());
         vm.prank(mallory);
-        IWalletRegistry.Checked memory c = registry.check(LINK, X, V1, own, "", _ph(_admin()));
+        IWalletRegistry.Checked memory c = registry.check(LINK, X, V1, own, "", mallory, _ph(_admin()));
         assertEq(
             abi.encode(c.identity, c.key, c.app),
             abi.encode(_identity(X, MALLORY), _key(MALLORY_PK), bytes("client")),

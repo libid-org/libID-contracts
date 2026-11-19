@@ -117,7 +117,8 @@ address before it exists.
 
 ```solidity
 address w = factory.walletAddress(platformId, idNode, salt);
-bytes memory linkData = abi.encode(block.chainid, w, k, policyHashOf(adminPolicy));
+// The wallet submits its own link, so it names itself.
+bytes memory linkData = abi.encode(block.chainid, w, w, k, policyHashOf(adminPolicy));
 
 Execution[] memory calls = new Execution[](4);
 // K becomes the genesis identity's admin session, active at once.
@@ -428,42 +429,46 @@ Calldata shorter than four bytes has selector `0x00000000`.
 
 ## Logins
 
-A login is a proof of a linked identity. Anyone may submit it to the wallet,
-with the fee `registry.quote(platformId, verifierVersion)` attached, directly
-or as a call in a batch. The wallet calls `WalletRegistry.check`, which
-verifies the proof, requires that it names this chain, the calling wallet
-and the policy, spends its digest (`DigestSpent` on reuse), and returns the
-identity, the key and the app. The wallet applies the result.
+A login is a proof of a linked identity. The submitter it names sends it to
+the wallet, with the fee `registry.quote(platformId, verifierVersion)`
+attached: directly, or as a call in the wallet's own batch, where the
+submitter is the wallet itself. The wallet calls `WalletRegistry.check` with
+its own caller as the submitter. The registry verifies the proof, requires
+that it names this chain, the calling wallet, that submitter and the policy,
+spends its digest (`DigestSpent` on reuse), and returns the identity, the
+key and the app. The wallet applies the result.
 
 - `addSessionByLogin(platformId, verifierVersion, payload, data, policy)`
-  (`libid.webwallet.add-session`) adds a session of a linked identity with no
+  (`libid.webwallet.add-session.v2`) adds a session of a linked identity with no
   admin signature. It is `byProof`, signs from the next second, and must
   pass the identity's app list (`AppNotListed`). A wallet that never had a
   session takes no session by login (`FirstSessionRefused`).
-- `removeSessionsByLogin(...)` (`libid.webwallet.remove-sessions`) kills
+- `removeSessionsByLogin(...)` (`libid.webwallet.remove-sessions.v2`) kills
   every session of the identity and voids every queued root operation. With
   an empty key it unlinks the identity, unless it is the genesis, and lowers
   the threshold to the platforms still linked. It never refuses for the last
   admin. With a key it keeps the link and adds the key as
   `addSessionByLogin` does, app list included.
-- `linkIdentity(...)` (`libid.webwallet.link-identity`) is the wallet's own
-  call.
+- `linkIdentity(...)` (`libid.webwallet.link-identity.v2`) is the wallet's
+  own call, so it names the wallet as its submitter.
 
 A proof's transaction data is
 
 ```solidity
-abi.encode(uint256 chainId, address wallet, bytes sessionKey, bytes32 policyHash)
+abi.encode(uint256 chainId, address wallet, address submitter, bytes sessionKey, bytes32 policyHash)
 ```
 
 canonically encoded, with `policyHash = policyHashOf(policy)`. An empty key
-carries policy hash 0. Under an Operation List (`libid.operations`) the
+carries policy hash 0. A zero submitter is refused (`ZeroSubmitter`), and
+any caller other than the one named (`WrongSubmitter`): a login placed in a
+signed batch cannot be copied out and submitted alone. The registry takes
+the submitter from the wallet's argument, never from ERC-2771 calldata. Under an Operation List (`libid.operations`) the
 proof commits `keccak256` of these bytes in a `libid.webwallet.*` entry and
 the call passes them as `data`. A proof of one operation passes empty
 `data`.
 
-A list holding more than one wallet entry for the same chain runs only one
-of them: the registry spends one digest per proof, and whoever submits first
-picks the entry. Put at most one wallet entry per chain in a list.
+A wallet takes one entry per list per chain: the registry spends one digest
+per proof, so a second wallet entry for the same chain never runs.
 
 The registry checks the operation's domain, so a link proof cannot serve as
 a login. A key that calls `check` directly spends its own proof and records
@@ -705,10 +710,6 @@ that signs from the next second.
   delegation after a revert.
 - **Leftover approvals** from code delegated to earlier: move the assets
   after an untrusted delegate.
-- **A copied login.** A login proof placed in a signed batch can be copied
-  out and submitted alone by anyone: its session is added, and the batch
-  then reverts `DigestSpent`. A link is the wallet's own call and cannot be
-  copied out this way.
 - **Re-adding a key with different rules** starts its counters fresh.
   Adding a session is an admin operation.
 - **No pause.** The JWT roots cannot drop a leaked key at once, and

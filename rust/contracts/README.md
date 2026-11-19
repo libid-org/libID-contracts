@@ -183,7 +183,8 @@ Other entry points:
   and ERC-1271's inner signature, with no prefix), and
   `Policy::policy_hash` with `Rules::sort_allowances`; the link
   and login operation domains (`LINK_IDENTITY_DOMAIN`, `ADD_SESSION_DOMAIN`,
-  `REMOVE_SESSIONS_DOMAIN`) and the `transaction_data` their proofs commit.
+  `REMOVE_SESSIONS_DOMAIN`) and the `transaction_data` their proofs commit,
+  naming the submitter that calls the wallet with them.
 
 ## Example: sign and send a wallet batch directly
 

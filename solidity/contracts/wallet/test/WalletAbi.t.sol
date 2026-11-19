@@ -191,7 +191,7 @@ contract WalletAbiTest is WalletBase {
 
     /// The selectors other releases and the forwarder call are frozen.
     function test_frozenSelectors() public pure {
-        assertEq(IWalletRegistry.check.selector, bytes4(0xd69684bd), "registry check");
+        assertEq(IWalletRegistry.check.selector, bytes4(0x2170e2ef), "registry check");
         assertEq(IWalletFactory.latest.selector, bytes4(0x52bfe789), "factory latest");
         assertEq(IWalletFactory.release.selector, bytes4(0x41fbbc31), "factory release");
         assertEq(IWalletCore.reset.selector, bytes4(0x12a20190), "reset");
@@ -202,9 +202,9 @@ contract WalletAbiTest is WalletBase {
     function test_pinnedValuesAndLayouts() public {
         bytes32 selector = bytes32(bytes4(keccak256("libid.webwallet.authorized"))) >> 48;
         assertEq(AUTHORIZED_MODE, bytes32(uint256(0x01) << 248) | selector, "AUTHORIZED_MODE");
-        assertEq(LINK_IDENTITY_DOMAIN, keccak256("libid.webwallet.link-identity"), "link domain");
-        assertEq(ADD_SESSION_DOMAIN, keccak256("libid.webwallet.add-session"), "add domain");
-        assertEq(REMOVE_SESSIONS_DOMAIN, keccak256("libid.webwallet.remove-sessions"), "remove domain");
+        assertEq(LINK_IDENTITY_DOMAIN, keccak256("libid.webwallet.link-identity.v2"), "link domain");
+        assertEq(ADD_SESSION_DOMAIN, keccak256("libid.webwallet.add-session.v2"), "add domain");
+        assertEq(REMOVE_SESSIONS_DOMAIN, keccak256("libid.webwallet.remove-sessions.v2"), "remove domain");
 
         // `{uint64 latest; mapping(uint64 => address) releases}`; `latest()` answers two words.
         bytes32 f = _erc7201("libid.storage.WalletFactory");
@@ -217,8 +217,8 @@ contract WalletAbiTest is WalletBase {
         // `check` answers `Checked` as one tuple; the digest is spent at `spentDigests[digest]`.
         bytes memory payload = _linkPayload(mallory, X, MALLORY, _key(MALLORY_PK), _admin());
         vm.prank(mallory);
-        (bool ok, bytes memory checked) =
-            address(registry).call(abi.encodeCall(IWalletRegistry.check, (LINK, X, V1, payload, "", _ph(_admin()))));
+        (bool ok, bytes memory checked) = address(registry)
+            .call(abi.encodeCall(IWalletRegistry.check, (LINK, X, V1, payload, "", mallory, _ph(_admin()))));
         assertTrue(ok, "check");
         bytes memory expected = abi.encodePacked(
             uint256(0x20), _identity(X, MALLORY), uint256(0x60), uint256(0xa0), uint256(20), bytes32(_key(MALLORY_PK))
@@ -301,19 +301,20 @@ contract WalletAbiTest is WalletBase {
         assertEq(REMOVE_SESSIONS_DOMAIN, vm.parseJsonBytes32(j, ".removeSessionsDomain"), "remove domain");
         vm.chainId(vm.parseJsonUint(j, ".chainId"));
         address w = vm.parseJsonAddress(j, ".wallet");
+        address submitter = vm.parseJsonAddress(j, ".submitter");
         bytes memory key = vm.parseJsonBytes(j, ".sessionKey");
         bytes32 policyHash = vm.parseJsonBytes32(j, ".policyHash");
         bytes memory keyed = vm.parseJsonBytes(j, ".keyedTransactionData");
         bytes memory keyless = vm.parseJsonBytes(j, ".keylessTransactionData");
-        assertEq(keyed, abi.encode(block.chainid, w, key, policyHash), "keyed");
-        assertEq(keyless, abi.encode(block.chainid, w, "", bytes32(0)), "keyless");
+        assertEq(keyed, abi.encode(block.chainid, w, submitter, key, policyHash), "keyed");
+        assertEq(keyless, abi.encode(block.chainid, w, submitter, "", bytes32(0)), "keyless");
 
         bytes memory payload = _payload(X, ALICE, ADD, keyed);
         vm.prank(w);
-        assertEq(registry.check(ADD, X, V1, payload, "", policyHash).key, key, "the registry's key");
+        assertEq(registry.check(ADD, X, V1, payload, "", submitter, policyHash).key, key, "the registry's key");
         payload = _payload(X, ALICE, LINK, keyless);
         vm.prank(w);
-        assertEq(registry.check(LINK, X, V1, payload, "", policyHash).key, bytes(""), "a link's key");
+        assertEq(registry.check(LINK, X, V1, payload, "", submitter, policyHash).key, bytes(""), "a link's key");
     }
 
     function _erc7201(string memory id) internal pure returns (bytes32) {

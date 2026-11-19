@@ -239,23 +239,28 @@ pub const AUTHORIZED_MODE: B256 =
 /// UserOperations may use any key.
 pub const DIRECT_NONCE_KEY: U192 = U192::ZERO;
 
-/// `keccak256("libid.webwallet.link-identity")`: a link proof's operation domain.
-pub const LINK_IDENTITY_DOMAIN: B256 =
-    b256!("0xb76778e70fe9491d05f3d66a477c7f1cb97c40b477b88d0c00442e80bcc4e15c");
-/// `keccak256("libid.webwallet.add-session")`: `addSessionByLogin`'s domain.
-pub const ADD_SESSION_DOMAIN: B256 =
-    b256!("0xadc0929729a450db24efd5992bbc0f04693c7d8e9d706da31c8cca0a429d1d59");
-/// `keccak256("libid.webwallet.remove-sessions")`: `removeSessionsByLogin`'s
+/// `keccak256("libid.webwallet.link-identity.v2")`: a link proof's operation
 /// domain.
+pub const LINK_IDENTITY_DOMAIN: B256 =
+    b256!("0xc54c5212c2b86ae85d3512fac77763a8c85db053325daa622553f8d8e3e9317c");
+/// `keccak256("libid.webwallet.add-session.v2")`: `addSessionByLogin`'s
+/// domain.
+pub const ADD_SESSION_DOMAIN: B256 =
+    b256!("0x7fc89e16ebf11143534bd43e4c66eec788fbe6ad2b136b94076fdd20785c81d3");
+/// `keccak256("libid.webwallet.remove-sessions.v2")`:
+/// `removeSessionsByLogin`'s domain.
 pub const REMOVE_SESSIONS_DOMAIN: B256 =
-    b256!("0x7cabdd831000d819c7b2ae4f79b4d6b566aa21992764e735f944b1459cb43c1b");
+    b256!("0x38622a2e4869524e17fb3b190422abe5797dfb9ae1577aedd96ec002d8fbc897");
 
 /// The transaction data a link or login proof commits:
-/// `abi.encode(chainId, wallet, key, policyHash)`, where an empty `key` (a
-/// link only, or a removal) commits policy hash 0.
+/// `abi.encode(chainId, wallet, submitter, key, policyHash)`, where an empty
+/// `key` (a link only, or a removal) commits policy hash 0. `submitter` is
+/// the address that calls the wallet with the proof: the wallet itself for a
+/// link or for a login in its own batch.
 pub fn transaction_data(
     chain_id: u64,
     wallet: Address,
+    submitter: Address,
     key: &Bytes,
     policy: &Policy,
 ) -> Bytes {
@@ -264,7 +269,13 @@ pub fn transaction_data(
     } else {
         policy.policy_hash()
     };
-    (U256::from(chain_id), wallet, key.clone(), policy_hash)
+    (
+        U256::from(chain_id),
+        wallet,
+        submitter,
+        key.clone(),
+        policy_hash,
+    )
         .abi_encode_params()
         .into()
 }
@@ -504,6 +515,7 @@ mod tests {
         link_identity_domain: B256,
         add_session_domain: B256,
         remove_sessions_domain: B256,
+        submitter: Address,
         policy: VectorPolicy,
         rules_hash: B256,
         policy_hash: B256,
@@ -582,17 +594,17 @@ mod tests {
         for (constant, name, expected) in [
             (
                 LINK_IDENTITY_DOMAIN,
-                "libid.webwallet.link-identity",
+                "libid.webwallet.link-identity.v2",
                 v.link_identity_domain,
             ),
             (
                 ADD_SESSION_DOMAIN,
-                "libid.webwallet.add-session",
+                "libid.webwallet.add-session.v2",
                 v.add_session_domain,
             ),
             (
                 REMOVE_SESSIONS_DOMAIN,
-                "libid.webwallet.remove-sessions",
+                "libid.webwallet.remove-sessions.v2",
                 v.remove_sessions_domain,
             ),
         ] {
@@ -602,11 +614,11 @@ mod tests {
         let policy = Policy::from(v.policy);
         assert_eq!(policy.policy_hash(), v.policy_hash);
         assert_eq!(
-            transaction_data(v.chain_id, v.wallet, &v.session_key, &policy),
+            transaction_data(v.chain_id, v.wallet, v.submitter, &v.session_key, &policy),
             v.keyed_transaction_data
         );
         assert_eq!(
-            transaction_data(v.chain_id, v.wallet, &Bytes::new(), &policy),
+            transaction_data(v.chain_id, v.wallet, v.submitter, &Bytes::new(), &policy),
             v.keyless_transaction_data
         );
     }

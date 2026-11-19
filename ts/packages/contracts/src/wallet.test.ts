@@ -54,6 +54,7 @@ interface Vector {
   linkIdentityDomain: Hex
   addSessionDomain: Hex
   removeSessionsDomain: Hex
+  submitter: Address
   policy: {
     validAfter: number
     validUntil: number
@@ -138,18 +139,20 @@ describe('the client helpers', () => {
   it('match the operation domains and transaction data of the vector', () => {
     const v = VECTOR
     for (const [constant, name, expected] of [
-      [LINK_IDENTITY_DOMAIN, 'libid.webwallet.link-identity', v.linkIdentityDomain],
-      [ADD_SESSION_DOMAIN, 'libid.webwallet.add-session', v.addSessionDomain],
-      [REMOVE_SESSIONS_DOMAIN, 'libid.webwallet.remove-sessions', v.removeSessionsDomain],
+      [LINK_IDENTITY_DOMAIN, 'libid.webwallet.link-identity.v2', v.linkIdentityDomain],
+      [ADD_SESSION_DOMAIN, 'libid.webwallet.add-session.v2', v.addSessionDomain],
+      [REMOVE_SESSIONS_DOMAIN, 'libid.webwallet.remove-sessions.v2', v.removeSessionsDomain],
     ] as const) {
       expect(constant).toBe(keccak256(toHex(name)))
       expect(constant).toBe(expected)
     }
     expect(policyHashOf(POLICY)).toBe(v.policyHash)
-    expect(walletTransactionData(v.chainId, v.wallet, v.sessionKey, POLICY)).toBe(
+    expect(walletTransactionData(v.chainId, v.wallet, v.submitter, v.sessionKey, POLICY)).toBe(
       v.keyedTransactionData,
     )
-    expect(walletTransactionData(v.chainId, v.wallet, '0x', POLICY)).toBe(v.keylessTransactionData)
+    expect(walletTransactionData(v.chainId, v.wallet, v.submitter, '0x', POLICY)).toBe(
+      v.keylessTransactionData,
+    )
   })
 })
 

@@ -282,9 +282,11 @@ An ERC-1271 signature is the same encoding at `at` 0, with no prefix, inside
 the ERC-7739 wrapper. Sort a policy's allowances with `sortAllowances` before
 `policyHashOf` and building calls.
 
-A link or login proof commits `walletTransactionData(chainId, wallet, key,
-policy)` under one of `LINK_IDENTITY_DOMAIN`, `ADD_SESSION_DOMAIN` and
-`REMOVE_SESSIONS_DOMAIN`; an empty key commits policy hash 0.
+A link or login proof commits `walletTransactionData(chainId, wallet,
+submitter, key, policy)` under one of `LINK_IDENTITY_DOMAIN`,
+`ADD_SESSION_DOMAIN` and `REMOVE_SESSIONS_DOMAIN`; an empty key commits policy
+hash 0. The submitter is the address that calls the wallet with the proof:
+the wallet itself for a link or for a login in its own batch.
 
 ## Normalizing a handle locally
 

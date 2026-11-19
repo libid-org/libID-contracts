@@ -42,6 +42,7 @@ contract WalletRegistry is IWalletRegistry, UUPSUpgradeable, Ownable2StepUpgrade
         uint16 verifierVersion,
         bytes calldata payload,
         bytes calldata data,
+        address submitter,
         bytes32 policyHash
     ) external payable returns (Checked memory) {
         if (domain != LINK_IDENTITY_DOMAIN && domain != ADD_SESSION_DOMAIN && domain != REMOVE_SESSIONS_DOMAIN) {
@@ -64,7 +65,7 @@ contract WalletRegistry is IWalletRegistry, UUPSUpgradeable, Ownable2StepUpgrade
         }
         if (entry != domain) revert WrongOperationDomain(domain, entry);
         if (claimed.idNode == bytes32(0)) revert NoId();
-        bytes memory key = _key(txData, policyHash);
+        bytes memory key = _key(txData, submitter, policyHash);
         WalletRegistryStorage storage $ = _s();
         if ($.spentDigests[claimed.sessionId]) revert DigestSpent(claimed.sessionId);
         $.spentDigests[claimed.sessionId] = true;
@@ -96,19 +97,22 @@ contract WalletRegistry is IWalletRegistry, UUPSUpgradeable, Ownable2StepUpgrade
         revert RenounceDisabled();
     }
 
-    /// The session key of canonical transaction data naming this chain and the caller; a key commits
+    /// The session key of canonical transaction data naming this chain, the caller and `submitter`; a key commits
     /// `policyHash`, an empty key none.
-    function _key(bytes memory data, bytes32 policyHash) private view returns (bytes memory key) {
+    function _key(bytes memory data, address submitter, bytes32 policyHash) private view returns (bytes memory key) {
         uint256 chainId;
         address wallet;
+        address named;
         bytes32 committed;
-        (chainId, wallet, key, committed) = abi.decode(data, (uint256, address, bytes, bytes32));
+        (chainId, wallet, named, key, committed) = abi.decode(data, (uint256, address, address, bytes, bytes32));
         // Canonical: re-encoding gives back the same bytes (REQ-COMMON-01F).
-        if (keccak256(abi.encode(chainId, wallet, key, committed)) != keccak256(data)) {
+        if (keccak256(abi.encode(chainId, wallet, named, key, committed)) != keccak256(data)) {
             revert BadTransactionData(data.length);
         }
         if (chainId != block.chainid) revert WrongChain(chainId);
         if (wallet != msg.sender) revert WrongWallet(msg.sender, wallet);
+        if (named == address(0)) revert ZeroSubmitter();
+        if (named != submitter) revert WrongSubmitter(submitter, named);
         if (key.length == 0) {
             if (committed != 0) revert BadTransactionData(data.length);
         } else if (committed != policyHash) {

@@ -63,7 +63,7 @@ contract IdentityAdmin is IIdentityAdmin {
         _add(c.identity, c.key, policy, 0, false, rulesHash, policyHash);
     }
 
-    /// Anyone: a login of a linked identity adds its session, from the next second.
+    /// The submitter a login names: the login of a linked identity adds its session, from the next second.
     function addSessionByLogin(
         bytes32 platformId,
         uint16 verifierVersion,
@@ -80,9 +80,9 @@ contract IdentityAdmin is IIdentityAdmin {
         );
     }
 
-    /// Anyone: a login kills every session of a linked identity and voids every queued root operation. With no
-    /// key it unlinks the identity unless it is the genesis; with a key it keeps the link and adds the key as
-    /// `addSessionByLogin` does.
+    /// The submitter a login names: the login kills every session of a linked identity and voids every queued root
+    /// operation. With no key it unlinks the identity unless it is the genesis; with a key it keeps the link and adds
+    /// the key as `addSessionByLogin` does.
     function removeSessionsByLogin(
         bytes32 platformId,
         uint16 verifierVersion,
@@ -295,7 +295,7 @@ contract IdentityAdmin is IIdentityAdmin {
         policyHash = policyHashFrom(policy.validAfter, policy.validUntil, policy.admin, policy.signers, rulesHash);
     }
 
-    /// The registry's check of a proof for this wallet, forwarding the whole value.
+    /// The registry's check of a proof for this wallet, submitted by the wallet's caller, forwarding the whole value.
     function _check(
         bytes32 domain,
         bytes32 platformId,
@@ -305,7 +305,7 @@ contract IdentityAdmin is IIdentityAdmin {
         bytes32 policyHash
     ) private returns (IWalletRegistry.Checked memory) {
         return IWalletRegistry(IWebWallet(address(this)).REGISTRY()).check{value: msg.value}(
-            domain, platformId, verifierVersion, payload, data, policyHash
+            domain, platformId, verifierVersion, payload, data, msg.sender, policyHash
         );
     }
 
