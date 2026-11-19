@@ -130,7 +130,7 @@ interface IWebWallet {
     /// The batch is not `abi.encode(Execution[])` of the calls it decodes to.
     error NoncanonicalBatch();
     /// `msg.value` is not the signed `value`.
-    error WrongValue(uint256 value, uint256 sent);
+    error WrongBatchValue(uint256 value, uint256 sent);
     /// The gas left before a call would give it less than the signed `callGas`.
     error InsufficientCallGas(uint256 callGas, uint256 left);
     /// The signed `deadline` is zero or has passed.

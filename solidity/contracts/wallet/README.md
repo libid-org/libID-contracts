@@ -208,7 +208,7 @@ The wallet:
 
 1. requires `executionCalldata` to be exactly `abi.encode(Execution[])` of
    the calls it decodes to, else `NoncanonicalBatch`;
-2. requires `msg.value == value`, else `WrongValue`;
+2. requires `msg.value == value`, else `WrongBatchValue`;
 3. reads and consumes its EntryPoint nonce under key 0
    (`EntryPointMissing` when the EntryPoint has no code on the chain);
 4. reads the threshold and its EIP-712 domain separator;

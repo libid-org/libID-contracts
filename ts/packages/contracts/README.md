@@ -219,9 +219,7 @@ omits. `honkVerifierErrorsAbi` declares them under bb's names, and
 `walletRegistryErrorsAbi` does the same for a wallet's `linkIdentity`,
 `addSessionByLogin` and `removeSessionsByLogin`: WalletRegistry, the same
 proof route, then the wallet's own errors (`AppNotListed`,
-`FirstSessionRefused`, …). The Proof Verifier and the wallet both declare
-`WrongValue(uint256,uint256)`, so the selector alone does not say which one
-reverted.
+`FirstSessionRefused`, …).
 
 ## Executing a wallet batch directly
 

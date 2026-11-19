@@ -461,7 +461,7 @@ contract WalletExecuteTest is WalletSuite {
         bytes memory auth = _direct(w, _pks(ALICE_PK), hit, false);
         vm.deal(relayer, 1);
         vm.prank(relayer);
-        vm.expectRevert(abi.encodeWithSelector(IWebWallet.WrongValue.selector, 0, 1));
+        vm.expectRevert(abi.encodeWithSelector(IWebWallet.WrongBatchValue.selector, 0, 1));
         IWebWallet(w).execute{value: 1}(AUTHORIZED_MODE, _data(hit, auth));
         signedValue = 1;
         _refuses(w, hit, auth, NOT_SIGNED);

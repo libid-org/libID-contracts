@@ -329,6 +329,13 @@ mod tests {
                 "NotLinked",
                 revert("NotLinked(bytes32)", BOUND.abi_encode()),
             ),
+            (
+                "WrongBatchValue",
+                revert(
+                    "WrongBatchValue(uint256,uint256)",
+                    (U256::from(5), U256::from(6)).abi_encode_params(),
+                ),
+            ),
         ] {
             let error = WalletRegistryError::decode(&data).expect(name);
             assert!(matches!(error, WalletRegistryError::Wallet(_)), "{name}");
@@ -336,15 +343,14 @@ mod tests {
             assert_eq!(error.contracts(), ["WebWallet"]);
         }
 
-        // The Proof Verifier and the wallet both declare it; the earlier hop names it.
+        // A wrong fee is the Proof Verifier's alone: the wallet's own is `WrongBatchValue`.
         let data = revert(
             "WrongValue(uint256,uint256)",
             (U256::from(5), U256::from(6)).abi_encode_params(),
         );
         let error = WalletRegistryError::decode(&data).expect("decodes");
         assert!(matches!(error, WalletRegistryError::ProofVerifier(_)));
-        let contracts = error.contracts();
-        assert_eq!(contracts.first(), Some(&"CeremonyProofVerifier"));
-        assert_eq!(contracts.last(), Some(&"WebWallet"));
+        assert_eq!(error.contracts().first(), Some(&"CeremonyProofVerifier"));
+        assert!(!error.contracts().contains(&"WebWallet"));
     }
 }

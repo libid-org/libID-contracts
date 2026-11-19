@@ -179,7 +179,7 @@ contract WebWallet is Account, ERC721Holder, ERC1155Holder {
         // The signers sign these bytes alone, so no call may be read from outside them.
         if (!canonical) revert IWebWallet.NoncanonicalBatch();
         (uint256 value, uint48 deadline, uint256 callGas) = abi.decode(data[32:128], (uint256, uint48, uint256));
-        if (msg.value != value) revert IWebWallet.WrongValue(value, msg.value);
+        if (msg.value != value) revert IWebWallet.WrongBatchValue(value, msg.value);
         IEntryPoint ep = entryPoint();
         if (address(ep).code.length == 0) revert IWebWallet.EntryPointMissing(address(ep));
         uint256 nonce = ep.getNonce(address(this), 0);
