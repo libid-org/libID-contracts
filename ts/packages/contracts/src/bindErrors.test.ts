@@ -57,7 +57,7 @@ describe('bindErrorsAbi', () => {
 })
 
 describe('walletRegistryErrorsAbi', () => {
-  it('names the errors of every contract on the route, the wallet last', () => {
+  it('names the errors of every contract on the route, the factory last', () => {
     const cases: [string, `0x${string}`][] = [
       ['DataWithoutList', selector('DataWithoutList()')],
       [
@@ -70,6 +70,16 @@ describe('walletRegistryErrorsAbi', () => {
       ['LinkSessionRefused', selector('LinkSessionRefused()')],
       ['AppNotListed', concatHex([selector('AppNotListed(bytes32)'), PROVED])],
       ['NotLinked', concatHex([selector('NotLinked(bytes32)'), PROVED])],
+      [
+        'UnknownSelector',
+        concatHex([selector('UnknownSelector(bytes4)'), pad('0xdeadbeef', { dir: 'right' })]),
+      ],
+      ['NotSetUp', selector('NotSetUp()')],
+      ['TargetDeployFailed', selector('TargetDeployFailed()')],
+      [
+        'WrongReleaseVersion',
+        concatHex([selector('WrongReleaseVersion(uint64,uint64)'), pad('0x01'), pad('0x02')]),
+      ],
     ]
     for (const [name, data] of cases) {
       expect(decodeErrorResult({ abi: walletRegistryErrorsAbi, data }).errorName).toBe(name)

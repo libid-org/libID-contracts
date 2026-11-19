@@ -110,6 +110,8 @@ ROUTES = (
     ),
     # The wallet's `linkIdentity`, `addSessionByLogin` and `removeSessionsByLogin`
     # call the registry's `check`, then apply its result under their own rules.
+    # An EIP-7702 account reaches the wallet through its forwarder; a factory
+    # wallet's onboarding, through `createAndExecute`.
     Route(
         "a `WalletRegistry` link or login",
         "WalletRegistryError",
@@ -119,6 +121,14 @@ ROUTES = (
             Hop("WalletRegistry", "Registry", "WalletRegistry", "wallet"),
             *PROOF,
             Hop("IWebWallet", "Wallet", "WebWallet", "wallet"),
+            Hop("WalletForwarder", "Forwarder", "WalletForwarder", "wallet"),
+            Hop(
+                "WalletFactory",
+                "Factory",
+                "WalletFactory",
+                "wallet",
+                "`WalletFactory`, with the `Create3` errors of `createAndExecute`.",
+            ),
         ),
         "NotLinked(bytes32)",
     ),

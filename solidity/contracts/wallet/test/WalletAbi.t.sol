@@ -176,6 +176,39 @@ contract WalletAbiTest is WalletBase {
         return ok && r.length == 32 && bytes32(r) == keccak256("routed to IdentityAdmin");
     }
 
+    /// A selector no entry has reverts by name.
+    function test_anUnknownSelectorRevertsByName() public {
+        address w = _claim();
+        (bool ok, bytes memory err) = w.call(abi.encodePacked(bytes4(0xdeadbeef), new bytes(64)));
+        assertFalse(ok, "answered");
+        assertEq(err, abi.encodeWithSelector(IWebWallet.UnknownSelector.selector, bytes4(0xdeadbeef)), "error");
+    }
+
+    /// A release whose IdentityAdmin or SessionRules has no code does not deploy.
+    function test_aReleaseNeedsCodeAtItsTargets() public {
+        address none = makeAddr("no code");
+        bytes memory code = vm.getCode("WebWallet.sol:WebWallet");
+        vm.expectRevert(abi.encodeWithSelector(IWebWallet.TargetWithoutCode.selector, none));
+        this.create(bytes.concat(code, abi.encode(factory, registry, 2, none, sessionRules)));
+        vm.expectRevert(abi.encodeWithSelector(IWebWallet.TargetWithoutCode.selector, none));
+        this.create(bytes.concat(code, abi.encode(factory, registry, 2, identityAdmin, none)));
+        assertGt(
+            this.create(bytes.concat(code, abi.encode(factory, registry, 2, identityAdmin, sessionRules))).code.length,
+            0
+        );
+    }
+
+    /// Deploys `initcode`; a revert bubbles.
+    function create(bytes memory initcode) external returns (address d) {
+        assembly ("memory-safe") {
+            d := create(0, add(initcode, 0x20), mload(initcode))
+            if iszero(d) {
+                returndatacopy(0, 0, returndatasize())
+                revert(0, returndatasize())
+            }
+        }
+    }
+
     /// Each target refuses a call at its own address.
     function test_targetsRefuseDirectCalls() public {
         address[2] memory targets = [identityAdmin, sessionRules];

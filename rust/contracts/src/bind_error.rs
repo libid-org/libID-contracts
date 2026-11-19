@@ -300,7 +300,8 @@ mod tests {
     }
 
     /// A wallet link or login's revert decodes against its own route: the
-    /// registry, the proof hops, then the wallet's own errors.
+    /// registry, the proof hops, the wallet's own errors, then the forwarder's
+    /// and the factory's.
     #[test]
     fn names_a_wallet_registry_refusal() {
         let error = WalletRegistryError::decode(&revert("DataWithoutList()", vec![]))
@@ -341,6 +342,24 @@ mod tests {
             assert!(matches!(error, WalletRegistryError::Wallet(_)), "{name}");
             assert_eq!(error.name(), name);
             assert_eq!(error.contracts(), ["WebWallet"]);
+        }
+
+        let mut selector = [0u8; 32];
+        selector[..4].copy_from_slice(&[0xde, 0xad, 0xbe, 0xef]);
+        let error = WalletRegistryError::decode(&revert(
+            "UnknownSelector(bytes4)",
+            selector.to_vec(),
+        ))
+        .expect("decodes");
+        assert!(matches!(error, WalletRegistryError::Wallet(_)));
+        let error =
+            WalletRegistryError::decode(&revert("NotSetUp()", vec![])).expect("decodes");
+        assert!(matches!(error, WalletRegistryError::Forwarder(_)));
+        assert_eq!(error.contracts(), ["WalletForwarder"]);
+        for name in ["TargetDeployFailed()", "ProxyDeployFailed()"] {
+            let error = WalletRegistryError::decode(&revert(name, vec![])).expect(name);
+            assert!(matches!(error, WalletRegistryError::Factory(_)), "{name}");
+            assert_eq!(error.contracts(), ["WalletFactory"]);
         }
 
         // A wrong fee is the Proof Verifier's alone: the wallet's own is `WrongBatchValue`.

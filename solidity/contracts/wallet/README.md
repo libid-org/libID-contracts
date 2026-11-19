@@ -95,8 +95,9 @@ owner is a requirement on the deployment, and nothing here checks it.
 (`ImplementationWithoutCode`), reports `VERSION() == latest + 1`
 (`WrongReleaseVersion`), `FACTORY() == factory` (`WrongReleaseFactory`) and
 `REGISTRY() == factory.REGISTRY()` (`WrongReleaseRegistry`). A version is
-never published twice. `publish` does not check a release's `IdentityAdmin`
-or `SessionRules`.
+never published twice. A release does not deploy unless its `IdentityAdmin`
+and `SessionRules` have code (`TargetWithoutCode`); `publish` does not check
+them further.
 
 A later release is `WebWallet(factory, registry, n, identityAdmin,
 sessionRules)` with the next `n`, published the same way.

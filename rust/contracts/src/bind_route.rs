@@ -26,6 +26,8 @@ use crate::bindings::{
     referral::ReferralSplitter::ReferralSplitterErrors,
     wallet::{
         IWebWallet::IWebWalletErrors,
+        WalletFactory::WalletFactoryErrors,
+        WalletForwarder::WalletForwarderErrors,
         WalletRegistry::WalletRegistryErrors,
     },
 };
@@ -168,13 +170,17 @@ pub enum WalletRegistryError {
     HonkVerifier(IHonkVerifierErrorsErrors),
     /// `WebWallet`.
     Wallet(IWebWalletErrors),
+    /// `WalletForwarder`.
+    Forwarder(WalletForwarderErrors),
+    /// `WalletFactory`, with the `Create3` errors of `createAndExecute`.
+    Factory(WalletFactoryErrors),
     /// A Solidity `Panic(uint256)`, with its code: a failed `assert`, an
     /// overflow, an index out of bounds, in any contract on the route.
     Panic(U256),
 }
 
 /// The route's error sets, in the order `WalletRegistryError::decode` tries them.
-pub(crate) const WALLET_REGISTRY_ROUTE: [(&str, Declares, Decode<WalletRegistryError>); 9] = [
+pub(crate) const WALLET_REGISTRY_ROUTE: [(&str, Declares, Decode<WalletRegistryError>); 11] = [
     (
         "WalletRegistry",
         WalletRegistryErrors::valid_selector,
@@ -220,6 +226,16 @@ pub(crate) const WALLET_REGISTRY_ROUTE: [(&str, Declares, Decode<WalletRegistryE
         IWebWalletErrors::valid_selector,
         |d| IWebWalletErrors::abi_decode(d).ok().map(WalletRegistryError::Wallet),
     ),
+    (
+        "WalletForwarder",
+        WalletForwarderErrors::valid_selector,
+        |d| WalletForwarderErrors::abi_decode(d).ok().map(WalletRegistryError::Forwarder),
+    ),
+    (
+        "WalletFactory",
+        WalletFactoryErrors::valid_selector,
+        |d| WalletFactoryErrors::abi_decode(d).ok().map(WalletRegistryError::Factory),
+    ),
 ];
 
 impl WalletRegistryError {
@@ -234,6 +250,8 @@ impl WalletRegistryError {
             Self::NotaryService(e) => NotaryServiceErrors::signature_by_selector(e.selector()),
             Self::HonkVerifier(e) => IHonkVerifierErrorsErrors::signature_by_selector(e.selector()),
             Self::Wallet(e) => IWebWalletErrors::signature_by_selector(e.selector()),
+            Self::Forwarder(e) => WalletForwarderErrors::signature_by_selector(e.selector()),
+            Self::Factory(e) => WalletFactoryErrors::signature_by_selector(e.selector()),
             Self::Panic(_) => Some(Panic::SIGNATURE),
         }
         .unwrap_or("unknown")
@@ -250,6 +268,8 @@ impl WalletRegistryError {
             Self::NotaryService(e) => e.selector(),
             Self::HonkVerifier(e) => e.selector(),
             Self::Wallet(e) => e.selector(),
+            Self::Forwarder(e) => e.selector(),
+            Self::Factory(e) => e.selector(),
             Self::Panic(_) => Panic::SELECTOR,
         }
     }

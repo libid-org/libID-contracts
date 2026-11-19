@@ -116,6 +116,10 @@ interface IWebWallet {
     error EntryPointMissing(address entryPoint);
     error ResetRefused();
     error InitializeRefused();
+    /// A release's IdentityAdmin or SessionRules has no code.
+    error TargetWithoutCode(address target);
+    /// No entry of the wallet has this selector.
+    error UnknownSelector(bytes4 selector);
     error DataStepRefused();
     error NotDelegated();
     /// Only the wallet's own call.

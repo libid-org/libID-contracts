@@ -59,6 +59,8 @@ contract WebWallet is Account, ERC721Holder, ERC1155Holder {
     bytes32 private constant ERC7739_PROBE = 0x7739773977397739773977397739773977397739773977397739773977397739;
 
     constructor(address factory, address registry, uint64 version, address identityAdmin, address sessionRules) {
+        if (identityAdmin.code.length == 0) revert IWebWallet.TargetWithoutCode(identityAdmin);
+        if (sessionRules.code.length == 0) revert IWebWallet.TargetWithoutCode(sessionRules);
         (VERSION, FACTORY, REGISTRY, ADMIN, RULES) = (version, factory, registry, identityAdmin, sessionRules);
         VERSION_HASH = keccak256(bytes(Strings.toString(version)));
     }
@@ -66,7 +68,7 @@ contract WebWallet is Account, ERC721Holder, ERC1155Holder {
     /// Routes `IdentityAdmin`'s selectors to it.
     fallback() external payable {
         address target = _target(msg.sig);
-        if (target == address(0)) revert();
+        if (target == address(0)) revert IWebWallet.UnknownSelector(msg.sig);
         assembly ("memory-safe") {
             calldatacopy(0, 0, calldatasize())
             let ok := delegatecall(gas(), target, 0, calldatasize(), 0, 0)

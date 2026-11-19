@@ -32,4 +32,6 @@ export const walletRegistryRoute = [
   ['NotaryService.sol', 'NotaryService'],
   ['IHonkVerifierErrors.sol', 'IHonkVerifierErrors'],
   ['IWebWallet.sol', 'IWebWallet'],
+  ['WalletForwarder.sol', 'WalletForwarder'],
+  ['WalletFactory.sol', 'WalletFactory'],
 ]
