@@ -122,4 +122,24 @@ contract WalletRealProofTest is WalletBase {
         uint256 gas = used.gasTotalUsed - uint64(used.gasRefunded);
         vm.snapshotValue("wallet-claim", "createAndExecute onboarding(real X proof, operation list)", gas);
     }
+
+    /// The same onboarding on a stub proof: the wallet's share of the gas.
+    /// forge-config: gas.isolate = true
+    function test_oneCreateAndExecuteOnboardsOnOneStubListProof() public {
+        address w = factory.walletAddress(X, idNode, 0);
+        bytes memory linkData = _txData(w, _key(ALICE_PK), _ph(_admin()));
+        bytes memory list = _payload(X, idNode, OPERATIONS, operationList(BIND, abi.encode(w), LINK, linkData));
+        Execution[] memory x = new Execution[](2);
+        x[0] = _x(w, 0, abi.encodeCall(IWebWallet.linkIdentity, (X, V1, list, linkData, _admin())));
+        x[1] = _x(address(identities), 0, abi.encodeCall(IdentityRegistry.bindPrivately, (X, V1, list, 0, address(0))));
+        bytes memory data = _signedAt(w, 1, _pks(ALICE_PK), abi.encode(x), false);
+        vm.prank(relayer, relayer);
+        factory.createAndExecute(X, idNode, 0, AUTHORIZED_MODE, data);
+        Vm.Gas memory used = vm.lastFrameGas();
+
+        assertEq(identities.resolveId(idNode), w, "not bound");
+        // forge-lint: disable-next-line(unsafe-typecast)
+        uint256 gas = used.gasTotalUsed - uint64(used.gasRefunded);
+        vm.snapshotValue("wallet-claim", "createAndExecute onboarding(stub proof, operation list)", gas);
+    }
 }
