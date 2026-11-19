@@ -188,11 +188,12 @@ contract WebWallet is Account, ERC721Holder, ERC1155Holder {
         bytes32 domain = _domainSeparator();
         if (deadline == 0 || block.timestamp > deadline) revert IWebWallet.ExecutionExpired(deadline);
         for (uint256 i; i < batch.length; ++i) {
+            Execution calldata x = batch[i];
+            bytes memory callData = x.callData;
             if (gasleft() * 63 / 64 < callGas + CALL_OVERHEAD) {
                 revert IWebWallet.InsufficientCallGas(callGas, gasleft());
             }
-            Execution calldata x = batch[i];
-            _call(i, x.target, x.value, x.callData, false);
+            _call(i, x.target, x.value, callData, false);
         }
         IWebWallet.Authorization memory auth = abi.decode(bytesAt(data, 128), (IWebWallet.Authorization));
         bytes32 digest = domain.toTypedDataHash(
@@ -226,7 +227,7 @@ contract WebWallet is Account, ERC721Holder, ERC1155Holder {
 
     /// One call; `address(0)` is the wallet. A failure bubbles unwrapped, an empty one as `FailedCall`; under the try
     /// exec type it is reported.
-    function _call(uint256 i, address target, uint256 value, bytes calldata data, bool tryExec) private {
+    function _call(uint256 i, address target, uint256 value, bytes memory data, bool tryExec) private {
         (bool ok, bytes memory returned) = (target == address(0) ? address(this) : target).call{value: value}(data);
         if (ok) return;
         if (!tryExec) {

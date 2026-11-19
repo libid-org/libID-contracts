@@ -319,6 +319,16 @@ contract WalletExecuteTest is WalletSuite {
         assertGt(_sweep(w, two, probes, callGas, 2 * callGas, 2 * callGas * 33 / 32 + 600_000), 0, "control: two");
     }
 
+    /// Copying 256 KiB of call data costs more than `CALL_OVERHEAD`; the call still gets `callGas`.
+    function test_largeCallDataLeavesTheCallItsGas() public {
+        address w = _claim();
+        GasProbe[] memory probes = new GasProbe[](1);
+        probes[0] = new GasProbe();
+        uint256 callGas = 1_000_000;
+        bytes memory one = _one(_probeX(probes[0], 256 << 10));
+        assertGt(_sweep(w, one, probes, callGas, callGas, callGas + 2_500_000), 0, "control");
+    }
+
     // ─── Reentry ────────────────────────────────────────────────────
 
     /// The inner batch is signed for the nonce the outer one leaves: only the lock refuses it, inside a batch, the

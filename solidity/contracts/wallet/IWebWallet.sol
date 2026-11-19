@@ -6,8 +6,8 @@ import {PackedUserOperation} from "@openzeppelin/contracts/interfaces/IERC4337.s
 // The mode of a signed batch anyone may submit: batch call type, default exec type, and mode selector
 // `bytes4(keccak256("libid.webwallet.authorized"))`.
 bytes32 constant AUTHORIZED_MODE = 0x01000000000018f4a5a900000000000000000000000000000000000000000000;
-// The gas between the wallet's `callGas` check before each `AUTHORIZED_MODE` call and the call, which gets 63/64 of
-// what is left.
+// The gas between the wallet's `callGas` check before each `AUTHORIZED_MODE` call, its data already in memory, and
+// the call: a cold account, a value transfer and the call itself. The call gets 63/64 of what is left.
 uint256 constant CALL_OVERHEAD = 20_000;
 
 /// EntryPoint v0.9's `incrementNonce`, which OpenZeppelin's interface leaves out.
