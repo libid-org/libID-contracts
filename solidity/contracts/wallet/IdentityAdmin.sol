@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
+import {bytesFrom} from "./AbiBytes.sol";
 import {IWalletFactory} from "./IWalletFactory.sol";
 import {ADD_SESSION_DOMAIN, IWalletRegistry, LINK_IDENTITY_DOMAIN, REMOVE_SESSIONS_DOMAIN} from "./IWalletRegistry.sol";
 import {IWebWallet} from "./IWebWallet.sol";
@@ -436,10 +437,7 @@ contract IdentityAdmin {
     /// Runs a matured root operation, one of those `queueRoot` admits; a bump's to its queued implementation.
     function _root(bytes memory data, address implementation) private {
         bytes4 selector = bytes4(data);
-        bytes memory args = new bytes(data.length - 4);
-        for (uint256 i; i < args.length; ++i) {
-            args[i] = data[i + 4];
-        }
+        bytes memory args = bytesFrom(data, 4);
         if (selector == IWebWallet.bump.selector) _bump(abi.decode(args, (uint64)), implementation);
         else if (selector == IWebWallet.setThreshold.selector) _setThreshold(abi.decode(args, (uint8)));
         else if (selector == IWebWallet.setRootDelay.selector) _setRootDelay(abi.decode(args, (uint32)));

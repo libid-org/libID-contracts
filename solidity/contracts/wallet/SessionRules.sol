@@ -1,13 +1,12 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-import {PackedUserOperation} from "@openzeppelin/contracts/interfaces/IERC4337.sol";
 import {CallType, ERC7579Utils, Execution} from "@openzeppelin/contracts/account/utils/draft-ERC7579Utils.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {MerkleProof} from "@openzeppelin/contracts/utils/cryptography/MerkleProof.sol";
 
 import {NATIVE_TOKEN} from "../escrow/HandleEscrow.sol";
-import {executionsFit} from "./AbiBytes.sol";
+import {bytesFrom, executionsFit} from "./AbiBytes.sol";
 import {IWebWallet} from "./IWebWallet.sol";
 import {WalletStorage} from "./WalletStorage.sol";
 
@@ -29,26 +28,40 @@ contract SessionRules {
         address registry;
     }
 
+    /// What `allowed` reads of a UserOperation and its `Authorization`.
+    struct Operation {
+        bytes callData;
+        bytes paymasterAndData;
+        bytes32 accountGasLimits;
+        uint256 preVerificationGas;
+        bytes32 gasFees;
+        uint48 at;
+        IWebWallet.CallProof[] calls;
+        bytes32[] paymasterProof;
+    }
+
+    /// What `allowedExecution` reads of an `AUTHORIZED_MODE` batch and its `Authorization`.
+    struct Batch {
+        bytes executionCalldata;
+        uint48 at;
+        IWebWallet.CallProof[] calls;
+    }
+
     /// A UserOperation's `execute(mode, executionCalldata)` with mode selector 0, a batch encoded canonically.
-    /// `input` is `abi.encode(Verified v, PackedUserOperation userOp, Authorization auth, bool below,
-    /// address registry)`. Returns the verdict and `v` narrowed to the periods charged.
+    /// `input` is `abi.encode(Verified v, Operation op, bool below, address registry)`. Returns the verdict and
+    /// `v` narrowed to the periods charged.
     function allowed(bytes calldata input) external returns (bool, WalletStorage.Verified memory) {
         _delegated();
-        (
-            WalletStorage.Verified memory v,
-            PackedUserOperation memory op,
-            IWebWallet.Authorization memory auth,
-            bool below,
-            address registry
-        ) = abi.decode(input, (WalletStorage.Verified, PackedUserOperation, IWebWallet.Authorization, bool, address));
+        (WalletStorage.Verified memory v, Operation memory op, bool below, address registry) =
+            abi.decode(input, (WalletStorage.Verified, Operation, bool, address));
         bytes memory callData = op.callData;
         if (callData.length < 4 || bytes4(_word(callData, 0)) != IWebWallet.execute.selector) return (false, v);
-        (bytes32 mode, bytes memory executions) = abi.decode(_from(callData, 4), (bytes32, bytes));
+        (bytes32 mode, bytes memory executions) = abi.decode(bytesFrom(callData, 4), (bytes32, bytes));
         if (bytes4(mode << 48) != 0) return (false, v);
         CallType callType = CallType.wrap(mode[0]);
         bool batch = callType == ERC7579Utils.CALLTYPE_BATCH;
         if (!batch && !(callType == ERC7579Utils.CALLTYPE_SINGLE)) return (false, v);
-        Spend memory sp = Spend(v.keyHash, 0, 0, auth.at, below, 0, registry);
+        Spend memory sp = Spend(v.keyHash, 0, 0, op.at, below, 0, registry);
         // At quorum neither the paymaster nor the gas is read.
         if (below) {
             WalletStorage.SessionRecord storage s = WalletStorage.session(v.keyHash);
@@ -61,7 +74,7 @@ contract SessionRules {
                 if (
                     paymaster == address(0)
                         || !MerkleProof.verify(
-                            auth.paymasterProof, s.paymastersRoot, WalletStorage.leaf(abi.encode(paymaster))
+                            op.paymasterProof, s.paymastersRoot, WalletStorage.leaf(abi.encode(paymaster))
                         )
                 ) return (false, v);
             } else {
@@ -69,59 +82,49 @@ contract SessionRules {
                 sp.native = ((limits >> 128) + uint128(limits) + op.preVerificationGas) * uint128(uint256(op.gasFees));
             }
         }
-        return (_calls(v, sp, batch, executions, auth.calls), v);
+        Execution[] memory x;
+        if (batch) {
+            // The rules and the wallet read the same calls only from a canonical batch.
+            if (!executionsFit(executions)) return (false, v);
+            x = abi.decode(executions, (Execution[]));
+            if (keccak256(abi.encode(x)) != keccak256(executions)) return (false, v);
+        } else {
+            if (executions.length < 52) return (false, v);
+            x = new Execution[](1);
+            x[0] = Execution(
+                address(bytes20(_word(executions, 0))), uint256(_word(executions, 20)), bytesFrom(executions, 52)
+            );
+        }
+        return (_calls(v, sp, x, op.calls), v);
     }
 
-    /// An `AUTHORIZED_MODE` batch, with no paymaster and no gas charge. `input` is `abi.encode(Verified v,
-    /// bytes executionCalldata, Authorization auth, bool below, address registry)`. Payable: the delegatecall
-    /// keeps the batch's value.
+    /// An `AUTHORIZED_MODE` batch below quorum, with no paymaster and no gas charge. `input` is
+    /// `abi.encode(Verified v, Batch b, address registry)`, the batch one the wallet found canonical, so it
+    /// decodes unchecked. Payable: the delegatecall keeps the batch's value.
     function allowedExecution(bytes calldata input) external payable returns (bool, WalletStorage.Verified memory) {
         _delegated();
-        (
-            WalletStorage.Verified memory v,
-            bytes memory executions,
-            IWebWallet.Authorization memory auth,
-            bool below,
-            address registry
-        ) = abi.decode(input, (WalletStorage.Verified, bytes, IWebWallet.Authorization, bool, address));
-        Spend memory sp = Spend(v.keyHash, 0, 0, auth.at, below, 0, registry);
-        if (below) {
-            WalletStorage.SessionRecord storage s = WalletStorage.session(v.keyHash);
-            (sp.scopeRoot, sp.rulesHash) = (s.scopeRoot, s.rulesHash);
-        }
-        return (_calls(v, sp, true, executions, auth.calls), v);
+        (WalletStorage.Verified memory v, Batch memory b, address registry) =
+            abi.decode(input, (WalletStorage.Verified, Batch, address));
+        WalletStorage.SessionRecord storage s = WalletStorage.session(v.keyHash);
+        Spend memory sp = Spend(v.keyHash, s.scopeRoot, s.rulesHash, b.at, true, 0, registry);
+        return (_calls(v, sp, abi.decode(b.executionCalldata, (Execution[])), b.calls), v);
     }
 
     function _delegated() private view {
         if (address(this) == SELF) revert IWebWallet.NotDelegated();
     }
 
-    /// Single or batch calls, each passing `_execution`. Below quorum, at least one, and the native value charged
-    /// to `NATIVE_TOKEN` with `sp.native`.
+    /// The calls, each passing `_execution`. Below quorum, at least one, and the native value charged to
+    /// `NATIVE_TOKEN` with `sp.native`.
     function _calls(
         WalletStorage.Verified memory v,
         Spend memory sp,
-        bool batch,
-        bytes memory executions,
+        Execution[] memory x,
         IWebWallet.CallProof[] memory proofs
     ) private returns (bool) {
-        bool below = sp.below;
-        if (batch) {
-            // The rules and the wallet read the same calls only from a canonical batch.
-            if (!executionsFit(executions)) return false;
-            Execution[] memory x = abi.decode(executions, (Execution[]));
-            if (keccak256(abi.encode(x)) != keccak256(executions)) return false;
-            if (below && (x.length == 0 || proofs.length != x.length)) return false;
-            for (uint256 i; i < x.length; ++i) {
-                if (!_execution(v, sp, x[i].target, x[i].value, x[i].callData, proofs, i)) return false;
-            }
-        } else {
-            if (below && proofs.length != 1) return false;
-            if (executions.length < 52) return false;
-            address target = address(bytes20(_word(executions, 0)));
-            if (!_execution(v, sp, target, uint256(_word(executions, 20)), _from(executions, 52), proofs, 0)) {
-                return false;
-            }
+        if (sp.below && (x.length == 0 || proofs.length != x.length)) return false;
+        for (uint256 i; i < x.length; ++i) {
+            if (!_execution(v, sp, x[i].target, x[i].value, x[i].callData, proofs, i)) return false;
         }
         return
             sp.native == 0
@@ -199,13 +202,5 @@ contract SessionRules {
             w := mload(add(add(b, 0x20), at))
         }
         if (b.length < at + 32) w &= ~bytes32(type(uint256).max >> (8 * (b.length > at ? b.length - at : 0)));
-    }
-
-    /// `b` from `at` on.
-    function _from(bytes memory b, uint256 at) private pure returns (bytes memory r) {
-        r = new bytes(b.length - at);
-        for (uint256 i; i < r.length; ++i) {
-            r[i] = b[at + i];
-        }
     }
 }

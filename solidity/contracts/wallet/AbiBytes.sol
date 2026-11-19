@@ -104,6 +104,17 @@ function executionsFit(bytes memory b) pure returns (bool) {
     return at == length;
 }
 
+/// `b` from `at` on, copied with `mcopy`.
+function bytesFrom(bytes memory b, uint256 at) pure returns (bytes memory r) {
+    uint256 n = b.length - at;
+    assembly ("memory-safe") {
+        r := mload(0x40)
+        mstore(r, n)
+        mcopy(add(r, 0x20), add(add(b, 0x20), at), n)
+        mstore(0x40, and(add(add(r, 0x3f), n), not(0x1f)))
+    }
+}
+
 function _mwordAt(bytes memory b, uint256 at) pure returns (uint256 w) {
     assembly ("memory-safe") {
         w := mload(add(add(b, 0x20), at))

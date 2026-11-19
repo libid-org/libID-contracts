@@ -207,8 +207,8 @@ contract WebWallet is Account, ERC721Holder, ERC1155Holder {
         if (!ok || v.activeAt >= block.timestamp) revert IWebWallet.ExecutionNotSigned();
         // At quorum the rules allow any canonical batch, which this one is.
         if (below) {
-            (ok, v) =
-                _rules(abi.encodeCall(SessionRules.allowedExecution, (abi.encode(v, calls, auth, below, REGISTRY))));
+            SessionRules.Batch memory b = SessionRules.Batch(calls, auth.at, auth.calls);
+            (ok, v) = _rules(abi.encodeCall(SessionRules.allowedExecution, (abi.encode(v, b, REGISTRY))));
             if (!ok) revert IWebWallet.ExecutionNotAllowed();
         }
         if (!_inWindow(v)) revert IWebWallet.ExecutionOutsideWindow();
@@ -253,7 +253,17 @@ contract WebWallet is Account, ERC721Holder, ERC1155Holder {
         WalletStorage.Verified memory v;
         (ok, below, v) = _signers(_signableUserOpHash(userOp, userOpHash), auth, WalletStorage.threshold());
         if (!ok) return ERC4337Utils.SIG_VALIDATION_FAILED;
-        (ok, v) = _rules(abi.encodeCall(SessionRules.allowed, (abi.encode(v, userOp, auth, below, REGISTRY))));
+        SessionRules.Operation memory op = SessionRules.Operation({
+            callData: userOp.callData,
+            paymasterAndData: userOp.paymasterAndData,
+            accountGasLimits: userOp.accountGasLimits,
+            preVerificationGas: userOp.preVerificationGas,
+            gasFees: userOp.gasFees,
+            at: auth.at,
+            calls: auth.calls,
+            paymasterProof: auth.paymasterProof
+        });
+        (ok, v) = _rules(abi.encodeCall(SessionRules.allowed, (abi.encode(v, op, below, REGISTRY))));
         if (!ok) return ERC4337Utils.SIG_VALIDATION_FAILED;
         return (uint256(v.validAfter) << 208) | (uint256(v.validUntil) << 160);
     }
