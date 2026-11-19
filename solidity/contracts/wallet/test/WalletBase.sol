@@ -281,7 +281,7 @@ abstract contract WalletBase is Test {
         return IEntryPoint(EP).getNonce(w, 0);
     }
 
-    /// `w`'s EIP-712 domain separator under release `version` and epoch `salt`, written from the spec.
+    /// `w`'s EIP-712 domain separator under release `version` and `salt`, written from the spec.
     function _domain(address w, uint64 version, bytes32 salt) internal view returns (bytes32) {
         return keccak256(
             abi.encode(
@@ -297,13 +297,17 @@ abstract contract WalletBase is Test {
         );
     }
 
-    /// `w`'s epoch, read from its storage: zero before it has code.
-    function _epoch(address w) internal view returns (bytes32) {
-        return vm.load(w, STATE_SLOT);
+    /// `w`'s domain salt, `keccak256(abi.encode(epoch, rootEpoch))`, read from its storage: the epoch, then
+    /// `epochs[epoch]`, whose slot 3 holds the root epoch at byte offset 6.
+    function _salt(address w) internal view returns (bytes32) {
+        bytes32 epoch = vm.load(w, STATE_SLOT);
+        bytes32 state = keccak256(abi.encode(epoch, uint256(STATE_SLOT) + 1));
+        uint32 rootEpoch = uint32(uint256(vm.load(w, bytes32(uint256(state) + 3))) >> 48);
+        return keccak256(abi.encode(epoch, rootEpoch));
     }
 
     function _typed(address w, uint64 version, bytes32 structHash) internal view returns (bytes32) {
-        return _typed(w, version, _epoch(w), structHash);
+        return _typed(w, version, _salt(w), structHash);
     }
 
     function _typed(address w, uint64 version, bytes32 salt, bytes32 structHash) internal view returns (bytes32) {

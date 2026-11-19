@@ -229,22 +229,59 @@ pub const AUTHORIZED_MODE: B256 =
 /// UserOperations may use any key.
 pub const DIRECT_NONCE_KEY: U192 = U192::ZERO;
 
+/// `keccak256("libid.webwallet.link-identity")`: a link proof's operation domain.
+pub const LINK_IDENTITY_DOMAIN: B256 =
+    b256!("0xb76778e70fe9491d05f3d66a477c7f1cb97c40b477b88d0c00442e80bcc4e15c");
+/// `keccak256("libid.webwallet.add-session")`: `addSessionByLogin`'s domain.
+pub const ADD_SESSION_DOMAIN: B256 =
+    b256!("0xadc0929729a450db24efd5992bbc0f04693c7d8e9d706da31c8cca0a429d1d59");
+/// `keccak256("libid.webwallet.remove-sessions")`: `removeSessionsByLogin`'s
+/// domain.
+pub const REMOVE_SESSIONS_DOMAIN: B256 =
+    b256!("0x7cabdd831000d819c7b2ae4f79b4d6b566aa21992764e735f944b1459cb43c1b");
+
+/// The transaction data a link or login proof commits:
+/// `abi.encode(chainId, wallet, key, policyHash)`, where an empty `key` (a
+/// link only, or a removal) commits policy hash 0.
+pub fn transaction_data(
+    chain_id: u64,
+    wallet: Address,
+    key: &Bytes,
+    policy: &IWebWallet::Policy,
+) -> Bytes {
+    let policy_hash = if key.is_empty() {
+        B256::ZERO
+    } else {
+        policy.policy_hash()
+    };
+    (U256::from(chain_id), wallet, key.clone(), policy_hash)
+        .abi_encode_params()
+        .into()
+}
+
+/// The domain's salt, `keccak256(abi.encode(epoch, rootEpoch))`. A wallet
+/// reports it in `eip712Domain()`; a `reset` or a move of the root epoch
+/// changes it.
+pub fn wallet_salt(epoch: B256, root_epoch: u32) -> B256 {
+    keccak256((epoch, root_epoch).abi_encode_params())
+}
+
 /// The wallet's EIP-712 domain: name `WebWallet`, the release's version as a
-/// decimal string, `chain_id`, the wallet's address, and its `epoch()` as
-/// `salt`, zero for a factory wallet. A bump to another release, or a
-/// `reset`, changes it.
+/// decimal string, `chain_id`, the wallet's address, and `salt`, the one
+/// `eip712Domain()` reports ([`wallet_salt`]). A bump to another release
+/// changes it too.
 pub fn wallet_domain(
     chain_id: u64,
     wallet: Address,
     version: u64,
-    epoch: B256,
+    salt: B256,
 ) -> Eip712Domain {
     eip712_domain! {
         name: "WebWallet",
         version: version.to_string(),
         chain_id: chain_id,
         verifying_contract: wallet,
-        salt: epoch,
+        salt: salt,
     }
 }
 
@@ -255,12 +292,12 @@ pub fn user_operation_digest(
     chain_id: u64,
     wallet: Address,
     version: u64,
-    epoch: B256,
+    salt: B256,
 ) -> B256 {
     signed::UserOperation {
         userOpHash: user_op_hash,
     }
-    .eip712_signing_hash(&wallet_domain(chain_id, wallet, version, epoch))
+    .eip712_signing_hash(&wallet_domain(chain_id, wallet, version, salt))
 }
 
 /// What the signers of `execute(AUTHORIZED_MODE, data)` sign, besides
@@ -304,7 +341,7 @@ impl ExecuteMessage {
         chain_id: u64,
         wallet: Address,
         version: u64,
-        epoch: B256,
+        salt: B256,
     ) -> B256 {
         Execute {
             mode: AUTHORIZED_MODE,
@@ -315,7 +352,7 @@ impl ExecuteMessage {
             deadline: self.deadline,
             callGas: self.call_gas,
         }
-        .eip712_signing_hash(&wallet_domain(chain_id, wallet, version, epoch))
+        .eip712_signing_hash(&wallet_domain(chain_id, wallet, version, salt))
     }
 
     /// `data` of `execute(AUTHORIZED_MODE, data)` for this message:
@@ -350,11 +387,10 @@ mod tests {
 
     use super::*;
 
-    /// `WalletPolicyTest.test_hashesFollowTheSpec`'s vectors, which `cast`
-    /// computes outside Solidity.
-    #[test]
-    fn hashes_match_the_solidity_vectors() {
-        let policy = IWebWallet::Policy {
+    /// The policy of `WalletPolicyTest.test_hashesFollowTheSpec` and of the
+    /// client vector's transaction data.
+    fn vector_policy() -> IWebWallet::Policy {
+        IWebWallet::Policy {
             validAfter: U48::from(10),
             validUntil: U48::from(20),
             admin: false,
@@ -369,7 +405,14 @@ mod tests {
                     period: U48::from(86_400),
                 }],
             },
-        };
+        }
+    }
+
+    /// `WalletPolicyTest.test_hashesFollowTheSpec`'s vectors, which `cast`
+    /// computes outside Solidity.
+    #[test]
+    fn hashes_match_the_solidity_vectors() {
+        let policy = vector_policy();
         assert_eq!(
             policy.rules.rules_hash(),
             b256!("0x91a60d66d4b51055570ae803ab60eeb97f5719221a31686eb83fba2cd2169b20")
@@ -393,6 +436,8 @@ mod tests {
         wallet: Address,
         version: u64,
         epoch: B256,
+        root_epoch: u32,
+        salt: B256,
         nonce: u64,
         execution_calldata: Bytes,
         value: u64,
@@ -412,6 +457,12 @@ mod tests {
         below_quorum_hash: B256,
         user_op_hash: B256,
         user_op_digest: B256,
+        link_identity_domain: B256,
+        add_session_domain: B256,
+        remove_sessions_domain: B256,
+        policy_hash: B256,
+        keyed_transaction_data: Bytes,
+        keyless_transaction_data: Bytes,
     }
 
     #[test]
@@ -465,10 +516,11 @@ mod tests {
         });
         assert_eq!(keccak256(&encoded), v.authorization_hash);
 
-        let digest = execute.digest(v.chain_id, v.wallet, v.version, v.epoch);
+        assert_eq!(wallet_salt(v.epoch, v.root_epoch), v.salt);
+        let digest = execute.digest(v.chain_id, v.wallet, v.version, v.salt);
         assert_eq!(digest, v.digest);
         assert_eq!(
-            execute.digest(v.chain_id, v.wallet, v.version, B256::ZERO),
+            execute.digest(v.chain_id, v.wallet, v.version, wallet_salt(B256::ZERO, 0)),
             v.epoch_zero_digest
         );
         assert_eq!(
@@ -481,9 +533,40 @@ mod tests {
                 v.chain_id,
                 v.wallet,
                 v.version,
-                v.epoch
+                v.salt
             ),
             v.user_op_digest
+        );
+
+        for (constant, name, expected) in [
+            (
+                LINK_IDENTITY_DOMAIN,
+                "libid.webwallet.link-identity",
+                v.link_identity_domain,
+            ),
+            (
+                ADD_SESSION_DOMAIN,
+                "libid.webwallet.add-session",
+                v.add_session_domain,
+            ),
+            (
+                REMOVE_SESSIONS_DOMAIN,
+                "libid.webwallet.remove-sessions",
+                v.remove_sessions_domain,
+            ),
+        ] {
+            assert_eq!(constant, keccak256(name), "{name}");
+            assert_eq!(constant, expected, "{name}");
+        }
+        let policy = vector_policy();
+        assert_eq!(policy.policy_hash(), v.policy_hash);
+        assert_eq!(
+            transaction_data(v.chain_id, v.wallet, &v.session_key, &policy),
+            v.keyed_transaction_data
+        );
+        assert_eq!(
+            transaction_data(v.chain_id, v.wallet, &Bytes::new(), &policy),
+            v.keyless_transaction_data
         );
     }
 

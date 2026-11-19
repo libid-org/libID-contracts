@@ -3,6 +3,7 @@ import { type Address, type Hex, keccak256, toHex, zeroHash } from 'viem'
 import { describe, expect, it } from 'vitest'
 
 import {
+  ADD_SESSION_DOMAIN,
   AUTHORIZED_MODE,
   authorizedData,
   belowQuorumHash,
@@ -10,14 +11,19 @@ import {
   EXECUTE_TYPES,
   encodeAuthorization,
   executeDigest,
+  LINK_IDENTITY_DOMAIN,
   policyHashOf,
+  REMOVE_SESSIONS_DOMAIN,
   rulesHashOf,
   type SessionPolicy,
   sortAllowances,
   userOperationDigest,
+  walletSalt,
+  walletTransactionData,
 } from './wallet.js'
 
-// WalletPolicyTest.test_hashesFollowTheSpec's vectors, which `cast` computes outside Solidity.
+// WalletPolicyTest.test_hashesFollowTheSpec's vectors, which `cast` computes outside Solidity; the
+// client vector's transaction data commits this policy too.
 const POLICY: SessionPolicy = {
   validAfter: 10,
   validUntil: 20,
@@ -52,6 +58,8 @@ interface Vector {
   wallet: Address
   version: number
   epoch: Hex
+  rootEpoch: number
+  salt: Hex
   nonce: number
   executionCalldata: Hex
   value: number
@@ -71,6 +79,12 @@ interface Vector {
   belowQuorumHash: Hex
   userOpHash: Hex
   userOpDigest: Hex
+  linkIdentityDomain: Hex
+  addSessionDomain: Hex
+  removeSessionsDomain: Hex
+  policyHash: Hex
+  keyedTransactionData: Hex
+  keylessTransactionData: Hex
 }
 
 const VECTOR = JSON.parse(
@@ -108,13 +122,33 @@ describe('the client helpers', () => {
     expect(keccak256(encodeAuthorization({ ...authorization, at: v.at }))).toBe(v.authorizationHash)
     expect(keccak256(authorizedData(message, authorization))).toBe(v.dataHash)
 
-    const digest = executeDigest(message, v.chainId, v.wallet, v.version, v.epoch)
+    expect(walletSalt(v.epoch, v.rootEpoch)).toBe(v.salt)
+    const digest = executeDigest(message, v.chainId, v.wallet, v.version, v.salt)
     expect(digest).toBe(v.digest)
-    expect(executeDigest(message, v.chainId, v.wallet, v.version, zeroHash)).toBe(v.epochZeroDigest)
+    expect(executeDigest(message, v.chainId, v.wallet, v.version, walletSalt(zeroHash, 0))).toBe(
+      v.epochZeroDigest,
+    )
     expect(belowQuorumHash(digest, v.at, v.sessionKey)).toBe(v.belowQuorumHash)
-    expect(userOperationDigest(v.userOpHash, v.chainId, v.wallet, v.version, v.epoch)).toBe(
+    expect(userOperationDigest(v.userOpHash, v.chainId, v.wallet, v.version, v.salt)).toBe(
       v.userOpDigest,
     )
+  })
+
+  it('match the operation domains and transaction data of the vector', () => {
+    const v = VECTOR
+    for (const [constant, name, expected] of [
+      [LINK_IDENTITY_DOMAIN, 'libid.webwallet.link-identity', v.linkIdentityDomain],
+      [ADD_SESSION_DOMAIN, 'libid.webwallet.add-session', v.addSessionDomain],
+      [REMOVE_SESSIONS_DOMAIN, 'libid.webwallet.remove-sessions', v.removeSessionsDomain],
+    ] as const) {
+      expect(constant).toBe(keccak256(toHex(name)))
+      expect(constant).toBe(expected)
+    }
+    expect(policyHashOf(POLICY)).toBe(v.policyHash)
+    expect(walletTransactionData(v.chainId, v.wallet, v.sessionKey, POLICY)).toBe(
+      v.keyedTransactionData,
+    )
+    expect(walletTransactionData(v.chainId, v.wallet, '0x', POLICY)).toBe(v.keylessTransactionData)
   })
 })
 

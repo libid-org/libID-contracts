@@ -293,6 +293,8 @@ contract WalletAbiTest is WalletBase {
         address w = vm.parseJsonAddress(j, ".wallet");
         uint64 version = uint64(vm.parseJsonUint(j, ".version"));
         bytes32 epoch = vm.parseJsonBytes32(j, ".epoch");
+        bytes32 salt = vm.parseJsonBytes32(j, ".salt");
+        assertEq(keccak256(abi.encode(epoch, uint32(vm.parseJsonUint(j, ".rootEpoch")))), salt, "salt");
         uint48 at = uint48(vm.parseJsonUint(j, ".at"));
 
         IWebWallet.SessionSignature[] memory s = new IWebWallet.SessionSignature[](1);
@@ -325,9 +327,13 @@ contract WalletAbiTest is WalletBase {
                 callGas
             )
         );
-        bytes32 digest = _typed(w, version, epoch, execute);
+        bytes32 digest = _typed(w, version, salt, execute);
         assertEq(digest, vm.parseJsonBytes32(j, ".digest"), "Execute digest");
-        assertEq(_typed(w, version, 0, execute), vm.parseJsonBytes32(j, ".epochZeroDigest"), "Execute digest, epoch 0");
+        assertEq(
+            _typed(w, version, keccak256(abi.encode(bytes32(0), uint32(0))), execute),
+            vm.parseJsonBytes32(j, ".epochZeroDigest"),
+            "Execute digest, epoch 0"
+        );
         assertEq(
             keccak256(abi.encode(digest, at, keccak256(s[0].key))),
             vm.parseJsonBytes32(j, ".belowQuorumHash"),
@@ -335,10 +341,33 @@ contract WalletAbiTest is WalletBase {
         );
         bytes32 userOpHash = vm.parseJsonBytes32(j, ".userOpHash");
         assertEq(
-            _typed(w, version, epoch, keccak256(abi.encode(USER_OP_TYPEHASH, userOpHash))),
+            _typed(w, version, salt, keccak256(abi.encode(USER_OP_TYPEHASH, userOpHash))),
             vm.parseJsonBytes32(j, ".userOpDigest"),
             "nested userOpHash"
         );
+    }
+
+    /// The vector's operation domains and link or login transaction data, which the registry accepts for its wallet.
+    function test_theTransactionDataVector() public {
+        string memory j = vm.readFile("contracts/wallet/test/fixtures/direct-execute-vector.json");
+        assertEq(LINK_IDENTITY_DOMAIN, vm.parseJsonBytes32(j, ".linkIdentityDomain"), "link domain");
+        assertEq(ADD_SESSION_DOMAIN, vm.parseJsonBytes32(j, ".addSessionDomain"), "add domain");
+        assertEq(REMOVE_SESSIONS_DOMAIN, vm.parseJsonBytes32(j, ".removeSessionsDomain"), "remove domain");
+        vm.chainId(vm.parseJsonUint(j, ".chainId"));
+        address w = vm.parseJsonAddress(j, ".wallet");
+        bytes memory key = vm.parseJsonBytes(j, ".sessionKey");
+        bytes32 policyHash = vm.parseJsonBytes32(j, ".policyHash");
+        bytes memory keyed = vm.parseJsonBytes(j, ".keyedTransactionData");
+        bytes memory keyless = vm.parseJsonBytes(j, ".keylessTransactionData");
+        assertEq(keyed, abi.encode(block.chainid, w, key, policyHash), "keyed");
+        assertEq(keyless, abi.encode(block.chainid, w, "", bytes32(0)), "keyless");
+
+        bytes memory payload = _payload(X, ALICE, ADD, keyed);
+        vm.prank(w);
+        assertEq(registry.check(ADD, X, V1, payload, "", policyHash).key, key, "the registry's key");
+        payload = _payload(X, ALICE, LINK, keyless);
+        vm.prank(w);
+        assertEq(registry.check(LINK, X, V1, payload, "", policyHash).key, bytes(""), "a link's key");
     }
 
     function _erc7201(string memory id) internal pure returns (bytes32) {

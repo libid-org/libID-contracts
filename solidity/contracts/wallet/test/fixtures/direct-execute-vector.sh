@@ -7,23 +7,31 @@ MODE=0x01000000000018f4a5a900000000000000000000000000000000000000000000
 EXECUTE_TYPEHASH=$(cast keccak "Execute(bytes32 mode,bytes executionCalldata,uint256 value,uint48 at,uint256 nonce,uint48 deadline,uint256 callGas)")
 USER_OP_TYPEHASH=$(cast keccak "UserOperation(bytes32 userOpHash)")
 DOMAIN_TYPEHASH=$(cast keccak "EIP712Domain(string name,string version,uint256 chainId,address verifyingContract,bytes32 salt)")
-CHAIN=8453; WALLET=0x0000000000000000000000000000000000001234; VERSION=2; EPOCH=$(cast keccak "epoch")
+CHAIN=8453; WALLET=0x0000000000000000000000000000000000001234; VERSION=2; EPOCH=$(cast keccak "epoch"); ROOT_EPOCH=3
 NONCE=7; CALLS=0xc0ffee; VALUE=12345; AT=1000; DEADLINE=2000; CALL_GAS=200000
 KEY=0x1234; SIG=0x5678; MAX_VALUE=5
 CALL_PROOF=$(cast keccak "call leaf"); DOMAIN_PROOF=$(cast keccak "domain leaf"); PAYMASTER_PROOF=$(cast keccak "paymaster leaf")
 USER_OP_HASH=$(cast keccak "op")
 
-# The domain separator at epoch $1, the salt.
+# The salt at epoch $1 and root epoch $2, and the domain separator at salt $1.
+salt() { cast keccak "$(cast abi-encode "f(bytes32,uint32)" "$1" "$2")"; }
 sep() { cast keccak "$(cast abi-encode "f(bytes32,bytes32,bytes32,uint256,address,bytes32)" "$DOMAIN_TYPEHASH" "$(cast keccak WebWallet)" "$(cast keccak "$VERSION")" $CHAIN $WALLET "$1")"; }
-SEP=$(sep "$EPOCH")
+SALT=$(salt "$EPOCH" $ROOT_EPOCH)
+SEP=$(sep "$SALT")
 typed() { cast keccak "$(cast concat-hex 0x1901 "$SEP" "$1")"; }
 STRUCT=$(cast keccak "$(cast abi-encode "f(bytes32,bytes32,bytes32,uint256,uint48,uint256,uint48,uint256)" "$EXECUTE_TYPEHASH" $MODE "$(cast keccak $CALLS)" $VALUE $AT $NONCE $DEADLINE $CALL_GAS)")
 DIGEST=$(typed "$STRUCT")
-EPOCH_ZERO_DIGEST=$(cast keccak "$(cast concat-hex 0x1901 "$(sep 0x0000000000000000000000000000000000000000000000000000000000000000)" "$STRUCT")")
+EPOCH_ZERO_DIGEST=$(cast keccak "$(cast concat-hex 0x1901 "$(sep "$(salt 0x0000000000000000000000000000000000000000000000000000000000000000 0)")" "$STRUCT")")
 USER_OP_DIGEST=$(typed "$(cast keccak "$(cast abi-encode "f(bytes32,bytes32)" "$USER_OP_TYPEHASH" "$USER_OP_HASH")")")
 AUTH=$(cast abi-encode "f(((bytes,bytes)[],uint48,(uint256,bytes32[])[],bytes32[],bytes32[]))" \
   "([($KEY,$SIG)],$AT,[($MAX_VALUE,[$CALL_PROOF])],[$DOMAIN_PROOF],[$PAYMASTER_PROOF])")
 DATA=$(cast abi-encode "f(bytes,uint256,uint48,uint256,bytes)" $CALLS $VALUE $DEADLINE $CALL_GAS "$AUTH")
+# A link or login proof's transaction data: (chainId, wallet, key, policyHash), policy hash 0 for an empty key.
+RULES_HASH=$(cast keccak "$(cast abi-encode "f(bytes32,bytes32,bytes32,(address,uint128,uint48)[])" \
+  "$(cast keccak s)" "$(cast keccak d)" "$(cast keccak p)" "[(0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE,1000000000000000000,86400)]")")
+POLICY_HASH=$(cast keccak "$(cast abi-encode "f(uint48,uint48,bool,uint8,bytes32)" 10 20 false 2 "$RULES_HASH")")
+KEYED=$(cast abi-encode "f(uint256,address,bytes,bytes32)" $CHAIN $WALLET $KEY "$POLICY_HASH")
+KEYLESS=$(cast abi-encode "f(uint256,address,bytes,bytes32)" $CHAIN $WALLET 0x 0x0000000000000000000000000000000000000000000000000000000000000000)
 BELOW=$(cast keccak "$(cast abi-encode "f(bytes32,uint48,bytes32)" "$DIGEST" $AT "$(cast keccak $KEY)")")
 
 cat <<JSON
@@ -35,6 +43,8 @@ cat <<JSON
   "wallet": "$WALLET",
   "version": $VERSION,
   "epoch": "$EPOCH",
+  "rootEpoch": $ROOT_EPOCH,
+  "salt": "$SALT",
   "nonce": $NONCE,
   "executionCalldata": "$CALLS",
   "value": $VALUE,
@@ -53,6 +63,12 @@ cat <<JSON
   "epochZeroDigest": "$EPOCH_ZERO_DIGEST",
   "belowQuorumHash": "$BELOW",
   "userOpHash": "$USER_OP_HASH",
-  "userOpDigest": "$USER_OP_DIGEST"
+  "userOpDigest": "$USER_OP_DIGEST",
+  "linkIdentityDomain": "$(cast keccak libid.webwallet.link-identity)",
+  "addSessionDomain": "$(cast keccak libid.webwallet.add-session)",
+  "removeSessionsDomain": "$(cast keccak libid.webwallet.remove-sessions)",
+  "policyHash": "$POLICY_HASH",
+  "keyedTransactionData": "$KEYED",
+  "keylessTransactionData": "$KEYLESS"
 }
 JSON

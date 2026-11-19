@@ -229,7 +229,7 @@ A WebWallet's whole ABI is `webWalletAbi`: its proxy routes every call. Its
 signers can sign a batch that anyone then sends as
 `execute(AUTHORIZED_MODE, data)`, with no UserOperation. `executeDigest` is
 the hash they sign, under the domain of the release the wallet runs and its
-epoch, and
+salt, and
 `authorizedData` builds `data` from the same message. The batch consumes
 EntryPoint nonce key `DIRECT_NONCE_KEY` (0):
 
@@ -249,8 +249,12 @@ const [, version] = await client.readContract({
   abi: webWalletAbi,
   functionName: 'release',
 })
-// The domain's salt: zero for a factory wallet, moved by each `reset`.
-const epoch = await client.readContract({ address: wallet, abi: webWalletAbi, functionName: 'epoch' })
+// The domain's salt, moved by a `reset` or a change to the admins or the threshold.
+const [, , , , , salt] = await client.readContract({
+  address: wallet,
+  abi: webWalletAbi,
+  functionName: 'eip712Domain',
+})
 const nonce = await client.readContract({
   address: ENTRY_POINT, // EntryPoint v0.9
   abi: parseAbi(['function getNonce(address, uint192) view returns (uint256)']),
@@ -261,7 +265,7 @@ const nonce = await client.readContract({
 // `value` is the msg.value the batch is sent with.
 const message = { executionCalldata, value, at, nonce, deadline, callGas }
 // At quorum a session key signs the digest; below quorum, belowQuorumHash of it.
-const signature = await session.sign({ hash: executeDigest(message, chainId, wallet, version, epoch) })
+const signature = await session.sign({ hash: executeDigest(message, chainId, wallet, version, salt) })
 const data = authorizedData(message, {
   signatures: [{ key: session.address, signature }],
   calls: [],
@@ -272,10 +276,14 @@ const call = calls.webWallet.execute(wallet, value, AUTHORIZED_MODE, data)
 ```
 
 A UserOperation's signers sign `userOperationDigest(userOpHash, chainId,
-wallet, version, epoch)`, and its signature is `encodeAuthorization(authorization)`.
+wallet, version, salt)`, and its signature is `encodeAuthorization(authorization)`.
 An ERC-1271 signature is the same encoding at `at` 0, with no prefix, inside
 the ERC-7739 wrapper. Sort a policy's allowances with `sortAllowances` before
 `policyHashOf` and building calls.
+
+A link or login proof commits `walletTransactionData(chainId, wallet, key,
+policy)` under one of `LINK_IDENTITY_DOMAIN`, `ADD_SESSION_DOMAIN` and
+`REMOVE_SESSIONS_DOMAIN`; an empty key commits policy hash 0.
 
 ## Normalizing a handle locally
 

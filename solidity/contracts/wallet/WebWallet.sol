@@ -113,21 +113,14 @@ contract WebWallet is Account, ERC721Holder, ERC1155Holder {
         return WalletStorage.wallet().epoch;
     }
 
-    /// ERC-5267: name `WebWallet`, this release's version, the chain, this account, and the epoch as `salt`.
+    /// ERC-5267: name `WebWallet`, this release's version, the chain, this account, and `_salt()`.
     function eip712Domain()
         external
         view
         returns (bytes1, string memory, string memory, uint256, address, bytes32, uint256[] memory)
     {
-        return (
-            hex"1f",
-            "WebWallet",
-            Strings.toString(VERSION),
-            block.chainid,
-            address(this),
-            WalletStorage.wallet().epoch,
-            new uint256[](0)
-        );
+        return
+            (hex"1f", "WebWallet", Strings.toString(VERSION), block.chainid, address(this), _salt(), new uint256[](0));
     }
 
     /// Runs the data steps after `from` up to this release, only inside a bump. Release 1 has none.
@@ -314,8 +307,7 @@ contract WebWallet is Account, ERC721Holder, ERC1155Holder {
     function _unnest(bytes32 hash, bytes calldata signature) private view returns (bytes32, bytes calldata, bytes32) {
         (bytes calldata inner, bytes32 appSeparator, bytes32 contentsHash, string calldata descr) =
             signature.decodeTypedDataSig();
-        bytes memory domain =
-            abi.encode(NAME_HASH, VERSION_HASH, block.chainid, address(this), WalletStorage.wallet().epoch);
+        bytes memory domain = abi.encode(NAME_HASH, VERSION_HASH, block.chainid, address(this), _salt());
         // Zero for an empty or malformed contents type, which binds nothing.
         bytes32 structHash = descr.typedDataSignStructHash(contentsHash, domain);
         if (structHash != 0 && hash == appSeparator.toTypedDataHash(contentsHash)) {
@@ -324,13 +316,17 @@ contract WebWallet is Account, ERC721Holder, ERC1155Holder {
         return (_domainSeparator().toTypedDataHash(hash.personalSignStructHash()), signature, 0);
     }
 
-    /// The domain `eip712Domain()` reports; the epoch as `salt` retires every signature a `reset` came after.
+    /// The domain `eip712Domain()` reports.
     function _domainSeparator() private view returns (bytes32) {
-        return keccak256(
-            abi.encode(
-                DOMAIN_TYPEHASH, NAME_HASH, VERSION_HASH, block.chainid, address(this), WalletStorage.wallet().epoch
-            )
-        );
+        return keccak256(abi.encode(DOMAIN_TYPEHASH, NAME_HASH, VERSION_HASH, block.chainid, address(this), _salt()));
+    }
+
+    /// `keccak256(abi.encode(epoch, rootEpoch))`: a `reset` or a move of the root epoch retires every signature made
+    /// before it.
+    function _salt() private view returns (bytes32) {
+        WalletStorage.WalletState storage w = WalletStorage.wallet();
+        bytes32 epoch = w.epoch;
+        return keccak256(abi.encode(epoch, w.epochs[epoch].rootEpoch));
     }
 
     /// `_verify` over `hash` at `auth.at`, whether the signers fall short of `quorum`, and whether they sign:

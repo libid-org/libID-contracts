@@ -1,6 +1,7 @@
 /// What a WebWallet's signers sign: the session-policy hashes of
 /// `WalletStorage.sol`, the below-quorum hash, the nested UserOperation hash,
-/// and an `AUTHORIZED_MODE` batch's digest and data. Types follow `webWalletAbi`.
+/// and an `AUTHORIZED_MODE` batch's digest and data; and what a link or login
+/// proof commits. Types follow `webWalletAbi`.
 
 import {
   type AbiParameterToPrimitiveType,
@@ -11,6 +12,7 @@ import {
   keccak256,
   parseAbiParameter,
   parseAbiParameters,
+  zeroHash,
 } from 'viem'
 
 import { webWalletAbi } from './abis/webWallet.js'
@@ -107,10 +109,44 @@ export const AUTHORIZED_MODE: Hex =
 /// UserOperations may use any key.
 export const DIRECT_NONCE_KEY = 0n
 
+/// `keccak256("libid.webwallet.link-identity")`: a link proof's operation domain.
+export const LINK_IDENTITY_DOMAIN: Hex =
+  '0xb76778e70fe9491d05f3d66a477c7f1cb97c40b477b88d0c00442e80bcc4e15c'
+/// `keccak256("libid.webwallet.add-session")`: `addSessionByLogin`'s domain.
+export const ADD_SESSION_DOMAIN: Hex =
+  '0xadc0929729a450db24efd5992bbc0f04693c7d8e9d706da31c8cca0a429d1d59'
+/// `keccak256("libid.webwallet.remove-sessions")`: `removeSessionsByLogin`'s domain.
+export const REMOVE_SESSIONS_DOMAIN: Hex =
+  '0x7cabdd831000d819c7b2ae4f79b4d6b566aa21992764e735f944b1459cb43c1b'
+
+/// The transaction data a link or login proof commits:
+/// `abi.encode(chainId, wallet, key, policyHash)`, where an empty `key` (a
+/// link only, or a removal) commits policy hash 0.
+export function walletTransactionData(
+  chainId: number | bigint,
+  wallet: Address,
+  key: Hex,
+  policy: SessionPolicy,
+): Hex {
+  return encodeAbiParameters(parseAbiParameters('uint256, address, bytes, bytes32'), [
+    BigInt(chainId),
+    wallet,
+    key,
+    key === '0x' ? zeroHash : policyHashOf(policy),
+  ])
+}
+
+/// The domain's salt, `keccak256(abi.encode(epoch, rootEpoch))`. A wallet
+/// reports it in `eip712Domain()`; a `reset` or a move of the root epoch
+/// changes it.
+export function walletSalt(epoch: Hex, rootEpoch: number): Hex {
+  return keccak256(encodeAbiParameters(parseAbiParameters('bytes32, uint32'), [epoch, rootEpoch]))
+}
+
 /// The wallet's EIP-712 domain: name `WebWallet`, the release's version as a
-/// decimal string, `chainId`, the wallet's address, and its `epoch()` as
-/// `salt`, zero for a factory wallet. A bump to another release, or a
-/// `reset`, changes it.
+/// decimal string, `chainId`, the wallet's address, and `salt`, the one
+/// `eip712Domain()` reports (`walletSalt`). A bump to another release
+/// changes it too.
 export function walletDomain(
   chainId: number | bigint,
   wallet: Address,
@@ -133,10 +169,10 @@ export function userOperationDigest(
   chainId: number | bigint,
   wallet: Address,
   version: number | bigint,
-  epoch: Hex,
+  salt: Hex,
 ): Hex {
   return hashTypedData({
-    domain: walletDomain(chainId, wallet, version, epoch),
+    domain: walletDomain(chainId, wallet, version, salt),
     types: { UserOperation: [{ name: 'userOpHash', type: 'bytes32' }] },
     primaryType: 'UserOperation',
     message: { userOpHash },
@@ -175,10 +211,10 @@ export function executeDigest(
   chainId: number | bigint,
   wallet: Address,
   version: number | bigint,
-  epoch: Hex,
+  salt: Hex,
 ): Hex {
   return hashTypedData({
-    domain: walletDomain(chainId, wallet, version, epoch),
+    domain: walletDomain(chainId, wallet, version, salt),
     types: EXECUTE_TYPES,
     primaryType: 'Execute',
     message: { ...execute, mode: AUTHORIZED_MODE },

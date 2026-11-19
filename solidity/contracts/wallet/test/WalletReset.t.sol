@@ -207,39 +207,39 @@ contract WalletResetTest is WalletBase {
     /// L1: the epoch is the domain's `salt`, so a `reset` retires every earlier Execute, UserOperation and
     /// ERC-7739 signature, even when the key adds the same session key again.
     function test_aResetRetiresEverySignatureBeforeIt() public {
-        _assertDomain(_claim(), 0);
+        _assertDomain(_claim(), 0, 0);
         _onboard();
         bytes32 old = IWebWallet(a).epoch();
-        _assertDomain(a, old);
+        _assertDomain(a, old, 0);
         bytes memory batch = _signed(a, _pks(ALICE_PK), _one(_hitX()));
         PackedUserOperation memory op = _signOp(_op(a, _hitCall()), 1, _pks(ALICE_PK));
-        (bytes32 h, bytes memory sig) = _typedDataSign(a, old);
+        (bytes32 h, bytes memory sig) = _typedDataSign(a, _salt(a));
         assertEq(IWebWallet(a).isValidSignature(h, sig), bytes4(0x1626ba7e), "control: TypedDataSign before");
 
         _reset(_onboarding());
         vm.warp(_now() + 1);
         bytes32 epoch = IWebWallet(a).epoch();
         assertNotEq(epoch, old, "the epoch did not move");
-        _assertDomain(a, epoch);
+        _assertDomain(a, epoch, 0);
         vm.prank(relayer);
         vm.expectRevert(IWebWallet.ExecutionNotSigned.selector);
         IWebWallet(a).execute(AUTHORIZED_MODE, batch);
         _refusedOp(op);
         assertEq(IWebWallet(a).isValidSignature(h, sig), bytes4(0xffffffff), "an old TypedDataSign");
 
-        (h, sig) = _typedDataSign(a, epoch);
+        (h, sig) = _typedDataSign(a, _salt(a));
         assertEq(IWebWallet(a).isValidSignature(h, sig), bytes4(0x1626ba7e), "control: TypedDataSign after");
         _run(a, _one(_hitX()));
         _handle(_ops(_signOp(_op(a, _hitCall()), 1, _pks(ALICE_PK))));
         assertEq(target.calls(), 2, "control: the new signatures");
     }
 
-    /// `eip712Domain()` reports the domain the wallet signs under, written from the spec at `epoch`.
-    function _assertDomain(address w, bytes32 epoch) internal view {
+    /// `eip712Domain()` reports the domain the wallet signs under, written from the spec at `epoch` and `rootEpoch`.
+    function _assertDomain(address w, bytes32 epoch, uint32 rootEpoch) internal view {
         (bytes1 fields, string memory name, string memory version, uint256 chainId, address verifying, bytes32 salt,) =
             IWebWallet(w).eip712Domain();
         assertEq(fields, bytes1(0x1f), "fields");
-        assertEq(salt, epoch, "salt");
+        assertEq(salt, keccak256(abi.encode(epoch, rootEpoch)), "salt");
         bytes32 reported = keccak256(
             abi.encode(
                 keccak256(
@@ -252,10 +252,10 @@ contract WalletResetTest is WalletBase {
                 salt
             )
         );
-        assertEq(reported, _domain(w, 1, epoch), "eip712Domain() is not the signed domain");
+        assertEq(reported, _domain(w, 1, salt), "eip712Domain() is not the signed domain");
     }
 
-    /// Alice's ERC-7739 `TypedDataSign` of a fixed Mail, under `w`'s release 1 domain at epoch `salt`.
+    /// Alice's ERC-7739 `TypedDataSign` of a fixed Mail, under `w`'s release 1 domain at `salt`.
     function _typedDataSign(address w, bytes32 salt) internal view returns (bytes32 h, bytes memory sig) {
         bytes32 app = keccak256("an app's domain");
         bytes32 typehash = keccak256(
@@ -269,6 +269,77 @@ contract WalletResetTest is WalletBase {
         bytes memory auth = _auth(_pks(ALICE_PK), keccak256(abi.encodePacked(hex"1901", app, structHash)), 0, false, 0);
         h = keccak256(abi.encodePacked(hex"1901", app, MAIL));
         sig = abi.encodePacked(auth, app, MAIL, MAIL_TYPE, uint16(bytes(MAIL_TYPE).length));
+    }
+
+    /// Audit L1: threshold 2 over X and GitHub. Alice signs a batch alone over the at-quorum digest. A keyless login
+    /// removal of the GitHub identity drops the threshold to 1, and the same bytes are still refused.
+    function test_aThresholdDropRetiresAHalfSignedBatch() public {
+        address w = _claim();
+        IWebWallet.Policy memory none;
+        vm.warp(_now() + 1);
+        _run(
+            w,
+            _two(
+                _linkX(w, GITHUB, BOB, "", none),
+                _x(w, 0, abi.encodeCall(IWebWallet.addSession, (_identity(GITHUB, BOB), _key(BOB_PK), _admin())))
+            )
+        );
+        vm.warp(_now() + 1);
+        _root(w, abi.encodeCall(IWebWallet.setThreshold, (2)));
+        bytes memory data = _signedAt(w, 1, _pks(ALICE_PK), _one(_hitX()), false);
+        vm.prank(mallory);
+        vm.expectRevert(IWebWallet.ExecutionNotSigned.selector);
+        IWebWallet(w).execute(AUTHORIZED_MODE, data);
+
+        bytes memory remove = _payload(GITHUB, BOB, REMOVE, _txData(w, "", 0));
+        vm.prank(mallory);
+        IWebWallet(w).removeSessionsByLogin(GITHUB, V1, remove, "", none);
+        assertEq(IWebWallet(w).threshold(), 1, "the threshold did not drop");
+        vm.prank(mallory);
+        vm.expectRevert(IWebWallet.ExecutionNotSigned.selector);
+        IWebWallet(w).execute(AUTHORIZED_MODE, data);
+        _run(w, _one(_hitX()));
+        assertEq(target.calls(), 1, "control: a batch signed after");
+    }
+
+    /// Revoking an older admin, changing the threshold and a login removal each move the root epoch, and each
+    /// retires every Execute, UserOperation and ERC-7739 signature made before it.
+    function test_aRootEpochMoveRetiresEverySignatureBeforeIt() public {
+        _onboard();
+        IWebWallet.Policy memory none;
+        bytes memory link = _linkPayload(a, GITHUB, BOB, "", none);
+        vm.prank(a);
+        IWebWallet(a).linkIdentity(GITHUB, V1, link, "", none);
+        vm.prank(a);
+        IWebWallet(a).addSession(_identity(GITHUB, BOB), _key(BOB_PK), _admin());
+        vm.warp(_now() + 1);
+        bytes memory remove = _payload(GITHUB, BOB, REMOVE, _txData(a, "", 0));
+        bytes memory batch = _signed(a, _pks(ALICE_PK), _one(_hitX()));
+        PackedUserOperation memory op = _signOp(_op(a, _hitCall()), 1, _pks(ALICE_PK));
+        (bytes32 h, bytes memory sig) = _typedDataSign(a, _salt(a));
+        assertEq(IWebWallet(a).isValidSignature(h, sig), bytes4(0x1626ba7e), "control: TypedDataSign");
+
+        for (uint256 i; i < 3; ++i) {
+            uint256 snap = vm.snapshotState();
+            if (i == 0) {
+                vm.prank(a);
+                IWebWallet(a).revokeSession(_key(BOB_PK));
+            } else if (i == 1) {
+                vm.prank(a, a);
+                IWebWallet(a).setThreshold(2);
+            } else {
+                IWebWallet(a).removeSessionsByLogin(GITHUB, V1, remove, "", none);
+            }
+            vm.prank(relayer);
+            vm.expectRevert(IWebWallet.ExecutionNotSigned.selector);
+            IWebWallet(a).execute(AUTHORIZED_MODE, batch);
+            _refusedOp(op);
+            assertEq(IWebWallet(a).isValidSignature(h, sig), bytes4(0xffffffff), vm.toString(i));
+            vm.revertToState(snap);
+        }
+        vm.prank(relayer);
+        IWebWallet(a).execute(AUTHORIZED_MODE, batch);
+        assertEq(target.calls(), 1, "control: the batch with no move");
     }
 
     /// The key's top-level call reaches a root-only entry; its batch does not.

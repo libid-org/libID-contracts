@@ -313,12 +313,14 @@ name              "WebWallet"
 version           the release's VERSION, in decimal: "1", "2", ...
 chainId           block.chainid
 verifyingContract the wallet
-salt              epoch()
+salt              keccak256(abi.encode(epoch(), rootEpoch))
 ```
 
-`eip712Domain()` reports these five fields (`0x1f`). A bump changes the
-version and a `reset` changes the salt, so each retires every signature made
-before it: `Execute`, UserOperations and ERC-1271 alike.
+`eip712Domain()` reports these five fields (`0x1f`); read the salt there. A
+bump changes the version, and a `reset` or a move of the
+[root epoch](#root-operations) changes the salt, so each retires every
+signature made before it: `Execute`, UserOperations and ERC-1271 alike. A
+batch waiting for a co-signer dies when the threshold changes.
 
 ## Sessions
 
