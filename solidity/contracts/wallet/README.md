@@ -121,7 +121,7 @@ calls[3] = Execution(relayer, linkFee, "");
 
 bytes memory executionCalldata = abi.encode(calls);
 // K signs Execute(AUTHORIZED_MODE, executionCalldata, linkFee, at, 0, deadline, callGas)
-// under the domain of the factory's latest release at w, salt 0.
+// under the domain of the release w will run, salt 0: see the signing version below.
 bytes memory data = abi.encode(executionCalldata, linkFee, deadline, callGas, abi.encode(authorization));
 
 factory.createAndExecute{value: linkFee}(platformId, idNode, salt, AUTHORIZED_MODE, data);
@@ -134,6 +134,13 @@ factory.createAndExecute{value: linkFee}(platformId, idNode, salt, AUTHORIZED_MO
   grants nothing.
 - `createAndExecute` then calls the wallet's `execute(mode, data)` with
   `msg.value`. The batch passes the same check as any other batch.
+- The signing version is the release the wallet runs. When `w` already has
+  code, anyone may have created it under an earlier release: read
+  `IWebWallet(w).release()` and sign under its version. Only when `w` has no
+  code does `createWallet` write `factory.latest()`, so sign under that
+  version. A signature under any other version fails as
+  `ExecutionNotSigned`, as it does when a release is published before the
+  transaction lands: sign again.
 - `listPayload` is one sign-in proving an Operation List
   (`libid.operations`) with a `bind-identity` entry for `w` and a
   `link-identity` entry for `linkData`. The same payload serves the link and
