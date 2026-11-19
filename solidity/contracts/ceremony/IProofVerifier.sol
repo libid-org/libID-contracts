@@ -7,11 +7,12 @@ import {ICeremony} from "./ICeremony.sol";
 /// @notice The one component every Consumer calls to verify a libID proof.
 ///
 /// @dev Third of the four roles of ceremony-common section 5.1, counting down
-///      from the Consumer. It is dispatch and nothing else: it selects the
+///      from the Consumer. It is dispatch: it selects the
 ///      Platform Verifier registered for the pair a Consumer names, forwards
-///      the payload and the value to it, and forwards what comes back. It does
-///      not decode the payload, holds no platform constant, and applies no
-///      transaction. Only the Platform Verifier knows what the bytes are, only
+///      the payload and the value to it, and forwards what comes back. It
+///      remembers the claims it verified for the rest of the transaction (see
+///      `verify`). It does not decode the payload, holds no platform constant,
+///      and applies no transaction. Only the Platform Verifier knows what the bytes are, only
 ///      the Consumer knows what a claim means, and only the Notary Service
 ///      knows whether the notary signed.
 interface IProofVerifier {
@@ -36,6 +37,18 @@ interface IProofVerifier {
     ///      this chain's slot number, chosen by governance here, and unrelated
     ///      to the ceremony version the verifier itself supports. `payload` is
     ///      opaque at this hop.
+    ///
+    ///      The value rule, which every Consumer that forwards value follows:
+    ///      - `quote` non-zero: `quote` verifies. Zero returns the claim this
+    ///        verifier verified for the payload earlier in the same
+    ///        transaction, else reverts `NotVerifiedInTransaction(quote)`.
+    ///      - `quote` zero: zero returns that claim if there is one, else
+    ///        verifies.
+    ///      - Any other value reverts `WrongValue(quote, value)`.
+    ///      "Earlier in the same transaction" is an earlier call of a batch or
+    ///      transaction the caller controls. Another UserOperation in the same
+    ///      bundle may have saved a claim, but nothing guarantees it, so a
+    ///      caller never relies on one.
     function verify(bytes32 platformId, uint16 verifierVersion, bytes calldata payload)
         external
         payable

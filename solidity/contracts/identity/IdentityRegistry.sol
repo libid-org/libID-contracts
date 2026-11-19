@@ -156,9 +156,7 @@ contract IdentityRegistry is
     error DigestAlreadySpent(bytes32 digest);
     /// @dev A single operation's transaction data is not exactly `abi.encode(target)` (REQ-COMMON-01F).
     error BadTransactionData(uint256 length);
-    /// @dev Less was delivered than the verification path alone costs.
-    error WrongBindValue(uint256 required, uint256 provided);
-    /// @dev The value above the verification path is not `feeAmount`.
+    /// @dev Less value was delivered than `feeAmount`.
     error WrongFeeValue(uint256 required, uint256 provided);
     /// @dev A free binding is `(0, address(0))` and nothing else.
     error NoncanonicalFee(uint256 amount, address receiver);
@@ -204,8 +202,15 @@ contract IdentityRegistry is
     /// @notice Bind an identity from a ceremony. A nonempty `handle` must fold and
     ///         hash to the proved handle node; it is logged in `HandleRevealed`,
     ///         and with `primary` it also becomes the caller's name.
-    /// @dev `msg.value` is `quoteBind` plus `feeAmount`, which goes to
-    ///      `feeReceiver`. A bind with no service fee passes `(0, address(0))`.
+    /// @dev `msg.value` is `feeAmount`, which goes to `feeReceiver`, plus what
+    ///      the Proof Verifier takes for the payload under its value rule
+    ///      (`IProofVerifier.verify`): `quoteBind`, or zero for a payload an
+    ///      earlier call of the caller's own transaction verified. A bind with
+    ///      no service fee passes `(0, address(0))`. Less than `feeAmount`
+    ///      reverts `WrongFeeValue` here; otherwise the Proof Verifier gets
+    ///      what is left after `feeAmount`, so a value short of the quote by
+    ///      the fee reverts there (`WrongValue`, or `NotVerifiedInTransaction`
+    ///      for exactly the fee). Check `feeAmount + quoteBind` first.
     function bind(
         bytes32 platformId,
         uint16 verifierVersion,
@@ -283,11 +288,9 @@ contract IdentityRegistry is
         _requireKnown(platformId);
         if (primary && bytes(handle).length == 0) revert PrimaryWithoutHandle();
 
-        IProofVerifier pv = _s().proofVerifier;
-        uint256 required = pv.quote(platformId, verifierVersion);
-        if (msg.value < required) revert WrongBindValue(required, msg.value);
-
-        claimed = pv.verify{value: required}(platformId, verifierVersion, payload);
+        // The rest is the verification's: the Proof Verifier checks it.
+        if (msg.value < feeAmount) revert WrongFeeValue(feeAmount, msg.value);
+        claimed = _s().proofVerifier.verify{value: msg.value - feeAmount}(platformId, verifierVersion, payload);
 
         bytes memory data = claimed.transactionData;
         if (claimed.operationDomain != OPERATION_DOMAIN) {
@@ -313,9 +316,6 @@ contract IdentityRegistry is
         if ((feeAmount == 0) != (feeReceiver == address(0))) {
             revert NoncanonicalFee(feeAmount, feeReceiver);
         }
-
-        uint256 offered = msg.value - required;
-        if (offered != feeAmount) revert WrongFeeValue(feeAmount, offered);
 
         if (claimed.idNode == bytes32(0)) revert NoId();
         if (claimed.handleNode == bytes32(0)) revert NoHandle();

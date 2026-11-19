@@ -156,6 +156,13 @@ mod tests {
                 "UnknownPlatform",
                 revert("UnknownPlatform(bytes32)", BOUND.abi_encode()),
             ),
+            (
+                "NotVerifiedInTransaction",
+                revert(
+                    "NotVerifiedInTransaction(uint256)",
+                    U256::from(5).abi_encode(),
+                ),
+            ),
         ];
         for (name, data) in cases {
             assert_eq!(BindError::decode(&data).expect(name).name(), name);

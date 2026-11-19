@@ -38,6 +38,10 @@ describe('bindErrorsAbi', () => {
         'UnknownVersion',
         concatHex([selector('UnknownVersion(bytes32,uint16)'), PROVED, pad('0x01')]),
       ],
+      [
+        'NotVerifiedInTransaction',
+        concatHex([selector('NotVerifiedInTransaction(uint256)'), pad('0x05')]),
+      ],
     ]
     for (const [name, data] of cases) {
       expect(decodeErrorResult({ abi: bindErrorsAbi, data }).errorName).toBe(name)

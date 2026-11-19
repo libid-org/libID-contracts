@@ -151,7 +151,7 @@ contract CeremonyBindTest is Test {
     function test_rejectsAnyValueOtherThanTheQuote() public {
         bytes memory p = _payload(WALLET, bytes32(uint256(3)));
         vm.prank(WALLET);
-        vm.expectRevert(abi.encodeWithSelector(IdentityRegistry.WrongBindValue.selector, FEE, FEE - 1));
+        vm.expectRevert(abi.encodeWithSelector(CeremonyProofVerifier.WrongValue.selector, FEE, FEE - 1));
         registry.bind{value: FEE - 1}(PLATFORM, 1, p, "", false, 0, address(0));
     }
 
@@ -235,7 +235,7 @@ contract CeremonyBindTest is Test {
         bytes memory p = _payload(DOMAIN, abi.encode(WALLET, SERVICE_FEE, HOST), bytes32(uint256(25)));
         vm.prank(WALLET);
         vm.expectRevert(abi.encodeWithSelector(IdentityRegistry.BadTransactionData.selector, 96));
-        registry.bind{value: FEE + SERVICE_FEE}(PLATFORM, 1, p, "", false, 0, address(0));
+        registry.bind{value: FEE}(PLATFORM, 1, p, "", false, 0, address(0));
     }
 
     // ─── The operation domain ───────────────────────────────────────
@@ -366,19 +366,18 @@ contract CeremonyBindTest is Test {
         registry.bind{value: FEE}(PLATFORM, 1, p, "", false, 0, address(0));
     }
 
-    /// @dev Caught before verification: the shortfall is known without decoding the payload.
     function test_rejectsOneWeiLessThanTheQuote() public {
         bytes memory p = _payload(WALLET, bytes32(uint256(23)));
         vm.prank(WALLET);
-        vm.expectRevert(abi.encodeWithSelector(IdentityRegistry.WrongBindValue.selector, FEE, FEE - 1));
+        vm.expectRevert(abi.encodeWithSelector(CeremonyProofVerifier.WrongValue.selector, FEE, FEE - 1));
         registry.bind{value: FEE - 1}(PLATFORM, 1, p, "", false, 0, address(0));
     }
 
-    /// @dev Caught after verification: value above the quote is the fee, and the call named none.
+    /// @dev With no fee named, all the value is the verification's.
     function test_rejectsOneWeiMoreThanTheBindCosts() public {
         bytes memory p = _payload(WALLET, bytes32(uint256(24)));
         vm.prank(WALLET);
-        vm.expectRevert(abi.encodeWithSelector(IdentityRegistry.WrongFeeValue.selector, 0, 1));
+        vm.expectRevert(abi.encodeWithSelector(CeremonyProofVerifier.WrongValue.selector, FEE, FEE + 1));
         registry.bind{value: FEE + 1}(PLATFORM, 1, p, "", false, 0, address(0));
     }
 
@@ -468,15 +467,37 @@ contract CeremonyBindTest is Test {
     function test_rejectsAFeeTheCallerDidNotDeliver() public {
         bytes memory p = _payload(WALLET, bytes32(uint256(62)));
         vm.prank(WALLET);
-        vm.expectRevert(abi.encodeWithSelector(IdentityRegistry.WrongFeeValue.selector, SERVICE_FEE, 0));
+        vm.expectRevert(abi.encodeWithSelector(IdentityRegistry.WrongFeeValue.selector, SERVICE_FEE, FEE));
         registry.bind{value: FEE}(PLATFORM, 1, p, "", false, SERVICE_FEE, HOST);
+    }
+
+    /// The fee alone, for a payload this transaction has not verified, leaves the verification nothing.
+    function test_rejectsTheFeeAloneForAFreshPayload() public {
+        bytes memory p = _payload(WALLET, bytes32(uint256(65)));
+        vm.prank(WALLET);
+        vm.expectRevert(abi.encodeWithSelector(CeremonyProofVerifier.NotVerifiedInTransaction.selector, FEE));
+        registry.bind{value: SERVICE_FEE}(PLATFORM, 1, p, "", false, SERVICE_FEE, HOST);
     }
 
     function test_rejectsMoreThanTheCallerNamed() public {
         bytes memory p = _payload(WALLET, bytes32(uint256(63)));
         vm.prank(WALLET);
-        vm.expectRevert(abi.encodeWithSelector(IdentityRegistry.WrongFeeValue.selector, SERVICE_FEE, SERVICE_FEE + 1));
+        vm.expectRevert(abi.encodeWithSelector(CeremonyProofVerifier.WrongValue.selector, FEE, FEE + 1));
         registry.bind{value: FEE + SERVICE_FEE + 1}(PLATFORM, 1, p, "", false, SERVICE_FEE, HOST);
+    }
+
+    /// A payload verified earlier in the transaction binds for the service fee alone.
+    function test_aRepeatBindPaysOnlyTheServiceFee() public {
+        vm.deal(address(this), FEE);
+        this.verifyThenBindForTheFee(_payload(WALLET, bytes32(uint256(71))));
+        assertEq(HOST.balance, SERVICE_FEE);
+        assertEq(registry.resolveHandle(PLATFORM, "alice"), WALLET);
+    }
+
+    function verifyThenBindForTheFee(bytes memory p) external {
+        proofVerifier.verify{value: FEE}(PLATFORM, 1, p);
+        vm.expectCall(address(verifier), abi.encodeWithSelector(IPlatformVerifier.verify.selector), 0);
+        _bind(p, SERVICE_FEE, SERVICE_FEE, HOST);
     }
 
     /// @dev A free bind is `(0, address(0))`; a receiver beside a zero amount is refused.

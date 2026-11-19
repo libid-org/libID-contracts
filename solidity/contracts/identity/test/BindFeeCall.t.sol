@@ -95,6 +95,24 @@ contract BindFeeCallTest is Test {
 
     // ─── Paying through the callback ────────────────────────────────
 
+    /// A payload verified earlier in the transaction pays the receiver its fee and nothing more.
+    function test_aSavedClaimBindsForTheFeeAlone() public {
+        RecordingReceiver receiver = new RecordingReceiver(registry);
+        this.verifyThenBindWithFeeCall(address(receiver));
+        assertEq(address(receiver).balance, SERVICE_FEE, "the receiver's fee");
+        assertEq(receiver.sessionId(), _digest(WALLET), "the saved claim's session");
+        assertEq(registry.resolveHandle(PLATFORM, "alice"), WALLET);
+    }
+
+    function verifyThenBindWithFeeCall(address receiver) external {
+        bytes memory payload = _payload(WALLET);
+        vm.deal(address(this), QUOTE);
+        proofVerifier.verify{value: QUOTE}(PLATFORM, 1, payload);
+        vm.expectCall(address(verifier), abi.encodeWithSelector(IPlatformVerifier.verify.selector), 0);
+        vm.prank(WALLET);
+        registry.bindWithFeeCall{value: SERVICE_FEE}(PLATFORM, 1, payload, "", false, SERVICE_FEE, receiver, FEE_DATA);
+    }
+
     function test_paysTheFeeThroughTheReceiversCallback() public {
         RecordingReceiver receiver = new RecordingReceiver(registry);
         uint256 walletBefore = WALLET.balance;
@@ -176,7 +194,7 @@ contract BindFeeCallTest is Test {
             QUOTE + SERVICE_FEE - 1,
             SERVICE_FEE,
             address(receiver),
-            abi.encodeWithSelector(IdentityRegistry.WrongFeeValue.selector, SERVICE_FEE, SERVICE_FEE - 1)
+            abi.encodeWithSelector(CeremonyProofVerifier.WrongValue.selector, QUOTE, QUOTE - 1)
         );
     }
 
@@ -186,7 +204,7 @@ contract BindFeeCallTest is Test {
             QUOTE + SERVICE_FEE + 1,
             SERVICE_FEE,
             address(receiver),
-            abi.encodeWithSelector(IdentityRegistry.WrongFeeValue.selector, SERVICE_FEE, SERVICE_FEE + 1)
+            abi.encodeWithSelector(CeremonyProofVerifier.WrongValue.selector, QUOTE, QUOTE + 1)
         );
     }
 
