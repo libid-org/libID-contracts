@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
+import {PackedUserOperation} from "@openzeppelin/contracts/interfaces/IERC4337.sol";
 import {Initializable} from "@openzeppelin/contracts/proxy/utils/Initializable.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts/proxy/utils/UUPSUpgradeable.sol";
 import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
@@ -69,6 +70,18 @@ contract WalletFactoryTest is WalletBase {
         vm.recordLogs();
         assertEq(factory.createWallet(X, ALICE, 0), w, "a second call moved the wallet");
         assertEq(vm.getRecordedLogs().length, 0, "a second call emitted");
+    }
+
+    /// A UserOperation signed for the predicted address before the wallet exists runs once it does, under any
+    /// nonce key.
+    function test_anOperationSignedBeforeTheWalletExists() public {
+        address w = factory.walletAddress(X, ALICE, 0);
+        PackedUserOperation memory op = _op(w, _hitCall());
+        op.nonce = uint256(1) << 64;
+        op = _signOp(op, 1, _pks(ALICE_PK));
+        _claim();
+        _handle(_ops(op));
+        assertEq(target.last(), w, "the operation did not run");
     }
 
     /// One genesis, two wallets: each its own salt and sessions.
