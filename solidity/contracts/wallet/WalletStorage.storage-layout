@@ -1,6 +1,6 @@
 # WalletStorage storage layout. Checked in CI by scripts/check-storage-layout.py.
 # Fields may only be APPENDED. Record an append with --update; see the script.
-# Reset for a redeploy, not an upgrade: WebWallet drops OpenZeppelin's EIP712 and its unused name/version fallback slots 0 and 1; no wallet is deployed yet
+# Reset for a redeploy, not an upgrade: SessionRecord drops policyHash, which sessionOf computes from the stored fields; no wallet is deployed yet
 root erc7201:libid.webwallet.state 0x2fefcc1cd2f12f011dc78ce30301455eb7a4a027395fa8fbcaed6284d99cf200
 field slot=0 offset=0 epoch: bytes32
 field slot=1 offset=0 epochs: mapping(bytes32 => struct WalletStorage.EpochState)
@@ -21,18 +21,17 @@ struct WalletStorage.EpochState slot=7 offset=0 counters: mapping(bytes32 => str
 struct WalletStorage.EpochState slot=8 offset=0 roots: mapping(bytes32 => struct WalletStorage.Root)
 struct WalletStorage.EpochState slot=9 offset=0 appLists: mapping(bytes32 => bytes32[])
 struct WalletStorage.SessionRecord slot=0 offset=0 identity: bytes32
-struct WalletStorage.SessionRecord slot=1 offset=0 policyHash: bytes32
-struct WalletStorage.SessionRecord slot=2 offset=0 rulesHash: bytes32
-struct WalletStorage.SessionRecord slot=3 offset=0 scopeRoot: bytes32
-struct WalletStorage.SessionRecord slot=4 offset=0 domainsRoot: bytes32
-struct WalletStorage.SessionRecord slot=5 offset=0 paymastersRoot: bytes32
-struct WalletStorage.SessionRecord slot=6 offset=0 validAfter: uint48
-struct WalletStorage.SessionRecord slot=6 offset=6 validUntil: uint48
-struct WalletStorage.SessionRecord slot=6 offset=12 activeAt: uint48
-struct WalletStorage.SessionRecord slot=6 offset=18 generation: uint32
-struct WalletStorage.SessionRecord slot=6 offset=22 admin: bool
-struct WalletStorage.SessionRecord slot=6 offset=23 byProof: bool
-struct WalletStorage.SessionRecord slot=6 offset=24 signers: uint8
+struct WalletStorage.SessionRecord slot=1 offset=0 rulesHash: bytes32
+struct WalletStorage.SessionRecord slot=2 offset=0 scopeRoot: bytes32
+struct WalletStorage.SessionRecord slot=3 offset=0 domainsRoot: bytes32
+struct WalletStorage.SessionRecord slot=4 offset=0 paymastersRoot: bytes32
+struct WalletStorage.SessionRecord slot=5 offset=0 validAfter: uint48
+struct WalletStorage.SessionRecord slot=5 offset=6 validUntil: uint48
+struct WalletStorage.SessionRecord slot=5 offset=12 activeAt: uint48
+struct WalletStorage.SessionRecord slot=5 offset=18 generation: uint32
+struct WalletStorage.SessionRecord slot=5 offset=22 admin: bool
+struct WalletStorage.SessionRecord slot=5 offset=23 byProof: bool
+struct WalletStorage.SessionRecord slot=5 offset=24 signers: uint8
 struct WalletStorage.Link slot=0 offset=0 linked: bool
 struct WalletStorage.Link slot=0 offset=1 generation: uint32
 struct WalletStorage.Link slot=0 offset=5 adminSessions: uint32

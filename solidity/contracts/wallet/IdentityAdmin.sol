@@ -6,7 +6,7 @@ import {IWalletFactory} from "./IWalletFactory.sol";
 import {ADD_SESSION_DOMAIN, IWalletRegistry, LINK_IDENTITY_DOMAIN, REMOVE_SESSIONS_DOMAIN} from "./IWalletRegistry.sol";
 import {IWebWallet} from "./IWebWallet.sol";
 import {WalletRelease} from "./WalletRelease.sol";
-import {WalletStorage, identityOf, policyHashOf, rulesHashOf} from "./WalletStorage.sol";
+import {WalletStorage, identityOf, policyHashFrom, policyHashOf, rulesHashOf} from "./WalletStorage.sol";
 import {WalletTransient} from "./WalletTransient.sol";
 
 /// @title IdentityAdmin - the wallet's identities, sessions, app lists and root operations.
@@ -112,7 +112,7 @@ contract IdentityAdmin {
         if (!WalletStorage.live(s)) return r;
         return IWebWallet.Session({
             identity: s.identity,
-            policyHash: s.policyHash,
+            policyHash: policyHashFrom(s.validAfter, s.validUntil, s.admin, s.signers, s.rulesHash),
             activeAt: s.activeAt,
             admin: s.admin,
             byProof: s.byProof,
@@ -321,10 +321,8 @@ contract IdentityAdmin {
         if (WalletStorage.live(r)) revert IWebWallet.SessionExists(key);
         IWebWallet.Rules calldata rules = policy.rules;
         bytes32 rulesHash = rulesHashOf(rules);
-        bytes32 policyHash = policyHashOf(policy);
         s.sessions[keyHash] = WalletStorage.SessionRecord({
             identity: identity,
-            policyHash: policyHash,
             rulesHash: rulesHash,
             scopeRoot: rules.scopeRoot,
             domainsRoot: rules.domainsRoot,
@@ -344,6 +342,8 @@ contract IdentityAdmin {
             ++l.adminSessions;
             if (++s.platformCounts[l.platformId].admins == 1) ++s.adminPlatforms;
         }
+        bytes32 policyHash =
+            policyHashFrom(policy.validAfter, policy.validUntil, policy.admin, policy.signers, rulesHash);
         emit IWebWallet.SessionAdded(identity, key, policyHash, activeAt, byProof);
     }
 

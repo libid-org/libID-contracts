@@ -15,9 +15,15 @@ function rulesHashOf(IWebWallet.Rules memory rules) pure returns (bytes32) {
 
 /// A policy's hash, as a proof commits it.
 function policyHashOf(IWebWallet.Policy memory policy) pure returns (bytes32) {
-    return keccak256(
-        abi.encode(policy.validAfter, policy.validUntil, policy.admin, policy.signers, rulesHashOf(policy.rules))
-    );
+    return policyHashFrom(policy.validAfter, policy.validUntil, policy.admin, policy.signers, rulesHashOf(policy.rules));
+}
+
+/// `policyHashOf` from a policy's fields and its rules' hash.
+function policyHashFrom(uint48 validAfter, uint48 validUntil, bool admin, uint8 signers, bytes32 rulesHash)
+    pure
+    returns (bytes32)
+{
+    return keccak256(abi.encode(validAfter, validUntil, admin, signers, rulesHash));
 }
 
 /// @title WalletStorage - the wallet's state, shared by WebWallet and the targets it delegates to.
@@ -43,7 +49,6 @@ library WalletStorage {
     /// A session; dead once `generation` is not its identity's.
     struct SessionRecord {
         bytes32 identity;
-        bytes32 policyHash;
         bytes32 rulesHash;
         bytes32 scopeRoot;
         bytes32 domainsRoot;
