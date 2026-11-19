@@ -163,6 +163,66 @@ contract WalletAbiTest is WalletBase {
         assertEq(vm.load(address(registry), spent), bytes32(uint256(1)), "the registry's spent digest");
     }
 
+    /// Acceptance 11: `fixtures/direct-execute-vector.json`, written by `cast` alone, against the encodings the
+    /// suites sign with. The Rust and TypeScript helper tests read it too.
+    function test_theClientVector() public {
+        string memory j = vm.readFile("contracts/wallet/test/fixtures/direct-execute-vector.json");
+        assertEq(AUTHORIZED_MODE, vm.parseJsonBytes32(j, ".authorizedMode"), "AUTHORIZED_MODE");
+        assertEq(EXECUTE_TYPEHASH, vm.parseJsonBytes32(j, ".executeTypehash"), "Execute typehash");
+        assertEq(USER_OP_TYPEHASH, vm.parseJsonBytes32(j, ".userOperationTypehash"), "UserOperation typehash");
+        vm.chainId(vm.parseJsonUint(j, ".chainId"));
+        address w = vm.parseJsonAddress(j, ".wallet");
+        uint64 version = uint64(vm.parseJsonUint(j, ".version"));
+        uint48 at = uint48(vm.parseJsonUint(j, ".at"));
+
+        IWebWallet.SessionSignature[] memory s = new IWebWallet.SessionSignature[](1);
+        s[0] = IWebWallet.SessionSignature(vm.parseJsonBytes(j, ".sessionKey"), vm.parseJsonBytes(j, ".signature"));
+        IWebWallet.CallProof[] memory c = new IWebWallet.CallProof[](1);
+        c[0] = IWebWallet.CallProof(vm.parseJsonUint(j, ".callMaxValue"), new bytes32[](1));
+        c[0].proof[0] = vm.parseJsonBytes32(j, ".callProof");
+        bytes32[] memory domainProof = new bytes32[](1);
+        bytes32[] memory paymasterProof = new bytes32[](1);
+        (domainProof[0], paymasterProof[0]) =
+        (vm.parseJsonBytes32(j, ".domainProof"), vm.parseJsonBytes32(j, ".paymasterProof"));
+        bytes memory auth = abi.encode(IWebWallet.Authorization(s, at, c, domainProof, paymasterProof));
+        assertEq(keccak256(auth), vm.parseJsonBytes32(j, ".authorizationHash"), "Authorization, no prefix");
+
+        bytes memory calls = vm.parseJsonBytes(j, ".executionCalldata");
+        (uint256 value, uint48 deadline, uint256 callGas) =
+            (vm.parseJsonUint(j, ".value"), uint48(vm.parseJsonUint(j, ".deadline")), vm.parseJsonUint(j, ".callGas"));
+        bytes memory data = abi.encode(calls, value, deadline, callGas, auth);
+        assertEq(keccak256(data), vm.parseJsonBytes32(j, ".dataHash"), "AUTHORIZED data");
+        // Nonce key 0: the full nonce is the sequence.
+        bytes32 digest = _typed(
+            w,
+            version,
+            keccak256(
+                abi.encode(
+                    EXECUTE_TYPEHASH,
+                    AUTHORIZED_MODE,
+                    keccak256(calls),
+                    value,
+                    at,
+                    vm.parseJsonUint(j, ".nonce"),
+                    deadline,
+                    callGas
+                )
+            )
+        );
+        assertEq(digest, vm.parseJsonBytes32(j, ".digest"), "Execute digest");
+        assertEq(
+            keccak256(abi.encode(digest, at, keccak256(s[0].key))),
+            vm.parseJsonBytes32(j, ".belowQuorumHash"),
+            "below-quorum hash"
+        );
+        bytes32 userOpHash = vm.parseJsonBytes32(j, ".userOpHash");
+        assertEq(
+            _typed(w, version, keccak256(abi.encode(USER_OP_TYPEHASH, userOpHash))),
+            vm.parseJsonBytes32(j, ".userOpDigest"),
+            "nested userOpHash"
+        );
+    }
+
     function _erc7201(string memory id) internal pure returns (bytes32) {
         return keccak256(abi.encode(uint256(keccak256(bytes(id))) - 1)) & ~bytes32(uint256(0xff));
     }
