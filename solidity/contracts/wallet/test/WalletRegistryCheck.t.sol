@@ -5,6 +5,7 @@ import {UUPSUpgradeable} from "@openzeppelin/contracts/proxy/utils/UUPSUpgradeab
 
 import {CeremonyProofVerifier} from "../../ceremony/CeremonyProofVerifier.sol";
 import {IPlatformVerifier} from "../../ceremony/IPlatformVerifier.sol";
+import {IProofVerifier} from "../../ceremony/IProofVerifier.sol";
 import {StubPlatformVerifier} from "../../identity/test/StubPlatformVerifier.sol";
 import {IWalletRegistry} from "../IWalletRegistry.sol";
 import {AUTHORIZED_MODE, IWebWallet} from "../IWebWallet.sol";
@@ -179,9 +180,26 @@ contract WalletRegistryCheckTest is WalletBase {
         vm.prank(owner);
         vm.expectRevert(IWalletRegistry.RenounceDisabled.selector);
         IRenounce(address(registry)).renounceOwnership();
-        address next = deployCode("WalletRegistry.sol:WalletRegistry", abi.encode(address(proofVerifier)));
+        address next = deployCode("WalletRegistry.sol:WalletRegistry");
         vm.prank(mallory);
         vm.expectPartialRevert(bytes4(keccak256("OwnableUnauthorizedAccount(address)")));
         UUPSUpgradeable(address(registry)).upgradeToAndCall(next, "");
+    }
+
+    /// The owner points the registry at another Proof Verifier, never at none; nobody else can.
+    function test_theOwnerSetsTheProofVerifier() public {
+        assertEq(address(registry.proofVerifier()), address(proofVerifier), "the verifier initialize set");
+        IProofVerifier next = IProofVerifier(makeAddr("next verifier"));
+        vm.prank(mallory);
+        vm.expectPartialRevert(bytes4(keccak256("OwnableUnauthorizedAccount(address)")));
+        registry.setProofVerifier(next);
+        vm.prank(owner);
+        vm.expectRevert(IWalletRegistry.ZeroAddress.selector);
+        registry.setProofVerifier(IProofVerifier(address(0)));
+        vm.prank(owner);
+        vm.expectEmit(address(registry));
+        emit IWalletRegistry.ProofVerifierConfigured(address(next));
+        registry.setProofVerifier(next);
+        assertEq(address(registry.proofVerifier()), address(next), "verifier");
     }
 }

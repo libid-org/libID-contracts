@@ -15,11 +15,10 @@ import {identityOf} from "./WalletStorage.sol";
 /// @notice Verifies a proof for the wallet that calls it and spends its digest; the wallet applies the result.
 /// @dev Behind a UUPS proxy, owned like WalletFactory. The digest is the nullifier (REQ-COMMON-03A).
 contract WalletRegistry is IWalletRegistry, UUPSUpgradeable, Ownable2StepUpgradeable {
-    IProofVerifier private immutable PROOF_VERIFIER;
-
     /// @custom:storage-location erc7201:libid.storage.WalletRegistry
     struct WalletRegistryStorage {
         mapping(bytes32 digest => bool) spentDigests;
+        IProofVerifier proofVerifier;
     }
 
     // cast index-erc7201 libid.storage.WalletRegistry
@@ -27,14 +26,14 @@ contract WalletRegistry is IWalletRegistry, UUPSUpgradeable, Ownable2StepUpgrade
         0x1b521e190b50a237bb32c639281068a3635ba26df4c62304b1a25b9f79aaa000;
 
     /// @custom:oz-upgrades-unsafe-allow constructor
-    constructor(address proofVerifier) {
-        PROOF_VERIFIER = IProofVerifier(proofVerifier);
+    constructor() {
         _disableInitializers();
     }
 
-    function initialize(address owner_) external initializer {
+    function initialize(address owner_, IProofVerifier verifier) external initializer {
         __Ownable_init(owner_);
         __Ownable2Step_init();
+        _setProofVerifier(verifier);
     }
 
     function check(
@@ -50,7 +49,7 @@ contract WalletRegistry is IWalletRegistry, UUPSUpgradeable, Ownable2StepUpgrade
         }
         // The Proof Verifier checks the value.
         ICeremony.VerifiedClaim memory claimed =
-            PROOF_VERIFIER.verify{value: msg.value}(platformId, verifierVersion, payload);
+            _s().proofVerifier.verify{value: msg.value}(platformId, verifierVersion, payload);
 
         bytes memory txData = claimed.transactionData;
         bytes32 entry = claimed.operationDomain;
@@ -73,7 +72,15 @@ contract WalletRegistry is IWalletRegistry, UUPSUpgradeable, Ownable2StepUpgrade
     }
 
     function quote(bytes32 platformId, uint16 verifierVersion) external view returns (uint256) {
-        return PROOF_VERIFIER.quote(platformId, verifierVersion);
+        return _s().proofVerifier.quote(platformId, verifierVersion);
+    }
+
+    function proofVerifier() external view returns (IProofVerifier) {
+        return _s().proofVerifier;
+    }
+
+    function setProofVerifier(IProofVerifier verifier) external onlyOwner {
+        _setProofVerifier(verifier);
     }
 
     function spentDigests(bytes32 digest) external view returns (bool) {
@@ -107,6 +114,12 @@ contract WalletRegistry is IWalletRegistry, UUPSUpgradeable, Ownable2StepUpgrade
         } else if (committed != policyHash) {
             revert WrongPolicy(policyHash, committed);
         }
+    }
+
+    function _setProofVerifier(IProofVerifier verifier) private {
+        if (address(verifier) == address(0)) revert ZeroAddress();
+        _s().proofVerifier = verifier;
+        emit ProofVerifierConfigured(address(verifier));
     }
 
     function _s() private pure returns (WalletRegistryStorage storage $) {

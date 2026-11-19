@@ -10,6 +10,7 @@ import {CeremonyAuthorization} from "../../ceremony/CeremonyAuthorization.sol";
 import {CeremonyProfile} from "../../ceremony/CeremonyProfile.sol";
 import {CeremonyProofVerifier} from "../../ceremony/CeremonyProofVerifier.sol";
 import {IPlatformVerifier} from "../../ceremony/IPlatformVerifier.sol";
+import {IProofVerifier} from "../../ceremony/IProofVerifier.sol";
 import {LibidFactory} from "../../factory/LibidFactory.sol";
 import {StubPlatformVerifier} from "../../identity/test/StubPlatformVerifier.sol";
 import {IWalletFactory} from "../IWalletFactory.sol";
@@ -117,12 +118,15 @@ abstract contract WalletBase is Test {
         names = LibidFactory(
             address(new ERC1967Proxy(address(new LibidFactory()), abi.encodeCall(LibidFactory.initialize, (owner))))
         );
-        address registryImpl = deployCode("WalletRegistry.sol:WalletRegistry", abi.encode(address(proofVerifier)));
+        bytes memory init = abi.encodeCall(IWalletRegistry.initialize, (owner, IProofVerifier(address(proofVerifier))));
+        address registryImpl = deployCode("WalletRegistry.sol:WalletRegistry");
         vm.prank(owner);
-        registry = IWalletRegistry(names.deploy("WalletRegistry", _proxyCode(registryImpl)));
+        registry = IWalletRegistry(names.deploy("WalletRegistry", _proxyCode(registryImpl, init)));
         address factoryImpl = _factoryImpl();
         vm.prank(owner);
-        factory = IWalletFactory(names.deploy("WalletFactory", _proxyCode(factoryImpl)));
+        factory = IWalletFactory(
+            names.deploy("WalletFactory", _proxyCode(factoryImpl, abi.encodeCall(IWalletFactory.initialize, (owner))))
+        );
 
         identityAdmin = deployCode("IdentityAdmin.sol:IdentityAdmin");
         sessionRules = deployCode("SessionRules.sol:SessionRules");
@@ -132,11 +136,8 @@ abstract contract WalletBase is Test {
         vm.warp(1_800_000_000);
     }
 
-    function _proxyCode(address implementation) private view returns (bytes memory) {
-        return abi.encodePacked(
-            type(ERC1967Proxy).creationCode,
-            abi.encode(implementation, abi.encodeCall(IWalletFactory.initialize, (owner)))
-        );
+    function _proxyCode(address implementation, bytes memory init) private pure returns (bytes memory) {
+        return abi.encodePacked(type(ERC1967Proxy).creationCode, abi.encode(implementation, init));
     }
 
     /// A WalletFactory implementation for `registry`.

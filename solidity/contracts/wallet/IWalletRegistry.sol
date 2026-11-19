@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
+import {IProofVerifier} from "../ceremony/IProofVerifier.sol";
+
 // The wallet operations' domains.
 bytes32 constant LINK_IDENTITY_DOMAIN = keccak256("libid.webwallet.link-identity");
 bytes32 constant ADD_SESSION_DOMAIN = keccak256("libid.webwallet.add-session");
@@ -18,6 +20,9 @@ interface IWalletRegistry {
         bytes app;
     }
 
+    /// The registry was pointed at a Proof Verifier.
+    event ProofVerifierConfigured(address verifier);
+
     error WrongOperationDomain(bytes32 expected, bytes32 actual);
     error WrongWallet(address expected, address actual);
     error WrongChain(uint256 chainId);
@@ -34,9 +39,16 @@ interface IWalletRegistry {
     error BadTransactionData(uint256 length);
     /// Ownership cannot be renounced.
     error RenounceDisabled();
+    /// A zero Proof Verifier.
+    error ZeroAddress();
 
-    function initialize(address owner) external;
+    function initialize(address owner, IProofVerifier verifier) external;
     function owner() external view returns (address);
+
+    /// The Proof Verifier every proof goes through. One-fee onboarding needs IdentityRegistry to name the same one.
+    function proofVerifier() external view returns (IProofVerifier);
+    /// Owner only.
+    function setProofVerifier(IProofVerifier verifier) external;
 
     /// Verifies `payload` for an operation of `domain` whose transaction data names this chain, `msg.sender`
     /// and `policyHash`, spends its digest, and returns what it names.

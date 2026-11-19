@@ -70,8 +70,9 @@ Code that outlives a release calls these, so every release keeps them:
 
 Each constructor takes the address of what it calls, so the order is:
 
-1. `WalletRegistry(proofVerifier)`, the implementation, then its proxy under
-   the `LibidFactory` name `"WalletRegistry"`, initialized with its owner.
+1. `WalletRegistry()`, the implementation, then its proxy under the
+   `LibidFactory` name `"WalletRegistry"`, initialized with its owner and the
+   Proof Verifier.
 2. `WalletFactory(registryProxy)`, the implementation, then its proxy under
    the name `"WalletFactory"`, initialized with its owner.
 3. `IdentityAdmin` and `SessionRules`.
@@ -81,6 +82,14 @@ Each constructor takes the address of what it calls, so the order is:
 
 The registry comes before the factory implementation: the factory keeps the
 registry as the immutable `REGISTRY`.
+
+The registry's owner points it at another Proof Verifier with
+`setProofVerifier` (`ProofVerifierConfigured`). One-fee onboarding needs
+`IdentityRegistry` and `WalletRegistry` to name the same Proof Verifier: the
+bind is free only through the verifier that verified the link.
+
+This repo deploys neither proxy. Giving the registry and the factory the same
+owner is a requirement on the deployment, and nothing here checks it.
 
 `publish(implementation)` reverts unless the implementation has code
 (`ImplementationWithoutCode`), reports `VERSION() == latest + 1`
