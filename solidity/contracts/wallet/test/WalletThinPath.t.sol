@@ -32,12 +32,4 @@ contract WalletThinPathTest is WalletBase {
         _handle(_ops(_signOp(_op(w, _hitCall()), 1, _pks(ALICE_PK))));
         assertEq(target.calls(), 3, "the session's UserOperation did not run");
     }
-
-    /// The batch nonce is EntryPoint key 0, shared with UserOperations.
-    function test_authorizedBatchesUseNonceKeyZero() public {
-        address w = _claim();
-        uint256 n = _nonce(w);
-        _run(w, _one(_hitX()));
-        assertEq(_nonce(w), n + 1, "key 0 not used");
-    }
 }

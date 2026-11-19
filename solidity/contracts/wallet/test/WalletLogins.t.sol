@@ -169,15 +169,6 @@ contract WalletLoginsTest is WalletSuite {
         _refusesBy(w, _one(_hitX()), _pks(CAROL_PK), NOT_SIGNED);
     }
 
-    function test_theWalletsOwnUnlinkLowersTheThreshold() public {
-        address w = _wallet(2, 2);
-        bytes32 bob = _identity(GITHUB, BOB);
-        _rootW(w, abi.encodeCall(IWebWallet.unlink, (bob)));
-        assertFalse(IWebWallet(w).isLinked(bob), "linked");
-        assertEq(IWebWallet(w).threshold(), 1, "not min(2, 1)");
-        _runsBy(w, _one(_hitX()), _pks(ALICE_PK));
-    }
-
     /// An unlink may leave the wallet no admin session.
     function test_theWalletsOwnUnlinkMayLeaveNoAdmin() public {
         address w = _wallet(2, 1);

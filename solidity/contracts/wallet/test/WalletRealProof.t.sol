@@ -26,8 +26,6 @@ import {WalletBase} from "./WalletBase.sol";
 contract WalletRealProofTest is WalletBase {
     string constant SESSION = "contracts/ceremony/test/fixtures/x-ceremony-session.json";
     uint256 constant NOTARY_KEY = 0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80;
-    bytes32 constant OPERATIONS = 0x60b329d7366897b03545eb9f63f4a707253258ee2e1cd0ba3a8973aa4959e967;
-    bytes32 constant BIND = 0x4d59cd4487de0a5957f8c83addaac7a1238175aa5c29eeea2fbef57a8f5165ac;
     uint16 constant VX = 2;
 
     string session;

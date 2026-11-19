@@ -60,8 +60,6 @@ contract OpenRelease {
 contract WalletResetTest is WalletBase {
     uint256 internal constant KEY_PK = 0x7702;
     uint256 internal constant SECP256K1_N = 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141;
-    bytes32 internal constant MAIL = keccak256("a Mail");
-    string internal constant MAIL_TYPE = "Mail(address to)";
 
     address internal a;
     address internal fwd;

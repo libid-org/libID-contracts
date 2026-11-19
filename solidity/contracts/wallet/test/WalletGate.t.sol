@@ -13,9 +13,6 @@ import {WalletBase} from "./WalletBase.sol";
 ///         no storage.
 /// forge-config: default.evm_version = "prague"
 contract WalletGateTest is WalletBase {
-    // cast keccak "libid.webwallet.remove-sessions"
-    bytes32 internal constant REMOVE = 0x7cabdd831000d819c7b2ae4f79b4d6b566aa21992764e735f944b1459cb43c1b;
-
     /// View: anyone, writes nothing. Public: anyone, writes only when signed or proven. Self: the wallet's own
     /// call. Root: inside `executeRoot` only. Special: construction, reset, data steps, the EntryPoint, nesting.
     enum Gate {
@@ -201,9 +198,8 @@ contract WalletGateTest is WalletBase {
         _root(w, abi.encodeCall(IWebWallet.setThreshold, (2)));
         assertEq(IWebWallet(w).threshold(), 2, "setThreshold");
         bytes memory unlink = abi.encodeCall(IWebWallet.unlink, (_identity(GITHUB, BOB)));
-        uint256[] memory both = new uint256[](2);
-        (both[0], both[1]) = (ALICE_PK, BOB_PK);
-        bytes memory data = _signed(w, both, _one(_x(w, 0, abi.encodeCall(IWebWallet.queueRoot, (unlink)))));
+        bytes memory data =
+            _signed(w, _pks(ALICE_PK, BOB_PK), _one(_x(w, 0, abi.encodeCall(IWebWallet.queueRoot, (unlink)))));
         vm.prank(relayer);
         IWebWallet(w).execute(AUTHORIZED_MODE, data);
         _mature(w);

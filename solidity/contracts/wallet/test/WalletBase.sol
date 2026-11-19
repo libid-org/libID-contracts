@@ -41,6 +41,10 @@ abstract contract WalletBase is Test {
     // cast keccak of the domain strings.
     bytes32 internal constant LINK = 0xb76778e70fe9491d05f3d66a477c7f1cb97c40b477b88d0c00442e80bcc4e15c;
     bytes32 internal constant ADD = 0xadc0929729a450db24efd5992bbc0f04693c7d8e9d706da31c8cca0a429d1d59;
+    // cast keccak "libid.webwallet.remove-sessions", "libid.operations", "libid.bind"
+    bytes32 internal constant REMOVE = 0x7cabdd831000d819c7b2ae4f79b4d6b566aa21992764e735f944b1459cb43c1b;
+    bytes32 internal constant OPERATIONS = 0x60b329d7366897b03545eb9f63f4a707253258ee2e1cd0ba3a8973aa4959e967;
+    bytes32 internal constant BIND = 0x4d59cd4487de0a5957f8c83addaac7a1238175aa5c29eeea2fbef57a8f5165ac;
     // cast keccak "Execute(bytes32 mode,bytes executionCalldata,uint256 value,uint48 at,uint256 nonce,uint48 deadline,uint256 callGas)"
     bytes32 internal constant EXECUTE_TYPEHASH = 0x6158eac44095e4b05d0f638c3e232c7f3a2dc8872b50069fc5cfe697b4fb8cf2;
     // cast keccak "UserOperation(bytes32 userOpHash)"
@@ -64,6 +68,8 @@ abstract contract WalletBase is Test {
     bytes32 internal constant MALLORY = keccak256("mallory's X id node");
     uint16 internal constant V1 = 1;
     uint256 internal constant CALL_GAS = 200_000;
+    bytes32 internal constant MAIL = keccak256("a Mail");
+    string internal constant MAIL_TYPE = "Mail(address to)";
 
     uint256 internal constant ALICE_PK = 0xA11CE;
     uint256 internal constant ALICE2_PK = 0xA11CE2;
@@ -331,6 +337,11 @@ abstract contract WalletBase is Test {
         r[0] = a;
     }
 
+    function _pks(uint256 a, uint256 b) internal pure returns (uint256[] memory r) {
+        r = new uint256[](2);
+        (r[0], r[1]) = (a, b);
+    }
+
     /// `AUTHORIZED_MODE` data of `calls` signed by `pks` under `version`'s domain at `w`'s next nonce.
     function _signedAt(address w, uint64 version, uint256[] memory pks, bytes memory calls, bool below)
         internal
@@ -364,10 +375,18 @@ abstract contract WalletBase is Test {
         w = _claimAs(X, ALICE, 0, ALICE_PK);
     }
 
-    function _claimAs(bytes32 platformId, bytes32 idNode, uint256 salt, uint256 pk) internal returns (address w) {
+    function _claimAs(bytes32 platformId, bytes32 idNode, uint256 salt, uint256 pk) internal returns (address) {
+        return _claimAs(platformId, idNode, salt, pk, _admin());
+    }
+
+    /// The bootstrap adds `pk`'s session under `p`.
+    function _claimAs(bytes32 platformId, bytes32 idNode, uint256 salt, uint256 pk, IWebWallet.Policy memory p)
+        internal
+        returns (address w)
+    {
         vm.prank(relayer);
         w = factory.createWallet(platformId, idNode, salt);
-        bytes memory calls = _one(_linkX(w, platformId, idNode, _key(pk), _admin()));
+        bytes memory calls = _one(_linkX(w, platformId, idNode, _key(pk), p));
         bytes memory data = _signed(w, _pks(pk), calls);
         vm.prank(relayer);
         IWebWallet(w).execute(AUTHORIZED_MODE, data);

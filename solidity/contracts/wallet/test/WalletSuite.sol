@@ -47,12 +47,6 @@ contract OtherClientVerifier is IPlatformVerifier {
 abstract contract WalletSuite is WalletBase {
     bytes32 internal constant GOOGLE = CeremonyProfile.PLATFORM_GOOGLE;
     bytes32 internal constant CAROL = keccak256("carol's Google id node");
-    // cast keccak "libid.webwallet.remove-sessions", "libid.operations", "libid.bind"
-    bytes32 internal constant REMOVE = 0x7cabdd831000d819c7b2ae4f79b4d6b566aa21992764e735f944b1459cb43c1b;
-    bytes32 internal constant OPERATIONS = 0x60b329d7366897b03545eb9f63f4a707253258ee2e1cd0ba3a8973aa4959e967;
-    bytes32 internal constant BIND = 0x4d59cd4487de0a5957f8c83addaac7a1238175aa5c29eeea2fbef57a8f5165ac;
-    bytes32 internal constant MAIL = keccak256("a Mail");
-    string internal constant MAIL_TYPE = "Mail(address to)";
     bytes32 internal constant PROBE = 0x7739773977397739773977397739773977397739773977397739773977397739;
     bytes4 internal constant MAGIC = 0x1626ba7e;
     uint256 internal constant APP_PK = 0xA99;
@@ -151,11 +145,6 @@ abstract contract WalletSuite is WalletBase {
 
     // ─── Signatures ─────────────────────────────────────────────────
 
-    function _pks(uint256 a, uint256 b) internal pure returns (uint256[] memory r) {
-        r = new uint256[](2);
-        (r[0], r[1]) = (a, b);
-    }
-
     function _belowQuorum(bytes32 h, uint48 at, bytes memory governingKey) internal pure returns (bytes32) {
         return keccak256(abi.encode(h, at, keccak256(governingKey)));
     }
@@ -219,8 +208,7 @@ abstract contract WalletSuite is WalletBase {
         view
         returns (PackedUserOperation memory)
     {
-        op.signature = _sigs(pks, _signable(op.sender, IUserOpHash(EP).getUserOpHash(op)));
-        return op;
+        return _signOp(op, 1, pks);
     }
 
     /// Below quorum, at the block time, with a scope proof per execution.
@@ -475,13 +463,8 @@ abstract contract WalletSuite is WalletBase {
     // ─── Wallets ────────────────────────────────────────────────────
 
     /// Alice's wallet whose genesis bootstrap added her session under `p`.
-    function _claimWith(IWebWallet.Policy memory p) internal returns (address w) {
-        vm.prank(relayer);
-        w = factory.createWallet(X, ALICE, 0);
-        bytes memory data = _signed(w, _pks(ALICE_PK), _one(_linkX(w, X, ALICE, _key(ALICE_PK), p)));
-        vm.prank(relayer);
-        IWebWallet(w).execute(AUTHORIZED_MODE, data);
-        vm.deal(w, 1 ether);
+    function _claimWith(IWebWallet.Policy memory p) internal returns (address) {
+        return _claimAs(X, ALICE, 0, ALICE_PK, p);
     }
 
     /// `w` links `(platformId, idNode)`, then adds `key` under `p` unless it is empty.

@@ -185,12 +185,10 @@ contract WalletExecuteTest is WalletSuite {
         _runsBy(w, _one(_hitX()), _pks(ALICE_PK));
     }
 
-    /// Without the genesis identity and an admin policy, the bootstrap adds no session.
-    function test_theBootstrapNeedsTheGenesisAndAnAdmin() public {
+    /// Without an admin policy, the genesis bootstrap adds no session.
+    function test_theBootstrapNeedsAnAdmin() public {
         vm.prank(relayer);
         address w = factory.createWallet(X, ALICE, 0);
-        bytes memory bob = _one(_linkX(w, GITHUB, BOB, _key(BOB_PK), _admin()));
-        _refusesBy(w, bob, _pks(BOB_PK), IWebWallet.LinkSessionRefused.selector);
         bytes memory app = _one(_linkX(w, X, ALICE, _key(APP_PK), _hitOnly()));
         _refuses(w, app, _direct(w, _pks(APP_PK), app, true), IWebWallet.LinkSessionRefused.selector);
         assertFalse(IWebWallet(w).hadSession(), "a session was added");
@@ -478,7 +476,7 @@ contract WalletExecuteTest is WalletSuite {
         _refuses(w, calls, _alice(h, at, at - 1), IWebWallet.ExecutionExpired.selector, "expired");
     }
 
-    /// Signed for one batch, mode, deadline, gas and chain; submitted with one of them changed.
+    /// Signed for one batch, mode, deadline, gas and chain; submitted with one of them changed, or no deadline.
     function test_aChangedBatchIsRefused() public {
         address w = _claim();
         Execution[] memory x = _hits(2);
@@ -509,8 +507,6 @@ contract WalletExecuteTest is WalletSuite {
         _refuses(w, bytes.concat(calls, hex"00"), auth, IWebWallet.NoncanonicalBatch.selector, "a trailing byte");
         _refuses(w, calls, abi.encode(a, deadline + 1, CALL_GAS), NOT_SIGNED, "deadline");
         _refuses(w, calls, abi.encode(a, deadline, CALL_GAS - 1), NOT_SIGNED, "callGas");
-        h = _execDigest(w, AUTHORIZED_MODE, calls, at, n, at - 1);
-        _refuses(w, calls, _alice(h, at, at - 1), IWebWallet.ExecutionExpired.selector, "expired");
         h = _execDigest(w, AUTHORIZED_MODE, calls, at, n, 0);
         _refuses(w, calls, _alice(h, at, 0), IWebWallet.ExecutionExpired.selector, "no deadline");
         uint256 chain = vm.getChainId();

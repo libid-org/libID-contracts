@@ -248,36 +248,25 @@ contract WalletSessionsTest is WalletSuite {
         assertEq(IWebWallet(w).threshold(), 2, "a re-link did not count its platform again");
     }
 
-    /// An admin session never expires on its own, so time cannot take a platform off the quorum.
-    function test_anExpiringAdminSessionIsRefused() public {
-        address w = _claim();
-        IWebWallet.Policy memory p = _admin();
-        p.validUntil = uint48(_now() + 7 days);
-        bytes memory expires = abi.encodeWithSelector(IWebWallet.AdminSessionExpires.selector, p.validUntil);
-        vm.prank(w);
-        vm.expectRevert(expires);
-        IWebWallet(w).addSession(_alice(), _key(ALICE2_PK), p);
-        bytes memory payload = _loginPayload(w, X, ALICE, _key(ALICE2_PK), p);
-        vm.expectRevert(expires);
-        IWebWallet(w).addSessionByLogin(X, V1, payload, "", p);
-    }
-
-    /// EntryPoint v0.9 reads bit 47 of either bound as a block-number flag: no policy may set it.
-    function test_policyBoundsStayBelowBit47() public {
+    /// Both entries refuse an expiring admin session, which time would take off the quorum, and a bound setting
+    /// bit 47, which EntryPoint v0.9 reads as a block-number flag.
+    function test_badPoliciesAreRefused() public {
         address w = _claim();
         uint48 flag = uint48(1 << 47);
-        IWebWallet.Policy[2] memory ps =
-            [IWebWallet.Policy(flag, 0, false, 0, _noRules()), IWebWallet.Policy(0, flag, false, 0, _noRules())];
+        IWebWallet.Policy memory expiring = _admin();
+        expiring.validUntil = uint48(_now() + 7 days);
+        IWebWallet.Policy[3] memory ps = [
+            expiring, IWebWallet.Policy(flag, 0, false, 0, _noRules()), IWebWallet.Policy(0, flag, false, 0, _noRules())
+        ];
         for (uint256 i; i < ps.length; ++i) {
+            bytes memory err = i == 0
+                ? abi.encodeWithSelector(IWebWallet.AdminSessionExpires.selector, ps[i].validUntil)
+                : abi.encodeWithSelector(IWebWallet.PolicyOutOfRange.selector, ps[i].validAfter, ps[i].validUntil);
             vm.prank(w);
-            vm.expectRevert(
-                abi.encodeWithSelector(IWebWallet.PolicyOutOfRange.selector, ps[i].validAfter, ps[i].validUntil)
-            );
+            vm.expectRevert(err);
             IWebWallet(w).addSession(_alice(), _key(APP_PK), ps[i]);
             bytes memory payload = _loginPayload(w, X, ALICE, _key(APP_PK), ps[i]);
-            vm.expectRevert(
-                abi.encodeWithSelector(IWebWallet.PolicyOutOfRange.selector, ps[i].validAfter, ps[i].validUntil)
-            );
+            vm.expectRevert(err);
             IWebWallet(w).addSessionByLogin(X, V1, payload, "", ps[i]);
         }
         vm.warp(flag);
@@ -442,9 +431,7 @@ contract WalletSessionsTest is WalletSuite {
         _link(w, GITHUB, BOB, "", _admin());
         bytes32 id = _queueW(w, abi.encodeCall(IWebWallet.setThreshold, (2)));
         _rootW(w, abi.encodeCall(IWebWallet.unlink, (_bob())));
-        assertEq(IWebWallet(w).rootReadyAt(id), 0, "a void operation reads as ready");
-        vm.expectRevert(abi.encodeWithSelector(IWebWallet.RootOperationVoid.selector, id));
-        IWebWallet(w).executeRoot(id);
+        _assertVoid(w, id);
     }
 
     // ─── Unlinks and generations ────────────────────────────────────
