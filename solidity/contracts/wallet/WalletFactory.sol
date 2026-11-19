@@ -16,6 +16,9 @@ import {identityOf} from "./WalletStorage.sol";
 ///         `identityOf(platformId, idNode)`, any other `keccak256(abi.encode(platformId, idNode, salt))`.
 /// @dev Behind a UUPS proxy; the owner (Ownable2Step, not renounceable) publishes releases and upgrades.
 contract WalletFactory is IWalletFactory, UUPSUpgradeable, Ownable2StepUpgradeable {
+    /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
+    address public immutable REGISTRY;
+
     /// @custom:storage-location erc7201:libid.storage.WalletFactory
     struct WalletFactoryStorage {
         uint64 latest;
@@ -27,7 +30,8 @@ contract WalletFactory is IWalletFactory, UUPSUpgradeable, Ownable2StepUpgradeab
         0x64fb8f6b910e30482f0332a63e56176c451f6d54f483f61b5ef32dd8e5fc7600;
 
     /// @custom:oz-upgrades-unsafe-allow constructor
-    constructor() {
+    constructor(address registry) {
+        REGISTRY = registry;
         _disableInitializers();
     }
 
@@ -44,6 +48,8 @@ contract WalletFactory is IWalletFactory, UUPSUpgradeable, Ownable2StepUpgradeab
         if (reported != next) revert WrongReleaseVersion(next, reported);
         address factory = IWebWallet(implementation).FACTORY();
         if (factory != address(this)) revert WrongReleaseFactory(factory);
+        address registry = IWebWallet(implementation).REGISTRY();
+        if (registry != REGISTRY) revert WrongReleaseRegistry(registry);
         $.latest = next;
         $.releases[next] = implementation;
         emit Published(next, implementation);

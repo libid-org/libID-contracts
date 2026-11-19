@@ -42,7 +42,7 @@ contract WalletFactoryTest is WalletBase {
     function test_addressesAreCreate3OfTheSalt() public {
         assertEq(_c3(_create3Salt(0), D), AT_SALT_0, "hand CREATE3, salt 0");
         assertEq(_c3(_create3Salt(1), D), AT_SALT_1, "hand CREATE3, salt 1");
-        vm.etch(D, deployCode("WalletFactory.sol:WalletFactory").code);
+        vm.etch(D, _factoryImpl().code);
         IWalletFactory f = IWalletFactory(D);
         assertEq(f.walletAddress(X, ALICE, 0), AT_SALT_0, "salt 0");
         assertEq(f.walletAddress(X, ALICE, 1), AT_SALT_1, "salt 1");
@@ -135,7 +135,7 @@ contract WalletFactoryTest is WalletBase {
     /// release it deploys.
     function test_anUpgradeReachesNewWalletsAtTheirPromisedAddress() public {
         address promised = factory.walletAddress(X, ALICE, 0);
-        address next = deployCode("WalletFactory.sol:WalletFactory");
+        address next = _factoryImpl();
         vm.prank(owner);
         UUPSUpgradeable(address(factory)).upgradeToAndCall(next, "");
         address impl2 = _publish(2);
@@ -150,7 +150,7 @@ contract WalletFactoryTest is WalletBase {
     }
 
     function test_onlyTheOwnerUpgradesAndOwnershipStays() public {
-        address next = deployCode("WalletFactory.sol:WalletFactory");
+        address next = _factoryImpl();
         vm.prank(mallory);
         vm.expectRevert(abi.encodeWithSelector(OwnableUpgradeable.OwnableUnauthorizedAccount.selector, mallory));
         UUPSUpgradeable(address(factory)).upgradeToAndCall(next, "");
@@ -171,6 +171,7 @@ contract WalletFactoryTest is WalletBase {
         assertEq(address(registry), names.predict("WalletRegistry"), "the registry is not at its name");
         assertEq(IWebWallet(impl1).FACTORY(), address(factory), "the release's factory");
         assertEq(IWebWallet(impl1).REGISTRY(), address(registry), "the release's registry");
+        assertEq(factory.REGISTRY(), address(registry), "the factory's registry");
         address fwd = deployCode("WalletForwarder.sol:WalletForwarder", abi.encode(address(factory)));
         assertEq(IWalletForwarder(fwd).FACTORY(), address(factory), "the forwarder's factory");
         IPlatformVerifier paid = IPlatformVerifier(address(new StubPlatformVerifier(GITHUB, 5)));

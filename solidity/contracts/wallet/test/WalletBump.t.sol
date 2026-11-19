@@ -13,13 +13,14 @@ import {WalletBase} from "./WalletBase.sol";
 contract StepRecorder {
     uint64 public immutable VERSION;
     address public immutable FACTORY;
+    address public immutable REGISTRY;
     bytes32 public constant RECORD = keccak256("test.step-recorder");
     bytes32 private constant LOCK = 0xc9e10f29671c1e91671796ae10cf0910e186e77a658823020379090d44874400;
     bytes32 private constant BLOCKED = 0xd9893535c4c4b5cd665ca764f2da4f77d7dc5ab6d2372696ca69936a0c362100;
     bytes32 private constant STEP = 0x634693ff7eb334934b2860ed0d3d3a4ad5bfbd5aa7959baa8bf9f0bcd8c88000;
 
-    constructor(address factory, uint64 version) {
-        (FACTORY, VERSION) = (factory, version);
+    constructor(address factory, address registry, uint64 version) {
+        (FACTORY, REGISTRY, VERSION) = (factory, registry, version);
     }
 
     function runDataSteps(uint64 from) external {
@@ -72,20 +73,26 @@ contract WalletBumpTest is WalletBase {
     function test_publishRefusals() public {
         address eoa = makeAddr("eoa");
         address other = makeAddr("another factory");
-        address[5] memory impls = [
+        address otherRegistry = makeAddr("another registry");
+        address[6] memory impls = [
             _releaseFor(address(factory), 3),
             eoa,
             _releaseFor(address(factory), 4),
             _releaseFor(address(factory), 2),
-            _releaseFor(other, 3)
+            _releaseFor(other, 3),
+            deployCode(
+                "WebWallet.sol:WebWallet",
+                abi.encode(address(factory), otherRegistry, uint64(3), identityAdmin, sessionRules)
+            )
         ];
-        address[5] memory callers = [mallory, owner, owner, owner, owner];
-        bytes[5] memory errs = [
+        address[6] memory callers = [mallory, owner, owner, owner, owner, owner];
+        bytes[6] memory errs = [
             abi.encodeWithSignature("OwnableUnauthorizedAccount(address)", mallory),
             abi.encodeWithSelector(IWalletFactory.ImplementationWithoutCode.selector, eoa),
             abi.encodeWithSelector(IWalletFactory.WrongReleaseVersion.selector, 3, 4),
             abi.encodeWithSelector(IWalletFactory.WrongReleaseVersion.selector, 3, 2),
-            abi.encodeWithSelector(IWalletFactory.WrongReleaseFactory.selector, other)
+            abi.encodeWithSelector(IWalletFactory.WrongReleaseFactory.selector, other),
+            abi.encodeWithSelector(IWalletFactory.WrongReleaseRegistry.selector, otherRegistry)
         ];
         for (uint256 i; i < impls.length; ++i) {
             vm.prank(callers[i]);
@@ -206,7 +213,7 @@ contract WalletBumpTest is WalletBase {
 
     /// A wallet skipping release 2 runs the data steps once, from its own version, inside the bump only.
     function test_dataStepsRunOnceAcrossSkippedVersions() public {
-        StepRecorder impl3 = new StepRecorder(address(factory), 3);
+        StepRecorder impl3 = new StepRecorder(address(factory), address(registry), 3);
         vm.prank(owner);
         factory.publish(address(impl3));
         uint64[2] memory via = [uint64(0), 2];

@@ -112,11 +112,11 @@ abstract contract WalletBase is Test {
             address(new ERC1967Proxy(address(new LibidFactory()), abi.encodeCall(LibidFactory.initialize, (owner))))
         );
         address registryImpl = deployCode("WalletRegistry.sol:WalletRegistry", abi.encode(address(proofVerifier)));
-        address factoryImpl = deployCode("WalletFactory.sol:WalletFactory");
-        vm.startPrank(owner);
+        vm.prank(owner);
         registry = IWalletRegistry(names.deploy("WalletRegistry", _proxyCode(registryImpl)));
+        address factoryImpl = _factoryImpl();
+        vm.prank(owner);
         factory = IWalletFactory(names.deploy("WalletFactory", _proxyCode(factoryImpl)));
-        vm.stopPrank();
 
         identityAdmin = deployCode("IdentityAdmin.sol:IdentityAdmin");
         sessionRules = deployCode("SessionRules.sol:SessionRules");
@@ -131,6 +131,11 @@ abstract contract WalletBase is Test {
             type(ERC1967Proxy).creationCode,
             abi.encode(implementation, abi.encodeCall(IWalletFactory.initialize, (owner)))
         );
+    }
+
+    /// A WalletFactory implementation for `registry`.
+    function _factoryImpl() internal returns (address) {
+        return deployCode("WalletFactory.sol:WalletFactory", abi.encode(address(registry)));
     }
 
     /// A WebWallet implementation of `version` for `factory_`.

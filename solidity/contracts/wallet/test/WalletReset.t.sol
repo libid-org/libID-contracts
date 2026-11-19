@@ -382,7 +382,7 @@ contract WalletResetTest is WalletBase {
     /// With no release published, `reset` has nowhere to go.
     function test_resetWithoutAReleaseIsNotSetUp() public {
         bytes memory init = abi.encodeCall(IWalletFactory.initialize, (owner));
-        address bare = address(new ERC1967Proxy(deployCode("WalletFactory.sol:WalletFactory"), init));
+        address bare = address(new ERC1967Proxy(_factoryImpl(), init));
         fwd = deployCode("WalletForwarder.sol:WalletForwarder", abi.encode(bare));
         _delegateTo(fwd);
         bytes memory onboarding = _onboarding();

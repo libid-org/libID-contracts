@@ -11,13 +11,17 @@ interface IWalletFactory {
     error ImplementationWithoutCode(address implementation);
     error WrongReleaseVersion(uint64 expected, uint64 reported);
     error WrongReleaseFactory(address reported);
+    error WrongReleaseRegistry(address reported);
     /// Ownership cannot be renounced.
     error RenounceDisabled();
 
     function initialize(address owner) external;
     function owner() external view returns (address);
 
-    /// Owner only. `implementation` has code, reports `latest().version + 1` and this factory.
+    /// The WalletRegistry every release names.
+    function REGISTRY() external view returns (address);
+
+    /// Owner only. `implementation` has code, reports `latest().version + 1`, this factory and `REGISTRY`.
     function publish(address implementation) external;
     function latest() external view returns (address implementation, uint64 version);
     function release(uint64 version) external view returns (address implementation);
