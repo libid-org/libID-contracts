@@ -11,6 +11,19 @@ import {
 import {AUTHORIZED_MODE, IWebWallet} from "../IWebWallet.sol";
 import {WalletBase} from "./WalletBase.sol";
 
+/// Answers every call with `ROUTED`, to stand in for IdentityAdmin.
+contract RoutedStub {
+    bytes32 internal constant ROUTED = keccak256("routed to IdentityAdmin");
+
+    fallback() external payable {
+        bytes32 r = ROUTED;
+        assembly {
+            mstore(0, r)
+            return(0, 32)
+        }
+    }
+}
+
 /// @notice Sizes, the interface against the compiled selectors, the target table, and the pinned slots.
 contract WalletAbiTest is WalletBase {
     string[7] internal CONTRACTS = [
@@ -128,6 +141,39 @@ contract WalletAbiTest is WalletBase {
             if (set[i] == s) return true;
         }
         return false;
+    }
+
+    /// `_target` routes every IdentityAdmin external to it, and WebWallet's and SessionRules' to none.
+    function test_theTargetTableIsIdentityAdmins() public {
+        address w = _routedWallet();
+        bytes4[] memory admin = _selectors("IdentityAdmin");
+        for (uint256 i; i < admin.length; ++i) {
+            assertTrue(_routed(w, admin[i]), "an IdentityAdmin external is not in _target");
+        }
+        string[2] memory others = ["WebWallet", "SessionRules"];
+        for (uint256 p; p < others.length; ++p) {
+            bytes4[] memory s = _selectors(others[p]);
+            for (uint256 i; i < s.length; ++i) {
+                assertFalse(_routed(w, s[i]), string.concat(others[p], " selector routed to IdentityAdmin"));
+            }
+        }
+    }
+
+    /// No selector outside IdentityAdmin's reaches it.
+    function testFuzz_noOtherSelectorRoutes(bytes4 selector) public {
+        vm.assume(!_has(_selectors("IdentityAdmin"), selector));
+        assertFalse(_routed(_routedWallet(), selector), "routed");
+    }
+
+    /// A wallet whose IdentityAdmin answers `ROUTED`.
+    function _routedWallet() internal returns (address w) {
+        w = _claim();
+        vm.etch(identityAdmin, address(new RoutedStub()).code);
+    }
+
+    function _routed(address w, bytes4 selector) internal returns (bool) {
+        (bool ok, bytes memory r) = w.call(abi.encodePacked(selector, new bytes(256)));
+        return ok && r.length == 32 && bytes32(r) == keccak256("routed to IdentityAdmin");
     }
 
     /// Each target refuses a call at its own address.
