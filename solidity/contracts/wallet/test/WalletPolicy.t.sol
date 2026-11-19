@@ -819,8 +819,9 @@ contract WalletPolicyTest is WalletSuite {
         _signBelow(op, _pks(APP_PK), calls, 0);
         assertEq(_answer(op), accepted, "nothing charged at 0");
 
+        uint256 spent = _spent(APP_PK, NATIVE_TOKEN);
         assertEq(_answer(_opOn(l, address(target), hit, 5, uint48(1 << 47))), accepted, "at 2^47");
-        assertGt(_spent(APP_PK, NATIVE_TOKEN), 0, "nothing charged");
+        assertGt(_spent(APP_PK, NATIVE_TOKEN), spent, "nothing charged");
     }
 
     // ─── Admin targets ──────────────────────────────────────────────
@@ -958,17 +959,13 @@ contract WalletPolicyTest is WalletSuite {
         _addApp(APP_PK, _rules(0, 0, DAY, domains));
         _addApp(MALLORY_PK, _daily());
         address w2 = _claimAs(GITHUB, BOB, 0, BOB_PK);
-        bytes32[] memory listed2 = new bytes32[](2);
-        (listed2[0], listed2[1]) = (listed[0], listed[1]);
-        (bytes32 domains2,) = _tree(listed2, 0);
-        _add(w2, _identity(GITHUB, BOB), APP_PK, false, _rules(0, 0, DAY, domains2));
+        _add(w2, _identity(GITHUB, BOB), APP_PK, false, _rules(0, 0, DAY, domains));
         vm.warp(_now() + 1);
         (bytes32 h, bytes memory sig) = _typedSig(w, APP_PK, apps[0], proofA);
         assertEq(IWebWallet(w).isValidSignature(h, sig), MAGIC, "app A");
         (h, sig) = _typedSig(w, APP_PK, apps[1], proofB);
         assertEq(IWebWallet(w).isValidSignature(h, sig), MAGIC, "app B");
-        (, bytes32[] memory proofB2) = _tree(listed2, 1);
-        (bytes32 h2, bytes memory sig2) = _typedSig(w2, APP_PK, apps[1], proofB2);
+        (bytes32 h2, bytes memory sig2) = _typedSig(w2, APP_PK, apps[1], proofB);
         assertEq(IWebWallet(w2).isValidSignature(h2, sig2), MAGIC, "app B on the other wallet");
 
         (, bytes32[] memory proofZero) = _tree(listed, 2);

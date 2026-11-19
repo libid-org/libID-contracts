@@ -101,6 +101,34 @@ contract WalletAccountEdgesTest is WalletBase {
         _failsSoftly(_put(bytes.concat(valid), 0x40, 1 << 48), "dirty at");
     }
 
+    /// Two signatures, two call proofs and both Merkle proofs, each array non-empty.
+    function _rich() internal pure returns (bytes memory) {
+        IWebWallet.SessionSignature[] memory s = new IWebWallet.SessionSignature[](2);
+        s[0] = IWebWallet.SessionSignature({key: _key(ALICE_PK), signature: new bytes(65)});
+        s[1] = IWebWallet.SessionSignature({key: new bytes(64), signature: hex"1234"});
+        IWebWallet.CallProof[] memory calls = new IWebWallet.CallProof[](2);
+        for (uint256 i; i < 2; ++i) {
+            calls[i] = IWebWallet.CallProof({maxValue: i, proof: new bytes32[](2)});
+        }
+        return abi.encode(
+            IWebWallet.Authorization({
+                signatures: s, at: 7, calls: calls, domainProof: new bytes32[](1), paymasterProof: new bytes32[](3)
+            })
+        );
+    }
+
+    /// Any one word of a rich encoding overwritten, with a huge value or one below its length: no entry reverts.
+    function testFuzz_aMutatedWordNeverReverts(uint256 index, uint256 value, bool small) public {
+        bytes memory a = _rich();
+        index = index % (a.length / 32);
+        if (small) value %= a.length + 64;
+        _put(a, index * 32, value);
+        IWebWallet(w).isValidSignature(keccak256("h"), a);
+        (PackedUserOperation memory op, bytes32 h) = _opWith(a);
+        vm.prank(EP);
+        IWebWallet(w).validateUserOp(op, h, 0);
+    }
+
     function testFuzz_anyBytesFailSoftly(bytes calldata signature) public {
         _failsSoftly(signature, "fuzzed");
     }

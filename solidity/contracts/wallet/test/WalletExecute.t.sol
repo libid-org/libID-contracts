@@ -141,6 +141,9 @@ contract WalletExecuteTest is WalletSuite {
         address w = _twoOfTwo();
         bytes memory one = abi.encodeCall(IWebWallet.setThreshold, (1));
         bytes32 id = _queueW(w, one);
+        // A root operation never matures in the second it was queued.
+        vm.expectRevert(abi.encodeWithSelector(IWebWallet.RootOperationNotReady.selector, id));
+        IWebWallet(w).executeRoot(id);
         vm.warp(_now() + 48 hours);
         bytes memory exec = abi.encodeCall(IWebWallet.executeRoot, (id));
         _refusesBy(w, _self(w, exec), _pks(ALICE_PK), IWebWallet.Locked.selector);
