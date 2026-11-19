@@ -83,3 +83,29 @@ function _bytesFit(bytes calldata s, uint256 head, uint256 base) pure returns (b
 function _wordAt(bytes calldata s, uint256 at) pure returns (bytes32) {
     return bytes32(s[at:at + 32]);
 }
+
+/// Whether `b` has the heads, lengths and clean addresses `abi.encode(Execution[])` gives it, so decoding it cannot
+/// revert. Its padding is left to the caller's re-encoding.
+function executionsFit(bytes memory b) pure returns (bool) {
+    uint256 length = b.length;
+    if (length < 64 || _mwordAt(b, 0) != 0x20) return false;
+    uint256 n = _mwordAt(b, 32);
+    if (n > length / 32) return false;
+    uint256 at = 64 + 32 * n;
+    for (uint256 i; i < n; ++i) {
+        if (
+            at + 128 > length || _mwordAt(b, 64 + 32 * i) != at - 64 || _mwordAt(b, at) >> 160 != 0
+                || _mwordAt(b, at + 64) != 0x60
+        ) return false;
+        uint256 size = _mwordAt(b, at + 96);
+        if (size > length) return false;
+        at += 128 + (size + 31) / 32 * 32;
+    }
+    return at == length;
+}
+
+function _mwordAt(bytes memory b, uint256 at) pure returns (uint256 w) {
+    assembly ("memory-safe") {
+        w := mload(add(add(b, 0x20), at))
+    }
+}

@@ -7,6 +7,7 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {MerkleProof} from "@openzeppelin/contracts/utils/cryptography/MerkleProof.sol";
 
 import {NATIVE_TOKEN} from "../escrow/HandleEscrow.sol";
+import {executionsFit} from "./AbiBytes.sol";
 import {IWebWallet} from "./IWebWallet.sol";
 import {WalletStorage} from "./WalletStorage.sol";
 
@@ -72,8 +73,9 @@ contract SessionRules {
     }
 
     /// An `AUTHORIZED_MODE` batch, with no paymaster and no gas charge. `input` is `abi.encode(Verified v,
-    /// bytes executionCalldata, Authorization auth, bool below, address registry)`.
-    function allowedExecution(bytes calldata input) external returns (bool, WalletStorage.Verified memory) {
+    /// bytes executionCalldata, Authorization auth, bool below, address registry)`. Payable: the delegatecall
+    /// keeps the batch's value.
+    function allowedExecution(bytes calldata input) external payable returns (bool, WalletStorage.Verified memory) {
         _delegated();
         (
             WalletStorage.Verified memory v,
@@ -105,8 +107,9 @@ contract SessionRules {
     ) private returns (bool) {
         bool below = sp.below;
         if (batch) {
-            Execution[] memory x = abi.decode(executions, (Execution[]));
             // The rules and the wallet read the same calls only from a canonical batch.
+            if (!executionsFit(executions)) return false;
+            Execution[] memory x = abi.decode(executions, (Execution[]));
             if (keccak256(abi.encode(x)) != keccak256(executions)) return false;
             if (below && (x.length == 0 || proofs.length != x.length)) return false;
             for (uint256 i; i < x.length; ++i) {

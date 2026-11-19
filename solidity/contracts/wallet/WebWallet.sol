@@ -3,6 +3,7 @@ pragma solidity ^0.8.26;
 
 import {IEntryPoint, PackedUserOperation} from "@openzeppelin/contracts/interfaces/IERC4337.sol";
 import {Account} from "@openzeppelin/contracts/account/Account.sol";
+import {EIP7702Utils} from "@openzeppelin/contracts/account/utils/EIP7702Utils.sol";
 import {ERC4337Utils} from "@openzeppelin/contracts/account/utils/ERC4337Utils.sol";
 import {
     CallType,
@@ -125,7 +126,7 @@ contract WebWallet is Account, EIP712, ERC721Holder, ERC1155Holder {
     // ─── Execution ──────────────────────────────────────────────────
 
     /// `AUTHORIZED_MODE` from anyone, checked once the calls ran; a single or batch call with mode selector 0 from
-    /// the EntryPoint, or from an EIP-7702 account's key. One lock covers both.
+    /// the EntryPoint, or from an EIP-7702 account's own key, never a factory wallet's. One lock covers both.
     function execute(bytes32 mode, bytes calldata executionCalldata) external payable {
         if (_locked()) revert IWebWallet.Locked();
         WalletTransient.put(WalletTransient.LOCK, true);
@@ -134,7 +135,7 @@ contract WebWallet is Account, EIP712, ERC721Holder, ERC1155Holder {
         } else {
             if (msg.sender == address(entryPoint())) {
                 if (WalletTransient.get(WalletTransient.ENTRY_POINT_BLOCKED)) revert IWebWallet.EntryPointBlocked();
-            } else if (msg.sender != address(this)) {
+            } else if (msg.sender != address(this) || EIP7702Utils.fetchDelegate(address(this)) == address(0)) {
                 revert AccountUnauthorized(msg.sender);
             }
             (CallType callType, ExecType execType, ModeSelector selector,) = Mode.wrap(mode).decodeMode();
@@ -187,8 +188,12 @@ contract WebWallet is Account, EIP712, ERC721Holder, ERC1155Holder {
         (bool ok, bool below, WalletStorage.Verified memory v) = _signers(digest, auth, quorum);
         // A session signs only after the second it was added in.
         if (!ok || v.activeAt >= block.timestamp) revert IWebWallet.ExecutionNotSigned();
-        (ok, v) = _rules(abi.encodeCall(SessionRules.allowedExecution, (abi.encode(v, calls, auth, below, REGISTRY))));
-        if (!ok) revert IWebWallet.ExecutionNotAllowed();
+        // At quorum the rules allow any canonical batch, which this one is.
+        if (below) {
+            (ok, v) =
+                _rules(abi.encodeCall(SessionRules.allowedExecution, (abi.encode(v, calls, auth, below, REGISTRY))));
+            if (!ok) revert IWebWallet.ExecutionNotAllowed();
+        }
         if (!_inWindow(v)) revert IWebWallet.ExecutionOutsideWindow();
     }
 
