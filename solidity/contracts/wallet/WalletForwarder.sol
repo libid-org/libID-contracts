@@ -8,7 +8,8 @@ import {WalletRelease} from "./WalletRelease.sol";
 
 /// @title WalletForwarder - the EIP-7702 delegate of a key that runs a WebWallet.
 /// @notice Empty calldata returns at once. Other calls route by the account's release slot. `reset` always goes
-///         to the factory's latest release, which writes the slot. With an empty slot they revert `NotSetUp`.
+///         to the factory's latest release, which writes the slot, and only from the key's own top-level
+///         transaction. With an empty slot they revert `NotSetUp`.
 /// @dev Ownerless and never upgraded.
 contract WalletForwarder is IWalletForwarder {
     address public immutable FACTORY;
@@ -29,8 +30,12 @@ contract WalletForwarder is IWalletForwarder {
     function _route() private {
         if (address(this) == SELF) revert IWebWallet.NotDelegated();
         address target;
-        if (msg.sig == IWebWallet.reset.selector) (target,) = IWalletFactory(FACTORY).latest();
-        else target = WalletRelease.implementation();
+        if (msg.sig == IWebWallet.reset.selector) {
+            if (msg.sender != address(this) || tx.origin != address(this)) revert IWebWallet.ResetRefused();
+            (target,) = IWalletFactory(FACTORY).latest();
+        } else {
+            target = WalletRelease.implementation();
+        }
         if (target == address(0)) revert NotSetUp();
         assembly ("memory-safe") {
             calldatacopy(0, 0, calldatasize())

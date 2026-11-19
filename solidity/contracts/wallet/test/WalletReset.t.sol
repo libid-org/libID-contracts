@@ -38,6 +38,22 @@ contract Planter {
     }
 }
 
+/// A release whose `reset` has no gate: it pays the account's balance to its caller.
+contract OpenRelease {
+    uint64 public constant VERSION = 2;
+    address public immutable FACTORY;
+    address public immutable REGISTRY;
+
+    constructor(address factory, address registry) {
+        (FACTORY, REGISTRY) = (factory, registry);
+    }
+
+    function reset(bytes calldata) external payable {
+        (bool ok,) = msg.sender.call{value: address(this).balance}("");
+        require(ok);
+    }
+}
+
 /// @notice EIP-7702 accounts on WalletForwarder: `reset` and its epoch, the forwarder's routing, and the key's
 ///         own powers.
 /// forge-config: default.evm_version = "prague"
@@ -162,6 +178,28 @@ contract WalletResetTest is WalletBase {
         IWebWallet(a).execute(MODE_BATCH, _one(_x(a, 0, queue)));
         assertEq(IWebWallet(a).epoch(), epoch, "the epoch moved");
         assertEq(target.calls(), 0, "a refused reset ran its batch");
+    }
+
+    /// The forwarder routes `reset` only for the key's own top-level transaction, so a release published later
+    /// runs in no account for anyone else.
+    function test_aNewReleasesResetRunsOnlyForTheKey() public {
+        _onboard();
+        bytes32 epoch = IWebWallet(a).epoch();
+        address open = address(new OpenRelease(address(factory), address(registry)));
+        vm.prank(owner);
+        factory.publish(open);
+        address[2] memory senders = [mallory, a];
+        address[2] memory origins = [mallory, mallory];
+        for (uint256 i; i < senders.length; ++i) {
+            vm.prank(senders[i], origins[i]);
+            vm.expectRevert(IWebWallet.ResetRefused.selector);
+            IWebWallet(a).reset("");
+        }
+        assertEq(a.balance, 1 ether, "the account paid");
+        assertEq(IWebWallet(a).epoch(), epoch, "the epoch moved");
+        (address impl, uint64 version) = IWebWallet(a).release();
+        assertEq(abi.encode(impl, version), abi.encode(impl1, 1), "the release moved");
+        assertEq(IWebWallet(a).sessionOf(_key(ALICE_PK)).identity, _identity(X, ALICE), "the session died");
     }
 
     /// The key's top-level call reaches a root-only entry; its batch does not.
