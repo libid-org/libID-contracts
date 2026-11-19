@@ -15,7 +15,7 @@ import {LibidFactory} from "../../factory/LibidFactory.sol";
 import {StubPlatformVerifier} from "../../identity/test/StubPlatformVerifier.sol";
 import {IWalletFactory} from "../IWalletFactory.sol";
 import {IWalletRegistry} from "../IWalletRegistry.sol";
-import {AUTHORIZED_MODE, IWebWallet} from "../IWebWallet.sol";
+import {AUTHORIZED_MODE, IIdentityAdmin, IWalletCore, IWebWallet} from "../IWebWallet.sol";
 
 /// Records who called it.
 contract CallTarget {
@@ -165,8 +165,8 @@ abstract contract WalletBase is Test {
     }
 
     /// The policy hash, its rules hash expanded word by word.
-    function _ph(IWebWallet.Policy memory p) internal pure returns (bytes32) {
-        IWebWallet.Allowance[] memory a = p.rules.allowances;
+    function _ph(IIdentityAdmin.Policy memory p) internal pure returns (bytes32) {
+        IIdentityAdmin.Allowance[] memory a = p.rules.allowances;
         bytes memory words =
             abi.encodePacked(p.rules.scopeRoot, p.rules.domainsRoot, p.rules.paymastersRoot, uint256(0x80), a.length);
         for (uint256 i; i < a.length; ++i) {
@@ -175,14 +175,14 @@ abstract contract WalletBase is Test {
         return keccak256(abi.encode(p.validAfter, p.validUntil, p.admin, p.signers, keccak256(words)));
     }
 
-    function _admin() internal pure returns (IWebWallet.Policy memory p) {
+    function _admin() internal pure returns (IIdentityAdmin.Policy memory p) {
         p.admin = true;
-        p.rules.allowances = new IWebWallet.Allowance[](0);
+        p.rules.allowances = new IIdentityAdmin.Allowance[](0);
     }
 
     /// A non-admin policy whose scope is the one call `target.hit()`.
-    function _hitOnly() internal view returns (IWebWallet.Policy memory p) {
-        p.rules.allowances = new IWebWallet.Allowance[](0);
+    function _hitOnly() internal view returns (IIdentityAdmin.Policy memory p) {
+        p.rules.allowances = new IIdentityAdmin.Allowance[](0);
         p.rules.scopeRoot =
             keccak256(bytes.concat(keccak256(abi.encode(address(target), CallTarget.hit.selector, uint256(0)))));
     }
@@ -223,7 +223,7 @@ abstract contract WalletBase is Test {
     }
 
     /// `w`'s self-call linking `(platformId, idNode)` with session `key` under `p`; an empty key links only.
-    function _linkX(address w, bytes32 platformId, bytes32 idNode, bytes memory key, IWebWallet.Policy memory p)
+    function _linkX(address w, bytes32 platformId, bytes32 idNode, bytes memory key, IIdentityAdmin.Policy memory p)
         internal
         returns (Execution memory)
     {
@@ -231,26 +231,32 @@ abstract contract WalletBase is Test {
     }
 
     /// A link proof for `w`; a link only carries policy hash 0.
-    function _linkPayload(address w, bytes32 platformId, bytes32 idNode, bytes memory key, IWebWallet.Policy memory p)
-        internal
-        returns (bytes memory)
-    {
+    function _linkPayload(
+        address w,
+        bytes32 platformId,
+        bytes32 idNode,
+        bytes memory key,
+        IIdentityAdmin.Policy memory p
+    ) internal returns (bytes memory) {
         return _payload(platformId, idNode, LINK, _txData(w, key, key.length == 0 ? bytes32(0) : _ph(p)));
     }
 
-    function _linkWith(address w, bytes32 platformId, bytes memory payload, IWebWallet.Policy memory p)
+    function _linkWith(address w, bytes32 platformId, bytes memory payload, IIdentityAdmin.Policy memory p)
         internal
         pure
         returns (Execution memory)
     {
-        return _x(w, 0, abi.encodeCall(IWebWallet.linkIdentity, (platformId, V1, payload, "", p)));
+        return _x(w, 0, abi.encodeCall(IIdentityAdmin.linkIdentity, (platformId, V1, payload, "", p)));
     }
 
     /// A login proof for `w` adding `key` under `p`.
-    function _loginPayload(address w, bytes32 platformId, bytes32 idNode, bytes memory key, IWebWallet.Policy memory p)
-        internal
-        returns (bytes memory)
-    {
+    function _loginPayload(
+        address w,
+        bytes32 platformId,
+        bytes32 idNode,
+        bytes memory key,
+        IIdentityAdmin.Policy memory p
+    ) internal returns (bytes memory) {
         return _payload(platformId, idNode, ADD, _txData(w, key, _ph(p)));
     }
 
@@ -321,17 +327,17 @@ abstract contract WalletBase is Test {
         returns (bytes memory)
     {
         bytes32 signed = below ? keccak256(abi.encode(h, at, keccak256(_key(pks[0])))) : h;
-        IWebWallet.SessionSignature[] memory s = new IWebWallet.SessionSignature[](pks.length);
+        IWalletCore.SessionSignature[] memory s = new IWalletCore.SessionSignature[](pks.length);
         for (uint256 i; i < pks.length; ++i) {
             (uint8 v, bytes32 r, bytes32 sv) = vm.sign(pks[i], signed);
-            s[i] = IWebWallet.SessionSignature({key: _key(pks[i]), signature: abi.encodePacked(r, sv, v)});
+            s[i] = IWalletCore.SessionSignature({key: _key(pks[i]), signature: abi.encodePacked(r, sv, v)});
         }
-        IWebWallet.CallProof[] memory p = new IWebWallet.CallProof[](calls);
+        IWalletCore.CallProof[] memory p = new IWalletCore.CallProof[](calls);
         for (uint256 i; i < calls; ++i) {
             p[i].proof = new bytes32[](0);
         }
         return abi.encode(
-            IWebWallet.Authorization({
+            IWalletCore.Authorization({
                 signatures: s, at: at, calls: p, domainProof: new bytes32[](0), paymasterProof: new bytes32[](0)
             })
         );
@@ -385,7 +391,7 @@ abstract contract WalletBase is Test {
     }
 
     /// The bootstrap adds `pk`'s session under `p`.
-    function _claimAs(bytes32 platformId, bytes32 idNode, uint256 salt, uint256 pk, IWebWallet.Policy memory p)
+    function _claimAs(bytes32 platformId, bytes32 idNode, uint256 salt, uint256 pk, IIdentityAdmin.Policy memory p)
         internal
         returns (address w)
     {
@@ -429,7 +435,7 @@ abstract contract WalletBase is Test {
 
     function _hitCall() internal view returns (bytes memory) {
         return abi.encodeCall(
-            IWebWallet.execute,
+            IWalletCore.execute,
             (MODE_SINGLE, abi.encodePacked(address(target), uint256(0), abi.encodeCall(CallTarget.hit, ())))
         );
     }
@@ -475,7 +481,7 @@ abstract contract WalletBase is Test {
     /// Alice's batch queues `data` at `w`; returns its id from `RootQueued`.
     function _queue(address w, bytes memory data) internal returns (bytes32 id) {
         vm.recordLogs();
-        _run(w, _one(_x(w, 0, abi.encodeCall(IWebWallet.queueRoot, (data)))));
+        _run(w, _one(_x(w, 0, abi.encodeCall(IIdentityAdmin.queueRoot, (data)))));
         Vm.Log[] memory logs = vm.getRecordedLogs();
         for (uint256 i; i < logs.length; ++i) {
             if (logs[i].emitter == w && logs[i].topics[0] == IWebWallet.RootQueued.selector) return logs[i].topics[1];

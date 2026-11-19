@@ -66,7 +66,7 @@ contract WalletFactoryTest is WalletBase {
         assertEq(w, at, "not at the predicted address");
         (address impl, uint64 version) = IWebWallet(w).release();
         assertEq(abi.encode(impl, version), abi.encode(impl1, 1), "not the latest release");
-        assertEq(IWebWallet(w).entryPoint(), EP, "EntryPoint v0.9");
+        assertEq(address(IWebWallet(w).entryPoint()), EP, "EntryPoint v0.9");
         vm.recordLogs();
         assertEq(factory.createWallet(X, ALICE, 0), w, "a second call moved the wallet");
         assertEq(vm.getRecordedLogs().length, 0, "a second call emitted");

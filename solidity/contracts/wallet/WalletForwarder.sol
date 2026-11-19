@@ -3,7 +3,7 @@ pragma solidity ^0.8.24;
 
 import {IWalletFactory} from "./IWalletFactory.sol";
 import {IWalletForwarder} from "./IWalletForwarder.sol";
-import {IWebWallet} from "./IWebWallet.sol";
+import {IWalletCore, IWebWallet} from "./IWebWallet.sol";
 import {WalletRelease} from "./WalletRelease.sol";
 
 /// @title WalletForwarder - the EIP-7702 delegate of a key that runs a WebWallet.
@@ -30,7 +30,7 @@ contract WalletForwarder is IWalletForwarder {
     function _route() private {
         if (address(this) == SELF) revert IWebWallet.NotDelegated();
         address target;
-        if (msg.sig == IWebWallet.reset.selector) {
+        if (msg.sig == IWalletCore.reset.selector) {
             if (msg.sender != address(this) || tx.origin != address(this)) revert IWebWallet.ResetRefused();
             (target,) = IWalletFactory(FACTORY).latest();
         } else {

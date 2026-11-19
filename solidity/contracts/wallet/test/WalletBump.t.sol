@@ -5,7 +5,7 @@ import {PackedUserOperation} from "@openzeppelin/contracts/interfaces/IERC4337.s
 import {UUPSUpgradeable} from "@openzeppelin/contracts/proxy/utils/UUPSUpgradeable.sol";
 
 import {IWalletFactory} from "../IWalletFactory.sol";
-import {AUTHORIZED_MODE, IWebWallet} from "../IWebWallet.sol";
+import {AUTHORIZED_MODE, IIdentityAdmin, IWalletCore, IWebWallet} from "../IWebWallet.sol";
 import {WalletBase} from "./WalletBase.sol";
 
 /// A release whose data step records, from `RECORD` in the wallet's storage: calls, `from`, caller, and the
@@ -66,7 +66,7 @@ contract WalletBumpTest is WalletBase {
     }
 
     function _bump(uint64 v) internal pure returns (bytes memory) {
-        return abi.encodeCall(IWebWallet.bump, (v));
+        return abi.encodeCall(IIdentityAdmin.bump, (v));
     }
 
     /// Acceptance 7.
@@ -113,9 +113,9 @@ contract WalletBumpTest is WalletBase {
     function test_bumpMovesTheReleaseAndKeepsTheWalletState() public {
         (bytes32 p, bytes32 n, uint256 s) = IWebWallet(w).genesisIdentity();
         bytes32 epoch = IWebWallet(w).epoch();
-        bytes32 delay = _queue(w, abi.encodeCall(IWebWallet.setRootDelay, (72 hours)));
+        bytes32 delay = _queue(w, abi.encodeCall(IIdentityAdmin.setRootDelay, (72 hours)));
         bytes32 id = _queue(w, _bump(0));
-        IWebWallet.RootOperation memory op = IWebWallet(w).rootOperation(id);
+        IIdentityAdmin.RootOperation memory op = IWebWallet(w).rootOperation(id);
         assertEq(
             abi.encode(op.version, op.data, op.implementation),
             abi.encode(uint64(1), _bump(2), impl2),
@@ -144,11 +144,11 @@ contract WalletBumpTest is WalletBase {
 
     function test_bumpRefusals() public {
         bytes memory notAbove =
-            _signed(w, _pks(ALICE_PK), _one(_x(w, 0, abi.encodeCall(IWebWallet.queueRoot, (_bump(1))))));
+            _signed(w, _pks(ALICE_PK), _one(_x(w, 0, abi.encodeCall(IIdentityAdmin.queueRoot, (_bump(1))))));
         vm.expectPartialRevert(IWebWallet.ReleaseNotAbove.selector);
         IWebWallet(w).execute(AUTHORIZED_MODE, notAbove);
         bytes memory unpublished =
-            _signed(w, _pks(ALICE_PK), _one(_x(w, 0, abi.encodeCall(IWebWallet.queueRoot, (_bump(3))))));
+            _signed(w, _pks(ALICE_PK), _one(_x(w, 0, abi.encodeCall(IIdentityAdmin.queueRoot, (_bump(3))))));
         vm.expectRevert(abi.encodeWithSelector(IWebWallet.ReleaseMismatch.selector, 3));
         IWebWallet(w).execute(AUTHORIZED_MODE, unpublished);
 
@@ -202,8 +202,8 @@ contract WalletBumpTest is WalletBase {
         _mature(w);
         PackedUserOperation[] memory ops = new PackedUserOperation[](2);
         bytes memory bumpIt = abi.encodeCall(
-            IWebWallet.execute,
-            (MODE_SINGLE, abi.encodePacked(w, uint256(0), abi.encodeCall(IWebWallet.executeRoot, (id))))
+            IWalletCore.execute,
+            (MODE_SINGLE, abi.encodePacked(w, uint256(0), abi.encodeCall(IIdentityAdmin.executeRoot, (id))))
         );
         ops[0] = _signOp(_op(b, bumpIt), IWebWallet(b).VERSION(), _pks(BOB_PK));
         ops[1] = _signOp(_op(w, _hitCall()), 1, _pks(ALICE_PK));
@@ -237,7 +237,7 @@ contract WalletBumpTest is WalletBase {
         vm.expectRevert(IWebWallet.DataStepRefused.selector);
         IWebWallet(w).runDataSteps(1);
         bytes memory data =
-            _signed(w, _pks(ALICE_PK), _one(_x(w, 0, abi.encodeCall(IWebWallet.runDataSteps, (uint64(1))))));
+            _signed(w, _pks(ALICE_PK), _one(_x(w, 0, abi.encodeCall(IWalletCore.runDataSteps, (uint64(1))))));
         vm.expectRevert(IWebWallet.DataStepRefused.selector);
         IWebWallet(w).execute(AUTHORIZED_MODE, data);
     }

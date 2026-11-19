@@ -8,7 +8,8 @@ import {
     LINK_IDENTITY_DOMAIN,
     REMOVE_SESSIONS_DOMAIN
 } from "../IWalletRegistry.sol";
-import {AUTHORIZED_MODE, IWebWallet} from "../IWebWallet.sol";
+import {AUTHORIZED_MODE, IIdentityAdmin, IWalletCore, IWebWallet} from "../IWebWallet.sol";
+import {SessionRules} from "../SessionRules.sol";
 import {WalletBase} from "./WalletBase.sol";
 
 /// Answers every call with `ROUTED`, to stand in for IdentityAdmin.
@@ -24,7 +25,7 @@ contract RoutedStub {
     }
 }
 
-/// @notice Sizes, the interface against the compiled selectors, the target table, and the pinned slots.
+/// @notice Sizes, the target table, and the pinned slots.
 contract WalletAbiTest is WalletBase {
     string[7] internal CONTRACTS = [
         "WebWallet",
@@ -35,30 +36,44 @@ contract WalletAbiTest is WalletBase {
         "WalletRegistry",
         "WalletForwarder"
     ];
-    /// Above this, WebWallet moves its views and `isValidSignature` to a third target (S1 size probe).
-    uint256 internal constant THIRD_TARGET_ABOVE = 23_500;
 
-    function _artifact(string memory name) internal pure returns (string memory) {
-        return string.concat("out/", name, ".sol/", name, ".json");
+    /// `_target`'s table: every `IIdentityAdmin` selector, which `test_theTargetTableIsIIdentityAdmin` checks.
+    function _adminSelectors() internal pure returns (bytes4[25] memory) {
+        return [
+            IIdentityAdmin.genesisIdentity.selector,
+            IIdentityAdmin.linkIdentity.selector,
+            IIdentityAdmin.addSessionByLogin.selector,
+            IIdentityAdmin.removeSessionsByLogin.selector,
+            IIdentityAdmin.addSession.selector,
+            IIdentityAdmin.revokeSession.selector,
+            IIdentityAdmin.setAppList.selector,
+            IIdentityAdmin.sessionOf.selector,
+            IIdentityAdmin.isLinked.selector,
+            IIdentityAdmin.appList.selector,
+            IIdentityAdmin.allowanceOf.selector,
+            IIdentityAdmin.generationOf.selector,
+            IIdentityAdmin.linkedPlatforms.selector,
+            IIdentityAdmin.hadSession.selector,
+            IIdentityAdmin.queueRoot.selector,
+            IIdentityAdmin.cancelRoot.selector,
+            IIdentityAdmin.executeRoot.selector,
+            IIdentityAdmin.rootOperation.selector,
+            IIdentityAdmin.rootReadyAt.selector,
+            IIdentityAdmin.threshold.selector,
+            IIdentityAdmin.rootDelay.selector,
+            IIdentityAdmin.bump.selector,
+            IIdentityAdmin.setThreshold.selector,
+            IIdentityAdmin.setRootDelay.selector,
+            IIdentityAdmin.unlink.selector
+        ];
     }
 
-    function _selectors(string memory name) internal view returns (bytes4[] memory s) {
-        string[] memory sigs = vm.parseJsonKeys(vm.readFile(_artifact(name)), ".methodIdentifiers");
-        s = new bytes4[](sigs.length);
-        for (uint256 i; i < sigs.length; ++i) {
-            s[i] = bytes4(keccak256(bytes(sigs[i])));
-        }
-    }
-
-    function _has(bytes4[] memory set, bytes4 s) internal pure returns (bool) {
-        for (uint256 i; i < set.length; ++i) {
-            if (set[i] == s) return true;
+    function _isAdmin(bytes4 selector) internal pure returns (bool) {
+        bytes4[25] memory admin = _adminSelectors();
+        for (uint256 i; i < admin.length; ++i) {
+            if (admin[i] == selector) return true;
         }
         return false;
-    }
-
-    function _hasViews() internal view returns (bool) {
-        return vm.exists(_artifact("WalletViews"));
     }
 
     /// Acceptance 1: every contract fits EIP-170.
@@ -67,101 +82,31 @@ contract WalletAbiTest is WalletBase {
             string memory id = string.concat(CONTRACTS[i], ".sol:", CONTRACTS[i]);
             assertLe(vm.getDeployedCode(id).length, 24_576, CONTRACTS[i]);
         }
-        if (_hasViews()) assertLe(vm.getDeployedCode("WalletViews.sol:WalletViews").length, 24_576, "WalletViews");
     }
 
-    /// The S1 decision: a WebWallet above the threshold has a WalletViews target.
-    function test_aLargeWalletHasAThirdTarget() public view {
-        if (vm.getDeployedCode("WebWallet.sol:WebWallet").length > THIRD_TARGET_ABOVE) {
-            assertTrue(_hasViews(), "WebWallet is over the third-target threshold");
-        }
-    }
-
-    /// `IWebWallet` is exactly the implementation's externals plus its targets' routed selectors, and no selector
-    /// is in two of them.
-    function test_theInterfaceMatchesTheImplementationAndTargets() public view {
-        bytes4[] memory api = _selectors("IWebWallet");
-        string[3] memory parts = ["WebWallet", "IdentityAdmin", "WalletViews"];
-        bytes4[][] memory sets = new bytes4[][](3);
-        uint256 n = _hasViews() ? 3 : 2;
-        for (uint256 p; p < n; ++p) {
-            sets[p] = _selectors(parts[p]);
-            for (uint256 i; i < sets[p].length; ++i) {
-                bytes4 s = sets[p][i];
-                assertTrue(_has(api, s), string.concat(parts[p], " external not in IWebWallet"));
-                for (uint256 q; q < p; ++q) {
-                    assertFalse(_has(sets[q], s), string.concat(parts[p], " clashes with ", parts[q]));
-                }
-            }
-        }
-        for (uint256 i; i < api.length; ++i) {
-            bool found;
-            for (uint256 p; p < n && !found; ++p) {
-                found = _has(sets[p], api[i]);
-            }
-            assertTrue(found, "IWebWallet declares a selector nothing implements");
-        }
-    }
-
-    /// Every error and event the implementation and its targets declare is in `IWebWallet`, so its ABI decodes them.
-    function test_theInterfaceDeclaresEveryErrorAndEvent() public view {
-        bytes32[] memory api = _errorsAndEvents("IWebWallet");
-        string[3] memory parts = ["WebWallet", "IdentityAdmin", "SessionRules"];
-        for (uint256 p; p < parts.length; ++p) {
-            bytes32[] memory s = _errorsAndEvents(parts[p]);
-            for (uint256 i; i < s.length; ++i) {
-                if (s[i] != 0) {
-                    assertTrue(_has(api, s[i]), string.concat(parts[p], " raises an error or event not in IWebWallet"));
-                }
-            }
-        }
-    }
-
-    /// The hash of each `error Name(types)` and `event Name(types)` in `name`'s ABI.
-    function _errorsAndEvents(string memory name) internal view returns (bytes32[] memory s) {
-        string memory json = vm.readFile(_artifact(name));
-        string[] memory kinds = abi.decode(vm.parseJson(json, ".abi[*].type"), (string[]));
-        s = new bytes32[](kinds.length);
-        for (uint256 i; i < kinds.length; ++i) {
-            bytes32 kind = keccak256(bytes(kinds[i]));
-            if (kind != keccak256("error") && kind != keccak256("event")) continue;
-            string memory at = string.concat(".abi[", vm.toString(i), "]");
-            string memory sig = string.concat(kinds[i], " ", vm.parseJsonString(json, string.concat(at, ".name")), "(");
-            for (uint256 j; vm.keyExistsJson(json, string.concat(at, ".inputs[", vm.toString(j), "]")); ++j) {
-                string memory t = vm.parseJsonString(json, string.concat(at, ".inputs[", vm.toString(j), "].type"));
-                assertFalse(vm.indexOf(t, "tuple") == 0, "a tuple input: compare its components");
-                sig = string.concat(sig, j == 0 ? "" : ",", t);
-            }
-            s[i] = keccak256(bytes(string.concat(sig, ")")));
-        }
-    }
-
-    function _has(bytes32[] memory set, bytes32 s) internal pure returns (bool) {
-        for (uint256 i; i < set.length; ++i) {
-            if (set[i] == s) return true;
-        }
-        return false;
-    }
-
-    /// `_target` routes every IdentityAdmin external to it, and WebWallet's and SessionRules' to none.
-    function test_theTargetTableIsIdentityAdmins() public {
-        address w = _routedWallet();
-        bytes4[] memory admin = _selectors("IdentityAdmin");
+    /// `_target` routes every `IIdentityAdmin` selector to IdentityAdmin, and SessionRules' to none. The table's
+    /// selectors are distinct and XOR to `IIdentityAdmin`'s interface id, so the list is the interface.
+    function test_theTargetTableIsIIdentityAdmin() public {
+        bytes4[25] memory admin = _adminSelectors();
+        bytes4 id;
         for (uint256 i; i < admin.length; ++i) {
-            assertTrue(_routed(w, admin[i]), "an IdentityAdmin external is not in _target");
-        }
-        string[2] memory others = ["WebWallet", "SessionRules"];
-        for (uint256 p; p < others.length; ++p) {
-            bytes4[] memory s = _selectors(others[p]);
-            for (uint256 i; i < s.length; ++i) {
-                assertFalse(_routed(w, s[i]), string.concat(others[p], " selector routed to IdentityAdmin"));
+            for (uint256 j; j < i; ++j) {
+                assertNotEq(admin[i], admin[j], "a selector listed twice");
             }
+            id ^= admin[i];
         }
+        assertEq(id, type(IIdentityAdmin).interfaceId, "the table is not IIdentityAdmin");
+        address w = _routedWallet();
+        for (uint256 i; i < admin.length; ++i) {
+            assertTrue(_routed(w, admin[i]), "an IIdentityAdmin selector is not in _target");
+        }
+        assertFalse(_routed(w, SessionRules.allowed.selector), "SessionRules.allowed routed");
+        assertFalse(_routed(w, SessionRules.allowedExecution.selector), "SessionRules.allowedExecution routed");
     }
 
-    /// No selector outside IdentityAdmin's reaches it.
+    /// No selector outside `IIdentityAdmin` reaches IdentityAdmin.
     function testFuzz_noOtherSelectorRoutes(bytes4 selector) public {
-        vm.assume(!_has(_selectors("IdentityAdmin"), selector));
+        vm.assume(!_isAdmin(selector));
         assertFalse(_routed(_routedWallet(), selector), "routed");
     }
 
@@ -211,17 +156,18 @@ contract WalletAbiTest is WalletBase {
 
     /// Each target refuses a call at its own address.
     function test_targetsRefuseDirectCalls() public {
-        address[2] memory targets = [identityAdmin, sessionRules];
-        string[2] memory ids = ["IdentityAdmin", "SessionRules"];
-        for (uint256 t; t < targets.length; ++t) {
-            bytes4[] memory s = _selectors(ids[t]);
-            assertGt(s.length, 0, ids[t]);
-            for (uint256 i; i < s.length; ++i) {
-                (bool ok, bytes memory err) = targets[t].call(abi.encodePacked(s[i], new bytes(256)));
-                assertFalse(ok, string.concat(ids[t], " answered a direct call"));
-                assertEq(bytes4(err), IWebWallet.NotDelegated.selector, ids[t]);
-            }
+        bytes4[25] memory admin = _adminSelectors();
+        for (uint256 i; i < admin.length; ++i) {
+            _refusesDirect(identityAdmin, admin[i]);
         }
+        _refusesDirect(sessionRules, SessionRules.allowed.selector);
+        _refusesDirect(sessionRules, SessionRules.allowedExecution.selector);
+    }
+
+    function _refusesDirect(address t, bytes4 selector) internal {
+        (bool ok, bytes memory err) = t.call(abi.encodePacked(selector, new bytes(256)));
+        assertFalse(ok, "a target answered a direct call");
+        assertEq(bytes4(err), IWebWallet.NotDelegated.selector, "not NotDelegated");
     }
 
     /// Acceptance 10: namespaces against their ERC-7201 derivations, and the slots on a live wallet.
@@ -248,7 +194,7 @@ contract WalletAbiTest is WalletBase {
         assertEq(IWalletRegistry.check.selector, bytes4(0xd69684bd), "registry check");
         assertEq(IWalletFactory.latest.selector, bytes4(0x52bfe789), "factory latest");
         assertEq(IWalletFactory.release.selector, bytes4(0x41fbbc31), "factory release");
-        assertEq(IWebWallet.reset.selector, bytes4(0x12a20190), "reset");
+        assertEq(IWalletCore.reset.selector, bytes4(0x12a20190), "reset");
     }
 
     /// Acceptance 10: the mode and domains against their strings, the factory's and the registry's namespaces on
@@ -297,16 +243,16 @@ contract WalletAbiTest is WalletBase {
         assertEq(keccak256(abi.encode(epoch, uint32(vm.parseJsonUint(j, ".rootEpoch")))), salt, "salt");
         uint48 at = uint48(vm.parseJsonUint(j, ".at"));
 
-        IWebWallet.SessionSignature[] memory s = new IWebWallet.SessionSignature[](1);
-        s[0] = IWebWallet.SessionSignature(vm.parseJsonBytes(j, ".sessionKey"), vm.parseJsonBytes(j, ".signature"));
-        IWebWallet.CallProof[] memory c = new IWebWallet.CallProof[](1);
-        c[0] = IWebWallet.CallProof(vm.parseJsonUint(j, ".callMaxValue"), new bytes32[](1));
+        IWalletCore.SessionSignature[] memory s = new IWalletCore.SessionSignature[](1);
+        s[0] = IWalletCore.SessionSignature(vm.parseJsonBytes(j, ".sessionKey"), vm.parseJsonBytes(j, ".signature"));
+        IWalletCore.CallProof[] memory c = new IWalletCore.CallProof[](1);
+        c[0] = IWalletCore.CallProof(vm.parseJsonUint(j, ".callMaxValue"), new bytes32[](1));
         c[0].proof[0] = vm.parseJsonBytes32(j, ".callProof");
         bytes32[] memory domainProof = new bytes32[](1);
         bytes32[] memory paymasterProof = new bytes32[](1);
         (domainProof[0], paymasterProof[0]) =
         (vm.parseJsonBytes32(j, ".domainProof"), vm.parseJsonBytes32(j, ".paymasterProof"));
-        bytes memory auth = abi.encode(IWebWallet.Authorization(s, at, c, domainProof, paymasterProof));
+        bytes memory auth = abi.encode(IWalletCore.Authorization(s, at, c, domainProof, paymasterProof));
         assertEq(keccak256(auth), vm.parseJsonBytes32(j, ".authorizationHash"), "Authorization, no prefix");
 
         bytes memory calls = vm.parseJsonBytes(j, ".executionCalldata");

@@ -8,7 +8,7 @@ import {CeremonyProfile} from "../../ceremony/CeremonyProfile.sol";
 import {IPlatformVerifier} from "../../ceremony/IPlatformVerifier.sol";
 import {NATIVE_TOKEN} from "../../common/Constants.sol";
 import {StubPlatformVerifier} from "../../identity/test/StubPlatformVerifier.sol";
-import {AUTHORIZED_MODE, IWebWallet} from "../IWebWallet.sol";
+import {AUTHORIZED_MODE, IIdentityAdmin, IWalletCore, IWebWallet} from "../IWebWallet.sol";
 import {CallTarget, IUserOpHash, WalletBase} from "./WalletBase.sol";
 
 /// An ERC-7913 verifier that accepts every signature.
@@ -116,11 +116,11 @@ abstract contract WalletSuite is WalletBase {
 
     // ─── Policies ───────────────────────────────────────────────────
 
-    function _noRules() internal pure returns (IWebWallet.Rules memory r) {
-        r.allowances = new IWebWallet.Allowance[](0);
+    function _noRules() internal pure returns (IIdentityAdmin.Rules memory r) {
+        r.allowances = new IIdentityAdmin.Allowance[](0);
     }
 
-    function _app() internal pure returns (IWebWallet.Policy memory p) {
+    function _app() internal pure returns (IIdentityAdmin.Policy memory p) {
         p.rules = _noRules();
     }
 
@@ -129,15 +129,15 @@ abstract contract WalletSuite is WalletBase {
     }
 
     /// `_hitOnly` with a lifetime NATIVE allowance of 1 ether to pay its operations' gas.
-    function _hitGas() internal view returns (IWebWallet.Policy memory p) {
+    function _hitGas() internal view returns (IIdentityAdmin.Policy memory p) {
         p = _hitOnly();
-        p.rules.allowances = new IWebWallet.Allowance[](1);
-        p.rules.allowances[0] = IWebWallet.Allowance({token: NATIVE_TOKEN, amount: 1 ether, period: 0});
+        p.rules.allowances = new IIdentityAdmin.Allowance[](1);
+        p.rules.allowances[0] = IIdentityAdmin.Allowance({token: NATIVE_TOKEN, amount: 1 ether, period: 0});
     }
 
     /// The proofs of `n` executions of `hit()` under `_hitScope()`: each empty.
-    function _hitProofs(uint256 n) internal pure returns (IWebWallet.CallProof[] memory p) {
-        p = new IWebWallet.CallProof[](n);
+    function _hitProofs(uint256 n) internal pure returns (IWalletCore.CallProof[] memory p) {
+        p = new IWalletCore.CallProof[](n);
         for (uint256 i; i < n; ++i) {
             p[i].proof = new bytes32[](0);
         }
@@ -154,16 +154,16 @@ abstract contract WalletSuite is WalletBase {
         uint256[] memory pks,
         bytes32 h,
         uint48 at,
-        IWebWallet.CallProof[] memory calls,
+        IWalletCore.CallProof[] memory calls,
         bytes32[] memory domainProof
     ) internal pure returns (bytes memory) {
-        IWebWallet.SessionSignature[] memory s = new IWebWallet.SessionSignature[](pks.length);
+        IWalletCore.SessionSignature[] memory s = new IWalletCore.SessionSignature[](pks.length);
         for (uint256 i; i < pks.length; ++i) {
             (uint8 v, bytes32 r, bytes32 sv) = vm.sign(pks[i], h);
-            s[i] = IWebWallet.SessionSignature({key: _key(pks[i]), signature: abi.encodePacked(r, sv, v)});
+            s[i] = IWalletCore.SessionSignature({key: _key(pks[i]), signature: abi.encodePacked(r, sv, v)});
         }
         return abi.encode(
-            IWebWallet.Authorization({
+            IWalletCore.Authorization({
                 signatures: s, at: at, calls: calls, domainProof: domainProof, paymasterProof: new bytes32[](0)
             })
         );
@@ -171,15 +171,15 @@ abstract contract WalletSuite is WalletBase {
 
     /// `pks` signing `h` at the block time, with no proofs.
     function _sigs(uint256[] memory pks, bytes32 h) internal view returns (bytes memory) {
-        return _auth(pks, h, uint48(_now()), new IWebWallet.CallProof[](0), new bytes32[](0));
+        return _auth(pks, h, uint48(_now()), new IWalletCore.CallProof[](0), new bytes32[](0));
     }
 
-    function _wrap(IWebWallet.SessionSignature[] memory s) internal view returns (bytes memory) {
+    function _wrap(IWalletCore.SessionSignature[] memory s) internal view returns (bytes memory) {
         return abi.encode(
-            IWebWallet.Authorization({
+            IWalletCore.Authorization({
                 signatures: s,
                 at: uint48(_now()),
-                calls: new IWebWallet.CallProof[](0),
+                calls: new IWalletCore.CallProof[](0),
                 domainProof: new bytes32[](0),
                 paymasterProof: new bytes32[](0)
             })
@@ -189,7 +189,7 @@ abstract contract WalletSuite is WalletBase {
     // ─── UserOperations ─────────────────────────────────────────────
 
     function _exec(address to, bytes memory data) internal pure returns (bytes memory) {
-        return abi.encodeCall(IWebWallet.execute, (MODE_SINGLE, abi.encodePacked(to, uint256(0), data)));
+        return abi.encodeCall(IWalletCore.execute, (MODE_SINGLE, abi.encodePacked(to, uint256(0), data)));
     }
 
     /// `_op` at nonce `n` of key 0.
@@ -212,7 +212,7 @@ abstract contract WalletSuite is WalletBase {
     }
 
     /// Below quorum, at the block time, with a scope proof per execution.
-    function _signedWith(PackedUserOperation memory op, uint256[] memory pks, IWebWallet.CallProof[] memory calls)
+    function _signedWith(PackedUserOperation memory op, uint256[] memory pks, IWalletCore.CallProof[] memory calls)
         internal
         view
         returns (PackedUserOperation memory)
@@ -224,7 +224,7 @@ abstract contract WalletSuite is WalletBase {
     function _signBelow(
         PackedUserOperation memory op,
         uint256[] memory pks,
-        IWebWallet.CallProof[] memory calls,
+        IWalletCore.CallProof[] memory calls,
         uint48 at
     ) internal view {
         bytes32 h = _signable(op.sender, IUserOpHash(EP).getUserOpHash(op));
@@ -315,7 +315,7 @@ abstract contract WalletSuite is WalletBase {
         returns (bytes32 h, bytes memory sig)
     {
         bytes32 signed = _belowQuorum(_typedHash(w, app), 0, _key(pks[0]));
-        return _typedSigOf(app, _auth(pks, signed, 0, new IWebWallet.CallProof[](0), domainProof));
+        return _typedSigOf(app, _auth(pks, signed, 0, new IWalletCore.CallProof[](0), domainProof));
     }
 
     /// The hash a `TypedDataSign` of the fixed Mail for `app` signs, nested under `w`'s domain.
@@ -365,24 +365,24 @@ abstract contract WalletSuite is WalletBase {
     }
 
     /// The signed envelope: `abi.encode(Authorization, uint48 deadline, uint256 callGas)`.
-    function _env(IWebWallet.Authorization memory a, uint48 deadline) internal pure returns (bytes memory) {
+    function _env(IWalletCore.Authorization memory a, uint48 deadline) internal pure returns (bytes memory) {
         return abi.encode(a, deadline, CALL_GAS);
     }
 
     /// `AUTHORIZED_MODE`'s data for `calls` and the envelope `env`.
     function _data(bytes memory calls, bytes memory env) internal view returns (bytes memory) {
-        (IWebWallet.Authorization memory a, uint48 deadline, uint256 callGas) =
-            abi.decode(env, (IWebWallet.Authorization, uint48, uint256));
+        (IWalletCore.Authorization memory a, uint48 deadline, uint256 callGas) =
+            abi.decode(env, (IWalletCore.Authorization, uint48, uint256));
         return abi.encode(calls, signedValue, deadline, callGas, abi.encode(a));
     }
 
-    function _authOf(uint256[] memory pks, bytes32 h, uint48 at, bool below, IWebWallet.CallProof[] memory p)
+    function _authOf(uint256[] memory pks, bytes32 h, uint48 at, bool below, IWalletCore.CallProof[] memory p)
         internal
         pure
-        returns (IWebWallet.Authorization memory)
+        returns (IWalletCore.Authorization memory)
     {
         bytes32 signed = below ? _belowQuorum(h, at, _key(pks[0])) : h;
-        return abi.decode(_auth(pks, signed, at, p, new bytes32[](0)), (IWebWallet.Authorization));
+        return abi.decode(_auth(pks, signed, at, p, new bytes32[](0)), (IWalletCore.Authorization));
     }
 
     /// `pks` sign `calls` for `w`'s next nonce, at the block time, valid for an hour.
@@ -402,7 +402,7 @@ abstract contract WalletSuite is WalletBase {
         uint256 n,
         uint48 at,
         bool below,
-        IWebWallet.CallProof[] memory p
+        IWalletCore.CallProof[] memory p
     ) internal view returns (bytes memory) {
         uint48 deadline = uint48(_now() + 1 hours);
         return _env(_authOf(pks, _execDigest(w, AUTHORIZED_MODE, calls, at, n, deadline), at, below, p), deadline);
@@ -463,15 +463,15 @@ abstract contract WalletSuite is WalletBase {
     // ─── Wallets ────────────────────────────────────────────────────
 
     /// Alice's wallet whose genesis bootstrap added her session under `p`.
-    function _claimWith(IWebWallet.Policy memory p) internal returns (address) {
+    function _claimWith(IIdentityAdmin.Policy memory p) internal returns (address) {
         return _claimAs(X, ALICE, 0, ALICE_PK, p);
     }
 
     /// `w` links `(platformId, idNode)`, then adds `key` under `p` unless it is empty.
-    function _link(address w, bytes32 platformId, bytes32 idNode, bytes memory key, IWebWallet.Policy memory p)
+    function _link(address w, bytes32 platformId, bytes32 idNode, bytes memory key, IIdentityAdmin.Policy memory p)
         internal
     {
-        IWebWallet.Policy memory none;
+        IIdentityAdmin.Policy memory none;
         bytes memory payload = _linkPayload(w, platformId, idNode, "", none);
         vm.prank(w);
         IWebWallet(w).linkIdentity(platformId, V1, payload, "", none);
@@ -480,7 +480,7 @@ abstract contract WalletSuite is WalletBase {
         IWebWallet(w).addSession(_identity(platformId, idNode), key, p);
     }
 
-    function _addSession(address w, bytes32 identity, bytes memory key, IWebWallet.Policy memory p) internal {
+    function _addSession(address w, bytes32 identity, bytes memory key, IIdentityAdmin.Policy memory p) internal {
         vm.prank(w);
         IWebWallet(w).addSession(identity, key, p);
     }
@@ -496,7 +496,7 @@ abstract contract WalletSuite is WalletBase {
         bytes32 idNode,
         address w,
         bytes memory key,
-        IWebWallet.Policy memory p
+        IIdentityAdmin.Policy memory p
     ) internal {
         bytes memory payload = _loginPayload(w, platformId, idNode, key, p);
         vm.prank(submitter);
@@ -523,15 +523,15 @@ abstract contract WalletSuite is WalletBase {
     }
 
     function _threshold(address w, uint8 t) internal {
-        _rootW(w, abi.encodeCall(IWebWallet.setThreshold, (t)));
+        _rootW(w, abi.encodeCall(IIdentityAdmin.setThreshold, (t)));
     }
 
     function _raise() internal pure returns (bytes memory) {
-        return abi.encodeCall(IWebWallet.setRootDelay, (72 hours));
+        return abi.encodeCall(IIdentityAdmin.setRootDelay, (72 hours));
     }
 
     /// The wallet's call queueing a root delay of 72 hours.
     function _queueRaise(address w) internal pure returns (Execution memory) {
-        return _x(w, 0, abi.encodeCall(IWebWallet.queueRoot, (_raise())));
+        return _x(w, 0, abi.encodeCall(IIdentityAdmin.queueRoot, (_raise())));
     }
 }

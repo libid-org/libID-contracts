@@ -9,7 +9,7 @@ import {
     ERC7913WebAuthnVerifier
 } from "@openzeppelin/contracts/utils/cryptography/verifiers/ERC7913WebAuthnVerifier.sol";
 
-import {IWebWallet} from "../IWebWallet.sol";
+import {IIdentityAdmin, IWalletCore, IWebWallet} from "../IWebWallet.sol";
 import {IUserOpHash} from "./WalletBase.sol";
 import {WalletSuite} from "./WalletSuite.sol";
 
@@ -57,7 +57,7 @@ contract WalletSessionsTest is WalletSuite {
         assertEq(IWebWallet(w).linkedPlatforms(), 1, "two X identities are one platform");
         _link(w, GOOGLE, CAROL, "", _admin());
         assertEq(IWebWallet(w).linkedPlatforms(), 2, "X and Google");
-        _rootW(w, abi.encodeCall(IWebWallet.unlink, (_identity(GOOGLE, CAROL))));
+        _rootW(w, abi.encodeCall(IIdentityAdmin.unlink, (_identity(GOOGLE, CAROL))));
         assertEq(IWebWallet(w).linkedPlatforms(), 1, "Google unlinked");
     }
 
@@ -66,15 +66,15 @@ contract WalletSessionsTest is WalletSuite {
         _link(w, GITHUB, BOB, _key(BOB_PK), _admin());
         _rootReverts(
             w,
-            abi.encodeCall(IWebWallet.unlink, (_alice())),
+            abi.encodeCall(IIdentityAdmin.unlink, (_alice())),
             abi.encodeWithSelector(IWebWallet.GenesisIdentity.selector, _alice())
         );
         assertTrue(IWebWallet(w).isLinked(_alice()), "genesis unlinked");
-        _rootW(w, abi.encodeCall(IWebWallet.unlink, (_bob())));
+        _rootW(w, abi.encodeCall(IIdentityAdmin.unlink, (_bob())));
         assertFalse(IWebWallet(w).isLinked(_bob()), "another identity stays unlinkable");
         _rootReverts(
             w,
-            abi.encodeCall(IWebWallet.unlink, (_bob())),
+            abi.encodeCall(IIdentityAdmin.unlink, (_bob())),
             abi.encodeWithSelector(IWebWallet.NotLinked.selector, _bob())
         );
     }
@@ -86,9 +86,9 @@ contract WalletSessionsTest is WalletSuite {
         vm.startPrank(w);
         vm.expectRevert(abi.encodeWithSelector(IWebWallet.RootOperationNotAllowed.selector, bytes4(0)));
         IWebWallet(w).queueRoot("");
-        bytes4 cancel = IWebWallet.cancelRoot.selector;
+        bytes4 cancel = IIdentityAdmin.cancelRoot.selector;
         vm.expectRevert(abi.encodeWithSelector(IWebWallet.RootOperationNotAllowed.selector, cancel));
-        IWebWallet(w).queueRoot(abi.encodeCall(IWebWallet.cancelRoot, (bytes32(0))));
+        IWebWallet(w).queueRoot(abi.encodeCall(IIdentityAdmin.cancelRoot, (bytes32(0))));
         vm.expectRevert(abi.encodeWithSelector(IWebWallet.RootOperationUnknown.selector, keccak256("never queued")));
         IWebWallet(w).cancelRoot(keccak256("never queued"));
         vm.expectRevert(abi.encodeWithSelector(IWebWallet.InvalidKey.selector, short));
@@ -105,7 +105,7 @@ contract WalletSessionsTest is WalletSuite {
     // ─── Validation data ────────────────────────────────────────────
 
     function _addHitOnly(address w, uint256 pk, uint48 validAfter, uint48 validUntil) internal {
-        IWebWallet.Policy memory p = _hitGas();
+        IIdentityAdmin.Policy memory p = _hitGas();
         (p.validAfter, p.validUntil) = (validAfter, validUntil);
         _addSession(w, _alice(), _key(pk), p);
     }
@@ -130,8 +130,8 @@ contract WalletSessionsTest is WalletSuite {
     function test_windowIsTheIntersectionOfAllSigners() public {
         address w = _claim();
         uint48 t = uint48(_now());
-        _addSession(w, _alice(), _key(ALICE2_PK), IWebWallet.Policy(t + 10, 0, true, 0, _noRules()));
-        _addSession(w, _alice(), _key(BOB_PK), IWebWallet.Policy(t + 20, 0, true, 0, _noRules()));
+        _addSession(w, _alice(), _key(ALICE2_PK), IIdentityAdmin.Policy(t + 10, 0, true, 0, _noRules()));
+        _addSession(w, _alice(), _key(BOB_PK), IIdentityAdmin.Policy(t + 20, 0, true, 0, _noRules()));
         assertEq(_validate(w, _hitCall(), _pks(ALICE2_PK, BOB_PK)), _window(t + 20, 0), "early first");
         assertEq(_validate(w, _hitCall(), _pks(BOB_PK, ALICE2_PK)), _window(t + 20, 0), "late first");
         assertEq(_validate(w, _hitCall(), _pks(BOB_PK, ALICE_PK)), _window(t + 20, 0), "unbounded last");
@@ -141,16 +141,16 @@ contract WalletSessionsTest is WalletSuite {
     function test_signersThatAreNoSessionFail() public {
         address w = _claim();
         bytes[2] memory keys = [abi.encodePacked(address(new Accepting1271())), abi.encodePacked(address(0))];
-        IWebWallet.SessionSignature[] memory s = new IWebWallet.SessionSignature[](1);
+        IWalletCore.SessionSignature[] memory s = new IWalletCore.SessionSignature[](1);
         PackedUserOperation memory op = _opN(w, 0, _hitCall());
         for (uint256 i; i < keys.length; ++i) {
             _addSession(w, _alice(), keys[i], _app());
-            s[0] = IWebWallet.SessionSignature({key: keys[i], signature: hex"1234"});
+            s[0] = IWalletCore.SessionSignature({key: keys[i], signature: hex"1234"});
             op.signature = _wrap(s);
             vm.prank(EP);
             assertEq(IWebWallet(w).validateUserOp(op, keccak256("op"), 0), 1, "a 20-byte key took a bad signature");
         }
-        op.signature = _wrap(new IWebWallet.SessionSignature[](0));
+        op.signature = _wrap(new IWalletCore.SessionSignature[](0));
         vm.prank(EP);
         assertEq(IWebWallet(w).validateUserOp(op, keccak256("h"), 0), 1, "no signatures");
         assertEq(_validate(w, _hitCall(), _pks(MALLORY_PK)), 1, "unknown key");
@@ -163,9 +163,9 @@ contract WalletSessionsTest is WalletSuite {
     function test_outerCallScope() public {
         address w = _claim();
         bytes[3] memory calls = [
-            abi.encodeCall(IWebWallet.addSession, (_alice(), _key(MALLORY_PK), _admin())),
-            abi.encodeCall(IWebWallet.execute, (bytes32(uint256(0xff) << 248), hex"")),
-            abi.encodeCall(IWebWallet.execute, (MODE_BATCH | bytes32(uint256(0xdeadbeef) << 176), _one(_hitX())))
+            abi.encodeCall(IIdentityAdmin.addSession, (_alice(), _key(MALLORY_PK), _admin())),
+            abi.encodeCall(IWalletCore.execute, (bytes32(uint256(0xff) << 248), hex"")),
+            abi.encodeCall(IWalletCore.execute, (MODE_BATCH | bytes32(uint256(0xdeadbeef) << 176), _one(_hitX())))
         ];
         for (uint256 i; i < calls.length; ++i) {
             assertEq(_validate(w, calls[i], _pks(ALICE_PK)), 1, vm.toString(i));
@@ -182,7 +182,7 @@ contract WalletSessionsTest is WalletSuite {
         uint256 added = _window(uint48(_now()), 0);
         _threshold(w, 2);
         assertEq(IWebWallet(w).threshold(), 2, "threshold");
-        bytes memory adminOp = _exec(w, abi.encodeCall(IWebWallet.queueRoot, (_raise())));
+        bytes memory adminOp = _exec(w, abi.encodeCall(IIdentityAdmin.queueRoot, (_raise())));
         assertEq(_validate(w, adminOp, _pks(ALICE_PK)), 1, "one identity");
         assertEq(_validate(w, adminOp, _pks(ALICE_PK, ALICE_PK)), 1, "one key twice");
         assertEq(_validate(w, adminOp, _pks(ALICE_PK, ALICE2_PK)), 1, "two keys of one identity");
@@ -198,7 +198,7 @@ contract WalletSessionsTest is WalletSuite {
         _link(w, GOOGLE, CAROL, _key(CAROL_PK), _admin());
         uint256 linked = _window(uint48(_now()), 0);
         _threshold(w, 2);
-        bytes memory adminOp = _exec(w, abi.encodeCall(IWebWallet.queueRoot, (_raise())));
+        bytes memory adminOp = _exec(w, abi.encodeCall(IIdentityAdmin.queueRoot, (_raise())));
         assertEq(_validate(w, adminOp, _pks(ALICE_PK, MALLORY_PK)), 1, "two X identities met the threshold");
         assertEq(_validate(w, adminOp, _pks(MALLORY_PK, CAROL_PK)), linked, "X and Google missed the threshold");
         assertEq(_validate(w, _hitCall(), _pks(ALICE_PK, MALLORY_PK)), 1, "two X identities skipped the rules");
@@ -208,7 +208,7 @@ contract WalletSessionsTest is WalletSuite {
     /// The threshold may not exceed the platforms holding an admin session.
     function test_thresholdIsBoundedByAdminPlatforms() public {
         address w = _claim();
-        bytes memory two = abi.encodeCall(IWebWallet.setThreshold, (2));
+        bytes memory two = abi.encodeCall(IIdentityAdmin.setThreshold, (2));
         _link(w, X, MALLORY, _key(MALLORY_PK), _admin());
         _link(w, GOOGLE, CAROL, _key(CAROL_PK), _app());
         _rootReverts(w, two, _tooHigh(2, 1));
@@ -227,7 +227,7 @@ contract WalletSessionsTest is WalletSuite {
         vm.prank(w);
         vm.expectRevert(_tooHigh(2, 1));
         IWebWallet(w).revokeSession(_key(BOB_PK));
-        _rootReverts(w, abi.encodeCall(IWebWallet.revokeSession, (_key(BOB_PK))), _tooHigh(2, 1));
+        _rootReverts(w, abi.encodeCall(IIdentityAdmin.revokeSession, (_key(BOB_PK))), _tooHigh(2, 1));
         assertEq(IWebWallet(w).sessionOf(_key(BOB_PK)).identity, _bob(), "revoked anyway");
     }
 
@@ -237,11 +237,11 @@ contract WalletSessionsTest is WalletSuite {
         _link(w, GITHUB, BOB, _key(BOB_PK), _admin());
         _link(w, GITHUB, CAROL, "", _admin());
         _threshold(w, 2);
-        _rootW(w, abi.encodeCall(IWebWallet.unlink, (_bob())));
+        _rootW(w, abi.encodeCall(IIdentityAdmin.unlink, (_bob())));
         assertEq(IWebWallet(w).threshold(), 2, "an unlink within a platform lowered the threshold");
-        _rootW(w, abi.encodeCall(IWebWallet.unlink, (_identity(GITHUB, CAROL))));
+        _rootW(w, abi.encodeCall(IIdentityAdmin.unlink, (_identity(GITHUB, CAROL))));
         assertEq(IWebWallet(w).threshold(), 1, "not min(2, 1)");
-        bytes memory two = abi.encodeCall(IWebWallet.setThreshold, (2));
+        bytes memory two = abi.encodeCall(IIdentityAdmin.setThreshold, (2));
         _rootReverts(w, two, _tooHigh(2, 1));
         _link(w, GITHUB, CAROL, _key(CAROL_PK), _admin());
         _rootW(w, two);
@@ -253,10 +253,12 @@ contract WalletSessionsTest is WalletSuite {
     function test_badPoliciesAreRefused() public {
         address w = _claim();
         uint48 flag = uint48(1 << 47);
-        IWebWallet.Policy memory expiring = _admin();
+        IIdentityAdmin.Policy memory expiring = _admin();
         expiring.validUntil = uint48(_now() + 7 days);
-        IWebWallet.Policy[3] memory ps = [
-            expiring, IWebWallet.Policy(flag, 0, false, 0, _noRules()), IWebWallet.Policy(0, flag, false, 0, _noRules())
+        IIdentityAdmin.Policy[3] memory ps = [
+            expiring,
+            IIdentityAdmin.Policy(flag, 0, false, 0, _noRules()),
+            IIdentityAdmin.Policy(0, flag, false, 0, _noRules())
         ];
         for (uint256 i; i < ps.length; ++i) {
             bytes memory err = i == 0
@@ -279,7 +281,7 @@ contract WalletSessionsTest is WalletSuite {
 
     function test_rootOperationWaitsThenRunsOnce() public {
         address w = _claim();
-        _rootW(w, abi.encodeCall(IWebWallet.setRootDelay, (48 hours)));
+        _rootW(w, abi.encodeCall(IIdentityAdmin.setRootDelay, (48 hours)));
         bytes32 id = keccak256(_raise());
         assertEq(_queueW(w, _raise()), id, "op id");
         uint48 ready = uint48(_now() + 48 hours);
@@ -302,7 +304,7 @@ contract WalletSessionsTest is WalletSuite {
         uint32[3] memory delays = [uint32(1 days), 2 days, 0];
         uint256 wait = 1;
         for (uint256 i; i < delays.length; ++i) {
-            bytes32 id = _queueW(w, abi.encodeCall(IWebWallet.setRootDelay, (delays[i])));
+            bytes32 id = _queueW(w, abi.encodeCall(IIdentityAdmin.setRootDelay, (delays[i])));
             assertEq(IWebWallet(w).rootReadyAt(id), _now() + wait, "not after the current delay");
             vm.warp(_now() + wait - 1);
             vm.expectRevert(abi.encodeWithSelector(IWebWallet.RootOperationNotReady.selector, id));
@@ -314,14 +316,14 @@ contract WalletSessionsTest is WalletSuite {
         }
         uint32 over = 365 days + 1;
         bytes memory tooLong = abi.encodeWithSelector(IWebWallet.RootDelayTooLong.selector, over);
-        _rootReverts(w, abi.encodeCall(IWebWallet.setRootDelay, (over)), tooLong);
-        _rootW(w, abi.encodeCall(IWebWallet.setRootDelay, (365 days)));
+        _rootReverts(w, abi.encodeCall(IIdentityAdmin.setRootDelay, (over)), tooLong);
+        _rootW(w, abi.encodeCall(IIdentityAdmin.setRootDelay, (365 days)));
         assertEq(IWebWallet(w).rootDelay(), 365 days, "max");
     }
 
     function test_onlyTheWalletCancelsItsRootOperation() public {
         address w = _claim();
-        bytes32 id = _queueW(w, abi.encodeCall(IWebWallet.setThreshold, (1)));
+        bytes32 id = _queueW(w, abi.encodeCall(IIdentityAdmin.setThreshold, (1)));
         vm.prank(mallory);
         try IWebWallet(w).cancelRoot(id) {} catch {}
         assertGt(IWebWallet(w).rootReadyAt(id), 0, "a stranger cancelled");
@@ -339,9 +341,9 @@ contract WalletSessionsTest is WalletSuite {
         _addSession(w, _alice(), _key(ALICE2_PK), _admin());
         _revoke(w, _key(ALICE2_PK));
         bytes[3] memory calls = [
-            abi.encodeCall(IWebWallet.setThreshold, (1)),
-            abi.encodeCall(IWebWallet.revokeSession, (_key(ALICE_PK))),
-            abi.encodeCall(IWebWallet.unlink, (_alice()))
+            abi.encodeCall(IIdentityAdmin.setThreshold, (1)),
+            abi.encodeCall(IIdentityAdmin.revokeSession, (_key(ALICE_PK))),
+            abi.encodeCall(IIdentityAdmin.unlink, (_alice()))
         ];
         for (uint256 i; i < calls.length; ++i) {
             vm.prank(w);
@@ -360,7 +362,7 @@ contract WalletSessionsTest is WalletSuite {
         w = _claim();
         _addSession(w, _alice(), _key(ALICE2_PK), _admin());
         vm.warp(_now() + 1);
-        _handle(_signed(_op(w, _exec(w, abi.encodeCall(IWebWallet.queueRoot, (_raise())))), _pks(ALICE2_PK)));
+        _handle(_signed(_op(w, _exec(w, abi.encodeCall(IIdentityAdmin.queueRoot, (_raise())))), _pks(ALICE2_PK)));
         id = keccak256(_raise());
         assertGt(IWebWallet(w).rootReadyAt(id), 0, "not queued");
     }
@@ -379,7 +381,7 @@ contract WalletSessionsTest is WalletSuite {
         _revoke(w, _key(ALICE2_PK));
         _assertVoid(w, id);
         vm.revertToState(state);
-        _rootW(w, abi.encodeCall(IWebWallet.revokeSession, (_key(ALICE2_PK))));
+        _rootW(w, abi.encodeCall(IIdentityAdmin.revokeSession, (_key(ALICE2_PK))));
         _assertVoid(w, id);
     }
 
@@ -400,10 +402,10 @@ contract WalletSessionsTest is WalletSuite {
         address w = _claim();
         _link(w, GITHUB, BOB, _key(BOB_PK), _admin());
         bytes[4] memory ops = [
-            abi.encodeCall(IWebWallet.setRootDelay, (48 hours)),
-            abi.encodeCall(IWebWallet.setThreshold, (2)),
-            abi.encodeCall(IWebWallet.unlink, (_bob())),
-            abi.encodeCall(IWebWallet.setThreshold, (0))
+            abi.encodeCall(IIdentityAdmin.setRootDelay, (48 hours)),
+            abi.encodeCall(IIdentityAdmin.setThreshold, (2)),
+            abi.encodeCall(IIdentityAdmin.unlink, (_bob())),
+            abi.encodeCall(IIdentityAdmin.setThreshold, (0))
         ];
         for (uint256 i; i < ops.length; ++i) {
             bytes32 id = _queueW(w, ops[i]);
@@ -419,7 +421,7 @@ contract WalletSessionsTest is WalletSuite {
     function test_aThresholdChangeVoidsEarlierRootOperations() public {
         address w = _claim();
         _link(w, GITHUB, BOB, _key(BOB_PK), _admin());
-        bytes32 id = _queueW(w, abi.encodeCall(IWebWallet.setRootDelay, (72 hours)));
+        bytes32 id = _queueW(w, abi.encodeCall(IIdentityAdmin.setRootDelay, (72 hours)));
         _threshold(w, 2);
         assertEq(IWebWallet(w).rootReadyAt(id), 0, "a void operation reads as ready");
         vm.expectRevert(abi.encodeWithSelector(IWebWallet.RootOperationVoid.selector, id));
@@ -429,8 +431,8 @@ contract WalletSessionsTest is WalletSuite {
     function test_anUnlinkVoidsEarlierRootOperations() public {
         address w = _claim();
         _link(w, GITHUB, BOB, "", _admin());
-        bytes32 id = _queueW(w, abi.encodeCall(IWebWallet.setThreshold, (2)));
-        _rootW(w, abi.encodeCall(IWebWallet.unlink, (_bob())));
+        bytes32 id = _queueW(w, abi.encodeCall(IIdentityAdmin.setThreshold, (2)));
+        _rootW(w, abi.encodeCall(IIdentityAdmin.unlink, (_bob())));
         _assertVoid(w, id);
     }
 
@@ -439,10 +441,10 @@ contract WalletSessionsTest is WalletSuite {
     /// After the timelock every session of the identity stops, and no login adds one.
     function test_unlinkStopsTheIdentitysSessions() public {
         address w = _claim();
-        _rootW(w, abi.encodeCall(IWebWallet.setRootDelay, (48 hours)));
+        _rootW(w, abi.encodeCall(IIdentityAdmin.setRootDelay, (48 hours)));
         _link(w, GITHUB, BOB, _key(BOB_PK), _admin());
         _addByLogin(relayer, GITHUB, BOB, w, _key(APP_PK), _admin());
-        bytes32 id = _queueW(w, abi.encodeCall(IWebWallet.unlink, (_bob())));
+        bytes32 id = _queueW(w, abi.encodeCall(IIdentityAdmin.unlink, (_bob())));
         vm.warp(_now() + 48 hours - 1);
         vm.expectRevert(abi.encodeWithSelector(IWebWallet.RootOperationNotReady.selector, id));
         IWebWallet(w).executeRoot(id);
@@ -470,7 +472,7 @@ contract WalletSessionsTest is WalletSuite {
         _link(w, GITHUB, BOB, _key(BOB_PK), _admin());
         _addByLogin(mallory, GITHUB, BOB, w, _key(MALLORY_PK), _admin());
         assertEq(IWebWallet(w).generationOf(_bob()), 0, "generation");
-        _rootW(w, abi.encodeCall(IWebWallet.unlink, (_bob())));
+        _rootW(w, abi.encodeCall(IIdentityAdmin.unlink, (_bob())));
         assertEq(IWebWallet(w).generationOf(_bob()), 1, "the generation did not move");
         assertEq(IWebWallet(w).sessionOf(_key(BOB_PK)).identity, bytes32(0), "a dead session reads as live");
         _link(w, GITHUB, BOB, "", _admin());
@@ -494,7 +496,7 @@ contract WalletSessionsTest is WalletSuite {
     /// An unlinked identity's admin sessions stop counting; counts follow revokes, links and unlinks.
     function test_countsFollowRevokesLinksAndUnlinks() public {
         address w = _claim();
-        bytes memory unlinkBob = abi.encodeCall(IWebWallet.unlink, (_bob()));
+        bytes memory unlinkBob = abi.encodeCall(IIdentityAdmin.unlink, (_bob()));
         _link(w, GITHUB, BOB, _key(BOB_PK), _admin());
         _rootW(w, unlinkBob);
         _link(w, GITHUB, BOB, "", _admin());
@@ -511,14 +513,14 @@ contract WalletSessionsTest is WalletSuite {
         _link(w, GITHUB, BOB, "", _admin());
         _rootW(w, unlinkBob);
         _link(w, X, ALICE, "", _admin());
-        _rootReverts(w, abi.encodeCall(IWebWallet.setThreshold, (2)), _tooHigh(2, 1));
+        _rootReverts(w, abi.encodeCall(IIdentityAdmin.setThreshold, (2)), _tooHigh(2, 1));
     }
 
     // ─── Logins and signers ─────────────────────────────────────────
 
     /// A session by proof alone is below a threshold of 2, even within its rules; two reach it.
     function test_aProofSessionAloneIsBelowTheThreshold() public {
-        IWebWallet.Policy memory adminHit = _hitGas();
+        IIdentityAdmin.Policy memory adminHit = _hitGas();
         adminHit.admin = true;
         address w = _claimWith(adminHit);
         _link(w, GITHUB, BOB, _key(CAROL_PK), _admin());
@@ -549,7 +551,7 @@ contract WalletSessionsTest is WalletSuite {
         vm.warp(_now() + 48 hours + 1);
         _handle(_signed(_op(w, _hitCall()), _pks(ALICE2_PK)));
         assertEq(target.calls(), 1, "an ordinary call");
-        _handle(_signed(_op(w, _exec(w, abi.encodeCall(IWebWallet.queueRoot, (_raise())))), _pks(ALICE2_PK)));
+        _handle(_signed(_op(w, _exec(w, abi.encodeCall(IIdentityAdmin.queueRoot, (_raise())))), _pks(ALICE2_PK)));
         assertEq(IWebWallet(w).rootDelay(), 0, "raised at once");
         assertNotEq(IWebWallet(w).rootReadyAt(keccak256(_raise())), 0, "an admin operation");
         bytes32 h = keccak256("message");
@@ -559,7 +561,7 @@ contract WalletSessionsTest is WalletSuite {
     /// Alice's wallet with Bob's GitHub identity linked, an app session of his, and an app session `pk` of
     /// `identity` scoped to `hit()` and `APP`, needing `signers`.
     function _governed(address w, bytes32 identity, uint256 pk, uint8 signers) internal {
-        IWebWallet.Policy memory p = _hitGas();
+        IIdentityAdmin.Policy memory p = _hitGas();
         p.signers = signers;
         p.rules.domainsRoot = _domainLeaf(APP);
         _addSession(w, identity, _key(pk), p);
@@ -578,7 +580,7 @@ contract WalletSessionsTest is WalletSuite {
 
     /// `auth` with its first two signatures swapped.
     function _swapped(bytes memory auth) internal pure returns (bytes memory) {
-        IWebWallet.Authorization memory a = abi.decode(auth, (IWebWallet.Authorization));
+        IWalletCore.Authorization memory a = abi.decode(auth, (IWalletCore.Authorization));
         (a.signatures[0], a.signatures[1]) = (a.signatures[1], a.signatures[0]);
         return abi.encode(a);
     }
@@ -645,7 +647,7 @@ contract WalletSessionsTest is WalletSuite {
         (h, sig) = _typedSigBy(w, _pks(CAROL_PK, APP_PK), APP, new bytes32[](0));
         assertEq(IWebWallet(w).isValidSignature(h, sig), MAGIC, "ERC-1271, Carol governing");
         bytes32 signed = _belowQuorum(_typedHash(w, APP), 0, _key(APP_PK));
-        bytes memory auth = _auth(_pks(APP_PK, CAROL_PK), signed, 0, new IWebWallet.CallProof[](0), new bytes32[](0));
+        bytes memory auth = _auth(_pks(APP_PK, CAROL_PK), signed, 0, new IWalletCore.CallProof[](0), new bytes32[](0));
         (h, sig) = _typedSigOf(APP, _swapped(auth));
         assertEq(IWebWallet(w).isValidSignature(h, sig), bytes4(0xffffffff), "ERC-1271 reordered");
     }
@@ -662,7 +664,9 @@ contract WalletSessionsTest is WalletSuite {
         assertFalse(_isValid1271(w, h, ALICE_PK, h), "a bare hash, not ERC-7739");
         _addSession(w, _alice(), _key(APP_PK), _app());
         _addSession(w, _alice(), _key(BOB_PK), _admin());
-        _addSession(w, _alice(), _key(MALLORY_PK), IWebWallet.Policy(uint48(_now() + 1 hours), 0, true, 0, _noRules()));
+        _addSession(
+            w, _alice(), _key(MALLORY_PK), IIdentityAdmin.Policy(uint48(_now() + 1 hours), 0, true, 0, _noRules())
+        );
         vm.warp(_now() + 1);
         assertFalse(_isValid1271(w, h, APP_PK, _belowQuorum(_wrapped(w, h), 0, _key(APP_PK))), "non-admin");
         assertFalse(_isValid1271(w, h, MALLORY_PK, _wrapped(w, h)), "before validAfter");
@@ -677,12 +681,12 @@ contract WalletSessionsTest is WalletSuite {
     function test_erc1271WindowIsTheEntryPoints() public {
         address w = _claim();
         uint48 t = uint48(_now());
-        IWebWallet.Policy memory p = _hitGas();
+        IIdentityAdmin.Policy memory p = _hitGas();
         p.validUntil = t + 20;
         bytes32 app = keccak256("an app's domain separator");
         p.rules.domainsRoot = _domainLeaf(app);
         _addSession(w, _alice(), _key(BOB_PK), p);
-        _addSession(w, _alice(), _key(CAROL_PK), IWebWallet.Policy(t + 10, 0, true, 0, _noRules()));
+        _addSession(w, _alice(), _key(CAROL_PK), IIdentityAdmin.Policy(t + 10, 0, true, 0, _noRules()));
         bytes32 m = keccak256("a message");
         vm.warp(t + 10);
         _refused(_signed(_op(w, _hitCall()), _pks(CAROL_PK)), "at validAfter");
@@ -738,9 +742,9 @@ contract WalletSessionsTest is WalletSuite {
         (bytes32 r, bytes32 s) =
             vm.signP256(PASSKEY_PK, sha256(abi.encodePacked(authenticatorData, sha256(bytes(clientDataJSON)))));
         if (uint256(s) > P256.N / 2) s = bytes32(P256.N - uint256(s));
-        IWebWallet.SessionSignature[] memory sigs = new IWebWallet.SessionSignature[](1);
+        IWalletCore.SessionSignature[] memory sigs = new IWalletCore.SessionSignature[](1);
         // The verifier reads WebAuthnAuth's fields as a bare tuple, with no leading offset word.
-        sigs[0] = IWebWallet.SessionSignature({
+        sigs[0] = IWalletCore.SessionSignature({
             key: passkey, signature: abi.encode(r, s, 23, 1, authenticatorData, clientDataJSON)
         });
         return _wrap(sigs);
@@ -753,11 +757,12 @@ contract WalletSessionsTest is WalletSuite {
         _addSession(w, _alice(), passkey, _admin());
         uint48 added = uint48(_now());
         vm.warp(_now() + 1);
-        bytes memory callData = _exec(w, abi.encodeCall(IWebWallet.addSession, (_alice(), _key(ALICE2_PK), _admin())));
+        bytes memory callData =
+            _exec(w, abi.encodeCall(IIdentityAdmin.addSession, (_alice(), _key(ALICE2_PK), _admin())));
         PackedUserOperation memory op = _op(w, callData);
         op.signature = _passkeySigs(passkey, _signable(w, IUserOpHash(EP).getUserOpHash(op)));
         _handle(op);
-        IWebWallet.Session memory s = IWebWallet(w).sessionOf(_key(ALICE2_PK));
+        IIdentityAdmin.Session memory s = IWebWallet(w).sessionOf(_key(ALICE2_PK));
         assertEq(s.identity, _alice(), "no session added");
         assertEq(s.activeAt, _now(), "the new session waits past its second");
         // The answer, and its cost with OZ's Solidity P-256 (no precompile under cancun).

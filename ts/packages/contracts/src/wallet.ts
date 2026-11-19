@@ -28,18 +28,18 @@ const POLICY = (() => {
 })()
 const RULES = POLICY.components[4]
 
-/// `IWebWallet.Authorization`, which no external's ABI carries.
+/// `IWalletCore.Authorization`, which no external's ABI carries.
 const AUTHORIZATION = parseAbiParameter(
   '((bytes key, bytes signature)[] signatures, uint48 at, (uint256 maxValue, bytes32[] proof)[] calls, bytes32[] domainProof, bytes32[] paymasterProof)',
 )
 
-/// `IWebWallet.Authorization`.
+/// `IWalletCore.Authorization`.
 export type SessionAuthorization = AbiParameterToPrimitiveType<typeof AUTHORIZATION>
 
-/// `IWebWallet.Policy`.
+/// `IIdentityAdmin.Policy`.
 export type SessionPolicy = AbiParameterToPrimitiveType<AddSession['inputs'][2]>
 
-/// `IWebWallet.Rules`.
+/// `IIdentityAdmin.Rules`.
 export type SessionRules = SessionPolicy['rules']
 
 /// The rules with their allowances sorted into the strictly ascending token

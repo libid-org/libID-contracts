@@ -10,13 +10,13 @@ import {IProofVerifier} from "../../ceremony/IProofVerifier.sol";
 import {operationList} from "../../ceremony/test/OperationListVector.sol";
 import {IdentityRegistry} from "../../identity/IdentityRegistry.sol";
 import {IWalletRegistry} from "../IWalletRegistry.sol";
-import {AUTHORIZED_MODE, IWebWallet} from "../IWebWallet.sol";
+import {AUTHORIZED_MODE, IIdentityAdmin, IWalletCore, IWebWallet} from "../IWebWallet.sol";
 import {OtherClientVerifier, WalletSuite} from "./WalletSuite.sol";
 
 /// Submits a removal login: anyone may, so a batch can reach the wallet's entry through it below quorum.
 contract Remover {
     function run(address w, bytes32 platformId, uint16 version, bytes calldata payload) external {
-        IWebWallet.Policy memory none;
+        IIdentityAdmin.Policy memory none;
         IWebWallet(w).removeSessionsByLogin(platformId, version, payload, "", none);
     }
 }
@@ -44,7 +44,7 @@ contract WalletLoginsTest is WalletSuite {
         vm.warp(_now() + 1);
     }
 
-    function _none() internal pure returns (IWebWallet.Policy memory none) {}
+    function _none() internal pure returns (IIdentityAdmin.Policy memory none) {}
 
     function _removePayload(address w, bytes32 platformId, bytes32 idNode) internal returns (bytes memory) {
         return _payload(platformId, idNode, REMOVE, _txData(w, "", 0));
@@ -57,12 +57,14 @@ contract WalletLoginsTest is WalletSuite {
         IWebWallet(w).removeSessionsByLogin(platformId, V1, payload, "", _none());
     }
 
-    function _loginAdd(address w, bytes32 platformId, bytes32 idNode, uint256 pk, IWebWallet.Policy memory p) internal {
+    function _loginAdd(address w, bytes32 platformId, bytes32 idNode, uint256 pk, IIdentityAdmin.Policy memory p)
+        internal
+    {
         _addByLogin(relayer, platformId, idNode, w, _key(pk), p);
     }
 
     function _delay(uint32 d) internal pure returns (bytes memory) {
-        return abi.encodeCall(IWebWallet.setRootDelay, (d));
+        return abi.encodeCall(IIdentityAdmin.setRootDelay, (d));
     }
 
     function _apps(bytes memory a) internal pure returns (bytes32[] memory l) {
@@ -173,7 +175,7 @@ contract WalletLoginsTest is WalletSuite {
     function test_theWalletsOwnUnlinkMayLeaveNoAdmin() public {
         address w = _wallet(2, 1);
         _revoke(w, _key(ALICE_PK));
-        _rootW(w, abi.encodeCall(IWebWallet.unlink, (_identity(GITHUB, BOB))));
+        _rootW(w, abi.encodeCall(IIdentityAdmin.unlink, (_identity(GITHUB, BOB))));
         assertEq(IWebWallet(w).threshold(), 1, "threshold");
         _refusesBy(w, _one(_hitX()), _pks(BOB_PK), NOT_SIGNED);
 
@@ -224,7 +226,7 @@ contract WalletLoginsTest is WalletSuite {
         assertTrue(IWebWallet(w).isLinked(bob), "unlinked");
         assertEq(IWebWallet(w).threshold(), 2, "threshold");
         assertEq(IWebWallet(w).rootReadyAt(id), 0, "the queued operation survived");
-        IWebWallet.Session memory s = IWebWallet(w).sessionOf(_key(NEW_PK));
+        IIdentityAdmin.Session memory s = IWebWallet(w).sessionOf(_key(NEW_PK));
         assertTrue(s.byProof && s.identity == bob, "not Bob's session by login");
 
         vm.warp(_now() + 1);
@@ -238,7 +240,7 @@ contract WalletLoginsTest is WalletSuite {
     function test_aLimitedLoginSessionActsAloneOnlyAtThresholdOne() public {
         address w = _wallet(2, 2);
         _loginAdd(w, X, ALICE, APP_PK, _hitOnly());
-        IWebWallet.Session memory s = IWebWallet(w).sessionOf(_key(APP_PK));
+        IIdentityAdmin.Session memory s = IWebWallet(w).sessionOf(_key(APP_PK));
         assertTrue(s.byProof, "not byProof");
         assertEq(s.activeAt, _now(), "not from the next second");
         _addSession(w, _identity(X, ALICE), _key(NEW_PK), _hitOnly());
@@ -256,7 +258,7 @@ contract WalletLoginsTest is WalletSuite {
     function test_aLoginSessionSignsForAnAppAloneOnlyAtThresholdOne() public {
         address w = _wallet(2, 2);
         bytes32 app = keccak256("an app's domain separator");
-        IWebWallet.Policy memory p = _hitOnly();
+        IIdentityAdmin.Policy memory p = _hitOnly();
         p.rules.domainsRoot = _domainLeaf(app);
         _loginAdd(w, X, ALICE, APP_PK, p);
         _addSession(w, _identity(X, ALICE), _key(NEW_PK), p);
@@ -277,7 +279,7 @@ contract WalletLoginsTest is WalletSuite {
     function test_aLoginAddInTheBatchCannotSignIt() public {
         address w = _wallet(2, 2);
         bytes memory payload = _loginPayload(w, GITHUB, BOB, _key(NEW_PK), _admin());
-        bytes memory add = abi.encodeCall(IWebWallet.addSessionByLogin, (GITHUB, V1, payload, "", _admin()));
+        bytes memory add = abi.encodeCall(IIdentityAdmin.addSessionByLogin, (GITHUB, V1, payload, "", _admin()));
         _refusesBy(w, _then(_x(w, 0, add)), _pks(ALICE_PK, NEW_PK), NOT_SIGNED);
         assertEq(IWebWallet(w).sessionOf(_key(NEW_PK)).identity, bytes32(0), "the add stayed");
 
@@ -291,7 +293,7 @@ contract WalletLoginsTest is WalletSuite {
     function test_aLoginRemovalInTheBatchDoesNotLowerItsCheck() public {
         address w = _wallet(2, 2);
         bytes memory payload = _removePayload(w, GITHUB, BOB);
-        bytes memory rm = abi.encodeCall(IWebWallet.removeSessionsByLogin, (GITHUB, V1, payload, "", _none()));
+        bytes memory rm = abi.encodeCall(IIdentityAdmin.removeSessionsByLogin, (GITHUB, V1, payload, "", _none()));
         _refusesBy(w, _then(_x(w, 0, rm)), _pks(ALICE_PK), NOT_SIGNED);
         assertTrue(IWebWallet(w).isLinked(_identity(GITHUB, BOB)), "the removal stayed");
 
@@ -308,11 +310,11 @@ contract WalletLoginsTest is WalletSuite {
         bytes32[] memory leaves = new bytes32[](2);
         leaves[0] = _leaf(address(remover), Remover.run.selector, 0);
         leaves[1] = _hitScope();
-        IWebWallet.CallProof[] memory proofs = new IWebWallet.CallProof[](2);
+        IWalletCore.CallProof[] memory proofs = new IWalletCore.CallProof[](2);
         bytes32 root;
         (root, proofs[0].proof) = _tree(leaves, 0);
         (, proofs[1].proof) = _tree(leaves, 1);
-        IWebWallet.Policy memory p = _hitOnly();
+        IIdentityAdmin.Policy memory p = _hitOnly();
         p.rules.scopeRoot = root;
         _loginAdd(w, X, ALICE, APP_PK, p);
         _addSession(w, _identity(X, ALICE), _key(NEW_PK), p);
@@ -335,7 +337,7 @@ contract WalletLoginsTest is WalletSuite {
         remover.run(w, GITHUB, V1, payload);
         vm.warp(_now() + 1);
         bytes memory hit = _one(_hitX());
-        IWebWallet.CallProof[] memory one = new IWebWallet.CallProof[](1);
+        IWalletCore.CallProof[] memory one = new IWalletCore.CallProof[](1);
         one[0] = proofs[1];
         _runs(w, hit, _directAt(w, _pks(APP_PK), hit, _nonce(w), uint48(_now()), true, one));
     }
@@ -348,8 +350,8 @@ contract WalletLoginsTest is WalletSuite {
         vm.warp(_now() + 1);
         bytes memory payload = _removePayload(w, GITHUB, BOB);
         Execution[] memory x = new Execution[](3);
-        x[0] = _x(w, 0, abi.encodeCall(IWebWallet.revokeSession, (_key(BOB_PK))));
-        x[1] = _x(w, 0, abi.encodeCall(IWebWallet.removeSessionsByLogin, (GITHUB, V1, payload, "", _none())));
+        x[0] = _x(w, 0, abi.encodeCall(IIdentityAdmin.revokeSession, (_key(BOB_PK))));
+        x[1] = _x(w, 0, abi.encodeCall(IIdentityAdmin.removeSessionsByLogin, (GITHUB, V1, payload, "", _none())));
         x[2] = _hitX();
         bytes memory calls = abi.encode(x);
         uint256 n = _nonce(w);
@@ -522,7 +524,7 @@ contract WalletLoginsTest is WalletSuite {
         _setApps(w, apps);
         assertEq(abi.encode(IWebWallet(w).appList(alice)), abi.encode(apps), "list");
 
-        IWebWallet.Policy memory p = _admin();
+        IIdentityAdmin.Policy memory p = _admin();
         bytes memory add = _loginPayload(w, X, ALICE, _key(NEW_PK), p);
         bytes memory notListed = abi.encodeWithSelector(IWebWallet.AppNotListed.selector, keccak256("another-app"));
         vm.expectRevert(notListed);
@@ -551,7 +553,7 @@ contract WalletLoginsTest is WalletSuite {
         _link(w, X, MALLORY, "", _admin());
         _setApps(w, _apps("client"));
         assertEq(IWebWallet(w).appList(_identity(X, MALLORY)).length, 0, "the list reached another identity");
-        IWebWallet.Policy memory p = _admin();
+        IIdentityAdmin.Policy memory p = _admin();
         bytes memory other = _loginPayload(w, X, MALLORY, _key(NEW_PK), p);
         IWebWallet(w).addSessionByLogin(X, OTHER_APP, other, "", p);
         assertTrue(IWebWallet(w).sessionOf(_key(NEW_PK)).byProof, "another identity's login was refused");
@@ -566,7 +568,7 @@ contract WalletLoginsTest is WalletSuite {
         bytes32[] memory apps = new bytes32[](2);
         (apps[0], apps[1]) = (keccak256("a third app"), keccak256("client"));
         _setApps(w, apps);
-        IWebWallet.Policy memory p = _admin();
+        IIdentityAdmin.Policy memory p = _admin();
         bytes memory payload = _loginPayload(w, X, ALICE, _key(NEW_PK), p);
         vm.expectPartialRevert(IWebWallet.AppNotListed.selector);
         IWebWallet(w).addSessionByLogin(X, OTHER_APP, payload, "", p);
@@ -598,7 +600,7 @@ contract WalletLoginsTest is WalletSuite {
     function test_belowQuorumABatchCannotSetTheList() public {
         address w = _wallet(2, 2);
         bytes32 alice = _identity(X, ALICE);
-        bytes memory calls = _then(_x(w, 0, abi.encodeCall(IWebWallet.setAppList, (alice, _apps("client")))));
+        bytes memory calls = _then(_x(w, 0, abi.encodeCall(IIdentityAdmin.setAppList, (alice, _apps("client")))));
         _refuses(w, calls, _direct(w, _pks(ALICE_PK), calls, true), NOT_ALLOWED);
         assertEq(IWebWallet(w).appList(alice).length, 0, "set below quorum");
         _runsBy(w, calls, _pks(ALICE_PK, BOB_PK));

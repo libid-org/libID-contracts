@@ -29,8 +29,6 @@ fs_permissions = [
     { access = "read", path = "contracts/circuits/handles.json" },
     # EntryPoint v0.9's runtime code from Base mainnet (WalletBase.sol).
     { access = "read", path = "contracts/wallet/test/fixtures" },
-    # The wallet's ABI and size tests read the compiled artifacts (WalletAbi.t.sol, WalletGate.t.sol).
-    { access = "read", path = "out" },
 ]
 # Only the `gas` profile writes gas snapshots: they are measured under
 # eden-testnet's rules, which a default run would overwrite with cancun's.

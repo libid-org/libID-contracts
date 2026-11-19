@@ -5,15 +5,15 @@ import {Bytes} from "@openzeppelin/contracts/utils/Bytes.sol";
 
 import {IWalletFactory} from "./IWalletFactory.sol";
 import {ADD_SESSION_DOMAIN, IWalletRegistry, LINK_IDENTITY_DOMAIN, REMOVE_SESSIONS_DOMAIN} from "./IWalletRegistry.sol";
-import {IWebWallet} from "./IWebWallet.sol";
+import {IIdentityAdmin, IWebWallet} from "./IWebWallet.sol";
 import {WalletRelease} from "./WalletRelease.sol";
 import {WalletStorage, identityOf, policyHashFrom, rulesHashOf} from "./WalletStorage.sol";
 import {WalletTransient} from "./WalletTransient.sol";
 
 /// @title IdentityAdmin - the wallet's identities, sessions, app lists and root operations.
-/// @notice WebWallet routes these `IWebWallet` entries to it through DELEGATECALL: it reads and writes the
-///         wallet's storage, and `msg.sender` is the wallet's caller. Called at its own address, it reverts.
-contract IdentityAdmin {
+/// @notice WebWallet routes `IIdentityAdmin` to it through DELEGATECALL: it reads and writes the wallet's storage,
+///         and `msg.sender` is the wallet's caller. Called at its own address, it reverts.
+contract IdentityAdmin is IIdentityAdmin {
     address private immutable SELF = address(this);
 
     /// Not at its own address.
@@ -49,7 +49,7 @@ contract IdentityAdmin {
         uint16 verifierVersion,
         bytes calldata payload,
         bytes calldata data,
-        IWebWallet.Policy calldata policy
+        IIdentityAdmin.Policy calldata policy
     ) external payable onlySelf {
         (bytes32 rulesHash, bytes32 policyHash) = _hashes(policy);
         IWalletRegistry.Checked memory c =
@@ -69,7 +69,7 @@ contract IdentityAdmin {
         uint16 verifierVersion,
         bytes calldata payload,
         bytes calldata data,
-        IWebWallet.Policy calldata policy
+        IIdentityAdmin.Policy calldata policy
     ) external payable delegated {
         (bytes32 rulesHash, bytes32 policyHash) = _hashes(policy);
         _login(
@@ -88,7 +88,7 @@ contract IdentityAdmin {
         uint16 verifierVersion,
         bytes calldata payload,
         bytes calldata data,
-        IWebWallet.Policy calldata policy
+        IIdentityAdmin.Policy calldata policy
     ) external payable delegated {
         (bytes32 rulesHash, bytes32 policyHash) = _hashes(policy);
         IWalletRegistry.Checked memory c =
@@ -100,7 +100,7 @@ contract IdentityAdmin {
     }
 
     /// Active from the next second, for a linked identity.
-    function addSession(bytes32 identity, bytes calldata key, IWebWallet.Policy calldata policy) external onlySelf {
+    function addSession(bytes32 identity, bytes calldata key, IIdentityAdmin.Policy calldata policy) external onlySelf {
         (bytes32 rulesHash, bytes32 policyHash) = _hashes(policy);
         _add(identity, key, policy, _now(), false, rulesHash, policyHash);
     }
@@ -117,10 +117,10 @@ contract IdentityAdmin {
     }
 
     /// A live session, else zero.
-    function sessionOf(bytes calldata key) external view delegated returns (IWebWallet.Session memory r) {
+    function sessionOf(bytes calldata key) external view delegated returns (IIdentityAdmin.Session memory r) {
         WalletStorage.SessionRecord storage s = WalletStorage.session(keccak256(key));
         if (!WalletStorage.live(s)) return r;
-        return IWebWallet.Session({
+        return IIdentityAdmin.Session({
             identity: s.identity,
             policyHash: policyHashFrom(s.validAfter, s.validUntil, s.admin, s.signers, s.rulesHash),
             activeAt: s.activeAt,
@@ -142,13 +142,13 @@ contract IdentityAdmin {
         external
         view
         delegated
-        returns (IWebWallet.AllowanceState memory a)
+        returns (IIdentityAdmin.AllowanceState memory a)
     {
         bytes32 keyHash = keccak256(key);
         WalletStorage.SessionRecord storage s = WalletStorage.session(keyHash);
         WalletStorage.Counter storage c = WalletStorage.counter(keyHash, s.rulesHash, token);
         if (WalletStorage.live(s) && c.listed) {
-            a = IWebWallet.AllowanceState(c.amount, c.period, c.periodStart, c.spent);
+            a = IIdentityAdmin.AllowanceState(c.amount, c.period, c.periodStart, c.spent);
         }
     }
 
@@ -178,17 +178,17 @@ contract IdentityAdmin {
         (, uint64 current) = WalletRelease.read();
         bytes memory op = data;
         address implementation;
-        if (selector == IWebWallet.bump.selector) {
+        if (selector == IIdentityAdmin.bump.selector) {
             uint64 version = abi.decode(data[4:], (uint64));
             IWalletFactory factory = IWalletFactory(_factory());
             if (version == 0) (, version) = factory.latest();
             if (version <= current) revert IWebWallet.ReleaseNotAbove(current, version);
             implementation = factory.release(version);
             if (implementation == address(0)) revert IWebWallet.ReleaseMismatch(version);
-            op = abi.encodeCall(IWebWallet.bump, (version));
+            op = abi.encodeCall(IIdentityAdmin.bump, (version));
         } else if (
-            selector != IWebWallet.setThreshold.selector && selector != IWebWallet.setRootDelay.selector
-                && selector != IWebWallet.unlink.selector && selector != IWebWallet.revokeSession.selector
+            selector != IIdentityAdmin.setThreshold.selector && selector != IIdentityAdmin.setRootDelay.selector
+                && selector != IIdentityAdmin.unlink.selector && selector != IIdentityAdmin.revokeSession.selector
         ) {
             revert IWebWallet.RootOperationNotAllowed(selector);
         }
@@ -228,9 +228,9 @@ contract IdentityAdmin {
         WalletTransient.put(WalletTransient.LOCK, false);
     }
 
-    function rootOperation(bytes32 id) external view delegated returns (IWebWallet.RootOperation memory) {
+    function rootOperation(bytes32 id) external view delegated returns (IIdentityAdmin.RootOperation memory) {
         WalletStorage.Root storage r = WalletStorage.state().roots[id];
-        return IWebWallet.RootOperation({
+        return IIdentityAdmin.RootOperation({
             data: r.data, implementation: r.implementation, version: r.version, readyAt: r.readyAt
         });
     }
@@ -286,7 +286,11 @@ contract IdentityAdmin {
     }
 
     /// The policy's rules hash, and its policy hash.
-    function _hashes(IWebWallet.Policy calldata policy) private pure returns (bytes32 rulesHash, bytes32 policyHash) {
+    function _hashes(IIdentityAdmin.Policy calldata policy)
+        private
+        pure
+        returns (bytes32 rulesHash, bytes32 policyHash)
+    {
         rulesHash = rulesHashOf(policy.rules);
         policyHash = policyHashFrom(policy.validAfter, policy.validUntil, policy.admin, policy.signers, rulesHash);
     }
@@ -308,7 +312,7 @@ contract IdentityAdmin {
     /// A login's session: of a linked identity, never the first, from an app on the identity's list.
     function _login(
         IWalletRegistry.Checked memory c,
-        IWebWallet.Policy calldata policy,
+        IIdentityAdmin.Policy calldata policy,
         bytes32 rulesHash,
         bytes32 policyHash
     ) private {
@@ -329,7 +333,7 @@ contract IdentityAdmin {
     function _add(
         bytes32 identity,
         bytes memory key,
-        IWebWallet.Policy calldata policy,
+        IIdentityAdmin.Policy calldata policy,
         uint48 activeAt,
         bool byProof,
         bytes32 rulesHash,
@@ -346,7 +350,7 @@ contract IdentityAdmin {
         bytes32 keyHash = keccak256(key);
         WalletStorage.SessionRecord storage r = s.sessions[keyHash];
         if (WalletStorage.live(r)) revert IWebWallet.SessionExists(key);
-        IWebWallet.Rules calldata rules = policy.rules;
+        IIdentityAdmin.Rules calldata rules = policy.rules;
         s.sessions[keyHash] = WalletStorage.SessionRecord({
             identity: identity,
             rulesHash: rulesHash,
@@ -372,10 +376,12 @@ contract IdentityAdmin {
     }
 
     /// Sets the key's counters under `rulesHash`; one of the same key and rules keeps its spend.
-    function _setAllowances(bytes32 keyHash, bytes32 rulesHash, IWebWallet.Allowance[] calldata allowances) private {
+    function _setAllowances(bytes32 keyHash, bytes32 rulesHash, IIdentityAdmin.Allowance[] calldata allowances)
+        private
+    {
         address last;
         for (uint256 i; i < allowances.length; ++i) {
-            IWebWallet.Allowance calldata allowance = allowances[i];
+            IIdentityAdmin.Allowance calldata allowance = allowances[i];
             if (allowance.period >= 1 << 47 || (i != 0 && allowance.token <= last)) {
                 revert IWebWallet.BadAllowance(allowance.token);
             }
@@ -462,10 +468,10 @@ contract IdentityAdmin {
     function _root(bytes memory data, address implementation) private {
         bytes4 selector = bytes4(data);
         bytes memory args = Bytes.slice(data, 4);
-        if (selector == IWebWallet.bump.selector) _bump(abi.decode(args, (uint64)), implementation);
-        else if (selector == IWebWallet.setThreshold.selector) _setThreshold(abi.decode(args, (uint8)));
-        else if (selector == IWebWallet.setRootDelay.selector) _setRootDelay(abi.decode(args, (uint32)));
-        else if (selector == IWebWallet.unlink.selector) _remove(abi.decode(args, (bytes32)), false, false);
+        if (selector == IIdentityAdmin.bump.selector) _bump(abi.decode(args, (uint64)), implementation);
+        else if (selector == IIdentityAdmin.setThreshold.selector) _setThreshold(abi.decode(args, (uint8)));
+        else if (selector == IIdentityAdmin.setRootDelay.selector) _setRootDelay(abi.decode(args, (uint32)));
+        else if (selector == IIdentityAdmin.unlink.selector) _remove(abi.decode(args, (bytes32)), false, false);
         else _revoke(abi.decode(args, (bytes)), true);
     }
 

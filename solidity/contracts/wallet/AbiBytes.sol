@@ -4,7 +4,7 @@ pragma solidity ^0.8.24;
 import {ERC7579Utils, Execution} from "@openzeppelin/contracts/account/utils/draft-ERC7579Utils.sol";
 
 import {memoryWord} from "../common/MemoryWord.sol";
-import {IWebWallet} from "./IWebWallet.sol";
+import {IWalletCore} from "./IWebWallet.sol";
 
 /// The `bytes` member of the ABI tuple `data` whose offset is the head word at `head`.
 function bytesAt(bytes calldata data, uint256 head) pure returns (bytes calldata) {
@@ -30,9 +30,9 @@ function canonicalBatch(bytes calldata executionCalldata) pure returns (Executio
 
 /// `signature` as an `Authorization`, and whether it is one: every offset and length inside its bytes and `at`
 /// 48 bits wide, so the decoder cannot revert. A malformed one decodes to none.
-function decodeAuthorization(bytes calldata signature) pure returns (bool ok, IWebWallet.Authorization memory auth) {
+function decodeAuthorization(bytes calldata signature) pure returns (bool ok, IWalletCore.Authorization memory auth) {
     if (!_authorizationFits(signature)) return (false, auth);
-    return (true, abi.decode(signature, (IWebWallet.Authorization)));
+    return (true, abi.decode(signature, (IWalletCore.Authorization)));
 }
 
 function _authorizationFits(bytes calldata s) pure returns (bool) {

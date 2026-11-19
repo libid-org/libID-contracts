@@ -5,10 +5,10 @@ import {Vm} from "forge-std/Test.sol";
 import {PackedUserOperation} from "@openzeppelin/contracts/interfaces/IERC4337.sol";
 import {Execution} from "@openzeppelin/contracts/interfaces/draft-IERC7579.sol";
 
-import {AUTHORIZED_MODE, IWebWallet} from "../IWebWallet.sol";
+import {AUTHORIZED_MODE, IIdentityAdmin, IWalletCore, IWebWallet} from "../IWebWallet.sol";
 import {WalletBase} from "./WalletBase.sol";
 
-/// @notice The whole-ABI gate: for every `IWebWallet` selector, a stranger, a session below quorum, and a quorum
+/// @notice The whole-ABI gate: for every wallet selector, a stranger, a session below quorum, and a quorum
 ///         batch calling a root-only or construction entry, relayed or in an EIP-7702 key's own transaction, change
 ///         no storage.
 /// forge-config: default.evm_version = "prague"
@@ -36,12 +36,12 @@ contract WalletGateTest is WalletBase {
         w = _claim();
         _publish(2);
         Execution[] memory x = new Execution[](3);
-        x[0] = _x(w, 0, abi.encodeCall(IWebWallet.addSession, (_identity(X, ALICE), _key(ALICE2_PK), _admin())));
+        x[0] = _x(w, 0, abi.encodeCall(IIdentityAdmin.addSession, (_identity(X, ALICE), _key(ALICE2_PK), _admin())));
         x[1] = _linkX(w, GITHUB, BOB, "", _admin());
-        x[2] = _x(w, 0, abi.encodeCall(IWebWallet.addSession, (_identity(X, ALICE), _key(BOT_PK), _hitOnly())));
+        x[2] = _x(w, 0, abi.encodeCall(IIdentityAdmin.addSession, (_identity(X, ALICE), _key(BOT_PK), _hitOnly())));
         _run(w, abi.encode(x));
         vm.warp(_now() + 1);
-        matured = _queue(w, abi.encodeCall(IWebWallet.setRootDelay, (72 hours)));
+        matured = _queue(w, abi.encodeCall(IIdentityAdmin.setRootDelay, (72 hours)));
         _mature(w);
     }
 
@@ -56,76 +56,82 @@ contract WalletGateTest is WalletBase {
         bytes32[] memory apps = new bytes32[](1);
         apps[0] = keccak256("client");
 
-        r[i++] = Row(abi.encodeCall(IWebWallet.entryPoint, ()), Gate.View);
+        r[i++] = Row(abi.encodeCall(IWalletCore.entryPoint, ()), Gate.View);
         r[i++] = Row(abi.encodeWithSignature("getNonce()"), Gate.View);
         r[i++] = Row(abi.encodeWithSignature("getNonce(uint192)", uint192(0)), Gate.View);
-        r[i++] = Row(abi.encodeCall(IWebWallet.validateUserOp, (op, keccak256("h"), 0)), Gate.Special);
-        r[i++] = Row(abi.encodeCall(IWebWallet.isValidSignature, (keccak256("h"), "")), Gate.View);
-        r[i++] = Row(abi.encodeCall(IWebWallet.eip712Domain, ()), Gate.View);
+        r[i++] = Row(abi.encodeCall(IWalletCore.validateUserOp, (op, keccak256("h"), 0)), Gate.Special);
+        r[i++] = Row(abi.encodeCall(IWalletCore.isValidSignature, (keccak256("h"), "")), Gate.View);
+        r[i++] = Row(abi.encodeCall(IWalletCore.eip712Domain, ()), Gate.View);
         r[i++] = Row(
-            abi.encodeCall(IWebWallet.execute, (AUTHORIZED_MODE, _signedAt(w, 1, _pks(MALLORY_PK), hit, false))),
+            abi.encodeCall(IWalletCore.execute, (AUTHORIZED_MODE, _signedAt(w, 1, _pks(MALLORY_PK), hit, false))),
             Gate.Special
         );
-        r[i++] = Row(abi.encodeCall(IWebWallet.execute, (MODE_BATCH, hit)), Gate.Special);
-        r[i++] = Row(abi.encodeCall(IWebWallet.supportsInterface, (bytes4(0x150b7a02))), Gate.View);
-        r[i++] = Row(abi.encodeCall(IWebWallet.onERC721Received, (mallory, mallory, 1, "")), Gate.View);
-        r[i++] = Row(abi.encodeCall(IWebWallet.onERC1155Received, (mallory, mallory, 1, 1, "")), Gate.View);
+        r[i++] = Row(abi.encodeCall(IWalletCore.execute, (MODE_BATCH, hit)), Gate.Special);
+        r[i++] = Row(abi.encodeCall(IWalletCore.supportsInterface, (bytes4(0x150b7a02))), Gate.View);
+        r[i++] = Row(abi.encodeCall(IWalletCore.onERC721Received, (mallory, mallory, 1, "")), Gate.View);
+        r[i++] = Row(abi.encodeCall(IWalletCore.onERC1155Received, (mallory, mallory, 1, 1, "")), Gate.View);
         r[i++] = Row(
             abi.encodeCall(
-                IWebWallet.onERC1155BatchReceived, (mallory, mallory, new uint256[](1), new uint256[](1), "")
+                IWalletCore.onERC1155BatchReceived, (mallory, mallory, new uint256[](1), new uint256[](1), "")
             ),
             Gate.View
         );
-        r[i++] = Row(abi.encodeCall(IWebWallet.VERSION, ()), Gate.View);
-        r[i++] = Row(abi.encodeCall(IWebWallet.FACTORY, ()), Gate.View);
-        r[i++] = Row(abi.encodeCall(IWebWallet.REGISTRY, ()), Gate.View);
-        r[i++] = Row(abi.encodeCall(IWebWallet.initialize, (X, MALLORY, 0)), Gate.Special);
-        r[i++] = Row(abi.encodeCall(IWebWallet.reset, (hit)), Gate.Special);
-        r[i++] = Row(abi.encodeCall(IWebWallet.release, ()), Gate.View);
-        r[i++] = Row(abi.encodeCall(IWebWallet.epoch, ()), Gate.View);
-        r[i++] = Row(abi.encodeCall(IWebWallet.genesisIdentity, ()), Gate.View);
-        r[i++] = Row(abi.encodeCall(IWebWallet.runDataSteps, (1)), Gate.Special);
-        r[i++] = Row(abi.encodeCall(IWebWallet.linkIdentity, (X, V1, link, "", _admin())), Gate.Self);
-        r[i++] = Row(abi.encodeCall(IWebWallet.addSessionByLogin, (X, V1, login, "", _admin())), Gate.Public);
-        r[i++] = Row(abi.encodeCall(IWebWallet.removeSessionsByLogin, (X, V1, remove, "", _admin())), Gate.Public);
-        r[i++] =
-            Row(abi.encodeCall(IWebWallet.addSession, (_identity(X, MALLORY), _key(MALLORY_PK), _admin())), Gate.Self);
-        r[i++] = Row(abi.encodeCall(IWebWallet.revokeSession, (_key(ALICE2_PK))), Gate.Self);
-        r[i++] = Row(abi.encodeCall(IWebWallet.setAppList, (_identity(X, ALICE), apps)), Gate.Self);
-        r[i++] = Row(abi.encodeCall(IWebWallet.sessionOf, (_key(ALICE_PK))), Gate.View);
-        r[i++] = Row(abi.encodeCall(IWebWallet.isLinked, (_identity(X, ALICE))), Gate.View);
-        r[i++] = Row(abi.encodeCall(IWebWallet.appList, (_identity(X, ALICE))), Gate.View);
-        r[i++] = Row(abi.encodeCall(IWebWallet.allowanceOf, (_key(BOT_PK), address(0))), Gate.View);
-        r[i++] = Row(abi.encodeCall(IWebWallet.generationOf, (_identity(X, ALICE))), Gate.View);
-        r[i++] = Row(abi.encodeCall(IWebWallet.linkedPlatforms, ()), Gate.View);
-        r[i++] = Row(abi.encodeCall(IWebWallet.hadSession, ()), Gate.View);
-        r[i++] = Row(abi.encodeCall(IWebWallet.queueRoot, (abi.encodeCall(IWebWallet.setThreshold, (2)))), Gate.Self);
-        r[i++] = Row(abi.encodeCall(IWebWallet.cancelRoot, (matured)), Gate.Self);
-        r[i++] = Row(abi.encodeCall(IWebWallet.executeRoot, (bytes32(uint256(1)))), Gate.Public);
-        r[i++] = Row(abi.encodeCall(IWebWallet.rootOperation, (matured)), Gate.View);
-        r[i++] = Row(abi.encodeCall(IWebWallet.rootReadyAt, (matured)), Gate.View);
-        r[i++] = Row(abi.encodeCall(IWebWallet.threshold, ()), Gate.View);
-        r[i++] = Row(abi.encodeCall(IWebWallet.rootDelay, ()), Gate.View);
-        r[i++] = Row(abi.encodeCall(IWebWallet.bump, (2)), Gate.Root);
-        r[i++] = Row(abi.encodeCall(IWebWallet.setThreshold, (2)), Gate.Root);
-        r[i++] = Row(abi.encodeCall(IWebWallet.setRootDelay, (1)), Gate.Root);
-        r[i++] = Row(abi.encodeCall(IWebWallet.unlink, (_identity(GITHUB, BOB))), Gate.Root);
+        r[i++] = Row(abi.encodeCall(IWalletCore.VERSION, ()), Gate.View);
+        r[i++] = Row(abi.encodeCall(IWalletCore.FACTORY, ()), Gate.View);
+        r[i++] = Row(abi.encodeCall(IWalletCore.REGISTRY, ()), Gate.View);
+        r[i++] = Row(abi.encodeCall(IWalletCore.initialize, (X, MALLORY, 0)), Gate.Special);
+        r[i++] = Row(abi.encodeCall(IWalletCore.reset, (hit)), Gate.Special);
+        r[i++] = Row(abi.encodeCall(IWalletCore.release, ()), Gate.View);
+        r[i++] = Row(abi.encodeCall(IWalletCore.epoch, ()), Gate.View);
+        r[i++] = Row(abi.encodeCall(IIdentityAdmin.genesisIdentity, ()), Gate.View);
+        r[i++] = Row(abi.encodeCall(IWalletCore.runDataSteps, (1)), Gate.Special);
+        r[i++] = Row(abi.encodeCall(IIdentityAdmin.linkIdentity, (X, V1, link, "", _admin())), Gate.Self);
+        r[i++] = Row(abi.encodeCall(IIdentityAdmin.addSessionByLogin, (X, V1, login, "", _admin())), Gate.Public);
+        r[i++] = Row(abi.encodeCall(IIdentityAdmin.removeSessionsByLogin, (X, V1, remove, "", _admin())), Gate.Public);
+        r[i++] = Row(
+            abi.encodeCall(IIdentityAdmin.addSession, (_identity(X, MALLORY), _key(MALLORY_PK), _admin())), Gate.Self
+        );
+        r[i++] = Row(abi.encodeCall(IIdentityAdmin.revokeSession, (_key(ALICE2_PK))), Gate.Self);
+        r[i++] = Row(abi.encodeCall(IIdentityAdmin.setAppList, (_identity(X, ALICE), apps)), Gate.Self);
+        r[i++] = Row(abi.encodeCall(IIdentityAdmin.sessionOf, (_key(ALICE_PK))), Gate.View);
+        r[i++] = Row(abi.encodeCall(IIdentityAdmin.isLinked, (_identity(X, ALICE))), Gate.View);
+        r[i++] = Row(abi.encodeCall(IIdentityAdmin.appList, (_identity(X, ALICE))), Gate.View);
+        r[i++] = Row(abi.encodeCall(IIdentityAdmin.allowanceOf, (_key(BOT_PK), address(0))), Gate.View);
+        r[i++] = Row(abi.encodeCall(IIdentityAdmin.generationOf, (_identity(X, ALICE))), Gate.View);
+        r[i++] = Row(abi.encodeCall(IIdentityAdmin.linkedPlatforms, ()), Gate.View);
+        r[i++] = Row(abi.encodeCall(IIdentityAdmin.hadSession, ()), Gate.View);
+        r[i++] = Row(
+            abi.encodeCall(IIdentityAdmin.queueRoot, (abi.encodeCall(IIdentityAdmin.setThreshold, (2)))), Gate.Self
+        );
+        r[i++] = Row(abi.encodeCall(IIdentityAdmin.cancelRoot, (matured)), Gate.Self);
+        r[i++] = Row(abi.encodeCall(IIdentityAdmin.executeRoot, (bytes32(uint256(1)))), Gate.Public);
+        r[i++] = Row(abi.encodeCall(IIdentityAdmin.rootOperation, (matured)), Gate.View);
+        r[i++] = Row(abi.encodeCall(IIdentityAdmin.rootReadyAt, (matured)), Gate.View);
+        r[i++] = Row(abi.encodeCall(IIdentityAdmin.threshold, ()), Gate.View);
+        r[i++] = Row(abi.encodeCall(IIdentityAdmin.rootDelay, ()), Gate.View);
+        r[i++] = Row(abi.encodeCall(IIdentityAdmin.bump, (2)), Gate.Root);
+        r[i++] = Row(abi.encodeCall(IIdentityAdmin.setThreshold, (2)), Gate.Root);
+        r[i++] = Row(abi.encodeCall(IIdentityAdmin.setRootDelay, (1)), Gate.Root);
+        r[i++] = Row(abi.encodeCall(IIdentityAdmin.unlink, (_identity(GITHUB, BOB))), Gate.Root);
         assertEq(i, r.length, "row count");
     }
 
-    /// A selector of `IWebWallet` this table does not list fails the gate.
+    /// The rows are distinct, and their selectors, each counted once, XOR to both halves' interface ids: every
+    /// wallet selector is listed.
     function test_everySelectorIsListed() public {
         Row[] memory r = _rows();
-        string memory json = vm.readFile("out/IWebWallet.sol/IWebWallet.json");
-        string[] memory sigs = vm.parseJsonKeys(json, ".methodIdentifiers");
-        for (uint256 s; s < sigs.length; ++s) {
-            bytes4 sel = bytes4(keccak256(bytes(sigs[s])));
-            bool listed;
-            for (uint256 i; i < r.length && !listed; ++i) {
-                listed = bytes4(r[i].data) == sel;
+        bytes4 id;
+        for (uint256 i; i < r.length; ++i) {
+            bool seen;
+            for (uint256 j; j < i; ++j) {
+                assertNotEq(keccak256(r[i].data), keccak256(r[j].data), "a row listed twice");
+                seen = seen || bytes4(r[i].data) == bytes4(r[j].data);
             }
-            assertTrue(listed, string.concat("not in the gate table: ", sigs[s]));
+            if (!seen) id ^= bytes4(r[i].data);
         }
+        assertEq(
+            id, type(IWalletCore).interfaceId ^ type(IIdentityAdmin).interfaceId, "a wallet selector is not listed"
+        );
     }
 
     function test_aStrangerChangesNothing() public {
@@ -157,12 +163,12 @@ contract WalletGateTest is WalletBase {
     function test_aQuorumBatchCannotReachRootOrSpecialEntries() public {
         bytes32[] memory apps = new bytes32[](1);
         apps[0] = keccak256("client");
-        _run(w, _one(_x(w, 0, abi.encodeCall(IWebWallet.setAppList, (_identity(X, ALICE), apps)))));
+        _run(w, _one(_x(w, 0, abi.encodeCall(IIdentityAdmin.setAppList, (_identity(X, ALICE), apps)))));
         assertEq(IWebWallet(w).appList(_identity(X, ALICE)).length, 1, "control: a quorum self-call did not run");
 
         _rootAndSpecialChangeNothing(relayer);
         // A matured root operation, refused inside a batch (A7): the lock is held.
-        bytes memory inBatch = abi.encodeCall(IWebWallet.executeRoot, (matured));
+        bytes memory inBatch = abi.encodeCall(IIdentityAdmin.executeRoot, (matured));
         _batchChangesNothing(_signed(w, _pks(ALICE_PK), _one(_x(w, 0, inBatch))), inBatch);
         vm.prank(relayer);
         IWebWallet(w).executeRoot(matured);
@@ -174,7 +180,7 @@ contract WalletGateTest is WalletBase {
         uint256 keyPk = 0x7702;
         address a = vm.addr(keyPk);
         address fwd = deployCode("WalletForwarder.sol:WalletForwarder", abi.encode(address(factory)));
-        bytes memory add = abi.encodeCall(IWebWallet.addSession, (_identity(X, ALICE), _key(ALICE_PK), _admin()));
+        bytes memory add = abi.encodeCall(IIdentityAdmin.addSession, (_identity(X, ALICE), _key(ALICE_PK), _admin()));
         bytes memory onboarding = _two(_linkX(a, X, ALICE, "", _admin()), _x(a, 0, add));
         vm.signAndAttachDelegation(fwd, keyPk);
         vm.prank(a, a);
@@ -182,7 +188,7 @@ contract WalletGateTest is WalletBase {
         vm.warp(_now() + 1);
         w = a;
         bytes32[] memory apps = new bytes32[](1);
-        bytes memory set = abi.encodeCall(IWebWallet.setAppList, (_identity(X, ALICE), apps));
+        bytes memory set = abi.encodeCall(IIdentityAdmin.setAppList, (_identity(X, ALICE), apps));
         bytes memory data = _signed(a, _pks(ALICE_PK), _one(_x(a, 0, set)));
         vm.prank(a, a);
         IWebWallet(a).execute(AUTHORIZED_MODE, data);
@@ -193,13 +199,13 @@ contract WalletGateTest is WalletBase {
     /// Root-only entries do run through `executeRoot`.
     function test_rootEntriesRunInsideExecuteRoot() public {
         // A second admin platform, so the threshold may reach 2; then both platforms queue the unlink.
-        bytes memory add = abi.encodeCall(IWebWallet.addSession, (_identity(GITHUB, BOB), _key(BOB_PK), _admin()));
+        bytes memory add = abi.encodeCall(IIdentityAdmin.addSession, (_identity(GITHUB, BOB), _key(BOB_PK), _admin()));
         _run(w, _one(_x(w, 0, add)));
-        _root(w, abi.encodeCall(IWebWallet.setThreshold, (2)));
+        _root(w, abi.encodeCall(IIdentityAdmin.setThreshold, (2)));
         assertEq(IWebWallet(w).threshold(), 2, "setThreshold");
-        bytes memory unlink = abi.encodeCall(IWebWallet.unlink, (_identity(GITHUB, BOB)));
+        bytes memory unlink = abi.encodeCall(IIdentityAdmin.unlink, (_identity(GITHUB, BOB)));
         bytes memory data =
-            _signed(w, _pks(ALICE_PK, BOB_PK), _one(_x(w, 0, abi.encodeCall(IWebWallet.queueRoot, (unlink)))));
+            _signed(w, _pks(ALICE_PK, BOB_PK), _one(_x(w, 0, abi.encodeCall(IIdentityAdmin.queueRoot, (unlink)))));
         vm.prank(relayer);
         IWebWallet(w).execute(AUTHORIZED_MODE, data);
         _mature(w);
@@ -225,7 +231,7 @@ contract WalletGateTest is WalletBase {
     function _batchChangesNothing(bytes memory data, bytes memory row, address by) internal {
         vm.startStateDiffRecording();
         vm.prank(by, by);
-        (bool ok,) = w.call(abi.encodeCall(IWebWallet.execute, (AUTHORIZED_MODE, data)));
+        (bool ok,) = w.call(abi.encodeCall(IWalletCore.execute, (AUTHORIZED_MODE, data)));
         ok;
         Vm.AccountAccess[] memory acc = vm.stopAndReturnStateDiff();
         _assertNoWrites(acc, vm.toString(row));

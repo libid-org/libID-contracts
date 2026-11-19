@@ -1,14 +1,14 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-import {AUTHORIZED_MODE, IWebWallet} from "../IWebWallet.sol";
+import {AUTHORIZED_MODE, IWalletCore, IWebWallet} from "../IWebWallet.sol";
 import {WalletBase} from "./WalletBase.sol";
 
 /// From its constructor, delegatecalls `initialize` of an implementation with a genesis that is not its own.
 contract ForeignProxy {
     constructor(address impl, bytes32 platformId, bytes32 idNode) {
         (bool ok, bytes memory err) =
-            impl.delegatecall(abi.encodeCall(IWebWallet.initialize, (platformId, idNode, uint256(0))));
+            impl.delegatecall(abi.encodeCall(IWalletCore.initialize, (platformId, idNode, uint256(0))));
         if (!ok) {
             assembly {
                 revert(add(err, 0x20), mload(err))

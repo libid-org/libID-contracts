@@ -9,7 +9,7 @@ import {MerkleProof} from "@openzeppelin/contracts/utils/cryptography/MerkleProo
 import {NATIVE_TOKEN} from "../common/Constants.sol";
 import {memoryWord} from "../common/MemoryWord.sol";
 import {executionsFit} from "./AbiBytes.sol";
-import {IWebWallet} from "./IWebWallet.sol";
+import {IWalletCore, IWebWallet} from "./IWebWallet.sol";
 import {WalletStorage} from "./WalletStorage.sol";
 
 /// @title SessionRules - what an operation may do, and the allowances it charges below quorum.
@@ -44,7 +44,7 @@ contract SessionRules {
         uint256 preVerificationGas;
         bytes32 gasFees;
         uint48 at;
-        IWebWallet.CallProof[] calls;
+        IWalletCore.CallProof[] calls;
         bytes32[] paymasterProof;
     }
 
@@ -52,7 +52,7 @@ contract SessionRules {
     struct Batch {
         bytes executionCalldata;
         uint48 at;
-        IWebWallet.CallProof[] calls;
+        IWalletCore.CallProof[] calls;
     }
 
     /// A UserOperation's `execute(mode, executionCalldata)` with mode selector 0, a batch encoded canonically.
@@ -63,7 +63,7 @@ contract SessionRules {
         (WalletStorage.Verified memory v, Operation memory op, bool below, Targets memory targets) =
             abi.decode(input, (WalletStorage.Verified, Operation, bool, Targets));
         bytes memory callData = op.callData;
-        if (callData.length < 4 || bytes4(memoryWord(callData, 0)) != IWebWallet.execute.selector) return (false, v);
+        if (callData.length < 4 || bytes4(memoryWord(callData, 0)) != IWalletCore.execute.selector) return (false, v);
         (bytes32 mode, bytes memory executions) = abi.decode(Bytes.slice(callData, 4), (bytes32, bytes));
         if (bytes4(mode << 48) != 0) return (false, v);
         CallType callType = CallType.wrap(mode[0]);
@@ -130,7 +130,7 @@ contract SessionRules {
         WalletStorage.Verified memory v,
         Spend memory sp,
         Execution[] memory x,
-        IWebWallet.CallProof[] memory proofs
+        IWalletCore.CallProof[] memory proofs
     ) private returns (bool) {
         if (sp.below && (x.length == 0 || proofs.length != x.length)) return false;
         for (uint256 i; i < x.length; ++i) {
@@ -151,7 +151,7 @@ contract SessionRules {
         address target,
         uint256 value,
         bytes memory data,
-        IWebWallet.CallProof[] memory proofs,
+        IWalletCore.CallProof[] memory proofs,
         uint256 i
     ) private returns (bool) {
         if (!sp.below) return true;
@@ -160,7 +160,7 @@ contract SessionRules {
             target == address(this) || target == address(0) || target == sp.targets.registry
                 || target == sp.targets.entryPoint
         ) return false;
-        IWebWallet.CallProof memory proof = proofs[i];
+        IWalletCore.CallProof memory proof = proofs[i];
         bytes4 selector = data.length < 4 ? bytes4(0) : bytes4(memoryWord(data, 0));
         if (
             value > proof.maxValue || value > type(uint128).max

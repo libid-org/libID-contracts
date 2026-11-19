@@ -17,7 +17,7 @@ import {IHonkVerifier} from "../../ceremony/PlatformVerifierBase.sol";
 import {TlsNotaryVerifierBase} from "../../ceremony/TlsNotaryVerifierBase.sol";
 import {XPlatformVerifier} from "../../ceremony/XPlatformVerifier.sol";
 import {IdentityRegistry} from "../../identity/IdentityRegistry.sol";
-import {AUTHORIZED_MODE, IWebWallet} from "../IWebWallet.sol";
+import {AUTHORIZED_MODE, IIdentityAdmin, IWebWallet} from "../IWebWallet.sol";
 import {WalletBase} from "./WalletBase.sol";
 
 /// @notice Acceptance 2: one `createAndExecute` onboards on one real X list proof: link K and bind the handle.
@@ -109,7 +109,7 @@ contract WalletRealProofTest is WalletBase {
         uint256 fee = registry.quote(X, VX);
         vm.deal(w, fee);
         Execution[] memory x = new Execution[](2);
-        x[0] = _x(w, fee, abi.encodeCall(IWebWallet.linkIdentity, (X, VX, list, linkData, _admin())));
+        x[0] = _x(w, fee, abi.encodeCall(IIdentityAdmin.linkIdentity, (X, VX, list, linkData, _admin())));
         // The link verified this proof, so the bind pays no second Notary Fee.
         x[1] = _x(address(identities), 0, abi.encodeCall(IdentityRegistry.bindPrivately, (X, VX, list, 0, address(0))));
         bytes memory data = _signedAt(w, 1, _pks(ALICE_PK), abi.encode(x), false);
@@ -118,7 +118,7 @@ contract WalletRealProofTest is WalletBase {
         Vm.Gas memory used = vm.lastFrameGas();
 
         assertEq(identities.resolveId(idNode), w, "not bound");
-        IWebWallet.Session memory k = IWebWallet(w).sessionOf(_key(ALICE_PK));
+        IIdentityAdmin.Session memory k = IWebWallet(w).sessionOf(_key(ALICE_PK));
         assertTrue(k.admin && k.identity == _identity(X, idNode), "K is not the genesis session");
         // forge-lint: disable-next-line(unsafe-typecast)
         uint256 gas = used.gasTotalUsed - uint64(used.gasRefunded);
@@ -132,7 +132,7 @@ contract WalletRealProofTest is WalletBase {
         bytes memory linkData = _txData(w, _key(ALICE_PK), _ph(_admin()));
         bytes memory list = _payload(X, idNode, OPERATIONS, operationList(BIND, abi.encode(w), LINK, linkData));
         Execution[] memory x = new Execution[](2);
-        x[0] = _x(w, 0, abi.encodeCall(IWebWallet.linkIdentity, (X, V1, list, linkData, _admin())));
+        x[0] = _x(w, 0, abi.encodeCall(IIdentityAdmin.linkIdentity, (X, V1, list, linkData, _admin())));
         x[1] = _x(address(identities), 0, abi.encodeCall(IdentityRegistry.bindPrivately, (X, V1, list, 0, address(0))));
         bytes memory data = _signedAt(w, 1, _pks(ALICE_PK), abi.encode(x), false);
         vm.prank(relayer, relayer);

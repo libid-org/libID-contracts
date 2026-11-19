@@ -10,9 +10,10 @@ ERC-7201 namespaces under `libid.*`, keyed by an epoch. The code it runs is a
 numbered release that `WalletFactory` publishes. A wallet moves to a newer
 release only by its own root operation.
 
-Every external a wallet answers is declared in `IWebWallet.sol`, with its
-reverts. The other `I*.sol` files beside this one describe the factory, the
-registry and the forwarder.
+`IWebWallet` is a wallet's whole ABI: `IWalletCore`, the implementation's
+externals, `IIdentityAdmin`, the ones it routes to `IdentityAdmin`, and every
+event and error. The other `I*.sol` files beside this one describe the
+factory, the registry and the forwarder.
 
 ## Contracts
 
@@ -121,7 +122,7 @@ bytes memory linkData = abi.encode(block.chainid, w, k, policyHashOf(adminPolicy
 Execution[] memory calls = new Execution[](4);
 // K becomes the genesis identity's admin session, active at once.
 calls[0] = Execution(w, linkFee,
-    abi.encodeCall(IWebWallet.linkIdentity, (platformId, verifierVersion, listPayload, linkData, adminPolicy)));
+    abi.encodeCall(IIdentityAdmin.linkIdentity, (platformId, verifierVersion, listPayload, linkData, adminPolicy)));
 // The link verified this proof, so the bind attaches no value and pays no second fee.
 calls[1] = Execution(address(identities), 0,
     abi.encodeCall(IdentityRegistry.bindPrivately, (platformId, verifierVersion, listPayload, 0, address(0))));
@@ -177,10 +178,10 @@ address, in one type-4 transaction that the key sends itself:
 Execution[] memory calls = new Execution[](2);
 // Link only: the transaction data carries an empty key and policy hash 0.
 calls[0] = Execution(account, linkFee,
-    abi.encodeCall(IWebWallet.linkIdentity, (platformId, verifierVersion, payload, "", policy)));
+    abi.encodeCall(IIdentityAdmin.linkIdentity, (platformId, verifierVersion, payload, "", policy)));
 // The first session, signing from the next second.
 calls[1] = Execution(account, 0,
-    abi.encodeCall(IWebWallet.addSession, (identityOf(platformId, idNode), sessionKey, adminPolicy)));
+    abi.encodeCall(IIdentityAdmin.addSession, (identityOf(platformId, idNode), sessionKey, adminPolicy)));
 
 IWebWallet(account).reset(abi.encode(calls));
 ```
@@ -218,7 +219,7 @@ data is:
 
 ```solidity
 abi.encode(bytes executionCalldata, uint256 value, uint48 deadline, uint256 callGas, bytes authorization)
-// authorization = abi.encode(IWebWallet.Authorization)
+// authorization = abi.encode(IWalletCore.Authorization)
 ```
 
 The wallet:
@@ -275,7 +276,7 @@ mode reverts `UnsupportedMode`. The batch must be canonical.
 
 ### UserOperations
 
-- `userOp.signature` is `abi.encode(IWebWallet.Authorization)`.
+- `userOp.signature` is `abi.encode(IWalletCore.Authorization)`.
 - Signers sign the EIP-712 hash of `UserOperation(bytes32 userOpHash)` under
   the wallet's domain.
 - `callData` must be `execute` in the default mode. Validation refuses

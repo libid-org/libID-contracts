@@ -15,7 +15,7 @@ import {MerkleProof} from "@openzeppelin/contracts/utils/cryptography/MerkleProo
 
 import {NATIVE_TOKEN} from "../../common/Constants.sol";
 import {IWalletRegistry} from "../IWalletRegistry.sol";
-import {IWebWallet} from "../IWebWallet.sol";
+import {IIdentityAdmin, IWalletCore, IWebWallet} from "../IWebWallet.sol";
 import {policyHashOf, rulesHashOf} from "../WalletStorage.sol";
 import {CallTarget, IUserOpHash} from "./WalletBase.sol";
 import {AcceptingVerifier, WalletSuite} from "./WalletSuite.sol";
@@ -121,7 +121,7 @@ contract WalletPolicyTest is WalletSuite {
         leaves.push(Leaf(address(sink), Sink.boom.selector, 1 ether));
         leaves.push(Leaf(payee, bytes4(0), 1 ether));
         leaves.push(Leaf(unbounded, bytes4(0), type(uint256).max));
-        leaves.push(Leaf(w, IWebWallet.queueRoot.selector, 0));
+        leaves.push(Leaf(w, IIdentityAdmin.queueRoot.selector, 0));
         day0 = uint48((_now() / DAY + 1) * DAY);
         vm.warp(day0);
     }
@@ -143,23 +143,23 @@ contract WalletPolicyTest is WalletSuite {
     function _rules(uint128 native, uint128 tokens, uint48 period, bytes32 domainsRoot)
         internal
         view
-        returns (IWebWallet.Rules memory r)
+        returns (IIdentityAdmin.Rules memory r)
     {
         r.scopeRoot = _scopeRoot();
         r.domainsRoot = domainsRoot;
         r.paymastersRoot = _paymasterLeaf(address(paymaster));
-        r.allowances = new IWebWallet.Allowance[](2);
-        r.allowances[0] = IWebWallet.Allowance({token: NATIVE_TOKEN, amount: native, period: period});
-        r.allowances[1] = IWebWallet.Allowance({token: address(token), amount: tokens, period: period});
+        r.allowances = new IIdentityAdmin.Allowance[](2);
+        r.allowances[0] = IIdentityAdmin.Allowance({token: NATIVE_TOKEN, amount: native, period: period});
+        r.allowances[1] = IIdentityAdmin.Allowance({token: address(token), amount: tokens, period: period});
     }
 
-    function _daily() internal view returns (IWebWallet.Rules memory) {
+    function _daily() internal view returns (IIdentityAdmin.Rules memory) {
         return _rules(1 ether, 100 ether, DAY, 0);
     }
 
     /// `r` with its allowances in ascending token order, as the wallet takes them.
-    function _sorted(IWebWallet.Rules memory r) internal pure returns (IWebWallet.Rules memory) {
-        IWebWallet.Allowance[] memory a = r.allowances;
+    function _sorted(IIdentityAdmin.Rules memory r) internal pure returns (IIdentityAdmin.Rules memory) {
+        IIdentityAdmin.Allowance[] memory a = r.allowances;
         for (uint256 i = 1; i < a.length; ++i) {
             for (uint256 j = i; j > 0 && a[j - 1].token > a[j].token; --j) {
                 (a[j - 1], a[j]) = (a[j], a[j - 1]);
@@ -169,18 +169,18 @@ contract WalletPolicyTest is WalletSuite {
     }
 
     /// Adds the session a second ago, so that it signs now.
-    function _add(address wallet, bytes32 identity, uint256 pk, bool admin, IWebWallet.Rules memory r) internal {
-        _addKey(wallet, identity, _key(pk), IWebWallet.Policy(0, 0, admin, 0, _sorted(r)));
+    function _add(address wallet, bytes32 identity, uint256 pk, bool admin, IIdentityAdmin.Rules memory r) internal {
+        _addKey(wallet, identity, _key(pk), IIdentityAdmin.Policy(0, 0, admin, 0, _sorted(r)));
     }
 
-    function _addKey(address wallet, bytes32 identity, bytes memory key, IWebWallet.Policy memory p) internal {
+    function _addKey(address wallet, bytes32 identity, bytes memory key, IIdentityAdmin.Policy memory p) internal {
         uint256 t = _now();
         vm.warp(t - 1);
         _addSession(wallet, identity, key, p);
         vm.warp(t);
     }
 
-    function _addApp(uint256 pk, IWebWallet.Rules memory r) internal {
+    function _addApp(uint256 pk, IIdentityAdmin.Rules memory r) internal {
         _add(w, _identity(X, ALICE), pk, false, r);
     }
 
@@ -218,16 +218,15 @@ contract WalletPolicyTest is WalletSuite {
 
     function _callData(Execution[] memory x) internal pure returns (bytes memory) {
         if (x.length == 1) {
-            return
-                abi.encodeCall(
-                    IWebWallet.execute, (MODE_SINGLE, abi.encodePacked(x[0].target, x[0].value, x[0].callData))
-                );
+            return abi.encodeCall(
+                IWalletCore.execute, (MODE_SINGLE, abi.encodePacked(x[0].target, x[0].value, x[0].callData))
+            );
         }
-        return abi.encodeCall(IWebWallet.execute, (MODE_BATCH, abi.encode(x)));
+        return abi.encodeCall(IWalletCore.execute, (MODE_BATCH, abi.encode(x)));
     }
 
     /// The proof of the scope leaf for `x`'s target and selector; an empty proof when there is none.
-    function _proofOf(Execution memory x) internal view returns (IWebWallet.CallProof memory p) {
+    function _proofOf(Execution memory x) internal view returns (IWalletCore.CallProof memory p) {
         // forge-lint: disable-next-line(unsafe-typecast)
         bytes4 selector = x.callData.length < 4 ? bytes4(0) : bytes4(x.callData);
         for (uint256 i; i < leaves.length; ++i) {
@@ -240,8 +239,8 @@ contract WalletPolicyTest is WalletSuite {
         p.proof = new bytes32[](0);
     }
 
-    function _proofs(Execution[] memory x) internal view returns (IWebWallet.CallProof[] memory p) {
-        p = new IWebWallet.CallProof[](x.length);
+    function _proofs(Execution[] memory x) internal view returns (IWalletCore.CallProof[] memory p) {
+        p = new IWalletCore.CallProof[](x.length);
         for (uint256 i; i < x.length; ++i) {
             p[i] = _proofOf(x[i]);
         }
@@ -254,7 +253,7 @@ contract WalletPolicyTest is WalletSuite {
     }
 
     /// Below quorum, `pks`' sponsored operation for the period of `at`.
-    function _opWith(uint256[] memory pks, bytes memory callData, IWebWallet.CallProof[] memory calls, uint48 at)
+    function _opWith(uint256[] memory pks, bytes memory callData, IWalletCore.CallProof[] memory calls, uint48 at)
         internal
         view
         returns (PackedUserOperation memory op)
@@ -298,14 +297,14 @@ contract WalletPolicyTest is WalletSuite {
 
     /// The encodings the spec pins, against vectors computed outside Solidity; the trees verify under OpenZeppelin.
     function test_hashesFollowTheSpec() public pure {
-        IWebWallet.Allowance[] memory a = new IWebWallet.Allowance[](1);
-        a[0] = IWebWallet.Allowance({token: NATIVE_TOKEN, amount: 1 ether, period: DAY});
-        IWebWallet.Policy memory p = IWebWallet.Policy({
+        IIdentityAdmin.Allowance[] memory a = new IIdentityAdmin.Allowance[](1);
+        a[0] = IIdentityAdmin.Allowance({token: NATIVE_TOKEN, amount: 1 ether, period: DAY});
+        IIdentityAdmin.Policy memory p = IIdentityAdmin.Policy({
             validAfter: 10,
             validUntil: 20,
             admin: false,
             signers: 2,
-            rules: IWebWallet.Rules({
+            rules: IIdentityAdmin.Rules({
                 scopeRoot: keccak256("s"), domainsRoot: keccak256("d"), paymastersRoot: keccak256("p"), allowances: a
             })
         });
@@ -362,8 +361,10 @@ contract WalletPolicyTest is WalletSuite {
         _refused(_opFor(APP_PK, _pay(0.5 ether), day0), "over the period's limit");
         vm.warp(day0 + DAY - 1);
         _handle(_opFor(APP_PK, _pay(0.4 ether), day0));
-        IWebWallet.AllowanceState memory s = IWebWallet(w).allowanceOf(_key(APP_PK), NATIVE_TOKEN);
-        assertEq(abi.encode(s), abi.encode(IWebWallet.AllowanceState(1 ether, DAY, day0, 1 ether)), "the whole limit");
+        IIdentityAdmin.AllowanceState memory s = IWebWallet(w).allowanceOf(_key(APP_PK), NATIVE_TOKEN);
+        assertEq(
+            abi.encode(s), abi.encode(IIdentityAdmin.AllowanceState(1 ether, DAY, day0, 1 ether)), "the whole limit"
+        );
         _refused(_opFor(APP_PK, _pay(1), day0), "one wei over");
         _refused(_opFor(APP_PK, _pay(1), day0 + DAY), "the next period, a second early");
         vm.warp(day0 + DAY);
@@ -432,7 +433,7 @@ contract WalletPolicyTest is WalletSuite {
             _refused(_opNow(APP_PK, x), why[i]);
         }
         assertEq(_spent(APP_PK, address(token)) + _spent(APP_PK, NATIVE_TOKEN), 0, "a refused operation spent");
-        IWebWallet.Rules memory noToken = _daily();
+        IIdentityAdmin.Rules memory noToken = _daily();
         noToken.allowances[1].token = address(loose);
         _addApp(MALLORY_PK, noToken);
         _refused(
@@ -452,7 +453,7 @@ contract WalletPolicyTest is WalletSuite {
 
     /// A value past uint128 fits no allowance and is refused before it is summed: two of 2^255 do not overflow.
     function test_aValuePastUint128IsRefused() public {
-        IWebWallet.Rules memory r = _daily();
+        IIdentityAdmin.Rules memory r = _daily();
         r.allowances[0].amount = type(uint128).max;
         _addApp(APP_PK, r);
         uint256 v = 1 << 255;
@@ -486,7 +487,7 @@ contract WalletPolicyTest is WalletSuite {
         _addApp(APP_PK, _daily());
         assertEq(_spent(APP_PK, NATIVE_TOKEN), 0.6 ether, "the same rules lost the spend");
         _refused(_opNow(APP_PK, _pay(0.5 ether)), "the same rules, over the limit");
-        IWebWallet.Policy memory p = IWebWallet.Policy(0, 0, false, 0, _sorted(_daily()));
+        IIdentityAdmin.Policy memory p = IIdentityAdmin.Policy(0, 0, false, 0, _sorted(_daily()));
         assertEq(IWebWallet(w).sessionOf(_key(APP_PK)).policyHash, _ph(p), "policyHash");
         _revoke(w, _key(APP_PK));
         _addApp(APP_PK, _rules(1 ether + 1, 100 ether, DAY, 0));
@@ -500,13 +501,13 @@ contract WalletPolicyTest is WalletSuite {
     /// ERC-7562: validation reads and writes only the wallet's own storage, for a 64-byte ERC-7913 key.
     function test_validationTouchesOnlyTheWalletsStorage() public {
         bytes memory key = abi.encodePacked(address(new AcceptingVerifier()), keccak256("x"), keccak256("y"));
-        _addKey(w, _identity(X, ALICE), key, IWebWallet.Policy(0, 0, false, 0, _sorted(_daily())));
+        _addKey(w, _identity(X, ALICE), key, IIdentityAdmin.Policy(0, 0, false, 0, _sorted(_daily())));
         Execution[] memory x = _twos(_e(payee, 0.1 ether, ""), _send(token, 1 ether));
-        IWebWallet.SessionSignature[] memory s = new IWebWallet.SessionSignature[](1);
-        s[0] = IWebWallet.SessionSignature({key: key, signature: hex"1234"});
+        IWalletCore.SessionSignature[] memory s = new IWalletCore.SessionSignature[](1);
+        s[0] = IWalletCore.SessionSignature({key: key, signature: hex"1234"});
         PackedUserOperation memory op = _op(w, _callData(x));
         op.signature = abi.encode(
-            IWebWallet.Authorization({
+            IWalletCore.Authorization({
                 signatures: s,
                 at: uint48(_now()),
                 calls: _proofs(x),
@@ -557,18 +558,18 @@ contract WalletPolicyTest is WalletSuite {
 
     /// A repeated or descending token, or a period reaching bit 47, is refused when the session is added.
     function test_badAllowancesRefused() public {
-        IWebWallet.Rules memory twice = _daily();
+        IIdentityAdmin.Rules memory twice = _daily();
         twice.allowances[1].token = NATIVE_TOKEN;
-        IWebWallet.Rules memory far = _daily();
+        IIdentityAdmin.Rules memory far = _daily();
         far.allowances[1].period = uint48(1 << 47);
         _sorted(far);
         vm.prank(w);
         vm.expectRevert(abi.encodeWithSelector(IWebWallet.BadAllowance.selector, NATIVE_TOKEN));
-        IWebWallet(w).addSession(_identity(X, ALICE), _key(APP_PK), IWebWallet.Policy(0, 0, false, 0, twice));
+        IWebWallet(w).addSession(_identity(X, ALICE), _key(APP_PK), IIdentityAdmin.Policy(0, 0, false, 0, twice));
         vm.prank(w);
         vm.expectRevert(abi.encodeWithSelector(IWebWallet.BadAllowance.selector, address(token)));
-        IWebWallet(w).addSession(_identity(X, ALICE), _key(APP_PK), IWebWallet.Policy(0, 0, false, 0, _daily()));
-        IWebWallet.Policy memory p = IWebWallet.Policy(0, 0, false, 0, far);
+        IWebWallet(w).addSession(_identity(X, ALICE), _key(APP_PK), IIdentityAdmin.Policy(0, 0, false, 0, _daily()));
+        IIdentityAdmin.Policy memory p = IIdentityAdmin.Policy(0, 0, false, 0, far);
         bytes memory payload = _loginPayload(w, X, ALICE, _key(APP_PK), p);
         vm.expectRevert(abi.encodeWithSelector(IWebWallet.BadAllowance.selector, address(token)));
         IWebWallet(w).addSessionByLogin(X, V1, payload, "", p);
@@ -585,7 +586,7 @@ contract WalletPolicyTest is WalletSuite {
     /// paymaster no gas is charged.
     function test_gasIsChargedToTheNativeAllowance() public {
         _addApp(APP_PK, _rules(0, 100 ether, DAY, 0));
-        IWebWallet.Rules memory noNative = _daily();
+        IIdentityAdmin.Rules memory noNative = _daily();
         noNative.allowances[0].token = address(loose);
         _addApp(BOB_PK, noNative);
         _addApp(MALLORY_PK, _daily());
@@ -598,7 +599,7 @@ contract WalletPolicyTest is WalletSuite {
         _refused(drain, "gas over a zero NATIVE allowance");
         _signBelow(drain, _pks(BOB_PK), _proofs(hit), uint48(_now()));
         _refused(drain, "gas with no NATIVE entry");
-        IWebWallet.AllowanceState memory zero = IWebWallet(w).allowanceOf(_key(APP_PK), NATIVE_TOKEN);
+        IIdentityAdmin.AllowanceState memory zero = IWebWallet(w).allowanceOf(_key(APP_PK), NATIVE_TOKEN);
         assertEq(zero.spent + zero.periodStart, 0, "a refused operation was charged");
         PackedUserOperation memory paid = _op(w, _callData(_pay(0.1 ether)));
         _signBelow(paid, _pks(MALLORY_PK), _proofs(_pay(0)), uint48(_now()));
@@ -638,7 +639,7 @@ contract WalletPolicyTest is WalletSuite {
         token.approve(address(drain), type(uint256).max);
         bytes32[] memory listed = new bytes32[](2);
         (listed[0], listed[1]) = (_paymasterLeaf(address(paymaster)), _paymasterLeaf(makeAddr("other")));
-        IWebWallet.Rules memory r = _daily();
+        IIdentityAdmin.Rules memory r = _daily();
         bytes32[] memory proof;
         (r.paymastersRoot, proof) = _tree(listed, 0);
         _addApp(BOB_PK, r);
@@ -671,7 +672,7 @@ contract WalletPolicyTest is WalletSuite {
 
     /// Sets `op`'s paymaster proof, which is not signed.
     function _withPaymasterProof(PackedUserOperation memory op, bytes32[] memory proof) internal pure {
-        IWebWallet.Authorization memory a = abi.decode(op.signature, (IWebWallet.Authorization));
+        IWalletCore.Authorization memory a = abi.decode(op.signature, (IWalletCore.Authorization));
         a.paymasterProof = proof;
         op.signature = abi.encode(a);
     }
@@ -680,25 +681,25 @@ contract WalletPolicyTest is WalletSuite {
 
     function test_scopeRefusals() public {
         _addApp(APP_PK, _daily());
-        IWebWallet.Rules memory none = _daily();
+        IIdentityAdmin.Rules memory none = _daily();
         none.scopeRoot = 0;
         _addApp(MALLORY_PK, none);
-        IWebWallet.Rules memory noNative = _daily();
+        IIdentityAdmin.Rules memory noNative = _daily();
         noNative.allowances[0].token = address(loose);
         _addApp(BOB_PK, noNative);
         Execution[] memory hit = _hitE();
         bytes memory hitCall = _callData(hit);
-        IWebWallet.CallProof[] memory other = _proofs(_pay(1));
-        IWebWallet.CallProof[] memory lie = _proofs(hit);
+        IWalletCore.CallProof[] memory other = _proofs(_pay(1));
+        IWalletCore.CallProof[] memory lie = _proofs(hit);
         lie[0].maxValue = 1 ether;
-        IWebWallet.CallProof[] memory extra = new IWebWallet.CallProof[](2);
+        IWalletCore.CallProof[] memory extra = new IWalletCore.CallProof[](2);
         (extra[0], extra[1]) = (_proofOf(hit[0]), _proofOf(hit[0]));
         PackedUserOperation[8] memory ops = [
             _opNow(APP_PK, _ones(_e(address(target), 0.5 ether + 1, abi.encodeCall(CallTarget.hit, ())))),
             _opWith(_pks(APP_PK), hitCall, other, uint48(_now())),
             _opWith(_pks(APP_PK), hitCall, lie, uint48(_now())),
             _opNow(APP_PK, _ones(_e(address(target), 0, abi.encodeCall(target.calls, ())))),
-            _opWith(_pks(APP_PK), hitCall, new IWebWallet.CallProof[](0), uint48(_now())),
+            _opWith(_pks(APP_PK), hitCall, new IWalletCore.CallProof[](0), uint48(_now())),
             _opWith(_pks(APP_PK), hitCall, extra, uint48(_now())),
             _opNow(MALLORY_PK, hit),
             _opNow(BOB_PK, _pay(1))
@@ -726,18 +727,18 @@ contract WalletPolicyTest is WalletSuite {
 
     /// Below quorum an operation of no executions is refused, even with `scopeRoot == 0`; at quorum it passes.
     function test_anEmptyBatchIsRefusedBelowQuorum() public {
-        IWebWallet.Rules memory unscoped = _daily();
+        IIdentityAdmin.Rules memory unscoped = _daily();
         unscoped.scopeRoot = 0;
         _addApp(APP_PK, unscoped);
         bytes memory empty = _callData(new Execution[](0));
-        assertEq(_answer(_opWith(_pks(APP_PK), empty, new IWebWallet.CallProof[](0), uint48(_now()))), 1, "below");
+        assertEq(_answer(_opWith(_pks(APP_PK), empty, new IWalletCore.CallProof[](0), uint48(_now()))), 1, "below");
         assertEq(_answer(_opAtQuorum(_pks(ALICE_PK), empty)), 0, "at quorum");
     }
 
     /// A batch whose element offset is negative is no canonical batch: refused in validation, never reverting it.
     function test_aBatchWithANegativeElementOffsetIsRefused() public {
         HitOrFallback t = new HitOrFallback();
-        IWebWallet.Policy memory p = _hitGas();
+        IIdentityAdmin.Policy memory p = _hitGas();
         p.rules.scopeRoot = _leaf(address(t), HitOrFallback.hit.selector, 0);
         _addKey(w, _identity(X, ALICE), _key(APP_PK), p);
         bytes memory execs = abi.encodePacked(
@@ -749,7 +750,7 @@ contract WalletPolicyTest is WalletSuite {
             -int256(0x100),
             uint256(0)
         );
-        PackedUserOperation memory op = _op(w, abi.encodeCall(IWebWallet.execute, (MODE_BATCH, execs)));
+        PackedUserOperation memory op = _op(w, abi.encodeCall(IWalletCore.execute, (MODE_BATCH, execs)));
         _refused(_signedWith(op, _pks(APP_PK), _hitProofs(1)), "a batch read differently by the rules");
         assertEq(t.hits() + t.fallbacks(), 0, "a call ran");
     }
@@ -762,7 +763,7 @@ contract WalletPolicyTest is WalletSuite {
         view
         returns (PackedUserOperation memory op)
     {
-        IWebWallet.CallProof[] memory calls = new IWebWallet.CallProof[](1);
+        IWalletCore.CallProof[] memory calls = new IWalletCore.CallProof[](1);
         (, calls[0].proof) = _tree(l, index);
         op = _op(w, _exec(to, data));
         _signBelow(op, _pks(APP_PK), calls, at);
@@ -776,7 +777,7 @@ contract WalletPolicyTest is WalletSuite {
             l[i] = _leaf(nft, selectors[i], 0);
         }
         (l[5], l[6]) = (_hitScope(), _leaf(payee, bytes4(0), 0));
-        IWebWallet.Policy memory p = _hitGas();
+        IIdentityAdmin.Policy memory p = _hitGas();
         (p.rules.scopeRoot,) = _tree(l, 0);
         p.rules.paymastersRoot = _paymasterLeaf(makeAddr("paymaster"));
         _addSession(w, _identity(X, ALICE), _key(APP_PK), p);
@@ -819,7 +820,7 @@ contract WalletPolicyTest is WalletSuite {
         bytes memory hit = abi.encodeCall(CallTarget.hit, ());
         PackedUserOperation memory op = _opOn(l, address(target), hit, 5, 0);
         assertEq(_answer(op), 1, "gas charged at 0");
-        IWebWallet.CallProof[] memory calls = abi.decode(op.signature, (IWebWallet.Authorization)).calls;
+        IWalletCore.CallProof[] memory calls = abi.decode(op.signature, (IWalletCore.Authorization)).calls;
         op.paymasterAndData = abi.encodePacked(makeAddr("paymaster"), uint128(100_000), uint128(0));
         _signBelow(op, _pks(APP_PK), calls, 0);
         assertEq(_answer(op), accepted, "nothing charged at 0");
@@ -834,22 +835,22 @@ contract WalletPolicyTest is WalletSuite {
     /// Below quorum a call to the wallet, `address(0)`, the registry or the EntryPoint is an admin operation, even
     /// with a scope leaf for it, and a batch takes its widest call.
     function test_adminTargetsAreRefusedBelowQuorum() public {
-        bytes memory toWallet = abi.encodeCall(IWebWallet.rootDelay, ());
+        bytes memory toWallet = abi.encodeCall(IIdentityAdmin.rootDelay, ());
         bytes memory withdraw = abi.encodeCall(IEntryPointStake.withdrawTo, (payable(payee), 1));
         Leaf[7] memory admin = [
-            Leaf(address(0), IWebWallet.execute.selector, 0),
+            Leaf(address(0), IWalletCore.execute.selector, 0),
             Leaf(address(registry), bytes4(0), 0),
             Leaf(EP, IEntryPointStake.withdrawTo.selector, 0),
-            Leaf(w, IWebWallet.rootDelay.selector, 0),
+            Leaf(w, IIdentityAdmin.rootDelay.selector, 0),
             Leaf(address(target), CallTarget.hit.selector, 0),
             Leaf(address(target), bytes4(0), 0),
-            Leaf(address(target), IWebWallet.execute.selector, 0)
+            Leaf(address(target), IWalletCore.execute.selector, 0)
         ];
         delete leaves;
         for (uint256 i; i < admin.length; ++i) {
             leaves.push(admin[i]);
         }
-        IWebWallet.Policy memory p = _hitGas();
+        IIdentityAdmin.Policy memory p = _hitGas();
         p.rules.scopeRoot = _scopeRoot();
         _addSession(w, _identity(X, ALICE), _key(APP_PK), p);
 
@@ -865,7 +866,7 @@ contract WalletPolicyTest is WalletSuite {
         bytes memory decoy = abi.encodePacked(address(target), uint256(0), abi.encodeCall(CallTarget.hit, ()));
         bytes memory real = abi.encodePacked(w, uint256(0), toWallet);
         bytes memory callData = abi.encodePacked(
-            IWebWallet.execute.selector, MODE_SINGLE, uint256(0xa0), decoy.length, decoy, bytes8(0), real.length, real
+            IWalletCore.execute.selector, MODE_SINGLE, uint256(0xa0), decoy.length, decoy, bytes8(0), real.length, real
         );
         _refusedFor(
             _opOf(callData, _ones(_e(address(target), 0, abi.encodeCall(CallTarget.hit, ())))),
@@ -883,7 +884,7 @@ contract WalletPolicyTest is WalletSuite {
     }
 
     function _batchOp(Execution[] memory x) internal view returns (PackedUserOperation memory) {
-        return _opOf(abi.encodeCall(IWebWallet.execute, (MODE_BATCH, abi.encode(x))), x);
+        return _opOf(abi.encodeCall(IWalletCore.execute, (MODE_BATCH, abi.encode(x))), x);
     }
 
     // ─── Quorum ─────────────────────────────────────────────────────
@@ -939,7 +940,7 @@ contract WalletPolicyTest is WalletSuite {
     function test_atIsSignedBelowQuorum() public {
         _addApp(APP_PK, _daily());
         PackedUserOperation memory op = _opFor(APP_PK, _pay(0.1 ether), day0);
-        IWebWallet.Authorization memory auth = abi.decode(op.signature, (IWebWallet.Authorization));
+        IWalletCore.Authorization memory auth = abi.decode(op.signature, (IWalletCore.Authorization));
         auth.at = day0 + DAY;
         op.signature = abi.encode(auth);
         assertEq(_answer(op), 1, "at moved to the next period");
@@ -947,7 +948,7 @@ contract WalletPolicyTest is WalletSuite {
         op.signature = abi.encode(auth);
         assertEq(_answer(op), _window(day0 - 1, day0 + DAY - 1), "the signed at");
         op = _opAtQuorum(_pks(ALICE_PK), _callData(_pay(0.1 ether)));
-        auth = abi.decode(op.signature, (IWebWallet.Authorization));
+        auth = abi.decode(op.signature, (IWalletCore.Authorization));
         auth.at = day0 + DAY;
         op.signature = abi.encode(auth);
         assertEq(_answer(op), 0, "at quorum");
@@ -989,7 +990,7 @@ contract WalletPolicyTest is WalletSuite {
         sigs[4] = _sigs(_pks(APP_PK), bound);
         (hashes[5], sigs[5]) = _typedSig(w, APP_PK, 0, proofZero);
         hashes[6] = hashes[4];
-        sigs[6] = _auth(_pks(APP_PK), bound, 0, new IWebWallet.CallProof[](0), proofOwn);
+        sigs[6] = _auth(_pks(APP_PK), bound, 0, new IWalletCore.CallProof[](0), proofOwn);
         string[7] memory why = [
             "another app's proof",
             "an unlisted app",
@@ -1012,13 +1013,13 @@ contract WalletPolicyTest is WalletSuite {
         _link(w, GITHUB, BOB, "", _admin());
         _add(w, _identity(GITHUB, BOB), APP_PK, false, _daily());
         _handle(_opNow(APP_PK, _pay(0.1 ether)));
-        _rootW(w, abi.encodeCall(IWebWallet.unlink, (_identity(GITHUB, BOB))));
+        _rootW(w, abi.encodeCall(IIdentityAdmin.unlink, (_identity(GITHUB, BOB))));
         assertEq(IWebWallet(w).allowanceOf(_key(APP_PK), NATIVE_TOKEN).amount, 0, "a dead session's allowance");
     }
 
     /// The proof of a session commits its rules.
     function test_aProofCommitsTheRules() public {
-        IWebWallet.Policy memory p = IWebWallet.Policy(0, 0, false, 0, _sorted(_daily()));
+        IIdentityAdmin.Policy memory p = IIdentityAdmin.Policy(0, 0, false, 0, _sorted(_daily()));
         _addByLogin(relayer, X, ALICE, w, _key(APP_PK), p);
         assertEq(IWebWallet(w).sessionOf(_key(APP_PK)).policyHash, _ph(p), "policyHash");
         assertEq(IWebWallet(w).allowanceOf(_key(APP_PK), NATIVE_TOKEN).amount, 1 ether, "allowance");

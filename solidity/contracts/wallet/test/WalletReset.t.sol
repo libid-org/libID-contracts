@@ -7,7 +7,7 @@ import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.s
 
 import {IWalletFactory} from "../IWalletFactory.sol";
 import {IWalletForwarder} from "../IWalletForwarder.sol";
-import {AUTHORIZED_MODE, IWebWallet} from "../IWebWallet.sol";
+import {AUTHORIZED_MODE, IIdentityAdmin, IWalletCore, IWebWallet} from "../IWebWallet.sol";
 import {CallTarget, IUserOpHash, WalletBase} from "./WalletBase.sol";
 
 /// Measures one call from its own isolated transaction, where the target and everything it reads are cold.
@@ -82,7 +82,7 @@ contract WalletResetTest is WalletBase {
     function _onboarding() internal returns (bytes memory) {
         return _two(
             _linkX(a, X, ALICE, "", _admin()),
-            _x(a, 0, abi.encodeCall(IWebWallet.addSession, (_identity(X, ALICE), _key(ALICE_PK), _admin())))
+            _x(a, 0, abi.encodeCall(IIdentityAdmin.addSession, (_identity(X, ALICE), _key(ALICE_PK), _admin())))
         );
     }
 
@@ -157,7 +157,7 @@ contract WalletResetTest is WalletBase {
     function test_resetRefusals() public {
         _onboard();
         bytes32 epoch = IWebWallet(a).epoch();
-        bytes memory reset = abi.encodeCall(IWebWallet.reset, (_one(_hitX())));
+        bytes memory reset = abi.encodeCall(IWalletCore.reset, (_one(_hitX())));
         address[2] memory senders = [mallory, mallory];
         address[2] memory origins = [mallory, a];
         for (uint256 i; i < senders.length; ++i) {
@@ -174,7 +174,7 @@ contract WalletResetTest is WalletBase {
         vm.expectRevert(IWebWallet.ResetRefused.selector);
         IWebWallet(a).execute(AUTHORIZED_MODE, data);
         // Never a root operation, so never inside `executeRoot`.
-        bytes memory queue = abi.encodeCall(IWebWallet.queueRoot, (reset));
+        bytes memory queue = abi.encodeCall(IIdentityAdmin.queueRoot, (reset));
         vm.prank(a, a);
         vm.expectPartialRevert(IWebWallet.RootOperationNotAllowed.selector);
         IWebWallet(a).execute(MODE_BATCH, _one(_x(a, 0, queue)));
@@ -275,17 +275,17 @@ contract WalletResetTest is WalletBase {
     /// removal of the GitHub identity drops the threshold to 1, and the same bytes are still refused.
     function test_aThresholdDropRetiresAHalfSignedBatch() public {
         address w = _claim();
-        IWebWallet.Policy memory none;
+        IIdentityAdmin.Policy memory none;
         vm.warp(_now() + 1);
         _run(
             w,
             _two(
                 _linkX(w, GITHUB, BOB, "", none),
-                _x(w, 0, abi.encodeCall(IWebWallet.addSession, (_identity(GITHUB, BOB), _key(BOB_PK), _admin())))
+                _x(w, 0, abi.encodeCall(IIdentityAdmin.addSession, (_identity(GITHUB, BOB), _key(BOB_PK), _admin())))
             )
         );
         vm.warp(_now() + 1);
-        _root(w, abi.encodeCall(IWebWallet.setThreshold, (2)));
+        _root(w, abi.encodeCall(IIdentityAdmin.setThreshold, (2)));
         bytes memory data = _signedAt(w, 1, _pks(ALICE_PK), _one(_hitX()), false);
         vm.prank(mallory);
         vm.expectRevert(IWebWallet.ExecutionNotSigned.selector);
@@ -307,7 +307,7 @@ contract WalletResetTest is WalletBase {
     /// one too.
     function test_aRootEpochMoveRetiresEverySignatureBeforeIt() public {
         _onboard();
-        IWebWallet.Policy memory none;
+        IIdentityAdmin.Policy memory none;
         bytes memory link = _linkPayload(a, GITHUB, BOB, "", none);
         vm.prank(a);
         IWebWallet(a).linkIdentity(GITHUB, V1, link, "", none);
@@ -351,10 +351,10 @@ contract WalletResetTest is WalletBase {
         _onboard();
         address impl2 = _publish(2);
         bytes[4] memory calls = [
-            abi.encodeCall(IWebWallet.bump, (2)),
-            abi.encodeCall(IWebWallet.setThreshold, (2)),
-            abi.encodeCall(IWebWallet.setRootDelay, (72 hours)),
-            abi.encodeCall(IWebWallet.unlink, (_identity(X, ALICE)))
+            abi.encodeCall(IIdentityAdmin.bump, (2)),
+            abi.encodeCall(IIdentityAdmin.setThreshold, (2)),
+            abi.encodeCall(IIdentityAdmin.setRootDelay, (72 hours)),
+            abi.encodeCall(IIdentityAdmin.unlink, (_identity(X, ALICE)))
         ];
         for (uint256 i; i < calls.length; ++i) {
             vm.prank(a, a);
@@ -407,7 +407,7 @@ contract WalletResetTest is WalletBase {
         // A stranger's batch adding her own session signs only from the next second: still refused.
         Execution[] memory x = new Execution[](2);
         x[0] = _linkX(a, X, MALLORY, "", _admin());
-        x[1] = _x(a, 0, abi.encodeCall(IWebWallet.addSession, (_identity(X, MALLORY), _key(MALLORY_PK), _admin())));
+        x[1] = _x(a, 0, abi.encodeCall(IIdentityAdmin.addSession, (_identity(X, MALLORY), _key(MALLORY_PK), _admin())));
         bytes memory data = _signed(a, _pks(MALLORY_PK), abi.encode(x));
         vm.prank(mallory);
         vm.expectRevert(IWebWallet.ExecutionNotSigned.selector);
@@ -419,7 +419,7 @@ contract WalletResetTest is WalletBase {
     /// key still revokes a limited session.
     function test_theKeyRevokesALimitedSessionBelowTheThreshold() public {
         _onboard();
-        IWebWallet.Policy memory none;
+        IIdentityAdmin.Policy memory none;
         bytes memory link = _linkPayload(a, GITHUB, BOB, "", none);
         vm.prank(a);
         IWebWallet(a).linkIdentity(GITHUB, V1, link, "", none);
@@ -445,7 +445,7 @@ contract WalletResetTest is WalletBase {
     /// At its own address the forwarder refuses every call, `reset` and plain ETH included.
     function test_theForwarderRefusesDirectCalls() public {
         bytes[3] memory calls =
-            [abi.encodeCall(IWebWallet.reset, (_one(_hitX()))), abi.encodeCall(IWebWallet.release, ()), ""];
+            [abi.encodeCall(IWalletCore.reset, (_one(_hitX()))), abi.encodeCall(IWalletCore.release, ()), ""];
         for (uint256 i; i < calls.length; ++i) {
             (bool ok, bytes memory err) = fwd.call{value: i == 2 ? 1 : 0}(calls[i]);
             assertFalse(ok, "the forwarder answered");
@@ -510,7 +510,7 @@ contract WalletResetTest is WalletBase {
     function test_theAccountFollowsABump() public {
         _onboard();
         address impl2 = _publish(2);
-        _root(a, abi.encodeCall(IWebWallet.bump, (2)));
+        _root(a, abi.encodeCall(IIdentityAdmin.bump, (2)));
         (address impl, uint64 version) = IWebWallet(a).release();
         assertEq(abi.encode(impl, version, IWebWallet(a).VERSION()), abi.encode(impl2, 2, 2), "release");
         _run(a, _one(_hitX()));
@@ -580,7 +580,7 @@ contract WalletResetTest is WalletBase {
     function test_aBatchCannotReenterTheDefaultMode() public {
         _onboard();
         bytes memory hit = abi.encodePacked(address(target), uint256(0), abi.encodeCall(CallTarget.hit, ()));
-        bytes memory inner = abi.encodeCall(IWebWallet.execute, (MODE_SINGLE, hit));
+        bytes memory inner = abi.encodeCall(IWalletCore.execute, (MODE_SINGLE, hit));
         bytes memory data = _signed(a, _pks(ALICE_PK), _one(_x(a, 0, inner)));
         vm.prank(relayer);
         vm.expectRevert(IWebWallet.Locked.selector);

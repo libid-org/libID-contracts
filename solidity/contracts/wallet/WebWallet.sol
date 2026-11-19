@@ -26,7 +26,14 @@ import {ERC7739Utils} from "@openzeppelin/contracts/utils/cryptography/draft-ERC
 
 import {bytesAt, canonicalBatch, decodeAuthorization} from "./AbiBytes.sol";
 import {IWalletFactory} from "./IWalletFactory.sol";
-import {AUTHORIZED_MODE, CALL_OVERHEAD, INonceIncrement, IWebWallet} from "./IWebWallet.sol";
+import {
+    AUTHORIZED_MODE,
+    CALL_OVERHEAD,
+    IIdentityAdmin,
+    INonceIncrement,
+    IWalletCore,
+    IWebWallet
+} from "./IWebWallet.sol";
 import {SessionRules} from "./SessionRules.sol";
 import {WalletRelease} from "./WalletRelease.sol";
 import {WalletStorage, identityOf} from "./WalletStorage.sol";
@@ -35,8 +42,8 @@ import {WalletTransient} from "./WalletTransient.sol";
 /// @title WebWallet - an ERC-4337 account whose sessions belong to linked platform identities.
 /// @notice One numbered release: a factory wallet's WalletProxy, or an EIP-7702 account's WalletForwarder, routes
 ///         to it by the release slot. Identity and root-operation entries run in IdentityAdmin through DELEGATECALL;
-///         what an operation may do runs in SessionRules. Every external is declared in `IWebWallet`.
-contract WebWallet is Account, ERC721Holder, ERC1155Holder {
+///         what an operation may do runs in SessionRules.
+contract WebWallet is Account, ERC721Holder, ERC1155Holder, IWalletCore {
     using ERC7579Utils for Mode;
     using ERC7739Utils for *;
     using MessageHashUtils for bytes32;
@@ -131,8 +138,56 @@ contract WebWallet is Account, ERC721Holder, ERC1155Holder {
         }
     }
 
-    function supportsInterface(bytes4 interfaceId) public view override returns (bool) {
+    function supportsInterface(bytes4 interfaceId) public view override(ERC1155Holder, IWalletCore) returns (bool) {
         return interfaceId == type(IERC721Receiver).interfaceId || super.supportsInterface(interfaceId);
+    }
+
+    // ─── Externals OpenZeppelin implements ──────────────────────────
+
+    function entryPoint() public view override(Account, IWalletCore) returns (IEntryPoint) {
+        return super.entryPoint();
+    }
+
+    function getNonce() public view override(Account, IWalletCore) returns (uint256) {
+        return super.getNonce();
+    }
+
+    function getNonce(uint192 key) public view override(Account, IWalletCore) returns (uint256) {
+        return super.getNonce(key);
+    }
+
+    function validateUserOp(PackedUserOperation calldata userOp, bytes32 userOpHash, uint256 missingAccountFunds)
+        public
+        override(Account, IWalletCore)
+        returns (uint256)
+    {
+        return super.validateUserOp(userOp, userOpHash, missingAccountFunds);
+    }
+
+    function onERC721Received(address operator, address from, uint256 tokenId, bytes memory data)
+        public
+        override(ERC721Holder, IWalletCore)
+        returns (bytes4)
+    {
+        return super.onERC721Received(operator, from, tokenId, data);
+    }
+
+    function onERC1155Received(address operator, address from, uint256 id, uint256 value, bytes memory data)
+        public
+        override(ERC1155Holder, IWalletCore)
+        returns (bytes4)
+    {
+        return super.onERC1155Received(operator, from, id, value, data);
+    }
+
+    function onERC1155BatchReceived(
+        address operator,
+        address from,
+        uint256[] memory ids,
+        uint256[] memory values,
+        bytes memory data
+    ) public override(ERC1155Holder, IWalletCore) returns (bytes4) {
+        return super.onERC1155BatchReceived(operator, from, ids, values, data);
     }
 
     // ─── Execution ──────────────────────────────────────────────────
@@ -190,7 +245,7 @@ contract WebWallet is Account, ERC721Holder, ERC1155Holder {
             }
             _call(i, x.target, x.value, callData, false);
         }
-        IWebWallet.Authorization memory auth = abi.decode(bytesAt(data, 128), (IWebWallet.Authorization));
+        IWalletCore.Authorization memory auth = abi.decode(bytesAt(data, 128), (IWalletCore.Authorization));
         bytes32 digest = domain.toTypedDataHash(
             keccak256(
                 abi.encode(
@@ -243,7 +298,7 @@ contract WebWallet is Account, ERC721Holder, ERC1155Holder {
         override
         returns (uint256)
     {
-        (bool ok, IWebWallet.Authorization memory auth) = decodeAuthorization(signature);
+        (bool ok, IWalletCore.Authorization memory auth) = decodeAuthorization(signature);
         if (!ok) return ERC4337Utils.SIG_VALIDATION_FAILED;
         bool below;
         WalletStorage.Verified memory v;
@@ -289,7 +344,7 @@ contract WebWallet is Account, ERC721Holder, ERC1155Holder {
             if (err == ECDSA.RecoverError.NoError && signer == address(this)) return this.isValidSignature.selector;
         }
         (bytes32 signed, bytes calldata inner, bytes32 app) = _unnest(hash, signature);
-        (bool decoded, IWebWallet.Authorization memory auth) = decodeAuthorization(inner);
+        (bool decoded, IWalletCore.Authorization memory auth) = decodeAuthorization(inner);
         if (!decoded) return bytes4(0xffffffff);
         uint8 quorum = WalletStorage.threshold();
         WalletStorage.Verified memory v = _verify(signed, auth.signatures, quorum, 0);
@@ -331,7 +386,7 @@ contract WebWallet is Account, ERC721Holder, ERC1155Holder {
 
     /// `_verify` over `hash` at `auth.at`, whether the signers fall short of `quorum`, and whether they sign:
     /// below it, `_cosigned`.
-    function _signers(bytes32 hash, IWebWallet.Authorization memory auth, uint8 quorum)
+    function _signers(bytes32 hash, IWalletCore.Authorization memory auth, uint8 quorum)
         private
         view
         returns (bool ok, bool below, WalletStorage.Verified memory v)
@@ -344,7 +399,7 @@ contract WebWallet is Account, ERC721Holder, ERC1155Holder {
     /// Checks that every signature is by a live session, and counts the distinct platforms of its signers and
     /// of the admin sessions among them. Short of `quorum`, every signature is over
     /// `keccak256(abi.encode(hash, at, keccak256(sigs[0].key)))`: the governing session.
-    function _verify(bytes32 hash, IWebWallet.SessionSignature[] memory sigs, uint8 quorum, uint48 at)
+    function _verify(bytes32 hash, IWalletCore.SessionSignature[] memory sigs, uint8 quorum, uint48 at)
         private
         view
         returns (WalletStorage.Verified memory v)
@@ -424,19 +479,20 @@ contract WebWallet is Account, ERC721Holder, ERC1155Holder {
     /// The target that runs `selector`: IdentityAdmin's entries, else none.
     function _target(bytes4 selector) private view returns (address) {
         if (
-            selector == IWebWallet.linkIdentity.selector || selector == IWebWallet.addSessionByLogin.selector
-                || selector == IWebWallet.removeSessionsByLogin.selector || selector == IWebWallet.addSession.selector
-                || selector == IWebWallet.revokeSession.selector || selector == IWebWallet.setAppList.selector
-                || selector == IWebWallet.sessionOf.selector || selector == IWebWallet.isLinked.selector
-                || selector == IWebWallet.appList.selector || selector == IWebWallet.genesisIdentity.selector
-                || selector == IWebWallet.allowanceOf.selector || selector == IWebWallet.generationOf.selector
-                || selector == IWebWallet.linkedPlatforms.selector || selector == IWebWallet.hadSession.selector
-                || selector == IWebWallet.rootReadyAt.selector || selector == IWebWallet.queueRoot.selector
-                || selector == IWebWallet.cancelRoot.selector || selector == IWebWallet.executeRoot.selector
-                || selector == IWebWallet.rootOperation.selector || selector == IWebWallet.threshold.selector
-                || selector == IWebWallet.rootDelay.selector || selector == IWebWallet.bump.selector
-                || selector == IWebWallet.setThreshold.selector || selector == IWebWallet.setRootDelay.selector
-                || selector == IWebWallet.unlink.selector
+            selector == IIdentityAdmin.linkIdentity.selector || selector == IIdentityAdmin.addSessionByLogin.selector
+                || selector == IIdentityAdmin.removeSessionsByLogin.selector
+                || selector == IIdentityAdmin.addSession.selector || selector == IIdentityAdmin.revokeSession.selector
+                || selector == IIdentityAdmin.setAppList.selector || selector == IIdentityAdmin.sessionOf.selector
+                || selector == IIdentityAdmin.isLinked.selector || selector == IIdentityAdmin.appList.selector
+                || selector == IIdentityAdmin.genesisIdentity.selector
+                || selector == IIdentityAdmin.allowanceOf.selector || selector == IIdentityAdmin.generationOf.selector
+                || selector == IIdentityAdmin.linkedPlatforms.selector || selector == IIdentityAdmin.hadSession.selector
+                || selector == IIdentityAdmin.rootReadyAt.selector || selector == IIdentityAdmin.queueRoot.selector
+                || selector == IIdentityAdmin.cancelRoot.selector || selector == IIdentityAdmin.executeRoot.selector
+                || selector == IIdentityAdmin.rootOperation.selector || selector == IIdentityAdmin.threshold.selector
+                || selector == IIdentityAdmin.rootDelay.selector || selector == IIdentityAdmin.bump.selector
+                || selector == IIdentityAdmin.setThreshold.selector || selector == IIdentityAdmin.setRootDelay.selector
+                || selector == IIdentityAdmin.unlink.selector
         ) return ADMIN;
         return address(0);
     }

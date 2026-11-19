@@ -41,6 +41,16 @@ mod web_wallet {
 pub use web_wallet::IWebWallet;
 /// The ERC-4337 operation `IWebWallet.validateUserOp` takes.
 pub use web_wallet::IWebWallet::PackedUserOperation;
+/// The structs of `IIdentityAdmin`, the half of [`IWebWallet`] that
+/// `IdentityAdmin` answers.
+pub use web_wallet::IIdentityAdmin::{
+    Allowance,
+    AllowanceState,
+    Policy,
+    RootOperation,
+    Rules,
+    Session,
+};
 
 #[allow(
     clippy::too_many_arguments,
@@ -153,18 +163,18 @@ mod signed {
     }
 }
 
-/// `IWebWallet.Authorization`, which no external's ABI carries.
+/// `IWalletCore.Authorization`, which no external's ABI carries.
 /// [`encode_authorization`] makes it a signature.
 pub use signed::Authorization;
-/// `IWebWallet.CallProof`.
+/// `IWalletCore.CallProof`.
 pub use signed::CallProof;
 /// The EIP-712 `Execute` type of an `AUTHORIZED_MODE` batch. Build messages
 /// with [`ExecuteMessage`], which sets `mode`.
 pub use signed::Execute;
-/// `IWebWallet.SessionSignature`.
+/// `IWalletCore.SessionSignature`.
 pub use signed::SessionSignature;
 
-impl IWebWallet::Rules {
+impl Rules {
     /// Sorts the allowances into the strictly ascending token order the
     /// wallet requires. Sort before hashing and building calls.
     pub fn sort_allowances(&mut self) {
@@ -186,7 +196,7 @@ impl IWebWallet::Rules {
     }
 }
 
-impl IWebWallet::Policy {
+impl Policy {
     /// `policyHashOf(policy)`: the policy hash a proof commits.
     pub fn policy_hash(&self) -> B256 {
         keccak256(
@@ -247,7 +257,7 @@ pub fn transaction_data(
     chain_id: u64,
     wallet: Address,
     key: &Bytes,
-    policy: &IWebWallet::Policy,
+    policy: &Policy,
 ) -> Bytes {
     let policy_hash = if key.is_empty() {
         B256::ZERO
@@ -389,17 +399,17 @@ mod tests {
 
     /// The policy of `WalletPolicyTest.test_hashesFollowTheSpec` and of the
     /// client vector's transaction data.
-    fn vector_policy() -> IWebWallet::Policy {
-        IWebWallet::Policy {
+    fn vector_policy() -> Policy {
+        Policy {
             validAfter: U48::from(10),
             validUntil: U48::from(20),
             admin: false,
             signers: 2,
-            rules: IWebWallet::Rules {
+            rules: Rules {
                 scopeRoot: keccak256("s"),
                 domainsRoot: keccak256("d"),
                 paymastersRoot: keccak256("p"),
-                allowances: vec![IWebWallet::Allowance {
+                allowances: vec![Allowance {
                     token: address!("0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE"),
                     amount: 10u128.pow(18),
                     period: U48::from(86_400),
@@ -573,12 +583,12 @@ mod tests {
     /// Sorting puts any order in token order; hashing keeps the order given.
     #[test]
     fn allowances_sort_by_token() {
-        let allowance = |token: u8| IWebWallet::Allowance {
+        let allowance = |token: u8| Allowance {
             token: [token; 20].into(),
             amount: token.into(),
             period: U48::from(1),
         };
-        let rules = |tokens: &[u8]| IWebWallet::Rules {
+        let rules = |tokens: &[u8]| Rules {
             scopeRoot: B256::ZERO,
             domainsRoot: B256::ZERO,
             paymastersRoot: B256::ZERO,

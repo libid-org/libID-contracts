@@ -181,7 +181,7 @@ Other entry points:
   signers sign: `ExecuteMessage`, `user_operation_digest`,
   `below_quorum_hash`, `encode_authorization` (a UserOperation's signature
   and ERC-1271's inner signature, with no prefix), and
-  `IWebWallet::Policy::policy_hash` with `Rules::sort_allowances`; the link
+  `Policy::policy_hash` with `Rules::sort_allowances`; the link
   and login operation domains (`LINK_IDENTITY_DOMAIN`, `ADD_SESSION_DOMAIN`,
   `REMOVE_SESSIONS_DOMAIN`) and the `transaction_data` their proofs commit.
 

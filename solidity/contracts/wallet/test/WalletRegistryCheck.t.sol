@@ -8,7 +8,7 @@ import {IPlatformVerifier} from "../../ceremony/IPlatformVerifier.sol";
 import {IProofVerifier} from "../../ceremony/IProofVerifier.sol";
 import {StubPlatformVerifier} from "../../identity/test/StubPlatformVerifier.sol";
 import {IWalletRegistry} from "../IWalletRegistry.sol";
-import {AUTHORIZED_MODE, IWebWallet} from "../IWebWallet.sol";
+import {AUTHORIZED_MODE, IIdentityAdmin, IWebWallet} from "../IWebWallet.sol";
 import {WalletBase} from "./WalletBase.sol";
 
 interface IRenounce {
@@ -29,7 +29,7 @@ contract WalletRegistryCheckTest is WalletBase {
     function _setApp(bytes memory app) internal {
         bytes32[] memory a = new bytes32[](1);
         a[0] = keccak256(app);
-        _run(w, _one(_x(w, 0, abi.encodeCall(IWebWallet.setAppList, (_identity(X, ALICE), a)))));
+        _run(w, _one(_x(w, 0, abi.encodeCall(IIdentityAdmin.setAppList, (_identity(X, ALICE), a)))));
     }
 
     function _login(bytes memory payload) internal {
@@ -42,7 +42,7 @@ contract WalletRegistryCheckTest is WalletBase {
         bytes memory payload = _loginPayload(w, X, ALICE, _key(ALICE2_PK), _admin());
         _login(payload);
         assertTrue(registry.spentDigests(_digestOf(payload)), "digest unspent");
-        IWebWallet.Session memory s = IWebWallet(w).sessionOf(_key(ALICE2_PK));
+        IIdentityAdmin.Session memory s = IWebWallet(w).sessionOf(_key(ALICE2_PK));
         assertTrue(s.byProof && s.identity == _identity(X, ALICE), "no session by login");
 
         bytes memory data = _signed(w, _pks(ALICE2_PK), _one(_hitX()));
@@ -104,7 +104,7 @@ contract WalletRegistryCheckTest is WalletBase {
         vm.expectRevert(IWebWallet.LinkSessionRefused.selector);
         IWebWallet(w).execute(AUTHORIZED_MODE, bob);
 
-        bytes memory add = abi.encodeCall(IWebWallet.addSession, (_identity(GITHUB, BOB), _key(BOB_PK), _admin()));
+        bytes memory add = abi.encodeCall(IIdentityAdmin.addSession, (_identity(GITHUB, BOB), _key(BOB_PK), _admin()));
         _run(w, _two(_linkX(w, GITHUB, BOB, "", _admin()), _x(w, 0, add)));
         assertTrue(IWebWallet(w).isLinked(_identity(GITHUB, BOB)), "control: link only");
         assertEq(IWebWallet(w).sessionOf(_key(BOB_PK)).identity, _identity(GITHUB, BOB), "control: addSession");

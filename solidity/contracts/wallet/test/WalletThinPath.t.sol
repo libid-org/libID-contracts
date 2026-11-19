@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-import {AUTHORIZED_MODE, IWebWallet} from "../IWebWallet.sol";
+import {AUTHORIZED_MODE, IIdentityAdmin, IWebWallet} from "../IWebWallet.sol";
 import {WalletBase} from "./WalletBase.sol";
 
 /// @notice Stub proof, published release, one `createAndExecute` that bootstraps the genesis session, then that
@@ -21,7 +21,7 @@ contract WalletThinPathTest is WalletBase {
         assertEq(target.last(), w, "not from the wallet");
         assertTrue(registry.spentDigests(_digestOf(link)), "link digest unspent");
         assertTrue(IWebWallet(w).isLinked(_identity(X, ALICE)), "not linked");
-        IWebWallet.Session memory k = IWebWallet(w).sessionOf(_key(ALICE_PK));
+        IIdentityAdmin.Session memory k = IWebWallet(w).sessionOf(_key(ALICE_PK));
         assertTrue(k.admin && !k.byProof && k.identity == _identity(X, ALICE), "K is not the genesis session");
         (address impl, uint64 version) = IWebWallet(w).release();
         assertEq(abi.encode(impl, version), abi.encode(impl1, uint64(1)), "release");

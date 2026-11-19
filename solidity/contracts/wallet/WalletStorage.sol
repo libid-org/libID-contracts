@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-import {IWebWallet} from "./IWebWallet.sol";
+import {IIdentityAdmin, IWebWallet} from "./IWebWallet.sol";
 
 /// An identity: `keccak256(abi.encode(platformId, idNode))`.
 function identityOf(bytes32 platformId, bytes32 idNode) pure returns (bytes32) {
@@ -9,12 +9,12 @@ function identityOf(bytes32 platformId, bytes32 idNode) pure returns (bytes32) {
 }
 
 /// A rule set's hash, stored with the session and keying its allowance counters.
-function rulesHashOf(IWebWallet.Rules memory rules) pure returns (bytes32) {
+function rulesHashOf(IIdentityAdmin.Rules memory rules) pure returns (bytes32) {
     return keccak256(abi.encode(rules.scopeRoot, rules.domainsRoot, rules.paymastersRoot, rules.allowances));
 }
 
 /// A policy's hash, as a proof commits it.
-function policyHashOf(IWebWallet.Policy memory policy) pure returns (bytes32) {
+function policyHashOf(IIdentityAdmin.Policy memory policy) pure returns (bytes32) {
     return policyHashFrom(policy.validAfter, policy.validUntil, policy.admin, policy.signers, rulesHashOf(policy.rules));
 }
 
