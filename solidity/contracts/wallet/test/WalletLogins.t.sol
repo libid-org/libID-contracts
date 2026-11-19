@@ -65,14 +65,15 @@ contract WalletLoginsTest is WalletSuite {
         return abi.encodeCall(IWebWallet.setRootDelay, (d));
     }
 
-    function _apps(bytes memory a) internal pure returns (bytes[] memory l) {
-        l = new bytes[](1);
-        l[0] = a;
+    function _apps(bytes memory a) internal pure returns (bytes32[] memory l) {
+        l = new bytes32[](1);
+        l[0] = keccak256(a);
     }
 
-    function _setApps(address w, bytes[] memory apps) internal {
+    /// Sets Alice's list.
+    function _setApps(address w, bytes32[] memory apps) internal {
         vm.prank(w);
-        IWebWallet(w).setAppList(X, apps);
+        IWebWallet(w).setAppList(_identity(X, ALICE), apps);
     }
 
     /// The position + 1 of the first log of `w` with `topic0`, else 0.
@@ -524,15 +525,15 @@ contract WalletLoginsTest is WalletSuite {
     function test_aListRefusesOtherAppsAddsAndSurvivesARemoval() public {
         address w = _wallet(1, 1);
         bytes32 alice = _identity(X, ALICE);
-        bytes[] memory apps = _apps("client");
+        bytes32[] memory apps = _apps("client");
         vm.expectEmit(true, false, false, true, w);
-        emit IWebWallet.AppListSet(X, apps);
+        emit IWebWallet.AppListSet(alice, apps);
         _setApps(w, apps);
-        assertEq(abi.encode(IWebWallet(w).appList(X)), abi.encode(apps), "list");
+        assertEq(abi.encode(IWebWallet(w).appList(alice)), abi.encode(apps), "list");
 
         IWebWallet.Policy memory p = _admin();
         bytes memory add = _loginPayload(w, X, ALICE, _key(NEW_PK), p);
-        bytes memory notListed = abi.encodeWithSelector(IWebWallet.AppNotListed.selector, bytes("another-app"));
+        bytes memory notListed = abi.encodeWithSelector(IWebWallet.AppNotListed.selector, keccak256("another-app"));
         vm.expectRevert(notListed);
         IWebWallet(w).addSessionByLogin(X, OTHER_APP, add, "", p);
         assertFalse(registry.spentDigests(_digestOf(add)), "a refused login spent the digest");
@@ -550,14 +551,29 @@ contract WalletLoginsTest is WalletSuite {
         // A removal with no key from any app is accepted, and leaves the list.
         IWebWallet(w).removeSessionsByLogin(X, OTHER_APP, _removePayload(w, X, ALICE), "", _none());
         assertEq(IWebWallet(w).sessionOf(_key(NEW_PK)).identity, bytes32(0), "not removed");
-        assertEq(abi.encode(IWebWallet(w).appList(X)), abi.encode(apps), "the removal cleared the list");
+        assertEq(abi.encode(IWebWallet(w).appList(alice)), abi.encode(apps), "the removal cleared the list");
+    }
+
+    /// Alice's list governs her identity's logins only, not another identity of her platform.
+    function test_aListIsTheIdentitysNotThePlatforms() public {
+        address w = _wallet(1, 1);
+        _link(w, X, MALLORY, "", _admin());
+        _setApps(w, _apps("client"));
+        assertEq(IWebWallet(w).appList(_identity(X, MALLORY)).length, 0, "the list reached another identity");
+        IWebWallet.Policy memory p = _admin();
+        bytes memory other = _loginPayload(w, X, MALLORY, _key(NEW_PK), p);
+        IWebWallet(w).addSessionByLogin(X, OTHER_APP, other, "", p);
+        assertTrue(IWebWallet(w).sessionOf(_key(NEW_PK)).byProof, "another identity's login was refused");
+        bytes memory own = _loginPayload(w, X, ALICE, _key(APP_PK), p);
+        vm.expectRevert(abi.encodeWithSelector(IWebWallet.AppNotListed.selector, keccak256("another-app")));
+        IWebWallet(w).addSessionByLogin(X, OTHER_APP, own, "", p);
     }
 
     /// Every entry of a list admits its app, not only the first; an entry of an Operation List is held to it too.
     function test_aListOfTwoAdmitsItsSecondAndRefusesTheRest() public {
         address w = _wallet(1, 1);
-        bytes[] memory apps = new bytes[](2);
-        (apps[0], apps[1]) = (bytes("a third app"), bytes("client"));
+        bytes32[] memory apps = new bytes32[](2);
+        (apps[0], apps[1]) = (keccak256("a third app"), keccak256("client"));
         _setApps(w, apps);
         IWebWallet.Policy memory p = _admin();
         bytes memory payload = _loginPayload(w, X, ALICE, _key(NEW_PK), p);
@@ -577,11 +593,12 @@ contract WalletLoginsTest is WalletSuite {
     /// Only the wallet writes its list; an empty list admits any app.
     function test_onlyTheWalletWritesItsList() public {
         address w = _wallet(1, 1);
-        assertEq(IWebWallet(w).appList(X).length, 0, "a list by default");
+        bytes32 alice = _identity(X, ALICE);
+        assertEq(IWebWallet(w).appList(alice).length, 0, "a list by default");
         vm.prank(mallory);
         vm.expectRevert(IWebWallet.OnlySelf.selector);
-        IWebWallet(w).setAppList(X, _apps("mallory's app"));
-        assertEq(IWebWallet(w).appList(X).length, 0, "a stranger wrote the wallet's list");
+        IWebWallet(w).setAppList(alice, _apps("mallory's app"));
+        assertEq(IWebWallet(w).appList(alice).length, 0, "a stranger wrote the wallet's list");
         bytes memory payload = _loginPayload(w, X, ALICE, _key(NEW_PK), _admin());
         IWebWallet(w).addSessionByLogin(X, OTHER_APP, payload, "", _admin());
         assertTrue(IWebWallet(w).sessionOf(_key(NEW_PK)).byProof, "an empty list refused another app");
@@ -589,11 +606,12 @@ contract WalletLoginsTest is WalletSuite {
 
     function test_belowQuorumABatchCannotSetTheList() public {
         address w = _wallet(2, 2);
-        bytes memory calls = _then(_x(w, 0, abi.encodeCall(IWebWallet.setAppList, (X, _apps("client")))));
+        bytes32 alice = _identity(X, ALICE);
+        bytes memory calls = _then(_x(w, 0, abi.encodeCall(IWebWallet.setAppList, (alice, _apps("client")))));
         _refuses(w, calls, _direct(w, _pks(ALICE_PK), calls, true), NOT_ALLOWED);
-        assertEq(IWebWallet(w).appList(X).length, 0, "set below quorum");
+        assertEq(IWebWallet(w).appList(alice).length, 0, "set below quorum");
         _runsBy(w, calls, _pks(ALICE_PK, BOB_PK));
-        assertEq(IWebWallet(w).appList(X).length, 1, "control: not set at quorum");
+        assertEq(IWebWallet(w).appList(alice).length, 1, "control: not set at quorum");
     }
 
     // ─── Operation Lists ────────────────────────────────────────────

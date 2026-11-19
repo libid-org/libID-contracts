@@ -91,7 +91,7 @@ library WalletStorage {
         mapping(bytes32 platformId => PlatformCount) platformCounts;
         mapping(bytes32 counterId => Counter) counters;
         mapping(bytes32 id => Root) roots;
-        mapping(bytes32 platformId => bytes[]) appLists;
+        mapping(bytes32 identity => bytes32[]) appLists;
     }
 
     /// @custom:storage-location erc7201:libid.webwallet.state

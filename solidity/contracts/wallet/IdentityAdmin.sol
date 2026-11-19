@@ -68,7 +68,7 @@ contract IdentityAdmin {
         bytes calldata data,
         IWebWallet.Policy calldata policy
     ) external payable delegated {
-        _login(platformId, _check(ADD_SESSION_DOMAIN, platformId, verifierVersion, payload, data, policy), policy);
+        _login(_check(ADD_SESSION_DOMAIN, platformId, verifierVersion, payload, data, policy), policy);
     }
 
     /// Anyone: a login kills every session of a linked identity and voids every queued root operation. With no
@@ -86,7 +86,7 @@ contract IdentityAdmin {
         bool keyed = c.key.length != 0;
         _remove(c.identity, true, keyed);
         emit IWebWallet.SessionsRemovedByLogin(c.identity);
-        if (keyed) _login(platformId, c, policy);
+        if (keyed) _login(c, policy);
     }
 
     /// Active from the next second, for a linked identity.
@@ -99,10 +99,10 @@ contract IdentityAdmin {
         _revoke(key, false);
     }
 
-    /// The apps whose logins may add sessions of `platformId`'s identities; empty admits any.
-    function setAppList(bytes32 platformId, bytes[] calldata apps) external onlySelf {
-        WalletStorage.state().appLists[platformId] = apps;
-        emit IWebWallet.AppListSet(platformId, apps);
+    /// The apps, each `keccak256(clientIdentifier)`, whose logins may add `identity`'s sessions; empty admits any.
+    function setAppList(bytes32 identity, bytes32[] calldata apps) external onlySelf {
+        WalletStorage.state().appLists[identity] = apps;
+        emit IWebWallet.AppListSet(identity, apps);
     }
 
     /// A live session, else zero.
@@ -123,8 +123,8 @@ contract IdentityAdmin {
         return WalletStorage.state().links[identity].linked;
     }
 
-    function appList(bytes32 platformId) external view delegated returns (bytes[] memory) {
-        return WalletStorage.state().appLists[platformId];
+    function appList(bytes32 identity) external view delegated returns (bytes32[] memory) {
+        return WalletStorage.state().appLists[identity];
     }
 
     function allowanceOf(bytes calldata key, address token)
@@ -279,17 +279,17 @@ contract IdentityAdmin {
         );
     }
 
-    /// A login's session: of a linked identity, never the first, from an app on the platform's list.
-    function _login(bytes32 platformId, IWalletRegistry.Checked memory c, IWebWallet.Policy calldata policy) private {
+    /// A login's session: of a linked identity, never the first, from an app on the identity's list.
+    function _login(IWalletRegistry.Checked memory c, IWebWallet.Policy calldata policy) private {
         WalletStorage.EpochState storage s = WalletStorage.state();
         if (!s.hadSession) revert IWebWallet.FirstSessionRefused();
-        bytes[] storage apps = s.appLists[platformId];
+        bytes32[] storage apps = s.appLists[c.identity];
         uint256 n = apps.length;
         if (n != 0) {
             bytes32 app = keccak256(c.app);
             uint256 i;
-            while (i < n && keccak256(apps[i]) != app) ++i;
-            if (i == n) revert IWebWallet.AppNotListed(c.app);
+            while (i < n && apps[i] != app) ++i;
+            if (i == n) revert IWebWallet.AppNotListed(app);
         }
         _add(c.identity, c.key, policy, _now(), true);
     }

@@ -23,9 +23,9 @@ contract WalletRegistryCheckTest is WalletBase {
     }
 
     function _setApp(bytes memory app) internal {
-        bytes[] memory a = new bytes[](1);
-        a[0] = app;
-        _run(w, _one(_x(w, 0, abi.encodeCall(IWebWallet.setAppList, (X, a)))));
+        bytes32[] memory a = new bytes32[](1);
+        a[0] = keccak256(app);
+        _run(w, _one(_x(w, 0, abi.encodeCall(IWebWallet.setAppList, (_identity(X, ALICE), a)))));
     }
 
     function _login(bytes memory payload) internal {
@@ -53,7 +53,7 @@ contract WalletRegistryCheckTest is WalletBase {
     function test_aLoginFromAnUnlistedAppIsRefused() public {
         _setApp("another-app");
         bytes memory payload = _loginPayload(w, X, ALICE, _key(ALICE2_PK), _admin());
-        vm.expectRevert(abi.encodeWithSelector(IWebWallet.AppNotListed.selector, bytes("client")));
+        vm.expectRevert(abi.encodeWithSelector(IWebWallet.AppNotListed.selector, keccak256("client")));
         _login(payload);
         assertFalse(registry.spentDigests(_digestOf(payload)), "a refused login spent the digest");
         assertEq(IWebWallet(w).sessionOf(_key(ALICE2_PK)).identity, bytes32(0), "session added");

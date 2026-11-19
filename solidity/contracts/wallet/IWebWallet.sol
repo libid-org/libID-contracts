@@ -90,7 +90,7 @@ interface IWebWallet {
     event SessionAdded(bytes32 indexed identity, bytes key, bytes32 policyHash, uint48 activeAt, bool byProof);
     event SessionRevoked(bytes32 indexed identity, bytes key);
     event SessionsRemovedByLogin(bytes32 indexed identity);
-    event AppListSet(bytes32 indexed platformId, bytes[] apps);
+    event AppListSet(bytes32 indexed identity, bytes32[] apps);
 
     error RootOperationRequired();
     error RootOperationNotAllowed(bytes4 selector);
@@ -112,7 +112,8 @@ interface IWebWallet {
     error FirstSessionRefused();
     error LinkSessionRefused();
     error NotLinked(bytes32 identity);
-    error AppNotListed(bytes app);
+    /// `app` is `keccak256(clientIdentifier)`.
+    error AppNotListed(bytes32 app);
     error ExecutionNotSigned();
     error ExecutionNotAllowed();
     error ExecutionOutsideWindow();
@@ -216,10 +217,12 @@ interface IWebWallet {
     ) external payable;
     function addSession(bytes32 identity, bytes calldata key, Policy calldata policy) external;
     function revokeSession(bytes calldata key) external;
-    function setAppList(bytes32 platformId, bytes[] calldata apps) external;
+    /// Self only: the apps, each `keccak256(clientIdentifier)`, whose logins may add `identity`'s sessions;
+    /// empty admits any.
+    function setAppList(bytes32 identity, bytes32[] calldata apps) external;
     function sessionOf(bytes calldata key) external view returns (Session memory);
     function isLinked(bytes32 identity) external view returns (bool);
-    function appList(bytes32 platformId) external view returns (bytes[] memory);
+    function appList(bytes32 identity) external view returns (bytes32[] memory);
     /// The live session `key`'s counter for `token`; zero without one. `spent` holds only while
     /// `at - at % period == periodStart`.
     function allowanceOf(bytes calldata key, address token) external view returns (AllowanceState memory);

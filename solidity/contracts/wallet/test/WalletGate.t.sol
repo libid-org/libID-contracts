@@ -54,8 +54,8 @@ contract WalletGateTest is WalletBase {
         bytes memory login = _payload(X, MALLORY, ADD, _txData(w, _key(MALLORY_PK), _ph(_admin())));
         bytes memory link = _payload(X, MALLORY, LINK, _txData(w, _key(MALLORY_PK), _ph(_admin())));
         bytes memory remove = _payload(X, MALLORY, REMOVE, _txData(w, "", 0));
-        bytes[] memory apps = new bytes[](1);
-        apps[0] = "client";
+        bytes32[] memory apps = new bytes32[](1);
+        apps[0] = keccak256("client");
 
         r[i++] = Row(abi.encodeCall(IWebWallet.entryPoint, ()), Gate.View);
         r[i++] = Row(abi.encodeWithSignature("getNonce()"), Gate.View);
@@ -92,10 +92,10 @@ contract WalletGateTest is WalletBase {
         r[i++] =
             Row(abi.encodeCall(IWebWallet.addSession, (_identity(X, MALLORY), _key(MALLORY_PK), _admin())), Gate.Self);
         r[i++] = Row(abi.encodeCall(IWebWallet.revokeSession, (_key(ALICE2_PK))), Gate.Self);
-        r[i++] = Row(abi.encodeCall(IWebWallet.setAppList, (X, apps)), Gate.Self);
+        r[i++] = Row(abi.encodeCall(IWebWallet.setAppList, (_identity(X, ALICE), apps)), Gate.Self);
         r[i++] = Row(abi.encodeCall(IWebWallet.sessionOf, (_key(ALICE_PK))), Gate.View);
         r[i++] = Row(abi.encodeCall(IWebWallet.isLinked, (_identity(X, ALICE))), Gate.View);
-        r[i++] = Row(abi.encodeCall(IWebWallet.appList, (X)), Gate.View);
+        r[i++] = Row(abi.encodeCall(IWebWallet.appList, (_identity(X, ALICE))), Gate.View);
         r[i++] = Row(abi.encodeCall(IWebWallet.allowanceOf, (_key(BOT_PK), address(0))), Gate.View);
         r[i++] = Row(abi.encodeCall(IWebWallet.generationOf, (_identity(X, ALICE))), Gate.View);
         r[i++] = Row(abi.encodeCall(IWebWallet.linkedPlatforms, ()), Gate.View);
@@ -156,10 +156,10 @@ contract WalletGateTest is WalletBase {
     }
 
     function test_aQuorumBatchCannotReachRootOrSpecialEntries() public {
-        bytes[] memory apps = new bytes[](1);
-        apps[0] = "client";
-        _run(w, _one(_x(w, 0, abi.encodeCall(IWebWallet.setAppList, (X, apps)))));
-        assertEq(IWebWallet(w).appList(X).length, 1, "control: a quorum self-call did not run");
+        bytes32[] memory apps = new bytes32[](1);
+        apps[0] = keccak256("client");
+        _run(w, _one(_x(w, 0, abi.encodeCall(IWebWallet.setAppList, (_identity(X, ALICE), apps)))));
+        assertEq(IWebWallet(w).appList(_identity(X, ALICE)).length, 1, "control: a quorum self-call did not run");
 
         Row[] memory r = _rows();
         for (uint256 i; i < r.length; ++i) {
