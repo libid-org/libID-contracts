@@ -14,7 +14,8 @@ import {IdentityRegistry} from "../IdentityRegistry.sol";
 import {StubPlatformVerifier} from "./StubPlatformVerifier.sol";
 import {TestNodes} from "./TestNodes.sol";
 
-/// @notice The bind Consumer under `libid.operations`: the list cases of TEST-CHAIN-05 and TEST-PLAT-20E.
+/// @notice The bind Consumer under `libid.operations` and under its own domain: the list cases of
+///         TEST-CHAIN-05 and TEST-PLAT-20E, and the single form beside them.
 contract OperationListBindTest is Test {
     bytes32 constant PLATFORM = CeremonyProfile.PLATFORM_X;
     address constant OWNER = address(0xA11CE);
@@ -88,13 +89,35 @@ contract OperationListBindTest is Test {
         assertEq(registry.resolveId(TestNodes.idNode(PLATFORM, "2244994945")), V.TARGET, "not bound");
     }
 
-    /// The single form `libid.bind-identity` with `abi.encode(target)` is no longer a bind.
-    function test_theSingleFormIsRefused() public {
+    /// The single form `libid.bind-identity` with `abi.encode(target)` binds as on main.
+    function test_theSingleFormBinds() public {
+        bytes memory payload = _payload(V.BIND, abi.encode(V.TARGET));
+        vm.prank(V.TARGET);
+        registry.bindPrivately(PLATFORM, 1, payload, 0, address(0));
+        assertEq(registry.resolveId(TestNodes.idNode(PLATFORM, "2244994945")), V.TARGET, "not bound");
+    }
+
+    function test_aForeignDomainIsRefused() public {
+        bytes32 foreign = V.TEST_A;
+        _refused(
+            foreign,
+            abi.encode(V.TARGET),
+            abi.encodeWithSelector(IOperationLists.ForeignOperationDomain.selector, foreign)
+        );
+    }
+
+    /// Each proof has one reading: a list under the single form is not one address.
+    function test_aListUnderTheSingleFormIsRefused() public {
         _refused(
             V.BIND,
-            abi.encode(V.TARGET),
-            abi.encodeWithSelector(IdentityRegistry.ForeignOperationDomain.selector, V.BIND)
+            V.bindOnly(),
+            abi.encodeWithSelector(IdentityRegistry.BadTransactionData.selector, V.bindOnly().length)
         );
+    }
+
+    /// Each proof has one reading: one address under `libid.operations` is not a list.
+    function test_anAddressUnderTheListDomainIsRefused() public {
+        _refused(abi.encode(V.TARGET), abi.encodeWithSelector(IOperationLists.NoncanonicalOperationList.selector));
     }
 
     function test_anotherCallerIsNotTheTarget() public {
@@ -126,6 +149,5 @@ contract OperationListBindTest is Test {
         bytes memory err = abi.encodeWithSelector(IOperationLists.NoncanonicalOperationList.selector);
         _refused(bytes.concat(V.transactionData(), hex"00"), err);
         _refused(V.withWord(3, bytes32(uint256(0x40))), err);
-        _refused(abi.encode(V.TARGET), err);
     }
 }

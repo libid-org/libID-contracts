@@ -10,6 +10,14 @@ import {OperationListVector as V, operationList} from "./OperationListVector.sol
 
 /// Calls the library externally, so a test can expect its reverts.
 contract OperationListHarness {
+    function own(bytes32 operationDomain, bytes calldata transactionData, bytes32 domain)
+        external
+        pure
+        returns (bytes memory)
+    {
+        return OperationList.own(operationDomain, transactionData, domain);
+    }
+
     function select(bytes calldata list, bytes32 domain) external pure returns (bytes memory) {
         return OperationList.select(list, domain);
     }
@@ -51,6 +59,24 @@ contract OperationListTest is Test {
         assertEq(h.select(V.transactionData(), V.BIND), abi.encode(V.TARGET), "bind");
         assertEq(h.select(V.transactionData(), V.TEST_A), hex"ff", "libid.test.a");
         assertEq(h.select(V.bindOnly(), V.BIND), abi.encode(V.TARGET), "bind only");
+    }
+
+    /// The single form is the Consumer's data itself; the list form is its one entry.
+    function test_ownReadsEitherForm() public view {
+        bytes memory target = abi.encode(V.TARGET);
+        assertEq(h.own(V.BIND, target, V.BIND), target, "single form");
+        assertEq(h.own(V.OPERATIONS, V.transactionData(), V.BIND), target, "list");
+    }
+
+    function test_ownRefusesAForeignDomain() public {
+        vm.expectRevert(abi.encodeWithSelector(IOperationLists.ForeignOperationDomain.selector, V.TEST_A));
+        h.own(V.TEST_A, abi.encode(V.TARGET), V.BIND);
+    }
+
+    /// Asked for `libid.operations` as its own domain, `own` reads the list and finds no entry.
+    function test_ownUnderTheListDomainIsNoConsumers() public {
+        vm.expectRevert(IOperationLists.NoOwnOperation.selector);
+        h.own(V.OPERATIONS, V.transactionData(), V.OPERATIONS);
     }
 
     function test_bindBesideForeignEntriesInEitherOrder() public view {

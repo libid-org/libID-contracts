@@ -8,10 +8,10 @@ import {IOperationLists} from "./IOperationLists.sol";
 /// @notice The Operation List of ceremony-common section 5: one ceremony's
 ///         Authorized Transaction Data carrying an entry for each of several
 ///         Consumers, as its domain and the data that domain fixes (chain
-///         profiles §3.3). One action is a one-entry list.
-/// @dev A Consumer passes the list and its own domain to `select` and decodes
-///      the returned data. Entries under other domains are checked for their
-///      encoding only.
+///         profiles §3.3).
+/// @dev A Consumer passes a proof's operation domain and transaction data with
+///      its own domain to `own` and decodes the returned data. Entries under
+///      other domains are checked for their encoding only.
 library OperationList {
     /// @notice keccak256("libid.operations")
     bytes32 internal constant DOMAIN = keccak256("libid.operations");
@@ -20,6 +20,19 @@ library OperationList {
     struct Operation {
         bytes32 domain;
         bytes data;
+    }
+
+    /// @notice The Consumer's own data in a proof: `transactionData` itself under the single form
+    ///         (`operationDomain == domain`), or its one entry under `libid.operations`.
+    /// @dev The proof commits to `operationDomain`, so each proof has one reading.
+    function own(bytes32 operationDomain, bytes memory transactionData, bytes32 domain)
+        internal
+        pure
+        returns (bytes memory)
+    {
+        if (operationDomain == DOMAIN) return select(transactionData, domain);
+        if (operationDomain == domain) return transactionData;
+        revert IOperationLists.ForeignOperationDomain(operationDomain);
     }
 
     /// @notice The data of the one entry under `domain` (REQ-COMMON-01I).
