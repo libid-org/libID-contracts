@@ -10,6 +10,7 @@ import {LowLevelCall} from "@openzeppelin/contracts/utils/LowLevelCall.sol";
 import {ICeremony} from "../ceremony/ICeremony.sol";
 import {IProofVerifier} from "../ceremony/IProofVerifier.sol";
 import {CeremonyProfile} from "../ceremony/CeremonyProfile.sol";
+import {OperationList} from "../ceremony/OperationList.sol";
 import {HandleNode} from "../handles/HandleNode.sol";
 import {IHandleReveal} from "../handles/IHandleReveal.sol";
 import {IBindFeeReceiver} from "./IBindFeeReceiver.sol";
@@ -143,7 +144,8 @@ contract IdentityRegistry is
 
     // ─── Errors ─────────────────────────────────────────────────────
 
-    /// @notice The one operation this Consumer owns (REQ-COMMON-01A).
+    /// @notice The one operation this Consumer owns (REQ-COMMON-01A), alone or as
+    ///         its entry of an Operation List (REQ-PLAT-08P).
     bytes32 public constant OPERATION_DOMAIN = keccak256(bytes("libid.bind-identity"));
 
     error ZeroAddress();
@@ -152,7 +154,7 @@ contract IdentityRegistry is
     error ForeignOperationDomain(bytes32 operationDomain);
     /// @dev A digest is spendable once here (REQ-COMMON-03A).
     error DigestAlreadySpent(bytes32 digest);
-    /// @dev Transaction data is not exactly `abi.encode(target)` (REQ-COMMON-01F).
+    /// @dev A single operation's transaction data is not exactly `abi.encode(target)` (REQ-COMMON-01F).
     error BadTransactionData(uint256 length);
     /// @dev Less was delivered than the verification path alone costs.
     error WrongBindValue(uint256 required, uint256 provided);
@@ -287,8 +289,16 @@ contract IdentityRegistry is
 
         claimed = pv.verify{value: required}(platformId, verifierVersion, payload);
 
+        bytes memory data = claimed.transactionData;
         if (claimed.operationDomain != OPERATION_DOMAIN) {
-            revert ForeignOperationDomain(claimed.operationDomain);
+            if (claimed.operationDomain != OperationList.DOMAIN) {
+                revert ForeignOperationDomain(claimed.operationDomain);
+            }
+            // The entry's data is the caller as target (REQ-PLAT-08P).
+            data = abi.encode(msg.sender);
+            bytes32[] memory own = new bytes32[](1);
+            own[0] = OPERATION_DOMAIN;
+            OperationList.select(claimed.transactionData, data, own, false);
         }
 
         if (_s().spentDigests[claimed.sessionId]) {
@@ -296,10 +306,8 @@ contract IdentityRegistry is
         }
         _s().spentDigests[claimed.sessionId] = true;
 
-        if (claimed.transactionData.length != 32) {
-            revert BadTransactionData(claimed.transactionData.length);
-        }
-        address target = abi.decode(claimed.transactionData, (address));
+        if (data.length != 32) revert BadTransactionData(data.length);
+        address target = abi.decode(data, (address));
         if (target != msg.sender) revert NotProofTarget(target, msg.sender);
 
         if ((feeAmount == 0) != (feeReceiver == address(0))) {
