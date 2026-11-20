@@ -25,6 +25,10 @@ describe('bindErrorsAbi', () => {
     const cases: [string, `0x${string}`][] = [
       ['UnknownPlatform', concatHex([selector('UnknownPlatform(bytes32)'), PROVED])],
       ['NotYourHandle', concatHex([selector('NotYourHandle(bytes32)'), PROVED])],
+      ['NoncanonicalOperationList', selector('NoncanonicalOperationList()')],
+      ['NestedOperationList', selector('NestedOperationList()')],
+      ['NoOwnOperation', selector('NoOwnOperation()')],
+      ['SeveralOwnOperations', selector('SeveralOwnOperations()')],
       ['NoFramedCommitment', selector('NoFramedCommitment()')],
       ['AmbiguousFraming', selector('AmbiguousFraming()')],
       ['SumcheckFailed', selector('SumcheckFailed()')],
