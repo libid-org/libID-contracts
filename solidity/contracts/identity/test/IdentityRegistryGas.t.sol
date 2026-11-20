@@ -11,6 +11,8 @@ import {CeremonyProofVerifier} from "../../ceremony/CeremonyProofVerifier.sol";
 import {IPlatformVerifier} from "../../ceremony/IPlatformVerifier.sol";
 import {IProofVerifier} from "../../ceremony/IProofVerifier.sol";
 import {StubPlatformVerifier} from "./StubPlatformVerifier.sol";
+import {OperationList} from "../../ceremony/OperationList.sol";
+import {operationList} from "../../ceremony/test/OperationListVector.sol";
 
 /// @notice A holder's write and read costs do not depend on how many identities it has.
 /// @dev Holders with four and a thousand identities run each operation from cold
@@ -117,9 +119,9 @@ contract IdentityRegistryGasTest is Test {
         bytes memory payload = abi.encode(
             StubPlatformVerifier.StubPayload({
                 ceremonyVersion: V1,
-                operationDomain: keccak256(bytes("libid.bind-identity")),
+                operationDomain: OperationList.DOMAIN,
                 authorizationNonce: bytes32(++nonce),
-                transactionData: abi.encode(who)
+                transactionData: operationList(keccak256(bytes("libid.bind-identity")), abi.encode(who))
             })
         );
         _cool();
