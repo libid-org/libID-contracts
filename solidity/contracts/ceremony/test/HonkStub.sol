@@ -20,6 +20,16 @@ library HonkStub {
         answer(honk, true);
     }
 
+    /// @notice Deploy `artifact` and have its `verify` answer `true` for `proof` over `inputs` alone;
+    ///         any other call runs the real verifier.
+    function deployFor(string memory artifact, bytes memory proof, bytes32[] memory inputs)
+        internal
+        returns (address honk)
+    {
+        honk = VM.deployCode(artifact);
+        VM.mockCall(honk, abi.encodeCall(IHonkVerifier.verify, (proof, inputs)), abi.encode(true));
+    }
+
     /// @notice Make `verify` at `honk` answer `value` for any input.
     function answer(address honk, bool value) internal {
         VM.mockCall(honk, abi.encodeWithSelector(IHonkVerifier.verify.selector), abi.encode(value));

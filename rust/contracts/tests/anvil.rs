@@ -31,6 +31,10 @@ use libid_contracts::{
         upgrade_uups,
         ProxyReads,
     },
+    operation_list::{
+        Operation,
+        OPERATIONS_DOMAIN,
+    },
     send_with_nonce_retry,
     Artifacts,
     Error,
@@ -1378,12 +1382,12 @@ async fn binds_through_the_stub_platform_verifier() {
     assert_eq!(stub.platformId().call().await.unwrap(), x);
     assert_eq!(registry.quoteBind(x, 1).call().await.unwrap(), fee);
 
-    // The registry's transaction data: the target alone; the bind pays no fee.
+    // The registry's transaction data: a one-entry list naming the target; the bind pays no fee.
     let payload = stub_payload(&StubPayload {
         ceremonyVersion: 1,
-        operationDomain: registry.OPERATION_DOMAIN().call().await.unwrap(),
+        operationDomain: OPERATIONS_DOMAIN,
         authorizationNonce: B256::repeat_byte(0x01),
-        transactionData: (deployer,).abi_encode_params().into(),
+        transactionData: vec![Operation::bind(deployer)].abi_encode().into(),
     });
     let receipt = registry
         .bind(
@@ -1551,9 +1555,9 @@ async fn refers_a_bind_at_the_estimated_gas() {
     let referrer = B256::from(PLATFORM_X.handle_node("carol").unwrap());
     let payload = stub_payload(&StubPayload {
         ceremonyVersion: 1,
-        operationDomain: registry.OPERATION_DOMAIN().call().await.unwrap(),
+        operationDomain: OPERATIONS_DOMAIN,
         authorizationNonce: B256::repeat_byte(0x01),
-        transactionData: (deployer,).abi_encode_params().into(),
+        transactionData: vec![Operation::bind(deployer)].abi_encode().into(),
     });
     let receipt = registry
         .bindWithFeeCall(

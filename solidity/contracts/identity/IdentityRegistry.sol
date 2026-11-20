@@ -144,8 +144,7 @@ contract IdentityRegistry is
 
     // ─── Errors ─────────────────────────────────────────────────────
 
-    /// @notice The one operation this Consumer owns (REQ-COMMON-01A), alone or as
-    ///         its entry of an Operation List (REQ-PLAT-08P).
+    /// @notice The domain of this Consumer's entry in an Operation List (REQ-COMMON-01A, REQ-PLAT-08P).
     bytes32 public constant OPERATION_DOMAIN = keccak256(bytes("libid.bind-identity"));
 
     error ZeroAddress();
@@ -154,7 +153,7 @@ contract IdentityRegistry is
     error ForeignOperationDomain(bytes32 operationDomain);
     /// @dev A digest is spendable once here (REQ-COMMON-03A).
     error DigestAlreadySpent(bytes32 digest);
-    /// @dev A single operation's transaction data is not exactly `abi.encode(target)` (REQ-COMMON-01F).
+    /// @dev The entry's data is not exactly `abi.encode(target)` (REQ-COMMON-01F).
     error BadTransactionData(uint256 length);
     /// @dev Less value was delivered than `feeAmount`.
     error WrongFeeValue(uint256 required, uint256 provided);
@@ -292,28 +291,21 @@ contract IdentityRegistry is
         if (msg.value < feeAmount) revert WrongFeeValue(feeAmount, msg.value);
         claimed = _s().proofVerifier.verify{value: msg.value - feeAmount}(platformId, verifierVersion, payload);
 
-        bool single = claimed.operationDomain == OPERATION_DOMAIN;
-        if (!single) {
-            if (claimed.operationDomain != OperationList.DOMAIN) {
-                revert ForeignOperationDomain(claimed.operationDomain);
-            }
-            // The entry's data is the caller as target (REQ-PLAT-08P).
-            bytes32[] memory own = new bytes32[](1);
-            own[0] = OPERATION_DOMAIN;
-            OperationList.select(claimed.transactionData, abi.encode(msg.sender), own, false);
-        }
+        if (claimed.operationDomain != OperationList.DOMAIN) revert ForeignOperationDomain(claimed.operationDomain);
+        bytes memory data = OperationList.select(claimed.transactionData, OPERATION_DOMAIN);
 
         if (_s().spentDigests[claimed.sessionId]) {
             revert DigestAlreadySpent(claimed.sessionId);
         }
         _s().spentDigests[claimed.sessionId] = true;
 
-        if (single) {
-            bytes memory data = claimed.transactionData;
-            if (data.length != 32) revert BadTransactionData(data.length);
-            address target = abi.decode(data, (address));
-            if (target != msg.sender) revert NotProofTarget(target, msg.sender);
-        }
+        if (data.length != 32) revert BadTransactionData(data.length);
+        uint256 word = abi.decode(data, (uint256));
+        if (word >> 160 != 0) revert BadTransactionData(data.length);
+        // The check above leaves only the low 160 bits set.
+        // forge-lint: disable-next-line(unsafe-typecast)
+        address target = address(uint160(word));
+        if (target != msg.sender) revert NotProofTarget(target, msg.sender);
 
         if ((feeAmount == 0) != (feeReceiver == address(0))) {
             revert NoncanonicalFee(feeAmount, feeReceiver);
