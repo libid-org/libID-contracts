@@ -70,9 +70,9 @@ cat <<JSON
   "belowQuorumHash": "$BELOW",
   "userOpHash": "$USER_OP_HASH",
   "userOpDigest": "$USER_OP_DIGEST",
-  "linkIdentityDomain": "$(cast keccak libid.webwallet.link-identity.v2)",
-  "addSessionDomain": "$(cast keccak libid.webwallet.add-session.v2)",
-  "removeSessionsDomain": "$(cast keccak libid.webwallet.remove-sessions.v2)",
+  "linkIdentityDomain": "$(cast keccak libid.webwallet.link-identity)",
+  "addSessionDomain": "$(cast keccak libid.webwallet.add-session)",
+  "removeSessionsDomain": "$(cast keccak libid.webwallet.remove-sessions)",
   "submitter": "$SUBMITTER",
   "policy": {
     "validAfter": $VALID_AFTER,

@@ -109,15 +109,15 @@ export const AUTHORIZED_MODE: Hex =
 /// UserOperations may use any key.
 export const DIRECT_NONCE_KEY = 0n
 
-/// `keccak256("libid.webwallet.link-identity.v2")`: a link proof's operation domain.
+/// `keccak256("libid.webwallet.link-identity")`: a link proof's operation domain.
 export const LINK_IDENTITY_DOMAIN: Hex =
-  '0xc54c5212c2b86ae85d3512fac77763a8c85db053325daa622553f8d8e3e9317c'
-/// `keccak256("libid.webwallet.add-session.v2")`: `addSessionByLogin`'s domain.
+  '0xb76778e70fe9491d05f3d66a477c7f1cb97c40b477b88d0c00442e80bcc4e15c'
+/// `keccak256("libid.webwallet.add-session")`: `addSessionByLogin`'s domain.
 export const ADD_SESSION_DOMAIN: Hex =
-  '0x7fc89e16ebf11143534bd43e4c66eec788fbe6ad2b136b94076fdd20785c81d3'
-/// `keccak256("libid.webwallet.remove-sessions.v2")`: `removeSessionsByLogin`'s domain.
+  '0xadc0929729a450db24efd5992bbc0f04693c7d8e9d706da31c8cca0a429d1d59'
+/// `keccak256("libid.webwallet.remove-sessions")`: `removeSessionsByLogin`'s domain.
 export const REMOVE_SESSIONS_DOMAIN: Hex =
-  '0x38622a2e4869524e17fb3b190422abe5797dfb9ae1577aedd96ec002d8fbc897'
+  '0x7cabdd831000d819c7b2ae4f79b4d6b566aa21992764e735f944b1459cb43c1b'
 
 /// The transaction data a link or login proof commits:
 /// `abi.encode(chainId, wallet, submitter, key, policyHash)`, where an empty

@@ -4,9 +4,9 @@ pragma solidity ^0.8.24;
 import {IProofVerifier} from "../ceremony/IProofVerifier.sol";
 
 // The wallet operations' domains.
-bytes32 constant LINK_IDENTITY_DOMAIN = keccak256("libid.webwallet.link-identity.v2");
-bytes32 constant ADD_SESSION_DOMAIN = keccak256("libid.webwallet.add-session.v2");
-bytes32 constant REMOVE_SESSIONS_DOMAIN = keccak256("libid.webwallet.remove-sessions.v2");
+bytes32 constant LINK_IDENTITY_DOMAIN = keccak256("libid.webwallet.link-identity");
+bytes32 constant ADD_SESSION_DOMAIN = keccak256("libid.webwallet.add-session");
+bytes32 constant REMOVE_SESSIONS_DOMAIN = keccak256("libid.webwallet.remove-sessions");
 
 /// @title IWalletRegistry
 /// @notice Verifies a wallet operation proof for its caller and spends its digest.

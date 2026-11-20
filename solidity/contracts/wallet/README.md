@@ -444,17 +444,17 @@ spends its digest (`DigestSpent` on reuse), and returns the identity, the
 key and the app. The wallet applies the result.
 
 - `addSessionByLogin(platformId, verifierVersion, payload, data, policy)`
-  (`libid.webwallet.add-session.v2`) adds a session of a linked identity with no
+  (`libid.webwallet.add-session`) adds a session of a linked identity with no
   admin signature. It is `byProof`, signs from the next second, and must
   pass the identity's app list (`AppNotListed`). A wallet that never had a
   session takes no session by login (`FirstSessionRefused`).
-- `removeSessionsByLogin(...)` (`libid.webwallet.remove-sessions.v2`) kills
+- `removeSessionsByLogin(...)` (`libid.webwallet.remove-sessions`) kills
   every session of the identity and voids every queued root operation. With
   an empty key it unlinks the identity, unless it is the genesis, and lowers
   the threshold to the platforms still linked. It never refuses for the last
   admin. With a key it keeps the link and adds the key as
   `addSessionByLogin` does, app list included.
-- `linkIdentity(...)` (`libid.webwallet.link-identity.v2`) is the wallet's
+- `linkIdentity(...)` (`libid.webwallet.link-identity`) is the wallet's
   own call, so it names the wallet as its submitter.
 
 A proof's transaction data is

@@ -203,9 +203,9 @@ contract WalletAbiTest is WalletBase {
     function test_pinnedValuesAndLayouts() public {
         bytes32 selector = bytes32(bytes4(keccak256("libid.webwallet.authorized"))) >> 48;
         assertEq(AUTHORIZED_MODE, bytes32(uint256(0x01) << 248) | selector, "AUTHORIZED_MODE");
-        assertEq(LINK_IDENTITY_DOMAIN, keccak256("libid.webwallet.link-identity.v2"), "link domain");
-        assertEq(ADD_SESSION_DOMAIN, keccak256("libid.webwallet.add-session.v2"), "add domain");
-        assertEq(REMOVE_SESSIONS_DOMAIN, keccak256("libid.webwallet.remove-sessions.v2"), "remove domain");
+        assertEq(LINK_IDENTITY_DOMAIN, keccak256("libid.webwallet.link-identity"), "link domain");
+        assertEq(ADD_SESSION_DOMAIN, keccak256("libid.webwallet.add-session"), "add domain");
+        assertEq(REMOVE_SESSIONS_DOMAIN, keccak256("libid.webwallet.remove-sessions"), "remove domain");
 
         // `{uint64 latest; mapping(uint64 => address) releases}`; `latest()` answers two words.
         bytes32 f = _erc7201("libid.storage.WalletFactory");
