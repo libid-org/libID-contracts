@@ -466,7 +466,9 @@ abi.encode(uint256 chainId, address wallet, address submitter, bytes sessionKey,
 canonically encoded, with `policyHash = policyHashOf(policy)`. An empty key
 carries policy hash 0. A zero submitter is refused (`ZeroSubmitter`), and
 any caller other than the one named (`WrongSubmitter`): a login placed in a
-signed batch cannot be copied out and submitted alone. The registry takes
+signed batch cannot be copied out and submitted alone. Name an address
+only its holder can call through: the wallet, an EOA, or a contract that
+checks its own caller; never a public multicall. The registry takes
 the submitter from the wallet's argument, never from ERC-2771 calldata. Under an Operation List (`libid.operations`) the
 proof commits `keccak256` of these bytes in a `libid.webwallet.*` entry and
 the call passes them as `data`. A proof of one operation passes empty
@@ -640,7 +642,9 @@ delegation code (`0xef0100 || walletForwarder`).
   and its link record (generation and platform index). Below quorum it also
   reads the governing session's rules and charges its counters.
 - `validateUserOp` measured about 64k at quorum with one ECDSA signer and
-  133k for a below-quorum passkey. Set `verificationGasLimit` from a simulation
+  133k for a below-quorum passkey with the P-256 precompile (EIP-7951 /
+  RIP-7212). Without it, OpenZeppelin's P256 verifies in Solidity, at about
+  477k for a below-quorum passkey. Set `verificationGasLimit` from a simulation
   with the real signature, or add about 35k over a bundler's estimate for one.
 - Frame transactions (EIP-8141) wait for a frames release. It would approve
   in validation, charge allowances in execution, and name the key by its
