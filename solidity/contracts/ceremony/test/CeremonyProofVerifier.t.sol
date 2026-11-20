@@ -94,6 +94,89 @@ contract CeremonyProofVerifierTest is Test {
         assertTrue(platform.lastDigest() != second.lastDigest(), "another ceremony version is another digest");
     }
 
+    // ─── One verification per transaction ──────────────────────────
+
+    function test_aRepeatWithNoValueGetsTheSameClaimUnverified() public {
+        this.verifyTwice{value: FEE}(0, 0);
+    }
+
+    /// A Consumer that cannot know the payload was verified pays in full.
+    function test_aRepeatWithTheFullFeeVerifiesAgain() public {
+        this.verifyTwice{value: 2 * FEE}(FEE, 1);
+    }
+
+    function test_aRepeatWithAnyOtherValueIsRefused() public {
+        vm.expectRevert(abi.encodeWithSelector(CeremonyProofVerifier.WrongValue.selector, FEE, 1));
+        this.verifyTwice{value: FEE + 1}(1, 0);
+    }
+
+    function test_noValueForAPayloadNotYetVerifiedIsRefused() public {
+        vm.expectRevert(abi.encodeWithSelector(CeremonyProofVerifier.NotVerifiedInTransaction.selector, FEE));
+        pv.verify(PLATFORM_ID, 1, _payload(1));
+    }
+
+    /// Verifies `_payload(1)` twice in one transaction, the second time with `again`.
+    function verifyTwice(uint256 again, uint64 verifications) external payable {
+        ICeremony.VerifiedClaim memory first = pv.verify{value: FEE}(PLATFORM_ID, 1, _payload(1));
+        vm.expectCall(address(platform), abi.encodeWithSelector(IPlatformVerifier.verify.selector), verifications);
+        ICeremony.VerifiedClaim memory second = pv.verify{value: again}(PLATFORM_ID, 1, _payload(1));
+        assertEq(keccak256(abi.encode(second)), keccak256(abi.encode(first)), "not the same claim");
+    }
+
+    /// A free verifier verifies once, then serves its claim.
+    function test_aFreeVerificationIsRemembered() public {
+        StubPlatformVerifier free = new StubPlatformVerifier(PLATFORM_ID, 0);
+        vm.prank(OWNER);
+        pv.setVerifier(PLATFORM_ID, 2, IPlatformVerifier(address(free)));
+        this.verifyFreeTwice(free);
+    }
+
+    function verifyFreeTwice(StubPlatformVerifier free) external {
+        vm.expectCall(address(free), abi.encodeWithSelector(IPlatformVerifier.verify.selector), 1);
+        ICeremony.VerifiedClaim memory first = pv.verify(PLATFORM_ID, 2, _payload(1));
+        ICeremony.VerifiedClaim memory second = pv.verify(PLATFORM_ID, 2, _payload(1));
+        assertEq(keccak256(abi.encode(second)), keccak256(abi.encode(first)), "not the same claim");
+    }
+
+    function test_anotherPayloadOrSlotVerifiesAgain() public {
+        StubPlatformVerifier second = new StubPlatformVerifier(PLATFORM_ID, FEE);
+        vm.prank(OWNER);
+        pv.setVerifier(PLATFORM_ID, 2, IPlatformVerifier(address(second)));
+        this.verifyThenOthers{value: 3 * FEE}(second);
+    }
+
+    function verifyThenOthers(StubPlatformVerifier second) external payable {
+        pv.verify{value: FEE}(PLATFORM_ID, 1, _payload(1));
+        vm.expectRevert(abi.encodeWithSelector(CeremonyProofVerifier.NotVerifiedInTransaction.selector, FEE));
+        pv.verify(PLATFORM_ID, 1, _payload(2));
+        vm.expectRevert(abi.encodeWithSelector(CeremonyProofVerifier.NotVerifiedInTransaction.selector, FEE));
+        pv.verify(PLATFORM_ID, 2, _payload(1));
+        pv.verify{value: FEE}(PLATFORM_ID, 2, _payload(1));
+        assertEq(second.lastValue(), FEE, "slot 2 did not verify");
+    }
+
+    function test_aRevertedVerificationIsForgotten() public {
+        this.revertedThenRepeat{value: FEE}();
+    }
+
+    function revertedThenRepeat() external payable {
+        try this.verifyAndRevert{value: FEE}() {} catch {}
+        vm.expectRevert(abi.encodeWithSelector(CeremonyProofVerifier.NotVerifiedInTransaction.selector, FEE));
+        pv.verify(PLATFORM_ID, 1, _payload(1));
+    }
+
+    function verifyAndRevert() external payable {
+        pv.verify{value: FEE}(PLATFORM_ID, 1, _payload(1));
+        revert("rolled back");
+    }
+
+    /// forge-config: default.isolate = true
+    function test_aLaterTransactionPaysAgain() public {
+        pv.verify{value: FEE}(PLATFORM_ID, 1, _payload(1));
+        vm.expectRevert(abi.encodeWithSelector(CeremonyProofVerifier.NotVerifiedInTransaction.selector, FEE));
+        pv.verify(PLATFORM_ID, 1, _payload(1));
+    }
+
     // ─── Dispatch ───────────────────────────────────────────────────
 
     function test_rejectsAPairOutsideTheSupportedVersionSet() public {
@@ -135,7 +218,7 @@ contract CeremonyProofVerifierTest is Test {
         assertEq(pv.quote(PLATFORM_ID, 1), FEE);
     }
 
-    /// @dev Every hop takes the exact quote; there is no refund path.
+    /// @dev A paid verification takes the exact quote; there is no refund path.
     function test_rejectsAValueOtherThanTheQuote() public {
         bytes memory payload = _payload(1);
         vm.expectRevert(abi.encodeWithSelector(CeremonyProofVerifier.WrongValue.selector, FEE, FEE - 1));
