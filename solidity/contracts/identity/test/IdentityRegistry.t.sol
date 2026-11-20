@@ -16,8 +16,6 @@ import {PrivacyScan} from "./PrivacyScan.sol";
 import {StubPlatformVerifier} from "./StubPlatformVerifier.sol";
 import {TestNodes} from "./TestNodes.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
-import {OperationList} from "../../ceremony/OperationList.sol";
-import {operationList} from "../../ceremony/test/OperationListVector.sol";
 
 /// @notice The identity contract, against a stubbed Platform Verifier.
 contract IdentityRegistryTest is PrivacyScan {
@@ -97,10 +95,11 @@ contract IdentityRegistryTest is PrivacyScan {
         return abi.encode(
             StubPlatformVerifier.StubPayload({
                 ceremonyVersion: ceremonyVersion,
-                operationDomain: OperationList.DOMAIN,
+                // A literal: reading `registry.OPERATION_DOMAIN()` is an external call that spends the prank.
+                operationDomain: keccak256(bytes("libid.bind-identity")),
                 authorizationNonce: bytes32(++nonce),
-                // A literal domain: reading `registry.OPERATION_DOMAIN()` is an external call that spends the prank.
-                transactionData: operationList(keccak256(bytes("libid.bind-identity")), abi.encode(stagedTarget))
+                // Target, no fee amount, no fee receiver.
+                transactionData: abi.encode(stagedTarget)
             })
         );
     }
@@ -658,9 +657,9 @@ contract IdentityRegistryTest is PrivacyScan {
         return abi.encode(
             StubPlatformVerifier.StubPayload({
                 ceremonyVersion: V1,
-                operationDomain: OperationList.DOMAIN,
+                operationDomain: keccak256(bytes("libid.bind-identity")),
                 authorizationNonce: bytes32(authorizationNonce),
-                transactionData: operationList(keccak256(bytes("libid.bind-identity")), abi.encode(stagedTarget))
+                transactionData: abi.encode(stagedTarget)
             })
         );
     }

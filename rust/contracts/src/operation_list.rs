@@ -1,7 +1,8 @@
 //! The Operation List of chain profiles §3.3: one ceremony's transaction data
-//! carrying an entry for each of several Consumers. One action is a one-entry
-//! list: a bind is `vec![Operation::bind(target)].abi_encode()` under
-//! [`OPERATIONS_DOMAIN`].
+//! carrying an entry for each of several Consumers. A bind under
+//! [`OPERATIONS_DOMAIN`] is `vec![Operation::bind(target)].abi_encode()`; the
+//! registry also takes the single form, `abi.encode(target)` under
+//! [`BIND_DOMAIN`].
 
 use alloy::{
     primitives::{

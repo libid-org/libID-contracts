@@ -128,9 +128,11 @@ same bundle may have. Less than the fee reverts the registry's
 `WrongFeeValue`; otherwise the registry passes the Proof Verifier what is left
 after the fee, so a value short of fee plus quote reverts there (`WrongValue`,
 or `NotVerifiedInTransaction` for exactly the fee). Check the value is fee plus
-quote first. The payload's transaction data is a one-entry Operation List,
-`encodeOperationList([bindOperation(target)])`, under `OPERATIONS_DOMAIN`, so
-one payload binds on every chain. An EOA sends the call directly, a smart wallet wraps it in its
+quote first. The payload's transaction data is either `abi.encode(target)`
+under `BIND_DOMAIN` or an Operation List holding one bind entry,
+`encodeOperationList([bindOperation(target)])`, under `OPERATIONS_DOMAIN`; the
+proof commits to the domain, so each payload has one reading. The target is
+the same on every chain, so one payload binds on each. An EOA sends the call directly, a smart wallet wraps it in its
 own execute:
 
 ```ts
@@ -175,8 +177,8 @@ const payload = encodeTlsNotaryProof({
 
 A ceremony's transaction data is an Operation List under
 `OPERATIONS_DOMAIN` (`keccak256("libid.operations")`): each entry carries a
-Consumer's domain and the data that domain fixes. A bind is a one-entry list;
-one ceremony can also carry a bind and other Consumers' entries together:
+Consumer's domain and the data that domain fixes. One ceremony can carry a
+bind and other Consumers' entries together:
 
 ```ts
 import { bindOperation, encodeOperationList, OPERATIONS_DOMAIN } from '@libid/contracts'

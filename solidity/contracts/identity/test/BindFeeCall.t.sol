@@ -15,8 +15,6 @@ import {IBindFeeReceiver} from "../IBindFeeReceiver.sol";
 import {IdentityRegistry} from "../IdentityRegistry.sol";
 import {StubPlatformVerifier} from "./StubPlatformVerifier.sol";
 import {TestNodes} from "./TestNodes.sol";
-import {OperationList} from "../../ceremony/OperationList.sol";
-import {operationList} from "../../ceremony/test/OperationListVector.sol";
 
 /// @notice `bindWithFeeCall`: a bind whose service fee goes to a contract's
 ///         `onBindFee`, over a real Proof Verifier and a stubbed Platform Verifier.
@@ -28,8 +26,7 @@ contract BindFeeCallTest is Test {
     address constant OWNER = address(0xA11CE);
     address constant WALLET = address(0xBEEF);
     bytes32 constant PLATFORM = CeremonyProfile.PLATFORM_X;
-    bytes32 constant DOMAIN = OperationList.DOMAIN;
-    bytes32 constant BIND = keccak256(bytes("libid.bind-identity"));
+    bytes32 constant DOMAIN = keccak256(bytes("libid.bind-identity"));
     /// What the stub charges for verification.
     uint256 constant QUOTE = 0.002 ether;
     uint256 constant SERVICE_FEE = 0.01 ether;
@@ -62,14 +59,14 @@ contract BindFeeCallTest is Test {
                 ceremonyVersion: 1,
                 operationDomain: DOMAIN,
                 authorizationNonce: bytes32(++nonce),
-                transactionData: operationList(BIND, abi.encode(target))
+                transactionData: abi.encode(target)
             })
         );
     }
 
     /// The digest of the last payload `_payload` built for `target`.
     function _digest(address target) private view returns (bytes32) {
-        return CeremonyAuthorization.digest(DOMAIN, 1, bytes32(nonce), operationList(BIND, abi.encode(target)));
+        return CeremonyAuthorization.digest(DOMAIN, 1, bytes32(nonce), abi.encode(target));
     }
 
     /// Bind as WALLET through `bindWithFeeCall`, unlisted, with the exact value.

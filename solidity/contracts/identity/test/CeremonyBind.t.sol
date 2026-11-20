@@ -8,9 +8,8 @@ import {CeremonyAuthorization} from "../../ceremony/CeremonyAuthorization.sol";
 import {CeremonyProfile} from "../../ceremony/CeremonyProfile.sol";
 import {CeremonyProofVerifier} from "../../ceremony/CeremonyProofVerifier.sol";
 import {IPlatformVerifier} from "../../ceremony/IPlatformVerifier.sol";
+import {IOperationLists} from "../../ceremony/IOperationLists.sol";
 import {IProofVerifier} from "../../ceremony/IProofVerifier.sol";
-import {OperationList} from "../../ceremony/OperationList.sol";
-import {operationList} from "../../ceremony/test/OperationListVector.sol";
 import {IdentityRegistry} from "../IdentityRegistry.sol";
 import {TestNodes} from "./TestNodes.sol";
 import {StubPlatformVerifier} from "./StubPlatformVerifier.sol";
@@ -28,8 +27,7 @@ contract CeremonyBindTest is Test {
     address constant OWNER = address(0xA11CE);
     address constant WALLET = address(0xBEEF);
     bytes32 constant PLATFORM = CeremonyProfile.PLATFORM_X;
-    bytes32 constant DOMAIN = OperationList.DOMAIN;
-    bytes32 constant BIND = keccak256(bytes("libid.bind-identity"));
+    bytes32 constant DOMAIN = keccak256(bytes("libid.bind-identity"));
     uint256 constant FEE = 0.002 ether;
     /// A hosted application, and what it charges for composing the ceremony.
     address constant HOST = address(0x405);
@@ -60,14 +58,9 @@ contract CeremonyBindTest is Test {
         vm.stopPrank();
     }
 
-    /// A one-entry Operation List carrying `entry` as the `libid.bind-identity` data.
-    function _list(bytes memory entry) private pure returns (bytes memory) {
-        return operationList(BIND, entry);
-    }
-
-    /// The Authorized Transaction Data of a bind of `target`.
+    /// The Authorized Transaction Data of `libid.bind-identity`.
     function _txData(address target) private pure returns (bytes memory) {
-        return _list(abi.encode(target));
+        return abi.encode(target);
     }
 
     /// The stub's payload for one authorization; the Consumer passes it through opaque.
@@ -232,7 +225,7 @@ contract CeremonyBindTest is Test {
 
     /// @dev REQ-COMMON-01F: one exact encoding, and trailing bytes refused.
     function test_rejectsMalformedTransactionData() public {
-        bytes memory p = _payload(DOMAIN, _list(abi.encodePacked(abi.encode(WALLET), hex"00")), bytes32(uint256(5)));
+        bytes memory p = _payload(DOMAIN, abi.encodePacked(_txData(WALLET), hex"00"), bytes32(uint256(5)));
         vm.prank(WALLET);
         vm.expectRevert(abi.encodeWithSelector(IdentityRegistry.BadTransactionData.selector, 33));
         registry.bind{value: FEE}(PLATFORM, 1, p, "", false, 0, address(0));
@@ -240,7 +233,7 @@ contract CeremonyBindTest is Test {
 
     /// @dev Transaction data that also names a fee is not `abi.encode(target)`.
     function test_rejectsTransactionDataThatNamesAFee() public {
-        bytes memory p = _payload(DOMAIN, _list(abi.encode(WALLET, SERVICE_FEE, HOST)), bytes32(uint256(25)));
+        bytes memory p = _payload(DOMAIN, abi.encode(WALLET, SERVICE_FEE, HOST), bytes32(uint256(25)));
         vm.prank(WALLET);
         vm.expectRevert(abi.encodeWithSelector(IdentityRegistry.BadTransactionData.selector, 96));
         registry.bind{value: FEE}(PLATFORM, 1, p, "", false, 0, address(0));
@@ -253,7 +246,7 @@ contract CeremonyBindTest is Test {
         bytes32 foreign = keccak256(bytes("someone.else.operation"));
         bytes memory p = _payload(foreign, WALLET, bytes32(uint256(6)));
         vm.prank(WALLET);
-        vm.expectRevert(abi.encodeWithSelector(IdentityRegistry.ForeignOperationDomain.selector, foreign));
+        vm.expectRevert(abi.encodeWithSelector(IOperationLists.ForeignOperationDomain.selector, foreign));
         registry.bind{value: FEE}(PLATFORM, 1, p, "", false, 0, address(0));
     }
 
@@ -354,21 +347,21 @@ contract CeremonyBindTest is Test {
     function test_rejectsANoncanonicalAddressEncoding() public {
         // 32 bytes, the right length, but not an address.
         bytes memory bad = abi.encodePacked(bytes12(0xffffffffffffffffffffffff), WALLET);
-        bytes memory p = _payload(DOMAIN, _list(bad), bytes32(uint256(20)));
+        bytes memory p = _payload(DOMAIN, bad, bytes32(uint256(20)));
         vm.prank(WALLET);
-        vm.expectRevert(abi.encodeWithSelector(IdentityRegistry.BadTransactionData.selector, 32));
+        vm.expectRevert(); // abi.decode's own check
         registry.bind{value: FEE}(PLATFORM, 1, p, "", false, 0, address(0));
     }
 
     function test_rejectsShortTransactionData() public {
-        bytes memory p = _payload(DOMAIN, _list(abi.encodePacked(WALLET)), bytes32(uint256(21)));
+        bytes memory p = _payload(DOMAIN, abi.encodePacked(WALLET), bytes32(uint256(21)));
         vm.prank(WALLET);
         vm.expectRevert(abi.encodeWithSelector(IdentityRegistry.BadTransactionData.selector, 20));
         registry.bind{value: FEE}(PLATFORM, 1, p, "", false, 0, address(0));
     }
 
     function test_rejectsEmptyTransactionData() public {
-        bytes memory p = _payload(DOMAIN, _list(hex""), bytes32(uint256(22)));
+        bytes memory p = _payload(DOMAIN, hex"", bytes32(uint256(22)));
         vm.prank(WALLET);
         vm.expectRevert(abi.encodeWithSelector(IdentityRegistry.BadTransactionData.selector, 0));
         registry.bind{value: FEE}(PLATFORM, 1, p, "", false, 0, address(0));
@@ -409,7 +402,7 @@ contract CeremonyBindTest is Test {
     function test_theDomainIsJudgedBeforeTransactionDataIsDecoded() public {
         bytes memory p = _payload(keccak256("other"), hex"00", bytes32(uint256(40)));
         vm.prank(WALLET);
-        vm.expectRevert(abi.encodeWithSelector(IdentityRegistry.ForeignOperationDomain.selector, keccak256("other")));
+        vm.expectRevert(abi.encodeWithSelector(IOperationLists.ForeignOperationDomain.selector, keccak256("other")));
         registry.bind{value: FEE}(PLATFORM, 1, p, "", false, 0, address(0));
     }
 

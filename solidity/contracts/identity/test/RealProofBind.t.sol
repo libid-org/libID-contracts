@@ -22,10 +22,6 @@ import {IHandleReveal} from "../../handles/IHandleReveal.sol";
 import {PrivacyScan} from "./PrivacyScan.sol";
 import {TestNodes} from "./TestNodes.sol";
 import {TlsNotaryVerifierBase} from "../../ceremony/TlsNotaryVerifierBase.sol";
-import {CeremonyAuthorization} from "../../ceremony/CeremonyAuthorization.sol";
-import {ICeremony} from "../../ceremony/ICeremony.sol";
-import {OperationList} from "../../ceremony/OperationList.sol";
-import {operationList} from "../../ceremony/test/OperationListVector.sol";
 
 /// @notice A platform's identity bound through the whole deployed stack with a real proof.
 /// @dev Each fixture's Authorized Transaction Data is the registry's own `abi.encode(0xBEEF)`.
@@ -214,18 +210,15 @@ abstract contract RealTlsNotaryBind is RealProofBindBase {
         (v[0], v[1]) = (platformVerifier, address(notary));
     }
 
-    /// The fixture's proof for a one-entry list binding the fixture's target. The fixture commits the
-    /// single form, so its token session is re-signed by its test notary key with the list digest's
-    /// `code_verifier`; the circuit's own verifier checks the proof.
+    /// The fixture's payload, naming its own transaction data.
     function _payload() internal view override returns (bytes memory) {
         string memory session = vm.readFile(_session());
         TlsNotaryVerifierBase.TlsNotaryProof memory p;
         p.ceremonyVersion = uint16(vm.parseJsonUint(session, ".ceremony_version"));
-        p.operationDomain = OperationList.DOMAIN;
+        p.operationDomain = vm.parseJsonBytes32(session, ".operation_domain");
         p.authorizationNonce = vm.parseJsonBytes32(session, ".authorization_nonce");
-        p.transactionData =
-            operationList(keccak256(bytes("libid.bind-identity")), vm.parseJsonBytes(session, ".transaction_data"));
-        p.tokenSession = _resigned(session, p);
+        p.transactionData = vm.parseJsonBytes(session, ".transaction_data");
+        p.tokenSession = AttestationBuilder.fixtureSession(session, ".token");
         p.identitySession = AttestationBuilder.fixtureSession(session, ".identity");
         p.idNode = _idNode();
         p.handleNode = _handleNode();
@@ -233,29 +226,7 @@ abstract contract RealTlsNotaryBind is RealProofBindBase {
         return abi.encode(p);
     }
 
-    /// The fixture's token session with its `code_verifier` swapped for the one of `p`'s digest, re-signed.
-    function _resigned(string memory session, TlsNotaryVerifierBase.TlsNotaryProof memory p)
-        internal
-        pure
-        returns (ICeremony.Attestation memory token)
-    {
-        bytes memory oldVerifier = CeremonyAuthorization.codeVerifier(
-            vm.parseJsonBytes32(session, ".authorization_digest"), p.authorizationNonce
-        );
-        bytes memory newVerifier = CeremonyAuthorization.codeVerifier(
-            CeremonyAuthorization.digest(p.operationDomain, p.ceremonyVersion, p.authorizationNonce, p.transactionData),
-            p.authorizationNonce
-        );
-        token = AttestationBuilder.fixtureSession(session, ".token");
-        uint256 at = AttestationBuilder.indexOf(token.attestedData, oldVerifier);
-        require(at != type(uint256).max, "verifier not in the record");
-        for (uint256 i; i < newVerifier.length; ++i) {
-            token.attestedData[at + i] = newVerifier[i];
-        }
-        token.proof = AttestationBuilder.sign(NOTARY_KEY, token.attestedData);
-    }
-
-    /// @dev The fixture's data is the binder in the bind entry's shape.
+    /// @dev The fixture names the binder, in the registry's shape.
     function test_theProducedFixtureCarriesTheRegistryTarget() public view {
         assertEq(vm.parseJsonBytes(vm.readFile(_session()), ".transaction_data"), abi.encode(BINDER));
     }
@@ -392,10 +363,6 @@ contract RealProofBindGitHubTest is RealTlsNotaryBind {
 
 /// @notice Google: `Fixture@Example.com`, sub `100000000000000000001`, from
 ///         `google-ceremony-proof.json` over a synthetic signing key.
-/// @dev The fixture proves the single form's digest as its nonce. The Honk verifier answers `true` for
-///      the fixture's proof over its public inputs with the list digest in place of that nonce; any
-///      other inputs reach the real verifier. Until the fixture is regenerated for a list digest,
-///      `HonkVerifierProofs` checks the proof itself.
 contract RealProofBindGoogleTest is RealProofBindBase {
     string constant PROOF = "contracts/ceremony/test/fixtures/google-ceremony-proof.json";
     /// The signed `exp` of the fixture's token.
@@ -406,7 +373,7 @@ contract RealProofBindGoogleTest is RealProofBindBase {
 
     function setUp() public {
         roots = new TrustingJwtRoots(CeremonyProfile.AUTHORITY_GOOGLEAPIS_WWW);
-        address circuit = HonkStub.deployFor(HonkStub.GOOGLE, _proof().proof, _listInputs());
+        address circuit = vm.deployCode(HonkStub.GOOGLE);
         platformVerifier = address(
             new ERC1967Proxy(
                 address(new GooglePlatformVerifier()),
@@ -464,9 +431,9 @@ contract RealProofBindGoogleTest is RealProofBindBase {
     function _proof() internal view returns (OidcPlatformVerifierBase.OidcProof memory s) {
         string memory json = vm.readFile(PROOF);
         s.ceremonyVersion = 1;
-        s.operationDomain = OperationList.DOMAIN;
+        s.operationDomain = keccak256(bytes("libid.bind-identity"));
         s.authorizationNonce = bytes32(uint256(0x5555555555555555555555555555555555555555555555555555555555555555));
-        s.transactionData = operationList(keccak256(bytes("libid.bind-identity")), abi.encode(BINDER));
+        s.transactionData = abi.encode(BINDER);
         s.clientIdentifier = bytes(vm.parseJsonString(json, ".client_identifier"));
         bytes32[] memory pi = vm.parseJsonBytes32Array(json, ".public_inputs");
         s.idNode = bytes32((uint256(pi[34]) << 128) | uint256(pi[35]));
@@ -480,17 +447,6 @@ contract RealProofBindGoogleTest is RealProofBindBase {
 
     function _publicInputs() internal view override returns (bytes32[] memory) {
         return vm.parseJsonBytes32Array(vm.readFile(PROOF), ".public_inputs");
-    }
-
-    /// The fixture's public inputs with the list digest's 32 bytes as the nonce, fields 0 to 31.
-    function _listInputs() internal view returns (bytes32[] memory inputs) {
-        OidcPlatformVerifierBase.OidcProof memory s = _proof();
-        bytes32 digest =
-            CeremonyAuthorization.digest(s.operationDomain, s.ceremonyVersion, s.authorizationNonce, s.transactionData);
-        inputs = _publicInputs();
-        for (uint256 i; i < 32; ++i) {
-            inputs[i] = bytes32(uint256(uint8(digest[i])));
-        }
     }
 
     /// `[high, low]` at fields 34 to 37.

@@ -17,8 +17,6 @@ import {IIdentityRegistry} from "../../identity/IIdentityRegistry.sol";
 import {StubPlatformVerifier} from "../../identity/test/StubPlatformVerifier.sol";
 import {TestNodes} from "../../identity/test/TestNodes.sol";
 import {ReferralSplitter} from "../ReferralSplitter.sol";
-import {OperationList} from "../../ceremony/OperationList.sol";
-import {operationList} from "../../ceremony/test/OperationListVector.sol";
 
 /// @notice The splitter behind the registry's `bindWithFeeCall`, over a real
 ///         registry, Proof Verifier and escrow, and a stubbed Platform Verifier.
@@ -36,8 +34,7 @@ contract ReferralSplitterTest is Test {
 
     bytes32 constant X = CeremonyProfile.PLATFORM_X;
     bytes32 constant GITHUB = CeremonyProfile.PLATFORM_GITHUB;
-    bytes32 constant DOMAIN = OperationList.DOMAIN;
-    bytes32 constant BIND = keccak256(bytes("libid.bind-identity"));
+    bytes32 constant DOMAIN = keccak256(bytes("libid.bind-identity"));
     uint256 constant QUOTE = 0.002 ether;
     uint256 constant FEE = 0.01 ether;
     uint16 constant SHARE_BPS = 3_000;
@@ -92,7 +89,7 @@ contract ReferralSplitterTest is Test {
                 ceremonyVersion: 1,
                 operationDomain: DOMAIN,
                 authorizationNonce: bytes32(++nonce),
-                transactionData: operationList(BIND, abi.encode(target))
+                transactionData: abi.encode(target)
             })
         );
     }

@@ -26,8 +26,6 @@ import {TestNodes} from "../../identity/test/TestNodes.sol";
 import {StubPlatformVerifier} from "../../identity/test/StubPlatformVerifier.sol";
 import {AttestationBuilder} from "./AttestationBuilder.sol";
 import {TrustingJwtRoots} from "./TrustingJwtRoots.sol";
-import {OperationList} from "../OperationList.sol";
-import {operationList} from "./OperationListVector.sol";
 
 /// @notice Every deployed contract survives an upgrade, refuses one from a
 ///         stranger, and cannot be initialized twice or on its implementation.
@@ -423,9 +421,9 @@ contract UpgradeSafetyTest is Test {
         bytes memory payload = abi.encode(
             StubPlatformVerifier.StubPayload({
                 ceremonyVersion: 1,
-                operationDomain: OperationList.DOMAIN,
+                operationDomain: keccak256(bytes("libid.bind-identity")),
                 authorizationNonce: bytes32(nonce),
-                transactionData: operationList(keccak256(bytes("libid.bind-identity")), abi.encode(who))
+                transactionData: abi.encode(who)
             })
         );
         vm.prank(who);

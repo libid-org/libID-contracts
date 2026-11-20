@@ -1449,10 +1449,6 @@ async fn refers_a_bind_at_the_estimated_gas() {
             referral::ReferralSplitter,
         },
         deploy::deploy_with_ctor,
-        operation_list::{
-            Operation,
-            OPERATIONS_DOMAIN,
-        },
         platform_verifier::PlatformVerifier,
         testing::{
             deploy_stub_platform_verifier,
@@ -1559,9 +1555,9 @@ async fn refers_a_bind_at_the_estimated_gas() {
     let referrer = B256::from(PLATFORM_X.handle_node("carol").unwrap());
     let payload = stub_payload(&StubPayload {
         ceremonyVersion: 1,
-        operationDomain: OPERATIONS_DOMAIN,
+        operationDomain: registry.OPERATION_DOMAIN().call().await.unwrap(),
         authorizationNonce: B256::repeat_byte(0x01),
-        transactionData: vec![Operation::bind(deployer)].abi_encode().into(),
+        transactionData: (deployer,).abi_encode_params().into(),
     });
     let receipt = registry
         .bindWithFeeCall(
