@@ -10,19 +10,26 @@ import {ICeremony} from "./ICeremony.sol";
 ///      from the Consumer. It is dispatch: it selects the
 ///      Platform Verifier registered for the pair a Consumer names, forwards
 ///      the payload and the value to it, and forwards what comes back. It
-///      remembers the claims it verified for the rest of the transaction (see
-///      `verify`). It does not decode the payload, holds no platform constant,
-///      and applies no transaction. Only the Platform Verifier knows what the bytes are, only
-///      the Consumer knows what a claim means, and only the Notary Service
-///      knows whether the notary signed.
+///      remembers the last payload it verified in the transaction and that
+///      payload's claim (see `verify`). It does not decode the payload, holds
+///      no platform constant, and applies no transaction. Only the Platform
+///      Verifier knows what the bytes are, only the Consumer knows what a
+///      claim means, and only the Notary Service knows whether the notary
+///      signed.
 interface IProofVerifier {
-    /// @notice What one verification of this pair costs, over the whole path.
+    /// @notice What one verification of this pair costs, over the whole path:
+    ///         the price before a payload exists.
     ///
     /// @dev A Consumer cannot attach a correct fee if quoting requires knowing
     ///      the path's topology, so this covers all of it: one Notary Fee per
     ///      attestation the profile requires, and zero where it requires none
     ///      (REQ-COMMON-06E).
     function quote(bytes32 platformId, uint16 verifierVersion) external view returns (uint256);
+
+    /// @notice What `verify` takes for this payload under this pair: zero when
+    ///         it is the last payload this pair's Platform Verifier verified
+    ///         in the current transaction, else the full price.
+    function quote(bytes32 platformId, uint16 verifierVersion, bytes calldata payload) external view returns (uint256);
 
     /// @notice Whether any version of this platform can be verified here.
     ///
@@ -38,20 +45,14 @@ interface IProofVerifier {
     ///      to the ceremony version the verifier itself supports. `payload` is
     ///      opaque at this hop.
     ///
-    ///      The value rule (REQ-COMMON-06F), which every Consumer that
-    ///      forwards value follows:
-    ///      - `quote` non-zero: `quote` verifies. Zero returns the claim this
-    ///        verifier verified for the payload earlier in the same
-    ///        transaction, else reverts `NotVerifiedInTransaction(quote)`.
-    ///      - `quote` zero: zero returns that claim if there is one, else
-    ///        verifies.
-    ///      - Any other value reverts `WrongValue(quote, value)`.
-    ///      "Earlier in the same transaction" is an earlier call of a batch or
-    ///      transaction the caller controls. Another UserOperation in the same
-    ///      bundle may have saved a claim, but nothing guarantees it, so a
-    ///      caller never relies on one. A caller whose paying call may be
-    ///      rejected pays in a call that cannot be, such as a standalone
-    ///      `verify` at the quote, then passes zero: a rejected call keeps no
+    ///      The value is exactly `quote(platformId, verifierVersion,
+    ///      payload)`, else `WrongValue(quote, value)` (REQ-COMMON-06F). The
+    ///      last payload this transaction verified under the same Platform
+    ///      Verifier returns its claim and calls nothing; any other verifies
+    ///      and becomes the last one. A value fixed before the transaction
+    ///      reverts if another call verified the same payload earlier in it. A
+    ///      caller whose paying call may be rejected pays in a call that
+    ///      cannot be, such as a standalone `verify`: a rejected call keeps no
     ///      claim.
     function verify(bytes32 platformId, uint16 verifierVersion, bytes calldata payload)
         external

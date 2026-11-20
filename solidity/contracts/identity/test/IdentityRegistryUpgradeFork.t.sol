@@ -40,7 +40,7 @@ contract IdentityRegistryUpgradeForkTest is Test {
         registry = IdentityRegistry(vm.envAddress("FORK_IDENTITY_REGISTRY"));
         proofVerifier = registry.proofVerifier();
         owner = registry.owner();
-        vm.mockCall(address(proofVerifier), abi.encodeCall(IProofVerifier.quote, (X, V1)), abi.encode(QUOTE));
+        vm.mockCall(address(proofVerifier), abi.encodeWithSignature("quote(bytes32,uint16)", X, V1), abi.encode(QUOTE));
         vm.deal(holder, 1 ether);
     }
 
@@ -60,6 +60,11 @@ contract IdentityRegistryUpgradeForkTest is Test {
         });
         vm.mockCall(
             address(proofVerifier), abi.encodeCall(IProofVerifier.verify, (X, V1, payload)), abi.encode(claimed)
+        );
+        vm.mockCall(
+            address(proofVerifier),
+            abi.encodeWithSignature("quote(bytes32,uint16,bytes)", X, V1, payload),
+            abi.encode(QUOTE)
         );
     }
 

@@ -118,7 +118,7 @@ abstract contract TlsNotaryVerifierBase is IPlatformVerifier, PlatformVerifierBa
     /// @inheritdoc IPlatformVerifier
     function verify(bytes calldata payload) external payable returns (VerifiedClaim memory claimed) {
         uint256 fee = _base().notary.fee();
-        // Exact value, so no refund path (REQ-COMMON-06D).
+        // Exact value at every hop, so no refund path (REQ-COMMON-06D).
         if (msg.value != 2 * fee) revert WrongValue(2 * fee, msg.value);
 
         // `abi.decode` reverts on a malformed payload.

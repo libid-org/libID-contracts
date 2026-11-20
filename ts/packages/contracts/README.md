@@ -120,15 +120,13 @@ the ceremony produced, the handle to disclose, whether that handle becomes
 the wallet's primary handle, and the service fee with its receiver. The
 registry checks a disclosed handle against the node the proof bound and logs
 it in `HandleRevealed`. The value is what `quoteBind` returns for the same pair
-plus the fee, which goes to the receiver; a bind with no fee passes `0n` and
-the zero address. The `quoteBind` part follows the Proof Verifier's value
-rule (`IProofVerifier.verify`): it may be zero for a payload an earlier call of
-the caller's own batch verified, never for one another UserOperation in the
-same bundle may have. Less than the fee reverts the registry's
-`WrongFeeValue`; otherwise the registry passes the Proof Verifier what is left
-after the fee, so a value short of fee plus quote reverts there (`WrongValue`,
-or `NotVerifiedInTransaction` for exactly the fee). Check the value is fee plus
-quote first. The payload's transaction data is either `abi.encode(target)`
+and payload plus the fee, which goes to the receiver; a bind with no fee passes
+`0n` and the zero address. `quoteBind` with the payload is zero when the Proof
+Verifier verified that payload last in the same transaction, such as a
+standalone `verify` earlier in the caller's batch, and the full price
+otherwise; without the payload it is the full price, for showing or funding a
+bind before the proof exists. A value fixed before the transaction reverts if
+another call verified the same payload earlier in it. The payload's transaction data is either `abi.encode(target)`
 under `BIND_DOMAIN` or an Operation List holding one bind entry,
 `encodeOperationList([bindOperation(target)])`, under `OPERATIONS_DOMAIN`; the
 proof commits to the domain, so each payload has one reading. The target is
@@ -143,7 +141,7 @@ const fee = await client.readContract({
   address: IDENTITY_REGISTRY,
   abi: identityRegistryAbi,
   functionName: 'quoteBind',
-  args: [github, 1],
+  args: [github, 1, payload],
 })
 const call = calls.identityRegistry.bind(
   IDENTITY_REGISTRY, fee + serviceFee, github, 1, payload, 'octocat', true, serviceFee, feeReceiver,
@@ -193,8 +191,9 @@ const transactionData = encodeOperationList([
 The same payload then goes to `bind`, called by `holder`, and to the other
 Consumer, once each. Each takes its own entry; `bind` refuses a list with no
 entry or more than one under `libid.bind-identity`. The first call pays the
-Notary Fee; the second, in the same batch, attaches no value for it, and the
-Proof Verifier returns the claim the first verified.
+Notary Fee; the second, in the same batch, pays the Proof Verifier's quote for
+the payload, zero right after the first verified it, and gets the claim the
+first verified.
 
 A refused bind reverts with the error of whichever contract on its route
 refused it: the registry, the Proof Verifier, a Platform Verifier, the Notary

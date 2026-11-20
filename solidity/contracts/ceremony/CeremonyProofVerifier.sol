@@ -12,7 +12,7 @@ import {IPlatformVerifier} from "./IPlatformVerifier.sol";
 import {IProofVerifier} from "./IProofVerifier.sol";
 
 /// @title CeremonyProofVerifier
-/// @notice Dispatch, and a memory of the claims this transaction verified.
+/// @notice Dispatch, and a memory of the last claim this transaction verified.
 ///
 /// @dev This is deliberately a contract of its own rather than something each
 ///      Consumer carries. The Supported Version Set decides which proof
@@ -25,9 +25,9 @@ import {IProofVerifier} from "./IProofVerifier.sol";
 ///      once. That is the price of one entry point, and it is why this contract
 ///      holds no platform constant, reads nothing of the payload or of the
 ///      claim it returns, and applies no effect. Its one state besides the
-///      Supported Version Set is transient: the claims verified in the
-///      current transaction, so a payload consumed twice pays once
-///      (`IProofVerifier.verify`).
+///      Supported Version Set is transient: the last payload the current
+///      transaction verified and its claim, so the same payload consumed
+///      twice in a row pays once (`IProofVerifier.verify`).
 ///
 ///      Two versions, and this contract knows only one of them. The VERIFIER
 ///      version is the key a payload is routed on: this chain's slot number,
@@ -70,12 +70,13 @@ contract CeremonyProofVerifier is IProofVerifier, Initializable, UUPSUpgradeable
 
     event VerifierConfigured(bytes32 indexed platformId, uint16 indexed verifierVersion, address verifier);
 
-    bytes32 private constant VERIFIED_NAMESPACE = keccak256("libid.proof-verifier.verified");
+    /// Transient: the key of the last payload this transaction verified
+    /// (`_key`); its claim's length one slot above, its words from there
+    /// (`deriveArray`).
+    bytes32 private constant LAST_VERIFIED = keccak256("libid.proof-verifier.last-verified");
 
     error UnknownVersion(bytes32 platformId, uint16 verifierVersion);
     error WrongValue(uint256 required, uint256 provided);
-    /// No value for a payload this transaction has not verified, at a non-zero quote.
-    error NotVerifiedInTransaction(uint256 required);
     error VerifierPlatformMismatch(bytes32 expected, bytes32 found);
 
     /// @custom:oz-upgrades-unsafe-allow constructor
@@ -91,6 +92,12 @@ contract CeremonyProofVerifier is IProofVerifier, Initializable, UUPSUpgradeable
     /// @inheritdoc IProofVerifier
     function quote(bytes32 platformId, uint16 verifierVersion) external view returns (uint256) {
         return _requireVerifier(platformId, verifierVersion).quote();
+    }
+
+    /// @inheritdoc IProofVerifier
+    function quote(bytes32 platformId, uint16 verifierVersion, bytes calldata payload) external view returns (uint256) {
+        IPlatformVerifier verifier = _requireVerifier(platformId, verifierVersion);
+        return _isLastVerified(_key(verifier, payload)) ? 0 : verifier.quote();
     }
 
     /// @inheritdoc IProofVerifier
@@ -110,27 +117,20 @@ contract CeremonyProofVerifier is IProofVerifier, Initializable, UUPSUpgradeable
         returns (ICeremony.VerifiedClaim memory claim)
     {
         IPlatformVerifier verifier = _requireVerifier(platformId, verifierVersion);
-        uint256 required;
-        bytes32 slot;
-        if (msg.value == 0) {
-            slot = _slot(verifier, payload);
-            bytes memory verified = _verified(slot);
-            if (verified.length != 0) return abi.decode(verified, (ICeremony.VerifiedClaim));
-            required = verifier.quote();
-            if (required != 0) revert NotVerifiedInTransaction(required);
-        } else {
-            // Exactly the quote: no refund path, so no partial-failure rule is
-            // needed and nothing can be captured in transit (REQ-COMMON-06D).
-            required = verifier.quote();
-            if (msg.value != required) revert WrongValue(required, msg.value);
-            slot = _slot(verifier, payload);
-        }
+        bytes32 key = _key(verifier, payload);
+        bool hit = _isLastVerified(key);
+
+        // Exactly the quote: no refund path, so no partial-failure rule is
+        // needed and nothing can be captured in transit (REQ-COMMON-06D).
+        uint256 required = hit ? 0 : verifier.quote();
+        if (msg.value != required) revert WrongValue(required, msg.value);
+        if (hit) return abi.decode(_lastClaim(), (ICeremony.VerifiedClaim));
 
         // Forwarded whole and returned whole. The payload is the verifier's to
         // decode and the claim is the Consumer's to act on; this hop reads
         // neither (REQ-COMMON-06B).
         claim = verifier.verify{value: required}(payload);
-        _remember(slot, abi.encode(claim));
+        _rememberLast(key, abi.encode(claim));
     }
 
     /// @notice Add or remove a Platform Verifier from the Supported Version Set.
@@ -166,16 +166,21 @@ contract CeremonyProofVerifier is IProofVerifier, Initializable, UUPSUpgradeable
         return verifier;
     }
 
-    /// Transient slot of a payload's claim under `verifier`.
-    function _slot(IPlatformVerifier verifier, bytes calldata payload) private pure returns (bytes32) {
-        return VERIFIED_NAMESPACE.deriveMapping(address(verifier)).deriveMapping(keccak256(payload));
+    /// A payload under the Platform Verifier that verifies it: the same bytes
+    /// under another verifier slot are another verification.
+    function _key(IPlatformVerifier verifier, bytes calldata payload) private pure returns (bytes32) {
+        return keccak256(abi.encode(address(verifier), keccak256(payload)));
     }
 
-    /// The claim this transaction verified at `slot`, or empty: its length at
-    /// `slot`, its words from `slot.deriveArray()`.
-    function _verified(bytes32 slot) private view returns (bytes memory data) {
-        data = new bytes(slot.asUint256().tload());
-        bytes32 words = slot.deriveArray();
+    function _isLastVerified(bytes32 key) private view returns (bool) {
+        return LAST_VERIFIED.asBytes32().tload() == key;
+    }
+
+    /// The claim of the last payload this transaction verified.
+    function _lastClaim() private view returns (bytes memory data) {
+        bytes32 length = LAST_VERIFIED.offset(1);
+        data = new bytes(length.asUint256().tload());
+        bytes32 words = length.deriveArray();
         for (uint256 i; i < data.length; i += 32) {
             bytes32 word = words.offset(i / 32).asBytes32().tload();
             assembly ("memory-safe") {
@@ -184,9 +189,12 @@ contract CeremonyProofVerifier is IProofVerifier, Initializable, UUPSUpgradeable
         }
     }
 
-    function _remember(bytes32 slot, bytes memory data) private {
-        slot.asUint256().tstore(data.length);
-        bytes32 words = slot.deriveArray();
+    /// Overwrites the last verified payload and its claim.
+    function _rememberLast(bytes32 key, bytes memory data) private {
+        LAST_VERIFIED.asBytes32().tstore(key);
+        bytes32 length = LAST_VERIFIED.offset(1);
+        length.asUint256().tstore(data.length);
+        bytes32 words = length.deriveArray();
         for (uint256 i; i < data.length; i += 32) {
             bytes32 word;
             assembly ("memory-safe") {

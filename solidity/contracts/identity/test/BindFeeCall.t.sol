@@ -95,19 +95,21 @@ contract BindFeeCallTest is Test {
 
     // ─── Paying through the callback ────────────────────────────────
 
-    /// A payload verified earlier in the transaction pays the receiver its fee and nothing more.
-    function test_aSavedClaimBindsForTheFeeAlone() public {
+    /// A payload this transaction verified last quotes zero, so the receiver gets its fee and the bind nothing more.
+    function test_afterAStandaloneVerifyABindTakesTheFeeAlone() public {
         RecordingReceiver receiver = new RecordingReceiver(registry);
+        vm.deal(address(this), QUOTE);
         this.verifyThenBindWithFeeCall(address(receiver));
         assertEq(address(receiver).balance, SERVICE_FEE, "the receiver's fee");
-        assertEq(receiver.sessionId(), _digest(WALLET), "the saved claim's session");
+        assertEq(receiver.sessionId(), _digest(WALLET), "the verified claim's session");
         assertEq(registry.resolveHandle(PLATFORM, "alice"), WALLET);
     }
 
+    /// One transaction: a standalone verify, then `bindWithFeeCall`.
     function verifyThenBindWithFeeCall(address receiver) external {
         bytes memory payload = _payload(WALLET);
-        vm.deal(address(this), QUOTE);
         proofVerifier.verify{value: QUOTE}(PLATFORM, 1, payload);
+
         vm.expectCall(address(verifier), abi.encodeWithSelector(IPlatformVerifier.verify.selector), 0);
         vm.prank(WALLET);
         registry.bindWithFeeCall{value: SERVICE_FEE}(PLATFORM, 1, payload, "", false, SERVICE_FEE, receiver, FEE_DATA);
@@ -194,7 +196,7 @@ contract BindFeeCallTest is Test {
             QUOTE + SERVICE_FEE - 1,
             SERVICE_FEE,
             address(receiver),
-            abi.encodeWithSelector(CeremonyProofVerifier.WrongValue.selector, QUOTE, QUOTE - 1)
+            abi.encodeWithSelector(IdentityRegistry.WrongFeeValue.selector, SERVICE_FEE, SERVICE_FEE - 1)
         );
     }
 
@@ -204,7 +206,7 @@ contract BindFeeCallTest is Test {
             QUOTE + SERVICE_FEE + 1,
             SERVICE_FEE,
             address(receiver),
-            abi.encodeWithSelector(CeremonyProofVerifier.WrongValue.selector, QUOTE, QUOTE + 1)
+            abi.encodeWithSelector(IdentityRegistry.WrongFeeValue.selector, SERVICE_FEE, SERVICE_FEE + 1)
         );
     }
 
