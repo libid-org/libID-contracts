@@ -490,9 +490,9 @@ contract CeremonyBindTest is Test {
 
     /// One transaction: a standalone verify, then the bind.
     function verifyThenBindForTheFee(bytes memory p) external {
-        assertEq(registry.quoteBind(PLATFORM, 1, p), FEE);
+        assertEq(registry.quoteBindFor(PLATFORM, 1, p), FEE);
         proofVerifier.verify{value: FEE}(PLATFORM, 1, p);
-        assertEq(registry.quoteBind(PLATFORM, 1, p), 0);
+        assertEq(registry.quoteBindFor(PLATFORM, 1, p), 0);
 
         vm.expectCall(address(verifier), abi.encodeWithSelector(IPlatformVerifier.verify.selector), 0);
         _bind(p, SERVICE_FEE, SERVICE_FEE, HOST);

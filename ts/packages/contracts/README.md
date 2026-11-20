@@ -119,12 +119,12 @@ const identities = await identitiesOf(reader, holder!, 0n, 50n)
 the ceremony produced, the handle to disclose, whether that handle becomes
 the wallet's primary handle, and the service fee with its receiver. The
 registry checks a disclosed handle against the node the proof bound and logs
-it in `HandleRevealed`. The value is what `quoteBind` returns for the same pair
+it in `HandleRevealed`. The value is what `quoteBindFor` returns for the same pair
 and payload plus the fee, which goes to the receiver; a bind with no fee passes
-`0n` and the zero address. `quoteBind` with the payload is zero when the Proof
-Verifier verified that payload last in the same transaction, such as a
-standalone `verify` earlier in the caller's batch, and the full price
-otherwise; without the payload it is the full price, for showing or funding a
+`0n` and the zero address. `quoteBindFor` is zero when the Proof Verifier
+verified that payload last in the same transaction, such as a standalone
+`verify` earlier in the caller's batch, and the full price otherwise;
+`quoteBind`, without the payload, is the full price, for showing or funding a
 bind before the proof exists. A value fixed before the transaction reverts if
 another call verified the same payload earlier in it. The payload's transaction data is either `abi.encode(target)`
 under `BIND_DOMAIN` or an Operation List holding one bind entry,
@@ -140,7 +140,7 @@ const github = platformId(PLATFORM_GITHUB_KEY)
 const fee = await client.readContract({
   address: IDENTITY_REGISTRY,
   abi: identityRegistryAbi,
-  functionName: 'quoteBind',
+  functionName: 'quoteBindFor',
   args: [github, 1, payload],
 })
 const call = calls.identityRegistry.bind(

@@ -95,7 +95,11 @@ contract CeremonyProofVerifier is IProofVerifier, Initializable, UUPSUpgradeable
     }
 
     /// @inheritdoc IProofVerifier
-    function quote(bytes32 platformId, uint16 verifierVersion, bytes calldata payload) external view returns (uint256) {
+    function quoteFor(bytes32 platformId, uint16 verifierVersion, bytes calldata payload)
+        external
+        view
+        returns (uint256)
+    {
         IPlatformVerifier verifier = _requireVerifier(platformId, verifierVersion);
         return _isLastVerified(_key(verifier, payload)) ? 0 : verifier.quote();
     }
@@ -167,7 +171,7 @@ contract CeremonyProofVerifier is IProofVerifier, Initializable, UUPSUpgradeable
     }
 
     /// A payload under the Platform Verifier that verifies it: the same bytes
-    /// under another verifier slot are another verification.
+    /// under another Platform Verifier are another verification.
     function _key(IPlatformVerifier verifier, bytes calldata payload) private pure returns (bytes32) {
         return keccak256(abi.encode(address(verifier), keccak256(payload)));
     }

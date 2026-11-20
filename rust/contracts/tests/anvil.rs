@@ -824,7 +824,7 @@ async fn deploys_and_initializes_every_platform_verifier() {
             proxy
         );
         assert_eq!(
-            proof_verifier.quote_1(platform_id, 1).call().await.unwrap(),
+            proof_verifier.quote(platform_id, 1).call().await.unwrap(),
             quote
         );
     }
@@ -1380,7 +1380,7 @@ async fn binds_through_the_stub_platform_verifier() {
         .await
         .unwrap();
     assert_eq!(stub.platformId().call().await.unwrap(), x);
-    assert_eq!(registry.quoteBind_0(x, 1).call().await.unwrap(), fee);
+    assert_eq!(registry.quoteBind(x, 1).call().await.unwrap(), fee);
 
     // The registry's transaction data: a one-entry list naming the target; the bind pays no fee.
     let payload = stub_payload(&StubPayload {

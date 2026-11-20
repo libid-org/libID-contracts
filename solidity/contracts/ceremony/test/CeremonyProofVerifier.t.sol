@@ -103,9 +103,9 @@ contract CeremonyProofVerifierTest is Test {
     }
 
     function verifyThenQuote() external {
-        assertEq(pv.quote(PLATFORM_ID, 1, _payload(1)), FEE);
+        assertEq(pv.quoteFor(PLATFORM_ID, 1, _payload(1)), FEE);
         pv.verify{value: FEE}(PLATFORM_ID, 1, _payload(1));
-        assertEq(pv.quote(PLATFORM_ID, 1, _payload(1)), 0);
+        assertEq(pv.quoteFor(PLATFORM_ID, 1, _payload(1)), 0);
     }
 
     function test_aHitReturnsTheClaimAndCallsNothing() public {
@@ -129,8 +129,8 @@ contract CeremonyProofVerifierTest is Test {
         pv.setVerifier(PLATFORM_ID, 2, IPlatformVerifier(address(second)));
 
         pv.verify{value: FEE}(PLATFORM_ID, 1, _payload(1));
-        assertEq(pv.quote(PLATFORM_ID, 1, _payload(2)), FEE, "another payload");
-        assertEq(pv.quote(PLATFORM_ID, 2, _payload(1)), FEE, "another slot");
+        assertEq(pv.quoteFor(PLATFORM_ID, 1, _payload(2)), FEE, "another payload");
+        assertEq(pv.quoteFor(PLATFORM_ID, 2, _payload(1)), FEE, "another slot");
     }
 
     function test_theLastVerifiedPayloadOverwritesTheOneBefore() public {
@@ -140,7 +140,7 @@ contract CeremonyProofVerifierTest is Test {
     function verifyTwoThenQuoteTheFirst() external {
         pv.verify{value: FEE}(PLATFORM_ID, 1, _payload(1));
         pv.verify{value: FEE}(PLATFORM_ID, 1, _payload(2));
-        assertEq(pv.quote(PLATFORM_ID, 1, _payload(1)), FEE);
+        assertEq(pv.quoteFor(PLATFORM_ID, 1, _payload(1)), FEE);
     }
 
     function test_noValueAtAFullQuoteIsRefused() public {
@@ -179,7 +179,7 @@ contract CeremonyProofVerifierTest is Test {
 
     function revertedThenQuote() external {
         try this.verifyAndRevert() {} catch {}
-        assertEq(pv.quote(PLATFORM_ID, 1, _payload(1)), FEE);
+        assertEq(pv.quoteFor(PLATFORM_ID, 1, _payload(1)), FEE);
     }
 
     function verifyAndRevert() external {
@@ -190,7 +190,7 @@ contract CeremonyProofVerifierTest is Test {
     /// forge-config: default.isolate = true
     function test_aLaterTransactionPaysAgain() public {
         pv.verify{value: FEE}(PLATFORM_ID, 1, _payload(1));
-        assertEq(pv.quote(PLATFORM_ID, 1, _payload(1)), FEE);
+        assertEq(pv.quoteFor(PLATFORM_ID, 1, _payload(1)), FEE);
         pv.verify{value: FEE}(PLATFORM_ID, 1, _payload(1));
         assertEq(platform.lastValue(), FEE);
     }
@@ -234,12 +234,12 @@ contract CeremonyProofVerifierTest is Test {
 
     function test_quotesThePlatformVerifierForThatPair() public view {
         assertEq(pv.quote(PLATFORM_ID, 1), FEE);
-        assertEq(pv.quote(PLATFORM_ID, 1, _payload(1)), FEE);
+        assertEq(pv.quoteFor(PLATFORM_ID, 1, _payload(1)), FEE);
     }
 
     function test_quotingAPairOutsideTheSupportedVersionSetReverts() public {
         vm.expectRevert(abi.encodeWithSelector(CeremonyProofVerifier.UnknownVersion.selector, PLATFORM_ID, uint16(9)));
-        pv.quote(PLATFORM_ID, 9, _payload(1));
+        pv.quoteFor(PLATFORM_ID, 9, _payload(1));
     }
 
     /// @dev A paid verification takes the exact quote; there is no refund path.

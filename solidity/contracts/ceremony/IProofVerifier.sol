@@ -27,9 +27,13 @@ interface IProofVerifier {
     function quote(bytes32 platformId, uint16 verifierVersion) external view returns (uint256);
 
     /// @notice What `verify` takes for this payload under this pair: zero when
-    ///         it is the last payload this pair's Platform Verifier verified
-    ///         in the current transaction, else the full price.
-    function quote(bytes32 platformId, uint16 verifierVersion, bytes calldata payload) external view returns (uint256);
+    ///         this payload, under this pair's Platform Verifier, is the last
+    ///         one the transaction verified through any Platform Verifier,
+    ///         else the full price.
+    function quoteFor(bytes32 platformId, uint16 verifierVersion, bytes calldata payload)
+        external
+        view
+        returns (uint256);
 
     /// @notice Whether any version of this platform can be verified here.
     ///
@@ -45,11 +49,12 @@ interface IProofVerifier {
     ///      to the ceremony version the verifier itself supports. `payload` is
     ///      opaque at this hop.
     ///
-    ///      The value is exactly `quote(platformId, verifierVersion,
-    ///      payload)`, else `WrongValue(quote, value)` (REQ-COMMON-06F). The
-    ///      last payload this transaction verified under the same Platform
-    ///      Verifier returns its claim and calls nothing; any other verifies
-    ///      and becomes the last one. A value fixed before the transaction
+    ///      The value is exactly `quoteFor(platformId, verifierVersion,
+    ///      payload)`, else `WrongValue(quote, value)` (REQ-COMMON-06F). This
+    ///      payload, under this pair's Platform Verifier, returns its claim
+    ///      and calls nothing when it is the last one the transaction verified
+    ///      through any Platform Verifier; otherwise it verifies and becomes
+    ///      the last one. A value fixed before the transaction
     ///      reverts if another call verified the same payload earlier in it. A
     ///      caller whose paying call may be rejected pays in a call that
     ///      cannot be, such as a standalone `verify`: a rejected call keeps no

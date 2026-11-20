@@ -200,7 +200,7 @@ contract IdentityRegistry is
     /// @notice Bind an identity from a ceremony. A nonempty `handle` must fold and
     ///         hash to the proved handle node; it is logged in `HandleRevealed`,
     ///         and with `primary` it also becomes the caller's name.
-    /// @dev `msg.value` is `quoteBind` for the same payload plus `feeAmount`,
+    /// @dev `msg.value` is `quoteBindFor` the same payload plus `feeAmount`,
     ///      which goes to `feeReceiver`. A bind with no service fee passes
     ///      `(0, address(0))`.
     function bind(
@@ -281,7 +281,7 @@ contract IdentityRegistry is
         if (primary && bytes(handle).length == 0) revert PrimaryWithoutHandle();
 
         IProofVerifier pv = _s().proofVerifier;
-        uint256 required = pv.quote(platformId, verifierVersion, payload);
+        uint256 required = pv.quoteFor(platformId, verifierVersion, payload);
         if (msg.value < required) revert WrongBindValue(required, msg.value);
 
         claimed = pv.verify{value: required}(platformId, verifierVersion, payload);
@@ -345,15 +345,15 @@ contract IdentityRegistry is
     }
 
     /// @notice What `bind` takes for this payload before any service fee: zero
-    ///         for the payload this transaction verified last under the same
-    ///         Platform Verifier (`IProofVerifier.verify`), else `quoteBind`
-    ///         for the pair.
-    function quoteBind(bytes32 platformId, uint16 verifierVersion, bytes calldata payload)
+    ///         when this payload, under this pair's Platform Verifier, is the
+    ///         last one the transaction verified through any Platform Verifier
+    ///         (`IProofVerifier.verify`), else `quoteBind` for the pair.
+    function quoteBindFor(bytes32 platformId, uint16 verifierVersion, bytes calldata payload)
         external
         view
         returns (uint256)
     {
-        return _s().proofVerifier.quote(platformId, verifierVersion, payload);
+        return _s().proofVerifier.quoteFor(platformId, verifierVersion, payload);
     }
 
     /// @notice Whether this Consumer has already accepted a digest.
