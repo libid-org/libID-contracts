@@ -394,8 +394,8 @@ contract WebWallet is Account, ERC721Holder, ERC1155Holder, IWalletCore {
     /// before it.
     function _salt() private view returns (bytes32) {
         WalletStorage.WalletState storage w = WalletStorage.wallet();
-        bytes32 epoch = w.epoch;
-        return keccak256(abi.encode(epoch, w.epochs[epoch].rootEpoch));
+        bytes32 current = w.epoch;
+        return keccak256(abi.encode(current, w.epochs[current].rootEpoch));
     }
 
     /// `_verify` over `hash` at `auth.at`, whether the signers fall short of `quorum`, and whether they sign:
