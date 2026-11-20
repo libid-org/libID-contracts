@@ -19,7 +19,6 @@ import {CeremonyProofVerifier} from "../../ceremony/CeremonyProofVerifier.sol";
 import {IPlatformVerifier} from "../../ceremony/IPlatformVerifier.sol";
 import {IProofVerifier} from "../../ceremony/IProofVerifier.sol";
 import {HandleEscrow, NATIVE_TOKEN} from "../HandleEscrow.sol";
-import {OperationList} from "../../ceremony/OperationList.sol";
 import {
     EscrowHelpers,
     FeeToken,
@@ -944,19 +943,9 @@ contract HandleEscrowTest is PrivacyScan, EscrowHelpers {
         bytes memory payload = abi.encode(
             StubPlatformVerifier.StubPayload({
                 ceremonyVersion: 1,
-                operationDomain: OperationList.DOMAIN,
+                operationDomain: keccak256(bytes("libid.bind-identity")),
                 authorizationNonce: bytes32(++nonce),
-                // The one-entry list `[(libid.bind-identity, abi.encode(who))]` as its words: the struct
-                // encoder overflows solc's jump tags in this contract.
-                transactionData: abi.encode(
-                    uint256(0x20),
-                    uint256(1),
-                    uint256(0x20),
-                    keccak256(bytes("libid.bind-identity")),
-                    uint256(0x40),
-                    uint256(0x20),
-                    who
-                )
+                transactionData: abi.encode(who)
             })
         );
         vm.prank(who);

@@ -1,7 +1,8 @@
 /// Operation Lists (chain profiles §3.3): one ceremony's transaction data
-/// carrying an entry for each of several Consumers. One action is a one-entry
-/// list: a bind is `encodeOperationList([bindOperation(account)])` under
-/// `OPERATIONS_DOMAIN`.
+/// carrying an entry for each of several Consumers. A bind under
+/// `OPERATIONS_DOMAIN` is `encodeOperationList([bindOperation(account)])`; the
+/// registry also takes the single form, `abi.encode(account)` under
+/// `BIND_DOMAIN`.
 
 import {
   type Address,

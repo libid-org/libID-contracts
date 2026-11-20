@@ -176,7 +176,8 @@ Other entry points:
   Verifier decodes; its `SolValue::abi_encode` is the `payload` `bind` takes.
 - `operation_list::{Operation, OPERATIONS_DOMAIN}` — a ceremony's transaction
   data: `vec![Operation::bind(target)].abi_encode()` under `OPERATIONS_DOMAIN`
-  is a bind; one list can carry other Consumers' entries beside it.
+  is a bind, beside the single form `abi.encode(target)` under `BIND_DOMAIN`;
+  one list can carry other Consumers' entries beside the bind.
 
 ## Feature `testing`
 

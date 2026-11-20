@@ -148,9 +148,6 @@ contract IdentityRegistry is
     bytes32 public constant OPERATION_DOMAIN = keccak256(bytes("libid.bind-identity"));
 
     error ZeroAddress();
-    /// @dev The submission names an operation this Consumer does not own
-    ///      (REQ-COMMON-06A).
-    error ForeignOperationDomain(bytes32 operationDomain);
     /// @dev A digest is spendable once here (REQ-COMMON-03A).
     error DigestAlreadySpent(bytes32 digest);
     /// @dev The entry's data is not exactly `abi.encode(target)` (REQ-COMMON-01F).
@@ -288,8 +285,7 @@ contract IdentityRegistry is
 
         claimed = pv.verify{value: required}(platformId, verifierVersion, payload);
 
-        if (claimed.operationDomain != OperationList.DOMAIN) revert ForeignOperationDomain(claimed.operationDomain);
-        bytes memory data = OperationList.select(claimed.transactionData, OPERATION_DOMAIN);
+        bytes memory data = OperationList.own(claimed.operationDomain, claimed.transactionData, OPERATION_DOMAIN);
 
         if (_s().spentDigests[claimed.sessionId]) {
             revert DigestAlreadySpent(claimed.sessionId);
