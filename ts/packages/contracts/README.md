@@ -121,9 +121,9 @@ the wallet's primary handle, and the service fee with its receiver. The
 registry checks a disclosed handle against the node the proof bound and logs
 it in `HandleRevealed`. The value is what `quoteBind` returns for the same pair
 plus the fee, which goes to the receiver; a bind with no fee passes `0n` and
-the zero address. The payload's transaction data is `abi.encode(target)` under
-the operation domain `keccak256("libid.bind-identity")`, so one payload binds
-on every chain. An EOA sends the call directly, a smart wallet wraps it in its
+the zero address. The payload's transaction data is a one-entry Operation List,
+`encodeOperationList([bindOperation(target)])`, under `OPERATIONS_DOMAIN`, so
+one payload binds on every chain. An EOA sends the call directly, a smart wallet wraps it in its
 own execute:
 
 ```ts
@@ -166,24 +166,24 @@ const payload = encodeTlsNotaryProof({
 })
 ```
 
-One ceremony can authorize a bind and other operations together. Its
-operation domain is then `OPERATIONS_DOMAIN` (`keccak256("libid.operations")`)
-and its transaction data an Operation List, which commits each entry's domain
-and the hash of its data:
+A ceremony's transaction data is an Operation List under
+`OPERATIONS_DOMAIN` (`keccak256("libid.operations")`): each entry carries a
+Consumer's domain and the data that domain fixes. A bind is a one-entry list;
+one ceremony can also carry a bind and other Consumers' entries together:
 
 ```ts
-import { encodeOperationList, OPERATIONS_DOMAIN } from '@libid/contracts'
-import { encodeAbiParameters, keccak256, parseAbiParameters, toHex } from 'viem'
+import { bindOperation, encodeOperationList, OPERATIONS_DOMAIN } from '@libid/contracts'
 
 const transactionData = encodeOperationList([
-  { domain: keccak256(toHex('libid.bind-identity')), data: encodeAbiParameters(parseAbiParameters('address'), [holder]) },
+  bindOperation(holder),
   { domain: otherDomain, data: otherData }, // another Consumer's entry
 ])
 // The ceremony runs under OPERATIONS_DOMAIN with this transactionData.
 ```
 
-The same payload then goes to `bind`, called by `holder`, which rebuilds its
-entry's data from the caller, and to the other Consumer, once each.
+The same payload then goes to `bind`, called by `holder`, and to the other
+Consumer, once each. Each takes its own entry; `bind` refuses a list with no
+entry or more than one under `libid.bind-identity`.
 
 A refused bind reverts with the error of whichever contract on its route
 refused it: the registry, the Proof Verifier, a Platform Verifier, the Notary

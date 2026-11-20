@@ -174,6 +174,9 @@ Other entry points:
   token's `iat`, not an attestation.
 - `bindings::ceremony::{TlsNotaryProof, OidcProof}` — the payload a Platform
   Verifier decodes; its `SolValue::abi_encode` is the `payload` `bind` takes.
+- `operation_list::{Operation, OPERATIONS_DOMAIN}` — a ceremony's transaction
+  data: `vec![Operation::bind(target)].abi_encode()` under `OPERATIONS_DOMAIN`
+  is a bind; one list can carry other Consumers' entries beside it.
 
 ## Feature `testing`
 
