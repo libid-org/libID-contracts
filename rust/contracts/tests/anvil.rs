@@ -31,10 +31,6 @@ use libid_contracts::{
         upgrade_uups,
         ProxyReads,
     },
-    operation_list::{
-        Operation,
-        OPERATIONS_DOMAIN,
-    },
     send_with_nonce_retry,
     Artifacts,
     Error,
@@ -1316,6 +1312,10 @@ async fn binds_through_the_stub_platform_verifier() {
         sol_types::SolValue,
     };
     use libid_contracts::{
+        operation_list::{
+            Operation,
+            OPERATIONS_DOMAIN,
+        },
         platform_verifier::PlatformVerifier,
         testing::{
             deploy_stub_platform_verifier,
@@ -1449,6 +1449,10 @@ async fn refers_a_bind_at_the_estimated_gas() {
             referral::ReferralSplitter,
         },
         deploy::deploy_with_ctor,
+        operation_list::{
+            Operation,
+            OPERATIONS_DOMAIN,
+        },
         platform_verifier::PlatformVerifier,
         testing::{
             deploy_stub_platform_verifier,
