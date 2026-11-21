@@ -480,6 +480,24 @@ contract CeremonyBindTest is Test {
         registry.bind{value: FEE + SERVICE_FEE + 1}(PLATFORM, 1, p, "", false, SERVICE_FEE, HOST);
     }
 
+    /// A payload this transaction verified last quotes zero, so the bind takes the service fee alone.
+    function test_afterAStandaloneVerifyABindTakesTheFeeAlone() public {
+        vm.deal(address(this), FEE);
+        this.verifyThenBindForTheFee(_payload(WALLET, bytes32(uint256(71))));
+        assertEq(HOST.balance, SERVICE_FEE);
+        assertEq(registry.resolveHandle(PLATFORM, "alice"), WALLET);
+    }
+
+    /// One transaction: a standalone verify, then the bind.
+    function verifyThenBindForTheFee(bytes memory p) external {
+        assertEq(registry.quoteBindFor(PLATFORM, 1, p), FEE);
+        proofVerifier.verify{value: FEE}(PLATFORM, 1, p);
+        assertEq(registry.quoteBindFor(PLATFORM, 1, p), 0);
+
+        vm.expectCall(address(verifier), abi.encodeWithSelector(IPlatformVerifier.verify.selector), 0);
+        _bind(p, SERVICE_FEE, SERVICE_FEE, HOST);
+    }
+
     /// @dev A free bind is `(0, address(0))`; a receiver beside a zero amount is refused.
     function test_rejectsAReceiverBesideAZeroFee() public {
         bytes memory p = _payload(WALLET, bytes32(uint256(64)));

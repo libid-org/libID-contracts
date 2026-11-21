@@ -3,6 +3,8 @@ pragma solidity ^0.8.24;
 
 import {Initializable} from "@openzeppelin/contracts/proxy/utils/Initializable.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts/proxy/utils/UUPSUpgradeable.sol";
+import {SlotDerivation} from "@openzeppelin/contracts/utils/SlotDerivation.sol";
+import {TransientSlot} from "@openzeppelin/contracts/utils/TransientSlot.sol";
 import {Ownable2StepUpgradeable} from "@openzeppelin/contracts-upgradeable/access/Ownable2StepUpgradeable.sol";
 
 import {ICeremony} from "./ICeremony.sol";
@@ -10,7 +12,7 @@ import {IPlatformVerifier} from "./IPlatformVerifier.sol";
 import {IProofVerifier} from "./IProofVerifier.sol";
 
 /// @title CeremonyProofVerifier
-/// @notice Dispatch, and only dispatch.
+/// @notice Dispatch, and a memory of the last claim this transaction verified.
 ///
 /// @dev This is deliberately a contract of its own rather than something each
 ///      Consumer carries. The Supported Version Set decides which proof
@@ -21,9 +23,11 @@ import {IProofVerifier} from "./IProofVerifier.sol";
 ///      The concentration that buys is real and the specification names it: a
 ///      compromise here authorises arbitrary transactions at every Consumer at
 ///      once. That is the price of one entry point, and it is why this contract
-///      holds no platform constant, decodes nothing -- not the payload, not the
-///      transaction data inside it -- and applies no effect. There is nothing
-///      here to compromise except dispatch itself.
+///      holds no platform constant, reads nothing of the payload or of the
+///      claim it returns, and applies no effect. Its one state besides the
+///      Supported Version Set is transient: the last payload the current
+///      transaction verified and its claim, so the same payload consumed
+///      twice in a row pays once (`IProofVerifier.verify`).
 ///
 ///      Two versions, and this contract knows only one of them. The VERIFIER
 ///      version is the key a payload is routed on: this chain's slot number,
@@ -35,6 +39,9 @@ import {IProofVerifier} from "./IProofVerifier.sol";
 ///      lets one proof outlive a verifier upgrade, and what lets Solana run
 ///      its slot numbers without matching this chain's.
 contract CeremonyProofVerifier is IProofVerifier, Initializable, UUPSUpgradeable, Ownable2StepUpgradeable {
+    using SlotDerivation for bytes32;
+    using TransientSlot for *;
+
     /// @custom:storage-location erc7201:libid.storage.CeremonyProofVerifier
     struct ProofVerifierStorage {
         /// platformId -> verifier version -> the Platform Verifier for that
@@ -63,6 +70,11 @@ contract CeremonyProofVerifier is IProofVerifier, Initializable, UUPSUpgradeable
 
     event VerifierConfigured(bytes32 indexed platformId, uint16 indexed verifierVersion, address verifier);
 
+    /// Transient: the key of the last payload this transaction verified
+    /// (`_key`); its claim's length one slot above, its words from there
+    /// (`deriveArray`).
+    bytes32 private constant LAST_VERIFIED = keccak256("libid.proof-verifier.last-verified");
+
     error UnknownVersion(bytes32 platformId, uint16 verifierVersion);
     error WrongValue(uint256 required, uint256 provided);
     error VerifierPlatformMismatch(bytes32 expected, bytes32 found);
@@ -83,6 +95,16 @@ contract CeremonyProofVerifier is IProofVerifier, Initializable, UUPSUpgradeable
     }
 
     /// @inheritdoc IProofVerifier
+    function quoteFor(bytes32 platformId, uint16 verifierVersion, bytes calldata payload)
+        external
+        view
+        returns (uint256)
+    {
+        IPlatformVerifier verifier = _requireVerifier(platformId, verifierVersion);
+        return _isLastVerified(_key(verifier, payload)) ? 0 : verifier.quote();
+    }
+
+    /// @inheritdoc IProofVerifier
     function verifiesPlatform(bytes32 platformId) external view returns (bool) {
         return _s().versionCount[platformId] != 0;
     }
@@ -96,19 +118,23 @@ contract CeremonyProofVerifier is IProofVerifier, Initializable, UUPSUpgradeable
     function verify(bytes32 platformId, uint16 verifierVersion, bytes calldata payload)
         external
         payable
-        returns (ICeremony.VerifiedClaim memory)
+        returns (ICeremony.VerifiedClaim memory claim)
     {
         IPlatformVerifier verifier = _requireVerifier(platformId, verifierVersion);
+        bytes32 key = _key(verifier, payload);
+        bool hit = _isLastVerified(key);
 
-        // Exact value at every hop: no refund path, so no partial-failure rule
-        // is needed and nothing can be captured in transit (REQ-COMMON-06D).
-        uint256 required = verifier.quote();
+        // Exactly the quote: no refund path, so no partial-failure rule is
+        // needed and nothing can be captured in transit (REQ-COMMON-06D).
+        uint256 required = hit ? 0 : verifier.quote();
         if (msg.value != required) revert WrongValue(required, msg.value);
+        if (hit) return abi.decode(_lastClaim(), (ICeremony.VerifiedClaim));
 
         // Forwarded whole and returned whole. The payload is the verifier's to
         // decode and the claim is the Consumer's to act on; this hop reads
         // neither (REQ-COMMON-06B).
-        return verifier.verify{value: required}(payload);
+        claim = verifier.verify{value: required}(payload);
+        _rememberLast(key, abi.encode(claim));
     }
 
     /// @notice Add or remove a Platform Verifier from the Supported Version Set.
@@ -142,6 +168,44 @@ contract CeremonyProofVerifier is IProofVerifier, Initializable, UUPSUpgradeable
         // nothing (REQ-COMMON-05A).
         if (address(verifier) == address(0)) revert UnknownVersion(platformId, verifierVersion);
         return verifier;
+    }
+
+    /// A payload under the Platform Verifier that verifies it: the same bytes
+    /// under another Platform Verifier are another verification.
+    function _key(IPlatformVerifier verifier, bytes calldata payload) private pure returns (bytes32) {
+        return keccak256(abi.encode(address(verifier), keccak256(payload)));
+    }
+
+    function _isLastVerified(bytes32 key) private view returns (bool) {
+        return LAST_VERIFIED.asBytes32().tload() == key;
+    }
+
+    /// The claim of the last payload this transaction verified.
+    function _lastClaim() private view returns (bytes memory data) {
+        bytes32 length = LAST_VERIFIED.offset(1);
+        data = new bytes(length.asUint256().tload());
+        bytes32 words = length.deriveArray();
+        for (uint256 i; i < data.length; i += 32) {
+            bytes32 word = words.offset(i / 32).asBytes32().tload();
+            assembly ("memory-safe") {
+                mstore(add(add(data, 32), i), word)
+            }
+        }
+    }
+
+    /// Overwrites the last verified payload and its claim.
+    function _rememberLast(bytes32 key, bytes memory data) private {
+        LAST_VERIFIED.asBytes32().tstore(key);
+        bytes32 length = LAST_VERIFIED.offset(1);
+        length.asUint256().tstore(data.length);
+        bytes32 words = length.deriveArray();
+        for (uint256 i; i < data.length; i += 32) {
+            bytes32 word;
+            assembly ("memory-safe") {
+                word := mload(add(add(data, 32), i))
+            }
+            words.offset(i / 32).asBytes32().tstore(word);
+        }
     }
 
     /// @dev Required by UUPS -- only the owner can upgrade.
