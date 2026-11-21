@@ -37,10 +37,6 @@ describe('bindErrorsAbi', () => {
         'UnknownVersion',
         concatHex([selector('UnknownVersion(bytes32,uint16)'), PROVED, pad('0x01')]),
       ],
-      [
-        'NotVerifiedInTransaction',
-        concatHex([selector('NotVerifiedInTransaction(uint256)'), pad('0x05')]),
-      ],
     ]
     for (const [name, data] of cases) {
       expect(decodeErrorResult({ abi: bindErrorsAbi, data }).errorName).toBe(name)
@@ -58,10 +54,10 @@ describe('bindErrorsAbi', () => {
 describe('walletRegistryErrorsAbi', () => {
   it('names the errors of every contract on the route, the factory last', () => {
     const cases: [string, `0x${string}`][] = [
-      ['DataWithoutList', selector('DataWithoutList()')],
+      ['DigestSpent', concatHex([selector('DigestSpent(bytes32)'), PROVED])],
       [
-        'NotVerifiedInTransaction',
-        concatHex([selector('NotVerifiedInTransaction(uint256)'), pad('0x05')]),
+        'UnknownVersion',
+        concatHex([selector('UnknownVersion(bytes32,uint16)'), PROVED, pad('0x01')]),
       ],
       ['UntrustedModulus', concatHex([selector('UntrustedModulus(bytes32)'), PROVED])],
       ['SumcheckFailed', selector('SumcheckFailed()')],
