@@ -62,6 +62,15 @@ ARTIFACTS=(
     # factory
     "LibidFactory:LibidFactory"
     "WTIA9:WTIA9"
+    # wallet
+    "WalletRegistry:WalletRegistry"
+    "WalletFactory:WalletFactory"
+    "WalletProxy:WalletProxy"
+    "WalletForwarder:WalletForwarder"
+    # wallet: a release, and the two targets it delegates to
+    "WebWallet:WebWallet"
+    "IdentityAdmin:IdentityAdmin"
+    "SessionRules:SessionRules"
 )
 
 # "<File>:<Contract>" for the test stand-ins.
@@ -95,6 +104,11 @@ ABIS=(
     "ERC1967Proxy:ERC1967Proxy"
     "UUPSUpgradeable:UUPSUpgradeable"
     "StubPlatformVerifier:StubPlatformVerifier"
+    "IWebWallet:IWebWallet"
+    "WalletRegistry:WalletRegistry"
+    "WalletFactory:WalletFactory"
+    "WalletProxy:WalletProxy"
+    "WalletForwarder:WalletForwarder"
 )
 
 if [[ $# -gt 0 ]]; then

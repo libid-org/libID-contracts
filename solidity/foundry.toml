@@ -27,13 +27,18 @@ fs_permissions = [
     { access = "read", path = "contracts/circuits/test/fixtures" },
     # The shared handle vectors from the pinned circuits release (HandleNode.t.sol).
     { access = "read", path = "contracts/circuits/handles.json" },
+    # EntryPoint v0.9's runtime code from Base mainnet (WalletBase.sol).
+    { access = "read", path = "contracts/wallet/test/fixtures" },
 ]
 # Only the `gas` profile writes gas snapshots: they are measured under
 # eden-testnet's rules, which a default run would overwrite with cancun's.
 gas_snapshot_emit = false
 
 # What verifying a claim costs, recorded in snapshots/ by
-# ClaimVerificationGas.t.sol. CI fails when the committed numbers are stale:
+# ClaimVerificationGas.t.sol, the wallet's one-call onboarding by
+# WalletRealProof.t.sol: on the real X attestation and its real Honk proof,
+# and on a stub proof, and one `hit()` by each execute path by
+# WalletExecuteGas.t.sol. CI fails when the committed numbers are stale:
 # update them with `FOUNDRY_PROFILE=gas forge test`.
 #
 # Osaka because eden-testnet executes under it, and EIP-7883 reprices the
@@ -43,12 +48,14 @@ gas_snapshot_emit = false
 # solc moves.
 #
 # Not isolated: an isolated call would add a base fee, calldata and cold state
-# that the `verify` frame inside a claim does not pay.
+# that the `verify` frame inside a claim does not pay. The onboarding and the
+# execute paths are whole transactions, so their tests isolate inline and record gas used
+# less the refund.
 [profile.gas]
 evm_version = "osaka"
 isolate = false
 gas_snapshot_emit = true
-match_path = "contracts/ceremony/test/ClaimVerificationGas.t.sol"
+match_path = "contracts/{ceremony/test/ClaimVerificationGas,wallet/test/WalletRealProof,wallet/test/WalletExecuteGas}.t.sol"
 
 # CI runs `forge lint -D notes`, which fails on any finding. `forge build`
 # runs the same linter but only prints.

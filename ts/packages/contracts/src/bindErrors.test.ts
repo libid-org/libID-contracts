@@ -1,7 +1,7 @@
 import { concatHex, decodeErrorResult, keccak256, pad, slice, toBytes } from 'viem'
 import { describe, expect, it } from 'vitest'
 
-import { bindErrorsAbi } from './index.js'
+import { bindErrorsAbi, walletRegistryErrorsAbi } from './index.js'
 
 // The selector from the signature itself, independent of the ABI under test.
 const selector = (signature: string) => slice(keccak256(toBytes(signature)), 0, 4)
@@ -48,5 +48,36 @@ describe('bindErrorsAbi', () => {
       (e) => `${e.name}(${e.inputs.map((i: { type: string }) => i.type).join(',')})`,
     )
     expect(new Set(signatures).size).toBe(signatures.length)
+  })
+})
+
+describe('walletRegistryErrorsAbi', () => {
+  it('names the errors of every contract on the route, the factory last', () => {
+    const cases: [string, `0x${string}`][] = [
+      ['DigestSpent', concatHex([selector('DigestSpent(bytes32)'), PROVED])],
+      [
+        'UnknownVersion',
+        concatHex([selector('UnknownVersion(bytes32,uint16)'), PROVED, pad('0x01')]),
+      ],
+      ['UntrustedModulus', concatHex([selector('UntrustedModulus(bytes32)'), PROVED])],
+      ['SumcheckFailed', selector('SumcheckFailed()')],
+      ['FirstSessionRefused', selector('FirstSessionRefused()')],
+      ['LinkSessionRefused', selector('LinkSessionRefused()')],
+      ['AppNotListed', concatHex([selector('AppNotListed(bytes32)'), PROVED])],
+      ['NotLinked', concatHex([selector('NotLinked(bytes32)'), PROVED])],
+      [
+        'UnknownSelector',
+        concatHex([selector('UnknownSelector(bytes4)'), pad('0xdeadbeef', { dir: 'right' })]),
+      ],
+      ['NotSetUp', selector('NotSetUp()')],
+      ['TargetDeployFailed', selector('TargetDeployFailed()')],
+      [
+        'WrongReleaseVersion',
+        concatHex([selector('WrongReleaseVersion(uint64,uint64)'), pad('0x01'), pad('0x02')]),
+      ],
+    ]
+    for (const [name, data] of cases) {
+      expect(decodeErrorResult({ abi: walletRegistryErrorsAbi, data }).errorName).toBe(name)
+    }
   })
 })

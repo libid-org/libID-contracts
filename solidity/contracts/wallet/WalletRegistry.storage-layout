@@ -1,0 +1,5 @@
+# WalletRegistry storage layout. Checked in CI by scripts/check-storage-layout.py.
+# Fields may only be APPENDED. Record an append with --update; see the script.
+root erc7201:libid.storage.WalletRegistry 0x1b521e190b50a237bb32c639281068a3635ba26df4c62304b1a25b9f79aaa000
+field slot=0 offset=0 spentDigests: mapping(bytes32 => bool)
+field slot=1 offset=0 proofVerifier: contract IProofVerifier

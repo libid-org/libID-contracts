@@ -1,0 +1,6 @@
+{
+  "AUTHORIZED batch hit(), below quorum": "139056",
+  "AUTHORIZED batch hit(), quorum": "115912",
+  "UserOperation hit(), below quorum": "229116",
+  "UserOperation hit(), quorum": "175023"
+}

@@ -1,0 +1,56 @@
+# WalletStorage storage layout. Checked in CI by scripts/check-storage-layout.py.
+# Fields may only be APPENDED. Record an append with --update; see the script.
+# Reset for a redeploy, not an upgrade: validation reads one session slot and one link slot per signer: SessionRecord leads with its times, generation, flags, signers and link index, and links are kept by index; no wallet is deployed yet
+root erc7201:libid.webwallet.state 0x2fefcc1cd2f12f011dc78ce30301455eb7a4a027395fa8fbcaed6284d99cf200
+field slot=0 offset=0 epoch: bytes32
+field slot=1 offset=0 epochs: mapping(bytes32 => struct WalletStorage.EpochState)
+struct WalletStorage.EpochState slot=0 offset=0 platformId: bytes32
+struct WalletStorage.EpochState slot=1 offset=0 idNode: bytes32
+struct WalletStorage.EpochState slot=2 offset=0 salt: uint256
+struct WalletStorage.EpochState slot=3 offset=0 threshold: uint8
+struct WalletStorage.EpochState slot=3 offset=1 hadSession: bool
+struct WalletStorage.EpochState slot=3 offset=2 rootDelay: uint32
+struct WalletStorage.EpochState slot=3 offset=6 rootEpoch: uint32
+struct WalletStorage.EpochState slot=3 offset=10 adminSessions: uint32
+struct WalletStorage.EpochState slot=3 offset=14 platforms: uint32
+struct WalletStorage.EpochState slot=3 offset=18 adminPlatforms: uint32
+struct WalletStorage.EpochState slot=3 offset=22 linkCount: uint32
+struct WalletStorage.EpochState slot=3 offset=26 platformCount: uint32
+struct WalletStorage.EpochState slot=4 offset=0 sessions: mapping(bytes32 => struct WalletStorage.SessionRecord)
+struct WalletStorage.EpochState slot=5 offset=0 links: mapping(uint32 => struct WalletStorage.Link)
+struct WalletStorage.EpochState slot=6 offset=0 platformCounts: mapping(bytes32 => struct WalletStorage.PlatformCount)
+struct WalletStorage.EpochState slot=7 offset=0 counters: mapping(bytes32 => struct WalletStorage.Counter)
+struct WalletStorage.EpochState slot=8 offset=0 roots: mapping(bytes32 => struct WalletStorage.Root)
+struct WalletStorage.EpochState slot=9 offset=0 appLists: mapping(bytes32 => bytes32[])
+struct WalletStorage.EpochState slot=10 offset=0 linkIndex: mapping(bytes32 => uint32)
+struct WalletStorage.SessionRecord slot=0 offset=0 validAfter: uint48
+struct WalletStorage.SessionRecord slot=0 offset=6 validUntil: uint48
+struct WalletStorage.SessionRecord slot=0 offset=12 activeAt: uint48
+struct WalletStorage.SessionRecord slot=0 offset=18 generation: uint32
+struct WalletStorage.SessionRecord slot=0 offset=22 admin: bool
+struct WalletStorage.SessionRecord slot=0 offset=23 byProof: bool
+struct WalletStorage.SessionRecord slot=0 offset=24 signers: uint8
+struct WalletStorage.SessionRecord slot=0 offset=25 link: uint32
+struct WalletStorage.SessionRecord slot=1 offset=0 identity: bytes32
+struct WalletStorage.SessionRecord slot=2 offset=0 rulesHash: bytes32
+struct WalletStorage.SessionRecord slot=3 offset=0 scopeRoot: bytes32
+struct WalletStorage.SessionRecord slot=4 offset=0 domainsRoot: bytes32
+struct WalletStorage.SessionRecord slot=5 offset=0 paymastersRoot: bytes32
+struct WalletStorage.Link slot=0 offset=0 linked: bool
+struct WalletStorage.Link slot=0 offset=1 generation: uint32
+struct WalletStorage.Link slot=0 offset=5 adminSessions: uint32
+struct WalletStorage.Link slot=0 offset=9 platform: uint32
+struct WalletStorage.Link slot=1 offset=0 platformId: bytes32
+struct WalletStorage.PlatformCount slot=0 offset=0 links: uint32
+struct WalletStorage.PlatformCount slot=0 offset=4 admins: uint32
+struct WalletStorage.PlatformCount slot=0 offset=8 index: uint32
+struct WalletStorage.Counter slot=0 offset=0 amount: uint128
+struct WalletStorage.Counter slot=0 offset=16 period: uint48
+struct WalletStorage.Counter slot=0 offset=22 periodStart: uint48
+struct WalletStorage.Counter slot=0 offset=28 listed: bool
+struct WalletStorage.Counter slot=1 offset=0 spent: uint128
+struct WalletStorage.Root slot=0 offset=0 data: bytes
+struct WalletStorage.Root slot=1 offset=0 implementation: address
+struct WalletStorage.Root slot=1 offset=20 version: uint64
+struct WalletStorage.Root slot=2 offset=0 readyAt: uint48
+struct WalletStorage.Root slot=2 offset=6 rootEpoch: uint32

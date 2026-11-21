@@ -1,0 +1,5 @@
+# WalletFactory storage layout. Checked in CI by scripts/check-storage-layout.py.
+# Fields may only be APPENDED. Record an append with --update; see the script.
+root erc7201:libid.storage.WalletFactory 0x64fb8f6b910e30482f0332a63e56176c451f6d54f483f61b5ef32dd8e5fc7600
+field slot=0 offset=0 latest: uint64
+field slot=1 offset=0 releases: mapping(uint64 => address)
