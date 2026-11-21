@@ -6,6 +6,7 @@ import {Account as OzAccount} from "@openzeppelin/contracts/account/Account.sol"
 import {IEntryPoint, PackedUserOperation} from "@openzeppelin/contracts/interfaces/IERC4337.sol";
 import {Execution} from "@openzeppelin/contracts/interfaces/draft-IERC7579.sol";
 
+import {CeremonyProofVerifier} from "../../ceremony/CeremonyProofVerifier.sol";
 import {IPlatformVerifier} from "../../ceremony/IPlatformVerifier.sol";
 import {IProofVerifier} from "../../ceremony/IProofVerifier.sol";
 import {operationList} from "../../ceremony/test/OperationListVector.sol";
@@ -133,7 +134,7 @@ contract WalletExecuteTest is WalletSuite {
         IIdentityAdmin.Policy memory none;
         bytes memory payload = _linkPayload(w, GOOGLE, CAROL, "", none);
         Execution[] memory x = new Execution[](3);
-        x[0] = _x(w, 0, abi.encodeCall(IIdentityAdmin.linkIdentity, (GOOGLE, V1, payload, "", none)));
+        x[0] = _x(w, 0, abi.encodeCall(IIdentityAdmin.linkIdentity, (GOOGLE, V1, payload, none)));
         x[1] = _x(w, 0, abi.encodeCall(IIdentityAdmin.addSession, (carol, _key(CAROL_PK), _admin())));
         x[2] = _hitX();
         _refusesBy(w, abi.encode(x), _pks(ALICE_PK, CAROL_PK), NOT_SIGNED);
@@ -726,7 +727,7 @@ contract WalletOnboardingTest is WalletSuite {
     }
 
     function _link(uint256 value) internal view returns (Execution memory) {
-        return _x(w, value, abi.encodeCall(IIdentityAdmin.linkIdentity, (X, V2, list, linkData, _admin())));
+        return _x(w, value, abi.encodeCall(IIdentityAdmin.linkIdentity, (X, V2, list, _admin())));
     }
 
     function _bind(uint256 value) internal view returns (Execution memory) {
@@ -803,21 +804,28 @@ contract WalletOnboardingTest is WalletSuite {
         assertEq(relayer.balance, 1 ether, "the relayer is not even");
     }
 
-    /// A bind priced in full verifies again, even after someone else verified the proof earlier in the transaction.
-    function test_aFullPricedBindSurvivesAnEarlierVerification() public {
+    /// A value fixed before the transaction reverts once another call verified the proof earlier in it; priced by
+    /// `quoteFor` at that point, the onboarding pays nothing for the proof.
+    function test_aPriceFixedBeforeAnEarlierVerificationReverts() public {
         vm.deal(address(this), FEE);
         this.verifyThenOnboard();
         (address holder,) = identities.handleBinding(HANDLE);
         assertEq(holder, w, "handle not bound to the wallet");
-        assertEq(w.balance, CLAIMED - linkFee - FEE, "wallet native");
+        assertEq(w.balance, CLAIMED, "wallet native");
         assertEq(relayer.balance, 1 ether, "the relayer is not even");
     }
 
     function verifyThenOnboard() external {
-        vm.expectCall(address(paid), abi.encodeWithSelector(IPlatformVerifier.verify.selector), 3);
+        vm.expectCall(address(paid), abi.encodeWithSelector(IPlatformVerifier.verify.selector), 1);
         proofVerifier.verify{value: FEE}(X, V2, list);
-        signedValue = linkFee + FEE;
-        bytes memory calls = _onboarding(FEE);
-        _send(calls, _signedBy(ALICE_PK, calls));
+        bytes memory fixedEarlier = _onboarding(0);
+        vm.expectRevert(abi.encodeWithSelector(CeremonyProofVerifier.WrongValue.selector, 0, linkFee));
+        _send(fixedEarlier, _signedBy(ALICE_PK, fixedEarlier));
+
+        linkFee = registry.quoteFor(X, V2, list);
+        assertEq(linkFee, 0, "quoteFor after the verification");
+        signedValue = 0;
+        bytes memory priced = _onboarding(0);
+        _send(priced, _signedBy(ALICE_PK, priced));
     }
 }

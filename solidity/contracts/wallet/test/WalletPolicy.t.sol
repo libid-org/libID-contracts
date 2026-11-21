@@ -580,7 +580,7 @@ contract WalletPolicyTest is WalletSuite {
         IIdentityAdmin.Policy memory p = IIdentityAdmin.Policy(0, 0, false, 0, far);
         bytes memory payload = _loginPayload(w, address(this), X, ALICE, _key(APP_PK), p);
         vm.expectRevert(abi.encodeWithSelector(IWebWallet.BadAllowance.selector, address(token)));
-        IWebWallet(w).addSessionByLogin(X, V1, payload, "", p);
+        IWebWallet(w).addSessionByLogin(X, V1, payload, p);
     }
 
     /// `at == 0` is refused: in a one-second period it would end the window at 0, which is unbounded.
@@ -1035,6 +1035,6 @@ contract WalletPolicyTest is WalletSuite {
         bytes memory payload = _payload(X, ALICE, ADD, _txData(w, address(this), _key(MALLORY_PK), committed));
         p.rules.allowances[0].amount += 1;
         vm.expectRevert(abi.encodeWithSelector(IWalletRegistry.WrongPolicy.selector, _ph(p), committed));
-        IWebWallet(w).addSessionByLogin(X, V1, payload, "", p);
+        IWebWallet(w).addSessionByLogin(X, V1, payload, p);
     }
 }

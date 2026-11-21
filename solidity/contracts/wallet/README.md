@@ -119,12 +119,14 @@ address before it exists.
 address w = factory.walletAddress(platformId, idNode, salt);
 // The wallet submits its own link, so it names itself.
 bytes memory linkData = abi.encode(block.chainid, w, w, k, policyHashOf(adminPolicy));
+// listPayload proves an Operation List holding linkData in its link entry, see below.
+uint256 linkFee = registry.quoteFor(platformId, verifierVersion, listPayload);
 
 Execution[] memory calls = new Execution[](4);
 // K becomes the genesis identity's admin session, active at once.
 calls[0] = Execution(w, linkFee,
-    abi.encodeCall(IIdentityAdmin.linkIdentity, (platformId, verifierVersion, listPayload, linkData, adminPolicy)));
-// The link verified this proof, so the bind attaches no value and pays no second fee.
+    abi.encodeCall(IIdentityAdmin.linkIdentity, (platformId, verifierVersion, listPayload, adminPolicy)));
+// The link verified this proof last, so the bind's quote is zero: it attaches no value.
 calls[1] = Execution(address(identities), 0,
     abi.encodeCall(IdentityRegistry.bindPrivately, (platformId, verifierVersion, listPayload, 0, address(0))));
 calls[2] = Execution(address(escrow), 0, abi.encodeCall(HandleEscrow.claim, (handleNode, tokens, w)));
@@ -182,8 +184,9 @@ address, in one type-4 transaction that the key sends itself:
 // authorizationList: the key's authorization for this chain id and WalletForwarder.
 Execution[] memory calls = new Execution[](2);
 // Link only: the transaction data carries an empty key and policy hash 0.
+uint256 linkFee = registry.quoteFor(platformId, verifierVersion, payload);
 calls[0] = Execution(account, linkFee,
-    abi.encodeCall(IIdentityAdmin.linkIdentity, (platformId, verifierVersion, payload, "", policy)));
+    abi.encodeCall(IIdentityAdmin.linkIdentity, (platformId, verifierVersion, payload, policy)));
 // The first session, signing from the next second.
 calls[1] = Execution(account, 0,
     abi.encodeCall(IIdentityAdmin.addSession, (identityOf(platformId, idNode), sessionKey, adminPolicy)));
@@ -435,15 +438,16 @@ Calldata shorter than four bytes has selector `0x00000000`.
 ## Logins
 
 A login is a proof of a linked identity. The submitter it names sends it to
-the wallet, with the fee `registry.quote(platformId, verifierVersion)`
-attached: directly, or as a call in the wallet's own batch, where the
+the wallet, with exactly `registry.quoteFor(platformId, verifierVersion, payload)`
+attached (`WrongValue` otherwise), which is zero when this transaction
+verified that payload last, and the full price otherwise: directly, or as a call in the wallet's own batch, where the
 submitter is the wallet itself. The wallet calls `WalletRegistry.check` with
 its own caller as the submitter. The registry verifies the proof, requires
 that it names this chain, the calling wallet, that submitter and the policy,
 spends its digest (`DigestSpent` on reuse), and returns the identity, the
 key and the app. The wallet applies the result.
 
-- `addSessionByLogin(platformId, verifierVersion, payload, data, policy)`
+- `addSessionByLogin(platformId, verifierVersion, payload, policy)`
   (`libid.webwallet.add-session`) adds a session of a linked identity with no
   admin signature. It is `byProof`, signs from the next second, and must
   pass the identity's app list (`AppNotListed`). A wallet that never had a
@@ -469,13 +473,16 @@ any caller other than the one named (`WrongSubmitter`): a login placed in a
 signed batch cannot be copied out and submitted alone. Name an address
 only its holder can call through: the wallet, an EOA, or a contract that
 checks its own caller; never a public multicall. The registry takes
-the submitter from the wallet's argument, never from ERC-2771 calldata. Under an Operation List (`libid.operations`) the
-proof commits `keccak256` of these bytes in a `libid.webwallet.*` entry and
-the call passes them as `data`. A proof of one operation passes empty
-`data`.
+the submitter from the wallet's argument, never from ERC-2771 calldata.
 
-A wallet takes one entry per list per chain: the registry spends one digest
-per proof, so a second wallet entry for the same chain never runs.
+Under an Operation List (`libid.operations`) these bytes are the data of a
+`libid.webwallet.*` entry. The registry takes the one entry under the called
+function's domain whose data names this chain first: none reverts
+`NoOwnOperation`, more than one `SeveralOwnOperations`. A proof under any
+other domain reverts `ForeignOperationDomain`. One list can carry an entry
+for each chain, and each chain's wallet takes its own. The registry spends
+one digest per proof, so a second wallet entry for the same chain never
+runs.
 
 The registry checks the operation's domain, so a link proof cannot serve as
 a login. A key that calls `check` directly spends its own proof and records

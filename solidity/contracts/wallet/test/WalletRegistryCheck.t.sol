@@ -4,6 +4,7 @@ pragma solidity ^0.8.24;
 import {UUPSUpgradeable} from "@openzeppelin/contracts/proxy/utils/UUPSUpgradeable.sol";
 
 import {CeremonyProofVerifier} from "../../ceremony/CeremonyProofVerifier.sol";
+import {IOperationLists} from "../../ceremony/IOperationLists.sol";
 import {IPlatformVerifier} from "../../ceremony/IPlatformVerifier.sol";
 import {IProofVerifier} from "../../ceremony/IProofVerifier.sol";
 import {StubPlatformVerifier} from "../../identity/test/StubPlatformVerifier.sol";
@@ -34,7 +35,7 @@ contract WalletRegistryCheckTest is WalletBase {
 
     function _login(bytes memory payload) internal {
         vm.prank(relayer);
-        IWebWallet(w).addSessionByLogin(X, V1, payload, "", _admin());
+        IWebWallet(w).addSessionByLogin(X, V1, payload, _admin());
     }
 
     /// Acceptance 5: a login session signs from the next second.
@@ -74,7 +75,7 @@ contract WalletRegistryCheckTest is WalletBase {
             _loginPayload(w, relayer, X, ALICE, k, _admin())
         ];
         bytes4[5] memory errs = [
-            IWalletRegistry.WrongOperationDomain.selector,
+            IOperationLists.ForeignOperationDomain.selector,
             IWalletRegistry.WrongWallet.selector,
             IWalletRegistry.WrongChain.selector,
             IWalletRegistry.WrongPolicy.selector,
@@ -84,13 +85,13 @@ contract WalletRegistryCheckTest is WalletBase {
         for (uint256 i; i < errs.length; ++i) {
             vm.prank(relayer);
             vm.expectPartialRevert(errs[i]);
-            IWebWallet(w).addSessionByLogin(X, V1, payloads[i], "", _admin());
+            IWebWallet(w).addSessionByLogin(X, V1, payloads[i], _admin());
             assertEq(registry.spentDigests(_digestOf(payloads[i])), i == 4, "a refused proof's digest");
         }
         // A login proof used as a link, in Alice's own batch.
         bytes memory login = _loginPayload(w, w, X, ALICE, k, _admin());
         bytes memory data = _signed(w, _pks(ALICE_PK), _one(_linkWith(w, X, login, _admin())));
-        vm.expectPartialRevert(IWalletRegistry.WrongOperationDomain.selector);
+        vm.expectPartialRevert(IOperationLists.ForeignOperationDomain.selector);
         IWebWallet(w).execute(AUTHORIZED_MODE, data);
         assertFalse(registry.spentDigests(_digestOf(login)), "a refused link spent the digest");
     }
@@ -151,11 +152,39 @@ contract WalletRegistryCheckTest is WalletBase {
         for (uint256 v = 4; v <= 6; v += 2) {
             vm.prank(relayer);
             vm.expectRevert(abi.encodeWithSelector(CeremonyProofVerifier.WrongValue.selector, 5, v));
-            IWebWallet(w).addSessionByLogin{value: v}(X, 2, fee, "", _admin());
+            IWebWallet(w).addSessionByLogin{value: v}(X, 2, fee, _admin());
         }
         vm.prank(relayer);
-        IWebWallet(w).addSessionByLogin{value: 5}(X, 2, fee, "", _admin());
+        IWebWallet(w).addSessionByLogin{value: 5}(X, 2, fee, _admin());
         assertEq(address(paid).balance, 5, "the verifier was not paid");
+    }
+
+    /// The registry prices a payload as the Proof Verifier does: the full price, then zero once this transaction
+    /// verified it. Forge clears transient storage between a test's top-level calls, so the check and the quotes
+    /// run in one call.
+    function test_quoteForIsZeroOnceTheTransactionVerifiedThePayload() public {
+        this.quoteAcrossALogin();
+    }
+
+    function quoteAcrossALogin() external {
+        StubPlatformVerifier paid = new StubPlatformVerifier(X, 5);
+        vm.prank(owner);
+        proofVerifier.setVerifier(X, 2, IPlatformVerifier(address(paid)));
+        paid.setNodes(ALICE, keccak256("h"));
+        bytes memory payload = abi.encode(
+            StubPlatformVerifier.StubPayload({
+                ceremonyVersion: 1,
+                operationDomain: ADD,
+                authorizationNonce: keccak256("quoted"),
+                transactionData: _txData(w, relayer, _key(ALICE2_PK), _ph(_admin()))
+            })
+        );
+        assertEq(registry.quoteFor(X, 2, payload), 5, "before the login");
+        vm.deal(relayer, 5);
+        vm.prank(relayer);
+        IWebWallet(w).addSessionByLogin{value: 5}(X, 2, payload, _admin());
+        assertEq(registry.quoteFor(X, 2, payload), 0, "after the login");
+        assertEq(registry.quote(X, 2), 5, "the payload-free quote");
     }
 
     /// A domain other than the three wallet operations is refused, and spends nothing.
@@ -163,7 +192,7 @@ contract WalletRegistryCheckTest is WalletBase {
         bytes memory payload = _payload(X, ALICE, BIND, _txData(w, "", 0));
         vm.prank(w);
         vm.expectRevert(abi.encodeWithSelector(IWalletRegistry.UnknownOperationDomain.selector, BIND));
-        registry.check(BIND, X, V1, payload, "", w, 0);
+        registry.check(BIND, X, V1, payload, w, 0);
         assertFalse(registry.spentDigests(_digestOf(payload)), "spent");
     }
 
@@ -172,12 +201,12 @@ contract WalletRegistryCheckTest is WalletBase {
         bytes memory forW = _loginPayload(w, mallory, X, ALICE, _key(MALLORY_PK), _admin());
         vm.prank(mallory);
         vm.expectPartialRevert(IWalletRegistry.WrongWallet.selector);
-        registry.check(ADD, X, V1, forW, "", mallory, _ph(_admin()));
+        registry.check(ADD, X, V1, forW, mallory, _ph(_admin()));
         assertFalse(registry.spentDigests(_digestOf(forW)), "a stranger burned the wallet's proof");
 
         bytes memory own = _linkPayload(mallory, X, MALLORY, _key(MALLORY_PK), _admin());
         vm.prank(mallory);
-        IWalletRegistry.Checked memory c = registry.check(LINK, X, V1, own, "", mallory, _ph(_admin()));
+        IWalletRegistry.Checked memory c = registry.check(LINK, X, V1, own, mallory, _ph(_admin()));
         assertEq(
             abi.encode(c.identity, c.key, c.app),
             abi.encode(_identity(X, MALLORY), _key(MALLORY_PK), bytes("client")),

@@ -252,7 +252,7 @@ abstract contract WalletBase is Test {
         pure
         returns (Execution memory)
     {
-        return _x(w, 0, abi.encodeCall(IIdentityAdmin.linkIdentity, (platformId, V1, payload, "", p)));
+        return _x(w, 0, abi.encodeCall(IIdentityAdmin.linkIdentity, (platformId, V1, payload, p)));
     }
 
     /// A login proof that `by` submits to `w`, adding `key` under `p`.

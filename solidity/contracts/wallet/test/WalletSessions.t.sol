@@ -345,12 +345,12 @@ contract WalletSessionsTest is WalletSuite {
             IWebWallet(w).addSession(_alice(), _key(APP_PK), ps[i]);
             bytes memory payload = _loginPayload(w, address(this), X, ALICE, _key(APP_PK), ps[i]);
             vm.expectRevert(err);
-            IWebWallet(w).addSessionByLogin(X, V1, payload, "", ps[i]);
+            IWebWallet(w).addSessionByLogin(X, V1, payload, ps[i]);
         }
         vm.warp(flag);
         bytes memory late = _loginPayload(w, address(this), X, ALICE, _key(APP_PK), _app());
         vm.expectRevert(abi.encodeWithSelector(IWebWallet.PolicyOutOfRange.selector, 0, 0));
-        IWebWallet(w).addSessionByLogin(X, V1, late, "", _app());
+        IWebWallet(w).addSessionByLogin(X, V1, late, _app());
     }
 
     // ─── Root operations ────────────────────────────────────────────
@@ -556,7 +556,7 @@ contract WalletSessionsTest is WalletSuite {
         assertTrue(_isValid1271(w, h, ALICE_PK, _wrapped(w, h)), "the other identity stopped");
         bytes memory payload = _loginPayload(w, address(this), GITHUB, BOB, _key(MALLORY_PK), _admin());
         vm.expectRevert(abi.encodeWithSelector(IWebWallet.NotLinked.selector, _bob()));
-        IWebWallet(w).addSessionByLogin(GITHUB, V1, payload, "", _admin());
+        IWebWallet(w).addSessionByLogin(GITHUB, V1, payload, _admin());
     }
 
     /// A re-link starts a new generation: sessions of the earlier link stay dead, and their keys can be re-added.

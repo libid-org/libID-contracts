@@ -192,7 +192,7 @@ contract WalletAbiTest is WalletBase {
 
     /// The selectors other releases and the forwarder call are frozen.
     function test_frozenSelectors() public pure {
-        assertEq(IWalletRegistry.check.selector, bytes4(0x2170e2ef), "registry check");
+        assertEq(IWalletRegistry.check.selector, bytes4(0xfd606387), "registry check");
         assertEq(IWalletFactory.latest.selector, bytes4(0x52bfe789), "factory latest");
         assertEq(IWalletFactory.release.selector, bytes4(0x41fbbc31), "factory release");
         assertEq(IWalletCore.reset.selector, bytes4(0x12a20190), "reset");
@@ -219,7 +219,7 @@ contract WalletAbiTest is WalletBase {
         bytes memory payload = _linkPayload(mallory, X, MALLORY, _key(MALLORY_PK), _admin());
         vm.prank(mallory);
         (bool ok, bytes memory checked) = address(registry)
-            .call(abi.encodeCall(IWalletRegistry.check, (LINK, X, V1, payload, "", mallory, _ph(_admin()))));
+            .call(abi.encodeCall(IWalletRegistry.check, (LINK, X, V1, payload, mallory, _ph(_admin()))));
         assertTrue(ok, "check");
         bytes memory expected = abi.encodePacked(
             uint256(0x20), _identity(X, MALLORY), uint256(0x60), uint256(0xa0), uint256(20), bytes32(_key(MALLORY_PK))
@@ -312,10 +312,10 @@ contract WalletAbiTest is WalletBase {
 
         bytes memory payload = _payload(X, ALICE, ADD, keyed);
         vm.prank(w);
-        assertEq(registry.check(ADD, X, V1, payload, "", submitter, policyHash).key, key, "the registry's key");
+        assertEq(registry.check(ADD, X, V1, payload, submitter, policyHash).key, key, "the registry's key");
         payload = _payload(X, ALICE, LINK, keyless);
         vm.prank(w);
-        assertEq(registry.check(LINK, X, V1, payload, "", submitter, policyHash).key, bytes(""), "a link's key");
+        assertEq(registry.check(LINK, X, V1, payload, submitter, policyHash).key, bytes(""), "a link's key");
     }
 
     function _erc7201(string memory id) internal pure returns (bytes32) {

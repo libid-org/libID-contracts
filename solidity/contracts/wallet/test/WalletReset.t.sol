@@ -305,7 +305,7 @@ contract WalletResetTest is WalletBase {
 
         bytes memory remove = _payload(GITHUB, BOB, REMOVE, _txData(w, mallory, "", 0));
         vm.prank(mallory);
-        IWebWallet(w).removeSessionsByLogin(GITHUB, V1, remove, "", none);
+        IWebWallet(w).removeSessionsByLogin(GITHUB, V1, remove, none);
         assertEq(IWebWallet(w).threshold(), 1, "the threshold did not drop");
         vm.prank(mallory);
         vm.expectRevert(IWebWallet.ExecutionNotSigned.selector);
@@ -322,7 +322,7 @@ contract WalletResetTest is WalletBase {
         IIdentityAdmin.Policy memory none;
         bytes memory link = _linkPayload(a, GITHUB, BOB, "", none);
         vm.prank(a);
-        IWebWallet(a).linkIdentity(GITHUB, V1, link, "", none);
+        IWebWallet(a).linkIdentity(GITHUB, V1, link, none);
         vm.prank(a);
         IWebWallet(a).addSession(_identity(GITHUB, BOB), _key(BOB_PK), _admin());
         vm.warp(_now() + 1);
@@ -344,7 +344,7 @@ contract WalletResetTest is WalletBase {
                 vm.prank(a, a);
                 IWebWallet(a).setThreshold(2);
             } else {
-                IWebWallet(a).removeSessionsByLogin(GITHUB, V1, remove, "", none);
+                IWebWallet(a).removeSessionsByLogin(GITHUB, V1, remove, none);
             }
             vm.prank(relayer);
             vm.expectRevert(IWebWallet.ExecutionNotSigned.selector);
@@ -415,7 +415,7 @@ contract WalletResetTest is WalletBase {
         bytes memory login = _loginPayload(a, relayer, X, ALICE, _key(ALICE_PK), _admin());
         vm.prank(relayer);
         vm.expectRevert(IWebWallet.FirstSessionRefused.selector);
-        IWebWallet(a).addSessionByLogin(X, V1, login, "", _admin());
+        IWebWallet(a).addSessionByLogin(X, V1, login, _admin());
         // A stranger's batch adding her own session signs only from the next second: still refused.
         Execution[] memory x = new Execution[](2);
         x[0] = _linkX(a, X, MALLORY, "", _admin());
@@ -434,7 +434,7 @@ contract WalletResetTest is WalletBase {
         IIdentityAdmin.Policy memory none;
         bytes memory link = _linkPayload(a, GITHUB, BOB, "", none);
         vm.prank(a);
-        IWebWallet(a).linkIdentity(GITHUB, V1, link, "", none);
+        IWebWallet(a).linkIdentity(GITHUB, V1, link, none);
         vm.startPrank(a);
         IWebWallet(a).addSession(_identity(GITHUB, BOB), _key(BOB_PK), _admin());
         IWebWallet(a).addSession(_identity(X, ALICE), _key(MALLORY_PK), _hitOnly());
@@ -444,7 +444,7 @@ contract WalletResetTest is WalletBase {
         vm.warp(_now() + 1);
 
         bytes memory remove = _payload(GITHUB, BOB, REMOVE, _txData(a, address(this), _key(BOT_PK), _ph(_hitOnly())));
-        IWebWallet(a).removeSessionsByLogin(GITHUB, V1, remove, "", _hitOnly());
+        IWebWallet(a).removeSessionsByLogin(GITHUB, V1, remove, _hitOnly());
         assertEq(IWebWallet(a).threshold(), 2, "the threshold moved");
 
         vm.prank(a);
@@ -563,7 +563,7 @@ contract WalletResetTest is WalletBase {
         _onboard();
         bytes memory payload = _linkPayload(a, GITHUB, BOB, "", _admin());
         vm.prank(a, a);
-        registry.check(LINK, GITHUB, V1, payload, "", a, 0);
+        registry.check(LINK, GITHUB, V1, payload, a, 0);
         assertTrue(registry.spentDigests(_digestOf(payload)), "the proof is unspent");
         assertFalse(IWebWallet(a).isLinked(_identity(GITHUB, BOB)), "a direct check linked");
     }
