@@ -1,22 +1,39 @@
-/// Operation Lists (chain profiles §3.3): one ceremony committing an entry
-/// for each of several Consumers.
+/// Operation Lists (chain profiles §3.3): one ceremony's transaction data
+/// carrying an entry for each of several Consumers. A bind under
+/// `OPERATIONS_DOMAIN` is `encodeOperationList([bindOperation(account)])`; the
+/// registry also takes the single form, `abi.encode(account)` under
+/// `BIND_DOMAIN`.
 
-import { encodeAbiParameters, type Hex, keccak256, parseAbiParameters, toHex } from 'viem'
+import {
+  type Address,
+  encodeAbiParameters,
+  type Hex,
+  keccak256,
+  parseAbiParameters,
+  toHex,
+} from 'viem'
 
 /// `keccak256("libid.operations")`, the operation domain of an Operation List.
 export const OPERATIONS_DOMAIN: Hex = keccak256(toHex('libid.operations'))
 
-/// One entry: a Consumer's operation domain and the transaction data that
-/// domain fixes.
-export type OperationEntry = { domain: Hex; data: Hex }
+/// `keccak256("libid.bind-identity")`, the identity registry's entry domain.
+export const BIND_DOMAIN: Hex = keccak256(toHex('libid.bind-identity'))
 
-const OPERATION_LIST = parseAbiParameters('(bytes32 domain, bytes32 dataHash)[]')
+/// One entry: a Consumer's operation domain and the data that domain fixes.
+export type Operation = { domain: Hex; data: Hex }
 
-/// The transaction data under `OPERATIONS_DOMAIN`: `abi.encode(Operation[])`
-/// of each entry's domain and `keccak256(data)`. No `data` is in the list: each
-/// Consumer's call carries its own entry's, or rebuilds it.
-export function encodeOperationList(entries: readonly OperationEntry[]): Hex {
-  return encodeAbiParameters(OPERATION_LIST, [
-    entries.map(({ domain, data }) => ({ domain, dataHash: keccak256(data) })),
-  ])
+const OPERATION_LIST = parseAbiParameters('(bytes32 domain, bytes data)[]')
+
+/// The transaction data under `OPERATIONS_DOMAIN`: `abi.encode(Operation[])`.
+export function encodeOperationList(entries: readonly Operation[]): Hex {
+  return encodeAbiParameters(OPERATION_LIST, [entries])
+}
+
+/// The identity registry's entry: bind the proved identity to `account`, the
+/// account that calls `bind`.
+export function bindOperation(account: Address): Operation {
+  return {
+    domain: BIND_DOMAIN,
+    data: encodeAbiParameters(parseAbiParameters('address'), [account]),
+  }
 }

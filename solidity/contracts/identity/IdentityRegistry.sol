@@ -144,19 +144,17 @@ contract IdentityRegistry is
 
     // ─── Errors ─────────────────────────────────────────────────────
 
-    /// @notice The one operation this Consumer owns (REQ-COMMON-01A), alone or as
-    ///         its entry of an Operation List (REQ-PLAT-08P).
+    /// @notice The domain of this Consumer's entry in an Operation List (REQ-COMMON-01A, REQ-PLAT-08P).
     bytes32 public constant OPERATION_DOMAIN = keccak256(bytes("libid.bind-identity"));
 
     error ZeroAddress();
-    /// @dev The submission names an operation this Consumer does not own
-    ///      (REQ-COMMON-06A).
-    error ForeignOperationDomain(bytes32 operationDomain);
     /// @dev A digest is spendable once here (REQ-COMMON-03A).
     error DigestAlreadySpent(bytes32 digest);
-    /// @dev A single operation's transaction data is not exactly `abi.encode(target)` (REQ-COMMON-01F).
+    /// @dev The entry's data is not exactly `abi.encode(target)` (REQ-COMMON-01F).
     error BadTransactionData(uint256 length);
-    /// @dev Less value was delivered than `feeAmount`.
+    /// @dev Less was delivered than the verification path alone costs.
+    error WrongBindValue(uint256 required, uint256 provided);
+    /// @dev The value above the verification path is not `feeAmount`.
     error WrongFeeValue(uint256 required, uint256 provided);
     /// @dev A free binding is `(0, address(0))` and nothing else.
     error NoncanonicalFee(uint256 amount, address receiver);
@@ -202,15 +200,9 @@ contract IdentityRegistry is
     /// @notice Bind an identity from a ceremony. A nonempty `handle` must fold and
     ///         hash to the proved handle node; it is logged in `HandleRevealed`,
     ///         and with `primary` it also becomes the caller's name.
-    /// @dev `msg.value` is `feeAmount`, which goes to `feeReceiver`, plus what
-    ///      the Proof Verifier takes for the payload under its value rule
-    ///      (`IProofVerifier.verify`): `quoteBind`, or zero for a payload an
-    ///      earlier call of the caller's own transaction verified. A bind with
-    ///      no service fee passes `(0, address(0))`. Less than `feeAmount`
-    ///      reverts `WrongFeeValue` here; otherwise the Proof Verifier gets
-    ///      what is left after `feeAmount`, so a value short of the quote by
-    ///      the fee reverts there (`WrongValue`, or `NotVerifiedInTransaction`
-    ///      for exactly the fee). Check `feeAmount + quoteBind` first.
+    /// @dev `msg.value` is `quoteBindFor` the same payload plus `feeAmount`,
+    ///      which goes to `feeReceiver`. A bind with no service fee passes
+    ///      `(0, address(0))`.
     function bind(
         bytes32 platformId,
         uint16 verifierVersion,
@@ -288,36 +280,33 @@ contract IdentityRegistry is
         _requireKnown(platformId);
         if (primary && bytes(handle).length == 0) revert PrimaryWithoutHandle();
 
-        // The rest is the verification's: the Proof Verifier checks it.
-        if (msg.value < feeAmount) revert WrongFeeValue(feeAmount, msg.value);
-        claimed = _s().proofVerifier.verify{value: msg.value - feeAmount}(platformId, verifierVersion, payload);
+        IProofVerifier pv = _s().proofVerifier;
+        uint256 required = pv.quoteFor(platformId, verifierVersion, payload);
+        if (msg.value < required) revert WrongBindValue(required, msg.value);
 
-        bool single = claimed.operationDomain == OPERATION_DOMAIN;
-        if (!single) {
-            if (claimed.operationDomain != OperationList.DOMAIN) {
-                revert ForeignOperationDomain(claimed.operationDomain);
-            }
-            // The entry's data is the caller as target (REQ-PLAT-08P).
-            bytes32[] memory own = new bytes32[](1);
-            own[0] = OPERATION_DOMAIN;
-            OperationList.select(claimed.transactionData, abi.encode(msg.sender), own, false);
-        }
+        claimed = pv.verify{value: required}(platformId, verifierVersion, payload);
+
+        bytes memory data = OperationList.own(claimed.operationDomain, claimed.transactionData, OPERATION_DOMAIN);
 
         if (_s().spentDigests[claimed.sessionId]) {
             revert DigestAlreadySpent(claimed.sessionId);
         }
         _s().spentDigests[claimed.sessionId] = true;
 
-        if (single) {
-            bytes memory data = claimed.transactionData;
-            if (data.length != 32) revert BadTransactionData(data.length);
-            address target = abi.decode(data, (address));
-            if (target != msg.sender) revert NotProofTarget(target, msg.sender);
-        }
+        if (data.length != 32) revert BadTransactionData(data.length);
+        uint256 word = abi.decode(data, (uint256));
+        if (word >> 160 != 0) revert BadTransactionData(data.length);
+        // The check above leaves only the low 160 bits set.
+        // forge-lint: disable-next-line(unsafe-typecast)
+        address target = address(uint160(word));
+        if (target != msg.sender) revert NotProofTarget(target, msg.sender);
 
         if ((feeAmount == 0) != (feeReceiver == address(0))) {
             revert NoncanonicalFee(feeAmount, feeReceiver);
         }
+
+        uint256 offered = msg.value - required;
+        if (offered != feeAmount) revert WrongFeeValue(feeAmount, offered);
 
         if (claimed.idNode == bytes32(0)) revert NoId();
         if (claimed.handleNode == bytes32(0)) revert NoHandle();
@@ -349,9 +338,22 @@ contract IdentityRegistry is
     }
 
     /// @notice What `bind` costs for this platform and verifier version, before
-    ///         any service fee its caller names.
+    ///         any service fee its caller names: the full price, the one to
+    ///         show or fund before a payload exists.
     function quoteBind(bytes32 platformId, uint16 verifierVersion) external view returns (uint256) {
         return _s().proofVerifier.quote(platformId, verifierVersion);
+    }
+
+    /// @notice What `bind` takes for this payload before any service fee: zero
+    ///         when this payload, under this pair's Platform Verifier, is the
+    ///         last one the transaction verified through any Platform Verifier
+    ///         (`IProofVerifier.verify`), else `quoteBind` for the pair.
+    function quoteBindFor(bytes32 platformId, uint16 verifierVersion, bytes calldata payload)
+        external
+        view
+        returns (uint256)
+    {
+        return _s().proofVerifier.quoteFor(platformId, verifierVersion, payload);
     }
 
     /// @notice Whether this Consumer has already accepted a digest.

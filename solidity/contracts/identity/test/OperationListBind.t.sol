@@ -9,12 +9,13 @@ import {CeremonyProofVerifier} from "../../ceremony/CeremonyProofVerifier.sol";
 import {IPlatformVerifier} from "../../ceremony/IPlatformVerifier.sol";
 import {IProofVerifier} from "../../ceremony/IProofVerifier.sol";
 import {IOperationLists} from "../../ceremony/IOperationLists.sol";
-import {OperationListVector as V} from "../../ceremony/test/OperationListVector.sol";
+import {OperationListVector as V, operationList} from "../../ceremony/test/OperationListVector.sol";
 import {IdentityRegistry} from "../IdentityRegistry.sol";
 import {StubPlatformVerifier} from "./StubPlatformVerifier.sol";
 import {TestNodes} from "./TestNodes.sol";
 
-/// @notice The bind Consumer under `libid.operations`: the list cases of TEST-CHAIN-05 and TEST-PLAT-20E.
+/// @notice The bind Consumer under `libid.operations` and under its own domain: the list cases of
+///         TEST-CHAIN-05 and TEST-PLAT-20E, and the single form beside them.
 contract OperationListBindTest is Test {
     bytes32 constant PLATFORM = CeremonyProfile.PLATFORM_X;
     address constant OWNER = address(0xA11CE);
@@ -43,34 +44,38 @@ contract OperationListBindTest is Test {
         vm.stopPrank();
     }
 
-    /// The stub's payload for `transactionData` under `libid.operations`, with the vector's nonce.
-    function _payload(bytes memory transactionData) internal pure returns (bytes memory) {
+    /// The stub's payload for `transactionData` under `domain`, with the vector's nonce.
+    function _payload(bytes32 domain, bytes memory transactionData) internal pure returns (bytes memory) {
         return abi.encode(
             StubPlatformVerifier.StubPayload({
                 ceremonyVersion: 1,
-                operationDomain: V.OPERATIONS,
+                operationDomain: domain,
                 authorizationNonce: V.NONCE,
                 transactionData: transactionData
             })
         );
     }
 
-    function _bind(address caller, bytes memory transactionData) internal {
-        bytes memory payload = _payload(transactionData);
-        vm.prank(caller);
+    function _bind(bytes memory transactionData) internal {
+        bytes memory payload = _payload(V.OPERATIONS, transactionData);
+        vm.prank(V.TARGET);
         registry.bindPrivately(PLATFORM, 1, payload, 0, address(0));
     }
 
-    function _refused(bytes memory transactionData, bytes memory err) internal {
-        bytes memory payload = _payload(transactionData);
+    function _refused(bytes32 domain, bytes memory transactionData, bytes memory err) internal {
+        bytes memory payload = _payload(domain, transactionData);
         vm.prank(V.TARGET);
         vm.expectRevert(err);
         registry.bindPrivately(PLATFORM, 1, payload, 0, address(0));
     }
 
-    /// The bind Consumer finds its entry by the caller's hash; the `libid.test.a` entry is not its.
+    function _refused(bytes memory transactionData, bytes memory err) internal {
+        _refused(V.OPERATIONS, transactionData, err);
+    }
+
+    /// The bind Consumer takes its entry; the `libid.test.a` entry is not its.
     function test_theVectorBindsItsTargetOnce() public {
-        _bind(V.TARGET, V.transactionData());
+        _bind(V.transactionData());
         assertEq(verifier.lastDigest(), V.DIGEST, "digest");
         assertTrue(registry.digestSpent(V.DIGEST), "not spent");
         assertEq(registry.resolveId(TestNodes.idNode(PLATFORM, "2244994945")), V.TARGET, "not bound");
@@ -78,26 +83,71 @@ contract OperationListBindTest is Test {
         _refused(V.transactionData(), abi.encodeWithSelector(IdentityRegistry.DigestAlreadySpent.selector, V.DIGEST));
     }
 
-    /// Another caller's rebuilt data matches no entry.
-    function test_theEntryTargetMustBeTheCaller() public {
-        bytes memory payload = _payload(V.transactionData());
+    function test_aOneEntryListBinds() public {
+        _bind(V.bindOnly());
+        assertEq(verifier.lastDigest(), V.BIND_DIGEST, "digest");
+        assertEq(registry.resolveId(TestNodes.idNode(PLATFORM, "2244994945")), V.TARGET, "not bound");
+    }
+
+    /// The single form `libid.bind-identity` with `abi.encode(target)` binds as on main.
+    function test_theSingleFormBinds() public {
+        bytes memory payload = _payload(V.BIND, abi.encode(V.TARGET));
+        vm.prank(V.TARGET);
+        registry.bindPrivately(PLATFORM, 1, payload, 0, address(0));
+        assertEq(registry.resolveId(TestNodes.idNode(PLATFORM, "2244994945")), V.TARGET, "not bound");
+    }
+
+    function test_aForeignDomainIsRefused() public {
+        bytes32 foreign = V.TEST_A;
+        _refused(
+            foreign,
+            abi.encode(V.TARGET),
+            abi.encodeWithSelector(IOperationLists.ForeignOperationDomain.selector, foreign)
+        );
+    }
+
+    /// Each proof has one reading: a list under the single form is not one address.
+    function test_aListUnderTheSingleFormIsRefused() public {
+        _refused(
+            V.BIND,
+            V.bindOnly(),
+            abi.encodeWithSelector(IdentityRegistry.BadTransactionData.selector, V.bindOnly().length)
+        );
+    }
+
+    /// Each proof has one reading: one address under `libid.operations` is not a list.
+    function test_anAddressUnderTheListDomainIsRefused() public {
+        _refused(abi.encode(V.TARGET), abi.encodeWithSelector(IOperationLists.NoncanonicalOperationList.selector));
+    }
+
+    function test_anotherCallerIsNotTheTarget() public {
+        bytes memory payload = _payload(V.OPERATIONS, V.transactionData());
         vm.prank(address(0xBEEF));
-        vm.expectRevert(IOperationLists.NoOwnOperation.selector);
+        vm.expectRevert(abi.encodeWithSelector(IdentityRegistry.NotProofTarget.selector, V.TARGET, address(0xBEEF)));
         registry.bindPrivately(PLATFORM, 1, payload, 0, address(0));
     }
 
-    function test_theDerivedListsAreRefused() public {
-        _refused(V.duplicateEntry(), abi.encodeWithSelector(IOperationLists.SeveralOwnOperations.selector));
-        _refused(V.nestedEntry(), abi.encodeWithSelector(IOperationLists.NestedOperationList.selector));
-        _refused(V.noEntry(), abi.encodeWithSelector(IOperationLists.NoOwnOperation.selector));
-        // Entries only under libid.test.b and libid.test.a.
-        _refused(V.twoOwnDomains(), abi.encodeWithSelector(IOperationLists.NoOwnOperation.selector));
+    function test_listsWithoutOneBindEntryAreRefused() public {
+        _refused(operationList(V.TEST_A, hex"ff"), abi.encodeWithSelector(IOperationLists.NoOwnOperation.selector));
+        _refused(V.withWord(8, V.BIND), abi.encodeWithSelector(IOperationLists.SeveralOwnOperations.selector));
     }
 
-    function test_theNoncanonicalListsAreRefused() public {
+    function test_bindDataOtherThanOneAddressIsRefused() public {
+        _refused(
+            operationList(V.BIND, new bytes(31)),
+            abi.encodeWithSelector(IdentityRegistry.BadTransactionData.selector, 31)
+        );
+        _refused(
+            operationList(V.BIND, new bytes(33)),
+            abi.encodeWithSelector(IdentityRegistry.BadTransactionData.selector, 33)
+        );
+        bytes memory dirty = abi.encodePacked(bytes12(0x000000000000000000000001), V.TARGET);
+        _refused(operationList(V.BIND, dirty), abi.encodeWithSelector(IdentityRegistry.BadTransactionData.selector, 32));
+    }
+
+    function test_noncanonicalListsAreRefused() public {
         bytes memory err = abi.encodeWithSelector(IOperationLists.NoncanonicalOperationList.selector);
-        _refused(V.trailingByte(), err);
-        _refused(V.gap(), err);
-        _refused(abi.encode(V.TARGET), err);
+        _refused(bytes.concat(V.transactionData(), hex"00"), err);
+        _refused(V.withWord(3, bytes32(uint256(0x40))), err);
     }
 }

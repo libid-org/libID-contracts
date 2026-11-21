@@ -174,6 +174,10 @@ Other entry points:
   token's `iat`, not an attestation.
 - `bindings::ceremony::{TlsNotaryProof, OidcProof}` — the payload a Platform
   Verifier decodes; its `SolValue::abi_encode` is the `payload` `bind` takes.
+- `operation_list::{Operation, OPERATIONS_DOMAIN}` — a ceremony's transaction
+  data: `vec![Operation::bind(target)].abi_encode()` under `OPERATIONS_DOMAIN`
+  is a bind, beside the single form `abi.encode(target)` under `BIND_DOMAIN`;
+  one list can carry other Consumers' entries beside the bind.
 - `WalletRegistryError::decode` — a refused wallet link or login by name,
   from `WalletRegistry`, the same proof route and the wallet's own errors
   (`IWebWallet`: `AppNotListed`, `FirstSessionRefused`, …).
