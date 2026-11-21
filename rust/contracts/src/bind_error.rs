@@ -171,13 +171,6 @@ mod tests {
                 "UnknownPlatform",
                 revert("UnknownPlatform(bytes32)", BOUND.abi_encode()),
             ),
-            (
-                "NotVerifiedInTransaction",
-                revert(
-                    "NotVerifiedInTransaction(uint256)",
-                    U256::from(5).abi_encode(),
-                ),
-            ),
         ];
         for (name, data) in cases {
             assert_eq!(BindError::decode(&data).expect(name).name(), name);
@@ -304,14 +297,14 @@ mod tests {
     /// and the factory's.
     #[test]
     fn names_a_wallet_registry_refusal() {
-        let error = WalletRegistryError::decode(&revert("DataWithoutList()", vec![]))
-            .expect("decodes");
+        let data = revert("DigestSpent(bytes32)", BOUND.abi_encode());
+        let error = WalletRegistryError::decode(&data).expect("decodes");
         assert!(matches!(error, WalletRegistryError::Registry(_)));
         assert_eq!(error.contracts(), ["WalletRegistry"]);
 
         let data = revert(
-            "NotVerifiedInTransaction(uint256)",
-            U256::from(5).abi_encode(),
+            "UnknownVersion(bytes32,uint16)",
+            (BOUND, 1u16).abi_encode_params(),
         );
         let error = WalletRegistryError::decode(&data).expect("decodes");
         assert_eq!(error.contracts(), ["CeremonyProofVerifier"]);

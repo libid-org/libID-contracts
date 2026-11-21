@@ -48,12 +48,11 @@ contract IdentityAdmin is IIdentityAdmin {
         bytes32 platformId,
         uint16 verifierVersion,
         bytes calldata payload,
-        bytes calldata data,
         IIdentityAdmin.Policy calldata policy
     ) external payable onlySelf {
         (bytes32 rulesHash, bytes32 policyHash) = _hashes(policy);
         IWalletRegistry.Checked memory c =
-            _check(LINK_IDENTITY_DOMAIN, platformId, verifierVersion, payload, data, policyHash);
+            _check(LINK_IDENTITY_DOMAIN, platformId, verifierVersion, payload, policyHash);
         WalletStorage.link(platformId, c.identity);
         if (c.key.length == 0) return;
         WalletStorage.EpochState storage s = WalletStorage.state();
@@ -68,15 +67,11 @@ contract IdentityAdmin is IIdentityAdmin {
         bytes32 platformId,
         uint16 verifierVersion,
         bytes calldata payload,
-        bytes calldata data,
         IIdentityAdmin.Policy calldata policy
     ) external payable delegated {
         (bytes32 rulesHash, bytes32 policyHash) = _hashes(policy);
         _login(
-            _check(ADD_SESSION_DOMAIN, platformId, verifierVersion, payload, data, policyHash),
-            policy,
-            rulesHash,
-            policyHash
+            _check(ADD_SESSION_DOMAIN, platformId, verifierVersion, payload, policyHash), policy, rulesHash, policyHash
         );
     }
 
@@ -87,12 +82,11 @@ contract IdentityAdmin is IIdentityAdmin {
         bytes32 platformId,
         uint16 verifierVersion,
         bytes calldata payload,
-        bytes calldata data,
         IIdentityAdmin.Policy calldata policy
     ) external payable delegated {
         (bytes32 rulesHash, bytes32 policyHash) = _hashes(policy);
         IWalletRegistry.Checked memory c =
-            _check(REMOVE_SESSIONS_DOMAIN, platformId, verifierVersion, payload, data, policyHash);
+            _check(REMOVE_SESSIONS_DOMAIN, platformId, verifierVersion, payload, policyHash);
         bool keyed = c.key.length != 0;
         _remove(c.identity, true, keyed);
         emit IWebWallet.SessionsRemovedByLogin(c.identity);
@@ -305,11 +299,10 @@ contract IdentityAdmin is IIdentityAdmin {
         bytes32 platformId,
         uint16 verifierVersion,
         bytes calldata payload,
-        bytes calldata data,
         bytes32 policyHash
     ) private returns (IWalletRegistry.Checked memory) {
         return IWalletRegistry(IWebWallet(address(this)).REGISTRY()).check{value: msg.value}(
-            domain, platformId, verifierVersion, payload, data, msg.sender, policyHash
+            domain, platformId, verifierVersion, payload, msg.sender, policyHash
         );
     }
 

@@ -8,6 +8,7 @@ import {Ownable2StepUpgradeable} from "@openzeppelin/contracts-upgradeable/acces
 import {ICeremony} from "../ceremony/ICeremony.sol";
 import {IProofVerifier} from "../ceremony/IProofVerifier.sol";
 import {OperationList} from "../ceremony/OperationList.sol";
+import {memoryWord} from "../common/MemoryWord.sol";
 import {ADD_SESSION_DOMAIN, IWalletRegistry, LINK_IDENTITY_DOMAIN, REMOVE_SESSIONS_DOMAIN} from "./IWalletRegistry.sol";
 import {identityOf} from "./WalletStorage.sol";
 
@@ -41,7 +42,6 @@ contract WalletRegistry is IWalletRegistry, UUPSUpgradeable, Ownable2StepUpgrade
         bytes32 platformId,
         uint16 verifierVersion,
         bytes calldata payload,
-        bytes calldata data,
         address submitter,
         bytes32 policyHash
     ) external payable returns (Checked memory) {
@@ -51,21 +51,9 @@ contract WalletRegistry is IWalletRegistry, UUPSUpgradeable, Ownable2StepUpgrade
         // The Proof Verifier checks the value.
         ICeremony.VerifiedClaim memory claimed =
             _s().proofVerifier.verify{value: msg.value}(platformId, verifierVersion, payload);
-
-        bytes memory txData = claimed.transactionData;
-        bytes32 entry = claimed.operationDomain;
-        if (entry == OperationList.DOMAIN) {
-            // Every domain commits the chain id, which `_key` checks (REQ-COMMON-01I).
-            bytes32[] memory own = new bytes32[](3);
-            (own[0], own[1], own[2]) = (LINK_IDENTITY_DOMAIN, ADD_SESSION_DOMAIN, REMOVE_SESSIONS_DOMAIN);
-            entry = OperationList.select(txData, data, own, true);
-            txData = data;
-        } else if (data.length != 0) {
-            revert DataWithoutList();
-        }
-        if (entry != domain) revert WrongOperationDomain(domain, entry);
+        bytes memory data = _own(claimed.operationDomain, claimed.transactionData, domain);
         if (claimed.idNode == bytes32(0)) revert NoId();
-        bytes memory key = _key(txData, submitter, policyHash);
+        bytes memory key = _key(data, submitter, policyHash);
         WalletRegistryStorage storage $ = _s();
         if ($.spentDigests[claimed.sessionId]) revert DigestSpent(claimed.sessionId);
         $.spentDigests[claimed.sessionId] = true;
@@ -74,6 +62,14 @@ contract WalletRegistry is IWalletRegistry, UUPSUpgradeable, Ownable2StepUpgrade
 
     function quote(bytes32 platformId, uint16 verifierVersion) external view returns (uint256) {
         return _s().proofVerifier.quote(platformId, verifierVersion);
+    }
+
+    function quoteFor(bytes32 platformId, uint16 verifierVersion, bytes calldata payload)
+        external
+        view
+        returns (uint256)
+    {
+        return _s().proofVerifier.quoteFor(platformId, verifierVersion, payload);
     }
 
     function proofVerifier() external view returns (IProofVerifier) {
@@ -95,6 +91,29 @@ contract WalletRegistry is IWalletRegistry, UUPSUpgradeable, Ownable2StepUpgrade
     /// @dev The upgrade is the only repair lever, so ownership stays.
     function renounceOwnership() public pure override {
         revert RenounceDisabled();
+    }
+
+    /// This wallet operation's data in a proof: the transaction data under the single form, or, under an Operation
+    /// List, the one entry under `domain` whose data starts with this chain's id, since every wallet domain's data
+    /// commits a chain id (REQ-COMMON-01I).
+    function _own(bytes32 operationDomain, bytes memory transactionData, bytes32 domain)
+        private
+        view
+        returns (bytes memory own)
+    {
+        if (operationDomain == domain) return transactionData;
+        if (operationDomain != OperationList.DOMAIN) revert ForeignOperationDomain(operationDomain);
+        uint256[] memory found = OperationList.find(transactionData, domain);
+        uint256 owned;
+        for (uint256 i; i < found.length; ++i) {
+            bytes memory data = OperationList.dataAt(transactionData, found[i]);
+            if (data.length >= 32 && uint256(memoryWord(data, 0)) == block.chainid) {
+                own = data;
+                ++owned;
+            }
+        }
+        if (owned == 0) revert NoOwnOperation();
+        if (owned > 1) revert SeveralOwnOperations();
     }
 
     /// The session key of canonical transaction data naming this chain, the caller and `submitter`; a key commits

@@ -109,7 +109,7 @@ contract WalletRealProofTest is WalletBase {
         uint256 fee = registry.quote(X, VX);
         vm.deal(w, fee);
         Execution[] memory x = new Execution[](2);
-        x[0] = _x(w, fee, abi.encodeCall(IIdentityAdmin.linkIdentity, (X, VX, list, linkData, _admin())));
+        x[0] = _x(w, fee, abi.encodeCall(IIdentityAdmin.linkIdentity, (X, VX, list, _admin())));
         // The link verified this proof, so the bind pays no second Notary Fee.
         x[1] = _x(address(identities), 0, abi.encodeCall(IdentityRegistry.bindPrivately, (X, VX, list, 0, address(0))));
         bytes memory data = _signedAt(w, 1, _pks(ALICE_PK), abi.encode(x), false);
@@ -132,7 +132,7 @@ contract WalletRealProofTest is WalletBase {
         bytes memory linkData = _txData(w, _key(ALICE_PK), _ph(_admin()));
         bytes memory list = _payload(X, idNode, OPERATIONS, operationList(BIND, abi.encode(w), LINK, linkData));
         Execution[] memory x = new Execution[](2);
-        x[0] = _x(w, 0, abi.encodeCall(IIdentityAdmin.linkIdentity, (X, V1, list, linkData, _admin())));
+        x[0] = _x(w, 0, abi.encodeCall(IIdentityAdmin.linkIdentity, (X, V1, list, _admin())));
         x[1] = _x(address(identities), 0, abi.encodeCall(IdentityRegistry.bindPrivately, (X, V1, list, 0, address(0))));
         bytes memory data = _signedAt(w, 1, _pks(ALICE_PK), abi.encode(x), false);
         vm.prank(relayer, relayer);

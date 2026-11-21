@@ -26,7 +26,6 @@ describe('bindErrorsAbi', () => {
       ['UnknownPlatform', concatHex([selector('UnknownPlatform(bytes32)'), PROVED])],
       ['NotYourHandle', concatHex([selector('NotYourHandle(bytes32)'), PROVED])],
       ['NoncanonicalOperationList', selector('NoncanonicalOperationList()')],
-      ['NestedOperationList', selector('NestedOperationList()')],
       ['NoOwnOperation', selector('NoOwnOperation()')],
       ['SeveralOwnOperations', selector('SeveralOwnOperations()')],
       ['NoFramedCommitment', selector('NoFramedCommitment()')],
@@ -37,10 +36,6 @@ describe('bindErrorsAbi', () => {
       [
         'UnknownVersion',
         concatHex([selector('UnknownVersion(bytes32,uint16)'), PROVED, pad('0x01')]),
-      ],
-      [
-        'NotVerifiedInTransaction',
-        concatHex([selector('NotVerifiedInTransaction(uint256)'), pad('0x05')]),
       ],
     ]
     for (const [name, data] of cases) {
@@ -59,10 +54,10 @@ describe('bindErrorsAbi', () => {
 describe('walletRegistryErrorsAbi', () => {
   it('names the errors of every contract on the route, the factory last', () => {
     const cases: [string, `0x${string}`][] = [
-      ['DataWithoutList', selector('DataWithoutList()')],
+      ['DigestSpent', concatHex([selector('DigestSpent(bytes32)'), PROVED])],
       [
-        'NotVerifiedInTransaction',
-        concatHex([selector('NotVerifiedInTransaction(uint256)'), pad('0x05')]),
+        'UnknownVersion',
+        concatHex([selector('UnknownVersion(bytes32,uint16)'), PROVED, pad('0x01')]),
       ],
       ['UntrustedModulus', concatHex([selector('UntrustedModulus(bytes32)'), PROVED])],
       ['SumcheckFailed', selector('SumcheckFailed()')],

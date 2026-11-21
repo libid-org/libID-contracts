@@ -61,6 +61,9 @@ contract IdentityRegistryUpgradeForkTest is Test {
         vm.mockCall(
             address(proofVerifier), abi.encodeCall(IProofVerifier.verify, (X, V1, payload)), abi.encode(claimed)
         );
+        vm.mockCall(
+            address(proofVerifier), abi.encodeCall(IProofVerifier.quoteFor, (X, V1, payload)), abi.encode(QUOTE)
+        );
     }
 
     function _handle(uint256 n) private pure returns (string memory) {

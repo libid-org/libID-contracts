@@ -138,25 +138,19 @@ interface IIdentityAdmin {
     // ─── Identities and sessions ────────────────────────────────────
 
     function genesisIdentity() external view returns (bytes32 platformId, bytes32 idNode, uint256 salt);
-    function linkIdentity(
-        bytes32 platformId,
-        uint16 verifierVersion,
-        bytes calldata payload,
-        bytes calldata data,
-        Policy calldata policy
-    ) external payable;
+    function linkIdentity(bytes32 platformId, uint16 verifierVersion, bytes calldata payload, Policy calldata policy)
+        external
+        payable;
     function addSessionByLogin(
         bytes32 platformId,
         uint16 verifierVersion,
         bytes calldata payload,
-        bytes calldata data,
         Policy calldata policy
     ) external payable;
     function removeSessionsByLogin(
         bytes32 platformId,
         uint16 verifierVersion,
         bytes calldata payload,
-        bytes calldata data,
         Policy calldata policy
     ) external payable;
     function addSession(bytes32 identity, bytes calldata key, Policy calldata policy) external;

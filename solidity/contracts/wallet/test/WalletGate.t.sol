@@ -85,9 +85,9 @@ contract WalletGateTest is WalletBase {
         r[i++] = Row(abi.encodeCall(IWalletCore.epoch, ()), Gate.View);
         r[i++] = Row(abi.encodeCall(IIdentityAdmin.genesisIdentity, ()), Gate.View);
         r[i++] = Row(abi.encodeCall(IWalletCore.runDataSteps, (1)), Gate.Special);
-        r[i++] = Row(abi.encodeCall(IIdentityAdmin.linkIdentity, (X, V1, link, "", _admin())), Gate.Self);
-        r[i++] = Row(abi.encodeCall(IIdentityAdmin.addSessionByLogin, (X, V1, login, "", _admin())), Gate.Public);
-        r[i++] = Row(abi.encodeCall(IIdentityAdmin.removeSessionsByLogin, (X, V1, remove, "", _admin())), Gate.Public);
+        r[i++] = Row(abi.encodeCall(IIdentityAdmin.linkIdentity, (X, V1, link, _admin())), Gate.Self);
+        r[i++] = Row(abi.encodeCall(IIdentityAdmin.addSessionByLogin, (X, V1, login, _admin())), Gate.Public);
+        r[i++] = Row(abi.encodeCall(IIdentityAdmin.removeSessionsByLogin, (X, V1, remove, _admin())), Gate.Public);
         r[i++] = Row(
             abi.encodeCall(IIdentityAdmin.addSession, (_identity(X, MALLORY), _key(MALLORY_PK), _admin())), Gate.Self
         );

@@ -474,7 +474,7 @@ abstract contract WalletSuite is WalletBase {
         IIdentityAdmin.Policy memory none;
         bytes memory payload = _linkPayload(w, platformId, idNode, "", none);
         vm.prank(w);
-        IWebWallet(w).linkIdentity(platformId, V1, payload, "", none);
+        IWebWallet(w).linkIdentity(platformId, V1, payload, none);
         if (key.length == 0) return;
         vm.prank(w);
         IWebWallet(w).addSession(_identity(platformId, idNode), key, p);
@@ -500,7 +500,7 @@ abstract contract WalletSuite is WalletBase {
     ) internal {
         bytes memory payload = _loginPayload(w, submitter, platformId, idNode, key, p);
         vm.prank(submitter);
-        IWebWallet(w).addSessionByLogin(platformId, V1, payload, "", p);
+        IWebWallet(w).addSessionByLogin(platformId, V1, payload, p);
     }
 
     function _queueW(address w, bytes memory data) internal returns (bytes32) {
