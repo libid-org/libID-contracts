@@ -94,33 +94,26 @@ contract WalletRegistry is IWalletRegistry, UUPSUpgradeable, Ownable2StepUpgrade
     }
 
     /// This wallet operation's data in a proof: the transaction data under the single form, or, under an Operation
-    /// List, the one entry under `domain` whose data names this chain first, since every wallet domain's data
+    /// List, the one entry under `domain` whose data starts with this chain's id, since every wallet domain's data
     /// commits a chain id (REQ-COMMON-01I).
     function _own(bytes32 operationDomain, bytes memory transactionData, bytes32 domain)
         private
         view
-        returns (bytes memory)
+        returns (bytes memory own)
     {
         if (operationDomain == domain) return transactionData;
         if (operationDomain != OperationList.DOMAIN) revert ForeignOperationDomain(operationDomain);
         uint256[] memory found = OperationList.find(transactionData, domain);
-        uint256 n = found.length;
-        uint256 own;
         uint256 owned;
-        for (uint256 i; i < n; ++i) {
-            // An entry's length is at `at + 64` and its data from `at + 96`.
-            uint256 at = found[i];
-            if (
-                uint256(memoryWord(transactionData, at + 64)) >= 32
-                    && uint256(memoryWord(transactionData, at + 96)) == block.chainid
-            ) {
-                own = at;
+        for (uint256 i; i < found.length; ++i) {
+            bytes memory data = OperationList.dataAt(transactionData, found[i]);
+            if (data.length >= 32 && uint256(memoryWord(data, 0)) == block.chainid) {
+                own = data;
                 ++owned;
             }
         }
         if (owned == 0) revert NoOwnOperation();
         if (owned > 1) revert SeveralOwnOperations();
-        return OperationList.dataAt(transactionData, own);
     }
 
     /// The session key of canonical transaction data naming this chain, the caller and `submitter`; a key commits

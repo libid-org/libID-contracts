@@ -437,11 +437,11 @@ Calldata shorter than four bytes has selector `0x00000000`.
 
 ## Logins
 
-A login is a proof of a linked identity. The submitter it names sends it to
-the wallet, with exactly `registry.quoteFor(platformId, verifierVersion, payload)`
-attached (`WrongValue` otherwise), which is zero when this transaction
-verified that payload last, and the full price otherwise: directly, or as a call in the wallet's own batch, where the
-submitter is the wallet itself. The wallet calls `WalletRegistry.check` with
+A login is a proof of a linked identity. The submitter attaches exactly
+`registry.quoteFor(platformId, verifierVersion, payload)` (`WrongValue`
+otherwise): zero when this transaction verified that payload last, else the
+full price. It sends the login to the wallet directly, or as a call in the
+wallet's own batch, where the submitter is the wallet itself. The wallet calls `WalletRegistry.check` with
 its own caller as the submitter. The registry verifies the proof, requires
 that it names this chain, the calling wallet, that submitter and the policy,
 spends its digest (`DigestSpent` on reuse), and returns the identity, the
@@ -477,7 +477,7 @@ the submitter from the wallet's argument, never from ERC-2771 calldata.
 
 Under an Operation List (`libid.operations`) these bytes are the data of a
 `libid.webwallet.*` entry. The registry takes the one entry under the called
-function's domain whose data names this chain first: none reverts
+function's domain whose data starts with this chain's id: none reverts
 `NoOwnOperation`, more than one `SeveralOwnOperations`. A proof under any
 other domain reverts `ForeignOperationDomain`. One list can carry an entry
 for each chain, and each chain's wallet takes its own. The registry spends
