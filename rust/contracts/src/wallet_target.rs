@@ -75,20 +75,10 @@ pub async fn check_target<P: Provider>(
         detail: format!("failed to read the code of {target}: {e}"),
     })?;
     let delegated = code.len() == 23 && code.starts_with(&DELEGATION_PREFIX);
-    let wallet_factory = WalletFactory::new(factory, provider);
     let kind: fn(Release) -> Target = if code.is_empty() {
         return Ok(None);
     } else if !delegated {
-        let wallet = IWebWallet::new(target, provider);
-        let Some(genesis) = answer(wallet.genesisIdentity().call().await)? else {
-            return Ok(None);
-        };
-        let address = wallet_factory.walletAddress(
-            genesis.platformId,
-            genesis.idNode,
-            genesis.salt,
-        );
-        if answer(address.call().await)? != Some(target) {
+        if !is_factory_wallet(provider, factory, target).await? {
             return Ok(None);
         }
         Target::FactoryWallet
@@ -97,11 +87,39 @@ pub async fn check_target<P: Provider>(
     } else {
         return Ok(None);
     };
+    Ok(published_release(provider, factory, target)
+        .await?
+        .map(kind))
+}
+
+/// The release of `target`, when `factory` published it.
+async fn published_release<P: Provider>(
+    provider: &P,
+    factory: Address,
+    target: Address,
+) -> Result<Option<Release>> {
     let release = read_release(provider, target).await?;
+    let wallet_factory = WalletFactory::new(factory, provider);
     let published = answer(wallet_factory.release(release.version).call().await)?;
     let vouched = release.implementation != Address::ZERO
         && published == Some(release.implementation);
-    Ok(vouched.then(|| kind(release)))
+    Ok(vouched.then_some(release))
+}
+
+/// Whether `factory` puts a wallet with `target`'s genesis identity at `target`.
+async fn is_factory_wallet<P: Provider>(
+    provider: &P,
+    factory: Address,
+    target: Address,
+) -> Result<bool> {
+    let wallet = IWebWallet::new(target, provider);
+    let Some(genesis) = answer(wallet.genesisIdentity().call().await)? else {
+        return Ok(false);
+    };
+    let wallet_factory = WalletFactory::new(factory, provider);
+    let address =
+        wallet_factory.walletAddress(genesis.platformId, genesis.idNode, genesis.salt);
+    Ok(answer(address.call().await)? == Some(target))
 }
 
 /// A call's answer: `None` when the call fails in the EVM or answers what
@@ -125,6 +143,22 @@ fn answer<T>(result: alloy::contract::Result<T>) -> Result<Option<T>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(feature = "testing")]
+    #[tokio::test]
+    async fn no_code_and_a_non_wallet_contract_are_not_vouched_for() {
+        let provider =
+            alloy::providers::ProviderBuilder::new().connect_anvil_with_wallet();
+        let owner = provider.get_accounts().await.unwrap()[0];
+        let artifacts = crate::Artifacts::embedded();
+        let stack = crate::testing::deploy_wallet_stack(&provider, &artifacts, owner)
+            .await
+            .unwrap();
+        for target in [Address::repeat_byte(0x99), stack.escrow] {
+            let vouched = check_target(&provider, stack.factory, stack.forwarder, target);
+            assert_eq!(vouched.await.unwrap(), None, "{target}");
+        }
+    }
 
     #[test]
     fn the_release_slot_is_the_contracts() {

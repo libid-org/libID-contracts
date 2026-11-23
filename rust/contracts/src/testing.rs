@@ -33,7 +33,6 @@ use crate::{
     },
     deploy::{
         deploy_behind_proxy,
-        deploy_contract,
         deploy_proxy,
         deploy_with_ctor,
         Mined,
@@ -171,14 +170,9 @@ struct EntryPointFixture {
     sender_creator: Installed,
 }
 
-/// Deploy the wallet stack on an anvil node, owned by `owner`, which must be
-/// the provider's sender: EntryPoint v0.9 through `anvil_setCode`, the stub
-/// as X's verifier, and the factory with release 1.
-pub async fn deploy_wallet_stack<P: Provider>(
-    provider: &P,
-    artifacts: &Artifacts,
-    owner: Address,
-) -> Result<WalletStack> {
+/// Install EntryPoint v0.9 and its SenderCreator through `anvil_setCode`,
+/// and return the EntryPoint's address.
+async fn install_entry_point<P: Provider>(provider: &P) -> Result<Address> {
     let fixture: EntryPointFixture =
         serde_json::from_str(ENTRY_POINT).map_err(|e| Error::Artifact {
             detail: format!("entrypoint-v0.9.json: {e}"),
@@ -191,7 +185,18 @@ pub async fn deploy_wallet_stack<P: Provider>(
                 detail: format!("anvil_setCode at {address}: {e}"),
             })?;
     }
+    Ok(fixture.entry_point.address)
+}
 
+/// Deploy the wallet stack on an anvil node, owned by `owner`, which must be
+/// the provider's sender: EntryPoint v0.9, the stub as X's verifier, and the
+/// factory with release 1.
+pub async fn deploy_wallet_stack<P: Provider>(
+    provider: &P,
+    artifacts: &Artifacts,
+    owner: Address,
+) -> Result<WalletStack> {
+    let entry_point = install_entry_point(provider).await?;
     let platform = PlatformVerifier::X.platform_id();
     let proof_verifier = deploy_behind_proxy(
         provider,
@@ -266,18 +271,8 @@ pub async fn deploy_wallet_stack<P: Provider>(
         None,
     )
     .await?;
-    let identity_admin = deploy_contract(
-        provider,
-        artifacts.bytecode("IdentityAdmin")?,
-        "IdentityAdmin",
-    )
-    .await?;
-    let session_rules = deploy_contract(
-        provider,
-        artifacts.bytecode("SessionRules")?,
-        "SessionRules",
-    )
-    .await?;
+    let identity_admin = deploy("IdentityAdmin", vec![]).await?;
+    let session_rules = deploy("SessionRules", vec![]).await?;
     let args = (
         factory,
         wallet_registry,
@@ -301,7 +296,7 @@ pub async fn deploy_wallet_stack<P: Provider>(
         })?;
 
     Ok(WalletStack {
-        entry_point: fixture.entry_point.address,
+        entry_point,
         factory,
         forwarder,
         platform,

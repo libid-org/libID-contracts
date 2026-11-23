@@ -89,7 +89,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn call_overhead_is_the_wallet_s() {
+    fn call_overhead_is_the_wallets() {
         let path = concat!(
             env!("CARGO_MANIFEST_DIR"),
             "/../../solidity/contracts/wallet/IWebWallet.sol"
