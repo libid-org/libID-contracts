@@ -38,8 +38,10 @@ gas_snapshot_emit = false
 # ClaimVerificationGas.t.sol, the wallet's one-call onboarding by
 # WalletRealProof.t.sol: on the real X attestation and its real Honk proof,
 # and on a stub proof, and one `hit()` by each execute path by
-# WalletExecuteGas.t.sol. CI fails when the committed numbers are stale:
-# update them with `FOUNDRY_PROFILE=gas forge test`.
+# WalletExecuteGas.t.sol, and what a relayer's simulation leaves out (each
+# signature check, the rules below quorum) by WalletVerifyGas.t.sol. CI
+# fails when the committed numbers are stale: update them with
+# `FOUNDRY_PROFILE=gas forge test`.
 #
 # Osaka because eden-testnet executes under it, and EIP-7883 reprices the
 # MODEXP the Honk verifiers call. `vm.setEvmVersion` cannot stand in: forge
@@ -55,7 +57,7 @@ gas_snapshot_emit = false
 evm_version = "osaka"
 isolate = false
 gas_snapshot_emit = true
-match_path = "contracts/{ceremony/test/ClaimVerificationGas,wallet/test/WalletRealProof,wallet/test/WalletExecuteGas}.t.sol"
+match_path = "contracts/{ceremony/test/ClaimVerificationGas,wallet/test/WalletRealProof,wallet/test/WalletExecuteGas,wallet/test/WalletVerifyGas}.t.sol"
 
 # CI runs `forge lint -D notes`, which fails on any finding. `forge build`
 # runs the same linter but only prints.
