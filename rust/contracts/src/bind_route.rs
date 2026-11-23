@@ -177,6 +177,8 @@ pub enum WalletRegistryError {
     Factory(WalletFactoryErrors),
     /// `IdentityRegistry`.
     Identities(IdentityRegistryErrors),
+    /// `ReferralSplitter`.
+    Referral(ReferralSplitterErrors),
     /// `HandleEscrow`.
     Escrow(HandleEscrowErrors),
     /// A Solidity `Panic(uint256)`, with its code: a failed `assert`, an
@@ -185,7 +187,7 @@ pub enum WalletRegistryError {
 }
 
 /// The route's error sets, in the order `WalletRegistryError::decode` tries them.
-pub(crate) const WALLET_REGISTRY_ROUTE: [(&str, Declares, Decode<WalletRegistryError>); 13] = [
+pub(crate) const WALLET_REGISTRY_ROUTE: [(&str, Declares, Decode<WalletRegistryError>); 14] = [
     (
         "WalletRegistry",
         WalletRegistryErrors::valid_selector,
@@ -247,6 +249,11 @@ pub(crate) const WALLET_REGISTRY_ROUTE: [(&str, Declares, Decode<WalletRegistryE
         |d| IdentityRegistryErrors::abi_decode(d).ok().map(WalletRegistryError::Identities),
     ),
     (
+        "ReferralSplitter",
+        ReferralSplitterErrors::valid_selector,
+        |d| ReferralSplitterErrors::abi_decode(d).ok().map(WalletRegistryError::Referral),
+    ),
+    (
         "HandleEscrow",
         HandleEscrowErrors::valid_selector,
         |d| HandleEscrowErrors::abi_decode(d).ok().map(WalletRegistryError::Escrow),
@@ -268,6 +275,7 @@ impl WalletRegistryError {
             Self::Forwarder(e) => WalletForwarderErrors::signature_by_selector(e.selector()),
             Self::Factory(e) => WalletFactoryErrors::signature_by_selector(e.selector()),
             Self::Identities(e) => IdentityRegistryErrors::signature_by_selector(e.selector()),
+            Self::Referral(e) => ReferralSplitterErrors::signature_by_selector(e.selector()),
             Self::Escrow(e) => HandleEscrowErrors::signature_by_selector(e.selector()),
             Self::Panic(_) => Some(Panic::SIGNATURE),
         }
@@ -288,6 +296,7 @@ impl WalletRegistryError {
             Self::Forwarder(e) => e.selector(),
             Self::Factory(e) => e.selector(),
             Self::Identities(e) => e.selector(),
+            Self::Referral(e) => e.selector(),
             Self::Escrow(e) => e.selector(),
             Self::Panic(_) => Panic::SELECTOR,
         }

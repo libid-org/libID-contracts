@@ -181,7 +181,8 @@ Other entry points:
 - `WalletRegistryError::decode` — a refused wallet link or login by name,
   from `WalletRegistry`, the same proof route, the wallet's own errors
   (`IWebWallet`: `AppNotListed`, `FirstSessionRefused`, …) and an onboarding
-  batch's bind and claim (`IdentityRegistry`, `HandleEscrow`).
+  batch's bind, its fee and claim (`IdentityRegistry`, `ReferralSplitter`,
+  `HandleEscrow`).
 - `bindings::wallet` — `IWebWallet`, the whole ABI of a wallet, and what its
   signers sign: `ExecuteMessage`, `user_operation_digest`,
   `below_quorum_hash`, `encode_authorization` (a UserOperation's signature
