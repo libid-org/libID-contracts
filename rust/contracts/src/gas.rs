@@ -34,8 +34,8 @@ pub struct WalletGas {
     ecdsa: u64,
     web_authn: u64,
     p256: u64,
-    rules_one: u64,
-    rules_three: u64,
+    rules_refund: u64,
+    rules_per_call: u64,
 }
 
 impl WalletGas {
@@ -62,8 +62,8 @@ impl WalletGas {
             ecdsa: entry("verify(ECDSA)")?,
             web_authn: entry("verify(WebAuthn)")?,
             p256: entry("verify(P-256)")?,
-            rules_one: entry("rules(1 call)")?,
-            rules_three: entry("rules(3 calls)")?,
+            rules_refund: entry("rules(refund)")?,
+            rules_per_call: entry("rules(per call)")?,
         })
     }
 
@@ -76,11 +76,14 @@ impl WalletGas {
         }
     }
 
-    /// The rules check of a batch of `n_calls` below quorum: linear through
-    /// the measured 1 and 3 calls, rounded up, and never below 1 call's.
+    /// The rules check of a batch of `n_calls` below quorum in its costly
+    /// case: a native refund's first spend, and an ERC-20 `transfer`'s first
+    /// spend with its depth-2 proof for each further call.
     pub fn rules(&self, n_calls: u64) -> u64 {
-        let extra = self.rules_three.saturating_sub(self.rules_one);
-        self.rules_one + (extra * n_calls.saturating_sub(1)).div_ceil(2)
+        let more = self
+            .rules_per_call
+            .saturating_mul(n_calls.saturating_sub(1));
+        self.rules_refund.saturating_add(more)
     }
 }
 

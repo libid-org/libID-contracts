@@ -119,8 +119,11 @@ fn gas_reads_the_vendored_snapshot_and_refuses_a_renamed_entry() {
     assert_eq!(gas.verify(KeyKind::Ecdsa), entry("verify(ECDSA)"));
     assert_eq!(gas.verify(KeyKind::WebAuthn), entry("verify(WebAuthn)"));
     assert_eq!(gas.verify(KeyKind::P256), entry("verify(P-256)"));
-    let (one, three) = (entry("rules(1 call)"), entry("rules(3 calls)"));
-    assert_eq!((gas.rules(1), gas.rules(3)), (one, three));
+    let (refund, per_call) = (entry("rules(refund)"), entry("rules(per call)"));
+    assert_eq!(
+        (gas.rules(1), gas.rules(3)),
+        (refund, refund + 2 * per_call)
+    );
     assert_eq!(CALL_OVERHEAD, 20_000); // IWebWallet.sol
 
     assert!(WalletGas::from_json(SNAPSHOT).is_ok());
@@ -128,31 +131,31 @@ fn gas_reads_the_vendored_snapshot_and_refuses_a_renamed_entry() {
         "verify(ECDSA)",
         "verify(WebAuthn)",
         "verify(P-256)",
-        "rules(1 call)",
+        "rules(refund)",
     ];
-    for name in names.into_iter().chain(["rules(3 calls)"]) {
+    for name in names.into_iter().chain(["rules(per call)"]) {
         let renamed = SNAPSHOT.replace(&format!("\"{name}\""), "\"renamed\"");
         assert_ne!(renamed, SNAPSHOT);
         assert!(WalletGas::from_json(&renamed).is_err(), "{name}");
     }
 }
 
-/// By hand: 100 + ceil(11 (n - 1) / 2), never below 1 call's.
+/// By hand: 100 + 11 (n - 1), never below 1 call's, saturating.
 #[test]
-fn rules_interpolates_rounding_up_and_never_below_one_call() {
-    let snapshot = |one: &str, three: &str| {
+fn rules_adds_each_further_call_and_saturates() {
+    let snapshot = |refund: &str, per_call: &str| {
         WalletGas::from_json(&format!(
             r#"{{"verify(ECDSA)": "1", "verify(WebAuthn)": "2", "verify(P-256)": "3",
-                "rules(1 call)": "{one}", "rules(3 calls)": "{three}"}}"#
+                "rules(refund)": "{refund}", "rules(per call)": "{per_call}"}}"#
         ))
     };
-    let gas = snapshot("100", "111").unwrap();
+    let gas = snapshot("100", "11").unwrap();
     assert_eq!(
         [0, 1, 2, 3, 4].map(|n| gas.rules(n)),
-        [100, 100, 106, 111, 117]
+        [100, 100, 111, 122, 133]
     );
-    assert_eq!(snapshot("100", "90").unwrap().rules(5), 100);
-    assert!(snapshot("100", "0x6f").is_err());
+    assert_eq!(gas.rules(u64::MAX), u64::MAX);
+    assert!(snapshot("100", "0xb").is_err());
 }
 
 /// The contracts vouch for a factory wallet and a reset 7702 account, not for
