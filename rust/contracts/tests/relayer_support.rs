@@ -123,10 +123,36 @@ fn gas_reads_the_vendored_snapshot_and_refuses_a_renamed_entry() {
     assert_eq!((gas.rules(1), gas.rules(3)), (one, three));
     assert_eq!(CALL_OVERHEAD, 20_000); // IWebWallet.sol
 
-    let renamed = SNAPSHOT.replace("\"verify(P-256)\"", "\"verify(P256)\"");
-    assert_ne!(renamed, SNAPSHOT);
     assert!(WalletGas::from_json(SNAPSHOT).is_ok());
-    assert!(WalletGas::from_json(&renamed).is_err());
+    let names = [
+        "verify(ECDSA)",
+        "verify(WebAuthn)",
+        "verify(P-256)",
+        "rules(1 call)",
+    ];
+    for name in names.into_iter().chain(["rules(3 calls)"]) {
+        let renamed = SNAPSHOT.replace(&format!("\"{name}\""), "\"renamed\"");
+        assert_ne!(renamed, SNAPSHOT);
+        assert!(WalletGas::from_json(&renamed).is_err(), "{name}");
+    }
+}
+
+/// By hand: 100 + ceil(11 (n - 1) / 2), never below 1 call's.
+#[test]
+fn rules_interpolates_rounding_up_and_never_below_one_call() {
+    let snapshot = |one: &str, three: &str| {
+        WalletGas::from_json(&format!(
+            r#"{{"verify(ECDSA)": "1", "verify(WebAuthn)": "2", "verify(P-256)": "3",
+                "rules(1 call)": "{one}", "rules(3 calls)": "{three}"}}"#
+        ))
+    };
+    let gas = snapshot("100", "111").unwrap();
+    assert_eq!(
+        [0, 1, 2, 3, 4].map(|n| gas.rules(n)),
+        [100, 100, 106, 111, 117]
+    );
+    assert_eq!(snapshot("100", "90").unwrap().rules(5), 100);
+    assert!(snapshot("100", "0x6f").is_err());
 }
 
 /// The contracts vouch for a factory wallet and a reset 7702 account, not for
@@ -173,6 +199,7 @@ async fn the_contracts_vouch_for_their_wallets_only() {
         provider.anvil_set_storage_at(account, slot.into(), B256::from(word))
     };
     delegate(stack.forwarder).await.unwrap();
+    assert_eq!(vouch(account).await.unwrap(), None, "empty release slot");
     plant(stack.release.implementation, 1).await.unwrap();
     assert_eq!(
         vouch(account).await.unwrap(),
@@ -192,4 +219,41 @@ async fn the_contracts_vouch_for_their_wallets_only() {
     plant(stack.release.implementation, 1).await.unwrap();
     delegate(stack.factory).await.unwrap();
     assert_eq!(vouch(account).await.unwrap(), None, "another delegate");
+    let code = [&[0xee, 0x01, 0x00][..], stack.forwarder.as_slice()].concat();
+    provider.anvil_set_code(account, code.into()).await.unwrap();
+    assert_eq!(
+        vouch(account).await.unwrap(),
+        None,
+        "no delegation, no wallet"
+    );
+}
+
+/// A call the node answers with a revert or no data says "not a wallet"; a
+/// rate limit or no answer is an error, never `None`.
+#[tokio::test]
+async fn a_check_call_is_none_only_when_the_node_answered_it() {
+    use alloy::transports::mock::Asserter;
+    let asserter = Asserter::new();
+    let provider = ProviderBuilder::new().connect_mocked_client(asserter.clone());
+    let revert = Some(Err(r#"{"code": 3, "message": "execution reverted"}"#));
+    let rate_limit = Some(Err(r#"{"code": 429, "message": "too many requests"}"#));
+    let no_data = Some(Ok(Bytes::new()));
+    for (call, answered) in [
+        (revert, true),
+        (no_data, true),
+        (rate_limit, false),
+        (None, false),
+    ] {
+        asserter.push_success(&Bytes::from([0x60, 0x80]));
+        match call {
+            Some(Ok(data)) => asserter.push_success(&data),
+            Some(Err(error)) => {
+                asserter.push_failure(serde_json::from_str(error).unwrap())
+            }
+            None => {}
+        }
+        let target = Address::repeat_byte(0x66);
+        let checked = check_target(&provider, Address::ZERO, Address::ZERO, target).await;
+        assert_eq!(checked.ok(), answered.then_some(None));
+    }
 }
