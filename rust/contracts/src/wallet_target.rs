@@ -58,7 +58,7 @@ pub async fn read_release<P: Provider>(provider: &P, wallet: Address) -> Result<
         })?;
     Ok(Release {
         implementation: Address::from_word(word.into()),
-        version: (word >> 160usize).saturating_to(),
+        version: (word >> 160usize).wrapping_to(),
     })
 }
 

@@ -158,8 +158,9 @@ fn rules_adds_each_further_call_and_saturates() {
     assert!(snapshot("100", "0xb").is_err());
 }
 
-/// The contracts vouch for a factory wallet and a reset 7702 account, not for
-/// an account with a planted release slot or another delegate.
+/// The contracts vouch for a factory wallet and an account delegated to the
+/// forwarder whose slot holds a published release, not for an unpublished
+/// release planted in the slot, an empty slot or another delegate.
 #[tokio::test]
 async fn the_contracts_vouch_for_their_wallets_only() {
     let provider = ProviderBuilder::new().connect_anvil_with_wallet();
@@ -204,6 +205,18 @@ async fn the_contracts_vouch_for_their_wallets_only() {
     delegate(stack.forwarder).await.unwrap();
     assert_eq!(vouch(account).await.unwrap(), None, "empty release slot");
     plant(stack.release.implementation, 1).await.unwrap();
+    assert_eq!(
+        vouch(account).await.unwrap(),
+        Some(Target::Account(stack.release))
+    );
+    // `uint64(word >> 160)` drops the bits above the version.
+    let word = U256::from_be_slice(stack.release.implementation.as_slice())
+        | U256::from(1) << 160
+        | U256::from(1) << 230;
+    provider
+        .anvil_set_storage_at(account, slot.into(), B256::from(word))
+        .await
+        .unwrap();
     assert_eq!(
         vouch(account).await.unwrap(),
         Some(Target::Account(stack.release))
