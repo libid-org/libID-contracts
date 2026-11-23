@@ -129,6 +129,9 @@ ROUTES = (
                 "wallet",
                 "`WalletFactory`, with the `Create3` errors of `createAndExecute`.",
             ),
+            # An onboarding batch's bind and claim, called from the wallet.
+            Hop("IdentityRegistry", "Identities", "IdentityRegistry", "identity"),
+            Hop("HandleEscrow", "Escrow", "HandleEscrow", "escrow"),
         ),
         "NotLinked(bytes32)",
     ),

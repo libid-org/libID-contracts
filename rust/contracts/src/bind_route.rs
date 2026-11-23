@@ -22,6 +22,7 @@ use crate::bindings::{
         XPlatformVerifier::XPlatformVerifierErrors,
     },
     circuits::IHonkVerifierErrors::IHonkVerifierErrorsErrors,
+    escrow::HandleEscrow::HandleEscrowErrors,
     identity::IdentityRegistry::IdentityRegistryErrors,
     referral::ReferralSplitter::ReferralSplitterErrors,
     wallet::{
@@ -174,13 +175,17 @@ pub enum WalletRegistryError {
     Forwarder(WalletForwarderErrors),
     /// `WalletFactory`, with the `Create3` errors of `createAndExecute`.
     Factory(WalletFactoryErrors),
+    /// `IdentityRegistry`.
+    Identities(IdentityRegistryErrors),
+    /// `HandleEscrow`.
+    Escrow(HandleEscrowErrors),
     /// A Solidity `Panic(uint256)`, with its code: a failed `assert`, an
     /// overflow, an index out of bounds, in any contract on the route.
     Panic(U256),
 }
 
 /// The route's error sets, in the order `WalletRegistryError::decode` tries them.
-pub(crate) const WALLET_REGISTRY_ROUTE: [(&str, Declares, Decode<WalletRegistryError>); 11] = [
+pub(crate) const WALLET_REGISTRY_ROUTE: [(&str, Declares, Decode<WalletRegistryError>); 13] = [
     (
         "WalletRegistry",
         WalletRegistryErrors::valid_selector,
@@ -236,6 +241,16 @@ pub(crate) const WALLET_REGISTRY_ROUTE: [(&str, Declares, Decode<WalletRegistryE
         WalletFactoryErrors::valid_selector,
         |d| WalletFactoryErrors::abi_decode(d).ok().map(WalletRegistryError::Factory),
     ),
+    (
+        "IdentityRegistry",
+        IdentityRegistryErrors::valid_selector,
+        |d| IdentityRegistryErrors::abi_decode(d).ok().map(WalletRegistryError::Identities),
+    ),
+    (
+        "HandleEscrow",
+        HandleEscrowErrors::valid_selector,
+        |d| HandleEscrowErrors::abi_decode(d).ok().map(WalletRegistryError::Escrow),
+    ),
 ];
 
 impl WalletRegistryError {
@@ -252,6 +267,8 @@ impl WalletRegistryError {
             Self::Wallet(e) => IWebWalletErrors::signature_by_selector(e.selector()),
             Self::Forwarder(e) => WalletForwarderErrors::signature_by_selector(e.selector()),
             Self::Factory(e) => WalletFactoryErrors::signature_by_selector(e.selector()),
+            Self::Identities(e) => IdentityRegistryErrors::signature_by_selector(e.selector()),
+            Self::Escrow(e) => HandleEscrowErrors::signature_by_selector(e.selector()),
             Self::Panic(_) => Some(Panic::SIGNATURE),
         }
         .unwrap_or("unknown")
@@ -270,6 +287,8 @@ impl WalletRegistryError {
             Self::Wallet(e) => e.selector(),
             Self::Forwarder(e) => e.selector(),
             Self::Factory(e) => e.selector(),
+            Self::Identities(e) => e.selector(),
+            Self::Escrow(e) => e.selector(),
             Self::Panic(_) => Panic::SELECTOR,
         }
     }
