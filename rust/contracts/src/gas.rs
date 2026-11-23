@@ -78,7 +78,7 @@ impl WalletGas {
 
     /// The rules check of a batch of `n_calls` below quorum in its costly
     /// case: a native refund's first spend, and an ERC-20 `transfer`'s first
-    /// spend with its depth-2 proof for each further call.
+    /// spend with its depth-4 proof for each further call.
     pub fn rules(&self, n_calls: u64) -> u64 {
         let more = self
             .rules_per_call

@@ -77,12 +77,15 @@ contract WalletVerifyGasTest is WalletSuite {
     }
 
     /// The rules check of a batch that refunds the relayer, after an ERC-20 `transfer` when `transfer`: Bot's session
-    /// below quorum less Alice's admin at quorum, from the same state. Each call has a depth-2 proof and charges its
+    /// below quorum less Alice's admin at quorum, from the same state. Each call has a depth-4 proof, in a 16-leaf scope, and charges its
     /// allowance's first spend in a fresh period, from cold slots.
     function _rules(bool transfer) internal returns (uint256 gas) {
         uint256 fresh = vm.snapshotState();
         TestERC20 token = new TestERC20();
-        bytes32[] memory leaves = new bytes32[](4);
+        bytes32[] memory leaves = new bytes32[](16);
+        for (uint256 i = 4; i < 16; ++i) {
+            leaves[i] = _leaf(address(uint160(i)), bytes4(0), 0);
+        }
         leaves[0] = _hitScope();
         leaves[1] = _leaf(relayer, bytes4(0), 1 ether);
         leaves[2] = _leaf(address(token), IERC20.transfer.selector, 0);

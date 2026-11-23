@@ -1,6 +1,6 @@
 {
-  "rules(per call)": "36221",
-  "rules(refund)": "53760",
+  "rules(per call)": "38186",
+  "rules(refund)": "55696",
   "verify(ECDSA)": "3542",
   "verify(P-256)": "10315",
   "verify(WebAuthn)": "16982"
