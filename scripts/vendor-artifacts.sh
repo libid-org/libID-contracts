@@ -8,12 +8,13 @@
 #       pruned to bytecode.object and, for the *HonkVerifier artifacts,
 #       deployedBytecode.object, the runtime code a deployed copy's code hash
 #       is checked against. The circuits pin is copied as circuits.json,
-#       naming the libid-circuits release the verifiers came from.
+#       naming the libid-circuits release the verifiers came from, and the
+#       wallet-verify.json gas snapshot the crate's `gas` module reads.
 #   rust/contracts/abi/<Name>.json  the ABI of every contract the crate binds,
 #       which `alloy::sol!` reads at compile time.
 #   rust/contracts/artifacts-testing/<File>.sol/<Name>.json  test stand-ins,
-#       pruned like the deployable contracts. Only the crate's `testing`
-#       feature embeds them.
+#       pruned like the deployable contracts, and the EntryPoint v0.9 code
+#       fixture. Only the crate's `testing` feature embeds them.
 #
 # All three directories are gitignored. Run this before any cargo command in rust/:
 # the crate embeds them, so a missing one is a compile error.
@@ -156,11 +157,13 @@ prune() {
 prune "$STAGE" "${ARTIFACTS[@]}"
 
 cp "$CIRCUITS_PIN" "$STAGE/circuits.json"
+cp "$REPO_ROOT/solidity/snapshots/wallet-verify.json" "$STAGE/wallet-verify.json"
 
 TESTING_STAGE="$(mktemp -d)"
 ABI_STAGE="$(mktemp -d)"
 trap 'rm -rf "$STAGE" "$TESTING_STAGE" "$ABI_STAGE"' EXIT
 prune "$TESTING_STAGE" "${TESTING_ARTIFACTS[@]}"
+cp "$REPO_ROOT/solidity/contracts/wallet/test/fixtures/entrypoint-v0.9.json" "$TESTING_STAGE/"
 
 for entry in "${ABIS[@]}"; do
     file="${entry%%:*}"

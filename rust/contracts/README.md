@@ -179,8 +179,9 @@ Other entry points:
   is a bind, beside the single form `abi.encode(target)` under `BIND_DOMAIN`;
   one list can carry other Consumers' entries beside the bind.
 - `WalletRegistryError::decode` — a refused wallet link or login by name,
-  from `WalletRegistry`, the same proof route and the wallet's own errors
-  (`IWebWallet`: `AppNotListed`, `FirstSessionRefused`, …).
+  from `WalletRegistry`, the same proof route, the wallet's own errors
+  (`IWebWallet`: `AppNotListed`, `FirstSessionRefused`, …) and an onboarding
+  batch's bind and claim (`IdentityRegistry`, `HandleEscrow`).
 - `bindings::wallet` — `IWebWallet`, the whole ABI of a wallet, and what its
   signers sign: `ExecuteMessage`, `user_operation_digest`,
   `below_quorum_hash`, `encode_authorization` (a UserOperation's signature
@@ -188,7 +189,17 @@ Other entry points:
   `Policy::policy_hash` with `Rules::sort_allowances`; the link
   and login operation domains (`LINK_IDENTITY_DOMAIN`, `ADD_SESSION_DOMAIN`,
   `REMOVE_SESSIONS_DOMAIN`) and the `transaction_data` their proofs commit,
-  naming the submitter that calls the wallet with them.
+  naming the submitter that calls the wallet with them. `encode_executions`
+  and `decode_executions` are the ERC-7579 batch codec; the decoder refuses
+  a batch the wallet would refuse as non-canonical.
+  `ExecuteMessage::from_authorized_data` decodes `data` leniently: compare
+  `authorized_data` of the result with the bytes to know they are canonical.
+- `gas::WalletGas` — what a simulation of a batch with dummy signatures
+  leaves out: `verify(KeyKind)` per signer and `rules(n_calls)` below
+  quorum, from the wallet's gas snapshot; `gas::CALL_OVERHEAD`.
+- `wallet_target::check_target` — whether the factory and forwarder vouch
+  for an address as a factory wallet or an EIP-7702 account, and its
+  `Release`; `None` for anything else.
 
 ## Example: sign and send a wallet batch directly
 
@@ -273,7 +284,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 Off by default. It embeds `StubPlatformVerifier`, a Platform Verifier that
 checks no proof, and adds `testing::{deploy_stub_platform_verifier,
 stub_payload, StubPayload, StubPlatformVerifier}`, so a consumer's tests can
-bind through `IdentityRegistry` without a ceremony. Enable it in
+bind through `IdentityRegistry` without a ceremony. `deploy_wallet_stack`
+deploys the wallet stack on it to an anvil node, with EntryPoint v0.9 at its
+canonical address. Enable it in
 `[dev-dependencies]` only.
 
 ## Testing

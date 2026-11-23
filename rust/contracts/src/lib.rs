@@ -20,8 +20,12 @@
 //!   several Consumers' operations.
 //! - [`circuits`] — the ceremony circuits' vendored UltraHonk verifiers:
 //!   which circuit a platform proves under, and the deploy of its verifier.
+//! - [`gas`] — what a simulation of a signed batch leaves out, from the
+//!   wallet's gas snapshot.
+//! - [`wallet_target`] — whether the wallet contracts vouch for an address.
 //! - `testing` (feature `testing`) — a stand-in Platform Verifier for a
-//!   consumer's tests: its binding, payload and deploy.
+//!   consumer's tests: its binding, payload and deploy, and the wallet stack
+//!   on it.
 
 #![deny(dead_code)]
 #![deny(missing_docs)]
@@ -35,10 +39,12 @@ pub mod circuits;
 pub mod deploy;
 mod error;
 pub mod factory;
+pub mod gas;
 pub mod operation_list;
 pub mod platform_verifier;
 #[cfg(feature = "testing")]
 pub mod testing;
+pub mod wallet_target;
 
 pub use artifacts::Artifacts;
 pub use bind_error::{

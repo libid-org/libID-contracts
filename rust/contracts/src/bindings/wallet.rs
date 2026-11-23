@@ -23,6 +23,11 @@ use alloy::{
     },
 };
 
+use crate::error::{
+    Error,
+    Result,
+};
+
 #[allow(
     clippy::too_many_arguments,
     missing_docs,
@@ -156,6 +161,13 @@ mod signed {
             uint256 callGas;
         }
 
+        #[derive(Debug, Default, PartialEq, Eq)]
+        struct Execution {
+            address target;
+            uint256 value;
+            bytes callData;
+        }
+
         #[derive(Debug, PartialEq, Eq)]
         struct UserOperation {
             bytes32 userOpHash;
@@ -171,6 +183,8 @@ pub use signed::CallProof;
 /// The EIP-712 `Execute` type of an `AUTHORIZED_MODE` batch. Build messages
 /// with [`ExecuteMessage`], which sets `mode`.
 pub use signed::Execute;
+/// One call of an ERC-7579 batch.
+pub use signed::Execution;
 /// `IWalletCore.SessionSignature`.
 pub use signed::SessionSignature;
 
@@ -227,6 +241,23 @@ pub fn below_quorum_hash(hash: B256, at: U48, governing_key: &[u8]) -> B256 {
 /// [`ExecuteMessage::authorized_data`].
 pub fn encode_authorization(authorization: &Authorization) -> Bytes {
     authorization.abi_encode().into()
+}
+
+/// `abi.encode(executions)`: an ERC-7579 batch, the wallet's canonical form.
+pub fn encode_executions(executions: &[Execution]) -> Bytes {
+    executions.abi_encode().into()
+}
+
+/// The batch `data` encodes, refused unless it is [`encode_executions`] of
+/// it byte for byte: the wallet runs no other form (`NoncanonicalBatch`).
+pub fn decode_executions(data: &[u8]) -> Result<Vec<Execution>> {
+    let executions = Vec::<Execution>::abi_decode(data).map_err(Error::abi)?;
+    if encode_executions(&executions)[..] != *data {
+        return Err(Error::Abi {
+            detail: "the batch does not re-encode to the bytes given".into(),
+        });
+    }
+    Ok(executions)
 }
 
 /// `AUTHORIZED_MODE` of `wallet/IWebWallet.sol`: the batch call type, the
@@ -396,6 +427,32 @@ impl ExecuteMessage {
         )
             .abi_encode_params()
             .into()
+    }
+
+    /// The message and authorization `data` decodes to, leniently, `nonce`
+    /// zero since the data does not carry it. Only data equal to
+    /// [`Self::authorized_data`] of the result is what the wallet signs over.
+    pub fn from_authorized_data(data: &[u8]) -> Result<(Self, ExecuteAuthorization)> {
+        type Data = (Bytes, U256, U48, U256, Bytes);
+        let (execution_calldata, value, deadline, call_gas, authorization) =
+            <Data as SolValue>::abi_decode_params(data).map_err(Error::abi)?;
+        let authorization =
+            Authorization::abi_decode(&authorization).map_err(Error::abi)?;
+        let message = Self {
+            execution_calldata,
+            value,
+            at: authorization.at,
+            nonce: U256::ZERO,
+            deadline,
+            call_gas,
+        };
+        let authorization = ExecuteAuthorization {
+            signatures: authorization.signatures,
+            calls: authorization.calls,
+            domain_proof: authorization.domainProof,
+            paymaster_proof: authorization.paymasterProof,
+        };
+        Ok((message, authorization))
     }
 }
 

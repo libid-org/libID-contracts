@@ -20,6 +20,12 @@ pub enum Error {
         /// What went wrong.
         detail: String,
     },
+    /// ABI data that does not decode, or does not re-encode to itself.
+    #[error("abi error: {detail}")]
+    Abi {
+        /// What went wrong.
+        detail: String,
+    },
     /// A transaction that was mined and reverted: it spent gas and changed
     /// nothing.
     #[error("reverted: {label} in transaction {tx_hash}")]
@@ -93,6 +99,15 @@ pub enum Error {
         /// The code hash at `address`.
         codehash: B256,
     },
+}
+
+impl Error {
+    /// ABI data that does not decode.
+    pub(crate) fn abi(e: alloy::sol_types::Error) -> Self {
+        Self::Abi {
+            detail: e.to_string(),
+        }
+    }
 }
 
 /// Crate result alias.
