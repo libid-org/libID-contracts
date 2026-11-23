@@ -231,32 +231,47 @@ async fn the_contracts_vouch_for_their_wallets_only() {
     );
 }
 
-/// A call the node answers with a revert or no data says "not a wallet"; a
-/// rate limit or no answer is an error, never `None`.
+/// A factory call says "not a wallet" on a revert or no data, the target's
+/// `genesisIdentity` also on a halt; any other error, a rate limit or no
+/// answer is an error, never `None`.
 #[tokio::test]
 async fn a_check_call_is_none_only_when_the_node_answered_it() {
     use alloy::transports::mock::Asserter;
-    let asserter = Asserter::new();
-    let provider = ProviderBuilder::new().connect_mocked_client(asserter.clone());
-    let revert = Some(Err(r#"{"code": 3, "message": "execution reverted"}"#));
-    let rate_limit = Some(Err(r#"{"code": 429, "message": "too many requests"}"#));
-    let no_data = Some(Ok(Bytes::new()));
-    for (call, answered) in [
-        (revert, true),
-        (no_data, true),
-        (rate_limit, false),
-        (None, false),
-    ] {
-        asserter.push_success(&Bytes::from([0x60, 0x80]));
-        match call {
-            Some(Ok(data)) => asserter.push_success(&data),
-            Some(Err(error)) => {
-                asserter.push_failure(serde_json::from_str(error).unwrap())
+    let error = |code: i64, message: &str| {
+        Some(Err(serde_json::json!({"code": code, "message": message})))
+    };
+    let delegated = [&[0xef, 0x01, 0x00][..], &[0; 20]].concat();
+    for (genesis, factory) in [(true, None), (false, Some(Bytes::from(delegated)))] {
+        for (call, none) in [
+            (error(3, "execution reverted"), true),
+            (error(-32003, "EVM error InvalidFEOpcode"), genesis),
+            (error(-32000, "missing trie node"), false),
+            (error(-32603, "internal error"), false),
+            (error(429, "too many requests"), false),
+            (Some(Ok(())), true),
+            (None, false),
+        ] {
+            let asserter = Asserter::new();
+            asserter.push_success(&factory.clone().unwrap_or(Bytes::from([0x60, 0x80])));
+            if !genesis {
+                asserter.push_success(&B256::ZERO);
             }
-            None => {}
+            match call.clone() {
+                Some(Ok(())) => asserter.push_success(&Bytes::new()),
+                Some(Err(error)) => {
+                    asserter.push_failure(serde_json::from_value(error).unwrap())
+                }
+                None => {}
+            }
+            let provider = ProviderBuilder::new().connect_mocked_client(asserter);
+            let target = Address::repeat_byte(0x66);
+            let checked =
+                check_target(&provider, Address::ZERO, Address::ZERO, target).await;
+            assert_eq!(
+                checked.ok(),
+                none.then_some(None),
+                "{call:?}, genesis {genesis}"
+            );
         }
-        let target = Address::repeat_byte(0x66);
-        let checked = check_target(&provider, Address::ZERO, Address::ZERO, target).await;
-        assert_eq!(checked.ok(), answered.then_some(None));
     }
 }

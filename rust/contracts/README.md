@@ -202,7 +202,7 @@ Other entry points:
   snapshot; `gas::CALL_OVERHEAD`.
 - `wallet_target::check_target` — whether the factory and forwarder vouch
   for an address as a factory wallet or an EIP-7702 account, and its
-  `Release`; `None` for anything else.
+  `Release`; `None` for anything else, `Err` when the node cannot tell.
 
 ## Example: sign and send a wallet batch directly
 

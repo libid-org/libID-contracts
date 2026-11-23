@@ -63,8 +63,9 @@ pub async fn read_release<P: Provider>(provider: &P, wallet: Address) -> Result<
 }
 
 /// Whether `factory` and `forwarder` vouch for `target`, and its release.
-/// `None` for anything else, including an account whose calls fail or
-/// answer junk; `Err` only when the node gives no answer.
+/// `None` for anything else, including an account whose `genesisIdentity`
+/// reverts, halts or answers junk; `Err` when the node gives no answer or
+/// any other error.
 pub async fn check_target<P: Provider>(
     provider: &P,
     factory: Address,
@@ -100,7 +101,10 @@ async fn published_release<P: Provider>(
 ) -> Result<Option<Release>> {
     let release = read_release(provider, target).await?;
     let wallet_factory = WalletFactory::new(factory, provider);
-    let published = answer(wallet_factory.release(release.version).call().await)?;
+    let published = answer(
+        wallet_factory.release(release.version).call().await,
+        REVERTS,
+    )?;
     let vouched = release.implementation != Address::ZERO
         && published == Some(release.implementation);
     Ok(vouched.then_some(release))
@@ -113,24 +117,31 @@ async fn is_factory_wallet<P: Provider>(
     target: Address,
 ) -> Result<bool> {
     let wallet = IWebWallet::new(target, provider);
-    let Some(genesis) = answer(wallet.genesisIdentity().call().await)? else {
+    let Some(genesis) = answer(wallet.genesisIdentity().call().await, FAILS)? else {
         return Ok(false);
     };
     let wallet_factory = WalletFactory::new(factory, provider);
     let address =
         wallet_factory.walletAddress(genesis.platformId, genesis.idNode, genesis.salt);
-    Ok(answer(address.call().await)? == Some(target))
+    Ok(answer(address.call().await, REVERTS)? == Some(target))
 }
 
-/// A call's answer: `None` when the call fails in the EVM or answers what
-/// does not decode; `Err` when the node gives no answer, or asks for a retry.
-fn answer<T>(result: alloy::contract::Result<T>) -> Result<Option<T>> {
+/// A revert, the one failure of a call to the trusted factory.
+const REVERTS: &[i64] = &[3];
+/// A revert or an EVM halt (anvil's and reth's -32003), the failures of a
+/// call into code the target controls.
+const FAILS: &[i64] = &[3, -32003];
+
+/// A call's answer: `None` when it fails with one of `codes` or answers what
+/// does not decode; `Err` for any other error.
+fn answer<T>(result: alloy::contract::Result<T>, codes: &[i64]) -> Result<Option<T>> {
     use alloy::contract::Error as E;
     match result {
         Ok(value) => Ok(Some(value)),
         Err(E::AbiError(_) | E::ZeroData(..)) => Ok(None),
         Err(E::TransportError(e))
-            if e.as_error_resp().is_some_and(|resp| !resp.is_retry_err()) =>
+            if e.as_error_resp()
+                .is_some_and(|resp| codes.contains(&resp.code)) =>
         {
             Ok(None)
         }
