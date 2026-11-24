@@ -72,6 +72,18 @@ contract SettableRegistry is IIdentityRegistry {
         return true;
     }
 
+    function resolveHandle(bytes32, string calldata) external pure returns (address) {
+        return address(0);
+    }
+
+    function resolveId(bytes32) external pure returns (address) {
+        return address(0);
+    }
+
+    function primaryHandleOf(address) external pure returns (bytes32, string memory) {
+        return (bytes32(0), "");
+    }
+
     function nodeKeyed() external pure virtual returns (bool) {
         return true;
     }
