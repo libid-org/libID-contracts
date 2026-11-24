@@ -196,7 +196,9 @@ Other entry points:
   `ExecuteMessage::from_authorized_data` decodes `data` leniently: compare
   `authorized_data` of the result with the bytes to know they are canonical.
 - `gas::WalletGas` — what a simulation of a batch with dummy signatures
-  leaves out: `verify(KeyKind)` per signer and `rules(n_calls)`, the
+  leaves out: `verify(KeyKind)` per further signer, its iteration of the
+  wallet's signature loop, `verify_tail()` once, the run after a valid
+  signature check less the dummy run's revert, and `rules(n_calls)`, the
   rules check below quorum in its costly case (a native refund, then an
   ERC-20 `transfer` per further call, each a first spend), from the wallet's gas
   snapshot; `gas::CALL_OVERHEAD`.

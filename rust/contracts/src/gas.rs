@@ -34,6 +34,7 @@ pub struct WalletGas {
     ecdsa: u64,
     web_authn: u64,
     p256: u64,
+    tail: u64,
     rules_refund: u64,
     rules_per_call: u64,
 }
@@ -62,18 +63,27 @@ impl WalletGas {
             ecdsa: entry("verify(ECDSA)")?,
             web_authn: entry("verify(WebAuthn)")?,
             p256: entry("verify(P-256)")?,
+            tail: entry("verify(tail)")?,
             rules_refund: entry("rules(refund)")?,
             rules_per_call: entry("rules(per call)")?,
         })
     }
 
-    /// One valid signature's check by a key of `kind`.
+    /// One more valid signature by a key of `kind`, its verifier cold:
+    /// its iteration of `_verify`'s signature loop.
     pub fn verify(&self, kind: KeyKind) -> u64 {
         match kind {
             KeyKind::Ecdsa => self.ecdsa,
             KeyKind::WebAuthn => self.web_authn,
             KeyKind::P256 => self.p256,
         }
+    }
+
+    /// The run after a valid `_verify`, at quorum, less a dummy run's after a
+    /// failing signature: from the last `_signedBy`'s return to `execute`'s,
+    /// less from it to the `ExecutionNotSigned` revert.
+    pub fn verify_tail(&self) -> u64 {
+        self.tail
     }
 
     /// The rules check of a batch of `n_calls` below quorum in its costly

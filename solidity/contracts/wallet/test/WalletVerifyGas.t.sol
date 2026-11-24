@@ -5,9 +5,7 @@ import {Vm} from "forge-std/Test.sol";
 import {Execution} from "@openzeppelin/contracts/interfaces/draft-IERC7579.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {Base64} from "@openzeppelin/contracts/utils/Base64.sol";
-import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import {P256} from "@openzeppelin/contracts/utils/cryptography/P256.sol";
-import {SignatureChecker} from "@openzeppelin/contracts/utils/cryptography/SignatureChecker.sol";
 import {WebAuthn} from "@openzeppelin/contracts/utils/cryptography/WebAuthn.sol";
 import {ERC7913P256Verifier} from "@openzeppelin/contracts/utils/cryptography/verifiers/ERC7913P256Verifier.sol";
 import {
@@ -19,33 +17,51 @@ import {TestERC20} from "../../escrow/test/EscrowMocks.sol";
 import {AUTHORIZED_MODE, IIdentityAdmin, IWalletCore, IWebWallet} from "../IWebWallet.sol";
 import {WalletSuite} from "./WalletSuite.sol";
 
-/// @notice What a relayer's simulation of a batch with dummy signatures leaves out: each signer's signature check,
-///         by key kind, and the rules check below quorum: a refund's, and each further call's.
+/// @notice What a relayer's simulation of a batch with dummy signatures leaves out: each further signer's check in
+///         `_verify`, by key kind, the run after a valid `_verify`, and the rules check below quorum: a refund's, and
+///         each further call's.
 contract WalletVerifyGasTest is WalletSuite {
     uint256 internal constant P256_PK = 0x9A55;
-    bytes32 internal constant HASH = keccak256("a digest");
+    /// Etched before the test's transaction, so cold in it, and at fixed addresses, so no deployer's nonce moves.
+    address internal p256 = makeAddr("P-256 verifier");
+    address internal webAuthn = makeAddr("WebAuthn verifier");
 
-    /// The check `WebWallet._signedBy` runs for one valid signature, its ERC-7913 verifier cold.
+    function setUp() public override {
+        super.setUp();
+        vm.etch(p256, type(ERC7913P256Verifier).runtimeCode);
+        vm.etch(webAuthn, type(ERC7913WebAuthnVerifier).runtimeCode);
+    }
+
+    /// Alice's wallet, at quorum alone, signs one `hit()` with a further signer of each kind, its verifier cold.
+    /// `verify(tail)` is a run Alice signs less one where another key signs for her: from her `_signedBy`'s return
+    /// to `execute`'s, less from it to the `ExecutionNotSigned` revert. `verify(kind)` is the same difference with
+    /// the kind's valid signature second, less `verify(tail)`: its iteration of `_verify`'s second loop.
     function test_verify() public {
-        (uint8 v, bytes32 r, bytes32 s) = vm.sign(ALICE_PK, HASH);
-        bytes memory signature = abi.encodePacked(r, s, v);
-        vm.startSnapshotGas("wallet-verify", "verify(ECDSA)");
-        (address signer, ECDSA.RecoverError err,) = ECDSA.tryRecover(HASH, signature);
-        vm.stopSnapshotGas();
-        assertTrue(err == ECDSA.RecoverError.NoError && signer == vm.addr(ALICE_PK), "ECDSA");
+        (uint256 qx, uint256 qy) = vm.publicKeyP256(P256_PK);
+        bytes[3] memory keys = [_key(NEW_PK), abi.encodePacked(p256, qx, qy), abi.encodePacked(webAuthn, qx, qy)];
+        address w = _claim();
+        for (uint256 i; i < keys.length; ++i) {
+            _addSession(w, _identity(X, ALICE), keys[i], _admin());
+        }
+        vm.warp(_now() + 1);
+        bytes memory calls = _one(_hitX());
+        bytes32 h = _execDigest(w, AUTHORIZED_MODE, calls, uint48(_now()), _nonce(w), uint48(_now() + 1 hours));
 
-        (r, s) = _signP256(HASH);
-        _measure("verify(P-256)", address(new ERC7913P256Verifier()), abi.encodePacked(r, s));
+        IWalletCore.SessionSignature memory none;
+        uint256 tail = _signedLessUnsigned(w, calls, h, none);
+        vm.snapshotValue("wallet-verify", "verify(tail)", tail);
 
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(NEW_PK, h);
+        _further("verify(ECDSA)", w, calls, h, keys[0], abi.encodePacked(r, s, v), tail);
+        (r, s) = _signP256(h);
+        _further("verify(P-256)", w, calls, h, keys[1], abi.encodePacked(r, s), tail);
         bytes memory authenticatorData =
             abi.encodePacked(bytes32(0), WebAuthn.AUTH_DATA_FLAGS_UP | WebAuthn.AUTH_DATA_FLAGS_UV, bytes4(0));
         string memory clientDataJSON =
-            string.concat('{"type":"webauthn.get","challenge":"', Base64.encodeURL(abi.encodePacked(HASH)), '"}');
+            string.concat('{"type":"webauthn.get","challenge":"', Base64.encodeURL(abi.encodePacked(h)), '"}');
         (r, s) = _signP256(sha256(abi.encodePacked(authenticatorData, sha256(bytes(clientDataJSON)))));
-        _measure(
-            "verify(WebAuthn)",
-            address(new ERC7913WebAuthnVerifier()),
-            abi.encode(r, s, 23, 1, authenticatorData, clientDataJSON)
+        _further(
+            "verify(WebAuthn)", w, calls, h, keys[2], abi.encode(r, s, 23, 1, authenticatorData, clientDataJSON), tail
         );
     }
 
@@ -60,15 +76,61 @@ contract WalletVerifyGasTest is WalletSuite {
         vm.snapshotValue("wallet-verify", "rules(per call)", _rules(true) - refund);
     }
 
-    /// `verifier`'s P-256 key checks `signature`.
-    function _measure(string memory name, address verifier, bytes memory signature) internal {
-        (uint256 qx, uint256 qy) = vm.publicKeyP256(P256_PK);
-        bytes memory key = abi.encodePacked(verifier, qx, qy);
-        vm.cool(verifier);
-        vm.startSnapshotGas("wallet-verify", name);
-        bool valid = SignatureChecker.isValidSignatureNow(key, HASH, signature);
-        vm.stopSnapshotGas();
-        assertTrue(valid, name);
+    /// `name`: the runs with `key`'s `signature` second, signed less unsigned, less `tail`.
+    function _further(
+        string memory name,
+        address w,
+        bytes memory calls,
+        bytes32 h,
+        bytes memory key,
+        bytes memory signature,
+        uint256 tail
+    ) internal {
+        IWalletCore.SessionSignature memory more = IWalletCore.SessionSignature({key: key, signature: signature});
+        uint256 checked = _signedLessUnsigned(w, calls, h, more);
+        vm.snapshotValue("wallet-verify", name, checked - tail);
+    }
+
+    /// The run Alice signs less the run another key signs for her.
+    function _signedLessUnsigned(address w, bytes memory calls, bytes32 h, IWalletCore.SessionSignature memory more)
+        internal
+        returns (uint256)
+    {
+        return _gas(w, calls, h, ALICE_PK, more) - _gas(w, calls, h, BOT_PK, more);
+    }
+
+    /// The gas `w` spends on `calls` with `pk`'s signature over `h` in Alice's name, then `more` unless its key is
+    /// empty, from one state: a run's writes and accesses are reverted after it.
+    function _gas(address w, bytes memory calls, bytes32 h, uint256 pk, IWalletCore.SessionSignature memory more)
+        internal
+        returns (uint256 used)
+    {
+        IWalletCore.SessionSignature[] memory sigs = new IWalletCore.SessionSignature[](more.key.length == 0 ? 1 : 2);
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(pk, h);
+        sigs[0] = IWalletCore.SessionSignature({key: _key(ALICE_PK), signature: abi.encodePacked(r, s, v)});
+        if (sigs.length == 2) sigs[1] = more;
+        IWalletCore.Authorization memory a = abi.decode(_wrap(sigs), (IWalletCore.Authorization));
+        bytes memory input =
+            abi.encodeCall(IWalletCore.execute, (AUTHORIZED_MODE, _data(calls, _env(a, uint48(_now() + 1 hours)))));
+        uint256 state = vm.snapshotState();
+        bool ok;
+        bytes4 err;
+        vm.prank(relayer);
+        used = gasleft();
+        // No return data copied before the second read: the test's memory grows from run to run.
+        assembly ("memory-safe") {
+            ok := call(gas(), w, 0, add(input, 0x20), mload(input), 0, 0)
+        }
+        used -= gasleft();
+        assembly ("memory-safe") {
+            if gt(returndatasize(), 3) {
+                returndatacopy(0, 0, 4)
+                err := mload(0)
+            }
+        }
+        if (pk == ALICE_PK) assertTrue(ok, "a signed run");
+        else assertEq(err, NOT_SIGNED, "an unsigned run");
+        vm.revertToState(state);
     }
 
     function _signP256(bytes32 h) internal pure returns (bytes32 r, bytes32 s) {

@@ -119,6 +119,7 @@ fn gas_reads_the_vendored_snapshot_and_refuses_a_renamed_entry() {
     assert_eq!(gas.verify(KeyKind::Ecdsa), entry("verify(ECDSA)"));
     assert_eq!(gas.verify(KeyKind::WebAuthn), entry("verify(WebAuthn)"));
     assert_eq!(gas.verify(KeyKind::P256), entry("verify(P-256)"));
+    assert_eq!(gas.verify_tail(), entry("verify(tail)"));
     let (refund, per_call) = (entry("rules(refund)"), entry("rules(per call)"));
     assert_eq!(
         (gas.rules(1), gas.rules(3)),
@@ -131,6 +132,7 @@ fn gas_reads_the_vendored_snapshot_and_refuses_a_renamed_entry() {
         "verify(ECDSA)",
         "verify(WebAuthn)",
         "verify(P-256)",
+        "verify(tail)",
         "rules(refund)",
     ];
     for name in names.into_iter().chain(["rules(per call)"]) {
@@ -146,7 +148,7 @@ fn rules_adds_each_further_call_and_saturates() {
     let snapshot = |refund: &str, per_call: &str| {
         WalletGas::from_json(&format!(
             r#"{{"verify(ECDSA)": "1", "verify(WebAuthn)": "2", "verify(P-256)": "3",
-                "rules(refund)": "{refund}", "rules(per call)": "{per_call}"}}"#
+                "verify(tail)": "4", "rules(refund)": "{refund}", "rules(per call)": "{per_call}"}}"#
         ))
     };
     let gas = snapshot("100", "11").unwrap();
@@ -287,4 +289,117 @@ async fn a_check_call_is_none_only_when_the_node_answered_it() {
             );
         }
     }
+}
+
+alloy::sol! {
+    #[sol(rpc)]
+    interface IEntryPoint {
+        function getNonce(address sender, uint192 key) external view returns (uint256);
+    }
+}
+
+/// A batch two admin ECDSA keys sign costs its run with dummy signatures,
+/// plus the second signer's `verify` and `verify_tail`, to within a few gas,
+/// calldata aside.
+#[tokio::test]
+async fn a_signed_batch_costs_its_dummy_run_and_what_gas_adds() {
+    use alloy::{
+        providers::PendingTransactionBuilder,
+        rpc::types::TransactionRequest,
+        signers::{
+            local::PrivateKeySigner,
+            SignerSync,
+        },
+    };
+    let provider = ProviderBuilder::new().connect_anvil_with_wallet();
+    let owner = provider.get_accounts().await.unwrap()[0];
+    let stack = deploy_wallet_stack(&provider, &Artifacts::embedded(), owner)
+        .await
+        .unwrap();
+    let factory = WalletFactory::new(stack.factory, &provider);
+    let (id_node, salt) = (B256::repeat_byte(0xa1), U256::ZERO);
+    let wallet = factory.walletAddress(stack.platform, id_node, salt);
+    let wallet = wallet.call().await.unwrap();
+    let create = factory.createWallet(stack.platform, id_node, salt);
+    create.send().await.unwrap().get_receipt().await.unwrap();
+
+    let account = IWebWallet::new(wallet, &provider);
+    let signers = [PrivateKeySigner::random(), PrivateKeySigner::random()];
+    let identity = keccak256([stack.platform, id_node].concat());
+    let admin = Policy {
+        admin: true,
+        ..Default::default()
+    };
+    provider.anvil_impersonate_account(wallet).await.unwrap();
+    provider.anvil_set_balance(wallet, FEE).await.unwrap();
+    // The impersonated wallet has no key: the node signs its calls.
+    for signer in &signers {
+        let key = Bytes::from(signer.address().to_vec());
+        let add = account.addSession(identity, key, admin.clone());
+        let tx = TransactionRequest::default()
+            .from(wallet)
+            .to(wallet)
+            .input(add.calldata().clone().into());
+        let hash: B256 = provider
+            .raw_request("eth_sendTransaction".into(), (tx,))
+            .await
+            .unwrap();
+        let pending = PendingTransactionBuilder::new(provider.root().clone(), hash);
+        assert!(pending.get_receipt().await.unwrap().status());
+    }
+    provider.anvil_increase_time(1).await.unwrap();
+    provider.anvil_mine(Some(1), None).await.unwrap();
+
+    let entry_point = IEntryPoint::new(stack.entry_point, &provider);
+    let nonce = entry_point.getNonce(wallet, DIRECT_NONCE_KEY);
+    let message = ExecuteMessage {
+        execution_calldata: encode_executions(&[Execution {
+            target: Address::repeat_byte(0x44),
+            value: U256::ZERO,
+            callData: Bytes::new(),
+        }]),
+        value: U256::ZERO,
+        at: U48::ZERO,
+        nonce: nonce.call().await.unwrap(),
+        deadline: U48::from(4_000_000_000u64),
+        call_gas: U256::from(100_000),
+    };
+    let version = account.release().call().await.unwrap().version;
+    let domain_salt = account.eip712Domain().call().await.unwrap().salt;
+    let chain_id = provider.get_chain_id().await.unwrap();
+    let digest = message.digest(chain_id, wallet, version, domain_salt);
+    // Gas used less the transaction's base and calldata cost.
+    let run = |hash: B256| {
+        let signatures = signers
+            .iter()
+            .map(|signer| SessionSignature {
+                key: signer.address().to_vec().into(),
+                signature: signer.sign_hash_sync(&hash).unwrap().as_bytes().into(),
+            })
+            .collect();
+        let data = message.authorized_data(ExecuteAuthorization {
+            signatures,
+            ..Default::default()
+        });
+        let execute = account.execute(AUTHORIZED_MODE, data).gas(1_000_000);
+        async move {
+            let calldata: u64 = execute
+                .calldata()
+                .iter()
+                .map(|&b| if b == 0 { 4 } else { 16 })
+                .sum();
+            let receipt = execute.send().await.unwrap().get_receipt().await.unwrap();
+            (receipt.status(), receipt.gas_used - 21_000 - calldata)
+        }
+    };
+    let (unsigned, dummy) = run(B256::ZERO).await;
+    let (signed, real) = run(digest).await;
+    assert!(!unsigned && signed);
+    let gas = WalletGas::vendored();
+    let quoted = dummy + gas.verify(KeyKind::Ecdsa) + gas.verify_tail();
+    // Within a few gas of the forge runs': one gas less here.
+    assert!(
+        real <= quoted && quoted - real < 16,
+        "{real} against {quoted}"
+    );
 }
