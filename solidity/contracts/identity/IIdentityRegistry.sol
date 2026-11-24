@@ -2,18 +2,12 @@
 pragma solidity ^0.8.20;
 
 import {IOperationLists} from "../ceremony/IOperationLists.sol";
+import {ILibIDRegistry} from "./ILibIDRegistry.sol";
 
 /// @notice What other contracts ask the identity registry.
-interface IIdentityRegistry is IOperationLists {
+interface IIdentityRegistry is ILibIDRegistry, IOperationLists {
     /// No ceremony profile names the platform.
     error UnknownPlatform(bytes32 platformId);
-
-    /// @notice The holder of this handle node (zero if none), and when it was last proved.
-    function handleBinding(bytes32 handleNode) external view returns (address holder, uint64 observedAt);
-
-    /// @notice The node a handle as typed is bound under. Reverts `UnknownPlatform`
-    ///         for a platform the registry does not know.
-    function handleNodeOf(bytes32 platformId, string calldata handle) external view returns (bytes32 handleNode);
 
     /// @notice Whether a platform can be bound right now. Reverts `UnknownPlatform`
     ///         for a platform the registry does not know.
