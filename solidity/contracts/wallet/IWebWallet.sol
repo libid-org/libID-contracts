@@ -6,8 +6,8 @@ import {IEntryPoint, PackedUserOperation} from "@openzeppelin/contracts/interfac
 // The mode of a signed batch anyone may submit: batch call type, default exec type, and mode selector
 // `bytes4(keccak256("libid.webwallet.authorized"))`.
 bytes32 constant AUTHORIZED_MODE = 0x01000000000018f4a5a900000000000000000000000000000000000000000000;
-// The gas between the wallet's `callGas` check before each `AUTHORIZED_MODE` call, its data already in memory, and
-// the call: a cold account, a value transfer and the call itself. The call gets 63/64 of what is left.
+// The gas between the wallet's check of an `AUTHORIZED_MODE` call's signed `callGas` floor, its data already in
+// memory, and the call: a cold account, a value transfer and the call itself. The call gets 63/64 of what is left.
 uint256 constant CALL_OVERHEAD = 20_000;
 
 /// EntryPoint v0.9's `incrementNonce`, which OpenZeppelin's interface leaves out.
@@ -246,8 +246,10 @@ interface IWebWallet is IWalletCore, IIdentityAdmin {
     error NoncanonicalBatch();
     /// `msg.value` is not the signed `value`.
     error WrongBatchValue(uint256 value, uint256 sent);
-    /// The gas left before a call would give it less than the signed `callGas`.
-    error InsufficientCallGas(uint256 callGas, uint256 left);
+    /// The gas left before call `index` would give it less than its signed `callGas`.
+    error InsufficientCallGas(uint256 index, uint256 callGas, uint256 left);
+    /// The signed `callGas` does not hold one floor per call.
+    error WrongCallGasCount(uint256 calls, uint256 floors);
     /// The signed `deadline` is zero or has passed.
     error ExecutionExpired(uint48 deadline);
     /// A mode other than `AUTHORIZED_MODE` or a single or batch call with selector 0.

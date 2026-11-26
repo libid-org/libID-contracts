@@ -158,7 +158,7 @@ mod signed {
             uint48 at;
             uint256 nonce;
             uint48 deadline;
-            uint256 callGas;
+            uint256[] callGas;
         }
 
         #[derive(Debug, Default, PartialEq, Eq)]
@@ -367,8 +367,8 @@ pub struct ExecuteMessage {
     pub nonce: U256,
     /// The last second the batch may run.
     pub deadline: U48,
-    /// The gas each of the batch's calls gets.
-    pub call_gas: U256,
+    /// The least gas each of the batch's calls gets, one per call.
+    pub call_gas: Vec<U256>,
 }
 
 /// [`Authorization`] without `at`, which [`ExecuteMessage::authorized_data`]
@@ -402,7 +402,7 @@ impl ExecuteMessage {
             at: self.at,
             nonce: self.nonce,
             deadline: self.deadline,
-            callGas: self.call_gas,
+            callGas: self.call_gas.clone(),
         }
         .eip712_signing_hash(&wallet_domain(chain_id, wallet, version, salt))
     }
@@ -422,7 +422,7 @@ impl ExecuteMessage {
             self.execution_calldata.clone(),
             self.value,
             self.deadline,
-            self.call_gas,
+            self.call_gas.clone(),
             encode_authorization(&authorization),
         )
             .abi_encode_params()
@@ -433,7 +433,7 @@ impl ExecuteMessage {
     /// zero since the data does not carry it. Only data equal to
     /// [`Self::authorized_data`] of the result is what the wallet signs over.
     pub fn from_authorized_data(data: &[u8]) -> Result<(Self, ExecuteAuthorization)> {
-        type Data = (Bytes, U256, U48, U256, Bytes);
+        type Data = (Bytes, U256, U48, Vec<U256>, Bytes);
         let (execution_calldata, value, deadline, call_gas, authorization) =
             <Data as SolValue>::abi_decode_params(data).map_err(Error::abi)?;
         let authorization =
@@ -555,7 +555,7 @@ mod tests {
         value: u64,
         at: u64,
         deadline: u64,
-        call_gas: u64,
+        call_gas: Vec<u64>,
         session_key: Bytes,
         signature: Bytes,
         call_max_value: u64,
@@ -601,7 +601,7 @@ mod tests {
             // Nonce key 0: the full nonce is the sequence.
             nonce: (U256::from(DIRECT_NONCE_KEY) << 64) | U256::from(v.nonce),
             deadline: U48::from(v.deadline),
-            call_gas: U256::from(v.call_gas),
+            call_gas: v.call_gas.iter().copied().map(U256::from).collect(),
         };
         let authorization = ExecuteAuthorization {
             signatures: vec![SessionSignature {

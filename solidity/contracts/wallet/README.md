@@ -134,6 +134,7 @@ calls[2] = Execution(address(escrow), 0, abi.encodeCall(HandleEscrow.claim, (han
 calls[3] = Execution(relayer, linkFee, "");
 
 bytes memory executionCalldata = abi.encode(calls);
+// callGas holds four floors, one per call.
 // K signs Execute(AUTHORIZED_MODE, executionCalldata, linkFee, at, 0, deadline, callGas)
 // under the domain of the release w will run, with salt keccak256(abi.encode(0, 0)): see the
 // signing version and salt below.
@@ -226,7 +227,7 @@ One lock covers both, so a batch cannot call `execute` again
 data is:
 
 ```solidity
-abi.encode(bytes executionCalldata, uint256 value, uint48 deadline, uint256 callGas, bytes authorization)
+abi.encode(bytes executionCalldata, uint256 value, uint48 deadline, uint256[] callGas, bytes authorization)
 // authorization = abi.encode(IWalletCore.Authorization)
 ```
 
@@ -234,14 +235,15 @@ The wallet:
 
 1. requires `executionCalldata` to be exactly `abi.encode(Execution[])` of
    the calls it decodes to, else `NoncanonicalBatch`;
-2. requires `msg.value == value`, else `WrongBatchValue`;
+2. requires one `callGas` floor per call, else `WrongCallGasCount`, and
+   `msg.value == value`, else `WrongBatchValue`;
 3. reads and consumes its EntryPoint nonce under key 0
    (`EntryPointMissing` when the EntryPoint has no code on the chain);
 4. reads the threshold and its EIP-712 domain separator;
 5. requires `deadline` nonzero and not passed (`ExecutionExpired`);
-6. runs the calls. Before each, with the call's data already in memory, it
-   requires `gasleft() * 63 / 64` of at least `callGas + CALL_OVERHEAD`, else
-   `InsufficientCallGas`. A call to `address(0)` is a call to the wallet;
+6. runs the calls. Before call `i`, with its data already in memory, it
+   requires `gasleft() * 63 / 64` of at least `callGas[i] + CALL_OVERHEAD`,
+   else `InsufficientCallGas`. A call to `address(0)` is a call to the wallet;
 7. checks the signatures against the sessions as the calls left them
    (`ExecutionNotSigned`), the rules below quorum (`ExecutionNotAllowed`),
    and that the block time is inside the signers' window
@@ -250,7 +252,7 @@ The wallet:
 Signers sign the EIP-712 hash of
 
 ```
-Execute(bytes32 mode,bytes executionCalldata,uint256 value,uint48 at,uint256 nonce,uint48 deadline,uint256 callGas)
+Execute(bytes32 mode,bytes executionCalldata,uint256 value,uint48 at,uint256 nonce,uint48 deadline,uint256[] callGas)
 ```
 
 with `mode = AUTHORIZED_MODE`, `at = authorization.at`, and `nonce` the full

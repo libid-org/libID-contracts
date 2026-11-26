@@ -254,14 +254,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .getNonce(wallet, DIRECT_NONCE_KEY)
         .call()
         .await?;
-    // `value` is the `msg.value` the batch is sent with.
+    // `value` is the `msg.value` the batch is sent with; `call_gas` holds each
+    // call's least gas, one per call of the batch.
     let execute = ExecuteMessage {
         execution_calldata,
         value: U256::ZERO,
         at: U48::ZERO,
         nonce,
         deadline: U48::from(2_000_000_000),
-        call_gas: U256::from(500_000),
+        call_gas: vec![U256::from(500_000)],
     };
     // At quorum a session key signs the digest; below quorum,
     // `below_quorum_hash` of it.

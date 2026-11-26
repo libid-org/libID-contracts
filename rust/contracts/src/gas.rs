@@ -10,7 +10,7 @@ use crate::error::{
 };
 
 /// `CALL_OVERHEAD` of `wallet/IWebWallet.sol`: the gas the wallet requires
-/// beyond `callGas` before each call of a batch.
+/// beyond a call's signed `callGas` floor before it.
 pub const CALL_OVERHEAD: u64 = 20_000;
 
 /// The snapshot, vendored into the crate.

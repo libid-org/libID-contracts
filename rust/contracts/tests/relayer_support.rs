@@ -76,7 +76,7 @@ fn authorized_data_round_trips_and_only_canonical_data_re_encodes() {
         at: U48::from(1_800_000_000u64),
         nonce: U256::ZERO,
         deadline: U48::from(1_800_000_600u64),
-        call_gas: U256::from(200_000),
+        call_gas: [200_000u64, 60_000, 30_000, 9_000].map(U256::from).to_vec(),
     };
     let authorization = ExecuteAuthorization {
         signatures: vec![SessionSignature {
@@ -94,7 +94,7 @@ fn authorized_data_round_trips_and_only_canonical_data_re_encodes() {
 
     let mut moved = data.clone();
     moved.splice(160..160, [0; 32]);
-    for at in [0..32, 128..160] {
+    for at in [0..32, 96..128, 128..160] {
         let offset = U256::from_be_slice(&moved[at.clone()]) + U256::from(32);
         moved[at].copy_from_slice(&offset.to_be_bytes::<32>());
     }
@@ -362,7 +362,7 @@ async fn a_signed_batch_costs_its_dummy_run_and_what_gas_adds() {
         at: U48::ZERO,
         nonce: nonce.call().await.unwrap(),
         deadline: U48::from(4_000_000_000u64),
-        call_gas: U256::from(100_000),
+        call_gas: vec![U256::from(100_000)],
     };
     let version = account.release().call().await.unwrap().version;
     let domain_salt = account.eip712Domain().call().await.unwrap().salt;
