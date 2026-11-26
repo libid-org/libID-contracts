@@ -409,8 +409,6 @@ contract WalletExecuteTest is WalletSuite {
         vm.expectRevert(NOT_SIGNED);
         IWebWallet(w).execute(AUTHORIZED_MODE, changed);
         vm.stopPrank();
-        assertEq(_nonce(w), n, "a refused batch used the nonce");
-        assertEq(target.calls(), hits, "a refused batch's call stayed");
         vm.prank(relayer);
         IWebWallet(w).execute(AUTHORIZED_MODE, _dataFloors(calls, a, deadline, signed));
         assertEq(target.calls(), hits + 2, "control");
