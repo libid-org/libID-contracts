@@ -17,7 +17,7 @@ import {IHonkVerifier} from "../../ceremony/PlatformVerifierBase.sol";
 import {TlsNotaryVerifierBase} from "../../ceremony/TlsNotaryVerifierBase.sol";
 import {XPlatformVerifier} from "../../ceremony/XPlatformVerifier.sol";
 import {IdentityRegistry} from "../../identity/IdentityRegistry.sol";
-import {AUTHORIZED_MODE, IIdentityAdmin, IWebWallet} from "../IWebWallet.sol";
+import {AUTHORIZED_MODE, CALL_OVERHEAD, IIdentityAdmin, IWebWallet} from "../IWebWallet.sol";
 import {WalletBase} from "./WalletBase.sol";
 
 /// @notice Acceptance 2: one `createAndExecute` onboards on one real X list proof: link K and bind the handle.
@@ -158,11 +158,13 @@ contract WalletRealProofTest is WalletBase {
 
     /// The least gas the real onboarding runs on, each call's floor 1.25 times its gas as a relayer quotes it: the
     /// gas of the batch's prefix that ends with it, less the prefix before it. The empty prefix stops at the
-    /// signature check, which K, not yet linked, fails. Against it, the dearest floor for every call.
+    /// signature check, which K, not yet linked, fails. Against it, the dearest floor for every call. The crate's
+    /// bound on the gas that gives each call its floor covers the least gas.
     function test_theRealOnboardingsLeastGas() public {
         address w = factory.walletAddress(X, idNode, 0);
         Execution[] memory x = _realOnboarding(w);
         uint256[] memory floors = new uint256[](x.length);
+        uint256[] memory before = new uint256[](x.length);
         (uint256 last, uint256 dearest) = (0, 0);
         for (uint256 k; k <= x.length; ++k) {
             Execution[] memory cut = new Execution[](k);
@@ -175,16 +177,32 @@ contract WalletRealProofTest is WalletBase {
             assertTrue(ok || unsigned, "a prefix did not run");
             if (k > 0) floors[k - 1] = ((used - last) * 5 + 3) / 4;
             if (k > 0 && floors[k - 1] > dearest) dearest = floors[k - 1];
+            if (k < x.length) before[k] = used;
             last = used;
         }
         uint256 each = _leastGas(_signedAt(w, 1, _pks(ALICE_PK), abi.encode(x), false, floors), last / 2);
+        uint256 bound;
+        for (uint256 i; i < floors.length; ++i) {
+            uint256 b = _scaled(before[i], 3) + _scaled(floors[i] + CALL_OVERHEAD, 4);
+            if (b > bound) bound = b;
+        }
+        assertGe(bound, each, "the bound is below the least gas");
         for (uint256 i; i < floors.length; ++i) {
             floors[i] = dearest;
         }
         uint256 one = _leastGas(_signedAt(w, 1, _pks(ALICE_PK), abi.encode(x), false, floors), last / 2);
         assertLt(each, one, "a floor per call needs as much gas as the dearest floor for each");
-        vm.snapshotValue("wallet-claim", "createAndExecute onboarding(real X proof) least gas, each call's floor", each);
-        vm.snapshotValue("wallet-claim", "createAndExecute onboarding(real X proof) least gas, dearest floor", one);
+        vm.snapshotValue(
+            "wallet-claim", "createAndExecute onboarding(real X proof) least frame gas, each call's floor", each
+        );
+        vm.snapshotValue(
+            "wallet-claim", "createAndExecute onboarding(real X proof) least frame gas, dearest floor", one
+        );
+    }
+
+    /// `gas × (64/63)^frames`, rounded up: what `frames` nested calls need to pass `gas` on.
+    function _scaled(uint256 gas, uint256 frames) internal pure returns (uint256) {
+        return (gas * 64 ** frames + 63 ** frames - 1) / 63 ** frames;
     }
 
     /// The same onboarding on a stub proof: the wallet's share of the gas.

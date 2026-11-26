@@ -1,6 +1,6 @@
 {
-  "createAndExecute onboarding(real X proof) least gas, dearest floor": "3560948",
-  "createAndExecute onboarding(real X proof) least gas, each call's floor": "2180259",
+  "createAndExecute onboarding(real X proof) least frame gas, dearest floor": "3560948",
+  "createAndExecute onboarding(real X proof) least frame gas, each call's floor": "2180259",
   "createAndExecute onboarding(real X proof, operation list)": "2397966",
   "createAndExecute onboarding(stub proof, operation list)": "1408150"
 }
