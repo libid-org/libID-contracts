@@ -37,7 +37,7 @@ gas_snapshot_emit = false
 # What verifying a claim costs, recorded in snapshots/ by
 # ClaimVerificationGas.t.sol, the wallet's one-call onboarding by
 # WalletRealProof.t.sol: on the real X attestation and its real Honk proof,
-# and on a stub proof, and one `hit()` by each execute path by
+# and on a stub proof, with the least gas the real one runs on, and one `hit()` by each execute path by
 # WalletExecuteGas.t.sol, and what a relayer's simulation leaves out (each
 # further signer, the run after a valid signature check, the rules below
 # quorum) by WalletVerifyGas.t.sol. CI
