@@ -429,9 +429,9 @@ impl ExecuteMessage {
             .into()
     }
 
-    /// The message and authorization `data` decodes to, leniently, `nonce`
-    /// zero since the data does not carry it. Only data equal to
-    /// [`Self::authorized_data`] of the result is what the wallet signs over.
+    /// The message and authorization `data` encodes, `nonce` zero since the
+    /// data does not carry it; refused unless `data` is
+    /// [`Self::authorized_data`] of them byte for byte.
     pub fn from_authorized_data(data: &[u8]) -> Result<(Self, ExecuteAuthorization)> {
         type Data = (Bytes, U256, U48, Vec<U256>, Bytes);
         let (execution_calldata, value, deadline, call_gas, authorization) =
@@ -452,6 +452,11 @@ impl ExecuteMessage {
             domain_proof: authorization.domainProof,
             paymaster_proof: authorization.paymasterProof,
         };
+        if message.authorized_data(authorization.clone())[..] != *data {
+            return Err(Error::Abi {
+                detail: "the data does not re-encode to the bytes given".into(),
+            });
+        }
         Ok((message, authorization))
     }
 }

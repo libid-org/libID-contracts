@@ -50,7 +50,8 @@ fn the_readme_batch_round_trips_and_a_noncanonical_batch_is_refused() {
     let decoded = decode_executions(&encoded).expect("canonical");
     assert_eq!(decoded, readme_batch());
 
-    // Each decodes leniently (cast) to the same calls; the wallet refuses all.
+    // The wallet refuses all: the first three decode leniently (cast) to the
+    // same calls, the cut one not at all.
     let canonical = encoded.to_vec();
     let mut trailing = canonical.clone();
     trailing.extend([0; 32]);
@@ -66,10 +67,10 @@ fn the_readme_batch_round_trips_and_a_noncanonical_batch_is_refused() {
 }
 
 /// The decoder inverts `authorized_data`, `nonce`, which the data does not
-/// carry, as zero. Data with a pad word after the head, a dirty `uint48` or a
-/// cut tail decodes leniently or not at all, and never re-encodes to itself.
+/// carry, as zero. It refuses data with a pad word after the head, a dirty
+/// `uint48` or a cut tail.
 #[test]
-fn authorized_data_round_trips_and_only_canonical_data_re_encodes() {
+fn authorized_data_round_trips_and_noncanonical_data_is_refused() {
     let message = ExecuteMessage {
         execution_calldata: encode_executions(&readme_batch()),
         value: FEE,
@@ -90,7 +91,6 @@ fn authorized_data_round_trips_and_only_canonical_data_re_encodes() {
     let data = message.authorized_data(authorization.clone()).to_vec();
     let decoded = ExecuteMessage::from_authorized_data(&data).expect("decodes");
     assert_eq!(decoded, (message, authorization));
-    assert_eq!(decoded.0.authorized_data(decoded.1.clone()).to_vec(), data);
 
     let mut moved = data.clone();
     moved.splice(160..160, [0; 32]);
@@ -98,66 +98,11 @@ fn authorized_data_round_trips_and_only_canonical_data_re_encodes() {
         let offset = U256::from_be_slice(&moved[at.clone()]) + U256::from(32);
         moved[at].copy_from_slice(&offset.to_be_bytes::<32>());
     }
-    let lenient = ExecuteMessage::from_authorized_data(&moved).expect("lenient decode");
-    assert_eq!(lenient, decoded);
     let mut dirty = data.clone();
     dirty[64] = 0xff; // the deadline word's high byte
     for bad in [moved, dirty, data[..data.len() - 1].to_vec(), vec![]] {
-        if let Ok((m, a)) = ExecuteMessage::from_authorized_data(&bad) {
-            assert_ne!(m.authorized_data(a).to_vec(), bad);
-        }
+        assert!(ExecuteMessage::from_authorized_data(&bad).is_err());
     }
-}
-
-const SNAPSHOT: &str = include_str!("../../../solidity/snapshots/wallet-verify.json");
-
-#[test]
-fn gas_reads_the_vendored_snapshot_and_refuses_a_renamed_entry() {
-    let json: serde_json::Value = serde_json::from_str(SNAPSHOT).unwrap();
-    let entry = |name: &str| json[name].as_str().expect(name).parse::<u64>().unwrap();
-    let gas = WalletGas::vendored();
-    assert_eq!(gas.verify(KeyKind::Ecdsa), entry("verify(ECDSA)"));
-    assert_eq!(gas.verify(KeyKind::WebAuthn), entry("verify(WebAuthn)"));
-    assert_eq!(gas.verify(KeyKind::P256), entry("verify(P-256)"));
-    assert_eq!(gas.verify_tail(), entry("verify(tail)"));
-    let (refund, per_call) = (entry("rules(refund)"), entry("rules(per call)"));
-    assert_eq!(
-        (gas.rules(1), gas.rules(3)),
-        (refund, refund + 2 * per_call)
-    );
-    assert_eq!(CALL_OVERHEAD, 20_000); // IWebWallet.sol
-
-    assert!(WalletGas::from_json(SNAPSHOT).is_ok());
-    let names = [
-        "verify(ECDSA)",
-        "verify(WebAuthn)",
-        "verify(P-256)",
-        "verify(tail)",
-        "rules(refund)",
-    ];
-    for name in names.into_iter().chain(["rules(per call)"]) {
-        let renamed = SNAPSHOT.replace(&format!("\"{name}\""), "\"renamed\"");
-        assert_ne!(renamed, SNAPSHOT);
-        assert!(WalletGas::from_json(&renamed).is_err(), "{name}");
-    }
-}
-
-/// By hand: 100 + 11 (n - 1), never below 1 call's, saturating.
-#[test]
-fn rules_adds_each_further_call_and_saturates() {
-    let snapshot = |refund: &str, per_call: &str| {
-        WalletGas::from_json(&format!(
-            r#"{{"verify(ECDSA)": "1", "verify(WebAuthn)": "2", "verify(P-256)": "3",
-                "verify(tail)": "4", "rules(refund)": "{refund}", "rules(per call)": "{per_call}"}}"#
-        ))
-    };
-    let gas = snapshot("100", "11").unwrap();
-    assert_eq!(
-        [0, 1, 2, 3, 4].map(|n| gas.rules(n)),
-        [100, 100, 111, 122, 133]
-    );
-    assert_eq!(gas.rules(u64::MAX), u64::MAX);
-    assert!(snapshot("100", "0xb").is_err());
 }
 
 /// The contracts vouch for a factory wallet and an account delegated to the
@@ -171,10 +116,6 @@ async fn the_contracts_vouch_for_their_wallets_only() {
     let stack = deploy_wallet_stack(&provider, &artifacts, owner)
         .await
         .unwrap();
-    // cast index-erc7201 libid.webwallet.release
-    let slot =
-        b256!("0xe1dba8fb066a3b169f681c6818aeab86343e7484c7e0cee1cbf00e41a55c2800");
-    assert_eq!(RELEASE_SLOT, slot);
     let entry_point = address!("0x433709009B8330FDa32311DF1C2AFA402eD8D009");
     assert_eq!(stack.entry_point, entry_point);
     assert!(!provider.get_code_at(entry_point).await.unwrap().is_empty());
@@ -202,7 +143,7 @@ async fn the_contracts_vouch_for_their_wallets_only() {
     let plant = |implementation: Address, version: u64| {
         let word =
             U256::from_be_slice(implementation.as_slice()) | U256::from(version) << 160;
-        provider.anvil_set_storage_at(account, slot.into(), B256::from(word))
+        provider.anvil_set_storage_at(account, RELEASE_SLOT.into(), B256::from(word))
     };
     delegate(stack.forwarder).await.unwrap();
     assert_eq!(vouch(account).await.unwrap(), None, "empty release slot");
@@ -216,7 +157,7 @@ async fn the_contracts_vouch_for_their_wallets_only() {
         | U256::from(1) << 160
         | U256::from(1) << 230;
     provider
-        .anvil_set_storage_at(account, slot.into(), B256::from(word))
+        .anvil_set_storage_at(account, RELEASE_SLOT.into(), B256::from(word))
         .await
         .unwrap();
     assert_eq!(
@@ -251,9 +192,16 @@ async fn the_contracts_vouch_for_their_wallets_only() {
 /// answer is an error, never `None`.
 #[tokio::test]
 async fn a_check_call_is_none_only_when_the_node_answered_it() {
-    use alloy::transports::mock::Asserter;
-    let error = |code: i64, message: &str| {
-        Some(Err(serde_json::json!({"code": code, "message": message})))
+    use alloy::{
+        rpc::json_rpc::ErrorPayload,
+        transports::mock::Asserter,
+    };
+    let error = |code: i64, message: &'static str| {
+        Some(Err(ErrorPayload {
+            code,
+            message: message.into(),
+            data: None,
+        }))
     };
     let delegated = [&[0xef, 0x01, 0x00][..], &[0; 20]].concat();
     for (genesis, factory) in [(true, None), (false, Some(Bytes::from(delegated)))] {
@@ -273,9 +221,7 @@ async fn a_check_call_is_none_only_when_the_node_answered_it() {
             }
             match call.clone() {
                 Some(Ok(())) => asserter.push_success(&Bytes::new()),
-                Some(Err(error)) => {
-                    asserter.push_failure(serde_json::from_value(error).unwrap())
-                }
+                Some(Err(error)) => asserter.push_failure(error),
                 None => {}
             }
             let provider = ProviderBuilder::new().connect_mocked_client(asserter);

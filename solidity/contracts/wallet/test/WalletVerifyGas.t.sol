@@ -14,12 +14,12 @@ import {
 
 import {NATIVE_TOKEN} from "../../common/Constants.sol";
 import {TestERC20} from "../../escrow/test/EscrowMocks.sol";
-import {AUTHORIZED_MODE, IIdentityAdmin, IWalletCore, IWebWallet} from "../IWebWallet.sol";
+import {AUTHORIZED_MODE, CALL_OVERHEAD, IIdentityAdmin, IWalletCore, IWebWallet} from "../IWebWallet.sol";
 import {WalletSuite} from "./WalletSuite.sol";
 
 /// @notice What a relayer's simulation of a batch with dummy signatures leaves out: each further signer's check in
 ///         `_verify`, by key kind, the run after a valid `_verify`, and the rules check below quorum: a refund's, and
-///         each further call's.
+///         each further call's. Beside them, `CALL_OVERHEAD`, which a relayer adds to each call's floor.
 contract WalletVerifyGasTest is WalletSuite {
     uint256 internal constant P256_PK = 0x9A55;
     /// Etched before the test's transaction, so cold in it, and at fixed addresses, so no deployer's nonce moves.
@@ -63,6 +63,10 @@ contract WalletVerifyGasTest is WalletSuite {
         _further(
             "verify(WebAuthn)", w, calls, h, keys[2], abi.encode(r, s, 23, 1, authenticatorData, clientDataJSON), tail
         );
+    }
+
+    function test_callOverhead() public {
+        vm.snapshotValue("wallet-verify", "CALL_OVERHEAD", CALL_OVERHEAD);
     }
 
     /// forge-config: gas.isolate = true

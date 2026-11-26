@@ -193,18 +193,23 @@ Other entry points:
   naming the submitter that calls the wallet with them. `encode_executions`
   and `decode_executions` are the ERC-7579 batch codec; the decoder refuses
   a batch the wallet would refuse as non-canonical.
-  `ExecuteMessage::from_authorized_data` decodes `data` leniently: compare
-  `authorized_data` of the result with the bytes to know they are canonical.
+  `ExecuteMessage::from_authorized_data` decodes `data` and refuses it
+  unless it is `authorized_data` of the result byte for byte.
 - `gas::WalletGas` — what a simulation of a batch with dummy signatures
   leaves out: `verify(KeyKind)` per further signer, its iteration of the
   wallet's signature loop, `verify_tail()` once, the run after a valid
   signature check less the dummy run's revert, and `rules(n_calls)`, the
-  rules check below quorum in its costly case (a native refund, then an
-  ERC-20 `transfer` per further call, each a first spend), from the wallet's gas
-  snapshot; `gas::CALL_OVERHEAD`.
+  rules check below quorum as measured (a native refund, then a 68-byte
+  ERC-20 `transfer` with a depth-4 scope proof per further call, each a first
+  spend; a deeper proof or a larger call costs more), and `call_overhead()`,
+  the wallet's `CALL_OVERHEAD`, from the wallet's gas snapshot. A simulation
+  does not guarantee the refund: state can change between it and the block,
+  so a relayer keeps a failure budget per wallet.
 - `wallet_target::check_target` — whether the factory and forwarder vouch
   for an address as a factory wallet or an EIP-7702 account, and its
-  `Release`; `None` for anything else, `Err` when the node cannot tell.
+  `Release`; `None` for anything else, `Err` when the node cannot tell. A
+  target that halts gives `None` only on a node that reports the halt as
+  -32003, as anvil 1.8.5 and reth do.
 
 ## Example: sign and send a wallet batch directly
 
@@ -298,7 +303,9 @@ canonical address. Enable it in
 ## Testing
 
 Unit tests run everywhere; the integration tests in `tests/anvil.rs` spawn
-`anvil` (foundry) and deploy the stack for real. From `rust/`:
+`anvil` (foundry) and deploy the stack for real. They need anvil 1.8.5, CI's
+`FOUNDRY_VERSION`: an older anvil reports a halt with another error code,
+which fails `tests/relayer_support.rs`. From `rust/`:
 
 ```sh
 cargo +nightly-2026-08-10 fmt --all   # CI's pin; rustfmt.toml needs nightly

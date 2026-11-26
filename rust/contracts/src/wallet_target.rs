@@ -64,8 +64,9 @@ pub async fn read_release<P: Provider>(provider: &P, wallet: Address) -> Result<
 
 /// Whether `factory` and `forwarder` vouch for `target`, and its release.
 /// `None` for anything else, including an account whose `genesisIdentity`
-/// reverts, halts or answers junk; `Err` when the node gives no answer or
-/// any other error.
+/// reverts or answers junk, or halts where the node reports a halt as -32003
+/// (anvil 1.8.5, reth); `Err` when the node gives no answer or any other
+/// error, a halt anvil 1.7.1 reports as -32603 or geth as -32000 included.
 pub async fn check_target<P: Provider>(
     provider: &P,
     factory: Address,
@@ -128,8 +129,10 @@ async fn is_factory_wallet<P: Provider>(
 
 /// A revert, the one failure of a call to the trusted factory.
 const REVERTS: &[i64] = &[3];
-/// A revert or an EVM halt (anvil's and reth's -32003), the failures of a
-/// call into code the target controls.
+/// A revert or an EVM halt as anvil 1.8.5 and reth report it (-32003), the
+/// failures of a call into code the target controls. Other nodes report a
+/// halt with codes that also mean a node error: anvil 1.7.1 -32603, geth
+/// -32000.
 const FAILS: &[i64] = &[3, -32003];
 
 /// A call's answer: `None` when it fails with one of `codes` or answers what
@@ -171,15 +174,16 @@ mod tests {
         }
     }
 
+    /// `keccak256(abi.encode(uint256(keccak256(id)) - 1)) & ~bytes32(uint256(0xff))`.
     #[test]
-    fn the_release_slot_is_the_contracts() {
-        let path = concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../../solidity/contracts/wallet/WalletRelease.sol"
-        );
-        let source = std::fs::read_to_string(path).expect(path);
-        assert!(
-            source.contains(&format!("bytes32 internal constant SLOT = {RELEASE_SLOT};"))
-        );
+    fn the_release_slot_is_its_erc7201_derivation() {
+        use alloy::primitives::{
+            keccak256,
+            U256,
+        };
+        let id = U256::from_be_bytes(keccak256("libid.webwallet.release").0);
+        let mut slot = keccak256((id - U256::from(1)).to_be_bytes::<32>());
+        slot[31] = 0;
+        assert_eq!(slot, RELEASE_SLOT);
     }
 }
