@@ -314,9 +314,9 @@ abstract contract JwtRootsTestBase is Test {
 
         assertEq(roots.trustedHashExpiresAt(a), landed + 2 hours, "the replaced key's expiry");
         vm.warp(landed + 2 hours - 1);
-        assertGt(roots.trustedHashExpiresAt(a), block.timestamp, "trusted a second before");
+        assertGt(roots.trustedHashExpiresAt(a), _now(), "trusted a second before");
         vm.warp(landed + 2 hours);
-        assertLe(roots.trustedHashExpiresAt(a), block.timestamp, "refused at the bound");
+        assertLe(roots.trustedHashExpiresAt(a), _now(), "refused at the bound");
         assertEq(
             roots.trustedHashExpiresAt(_hash("b")), landed - 1 hours + roots.READING_LIFETIME(), "current: 30 days"
         );
@@ -333,7 +333,7 @@ abstract contract JwtRootsTestBase is Test {
 
         vm.warp(second + 3 hours);
         assertEq(roots.trustedHashExpiresAt(_hash("two")), second + roots.READING_LIFETIME(), "in both");
-        assertGt(roots.trustedHashExpiresAt(_hash("two")), block.timestamp, "in both: still trusted");
+        assertGt(roots.trustedHashExpiresAt(_hash("two")), _now(), "in both: still trusted");
     }
 
     /// A newer reading of the set already current restarts its 30 days but
