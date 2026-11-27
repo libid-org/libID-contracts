@@ -62,7 +62,8 @@ contract IdentityAdmin is IIdentityAdmin {
         _add(c.identity, c.key, policy, 0, false, rulesHash, policyHash);
     }
 
-    /// The submitter a login names: the login of a linked identity adds its session, from the next second.
+    /// The submitter a login names: the login of a linked identity adds its session, from the next second, or from
+    /// this one when the wallet's batch sends it at its head.
     function addSessionByLogin(
         bytes32 platformId,
         uint16 verifierVersion,
@@ -77,7 +78,7 @@ contract IdentityAdmin is IIdentityAdmin {
 
     /// The submitter a login names: the login kills every session of a linked identity and voids every queued root
     /// operation. With no key it unlinks the identity unless it is the genesis; with a key it keeps the link and adds
-    /// the key as `addSessionByLogin` does.
+    /// the key as `addSessionByLogin` does, from the next second.
     function removeSessionsByLogin(
         bytes32 platformId,
         uint16 verifierVersion,
@@ -323,7 +324,11 @@ contract IdentityAdmin is IIdentityAdmin {
             while (i < n && apps[i] != app) ++i;
             if (i == n) revert IWebWallet.AppNotListed(app);
         }
-        _add(c.identity, c.key, policy, _now(), true, rulesHash, policyHash);
+        // A login add the wallet itself sends at the head of its own batch signs that batch: its proof grants now
+        // what it grants a second later.
+        uint48 activeAt =
+            msg.sender == address(this) && WalletTransient.get(WalletTransient.LOGINS_FIRST) ? _now() - 1 : _now();
+        _add(c.identity, c.key, policy, activeAt, true, rulesHash, policyHash);
     }
 
     /// Adds a session that signs after `activeAt`, under `policy` and its hashes.
@@ -400,7 +405,7 @@ contract IdentityAdmin is IIdentityAdmin {
         if (r.admin && WalletStorage.live(r)) {
             if (s.adminSessions == 1 && !root) revert IWebWallet.RootOperationRequired();
             _dropAdmins(identity, 1);
-            // A session added this second has signed nothing; an older one may have queued roots.
+            // A session not yet active has signed nothing; an active one may have queued roots.
             if (r.activeAt < block.timestamp) ++s.rootEpoch;
             _keepQuorum();
         }

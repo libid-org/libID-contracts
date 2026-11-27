@@ -39,6 +39,7 @@ own address.
 | `libid.transient.webwallet.lock` | The lock over `execute`, `reset`, `executeRoot` and the key's root-only calls (transient) |
 | `libid.transient.webwallet.entryPointBlocked` | Set by a bump for the rest of the transaction (transient) |
 | `libid.transient.webwallet.dataStep` | Set while a bump runs the data steps (transient) |
+| `libid.transient.webwallet.loginsFirst` | Set while an `AUTHORIZED_MODE` batch runs its head logins (transient) |
 
 A wallet keeps nothing outside these namespaces. Moving the epoch drops
 every session, link and setting at once. `epoch()` reads it. A factory
@@ -166,8 +167,9 @@ factory.createAndExecute{value: linkFee}(platformId, idNode, salt, AUTHORIZED_MO
 - The genesis bootstrap: `linkIdentity` adds the proven key as a session
   only on a factory wallet, only for the genesis identity, only with an
   admin policy, and only while the wallet never had a session. That session
-  has `activeAt` 0, so it can sign the batch that adds it. It is the only
-  session that can. Any other key in a link reverts `LinkSessionRefused`.
+  has `activeAt` 0, so it can sign the batch that adds it. Besides it, only
+  a login at the head of its own batch can (see `addSessionByLogin`). Any
+  other key in a link reverts `LinkSessionRefused`.
 - Any failure reverts the whole transaction, the deployment included, and
   leaves nonce 0 unused. The same signature can be sent again until its
   deadline.
@@ -255,7 +257,8 @@ Execute(bytes32 mode,bytes executionCalldata,uint256 value,uint48 at,uint256 non
 
 with `mode = AUTHORIZED_MODE`, `at = authorization.at`, and `nonce` the full
 key-0 nonce before the batch. A session signs only after the second it was
-added in. The genesis bootstrap is the one exception.
+added in. The genesis bootstrap and a login at the head of the batch are the
+exceptions.
 
 The threshold and the domain are read before the calls. A batch that changes
 either does not help its own check. A batch that revokes or unlinks its own
@@ -452,12 +455,20 @@ key and the app. The wallet applies the result.
   admin signature. It is `byProof`, signs from the next second, and must
   pass the identity's app list (`AppNotListed`). A wallet that never had a
   session takes no session by login (`FirstSessionRefused`).
+- A login the wallet's own `AUTHORIZED_MODE` batch sends before any other
+  call starts a second earlier, so its session can sign that batch, under
+  its policy like any session: a new device signs in and transacts in one
+  transaction. The first other call ends the head. Head logins are checked against the app lists and links as
+  they stood before the batch, and the batch against the threshold read
+  before its calls. A login any other caller submits, a verifier during a
+  head login included, a keyed removal, and a UserOperation's login sign
+  from the next second.
 - `removeSessionsByLogin(...)` (`libid.webwallet.remove-sessions`) kills
   every session of the identity and voids every queued root operation. With
   an empty key it unlinks the identity, unless it is the genesis, and lowers
   the threshold to the platforms still linked. It never refuses for the last
   admin. With a key it keeps the link and adds the key as
-  `addSessionByLogin` does, app list included.
+  `addSessionByLogin` does, app list included, signing from the next second.
 - `linkIdentity(...)` (`libid.webwallet.link-identity`) is the wallet's
   own call, so it names the wallet as its submitter.
 
@@ -692,7 +703,7 @@ A wallet trusts the parties below, with no timelock.
   them.
 
 Each of these can make a login proof valid, and so give a wallet a session
-that signs from the next second.
+that signs from the next second, or the batch whose head sends the login.
 
 ## Accepted risks
 
