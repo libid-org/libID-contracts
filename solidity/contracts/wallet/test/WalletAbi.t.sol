@@ -173,14 +173,16 @@ contract WalletAbiTest is WalletBase {
 
     /// Acceptance 10: namespaces against their ERC-7201 derivations, and the slots on a live wallet.
     function test_slotsAreTheirErc7201Derivations() public {
-        string[5] memory ids = [
+        string[6] memory ids = [
             "libid.webwallet.release",
             "libid.webwallet.state",
             "libid.transient.webwallet.lock",
             "libid.transient.webwallet.entryPointBlocked",
-            "libid.transient.webwallet.dataStep"
+            "libid.transient.webwallet.dataStep",
+            "libid.transient.webwallet.loginsFirst"
         ];
-        bytes32[5] memory slots = [RELEASE_SLOT, STATE_SLOT, LOCK_SLOT, EP_BLOCKED_SLOT, DATA_STEP_SLOT];
+        bytes32[6] memory slots =
+            [RELEASE_SLOT, STATE_SLOT, LOCK_SLOT, EP_BLOCKED_SLOT, DATA_STEP_SLOT, LOGINS_FIRST_SLOT];
         for (uint256 i; i < ids.length; ++i) {
             assertEq(_erc7201(ids[i]), slots[i], ids[i]);
         }

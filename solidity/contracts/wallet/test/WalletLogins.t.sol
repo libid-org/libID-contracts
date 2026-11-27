@@ -7,9 +7,11 @@ import {PackedUserOperation} from "@openzeppelin/contracts/interfaces/IERC4337.s
 import {Execution} from "@openzeppelin/contracts/interfaces/draft-IERC7579.sol";
 
 import {IOperationLists} from "../../ceremony/IOperationLists.sol";
+import {IPlatformVerifier} from "../../ceremony/IPlatformVerifier.sol";
 import {IProofVerifier} from "../../ceremony/IProofVerifier.sol";
 import {operationList} from "../../ceremony/test/OperationListVector.sol";
 import {IdentityRegistry} from "../../identity/IdentityRegistry.sol";
+import {StubPlatformVerifier} from "../../identity/test/StubPlatformVerifier.sol";
 import {IWalletRegistry} from "../IWalletRegistry.sol";
 import {AUTHORIZED_MODE, IIdentityAdmin, IWalletCore, IWebWallet} from "../IWebWallet.sol";
 import {OtherClientVerifier, WalletSuite} from "./WalletSuite.sol";
@@ -19,6 +21,38 @@ contract Remover {
     function run(address w, bytes32 platformId, uint16 version, bytes calldata payload) external {
         IIdentityAdmin.Policy memory none;
         IWebWallet(w).removeSessionsByLogin(platformId, version, payload, none);
+    }
+}
+
+/// Verifies as the stub, and while it does, has the wallet run the call it was armed with.
+contract CallbackVerifier is IPlatformVerifier {
+    StubPlatformVerifier private immutable STUB;
+    address private wallet;
+    bytes private armed;
+
+    constructor(StubPlatformVerifier stub) {
+        STUB = stub;
+    }
+
+    function arm(address w, bytes calldata data) external {
+        (wallet, armed) = (w, data);
+    }
+
+    function verify(bytes calldata payload) external payable returns (VerifiedClaim memory c) {
+        c = STUB.verify(payload);
+        address w = wallet;
+        if (w == address(0)) return c;
+        wallet = address(0);
+        (bool ok,) = w.call(armed);
+        require(ok, "the armed call failed");
+    }
+
+    function quote() external view returns (uint256) {
+        return STUB.quote();
+    }
+
+    function platformId() external view returns (bytes32) {
+        return STUB.platformId();
     }
 }
 
@@ -309,19 +343,184 @@ contract WalletLoginsTest is WalletSuite {
         assertEq(IWebWallet(w).isValidSignature(h, sig), MAGIC, "a login session alone at 1");
     }
 
-    // ─── No login helps its own batch's check ───────────────────────
+    // ─── A login in its own batch ───────────────────────────────────
 
-    function test_aLoginAddInTheBatchCannotSignIt() public {
-        address w = _wallet(2, 2);
-        bytes memory payload = _loginPayload(w, w, GITHUB, BOB, _key(NEW_PK), _admin());
-        bytes memory add = abi.encodeCall(IIdentityAdmin.addSessionByLogin, (GITHUB, V1, payload, _admin()));
-        _refusesBy(w, _then(_x(w, 0, add)), _pks(ALICE_PK, NEW_PK), NOT_SIGNED);
-        assertEq(IWebWallet(w).sessionOf(_key(NEW_PK)).identity, bytes32(0), "the add stayed");
+    /// `w`'s own login of `(platformId, idNode)` adding `pk` under `p`, as a call of its batch.
+    function _loginX(address w, bytes32 platformId, bytes32 idNode, uint256 pk, IIdentityAdmin.Policy memory p)
+        internal
+        returns (Execution memory)
+    {
+        bytes memory payload = _loginPayload(w, w, platformId, idNode, _key(pk), p);
+        return _x(w, 0, abi.encodeCall(IIdentityAdmin.addSessionByLogin, (platformId, V1, payload, p)));
+    }
 
-        _addByLogin(relayer, GITHUB, BOB, w, _key(NEW_PK), _admin());
-        _refusesBy(w, _one(_hitX()), _pks(ALICE_PK, NEW_PK), NOT_SIGNED);
+    function _three(Execution memory a, Execution memory b, Execution memory c) internal pure returns (bytes memory) {
+        Execution[] memory x = new Execution[](3);
+        (x[0], x[1], x[2]) = (a, b, c);
+        return abi.encode(x);
+    }
+
+    /// A new device's login and transfer in one batch, signed by its key alone.
+    function test_aLoginAtTheHeadSignsItsBatch() public {
+        address w = _wallet(1, 1);
+        _runsBy(w, _then(_loginX(w, X, ALICE, NEW_PK, _admin())), _pks(NEW_PK));
+        assertEq(IWebWallet(w).sessionOf(_key(NEW_PK)).activeAt, _now() - 1, "not a second earlier");
+    }
+
+    /// At 2 of 3, two platforms' admin logins at the head sign their batch; one login, admin or limited, does not.
+    function test_twoLoginsAtTheHeadReachQuorum() public {
+        address w = _wallet(3, 2);
+        Execution memory bob = _loginX(w, GITHUB, BOB, APP_PK, _admin());
+        bob.target = address(0);
+        _runsBy(w, _three(_loginX(w, X, ALICE, NEW_PK, _admin()), bob, _hitX()), _pks(NEW_PK, APP_PK));
+
+        bytes memory admin = _then(_loginX(w, X, ALICE, ALICE2_PK, _admin()));
+        _refuses(w, admin, _direct(w, _pks(ALICE2_PK), admin, true), NOT_SIGNED);
+        bytes memory limited = _then(_loginX(w, X, ALICE, ALICE2_PK, _hitOnly()));
+        _refuses(w, limited, _direct(w, _pks(ALICE2_PK), limited, true), NOT_SIGNED);
+    }
+
+    function test_aLimitedLoginAtTheHeadIsHeldToItsRules() public {
+        address w = _wallet(1, 1);
+        bytes memory calls = _then(_loginX(w, X, ALICE, APP_PK, _hitOnly()));
+        _refuses(w, calls, _direct(w, _pks(APP_PK), calls, true), NOT_ALLOWED);
+    }
+
+    /// Outside a batch, the wallet's own login included, and after a batch of logins only.
+    function test_aLoginAloneSignsFromTheNextSecond() public {
+        address w = _wallet(1, 1);
+        bytes memory logins = _one(_loginX(w, X, ALICE, APP_PK, _admin()));
+        _run(w, logins, _direct(w, _pks(ALICE_PK), logins, false));
+        bytes memory payload = _loginPayload(w, w, X, ALICE, _key(NEW_PK), _admin());
+        vm.prank(w);
+        IWebWallet(w).addSessionByLogin(X, V1, payload, _admin());
+        assertEq(IWebWallet(w).sessionOf(_key(NEW_PK)).activeAt, _now(), "not from the next second");
+        _refusesBy(w, _one(_hitX()), _pks(NEW_PK), NOT_SIGNED);
         vm.warp(_now() + 1);
-        _runsBy(w, _one(_hitX()), _pks(ALICE_PK, NEW_PK));
+        _runsBy(w, _one(_hitX()), _pks(NEW_PK));
+    }
+
+    /// After any other call, a writer or not, a login's key cannot sign its batch; at the head it can.
+    function test_aLoginAfterAnotherCallCannotSignItsBatch() public {
+        address w = _wallet(2, 1);
+        bytes32 alice = _identity(X, ALICE);
+        _addSession(w, alice, _key(ALICE2_PK), _admin());
+        IIdentityAdmin.Policy memory none;
+        for (uint256 i; i < 7; ++i) {
+            bytes memory call;
+            if (i == 0) call = abi.encodeCall(IIdentityAdmin.addSession, (alice, _key(APP_PK), _admin()));
+            if (i == 1) {
+                bytes memory dave = _linkPayload(w, GITHUB, DAVE, "", none);
+                call = abi.encodeCall(IIdentityAdmin.linkIdentity, (GITHUB, V1, dave, none));
+            }
+            if (i == 2) call = abi.encodeCall(IIdentityAdmin.setAppList, (alice, _apps("client")));
+            if (i == 3) call = abi.encodeCall(IIdentityAdmin.revokeSession, (_key(ALICE2_PK)));
+            if (i == 4) {
+                bytes memory bob = _removePayload(w, w, GITHUB, BOB);
+                call = abi.encodeCall(IIdentityAdmin.removeSessionsByLogin, (GITHUB, V1, bob, none));
+            }
+            if (i == 5) call = abi.encodeCall(IIdentityAdmin.queueRoot, (_delay(1 days)));
+            Execution memory other = i == 6 ? _hitX() : _x(w, 0, call);
+            Execution memory login = _loginX(w, X, ALICE, NEW_PK, _admin());
+            uint256 state = vm.snapshotState();
+            _refusesBy(w, _three(other, login, _hitX()), _pks(NEW_PK), NOT_SIGNED);
+            _runsBy(w, _three(login, other, _hitX()), _pks(NEW_PK));
+            vm.revertToState(state);
+        }
+    }
+
+    /// The head ends at a link, so the new identity's login keeps the next-second rule.
+    function test_aLinkThenItsLoginCannotSignTheBatch() public {
+        address w = _wallet(1, 1);
+        IIdentityAdmin.Policy memory none;
+        Execution memory link = _linkWith(w, GITHUB, _linkPayload(w, GITHUB, DAVE, "", none), none);
+        bytes memory calls = _three(link, _loginX(w, GITHUB, DAVE, NEW_PK, _admin()), _hitX());
+        _refusesBy(w, calls, _pks(NEW_PK), NOT_SIGNED);
+        assertFalse(IWebWallet(w).isLinked(_identity(GITHUB, DAVE)), "the link stayed");
+        assertEq(IWebWallet(w).sessionOf(_key(NEW_PK)).identity, bytes32(0), "the session stayed");
+        _runsBy(w, calls, _pks(ALICE_PK));
+    }
+
+    function test_aLoginAtTheHeadReadsTheAppList() public {
+        address w = _wallet(1, 1);
+        _setApps(w, _apps("client"));
+        bytes memory payload = _loginPayload(w, w, X, ALICE, _key(NEW_PK), _admin());
+        bytes memory calls =
+            _then(_x(w, 0, abi.encodeCall(IIdentityAdmin.addSessionByLogin, (X, OTHER_APP, payload, _admin()))));
+        _refusesBy(w, calls, _pks(NEW_PK), IWebWallet.AppNotListed.selector);
+    }
+
+    function test_aKeyedRemovalAtTheHeadSignsFromTheNextSecond() public {
+        address w = _wallet(2, 1);
+        bytes memory payload = _payload(GITHUB, BOB, REMOVE, _txData(w, w, _key(NEW_PK), _ph(_admin())));
+        bytes memory calls =
+            _then(_x(w, 0, abi.encodeCall(IIdentityAdmin.removeSessionsByLogin, (GITHUB, V1, payload, _admin()))));
+        _refusesBy(w, calls, _pks(NEW_PK), NOT_SIGNED);
+        _runsBy(w, calls, _pks(ALICE_PK));
+        assertEq(IWebWallet(w).sessionOf(_key(NEW_PK)).activeAt, _now(), "not from the next second");
+    }
+
+    /// A login a verifier submits while it checks a head login is not the wallet's own.
+    function test_aLoginAVerifierSubmitsCannotSignTheBatch() public {
+        address w = _wallet(1, 1);
+        uint16 callback = 3;
+        CallbackVerifier cb = new CallbackVerifier(xStub);
+        vm.prank(owner);
+        proofVerifier.setVerifier(X, callback, cb);
+        bytes memory inner = _loginPayload(w, address(cb), X, ALICE, _key(APP_PK), _admin());
+        cb.arm(w, abi.encodeCall(IIdentityAdmin.addSessionByLogin, (X, V1, inner, _admin())));
+        bytes memory outer = _loginPayload(w, w, X, ALICE, _key(NEW_PK), _admin());
+        bytes memory calls =
+            _then(_x(w, 0, abi.encodeCall(IIdentityAdmin.addSessionByLogin, (X, callback, outer, _admin()))));
+        _refusesBy(w, calls, _pks(APP_PK), NOT_SIGNED);
+        _runsBy(w, calls, _pks(NEW_PK));
+        assertEq(IWebWallet(w).sessionOf(_key(APP_PK)).activeAt, _now(), "the verifier's login started early");
+    }
+
+    /// The head login's session queued in the second it signed, so revoking it that second voids the operation.
+    function test_aRevokeVoidsWhatAHeadLoginQueuedThatSecond() public {
+        address w = _wallet(1, 1);
+        bytes memory delay = _delay(1 days);
+        Execution memory queue = _x(w, 0, abi.encodeCall(IIdentityAdmin.queueRoot, (delay)));
+        _runsBy(w, _three(_loginX(w, X, ALICE, NEW_PK, _admin()), queue, _hitX()), _pks(NEW_PK));
+        bytes32 id = keccak256(delay);
+        assertGt(IWebWallet(w).rootReadyAt(id), 0, "not queued");
+        _revoke(w, _key(NEW_PK));
+        assertEq(IWebWallet(w).rootReadyAt(id), 0, "the queued operation survived");
+    }
+
+    /// Validation reads the sessions before the calls run.
+    function test_aUserOperationCannotBeSignedByTheKeyItAdds() public {
+        address w = _wallet(1, 1);
+        bytes memory payload = _loginPayload(w, w, X, ALICE, _key(NEW_PK), _admin());
+        bytes memory login = _exec(w, abi.encodeCall(IIdentityAdmin.addSessionByLogin, (X, V1, payload, _admin())));
+        _refusedOp(_signed(_op(w, login), _pks(NEW_PK)));
+        _handle(_signed(_op(w, login), _pks(ALICE_PK)));
+        assertTrue(IWebWallet(w).sessionOf(_key(NEW_PK)).byProof, "control: the login did not run");
+    }
+
+    /// The check reads the sessions after the calls: a later call revoking the head login's key, or removing its
+    /// identity's sessions, leaves no signer.
+    function test_aBatchRevokingOrRemovingItsSignerIsRefused() public {
+        address w = _wallet(1, 1);
+        bytes memory removal = _removePayload(w, w, X, ALICE);
+        bytes[2] memory later = [
+            abi.encodeCall(IIdentityAdmin.revokeSession, (_key(NEW_PK))),
+            abi.encodeCall(IIdentityAdmin.removeSessionsByLogin, (X, V1, removal, _none()))
+        ];
+        Execution memory login = _loginX(w, X, ALICE, NEW_PK, _admin());
+        for (uint256 i; i < later.length; ++i) {
+            _refusesBy(w, _three(login, _x(w, 0, later[i]), _hitX()), _pks(NEW_PK), NOT_SIGNED);
+        }
+    }
+
+    /// A login signs its batch only from the head: after another call it is refused, at the head it lands.
+    function test_aLoginAddInTheBatchSignsItOnlyAtTheHead() public {
+        address w = _wallet(2, 2);
+        Execution memory add = _loginX(w, GITHUB, BOB, NEW_PK, _admin());
+        _refusesBy(w, _three(_hitX(), add, _hitX()), _pks(ALICE_PK, NEW_PK), NOT_SIGNED);
+        assertEq(IWebWallet(w).sessionOf(_key(NEW_PK)).identity, bytes32(0), "the add stayed");
+        _runsBy(w, _then(add), _pks(ALICE_PK, NEW_PK));
     }
 
     function test_aLoginRemovalInTheBatchDoesNotLowerItsCheck() public {
@@ -686,15 +885,16 @@ contract WalletLoginsTest is WalletSuite {
         IWebWallet(w).addSessionByLogin(X, V1, payload, _admin());
     }
 
-    /// No own entry, an own entry too short to name a chain, bytes that are no list, a trailing byte, another
-    /// Consumer's single form, an own entry naming only another chain, two naming this chain.
+    /// No own entry, an own entry too short to name a chain though it pads to this one, bytes that are no list, a
+    /// trailing byte, another Consumer's single form, an own entry naming only another chain, two naming this chain.
     function test_badListsAreRefused() public {
+        vm.chainId(256);
         address w = _fresh();
         bytes memory link = _linkData(w);
         bytes memory elsewhere = abi.encode(block.chainid + 1, w, w, _key(ALICE_PK), _ph(_admin()));
         bytes[7] memory txData = [
             operationList(BIND, abi.encode(w), BIND, hex"ff"),
-            operationList(LINK, hex"ff", BIND, abi.encode(w)),
+            operationList(LINK, bytes.concat(new bytes(30), hex"01"), BIND, abi.encode(w)),
             link,
             bytes.concat(operationList(LINK, link, BIND, hex"ff"), hex"00"),
             abi.encode(w),

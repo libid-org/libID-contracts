@@ -15,6 +15,8 @@ library WalletTransient {
     bytes32 internal constant ENTRY_POINT_BLOCKED = 0xd9893535c4c4b5cd665ca764f2da4f77d7dc5ab6d2372696ca69936a0c362100;
     // cast index-erc7201 libid.transient.webwallet.dataStep
     bytes32 internal constant DATA_STEP = 0x634693ff7eb334934b2860ed0d3d3a4ad5bfbd5aa7959baa8bf9f0bcd8c88000;
+    // cast index-erc7201 libid.transient.webwallet.loginsFirst
+    bytes32 internal constant LOGINS_FIRST = 0xfd86653c393ab53f7640f0b5a399f61ecd0a174b5e86f624d22864b541666d00;
 
     function get(bytes32 slot) internal view returns (bool) {
         return slot.asBoolean().tload();

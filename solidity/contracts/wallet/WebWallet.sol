@@ -241,6 +241,9 @@ contract WebWallet is Account, ERC721Holder, ERC1155Holder, IWalletCore {
         uint8 quorum = WalletStorage.threshold();
         bytes32 domain = _domainSeparator();
         if (deadline == 0 || block.timestamp > deadline) revert IWebWallet.ExecutionExpired(deadline);
+        // Login adds at the head of the batch run with LOGINS_FIRST set; the first other call clears it.
+        bool head = true;
+        WalletTransient.put(WalletTransient.LOGINS_FIRST, true);
         // Each call's data is copied before the gas check, and its memory released after the call.
         for (uint256 i; i < batch.length; ++i) {
             Memory.Pointer free = Memory.getFreeMemoryPointer();
@@ -249,9 +252,14 @@ contract WebWallet is Account, ERC721Holder, ERC1155Holder, IWalletCore {
             if (gasleft() * 63 / 64 < callGas[i] + CALL_OVERHEAD) {
                 revert IWebWallet.InsufficientCallGas(i, callGas[i], gasleft());
             }
+            if (head && !_isLoginAdd(x.target, callData)) {
+                head = false;
+                WalletTransient.put(WalletTransient.LOGINS_FIRST, false);
+            }
             _call(i, x.target, x.value, callData, false);
             Memory.unsafeSetFreeMemoryPointer(free);
         }
+        if (head) WalletTransient.put(WalletTransient.LOGINS_FIRST, false);
         IWalletCore.Authorization memory auth = abi.decode(bytesAt(data, 128), (IWalletCore.Authorization));
         bytes32 digest = domain.toTypedDataHash(
             keccak256(
@@ -268,7 +276,7 @@ contract WebWallet is Account, ERC721Holder, ERC1155Holder, IWalletCore {
             )
         );
         (bool ok, bool below, WalletStorage.Verified memory v) = _signers(digest, auth, quorum);
-        // A session signs only after the second it was added in.
+        // A session signs only after its `activeAt`.
         if (!ok || v.activeAt >= block.timestamp) revert IWebWallet.ExecutionNotSigned();
         // At quorum the rules allow any canonical batch, which this one is.
         if (below) {
@@ -493,6 +501,12 @@ contract WebWallet is Account, ERC721Holder, ERC1155Holder, IWalletCore {
 
     function _locked() private view returns (bool) {
         return WalletTransient.get(WalletTransient.LOCK);
+    }
+
+    /// A call to the wallet's `addSessionByLogin`.
+    function _isLoginAdd(address target, bytes memory data) private view returns (bool) {
+        return (target == address(this) || target == address(0)) && data.length >= 4
+            && bytes4(data) == IIdentityAdmin.addSessionByLogin.selector;
     }
 
     function _contains(uint256[] memory ids, uint256 n, uint256 id) private pure returns (bool) {

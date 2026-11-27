@@ -205,7 +205,7 @@ contract WalletRealProofTest is WalletBase {
         return (gas * 64 ** frames + 63 ** frames - 1) / 63 ** frames;
     }
 
-    /// The same onboarding on a stub proof: the wallet's share of the gas.
+    /// The same onboarding on a stub proof: the wallet's share of the gas, plus the stub's store of the whole payload.
     /// forge-config: gas.isolate = true
     function test_oneCreateAndExecuteOnboardsOnOneStubListProof() public {
         address w = factory.walletAddress(X, idNode, 0);

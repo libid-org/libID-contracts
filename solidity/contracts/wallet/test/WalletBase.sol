@@ -58,6 +58,7 @@ abstract contract WalletBase is Test {
     bytes32 internal constant LOCK_SLOT = 0xc9e10f29671c1e91671796ae10cf0910e186e77a658823020379090d44874400;
     bytes32 internal constant EP_BLOCKED_SLOT = 0xd9893535c4c4b5cd665ca764f2da4f77d7dc5ab6d2372696ca69936a0c362100;
     bytes32 internal constant DATA_STEP_SLOT = 0x634693ff7eb334934b2860ed0d3d3a4ad5bfbd5aa7959baa8bf9f0bcd8c88000;
+    bytes32 internal constant LOGINS_FIRST_SLOT = 0xfd86653c393ab53f7640f0b5a399f61ecd0a174b5e86f624d22864b541666d00;
 
     bytes32 internal constant MODE_SINGLE = bytes32(0);
     bytes32 internal constant MODE_BATCH = bytes32(uint256(0x01) << 248);
