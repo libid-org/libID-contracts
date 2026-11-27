@@ -13,6 +13,17 @@ function bytesAt(bytes calldata data, uint256 head) pure returns (bytes calldata
     return data[offset + 32:offset + 32 + length];
 }
 
+/// The `uint256[]` whose offset is the word at `head` of `data`.
+function uintsAt(bytes calldata data, uint256 head) pure returns (uint256[] calldata a) {
+    uint256 offset = uint256(bytes32(data[head:head + 32]));
+    uint256 length = uint256(bytes32(data[offset:offset + 32]));
+    bytes calldata words = data[offset + 32:offset + 32 + length * 32];
+    assembly ("memory-safe") {
+        a.offset := words.offset
+        a.length := length
+    }
+}
+
 /// The batch `executionCalldata` decodes to, and whether it is exactly that batch's `abi.encode`: only then is
 /// no call read from outside these bytes, so every decoder of them reads the same calls.
 function canonicalBatch(bytes calldata executionCalldata) pure returns (Execution[] calldata batch, bool canonical) {

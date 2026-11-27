@@ -37,7 +37,7 @@ interface Vector {
   value: number
   at: number
   deadline: number
-  callGas: number
+  callGas: number[]
   sessionKey: Hex
   signature: Hex
   callMaxValue: number
@@ -113,7 +113,7 @@ describe('the client helpers', () => {
       // Nonce key 0: the full nonce is the sequence.
       nonce: (DIRECT_NONCE_KEY << 64n) | BigInt(v.nonce),
       deadline: v.deadline,
-      callGas: BigInt(v.callGas),
+      callGas: v.callGas.map(BigInt),
     }
     const authorization = {
       signatures: [{ key: v.sessionKey, signature: v.signature }],

@@ -25,7 +25,7 @@ import {MessageHashUtils} from "@openzeppelin/contracts/utils/cryptography/Messa
 import {SignatureChecker} from "@openzeppelin/contracts/utils/cryptography/SignatureChecker.sol";
 import {ERC7739Utils} from "@openzeppelin/contracts/utils/cryptography/draft-ERC7739Utils.sol";
 
-import {bytesAt, canonicalBatch, decodeAuthorization} from "./AbiBytes.sol";
+import {bytesAt, canonicalBatch, decodeAuthorization, uintsAt} from "./AbiBytes.sol";
 import {IWalletFactory} from "./IWalletFactory.sol";
 import {
     AUTHORIZED_MODE,
@@ -60,7 +60,7 @@ contract WebWallet is Account, ERC721Holder, ERC1155Holder, IWalletCore {
         keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract,bytes32 salt)");
     bytes32 private constant NAME_HASH = keccak256("WebWallet");
     bytes32 private constant EXECUTE_TYPEHASH = keccak256(
-        "Execute(bytes32 mode,bytes executionCalldata,uint256 value,uint48 at,uint256 nonce,uint48 deadline,uint256 callGas)"
+        "Execute(bytes32 mode,bytes executionCalldata,uint256 value,uint48 at,uint256 nonce,uint48 deadline,uint256[] callGas)"
     );
     bytes32 private constant USER_OP_TYPEHASH = keccak256("UserOperation(bytes32 userOpHash)");
     /// The ERC-7739 detection hash: with an empty signature, it answers `0x77390001`.
@@ -222,14 +222,17 @@ contract WebWallet is Account, ERC721Holder, ERC1155Holder, IWalletCore {
         WalletTransient.put(WalletTransient.LOCK, false);
     }
 
-    /// `data` is `abi.encode(bytes executionCalldata, uint256 value, uint48 deadline, uint256 callGas, bytes
-    /// authorization)`. Consumes EntryPoint nonce key 0, runs the batch, then checks it was signed.
+    /// `data` is `abi.encode(bytes executionCalldata, uint256 value, uint48 deadline, uint256[] callGas, bytes
+    /// authorization)`, `callGas[i]` the least gas call `i` gets. Consumes EntryPoint nonce key 0, runs the batch,
+    /// then checks it was signed.
     function _executeAuthorized(bytes calldata data) private {
         bytes calldata calls = bytesAt(data, 0);
         (Execution[] calldata batch, bool canonical) = canonicalBatch(calls);
         // The signers sign these bytes alone, so no call may be read from outside them.
         if (!canonical) revert IWebWallet.NoncanonicalBatch();
-        (uint256 value, uint48 deadline, uint256 callGas) = abi.decode(data[32:128], (uint256, uint48, uint256));
+        (uint256 value, uint48 deadline) = abi.decode(data[32:96], (uint256, uint48));
+        uint256[] calldata callGas = uintsAt(data, 96);
+        if (callGas.length != batch.length) revert IWebWallet.WrongCallGasCount(batch.length, callGas.length);
         if (msg.value != value) revert IWebWallet.WrongBatchValue(value, msg.value);
         IEntryPoint ep = entryPoint();
         if (address(ep).code.length == 0) revert IWebWallet.EntryPointMissing(address(ep));
@@ -246,8 +249,8 @@ contract WebWallet is Account, ERC721Holder, ERC1155Holder, IWalletCore {
             Memory.Pointer free = Memory.getFreeMemoryPointer();
             Execution calldata x = batch[i];
             bytes memory callData = x.callData;
-            if (gasleft() * 63 / 64 < callGas + CALL_OVERHEAD) {
-                revert IWebWallet.InsufficientCallGas(callGas, gasleft());
+            if (gasleft() * 63 / 64 < callGas[i] + CALL_OVERHEAD) {
+                revert IWebWallet.InsufficientCallGas(i, callGas[i], gasleft());
             }
             if (head && !_isLoginAdd(x.target, callData)) {
                 head = false;
@@ -261,7 +264,14 @@ contract WebWallet is Account, ERC721Holder, ERC1155Holder, IWalletCore {
         bytes32 digest = domain.toTypedDataHash(
             keccak256(
                 abi.encode(
-                    EXECUTE_TYPEHASH, AUTHORIZED_MODE, keccak256(calls), value, auth.at, nonce, deadline, callGas
+                    EXECUTE_TYPEHASH,
+                    AUTHORIZED_MODE,
+                    keccak256(calls),
+                    value,
+                    auth.at,
+                    nonce,
+                    deadline,
+                    keccak256(abi.encodePacked(callGas))
                 )
             )
         );

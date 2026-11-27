@@ -192,20 +192,21 @@ export const EXECUTE_TYPES = {
     { name: 'at', type: 'uint48' },
     { name: 'nonce', type: 'uint256' },
     { name: 'deadline', type: 'uint48' },
-    { name: 'callGas', type: 'uint256' },
+    { name: 'callGas', type: 'uint256[]' },
   ],
 } as const
 
 /// What an `AUTHORIZED_MODE` batch signs, besides `mode`: `value` is the
 /// `msg.value` it must be sent with, `at` is `Authorization.at`, and `nonce`
 /// the wallet's EntryPoint nonce under `DIRECT_NONCE_KEY` before the batch.
+/// `callGas[i]` is the least gas the i-th call gets; it has one per call.
 export type ExecuteMessage = {
   executionCalldata: Hex
   value: bigint
   at: number
   nonce: bigint
   deadline: number
-  callGas: bigint
+  callGas: readonly bigint[]
 }
 
 /// The EIP-712 hash the signers of an `AUTHORIZED_MODE` batch sign, under
@@ -232,7 +233,7 @@ export function authorizedData(
   message: ExecuteMessage,
   authorization: Omit<SessionAuthorization, 'at'>,
 ): Hex {
-  return encodeAbiParameters(parseAbiParameters('bytes, uint256, uint48, uint256, bytes'), [
+  return encodeAbiParameters(parseAbiParameters('bytes, uint256, uint48, uint256[], bytes'), [
     message.executionCalldata,
     message.value,
     message.deadline,

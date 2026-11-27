@@ -17,7 +17,7 @@ import {IHonkVerifier} from "../../ceremony/PlatformVerifierBase.sol";
 import {TlsNotaryVerifierBase} from "../../ceremony/TlsNotaryVerifierBase.sol";
 import {XPlatformVerifier} from "../../ceremony/XPlatformVerifier.sol";
 import {IdentityRegistry} from "../../identity/IdentityRegistry.sol";
-import {AUTHORIZED_MODE, IIdentityAdmin, IWebWallet} from "../IWebWallet.sol";
+import {AUTHORIZED_MODE, CALL_OVERHEAD, IIdentityAdmin, IWebWallet} from "../IWebWallet.sol";
 import {WalletBase} from "./WalletBase.sol";
 
 /// @notice Acceptance 2: one `createAndExecute` onboards on one real X list proof: link K and bind the handle.
@@ -101,18 +101,22 @@ contract WalletRealProofTest is WalletBase {
         );
     }
 
-    /// forge-config: gas.isolate = true
-    function test_oneCreateAndExecuteOnboardsOnOneRealListProof() public {
-        address w = factory.walletAddress(X, idNode, 0);
+    /// The real onboarding's batch for `w`, its Notary Fee in `w`: link K, then bind the handle.
+    function _realOnboarding(address w) internal returns (Execution[] memory x) {
         bytes memory linkData = _txData(w, _key(ALICE_PK), _ph(_admin()));
         bytes memory list = _real(OPERATIONS, operationList(BIND, abi.encode(w), LINK, linkData));
         uint256 fee = registry.quote(X, VX);
         vm.deal(w, fee);
-        Execution[] memory x = new Execution[](2);
+        x = new Execution[](2);
         x[0] = _x(w, fee, abi.encodeCall(IIdentityAdmin.linkIdentity, (X, VX, list, _admin())));
         // The link verified this proof, so the bind pays no second Notary Fee.
         x[1] = _x(address(identities), 0, abi.encodeCall(IdentityRegistry.bindPrivately, (X, VX, list, 0, address(0))));
-        bytes memory data = _signedAt(w, 1, _pks(ALICE_PK), abi.encode(x), false);
+    }
+
+    /// forge-config: gas.isolate = true
+    function test_oneCreateAndExecuteOnboardsOnOneRealListProof() public {
+        address w = factory.walletAddress(X, idNode, 0);
+        bytes memory data = _signedAt(w, 1, _pks(ALICE_PK), abi.encode(_realOnboarding(w)), false);
         vm.prank(relayer, relayer);
         factory.createAndExecute(X, idNode, 0, AUTHORIZED_MODE, data);
         Vm.Gas memory used = vm.lastFrameGas();
@@ -123,6 +127,82 @@ contract WalletRealProofTest is WalletBase {
         // forge-lint: disable-next-line(unsafe-typecast)
         uint256 gas = used.gasTotalUsed - uint64(used.gasRefunded);
         vm.snapshotValue("wallet-claim", "createAndExecute onboarding(real X proof, operation list)", gas);
+    }
+
+    /// Runs `createAndExecute` on `data` with `gas`, then undoes it. Returns whether it ran, the gas it took and what
+    /// it returned.
+    function _tryOnboarding(bytes memory data, uint256 gas)
+        internal
+        returns (bool ok, uint256 used, bytes memory returned)
+    {
+        uint256 state = vm.snapshotState();
+        bytes memory call = abi.encodeCall(factory.createAndExecute, (X, idNode, 0, AUTHORIZED_MODE, data));
+        vm.prank(relayer, relayer);
+        uint256 left = gasleft();
+        (ok, returned) = address(factory).call{gas: gas}(call);
+        used = left - gasleft();
+        vm.revertToState(state);
+    }
+
+    /// The least gas above `lo` that `data` runs on.
+    function _leastGas(bytes memory data, uint256 lo) internal returns (uint256 hi) {
+        hi = 30e6;
+        (bool runs,,) = _tryOnboarding(data, hi);
+        assertTrue(runs, "control");
+        while (lo + 1 < hi) {
+            uint256 mid = (lo + hi) / 2;
+            (runs,,) = _tryOnboarding(data, mid);
+            (lo, hi) = runs ? (lo, mid) : (mid, hi);
+        }
+    }
+
+    /// The least gas the real onboarding runs on, each call's floor 1.25 times its gas as a relayer quotes it: the
+    /// gas of the batch's prefix that ends with it, less the prefix before it. The empty prefix stops at the
+    /// signature check, which K, not yet linked, fails. Against it, the dearest floor for every call. The crate's
+    /// bound on the gas that gives each call its floor covers the least gas.
+    function test_theRealOnboardingsLeastGas() public {
+        address w = factory.walletAddress(X, idNode, 0);
+        Execution[] memory x = _realOnboarding(w);
+        uint256[] memory floors = new uint256[](x.length);
+        uint256[] memory before = new uint256[](x.length);
+        (uint256 last, uint256 dearest) = (0, 0);
+        for (uint256 k; k <= x.length; ++k) {
+            Execution[] memory cut = new Execution[](k);
+            for (uint256 i; i < k; ++i) {
+                cut[i] = x[i];
+            }
+            bytes memory data = _signedAt(w, 1, _pks(ALICE_PK), abi.encode(cut), false, new uint256[](k));
+            (bool ok, uint256 used, bytes memory returned) = _tryOnboarding(data, 30e6);
+            bool unsigned = k == 0 && bytes4(returned) == IWebWallet.ExecutionNotSigned.selector;
+            assertTrue(ok || unsigned, "a prefix did not run");
+            if (k > 0) floors[k - 1] = ((used - last) * 5 + 3) / 4;
+            if (k > 0 && floors[k - 1] > dearest) dearest = floors[k - 1];
+            if (k < x.length) before[k] = used;
+            last = used;
+        }
+        uint256 each = _leastGas(_signedAt(w, 1, _pks(ALICE_PK), abi.encode(x), false, floors), last / 2);
+        uint256 bound;
+        for (uint256 i; i < floors.length; ++i) {
+            uint256 b = _scaled(before[i], 3) + _scaled(floors[i] + CALL_OVERHEAD, 4);
+            if (b > bound) bound = b;
+        }
+        assertGe(bound, each, "the bound is below the least gas");
+        for (uint256 i; i < floors.length; ++i) {
+            floors[i] = dearest;
+        }
+        uint256 one = _leastGas(_signedAt(w, 1, _pks(ALICE_PK), abi.encode(x), false, floors), last / 2);
+        assertLt(each, one, "a floor per call needs as much gas as the dearest floor for each");
+        vm.snapshotValue(
+            "wallet-claim", "createAndExecute onboarding(real X proof) least frame gas, each call's floor", each
+        );
+        vm.snapshotValue(
+            "wallet-claim", "createAndExecute onboarding(real X proof) least frame gas, dearest floor", one
+        );
+    }
+
+    /// `gas × (64/63)^frames`, rounded up: what `frames` nested calls need to pass `gas` on.
+    function _scaled(uint256 gas, uint256 frames) internal pure returns (uint256) {
+        return (gas * 64 ** frames + 63 ** frames - 1) / 63 ** frames;
     }
 
     /// The same onboarding on a stub proof: the wallet's share of the gas, plus the stub's store of the whole payload.

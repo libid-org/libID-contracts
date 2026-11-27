@@ -46,8 +46,8 @@ abstract contract WalletBase is Test {
     bytes32 internal constant REMOVE = 0x7cabdd831000d819c7b2ae4f79b4d6b566aa21992764e735f944b1459cb43c1b;
     bytes32 internal constant OPERATIONS = 0x60b329d7366897b03545eb9f63f4a707253258ee2e1cd0ba3a8973aa4959e967;
     bytes32 internal constant BIND = 0x4d59cd4487de0a5957f8c83addaac7a1238175aa5c29eeea2fbef57a8f5165ac;
-    // cast keccak "Execute(bytes32 mode,bytes executionCalldata,uint256 value,uint48 at,uint256 nonce,uint48 deadline,uint256 callGas)"
-    bytes32 internal constant EXECUTE_TYPEHASH = 0x6158eac44095e4b05d0f638c3e232c7f3a2dc8872b50069fc5cfe697b4fb8cf2;
+    // cast keccak "Execute(bytes32 mode,bytes executionCalldata,uint256 value,uint48 at,uint256 nonce,uint48 deadline,uint256[] callGas)"
+    bytes32 internal constant EXECUTE_TYPEHASH = 0xbd9ca89190e4cd0ee4d11db23696c49279af7ce75c2c4f403385e49d66c11ad5;
     // cast keccak "UserOperation(bytes32 userOpHash)"
     bytes32 internal constant USER_OP_TYPEHASH = 0xfc7b070108d04ee052d98f0eb394be32e2271d51fb81ec12ed483b3e5c633795;
     bytes32 internal constant PERSONAL_SIGN = 0x983e65e5148e570cd828ead231ee759a8d7958721a768f93bc4483ba005c32de;
@@ -290,6 +290,27 @@ abstract contract WalletBase is Test {
         return abi.encode(x);
     }
 
+    /// `callGas` for each call of the batch `calls`; none when `calls` cannot hold the count it reads.
+    function _floors(bytes memory calls, uint256 callGas) internal pure returns (uint256[] memory floors) {
+        uint256 n;
+        if (calls.length >= 64) {
+            uint256 offset;
+            assembly ("memory-safe") {
+                offset := mload(add(calls, 0x20))
+            }
+            if (offset <= calls.length - 32) {
+                assembly ("memory-safe") {
+                    n := mload(add(add(calls, 0x20), offset))
+                }
+            }
+            if (n > calls.length / 32) n = 0;
+        }
+        floors = new uint256[](n);
+        for (uint256 i; i < n; ++i) {
+            floors[i] = callGas;
+        }
+    }
+
     /// The AUTHORIZED batches' EntryPoint nonce: key 0.
     function _nonce(address w) internal view returns (uint256) {
         return IEntryPoint(EP).getNonce(w, 0);
@@ -367,15 +388,34 @@ abstract contract WalletBase is Test {
         view
         returns (bytes memory)
     {
+        return _signedAt(w, version, pks, calls, below, _floors(calls, CALL_GAS));
+    }
+
+    /// `_signedAt` with the floors `floors`.
+    function _signedAt(
+        address w,
+        uint64 version,
+        uint256[] memory pks,
+        bytes memory calls,
+        bool below,
+        uint256[] memory floors
+    ) internal view returns (bytes memory) {
         uint48 at = uint48(_now());
         uint48 deadline = uint48(_now() + 1 hours);
         bytes32 s = keccak256(
             abi.encode(
-                EXECUTE_TYPEHASH, AUTHORIZED_MODE, keccak256(calls), uint256(0), at, _nonce(w), deadline, CALL_GAS
+                EXECUTE_TYPEHASH,
+                AUTHORIZED_MODE,
+                keccak256(calls),
+                uint256(0),
+                at,
+                _nonce(w),
+                deadline,
+                keccak256(abi.encodePacked(floors))
             )
         );
         uint256 n = below ? abi.decode(calls, (Execution[])).length : 0;
-        return abi.encode(calls, uint256(0), deadline, CALL_GAS, _auth(pks, _typed(w, version, s), at, below, n));
+        return abi.encode(calls, uint256(0), deadline, floors, _auth(pks, _typed(w, version, s), at, below, n));
     }
 
     function _signed(address w, uint256[] memory pks, bytes memory calls) internal view returns (bytes memory) {

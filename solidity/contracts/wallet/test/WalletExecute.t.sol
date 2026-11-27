@@ -259,7 +259,7 @@ contract WalletExecuteTest is WalletSuite {
         revert();
     }
 
-    /// The submitter cannot run the signed batch with less than the signed `callGas`.
+    /// The submitter cannot run the signed batch with less than its call's signed `callGas`.
     function test_tooLittleGasRevertsBeforeAnyCall() public {
         address w = _claim();
         uint48 at = uint48(_now());
@@ -283,18 +283,17 @@ contract WalletExecuteTest is WalletSuite {
         return _x(address(probe), 1, bytes.concat(abi.encodeCall(GasProbe.run, ()), new bytes(size)));
     }
 
-    /// Runs `calls`, signed for `callGas`, with each gas from `from` below `to`; every probe of a run that passed
-    /// got at least `callGas`. Returns the runs that passed.
-    function _sweep(address w, bytes memory calls, GasProbe[] memory probes, uint256 callGas, uint256 from, uint256 to)
-        internal
-        returns (uint256 runs)
-    {
-        uint48 at = uint48(_now());
-        uint48 deadline = at + 1 hours;
-        bytes32 h = _execDigestGas(w, AUTHORIZED_MODE, calls, at, _nonce(w), deadline, callGas);
-        bytes memory data =
-            _data(calls, abi.encode(_authOf(_pks(ALICE_PK), h, at, false, _hitProofs(0)), deadline, callGas));
-        bytes memory exec = abi.encodeCall(IWalletCore.execute, (AUTHORIZED_MODE, data));
+    /// Runs `calls`, signed for the floors `callGas`, with each gas from `from` below `to`; every probe of a run that
+    /// passed got at least its call's floor. Returns the runs that passed.
+    function _sweep(
+        address w,
+        bytes memory calls,
+        GasProbe[] memory probes,
+        uint256[] memory callGas,
+        uint256 from,
+        uint256 to
+    ) internal returns (uint256 runs) {
+        bytes memory exec = abi.encodeCall(IWalletCore.execute, (AUTHORIZED_MODE, _signedFloors(w, calls, callGas)));
         for (uint256 g = from; g < to; g += 2_000) {
             uint256 snap = vm.snapshotState();
             for (uint256 i; i < probes.length; ++i) {
@@ -306,11 +305,28 @@ contract WalletExecuteTest is WalletSuite {
                 ++runs;
                 for (uint256 i; i < probes.length; ++i) {
                     // The probe's dispatch runs before it reads `gasleft()`.
-                    assertGe(probes[i].got() + 1_000, callGas, "a call got less than callGas");
+                    assertGe(probes[i].got() + 1_000, callGas[i], "a call got less than its callGas");
                 }
             }
             vm.revertToState(snap);
         }
+    }
+
+    /// Alice's data for `calls` with the floors `callGas`.
+    function _signedFloors(address w, bytes memory calls, uint256[] memory callGas)
+        internal
+        view
+        returns (bytes memory)
+    {
+        uint48 at = uint48(_now());
+        uint48 deadline = at + 1 hours;
+        bytes32 h = _execDigestFloors(w, AUTHORIZED_MODE, calls, at, _nonce(w), deadline, callGas);
+        return _dataFloors(calls, _authOf(_pks(ALICE_PK), h, at, false, _hitProofs(0)), deadline, callGas);
+    }
+
+    function _pair(uint256 a, uint256 b) internal pure returns (uint256[] memory r) {
+        r = new uint256[](2);
+        (r[0], r[1]) = (a, b);
     }
 
     /// Any gas that passes the checks gives every call, cold, with value and 64 KiB of call data, at least `callGas`.
@@ -324,9 +340,78 @@ contract WalletExecuteTest is WalletSuite {
         first[0] = probes[0];
         uint256 callGas = 10_000_000;
         // The proxy keeps 1/64 too: the check passes from about `callGas * (64/63)^2`.
-        assertGt(_sweep(w, one, first, callGas, callGas, callGas * 33 / 32 + 300_000), 0, "control: one call");
+        assertGt(
+            _sweep(w, one, first, _floors(one, callGas), callGas, callGas * 33 / 32 + 300_000), 0, "control: one call"
+        );
         callGas = 1_000_000;
-        assertGt(_sweep(w, two, probes, callGas, 2 * callGas, 2 * callGas * 33 / 32 + 600_000), 0, "control: two");
+        assertGt(
+            _sweep(w, two, probes, _floors(two, callGas), 2 * callGas, 2 * callGas * 33 / 32 + 600_000),
+            0,
+            "control: two"
+        );
+    }
+
+    /// Each call is held to its own floor: a dear call then a cheap one runs on little more than the dear call's.
+    function test_eachCallGetsItsOwnFloor() public {
+        address w = _claim();
+        GasProbe[] memory probes = new GasProbe[](2);
+        (probes[0], probes[1]) = (new GasProbe(), new GasProbe());
+        bytes memory two = _two(_probeX(probes[0], 0), _probeX(probes[1], 0));
+        uint256[] memory floors = _pair(2_000_000, 50_000);
+        assertGt(_sweep(w, two, probes, floors, 2_000_000, 2_200_000), 0, "below twice the dear floor");
+        // The cheap call's floor, first, does not cover the dear one's.
+        vm.prank(relayer);
+        (bool ok, bytes memory returned) = w.call{gas: 2_100_000}(
+            abi.encodeCall(IWalletCore.execute, (AUTHORIZED_MODE, _signedFloors(w, two, _pair(50_000, 2_000_000))))
+        );
+        assertFalse(ok, "the dear call ran on the cheap floor's gas");
+        assertEq(bytes4(returned), IWebWallet.InsufficientCallGas.selector, "error");
+        (uint256 index, uint256 callGas,) = abi.decode(_tail(returned), (uint256, uint256, uint256));
+        assertEq(abi.encode(index, callGas), abi.encode(1, 2_000_000), "the second call's floor");
+    }
+
+    /// `returned` without its selector.
+    function _tail(bytes memory returned) internal pure returns (bytes memory tail) {
+        tail = new bytes(returned.length - 4);
+        for (uint256 i; i < tail.length; ++i) {
+            tail[i] = returned[i + 4];
+        }
+    }
+
+    /// Fewer or more floors than calls, signed as sent, are refused before any call; a floor changed or moved after
+    /// signing is not signed.
+    function test_floorsMatchTheCalls() public {
+        address w = _claim();
+        bytes memory calls = _two(_hitX(), _hitX());
+        uint256[] memory one = new uint256[](1);
+        uint256[] memory three = new uint256[](3);
+        one[0] = CALL_GAS;
+        (three[0], three[1], three[2]) = (CALL_GAS, CALL_GAS, CALL_GAS);
+        (uint256 n, uint256 hits) = (_nonce(w), target.calls());
+        bytes[3] memory miscounted =
+            [_signedFloors(w, calls, one), _signedFloors(w, calls, three), _signedFloors(w, calls, new uint256[](0))];
+        uint256[3] memory counts = [uint256(1), 3, 0];
+        uint48 at = uint48(_now());
+        uint48 deadline = at + 1 hours;
+        uint256[] memory signed = _pair(CALL_GAS, CALL_GAS + 1);
+        bytes32 h = _execDigestFloors(w, AUTHORIZED_MODE, calls, at, n, deadline, signed);
+        IWalletCore.Authorization memory a = _authOf(_pks(ALICE_PK), h, at, false, _hitProofs(0));
+        bytes memory swapped = _dataFloors(calls, a, deadline, _pair(CALL_GAS + 1, CALL_GAS));
+        bytes memory changed = _dataFloors(calls, a, deadline, _pair(CALL_GAS, CALL_GAS));
+
+        vm.startPrank(relayer);
+        for (uint256 i; i < 3; ++i) {
+            vm.expectRevert(abi.encodeWithSelector(IWebWallet.WrongCallGasCount.selector, 2, counts[i]));
+            IWebWallet(w).execute(AUTHORIZED_MODE, miscounted[i]);
+        }
+        vm.expectRevert(NOT_SIGNED);
+        IWebWallet(w).execute(AUTHORIZED_MODE, swapped);
+        vm.expectRevert(NOT_SIGNED);
+        IWebWallet(w).execute(AUTHORIZED_MODE, changed);
+        vm.stopPrank();
+        vm.prank(relayer);
+        IWebWallet(w).execute(AUTHORIZED_MODE, _dataFloors(calls, a, deadline, signed));
+        assertEq(target.calls(), hits + 2, "control");
     }
 
     /// Copying 256 KiB of call data costs more than `CALL_OVERHEAD`; the call still gets `callGas`.
@@ -336,7 +421,7 @@ contract WalletExecuteTest is WalletSuite {
         probes[0] = new GasProbe();
         uint256 callGas = 1_000_000;
         bytes memory one = _one(_probeX(probes[0], 256 << 10));
-        assertGt(_sweep(w, one, probes, callGas, callGas, callGas + 2_500_000), 0, "control");
+        assertGt(_sweep(w, one, probes, _floors(one, callGas), callGas, callGas + 2_500_000), 0, "control");
     }
 
     /// Each call's memory is released after it, so the calls' copies do not add to the memory SessionRules' check
@@ -649,7 +734,14 @@ contract WalletExecuteTest is WalletSuite {
             )
         );
         bytes memory data = abi.encodePacked(
-            uint256(0xa0), uint256(0), uint256(deadline), CALL_GAS, uint256(0x1e0), uint256(0x60), batch, uint256(0)
+            uint256(0xa0),
+            uint256(0),
+            uint256(deadline),
+            uint256(0x120),
+            uint256(0x1e0),
+            uint256(0x60),
+            batch,
+            uint256(0)
         );
         data = abi.encodePacked(
             data,

@@ -1,0 +1,9 @@
+{
+  "CALL_OVERHEAD": "20000",
+  "rules(per call)": "38186",
+  "rules(refund)": "55701",
+  "verify(ECDSA)": "3936",
+  "verify(P-256)": "13018",
+  "verify(WebAuthn)": "19724",
+  "verify(tail)": "435"
+}

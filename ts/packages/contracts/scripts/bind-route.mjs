@@ -34,4 +34,7 @@ export const walletRegistryRoute = [
   ['IWebWallet.sol', 'IWebWallet'],
   ['WalletForwarder.sol', 'WalletForwarder'],
   ['WalletFactory.sol', 'WalletFactory'],
+  ['IdentityRegistry.sol', 'IdentityRegistry'],
+  ['ReferralSplitter.sol', 'ReferralSplitter'],
+  ['HandleEscrow.sol', 'HandleEscrow'],
 ]

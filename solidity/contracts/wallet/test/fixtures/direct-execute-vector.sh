@@ -4,11 +4,11 @@
 set -euo pipefail
 
 MODE=0x01000000000018f4a5a900000000000000000000000000000000000000000000
-EXECUTE_TYPEHASH=$(cast keccak "Execute(bytes32 mode,bytes executionCalldata,uint256 value,uint48 at,uint256 nonce,uint48 deadline,uint256 callGas)")
+EXECUTE_TYPEHASH=$(cast keccak "Execute(bytes32 mode,bytes executionCalldata,uint256 value,uint48 at,uint256 nonce,uint48 deadline,uint256[] callGas)")
 USER_OP_TYPEHASH=$(cast keccak "UserOperation(bytes32 userOpHash)")
 DOMAIN_TYPEHASH=$(cast keccak "EIP712Domain(string name,string version,uint256 chainId,address verifyingContract,bytes32 salt)")
 CHAIN=8453; WALLET=0x0000000000000000000000000000000000001234; VERSION=2; EPOCH=$(cast keccak "epoch"); ROOT_EPOCH=3
-NONCE=7; CALLS=0xc0ffee; VALUE=12345; AT=1000; DEADLINE=2000; CALL_GAS=200000
+NONCE=7; CALLS=0xc0ffee; VALUE=12345; AT=1000; DEADLINE=2000; CALL_GAS_0=200000; CALL_GAS_1=50000
 KEY=0x1234; SIG=0x5678; MAX_VALUE=5; SUBMITTER=0x0000000000000000000000000000000000005678
 CALL_PROOF=$(cast keccak "call leaf"); DOMAIN_PROOF=$(cast keccak "domain leaf"); PAYMASTER_PROOF=$(cast keccak "paymaster leaf")
 USER_OP_HASH=$(cast keccak "op")
@@ -19,13 +19,15 @@ sep() { cast keccak "$(cast abi-encode "f(bytes32,bytes32,bytes32,uint256,addres
 SALT=$(salt "$EPOCH" $ROOT_EPOCH)
 SEP=$(sep "$SALT")
 typed() { cast keccak "$(cast concat-hex 0x1901 "$SEP" "$1")"; }
-STRUCT=$(cast keccak "$(cast abi-encode "f(bytes32,bytes32,bytes32,uint256,uint48,uint256,uint48,uint256)" "$EXECUTE_TYPEHASH" $MODE "$(cast keccak $CALLS)" $VALUE $AT $NONCE $DEADLINE $CALL_GAS)")
+# EIP-712 hashes an array as keccak256 of its elements' encodings, concatenated.
+CALL_GAS_HASH=$(cast keccak "$(cast concat-hex "$(cast to-uint256 $CALL_GAS_0)" "$(cast to-uint256 $CALL_GAS_1)")")
+STRUCT=$(cast keccak "$(cast abi-encode "f(bytes32,bytes32,bytes32,uint256,uint48,uint256,uint48,bytes32)" "$EXECUTE_TYPEHASH" $MODE "$(cast keccak $CALLS)" $VALUE $AT $NONCE $DEADLINE "$CALL_GAS_HASH")")
 DIGEST=$(typed "$STRUCT")
 EPOCH_ZERO_DIGEST=$(cast keccak "$(cast concat-hex 0x1901 "$(sep "$(salt 0x0000000000000000000000000000000000000000000000000000000000000000 0)")" "$STRUCT")")
 USER_OP_DIGEST=$(typed "$(cast keccak "$(cast abi-encode "f(bytes32,bytes32)" "$USER_OP_TYPEHASH" "$USER_OP_HASH")")")
 AUTH=$(cast abi-encode "f(((bytes,bytes)[],uint48,(uint256,bytes32[])[],bytes32[],bytes32[]))" \
   "([($KEY,$SIG)],$AT,[($MAX_VALUE,[$CALL_PROOF])],[$DOMAIN_PROOF],[$PAYMASTER_PROOF])")
-DATA=$(cast abi-encode "f(bytes,uint256,uint48,uint256,bytes)" $CALLS $VALUE $DEADLINE $CALL_GAS "$AUTH")
+DATA=$(cast abi-encode "f(bytes,uint256,uint48,uint256[],bytes)" $CALLS $VALUE $DEADLINE "[$CALL_GAS_0,$CALL_GAS_1]" "$AUTH")
 # A policy, its rules hash and its policy hash.
 VALID_AFTER=10; VALID_UNTIL=20; ADMIN=false; SIGNERS=2
 SCOPE_ROOT=$(cast keccak s); DOMAINS_ROOT=$(cast keccak d); PAYMASTERS_ROOT=$(cast keccak p)
@@ -56,7 +58,7 @@ cat <<JSON
   "value": $VALUE,
   "at": $AT,
   "deadline": $DEADLINE,
-  "callGas": $CALL_GAS,
+  "callGas": [$CALL_GAS_0, $CALL_GAS_1],
   "sessionKey": "$KEY",
   "signature": "$SIG",
   "callMaxValue": $MAX_VALUE,

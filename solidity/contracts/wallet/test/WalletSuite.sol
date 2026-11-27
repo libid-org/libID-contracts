@@ -342,6 +342,22 @@ abstract contract WalletSuite is WalletBase {
 
     // ─── AUTHORIZED batches ─────────────────────────────────────────
 
+    function _execDigestFloors(
+        address w,
+        bytes32 mode,
+        bytes memory calls,
+        uint48 at,
+        uint256 n,
+        uint48 deadline,
+        uint256[] memory callGas
+    ) internal view returns (bytes32) {
+        bytes32 floors = keccak256(abi.encodePacked(callGas));
+        return _typed(
+            w, 1, keccak256(abi.encode(EXECUTE_TYPEHASH, mode, keccak256(calls), signedValue, at, n, deadline, floors))
+        );
+    }
+
+    /// The digest with `callGas` for each call.
     function _execDigestGas(
         address w,
         bytes32 mode,
@@ -351,9 +367,7 @@ abstract contract WalletSuite is WalletBase {
         uint48 deadline,
         uint256 callGas
     ) internal view returns (bytes32) {
-        return _typed(
-            w, 1, keccak256(abi.encode(EXECUTE_TYPEHASH, mode, keccak256(calls), signedValue, at, n, deadline, callGas))
-        );
+        return _execDigestFloors(w, mode, calls, at, n, deadline, _floors(calls, callGas));
     }
 
     function _execDigest(address w, bytes32 mode, bytes memory calls, uint48 at, uint256 n, uint48 deadline)
@@ -364,7 +378,7 @@ abstract contract WalletSuite is WalletBase {
         return _execDigestGas(w, mode, calls, at, n, deadline, CALL_GAS);
     }
 
-    /// The signed envelope: `abi.encode(Authorization, uint48 deadline, uint256 callGas)`.
+    /// The signed envelope: `abi.encode(Authorization, uint48 deadline, uint256 callGas)`, `callGas` for each call.
     function _env(IWalletCore.Authorization memory a, uint48 deadline) internal pure returns (bytes memory) {
         return abi.encode(a, deadline, CALL_GAS);
     }
@@ -373,6 +387,15 @@ abstract contract WalletSuite is WalletBase {
     function _data(bytes memory calls, bytes memory env) internal view returns (bytes memory) {
         (IWalletCore.Authorization memory a, uint48 deadline, uint256 callGas) =
             abi.decode(env, (IWalletCore.Authorization, uint48, uint256));
+        return _dataFloors(calls, a, deadline, _floors(calls, callGas));
+    }
+
+    function _dataFloors(
+        bytes memory calls,
+        IWalletCore.Authorization memory a,
+        uint48 deadline,
+        uint256[] memory callGas
+    ) internal view returns (bytes memory) {
         return abi.encode(calls, signedValue, deadline, callGas, abi.encode(a));
     }
 

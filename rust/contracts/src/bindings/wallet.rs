@@ -23,6 +23,11 @@ use alloy::{
     },
 };
 
+use crate::error::{
+    Error,
+    Result,
+};
+
 #[allow(
     clippy::too_many_arguments,
     missing_docs,
@@ -153,7 +158,14 @@ mod signed {
             uint48 at;
             uint256 nonce;
             uint48 deadline;
-            uint256 callGas;
+            uint256[] callGas;
+        }
+
+        #[derive(Debug, Default, PartialEq, Eq)]
+        struct Execution {
+            address target;
+            uint256 value;
+            bytes callData;
         }
 
         #[derive(Debug, PartialEq, Eq)]
@@ -171,6 +183,8 @@ pub use signed::CallProof;
 /// The EIP-712 `Execute` type of an `AUTHORIZED_MODE` batch. Build messages
 /// with [`ExecuteMessage`], which sets `mode`.
 pub use signed::Execute;
+/// One call of an ERC-7579 batch.
+pub use signed::Execution;
 /// `IWalletCore.SessionSignature`.
 pub use signed::SessionSignature;
 
@@ -227,6 +241,23 @@ pub fn below_quorum_hash(hash: B256, at: U48, governing_key: &[u8]) -> B256 {
 /// [`ExecuteMessage::authorized_data`].
 pub fn encode_authorization(authorization: &Authorization) -> Bytes {
     authorization.abi_encode().into()
+}
+
+/// `abi.encode(executions)`: an ERC-7579 batch, the wallet's canonical form.
+pub fn encode_executions(executions: &[Execution]) -> Bytes {
+    executions.abi_encode().into()
+}
+
+/// The batch `data` encodes, refused unless it is [`encode_executions`] of
+/// it byte for byte: the wallet runs no other form (`NoncanonicalBatch`).
+pub fn decode_executions(data: &[u8]) -> Result<Vec<Execution>> {
+    let executions = Vec::<Execution>::abi_decode(data).map_err(Error::abi)?;
+    if encode_executions(&executions)[..] != *data {
+        return Err(Error::Abi {
+            detail: "the batch does not re-encode to the bytes given".into(),
+        });
+    }
+    Ok(executions)
 }
 
 /// `AUTHORIZED_MODE` of `wallet/IWebWallet.sol`: the batch call type, the
@@ -336,8 +367,8 @@ pub struct ExecuteMessage {
     pub nonce: U256,
     /// The last second the batch may run.
     pub deadline: U48,
-    /// The gas each of the batch's calls gets.
-    pub call_gas: U256,
+    /// The least gas each of the batch's calls gets, one per call.
+    pub call_gas: Vec<U256>,
 }
 
 /// [`Authorization`] without `at`, which [`ExecuteMessage::authorized_data`]
@@ -371,7 +402,7 @@ impl ExecuteMessage {
             at: self.at,
             nonce: self.nonce,
             deadline: self.deadline,
-            callGas: self.call_gas,
+            callGas: self.call_gas.clone(),
         }
         .eip712_signing_hash(&wallet_domain(chain_id, wallet, version, salt))
     }
@@ -391,11 +422,42 @@ impl ExecuteMessage {
             self.execution_calldata.clone(),
             self.value,
             self.deadline,
-            self.call_gas,
+            self.call_gas.clone(),
             encode_authorization(&authorization),
         )
             .abi_encode_params()
             .into()
+    }
+
+    /// The message and authorization `data` encodes, `nonce` zero since the
+    /// data does not carry it; refused unless `data` is
+    /// [`Self::authorized_data`] of them byte for byte.
+    pub fn from_authorized_data(data: &[u8]) -> Result<(Self, ExecuteAuthorization)> {
+        type Data = (Bytes, U256, U48, Vec<U256>, Bytes);
+        let (execution_calldata, value, deadline, call_gas, authorization) =
+            <Data as SolValue>::abi_decode_params(data).map_err(Error::abi)?;
+        let authorization =
+            Authorization::abi_decode(&authorization).map_err(Error::abi)?;
+        let message = Self {
+            execution_calldata,
+            value,
+            at: authorization.at,
+            nonce: U256::ZERO,
+            deadline,
+            call_gas,
+        };
+        let authorization = ExecuteAuthorization {
+            signatures: authorization.signatures,
+            calls: authorization.calls,
+            domain_proof: authorization.domainProof,
+            paymaster_proof: authorization.paymasterProof,
+        };
+        if message.authorized_data(authorization.clone())[..] != *data {
+            return Err(Error::Abi {
+                detail: "the data does not re-encode to the bytes given".into(),
+            });
+        }
+        Ok((message, authorization))
     }
 }
 
@@ -498,7 +560,7 @@ mod tests {
         value: u64,
         at: u64,
         deadline: u64,
-        call_gas: u64,
+        call_gas: Vec<u64>,
         session_key: Bytes,
         signature: Bytes,
         call_max_value: u64,
@@ -544,7 +606,7 @@ mod tests {
             // Nonce key 0: the full nonce is the sequence.
             nonce: (U256::from(DIRECT_NONCE_KEY) << 64) | U256::from(v.nonce),
             deadline: U48::from(v.deadline),
-            call_gas: U256::from(v.call_gas),
+            call_gas: v.call_gas.iter().copied().map(U256::from).collect(),
         };
         let authorization = ExecuteAuthorization {
             signatures: vec![SessionSignature {

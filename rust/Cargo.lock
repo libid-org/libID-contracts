@@ -14,6 +14,7 @@ dependencies = [
  "alloy-eips",
  "alloy-ens",
  "alloy-genesis",
+ "alloy-json-rpc",
  "alloy-network",
  "alloy-node-bindings",
  "alloy-provider",
@@ -2587,6 +2588,7 @@ dependencies = [
  "libid-profiles",
  "serde",
  "serde_json",
+ "serde_with",
  "thiserror",
  "tokio",
 ]

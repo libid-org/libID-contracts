@@ -1,6 +1,6 @@
 {
-  "AUTHORIZED batch hit(), below quorum": "139629",
-  "AUTHORIZED batch hit(), quorum": "116483",
-  "UserOperation hit(), below quorum": "229132",
-  "UserOperation hit(), quorum": "175039"
+  "AUTHORIZED batch hit(), below quorum": "140809",
+  "AUTHORIZED batch hit(), quorum": "117686",
+  "UserOperation hit(), below quorum": "229188",
+  "UserOperation hit(), quorum": "175094"
 }

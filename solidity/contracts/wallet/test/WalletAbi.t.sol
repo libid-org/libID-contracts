@@ -259,8 +259,11 @@ contract WalletAbiTest is WalletBase {
         assertEq(keccak256(auth), vm.parseJsonBytes32(j, ".authorizationHash"), "Authorization, no prefix");
 
         bytes memory calls = vm.parseJsonBytes(j, ".executionCalldata");
-        (uint256 value, uint48 deadline, uint256 callGas) =
-            (vm.parseJsonUint(j, ".value"), uint48(vm.parseJsonUint(j, ".deadline")), vm.parseJsonUint(j, ".callGas"));
+        (uint256 value, uint48 deadline, uint256[] memory callGas) = (
+            vm.parseJsonUint(j, ".value"),
+            uint48(vm.parseJsonUint(j, ".deadline")),
+            vm.parseJsonUintArray(j, ".callGas")
+        );
         bytes memory data = abi.encode(calls, value, deadline, callGas, auth);
         assertEq(keccak256(data), vm.parseJsonBytes32(j, ".dataHash"), "AUTHORIZED data");
         // Nonce key 0: the full nonce is the sequence.
@@ -273,7 +276,7 @@ contract WalletAbiTest is WalletBase {
                 at,
                 vm.parseJsonUint(j, ".nonce"),
                 deadline,
-                callGas
+                keccak256(abi.encodePacked(callGas))
             )
         );
         bytes32 digest = _typed(w, version, salt, execute);
