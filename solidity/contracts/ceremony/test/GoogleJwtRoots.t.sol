@@ -225,7 +225,7 @@ contract GoogleJwtRootsTest is JwtRootsTestBase {
 
         _assertGeneration(_current(), second, incoming, "current");
         _assertGeneration(_previous(), first, _one(old), "previous");
-        assertEq(roots.trustedHashExpiresAt(old), first + roots.READING_LIFETIME(), "the old set keeps its own stamp");
+        assertEq(roots.trustedHashExpiresAt(old), first + 20 minutes + 2 hours, "the old set lapses after the grace");
         assertEq(roots.trustedHashExpiresAt(_hash("b")), second + roots.READING_LIFETIME());
         assertEq(roots.trustedHashExpiresAt(_hash("c")), second + roots.READING_LIFETIME());
         assertEq(roots.freshestObservedAt(), second);
@@ -245,7 +245,7 @@ contract GoogleJwtRootsTest is JwtRootsTestBase {
         _assertGeneration(_current(), third, _one(c), "current");
         _assertGeneration(_previous(), second, _one(b), "previous");
         assertEq(roots.trustedHashExpiresAt(a), 0, "the oldest set is still trusted");
-        assertEq(roots.trustedHashExpiresAt(b), second + roots.READING_LIFETIME());
+        assertEq(roots.trustedHashExpiresAt(b), third + 2 hours);
         assertEq(roots.trustedHashExpiresAt(c), third + roots.READING_LIFETIME());
     }
 
@@ -258,7 +258,7 @@ contract GoogleJwtRootsTest is JwtRootsTestBase {
         _rotate(_readingAt(_twoKeys("kid-2", "two", "kid-3", "three"), second));
 
         assertEq(roots.trustedHashExpiresAt(_hash("two")), second + roots.READING_LIFETIME(), "in both: current stamp");
-        assertEq(roots.trustedHashExpiresAt(_hash("one")), first + roots.READING_LIFETIME(), "previous only");
+        assertEq(roots.trustedHashExpiresAt(_hash("one")), second + 2 hours, "previous only");
         assertEq(roots.trustedHashExpiresAt(_hash("three")), second + roots.READING_LIFETIME(), "current only");
     }
 

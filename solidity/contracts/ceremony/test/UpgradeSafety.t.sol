@@ -281,6 +281,49 @@ contract UpgradeSafetyTest is Test {
         );
     }
 
+    /// A proxy written by the two-generation layout has no word after `previous`.
+    /// Upgraded, it keeps both generations, and the key only in `previous` reads
+    /// as replaced at time zero: its two hours are long past.
+    function test_upgrade_fromTheTwoGenerationLayoutUntrustsPrevious() public {
+        INotaryService ns = INotaryService(address(_notaryService()));
+        JwtRootsBase r = JwtRootsBase(
+            address(
+                new ERC1967Proxy(address(new GoogleJwtRoots()), abi.encodeCall(JwtRootsBase.initialize, (OWNER, ns)))
+            )
+        );
+        uint256 notaryKey = 0xA11CE5;
+        vm.prank(OWNER);
+        NotaryService(address(ns)).setNotary(vm.addr(notaryKey), true);
+        vm.deal(address(this), 1 ether);
+        vm.warp(1_770_000_000);
+        uint64 first = uint64(vm.getBlockTimestamp());
+        bytes memory attested = _jwksReading(
+            first, JWKS_MODULUS, CeremonyProfile.GOOGLE_JWKS_REQUEST_LINE, CeremonyProfile.GOOGLE_JWKS_HOST
+        );
+        r.rotate{value: 7}(attested, _signed(notaryKey, attested));
+        vm.warp(first + 60);
+        uint64 second = uint64(vm.getBlockTimestamp());
+        attested = _jwksReading(
+            second, _otherModulus(), CeremonyProfile.GOOGLE_JWKS_REQUEST_LINE, CeremonyProfile.GOOGLE_JWKS_HOST
+        );
+        r.rotate{value: 7}(attested, _signed(notaryKey, attested));
+
+        // Word 5 holds when a key only in `previous` stops being trusted.
+        uint256 base = uint256(ROOTS_ROOT);
+        assertEq(uint256(vm.load(address(r), bytes32(base + 5))), second + 2 hours, "word 5: previousUntil");
+        // The two-generation layout never wrote it.
+        vm.store(address(r), bytes32(base + 5), bytes32(0));
+
+        GoogleJwtRoots next = new GoogleJwtRoots();
+        vm.prank(OWNER);
+        r.upgradeToAndCall(address(next), "");
+        (JwtRootsBase.Generation memory current, JwtRootsBase.Generation memory previous) = r.currentKeys();
+        assertEq(current.observedAt, second, "current kept");
+        assertEq(previous.observedAt, first, "previous kept");
+        assertEq(r.trustedHashExpiresAt(current.moduli[0]), second + r.READING_LIFETIME(), "current keeps 30 days");
+        assertEq(r.trustedHashExpiresAt(previous.moduli[0]), 0, "a key only in previous is untrusted");
+    }
+
     /// Both generations survive an upgrade, at the words `root` names.
     function _upgradeJwtRoots(JwtRootsBase impl, JwtRootsBase impl2, bytes32 root, bytes memory line, bytes memory host)
         internal
@@ -339,7 +382,7 @@ contract UpgradeSafetyTest is Test {
         assertEq(r.quoteRotation(), 7);
         assertEq(r.owner(), OWNER);
         assertEq(r.trustedHashExpiresAt(newer), second + lifetime, "the current generation was lost");
-        assertEq(r.trustedHashExpiresAt(older), first + lifetime, "the previous generation was lost");
+        assertEq(r.trustedHashExpiresAt(older), second + 2 hours, "the previous generation was lost");
         (current, previous) = r.currentKeys();
         assertEq(current.observedAt, second);
         assertEq(current.moduli.length, 1);

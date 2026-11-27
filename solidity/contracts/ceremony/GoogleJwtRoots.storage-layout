@@ -4,5 +4,6 @@ root erc7201:libid.storage.GoogleJwtRoots 0x7f78ff13201a03086d4b08e3085224c34a9f
 field slot=0 offset=0 notary: contract INotaryService
 field slot=1 offset=0 current: struct JwtRootsBase.Generation
 field slot=3 offset=0 previous: struct JwtRootsBase.Generation
+field slot=5 offset=0 previousUntil: uint64
 struct JwtRootsBase.Generation slot=0 offset=0 observedAt: uint64
 struct JwtRootsBase.Generation slot=1 offset=0 moduli: bytes32[]
