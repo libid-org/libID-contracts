@@ -162,6 +162,27 @@ LAYOUTS = (
         "IdentityRegistry.IdentityRegistryStorage",
         "IDENTITY_REGISTRY_STORAGE",
     ),
+    Layout(
+        "wallet/WalletFactory.sol",
+        ("WalletFactory",),
+        "WalletFactory.WalletFactoryStorage",
+        "WALLET_FACTORY_STORAGE",
+    ),
+    Layout(
+        "wallet/WalletRegistry.sol",
+        ("WalletRegistry",),
+        "WalletRegistry.WalletRegistryStorage",
+        "WALLET_REGISTRY_STORAGE",
+    ),
+    # A bump keeps the wallet's storage. Every contract that runs in a wallet's
+    # context is listed, so a plain state variable in any of them shows. The
+    # release slot (WalletRelease.sol) is one packed word, pinned by WalletAbi.t.sol.
+    Layout(
+        "wallet/WalletStorage.sol",
+        ("WebWallet", "IdentityAdmin", "SessionRules", "WalletProxy", "WalletForwarder"),
+        "WalletStorage.WalletState",
+        "SLOT",
+    ),
 )
 
 

@@ -178,6 +178,95 @@ Other entry points:
   data: `vec![Operation::bind(target)].abi_encode()` under `OPERATIONS_DOMAIN`
   is a bind, beside the single form `abi.encode(target)` under `BIND_DOMAIN`;
   one list can carry other Consumers' entries beside the bind.
+- `WalletRegistryError::decode` — a refused wallet link or login by name,
+  from `WalletRegistry`, the same proof route and the wallet's own errors
+  (`IWebWallet`: `AppNotListed`, `FirstSessionRefused`, …).
+- `bindings::wallet` — `IWebWallet`, the whole ABI of a wallet, and what its
+  signers sign: `ExecuteMessage`, `user_operation_digest`,
+  `below_quorum_hash`, `encode_authorization` (a UserOperation's signature
+  and ERC-1271's inner signature, with no prefix), and
+  `Policy::policy_hash` with `Rules::sort_allowances`; the link
+  and login operation domains (`LINK_IDENTITY_DOMAIN`, `ADD_SESSION_DOMAIN`,
+  `REMOVE_SESSIONS_DOMAIN`) and the `transaction_data` their proofs commit,
+  naming the submitter that calls the wallet with them.
+
+## Example: sign and send a wallet batch directly
+
+A web wallet's signers can sign a batch that anyone then sends as
+`execute(AUTHORIZED_MODE, data)`, with no UserOperation. `ExecuteMessage` is
+the message: `digest` is what the signers sign, under the domain of the
+release the wallet runs and its salt, and `authorized_data` builds `data` from the same
+message. The batch consumes EntryPoint nonce key `DIRECT_NONCE_KEY` (0):
+
+```rust,no_run
+use alloy::{
+    primitives::{aliases::U48, Address, Bytes, U256},
+    providers::ProviderBuilder,
+    signers::{local::PrivateKeySigner, SignerSync},
+};
+use libid_contracts::bindings::wallet::{
+    ExecuteAuthorization, ExecuteMessage, IWebWallet, SessionSignature, AUTHORIZED_MODE,
+    DIRECT_NONCE_KEY,
+};
+
+alloy::sol! {
+    #[sol(rpc)]
+    interface IEntryPoint {
+        function getNonce(address sender, uint192 key) external view returns (uint256);
+    }
+}
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let relayer: PrivateKeySigner = todo!();
+    let provider = ProviderBuilder::new()
+        .wallet(relayer)
+        .connect_http("https://rpc.example.org".parse()?);
+    let (wallet, entry_point, chain_id): (Address, Address, u64) = todo!();
+    let session: PrivateKeySigner = todo!();
+    // An ERC-7579 batch: `abi.encode(Execution[])`.
+    let execution_calldata: Bytes = todo!();
+
+    let account = IWebWallet::new(wallet, &provider);
+    let version = account.release().call().await?.version;
+    // The domain's salt: `reset`, revoking an admin, removing or unlinking an
+    // identity, and a threshold change move it. Read it from `eip712Domain()`,
+    // or as `wallet_salt(epoch(), rootEpoch())`. A wallet without code signs
+    // with `wallet_salt(B256::ZERO, 0)`.
+    let salt = account.eip712Domain().call().await?.salt;
+    let nonce = IEntryPoint::new(entry_point, &provider)
+        .getNonce(wallet, DIRECT_NONCE_KEY)
+        .call()
+        .await?;
+    // `value` is the `msg.value` the batch is sent with.
+    let execute = ExecuteMessage {
+        execution_calldata,
+        value: U256::ZERO,
+        at: U48::ZERO,
+        nonce,
+        deadline: U48::from(2_000_000_000),
+        call_gas: U256::from(500_000),
+    };
+    // At quorum a session key signs the digest; below quorum,
+    // `below_quorum_hash` of it.
+    let signature = session.sign_hash_sync(&execute.digest(chain_id, wallet, version, salt))?;
+    let data = execute.authorized_data(ExecuteAuthorization {
+        signatures: vec![SessionSignature {
+            key: session.address().to_vec().into(),
+            signature: signature.as_bytes().to_vec().into(),
+        }],
+        ..Default::default()
+    });
+    account
+        .execute(AUTHORIZED_MODE, data)
+        .value(execute.value)
+        .send()
+        .await?
+        .get_receipt()
+        .await?;
+    Ok(())
+}
+```
 
 ## Feature `testing`
 

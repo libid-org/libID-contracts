@@ -15,7 +15,7 @@
 //!   through it at name-derived CREATE3 addresses.
 //! - [`platform_verifier`] — the Platform Verifier initializer, checked
 //!   against its platform's circuit and `PlatformVerifierBase`'s rules.
-//! - [`bind_error`] — a refused `bind`, decoded by name.
+//! - [`bind_error`] — a refused `bind` or wallet link or login, decoded by name.
 //! - [`operation_list`] — the transaction data of one ceremony authorizing
 //!   several Consumers' operations.
 //! - [`circuits`] — the ceremony circuits' vendored UltraHonk verifiers:
@@ -41,7 +41,10 @@ pub mod platform_verifier;
 pub mod testing;
 
 pub use artifacts::Artifacts;
-pub use bind_error::BindError;
+pub use bind_error::{
+    BindError,
+    WalletRegistryError,
+};
 pub use error::{
     Error,
     Result,
