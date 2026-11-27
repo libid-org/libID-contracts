@@ -686,15 +686,16 @@ contract WalletLoginsTest is WalletSuite {
         IWebWallet(w).addSessionByLogin(X, V1, payload, _admin());
     }
 
-    /// No own entry, an own entry too short to name a chain, bytes that are no list, a trailing byte, another
-    /// Consumer's single form, an own entry naming only another chain, two naming this chain.
+    /// No own entry, an own entry too short to name a chain though it pads to this one, bytes that are no list, a
+    /// trailing byte, another Consumer's single form, an own entry naming only another chain, two naming this chain.
     function test_badListsAreRefused() public {
+        vm.chainId(256);
         address w = _fresh();
         bytes memory link = _linkData(w);
         bytes memory elsewhere = abi.encode(block.chainid + 1, w, w, _key(ALICE_PK), _ph(_admin()));
         bytes[7] memory txData = [
             operationList(BIND, abi.encode(w), BIND, hex"ff"),
-            operationList(LINK, hex"ff", BIND, abi.encode(w)),
+            operationList(LINK, bytes.concat(new bytes(30), hex"01"), BIND, abi.encode(w)),
             link,
             bytes.concat(operationList(LINK, link, BIND, hex"ff"), hex"00"),
             abi.encode(w),

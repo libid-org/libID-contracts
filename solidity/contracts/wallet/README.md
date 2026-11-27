@@ -472,7 +472,7 @@ carries policy hash 0. A zero submitter is refused (`ZeroSubmitter`), and
 any caller other than the one named (`WrongSubmitter`): a login placed in a
 signed batch cannot be copied out and submitted alone. Name an address
 only its holder can call through: the wallet, an EOA, or a contract that
-checks its own caller; never a public multicall. The registry takes
+calls the wallet only on its holder's authority; never a public multicall. The registry takes
 the submitter from the wallet's argument, never from ERC-2771 calldata.
 
 Under an Operation List (`libid.operations`) these bytes are the data of a

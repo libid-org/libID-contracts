@@ -125,7 +125,7 @@ contract WalletRealProofTest is WalletBase {
         vm.snapshotValue("wallet-claim", "createAndExecute onboarding(real X proof, operation list)", gas);
     }
 
-    /// The same onboarding on a stub proof: the wallet's share of the gas.
+    /// The same onboarding on a stub proof: the wallet's share of the gas, plus the stub's store of the whole payload.
     /// forge-config: gas.isolate = true
     function test_oneCreateAndExecuteOnboardsOnOneStubListProof() public {
         address w = factory.walletAddress(X, idNode, 0);
