@@ -301,6 +301,70 @@ abstract contract JwtRootsTestBase is Test {
         assertEq(seen, 1, "one KeysRotated per rotation");
     }
 
+    // ─── What a replaced set keeps ──────────────────────────────────
+
+    /// A key the replacing reading dropped is trusted until two hours after the
+    /// rotation's block, even when the reading is an hour older than the block.
+    function test_aKeyOnlyInPreviousLapsesTwoHoursAfterTheRotationsBlock() public {
+        uint64 first = _now();
+        bytes32 a = _install("kid-a", "a");
+        vm.warp(first + 2 hours);
+        uint64 landed = _now();
+        _rotate(_readingAt(_oneKey("kid-b", "b"), landed - 1 hours));
+
+        assertEq(roots.trustedHashExpiresAt(a), landed + 2 hours, "the replaced key's expiry");
+        vm.warp(landed + 2 hours - 1);
+        assertGt(roots.trustedHashExpiresAt(a), block.timestamp, "trusted a second before");
+        vm.warp(landed + 2 hours);
+        assertLe(roots.trustedHashExpiresAt(a), block.timestamp, "refused at the bound");
+        assertEq(
+            roots.trustedHashExpiresAt(_hash("b")), landed - 1 hours + roots.READING_LIFETIME(), "current: 30 days"
+        );
+    }
+
+    /// A key the replacing reading kept reports the current generation's expiry,
+    /// not the two hours of the set it was also in.
+    function test_aKeyInBothGenerationsKeepsTheCurrentExpiry() public {
+        uint64 first = _now();
+        _rotate(_readingAt(_twoKeys("kid-1", "one", "kid-2", "two"), first));
+        vm.warp(first + 1 minutes);
+        uint64 second = _now();
+        _rotate(_readingAt(_twoKeys("kid-2", "two", "kid-3", "three"), second));
+
+        vm.warp(second + 3 hours);
+        assertEq(roots.trustedHashExpiresAt(_hash("two")), second + roots.READING_LIFETIME(), "in both");
+        assertGt(roots.trustedHashExpiresAt(_hash("two")), block.timestamp, "in both: still trusted");
+    }
+
+    /// A newer reading of the set already current restarts its 30 days but
+    /// leaves the replaced set's end where the rotation put it.
+    function test_aSameSetRefreshLeavesPreviousUntil() public {
+        uint64 first = _now();
+        bytes32 a = _install("kid-a", "a");
+        vm.warp(first + 1 minutes);
+        uint64 replacing = _now();
+        _install("kid-b", "b");
+        vm.warp(replacing + 90 minutes);
+        uint64 refresh = _now();
+        _rotate(_readingAt(_oneKey("kid-b", "b"), refresh));
+
+        assertEq(_current().observedAt, refresh, "the refresh landed");
+        assertEq(roots.trustedHashExpiresAt(a), replacing + 2 hours, "the refresh moved previousUntil");
+        assertEq(roots.trustedHashExpiresAt(_hash("b")), refresh + roots.READING_LIFETIME(), "current restarted");
+    }
+
+    /// An outgoing set an hour from its own expiry keeps that expiry, not two hours.
+    function test_anOutgoingSetNearItsLifetimeKeepsItsOwnExpiry() public {
+        uint64 first = _now();
+        bytes32 a = _install("kid-a", "a");
+        vm.warp(first + roots.READING_LIFETIME() - 1 hours);
+        uint64 landed = _now();
+        _install("kid-b", "b");
+
+        assertEq(roots.trustedHashExpiresAt(a), first + roots.READING_LIFETIME(), "its own expiry");
+        assertEq(roots.trustedHashExpiresAt(a), landed + 1 hours, "an hour after the rotation");
+    }
+
     /// Reads the cheatcode: under via-IR, `block.timestamp` may be re-read after a `vm.warp`.
     function _now() internal view returns (uint64) {
         return uint64(vm.getBlockTimestamp());

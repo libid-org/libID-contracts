@@ -4,6 +4,7 @@ pragma solidity ^0.8.24;
 import {Initializable} from "@openzeppelin/contracts/proxy/utils/Initializable.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts/proxy/utils/UUPSUpgradeable.sol";
 import {Ownable2StepUpgradeable} from "@openzeppelin/contracts-upgradeable/access/Ownable2StepUpgradeable.sol";
+import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
 import {CeremonyAttestation} from "./CeremonyAttestation.sol";
 import {CeremonyFields} from "./CeremonyFields.sol";
@@ -30,24 +31,30 @@ import {INotaryService} from "./INotaryService.sol";
 ///      There is no history and no maintenance: nothing to prune, nothing to
 ///      untrust, no owner lever over which of the issuer's keys are trusted.
 ///
-///      A generation is trusted until READING_LIFETIME after its reading's
-///      own `createdAt` -- the notary's clock, not the block the rotation
-///      landed in -- so trust lapses by time alone, with no transaction from
-///      anyone, and a later reading of the same set extends it. `previous`
-///      is kept because the issuer's rotation and the keeper's reading are
-///      not simultaneous: a token minted under a key just rotated out
-///      is still being presented for the rest of its hour, and a keeper's
-///      reading can land in between. One generation back covers that;
-///      further back is history.
+///      `current` is trusted until READING_LIFETIME after its reading's own
+///      `createdAt` -- the notary's clock, not the block the rotation landed
+///      in -- so trust lapses by time alone, with no transaction from anyone,
+///      and a later reading of the same set extends it. `previous` is kept
+///      because the issuer's rotation and the keeper's reading are not
+///      simultaneous: a token minted under a key just rotated out is still
+///      being presented for the rest of its hour. A key the rotation left only
+///      in `previous` is trusted until PREVIOUS_GRACE after the rotation's
+///      block, never past its own reading's lifetime; the block, because a
+///      reading may land up to FRESHNESS_WINDOW after its `createdAt`. One
+///      generation back covers that; further back is history.
 ///
 ///      Two generations remember two distinct sets, and that bound is a
 ///      known tradeoff. Google's backends do not all answer alike during a
-///      rotation, so if three distinct sets are ever served at once and two
-///      of them lack the same still-live key -- a remove-before-add
-///      rotation -- a submitter ordering genuine readings can push that key
-///      out until the next reading that lists it lands. Tokens under it fail
-///      meanwhile; nothing is inserted; the keeper's next poll sees the key
-///      untrusted and restores it. Accepted (2026-09-03) over a per-modulus
+///      rotation. If two disagreeing sets are served at once and one of them
+///      lacks a still-live key, a submitter ordering genuine readings can push
+///      that key into `previous`, which starts its PREVIOUS_GRACE countdown.
+///      Accepted with that countdown: the keeper's next poll sees the key's
+///      trust ending within its renewal threshold and restores it, at one
+///      Notary Fee. If three distinct sets are served and two of them lack
+///      the key -- a remove-before-add rotation -- the same ordering pushes it
+///      out of both generations until the next reading that lists it lands;
+///      tokens under it fail meanwhile, nothing is inserted, and the keeper
+///      restores it the same way. Accepted (2026-09-03) over a per-modulus
 ///      last-seen list, which would close it at the cost of remembering keys
 ///      by modulus for a lifetime; revisit if Google's rotation ever shows
 ///      that shape.
@@ -109,6 +116,10 @@ abstract contract JwtRootsBase is Initializable, UUPSUpgradeable, Ownable2StepUp
         /// The reading before it, kept for the tokens still in flight under a
         /// key the issuer has since dropped.
         Generation previous;
+        /// When a key only in `previous` stops being trusted, set by the
+        /// rotation that made it `previous`; a refresh of the same set leaves
+        /// it. Zero on a list written before it existed: such a key is untrusted.
+        uint64 previousUntil;
     }
 
     function _s() private pure returns (JwtRootsStorage storage $) {
@@ -139,8 +150,12 @@ abstract contract JwtRootsBase is Initializable, UUPSUpgradeable, Ownable2StepUp
     uint256 public constant CLOCK_SKEW_GRACE = 5 minutes;
     /// How long a generation is trusted after the reading that wrote it, by
     /// the reading's own clock. Google's keys overlap for days and a keeper
-    /// reads weekly, so this is runway for a keeper outage, not a key's life.
+    /// polls hourly, so this is runway for a keeper outage, not a key's life.
     uint256 public constant READING_LIFETIME = 30 days;
+    /// How long a key only in `previous` stays trusted after the block of the
+    /// rotation that replaced its set: a token minted under a key the issuer
+    /// just dropped lives an hour, and the keeper's next poll lands within one.
+    uint256 public constant PREVIOUS_GRACE = 2 hours;
     /// The most keys one reading may carry. Google served four on 2026-09-03,
     /// and a notarized reading cannot invent any, so this is headroom: it
     /// bounds the set comparison below, not what an issuer publishes.
@@ -360,11 +375,12 @@ abstract contract JwtRootsBase is Initializable, UUPSUpgradeable, Ownable2StepUp
     ///         an OIDC Platform Verifier reads: the JWT circuit does not expose
     ///         `kid`, so trust has to be checkable from the modulus alone.
     /// @dev A key in both generations reports the current one's stamp: the
-    ///      later reading is the later word that the issuer still lists it.
+    ///      later reading is the later word that the issuer still lists it. A
+    ///      key only in `previous` reports `previousUntil`.
     function trustedHashExpiresAt(bytes32 modulusHash) external view returns (uint256) {
         JwtRootsStorage storage $ = _s();
         if (_lists($.current.moduli, modulusHash)) return uint256($.current.observedAt) + READING_LIFETIME;
-        if (_lists($.previous.moduli, modulusHash)) return uint256($.previous.observedAt) + READING_LIFETIME;
+        if (_lists($.previous.moduli, modulusHash)) return $.previousUntil;
         return 0;
     }
 
@@ -767,8 +783,10 @@ abstract contract JwtRootsBase is Initializable, UUPSUpgradeable, Ownable2StepUp
     ///      A newer reading of the same set is the issuer saying the set still
     ///      stands: its lifetime restarts from this reading, nothing shifts,
     ///      `previous` stays as it was. A newer reading of a different set is
-    ///      a rotation: what was current is kept one generation for the tokens
-    ///      still in flight under it, and what was previous is gone.
+    ///      a rotation: what was current is kept as `previous` for the tokens
+    ///      still in flight under it, trusted until PREVIOUS_GRACE after this
+    ///      block or its own lifetime, whichever is first; what was previous is
+    ///      gone.
     function _apply(uint64 observedAt, string[] memory kids, bytes32[] memory moduli) private {
         JwtRootsStorage storage $ = _s();
         if (observedAt <= $.current.observedAt) revert NotNewer(observedAt, $.current.observedAt);
@@ -779,6 +797,8 @@ abstract contract JwtRootsBase is Initializable, UUPSUpgradeable, Ownable2StepUp
             return;
         }
 
+        $.previousUntil =
+            uint64(Math.min(uint256($.current.observedAt) + READING_LIFETIME, block.timestamp + PREVIOUS_GRACE));
         $.previous.observedAt = $.current.observedAt;
         $.previous.moduli = $.current.moduli;
         $.current.observedAt = observedAt;
